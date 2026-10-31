@@ -162,7 +162,7 @@
     <string name="shade_advanced_summary">Highlight frames, focus peaking, faces, RAW viewfinder</string>
     <string name="shade_t_size">Size</string>
     <string name="shade_t_horizon">Horizon</string>
-    <string name="shade_t_motion">Motion</string>
+    <string name="shade_t_motion">Sport</string>
     <string name="shade_t_sound">Sound</string>
     <string name="shade_t_flicker">Flicker</string>
     <string name="shade_title_size">Photo size</string>
@@ -173,7 +173,7 @@
     </string-array>
     <string name="topbar_group">Format and photo size</string>
     <string name="topbar_torch">Torch</string>
-    <string name="topbar_motion">Motion</string>
+    <string name="topbar_motion">Sport</string>
     <string name="topbar_dcg" translatable="false">DCG</string>
     <string name="topbar_format">Format %1$s</string>
     <string name="shade_shutter">Take a photo</string>

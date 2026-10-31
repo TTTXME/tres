@@ -18,7 +18,7 @@ public class WhyHlNeutralTest {
     private static String read(String path) throws IOException {
         File f = new File(path);
         if (!f.isFile()) f = new File("app/" + path);
-        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 
     @Test public void thePhotoAndTheViewfinderTakePaleLightToWhite() throws IOException {

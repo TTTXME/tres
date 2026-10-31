@@ -6048,7 +6048,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 text = Lang.t("ETTR: выдержка задана вручную — ETTR не добавит света", "ETTR: the shutter is set by hand, ETTR cannot add light");
                 break;
             case "the motion mode (short shutters)":
-                text = Lang.t("ETTR: в режиме «Движение» выдержка короткая — ETTR ждёт", "ETTR: the Motion mode keeps short shutters, ETTR waits");
+                text = Lang.t("ETTR: в режиме «Спорт» выдержка короткая — ETTR ждёт", "ETTR: the Sport mode keeps short shutters, ETTR waits");
                 break;
             case "forced stabilisation":
                 text = Lang.t("ETTR: недоступен при принудительной стабилизации", "ETTR: unavailable under the forced stabilisation");

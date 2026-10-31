@@ -47,7 +47,14 @@ public class Converter {
      */
     private static final float[] D50_XYZ = new float[]{0.9642f, 1, 0.8249f};
     private static final String TAG = "Converter";
-    private static final boolean DEBUG = true;
+    /**
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the per-step lines
+     * (5 per camera -> XYZ transform, ~35 per interpolation search: ~135 a shot) pushed OPPO's per-process log quota over and
+     * dropped the first worker lines of the shot. The transform's result is logged by its caller (Parameters "sensorToXYZ"), the
+     * interpolation search keeps one summary line ({@link #findDngInterpolationFactor}). True: every step as before. Only log
+     * lines depend on it.
+     */
+    private static final boolean DEBUG = false;
 
     static {
         sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_DAYLIGHT, 6504);
@@ -209,6 +216,9 @@ public class Converter {
             Log.w(TAG, "Could not converge on interpolation factor, using factor " + interpolationFactor +
                     " with remaining error factor of " + lastDiff);
         }
+        // P440: the one line of the search (its steps only with DEBUG)
+        Log.d(TAG, "DNG interpolation: illuminants " + colorTemperature1 + " / " + colorTemperature2 + " K, neutral "
+                + Arrays.toString(cameraNeutral) + ", " + count + " loops, factor " + interpolationFactor);
         return interpolationFactor;
     }
 

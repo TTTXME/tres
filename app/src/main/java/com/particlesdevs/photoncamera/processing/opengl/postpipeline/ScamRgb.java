@@ -1040,6 +1040,7 @@ public final class ScamRgb extends Node {
                 glProg.setTexture("InputBuffer",WorkingTexture);
                 glProg.setTexture("ClipFlags",flagsTex);
                 glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
+                glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
                 glProg.setVar("strengthU",band);
                 glProg.drawBlocks(banded);glProg.closed=true;
                 unbanded=WorkingTexture;

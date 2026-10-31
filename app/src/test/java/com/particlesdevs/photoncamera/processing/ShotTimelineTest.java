@@ -80,6 +80,49 @@ public class ShotTimelineTest {
         assertFalse("every stage is there", s.contains("=-1"));
     }
 
+    /** P440: the plain merge's chroma sink end and the first Mochi frame from the lines the worker prints today. */
+    @Test public void plainChromaAndMochiLinesMarkTheirStages() throws Exception {
+        ShotTimeline.attach(null);
+        ShotTimeline.mark("job");
+        ShotTimeline.workerLine("HYBRID MOCHI: frame 20 (TET x1.99) corrected: 49127 of 49152 tiles measured, 223 zeroed (|c|^2 > 500), 44 ms");
+        ShotTimeline.workerLine("HYBRID MOCHI: frame 21 (TET x1.99) corrected: 49151 of 49152 tiles measured, 95 zeroed, 23 ms");
+        ShotTimeline.workerLine("HYBRID PLAIN: chroma median (block 1, cpu during the merge (2786 of 3072 rows done before its last readback))");
+        ShotTimeline.workerLine("HYBRID PLAIN: something else");
+        final String line = processing().describe();
+        assertTrue(line, line.contains(" w_mochi=") && line.contains(" w_chroma="));
+        assertEquals("one mark per name", line.indexOf(" w_mochi="), line.lastIndexOf(" w_mochi="));
+        assertTrue(line, line.indexOf("w_mochi=") < line.indexOf("w_chroma="));
+    }
+
+    /** P440: the worker's own marks, with a CLOCK_BOOTTIME time (placed there) or without one (the relay time). */
+    @Test public void workerMarkLinesPlaceTheirStages() throws Exception {
+        assertArrayEquals(new Object[]{"w_last_homography", 171578551200000L},
+                ShotTimeline.workerMark("HYBRID MARK last_homography 171578551.2"));
+        assertArrayEquals(new Object[]{"w_mochi_start", -1L}, ShotTimeline.workerMark("HYBRID MARK mochi_start"));
+        assertArrayEquals(new Object[]{"w_f6_end", 12L * 1_000_000}, ShotTimeline.workerMark("HYBRID MARK w_f6_end 12"));
+        assertNull(ShotTimeline.workerMark("HYBRID MARK"));
+        assertNull(ShotTimeline.workerMark("HYBRID MARK 9bad 12"));
+        assertNull(ShotTimeline.workerMark("HYBRID MARK name 12 ms"));
+        assertNull(ShotTimeline.workerMark("HYBRID MOSAIC: header block 2"));
+
+        ShotTimeline.attach(null);
+        ShotTimeline.mark("job");
+        final long now = android.os.SystemClock.elapsedRealtimeNanos();
+        final double before = (now - 30_000_000L) / 1e6; // 30 ms before the relay, on the same clock
+        ShotTimeline.workerLine("HYBRID MARK chroma_sink_end " + String.format(java.util.Locale.ROOT, "%.3f", before + 60));
+        ShotTimeline.workerLine("HYBRID MARK last_readback " + String.format(java.util.Locale.ROOT, "%.3f", before));
+        ShotTimeline.workerLine("HYBRID MARK mochi_end");
+        ShotTimeline.workerLine("HYBRID MARK far_clock 5"); // a CLOCK_MONOTONIC-like value: the relay time
+        final String line = processing().describe();
+        for (String m : new String[]{" w_chroma_sink_end=", " w_last_readback=", " w_mochi_end=", " w_far_clock="})
+            assertTrue(m + " in " + line, line.contains(m));
+        // the late-reported readback comes before the sink end in time order, whatever the order of the lines
+        assertTrue(line, line.indexOf("w_last_readback=") < line.indexOf("w_chroma_sink_end="));
+        // only the first mark of a name counts
+        ShotTimeline.workerLine("HYBRID MARK mochi_end 1");
+        assertEquals(line, processing().describe());
+    }
+
     @Test public void aMissingStageIsMinusOneAndPassesOutsideAShotOpenNothing() throws Exception {
         ShotTimeline.markIfShot("post_compile");
         ShotTimeline.note("post_compile_ms", "36/790");

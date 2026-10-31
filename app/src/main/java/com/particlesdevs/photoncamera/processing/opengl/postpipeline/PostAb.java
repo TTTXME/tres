@@ -72,7 +72,12 @@ public final class PostAb {
         old.lensFilter = pipeline.lensFilter; // and its lens filter of the press
         old.look = pipeline.look; // and its film, LUT and «Цвет» of the press
         final boolean uploadOnly = PreferenceKeys.scamDevSwitch("post_ab_upload", false);
-        if (uploadOnly) forceRgbUpload = true; else PostGlMode.setLegacy(true);
+        // P440: "post_ab_readback 1": the old run is the new GL model with only the final readback through the tiles
+        // (GLCoreBlockProcessing's pixel-pack buffer off), so EQUAL proves the buffer's bytes
+        final boolean readbackOnly = !uploadOnly && PreferenceKeys.scamDevSwitch("post_ab_readback", false);
+        if (uploadOnly) forceRgbUpload = true;
+        else if (readbackOnly) PostGlMode.setTileReadback(true);
+        else PostGlMode.setLegacy(true);
         try {
             final long t0 = System.nanoTime();
             final Bitmap a = old.Run(input, p);
@@ -88,6 +93,7 @@ public final class PostAb {
             try { old.close(); } catch (RuntimeException ignored) {}
         } finally {
             PostGlMode.setLegacy(false);
+            PostGlMode.setTileReadback(false);
             forceRgbUpload = false;
             // ScamRgb freed the copy after its upload and left a small decimated one; a run that failed earlier did not.
             if (p.scamRgb == copy) Allocator.free(copy);

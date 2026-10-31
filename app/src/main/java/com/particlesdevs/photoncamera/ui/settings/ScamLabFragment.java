@@ -1187,8 +1187,8 @@ public class ScamLabFragment extends ModuleConceptFragment {
     static String inert(@Nullable Context c, String key, @Nullable String effective, Map<String, ?> shot, Map<String, Object> forced) {
         if (AT_SHOT.contains(key)) return null;
         if (effective == null)
-            return Lang.t(c, "снимок сделан в режиме «Движение», а в нём эта настройка не действует.",
-                    "the shot was taken in Motion mode, where this setting has no effect.");
+            return Lang.t(c, "снимок сделан в режиме «Спорт», а в нём эта настройка не действует.",
+                    "the shot was taken in Sport mode, where this setting has no effect.");
         // the clip band reads the per-pixel clip flags, which the merge sent only with the recovery on at the shot
         if (effective.equals(HYBRID + "highlight_band") && !recoveryAt(shot))
             return Lang.t(c, "при съёмке «Восстановление светов по каналам» было 0: в серии нет попиксельных флагов клипа.",
@@ -1266,7 +1266,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             if (AT_SHOT.contains(compared)) shotValue += Lang.t(getContext(), " · задаётся при съёмке", " · fixed at the shot");
             if (BURST_FRAMES.contains(compared))
                 shotValue += Lang.t(getContext(), " · на серии только убирает или ограничивает снятые кадры", " · on the burst it only drops or limits the frames taken");
-            if (!compared.equals(key)) shotValue += Lang.t(getContext(), " · снято в режиме «Движение»: его значение", " · shot in Motion mode: its value");
+            if (!compared.equals(key)) shotValue += Lang.t(getContext(), " · снято в режиме «Спорт»: его значение", " · shot in Sport mode: its value");
             labels.addView(text(shotValue, 12, accent), space(-1, -2, 6));
         }
         final String why = inert(getContext(), compared, effective, s.prefs(), forced(compared, s.prefs(), tree()));
@@ -1562,8 +1562,8 @@ public class ScamLabFragment extends ModuleConceptFragment {
                     + Lang.t(getContext(), ". У каждого значения выше свои A и B.", ". Each has its own A and B above."));
         }
         if (key.startsWith(HYBRID + "mm_") && motionShot(s.prefs()))
-            note(Lang.t(getContext(), "Снимок сделан в режиме «Движение»: его склейка читает значения этого режима, их лаборатория и сравнивает.",
-                    "The shot was taken in Motion mode: its merge reads that mode's values, and the lab compares them."));
+            note(Lang.t(getContext(), "Снимок сделан в режиме «Спорт»: его склейка читает значения этого режима, их лаборатория и сравнивает.",
+                    "The shot was taken in Sport mode: its merge reads that mode's values, and the lab compares them."));
         if (crop != null && FRAGMENT_STATS.contains(key))
             note(Lang.t(getContext(), "На фрагменте экспозиция и тон берутся из статистики всего кадра, снятой с цветом и пределом усиления снимка: эту настройку она не учитывает, и разница на фрагменте может быть не такой, как на фото. Точно — «Весь кадр».",
                     "On a fragment the exposure and the tone come from the whole frame's statistics, measured with the shot's colour and gain clamp: they do not take this setting in, so the difference on a fragment may not be the photo's. Exactly: «Whole frame»."));

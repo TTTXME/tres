@@ -19,7 +19,7 @@ public class WhyEdgeHoldTest {
     private static String read(String path) throws IOException {
         File f = new File(path);
         if (!f.isFile()) f = new File("app/" + path);
-        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 
     @Test public void thePhotoHoldsItsStrongEdges() throws IOException {
@@ -30,8 +30,10 @@ public class WhyEdgeHoldTest {
         assertTrue("the sharpened luma only", glsl.contains("if (sharpU == 1 && bounded) yS = edgeHold(yS, xy, size, refDomain);"));
         final String src = "src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/";
         final String why = read(src + "WhyCombine.java");
-        assertTrue("its define only with the full-size merge (0: the shader before, token for token)",
-                why.contains("if (WhyTone.edgeHold() > 0f && !st.inputReleased) glProg.setDefine(\"EDGE_HOLD\", 1);"));
+        assertTrue("its define only with the full-size merge and without a full-strength film",
+                why.contains("if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine(\"EDGE_HOLD\", 1);"));
+        assertTrue("the guard is this shot's ready film, not the current settings",
+                why.contains("final boolean filmOnly = scene != null && film.strength >= 1f;"));
         assertTrue(why.contains("glProg.setVar(\"edgeHoldU\", WhyTone.edgeHold());"));
         assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold\", 1f)"));
         assertTrue("the dev line", read("src/main/java/com/particlesdevs/photoncamera/settings/DevKeys.java").contains("\"hybrid_why_edge_hold\", \"1.0\""));

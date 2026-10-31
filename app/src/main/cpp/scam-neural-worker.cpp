@@ -75,17 +75,32 @@ int main(int argc,char** argv) {
             // vivo's CRE motion lives in /vendor on vivo only; elsewhere (OPPO etc.)
             // fall back to SCAMERA's own tile alignment instead of failing.
             std::unique_ptr<scam::StockMotion> motion;
-            // Job marker cre-off: the app's retry after a worker that died inside the CRE (its stage in the crash report).
-            if(std::getenv("SCAM_NO_CRE"))report("SCAM MOTION: SCAMERA tile alignment (SCAM_NO_CRE replay)"); else
-            if(access((std::string(argv[2])+"/cre-off").c_str(),F_OK)==0)report("SCAM MOTION: SCAMERA tile alignment (CRE off for this job)"); else
-            try {
-                worker_crash::Stage stage("CRE load (dlopen)");
-                const bool forceBundled=access((std::string(argv[2])+"/cre-force-bundled").c_str(),F_OK)==0;
-                const bool vendorOnly=access((std::string(argv[2])+"/cre-vendor-only").c_str(),F_OK)==0;
-                motion=std::make_unique<scam::StockMotion>(vendorOnly?std::string():std::string(argv[2]),forceBundled);
-                report("SCAM MOTION: vivo CRE source="+motion->source);
-            }
-            catch(const std::exception& error) { report(std::string("SCAM MOTION: SCAMERA tile alignment (")+error.what()+")"); }
+            std::mutex creLock;bool creTried=false;
+            auto loadCre=[&]()->bool{ // once; true when the CRE is there
+                std::lock_guard<std::mutex> l(creLock);
+                if(creTried)return motion!=nullptr;
+                creTried=true;
+                // Job marker cre-off: the app's retry after a worker that died inside the CRE (its stage in the crash report).
+                if(std::getenv("SCAM_NO_CRE"))report("SCAM MOTION: SCAMERA tile alignment (SCAM_NO_CRE replay)"); else
+                if(access((std::string(argv[2])+"/cre-off").c_str(),F_OK)==0)report("SCAM MOTION: SCAMERA tile alignment (CRE off for this job)"); else
+                try {
+                    worker_crash::Stage stage("CRE load (dlopen)");
+                    const bool forceBundled=access((std::string(argv[2])+"/cre-force-bundled").c_str(),F_OK)==0;
+                    const bool vendorOnly=access((std::string(argv[2])+"/cre-vendor-only").c_str(),F_OK)==0;
+                    motion=std::make_unique<scam::StockMotion>(vendorOnly?std::string():std::string(argv[2]),forceBundled);
+                    report("SCAM MOTION: vivo CRE source="+motion->source);
+                }
+                catch(const std::exception& error) { report(std::string("SCAM MOTION: SCAMERA tile alignment (")+error.what()+")"); }
+                return motion!=nullptr;
+            };
+            // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune creLazy): with
+            // the GPU alignment (the job's tuning: gpuAlign 1, laGpu on, localAlign) the corner tracker aligns only when the GPU fails;
+            // the CRE (its dlopen, its warm-up thread, its converter's log lines) is loaded then, by the merge (hybridAlignmentEnsure).
+            // Its results do not depend on the warm-up (StockMotion::warmUp). SCAM_CRE_EAGER: loaded here as before.
+            const scam::HybridTuning startTune=scam::loadHybridTuning(argv[2],nullptr);
+            const bool creLazy=startTune.creLazy>0&&startTune.gpuAlign==1&&startTune.laGpu!=0&&startTune.localAlign>0&&!std::getenv("SCAM_CRE_EAGER");
+            if(creLazy)report("SCAM MOTION: CRE not loaded (P440: the GPU aligns; loaded when the corner tracker is needed)");
+            else loadCre();
             const double creMs=sinceStart();
             // P30: started before the app has written the burst (job file "wait-go" = the fd of a pipe): the CRE and the GPU
             // driver are initialised meanwhile, then the worker waits for the app's go byte. P31 (W1.7): the warm-up always runs, on
@@ -186,25 +201,34 @@ int main(int argc,char** argv) {
                 }
             }
             }
+            // SCAM Hybrid merge (Sabre 6.1 kernel + SCAM 9.6 front end, Bento, Shasta; any GPU, no model):
+            // requested by the app with the job marker, or SCAM_HYBRID=1 for an offline replay.
+            bool hybrid=hybridBurst.hybrid||access((std::string(argv[2])+"/hybrid-merge").c_str(),F_OK)==0||std::getenv("SCAM_HYBRID");
+            if(creLazy&&!hybrid)loadCre(); // P440: the 7-slot path tests the alignment itself
             scam::ScamAlignment alignment;
-            if(motion){
-                alignment=[&](scam::Burst& burst){joinCreWarm();return motion->align(burst,report);};
+            if(motion||(creLazy&&hybrid)){
+                alignment=[&](scam::Burst& burst){
+                    if(!loadCre())throw std::runtime_error("CRE unavailable"); // (the merge asks hybridAlignmentEnsure first)
+                    joinCreWarm();return motion->align(burst,report);
+                };
                 // P31 (W1.2): the hybrid merge hands the CRE every frame before its groups: their guides are built ahead on the pool
                 scam::scamAlignmentPrefetch()=[&](const scam::Burst* base,const std::vector<std::pair<const uint16_t*,float>>& donors){
+                    if(!loadCre())return;
                     if(base)motion->prefetch(*base,donors); else motion->dropPrefetched();
                 };
+                if(creLazy)scam::hybridAlignmentEnsure()=[&]{return loadCre();}; // P440
             }
             const double mappedMs=sinceStart();
             std::vector<uint16_t> mergedDng;
             std::vector<uint8_t> effMap,clipFlags;
             bool noEffMap=false; // P187: header flag 16 (or SCAM_NO_EFFMAP in an offline replay): no effective-frame map
             std::vector<float> result;
+            // P440 (tune fastExit): the merge's large buffers, freed after the completion line (_exit: never)
+            scam::HybridLater later;
+            bool fastExit=false;
             // P371: the RGB halves into the app's memfd during the merge (scam-stream-out.h); the hook is cleared before it goes
             std::unique_ptr<scam::StreamOut> streamOut;
-            struct HookClear{~HookClear(){scam::hybridFinalRowsHook()=nullptr;}} hookClear;
-            // SCAM Hybrid merge (Sabre 6.1 kernel + SCAM 9.6 front end, Bento, Shasta; any GPU, no model):
-            // requested by the app with the job marker, or SCAM_HYBRID=1 for an offline replay.
-            bool hybrid=hybridBurst.hybrid||access((std::string(argv[2])+"/hybrid-merge").c_str(),F_OK)==0||std::getenv("SCAM_HYBRID");
+            struct HookClear{~HookClear(){scam::hybridFinalRowsHook()=nullptr;scam::hybridAlignmentEnsure()=nullptr;scam::hybridLater()=nullptr;}} hookClear;
             std::unique_ptr<scam::Graph> graph;
             if(!hybrid) {
                 // P31: the HTP runtime sets ADSP_LIBRARY_PATH (setenv, which can move the environment array): the warm-up threads
@@ -250,7 +274,12 @@ int main(int argc,char** argv) {
                         scam::hybridFinalRowsHook()=[s](const float* rows,int w,int h,int y0,int y1){s->event(rows,w,h,y0,y1);};
                     }
                 }
+                // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune fastExit): the
+                // worker leaves with _exit right after its completion line; the merge's large buffers are freed with it
+                fastExit=tuning.fastExit>0&&!std::getenv("SCAM_NO_FAST_EXIT");
+                if(fastExit)scam::hybridLater()=&later;
                 result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
+                scam::hybridLater()=nullptr;
             } else {
             const auto& input=mapped->burst;
             scam::ScamExecute forward;
@@ -422,7 +451,15 @@ int main(int argc,char** argv) {
             // back to the ZSL ring at once (the KeepWriter reads them)
             if(keepWriter.t.joinable())keepWriter.t.join();
             heartbeat.stop(); // P220: no heartbeat after the completion line
-            alarm(0);report("SCAM CAPTURE OK");return 0;
+            alarm(0);report("SCAM CAPTURE OK");
+            if(fastExit){
+                // P440 (tune fastExit): the output is closed and complete, the kept burst written (above); the merge's
+                // large buffers, the burst's mapping and the driver go with the process (the app reads the result at the line and
+                // reaps this process off its path: its frees and destructors only competed with the post for the cores)
+                std::cout.flush();std::fflush(stdout);std::fflush(stderr);
+                _exit(0);
+            }
+            return 0;
         }
         if(argc==3 && std::string(argv[1])=="--scam-tone-check") {
             alarm(360);

@@ -48,7 +48,7 @@ final class LiveRawRenderer {
     private long lookAt=LOOK_NEVER;
     /** P297: the look is read again (at most twice a second; at once after {@link #LOOK_NEVER}). */
     static boolean lookDue(long now,long last){return now-last>=LOOK_REFRESH_MS;}
-    private float[] lookWhite,lookSkin,lookVib,lookMix,lookMono,lookGradeA,lookGradeB;
+    private float[] lookWhite,lookBaseWhite,lookSkin,lookVib,lookMix,lookMono,lookGradeA,lookGradeB;
     private boolean lookOn,lookMixOn;
     private float lutStrength;
     private volatile String lutWanted="";
@@ -62,7 +62,8 @@ final class LiveRawRenderer {
         try{
             ColourLook c=WhyTone.colourLook();
             // P370 (B4): the scene light of the frame's matrix (PhotoMatrix: keep warm / cool as in the photo), 0 = unknown
-            lookWhite=WhyTone.withCctSat(c.whiteMatrix(com.particlesdevs.photoncamera.processing.color.PhotoMatrix.viewfinderSceneCct));   // P402: cct_sat as the photo
+            lookBaseWhite=c.whiteMatrix(com.particlesdevs.photoncamera.processing.color.PhotoMatrix.viewfinderSceneCct);
+            lookWhite=WhyTone.withCctSat(lookBaseWhite);
             lookOn=!c.shaderNeutral();
             lookSkin=c.skinUniform();lookVib=c.vibUniform();lookMix=c.mixUniform();lookMixOn=c.mixerOn();lookMono=c.monoUniform();
             float[][] grade=c.gradeUniforms();lookGradeA=grade[0];lookGradeB=grade[1];
@@ -78,7 +79,7 @@ final class LiveRawRenderer {
                 });
             }
         }catch(RuntimeException e){
-            lookWhite=null;lookOn=false;lutStrength=0f;
+            lookWhite=lookBaseWhite=null;lookOn=false;lutStrength=0f;
         }
     }
     /** The camera's colour transform (column-major, as uploaded) with the look's white matrix (row-major, linear sRGB) after it. */
@@ -160,6 +161,10 @@ final class LiveRawRenderer {
     boolean drawLinear(FloatBuffer vertices,FloatBuffer coords,float[] rotation,boolean mirror) {
         return draw(vertices,coords,rotation,mirror,0,true);
     }
+    boolean drawLinear(FloatBuffer vertices,FloatBuffer coords,float[] rotation,boolean mirror,
+                       com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        return draw(vertices,coords,rotation,mirror,0,true,maxAgeNs,film);
+    }
     /**
      * P301: the frame drawn last ({@link #drawLinear}): its ISO and noise for the WHY tone's AE; P314 with its visible crop and the
      * colour transform it was drawn with (LiveWhyMeter meters it on the CPU). Null before one.
@@ -224,6 +229,10 @@ final class LiveRawRenderer {
     private long maxAgeNs=MAX_AGE_NS;
     void setMaxAge(long ns){maxAgeNs=ns;}
     private boolean draw(FloatBuffer vertices,FloatBuffer coords,float[] rotation,boolean mirror,int peaking,boolean linear,long maxAge) {
+        return draw(vertices,coords,rotation,mirror,peaking,linear,maxAge,null);
+    }
+    private boolean draw(FloatBuffer vertices,FloatBuffer coords,float[] rotation,boolean mirror,int peaking,boolean linear,long maxAge,
+                         com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
         LiveRawFrame.Frame f=LiveRawFrame.acquire();
         if(f==null || System.nanoTime()-f.publishedNanos>maxAge)return false;
         if(frameSession!=f.session){frameSession=f.session;failed=false;texVersion[0]=texVersion[1]=-1;meteredVersion=-1;meter.reset();}
@@ -248,7 +257,7 @@ final class LiveRawRenderer {
             int[] o=orders[f.cfaPattern];
             GLES20.glUniform4f(loc("u_black_level"),f.blackLevel[o[0]],f.blackLevel[o[1]],f.blackLevel[o[2]],f.blackLevel[o[3]]);
             number("u_white_level",f.whiteLevel);number("r_gain",f.wbGains[0]);number("g_gain",f.wbGains[1]);number("b_gain",f.wbGains[2]);
-            float[] white=lookWhite;
+            float[] white=linear && film!=null?WhyTone.withCctSat(lookBaseWhite,film):lookWhite;
             final float[] transform=white!=null?lookTransform(white,f.colorTransform):f.colorTransform;
             GLES20.glUniformMatrix3fv(loc("color_transform"),1,false,transform,0);
             number("u_lsc_intensity",f.shadingWidth>1?1:0);
@@ -351,6 +360,10 @@ final class LiveRawRenderer {
      * {@link #drawLinear} sets it. False without a frame young enough or after a failure (the caller falls back).
      */
     boolean bindFrame(int p,float[] rotation,boolean mirror){
+        return bindFrame(p,rotation,mirror,null);
+    }
+    boolean bindFrame(int p,float[] rotation,boolean mirror,
+                      com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film){
         LiveRawFrame.Frame f=LiveRawFrame.acquire();
         if(f==null || System.nanoTime()-f.publishedNanos>maxAgeNs)return false;
         if(frameSession!=f.session){frameSession=f.session;failed=false;texVersion[0]=texVersion[1]=-1;meteredVersion=-1;meter.reset();}
@@ -375,7 +388,7 @@ final class LiveRawRenderer {
             GLES20.glUniform4f(loc(p,"u_black_level"),f.blackLevel[o[0]],f.blackLevel[o[1]],f.blackLevel[o[2]],f.blackLevel[o[3]]);
             GLES20.glUniform1f(loc(p,"u_white_level"),f.whiteLevel);
             GLES20.glUniform1f(loc(p,"r_gain"),f.wbGains[0]);GLES20.glUniform1f(loc(p,"g_gain"),f.wbGains[1]);GLES20.glUniform1f(loc(p,"b_gain"),f.wbGains[2]);
-            float[] white=lookWhite;
+            float[] white=film!=null?WhyTone.withCctSat(lookBaseWhite,film):lookWhite;
             final float[] transform=white!=null?lookTransform(white,f.colorTransform):f.colorTransform;
             GLES20.glUniformMatrix3fv(loc(p,"color_transform"),1,false,transform,0);
             GLES20.glUniform1f(loc(p,"u_lsc_intensity"),f.shadingWidth>1?1:0);

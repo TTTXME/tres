@@ -85,7 +85,7 @@
     <string name="prefs_scam_hybrid_tensor_noise_title">Tensor noise correction</string>
     <string name="prefs_scam_hybrid_tensor_noise_summary">Older kernel only: how much noise is not taken for edges. Higher: smoother flat areas; lower: sharper.</string>
     <string name="prefs_scam_hybrid_widen_below_title">Base kernel widening at low coverage</string>
-    <string name="prefs_scam_hybrid_widen_below_summary">Where few frames were accepted (motion), the main frame is softened. Higher: more often, cleaner but softer; lower: sharper. Acts in the plain merge and in the mosaic subframe split: the native Quad / Tetra merge widens the base by its own rule, and “Motion” mode always uses 0.</string>
+    <string name="prefs_scam_hybrid_widen_below_summary">Where few frames were accepted (motion), the main frame is softened. Higher: more often, cleaner but softer; lower: sharper. Acts in the plain merge and in the mosaic subframe split: the native Quad / Tetra merge widens the base by its own rule, and “Sport” mode always uses 0.</string>
     <string name="prefs_scam_hybrid_zipper_category_title">Zipper and moire</string>
     <string name="prefs_scam_hybrid_chroma_diff_title">Base colour from colour difference</string>
     <string name="prefs_scam_hybrid_chroma_diff_summary">Removes the colour zipper on edges of moving objects. Higher: stronger; lower: weaker; 0: off. No effect in the native Quad / Tetra merge (the mosaic default).</string>
@@ -583,7 +583,7 @@
     <string name="prefs_desc_pref_scam_hybrid_dn_chroma_t3_strength">Dusk: colour denoise strength, 5 numbers small to large blotches. Higher: cleaner; lower: truer colour.</string>
     <string name="prefs_desc_pref_scam_hybrid_dn_chroma_t4_strength">Dim light: colour denoise strength, 5 numbers small to large blotches. Higher: cleaner; lower: truer colour.</string>
     <string name="prefs_shooting_settings_screen_title">Shooting</string>
-    <string name="prefs_shooting_settings_screen_summary">Frames, lamp flicker, sounds, “Motion” mode</string>
+    <string name="prefs_shooting_settings_screen_summary">Frames, lamp flicker, sounds, “Sport” mode</string>
     <string name="prefs_interface_settings_screen_title">Interface</string>
     <string name="prefs_interface_settings_screen_summary">Theme, accent colour, gallery icon</string>
     <string name="prefs_backup_settings_screen_title">Backup</string>
@@ -1038,7 +1038,7 @@
     <string name="prefs_viewfinder_screen_title">Viewfinder</string>
     <string name="prefs_viewfinder_screen_summary">Corners, grid, horizon, info, RAW viewfinder</string>
     <string name="prefs_shooting_screen_title">Shooting</string>
-    <string name="prefs_shooting_screen_summary">Motion mode, ETTR, focus</string>
+    <string name="prefs_shooting_screen_summary">Sport mode, ETTR, focus</string>
     <string name="prefs_appearance_screen_title">Appearance</string>
     <string name="prefs_appearance_screen_summary">Accent, shade transparency, settings layout</string>
     <!-- P408: colour matrix and Quad / Tetra white balance as in the reference app -->

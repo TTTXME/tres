@@ -162,7 +162,7 @@
     <string name="shade_advanced_summary">Кадры светов, пик фокуса, лица, RAW-видоискатель</string>
     <string name="shade_t_size">Размер</string>
     <string name="shade_t_horizon">Горизонт</string>
-    <string name="shade_t_motion">Движение</string>
+    <string name="shade_t_motion">Спорт</string>
     <string name="shade_t_sound">Звук</string>
     <string name="shade_t_flicker">Мерцание</string>
     <string name="shade_title_size">Размер фото</string>
@@ -173,7 +173,7 @@
     </string-array>
     <string name="topbar_group">Формат и размер фото</string>
     <string name="topbar_torch">Фонарик</string>
-    <string name="topbar_motion">Движение</string>
+    <string name="topbar_motion">Спорт</string>
     <string name="topbar_format">Формат %1$s</string>
     <string name="shade_shutter">Снимок</string>
     <string name="shade_flip_camera">Фронтальная / основная камера</string>

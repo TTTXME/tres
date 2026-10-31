@@ -133,18 +133,25 @@ public class FilmGatesTest {
             }
         }
         for (float snr : new float[]{39f, 150f, 683f}) {
-            assertEquals("SNR " + snr + " at 100 %: the merge's own detail", 1f, WhyCombine.detailGain(1f, snr, portra(1)), 0f);
-            assertEquals(1f + (WhyCombine.detailBoost(snr) - 1f) * .5f, WhyCombine.detailGain(1f, snr, portra(.5f)), 1e-6f);
+            for (float gain : new float[]{0f, .2f, .8f, 1f, 1.3f, 2f}) {
+                assertEquals("SNR " + snr + ", gain " + gain + " at 100 %: the merge's own detail", 1f,
+                        WhyCombine.detailGain(gain, snr, portra(1)), 0f);
+                assertEquals(1f + (gain * WhyCombine.detailBoost(snr) - 1f) * .5f,
+                        WhyCombine.detailGain(gain, snr, portra(.5f)), 1e-6f);
+            }
         }
         assertEquals("any film (B10): no format either", 1f, WhyCombine.detailGain(1f, 683f, film("kodak_portra_400", "off", 0, 0, 0, 1)), 0f);
     }
 
     @Test
-    public void theClarityAndTheSharpeningGrainAreOurs() {
-        for (float v : new float[]{0f, .25f, .1789f, -.3f, 2f / 255f}) {
+    public void everyDigitalSharpeningAmountYieldsToTheFilm() {
+        for (float v : new float[]{0f, -0f, .25f, .5f, 1f, 1.5f, .1789f, -.3f, 2f / 255f}) {
             assertEquals("no film: bit for bit", Float.floatToIntBits(v), Float.floatToIntBits(WhyLumaSharpen.filmShare(v, null)));
+            assertEquals("0 %: bit for bit", Float.floatToIntBits(v), Float.floatToIntBits(WhyLumaSharpen.filmShare(v, portra(0))));
             assertEquals("100 %: none", 0f, WhyLumaSharpen.filmShare(v, portra(1)), 0f);
-            assertEquals(v * .4f, WhyLumaSharpen.filmShare(v, portra(.6f)), 1e-7f);
+            for (float strength : new float[]{.25f, .6f, .9f}) {
+                assertEquals(v * (1f - strength), WhyLumaSharpen.filmShare(v, portra(strength)), 0f);
+            }
         }
     }
 
@@ -154,10 +161,12 @@ public class FilmGatesTest {
         assertEquals(Float.floatToIntBits(g), Float.floatToIntBits(ScamDenoise.lumaGrainUnderFilm(g, null)));
         assertEquals("film, grain and format at 100 %", 0f, ScamDenoise.lumaGrainUnderFilm(g, portra(1)), 0f);
         assertEquals(g * .5f, ScamDenoise.lumaGrainUnderFilm(g, portra(.5f)), 1e-7f);
-        assertEquals("no format: no film grain, the luma grain stays", Float.floatToIntBits(g),
-                Float.floatToIntBits(ScamDenoise.lumaGrainUnderFilm(g, film("kodak_portra_400", "off", 1, 1, 1, 1))));
-        assertEquals("«Зерно» 0: the luma grain stays", Float.floatToIntBits(g),
-                Float.floatToIntBits(ScamDenoise.lumaGrainUnderFilm(g, film("kodak_portra_400", "135", 0, 1, 1, 1))));
+        assertEquals("no format at 100 %: no digital grain either", 0f,
+                ScamDenoise.lumaGrainUnderFilm(g, film("kodak_portra_400", "off", 1, 1, 1, 1)), 0f);
+        assertEquals("«Зерно» 0 at 100 %: respect the grain-free film", 0f,
+                ScamDenoise.lumaGrainUnderFilm(g, film("kodak_portra_400", "135", 0, 1, 1, 1)), 0f);
+        assertEquals(g * .5f, ScamDenoise.lumaGrainUnderFilm(g, film("kodak_portra_400", "off", 1, 1, 1, .5f)), 0f);
+        assertEquals(g * .5f, ScamDenoise.lumaGrainUnderFilm(g, film("kodak_portra_400", "135", 0, 1, 1, .5f)), 0f);
     }
 
     @Test

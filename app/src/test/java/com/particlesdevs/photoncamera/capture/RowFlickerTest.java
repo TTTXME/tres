@@ -164,6 +164,28 @@ public class RowFlickerTest {
         assertTrue(MainsFlicker.source().startsWith("row profile"));
     }
 
+    /**
+     * P440: the vote off the shot's thread latches exactly as on it - the shots' votes in their order, the lines copied when
+     * handed over (the caller's list may change after it).
+     */
+    @Test public void theAsyncVoteLatchesAsTheSyncOne() throws Exception {
+        Locale.setDefault(new Locale("ru", "RU"));
+        assertFalse(MainsFlicker.known());
+        final List<String> first = new ArrayList<>(Collections.singletonList(WORKER_120));
+        RowFlicker.afterMergeAsync(first, (long) SKEW);
+        first.clear();
+        first.add(WORKER_100); // a later change of the caller's list is not this shot's vote
+        RowFlicker.afterMergeAsync(Collections.<String>emptyList(), (long) SKEW);
+        RowFlicker.afterMergeAsync(Collections.singletonList(WORKER_100), null);
+        RowFlicker.awaitVotes();
+        assertFalse("one shot", MainsFlicker.known());
+        RowFlicker.afterMergeAsync(new ArrayList<>(Collections.singletonList(WORKER_120_SHIFT)), (long) SKEW);
+        RowFlicker.awaitVotes();
+        assertTrue(MainsFlicker.known());
+        assertEquals(120, MainsFlicker.hz());
+        assertTrue(MainsFlicker.source().startsWith("row profile"));
+    }
+
     @Test public void leastSquaresSolvesAndRefusesASingularSystem() {
         final double[][] x = {{1, 0}, {1, 1}, {1, 2}};
         final double[] b = RowFlicker.leastSquares(x, new double[]{1, 3, 5}, 3);

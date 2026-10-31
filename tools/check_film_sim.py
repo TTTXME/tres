@@ -225,7 +225,7 @@ class Gpu:
         self.signed = 0          # P370 signedHueU of every render (main runs the GPU parts with 0 and with the shipped 1)
 
     def program(self, defines, src=None):
-        key = (tuple(sorted(defines.items())), src is not None)
+        key = (tuple(sorted(defines.items())), src)
         if key not in self.progs:
             text = self.src if src is None else src
             for k, v in defines.items():
@@ -433,6 +433,12 @@ def strength_part(gpu: Gpu) -> None:
     print('   the film alone under another tone (fusion, macro, vibrance, gamma, AgX / ACES, toe, colour look, landing): max |d| %.2e'
           % moved)
     check(moved <= 1e-6, 'the film alone moves with our tone (%.2e)' % moved)
+    for gamma_type in (0, 1, 2):
+        defs = dict(FILM_SIM=1, COLOUR_LOOK=1, ARK_BASE=1, ARK_VIB=1, ARK_VIBRANCE=1, MACRO_TOE=1,
+                    LIGHT_CHROMA=1, AGX_INSET=1, HL_NEUTRAL=1, YELLOW_HUE=1, GAMMA_TYPE=gamma_type)
+        current = gpu.render(full, fused=fused, defines=defs, uni=dict(uni, strength=1.0, **other), lut=lut)
+        check(np.max(np.abs(current - film)) <= 1e-6,
+              'the film alone moves with the current creative defines, gamma type %d' % gamma_type)
 
 
 def p3_part(gpu: Gpu) -> None:
@@ -450,11 +456,45 @@ def p3_part(gpu: Gpu) -> None:
     check(d <= 0.5, 'the film\'s P3 file is not its sRGB print in P3 primaries (%.3f / 255)' % d)
 
 
+def detail_isolation_part(gpu: Gpu) -> None:
+    """The film's scene detail must not take the display delta's gain, clarity or flat-area suppression."""
+    full = textured(96, 128, np.random.default_rng(53), 1.0)
+    ya = full @ LUMA
+    lut = colourful(N)
+    worst, old_worst = 0.0, 0.0
+    old = gpu.src.replace('l0 + filmDelta', 'l0 + delta')
+    check(old != gpu.src, 'the pre-look film detail tap is missing')
+    for f, fc in ((2, 2), (4, 2)):
+        low, colour, dref = box(full, f), box(full, fc), box(ya, f)
+        uni = {'aeU': 1.0, 'fU': f, 'colourFU': fc, 'filmExpU': METER_TO_FILM, 'strength': 1.0,
+               'sharpU': 1, 'sharpToneU': 1.0, 'detailRefU': 1, 'detailGainU': 1.0}
+
+        def render(values, src=None):
+            return gpu.render(full, low=low, colour=colour, dref=dref, luma_s=ya, defines={'FILM_SIM': 1},
+                              uni=dict(uni, **values), lut=lut, src=src)
+
+        reference = render({})
+        ours = gpu.render(full, low=low, colour=colour, dref=dref, luma_s=ya, uni=uni)
+        for gain, clarity, flat in ((.2, -.5, 0.0), (2.0, 1.0, 0.0), (1.0, 0.0, 10.0)):
+            values = {'detailGainU': gain, 'clarityU': clarity, 'flatProtectU': flat}
+            got = render(values)
+            worst = max(worst, float(np.max(np.abs(got - reference))))
+            old_worst = max(old_worst, float(np.max(np.abs(render(values, old) - reference))))
+        mixed = render({'strength': .5})
+        check(np.max(np.abs(mixed - .5 * (ours + reference))) <= 1e-4, 'isolated scene detail breaks partial film strength')
+    print('8. scene detail under other gain / clarity / flat suppression: max |d| %.2e; old tap %.2f / 255'
+          % (worst, old_worst * 255))
+    check(worst <= 1e-6, 'our display detail still reaches the film (%.2e)' % worst)
+    check(old_worst > 1 / 255, 'the detail-isolation fixture cannot detect the old leak')
+
+
 VARIANTS = ((), ('P3_OUT',), ('COLOUR_LOOK',), ('TONE_OP',), ('HL_LANDING',), ('HEADROOM_WIDE',), ('SUN_BLOOM',),
             ('HL_LANDING', 'HL_OPPOSED'), ('P3_OUT', 'COLOUR_LOOK', 'TONE_OP', 'HL_LANDING', 'HEADROOM_WIDE', 'SUN_BLOOM'),
             ('P3_OUT', 'COLOUR_LOOK', 'TONE_OP', 'HL_LANDING', 'HEADROOM_WIDE', 'SUN_BLOOM', 'HL_OPPOSED'), ('POINT_FUSED',),
             ('POINT_FUSED', 'P3_OUT', 'COLOUR_LOOK', 'TONE_OP'), ('POINT_FUSED', 'RAW_SOURCE'),
-            ('POINT_FUSED', 'RAW_SOURCE', 'P3_OUT', 'COLOUR_LOOK', 'TONE_OP'))
+            ('POINT_FUSED', 'RAW_SOURCE', 'P3_OUT', 'COLOUR_LOOK', 'TONE_OP'),
+            ('ARK_BASE', 'ARK_VIBRANCE', 'MACRO_TOE', 'LIGHT_CHROMA', 'AGX_INSET', 'HL_NEUTRAL', 'YELLOW_HUE', 'GAMMA_TYPE'),
+            ('P3_OUT', 'TONE_OP', 'ARK_BASE', 'ARK_VIBRANCE', 'MACRO_TOE', 'AGX_INSET', 'GAMMA_TYPE'))
 
 
 def compile_part(gpu, strict: bool) -> None:
@@ -512,6 +552,7 @@ def main(argv) -> int:
             strength_part(gpu)
             p3_part(gpu)
             edge_part(gpu)
+            detail_isolation_part(gpu)
     compile_part(gpu, strict)
     for s in SKIPPED:
         print('skipped: ' + s)

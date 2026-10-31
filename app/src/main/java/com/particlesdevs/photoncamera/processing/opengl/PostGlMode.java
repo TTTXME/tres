@@ -9,6 +9,9 @@ package com.particlesdevs.photoncamera.processing.opengl;
  *     AE, the watermark texture always built, no shader source cache. Off in every normal shot.</li>
  * <li>{@link #syncNodes()}: scam_dev.txt "post_sync 1": a glFinish at the end of every node, so the per-node times of the
  *     "runAll timings" table include their GPU time again (without it the GPU time shows up at the next sync point).</li>
+ * <li>{@link #tileReadback()}: P440, the final readback through the tiles (GLCoreBlockProcessing.drawBlocksToBitmap's strip
+ *     bitmap) instead of the pixel-pack buffer, for the old run of "post_ab 1" with "post_ab_readback 1" (PostAb): EQUAL
+ *     proves the buffer's bytes on the phone. Off in every normal shot.</li>
  * </ul>
  */
 public final class PostGlMode {
@@ -22,4 +25,9 @@ public final class PostGlMode {
 
     public static boolean syncNodes() { return syncNodes; }
     public static void setSyncNodes(boolean on) { syncNodes = on; }
+
+    private static volatile boolean tileReadback;
+
+    public static boolean tileReadback() { return tileReadback; }
+    public static void setTileReadback(boolean on) { tileReadback = on; }
 }

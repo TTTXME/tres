@@ -9312,7 +9312,7 @@ tried on a phone
   1 (a third / a tenth of the effect); a 4 x 4 block-group motion test (missed the ghost, 40 % false blocks on the LED burst).
 
 ### P416 - the noisy colour strip along the photo's edge (owner, 2026-10-30, OPPO Find X8 Ultra: «шумную цветную полосу, она
-возникает на оппо х8у давно, мы всё никак не исправим её, займись исправлением»): DONE in code (host emulation), not tried on a phone
+возникает на оппо х8у давно, мы всё никак не исправим её, займись исправлением»): REMOVED by owner 2026-10-31, see P428 (historical findings below)
 - The merge's outer 6 px (every edge of the OPPO replays; a step at exactly 6 px, gone without the local alignment) hold saturated
   colour blots 3 - 6 px deep and 1.4 - 2.4 x the colour noise along the edge; the RAW's edge rows are normal (no hot sites, the same
   noise). The day tiers' colour strength (0.25) and a floor on it did not reach them (the bilateral refuses the blotted neighbours).
@@ -9333,10 +9333,10 @@ emulation), not tried on a phone
   and scamdn/cbf darkMixU brings sigma^2 back to the day tier's from 4 x pDark up (Y at and below pDark: the dark tier's). The colour
   passes' read term takes the measured factor while the dark tier runs. LabFrame keeps pDark for the lab fragments.
 - lmcdn emulation of the owner's radiator: the blots on the radiator and its shadow gone, the day tier alone did nothing there.
-  Check: tools/check_edge_band.py (darkMixU unset = bit for bit; shadow at the pass's k, mid-tone at the day tier's).
+  Check: tools/check_chroma_dark_mix.py (darkMixU unset = bit for bit; shadow at the pass's k, mid-tone at the day tier's).
 
 ### P418 - the reject at the frame edge (owner, 2026-10-30: «Проверь реджекты, возможно из-за них на Oppo x8 Ultra вылазит эта
-полоса»): DONE in code (host replays), not tried on a phone
+полоса»): REMOVED by owner 2026-10-31, see P428 (historical findings below)
 - Stage dump of the owner's burst: a donor cell warped beyond its frame gets weight 0 (P12, right), and kHybDilate spread that 0 as
   motion over 5 x 5 cells: every N frame refused on the outer cell row, 0.19 / 0.62 on the next ones (a 6 px band at 2 - 9 x the
   colour noise and 2.5 x the luma noise on the dark right edge).
@@ -9414,7 +9414,9 @@ emulation), not tried on a phone
   serial fb27034c, camera 2: actual base 988701 ns at ISO 6400, N-2 anchor, futureRequests=0, bracketed=0, ultrashort=0,
   successful JPEG SCA_20261030_193426.jpg. Fast display motion retained one frame; a prior capture retained two.
   Switch-off during processing also saved SCA_20261030_194722.jpg with Motion denoise retained.
-  No claim of 8/4/2 queue behavior or Quad / Tetra quality validation on this phone. Not a CI delivery APK; nothing pushed.
+  No claim of 8/4/2 queue behavior or Quad / Tetra quality validation on this phone. QA 31193 is not a CI delivery APK.
+  Delivery: 55c63db1 fast-forwarded main; Actions 41096456424 passed and published APK 31194. Downloaded final APK SHA-256
+  047b24607bc288d14cdf5ab8b694125d61308578736332b454f9b1fe27afb3df, verified against CI SHA256SUMS and signing certificate.
 
 ### P423 - compare SCAMERA and original Google demosaic on motion RAW (owner, 2026-10-30: «Покажи разницу ... на фото»): DONE as a host comparison
 - tools/compare_motion_demosaic.py executes the supplied Google OpenCL stages directly and the verbatim SCAMERA Bayer function
@@ -9426,3 +9428,202 @@ emulation), not tried on a phone
 - New Drive bursts 173124 / 173152 downloaded concurrently to D:/burst/Moving (1661009920 bytes each). RAW bounds and
   reread SHA-256 verified against local transfer receipts. NCH v12 Bayer 4096x3072: 20 N + 3 L + 3 ES and 8 N respectively.
   MotionMeter replay completed on both; no external source checksum or new colour calibration was supplied.
+
+### P424 - window rim stair-step investigation (owner, 2026-10-30): IN PROGRESS, no confirmed production fix
+- 2026-11-01 transfer requested by owner after unsuccessful controls: read `WINDOW-STAIRS-HANDOFF-20261101.md` first.
+  The exact screenshot also contains the INNER white-glass edge: Nsupport median.1, strongRim/ES, alpha median.725. The outer
+  curved glint's N-only proof below must not be extended to this inner contour. Exact3ES Ark/Google substitution, alpha1/smooth
+  remaps, original worker s61Fine1, strict fullG alignment, scene-delta and sparseLP controls all retain the visible breaks.
+  Actual parity-verified effB/gate64F trace is saved; effB is weightedkernelcover+basewb, not framecount/Neff. No confidence
+  policy or new reconstruction/AA is integrated. All phone jobs/leases are closed. No new commit/push/APK.
+  IndividualES geometry and full-ROI O/P/r export were NOT run; regularizedLP2 has only a negative initial heldN0 check.
+- Owner's exact screenshot clarification (2026-10-31) prioritizes111323, physicalROI1792,1376,256,224: the broken narrow bright
+  glint on the metal outside the dark window seal, especially the lower-right curve and right vertical. This is not merely
+  the glass50% contour or the far-window upper line previously emphasized. Screenshot/source similarity median error.108px.
+- All19N and3ES are unclipped at the ridge's ownG sites; someL clip, and nearby glass clips. Exact opt-in read-only GPU audit
+  passes preserve full output/stage bytes against the original replay: vertical70ridge samples F>=12.23, curve42 F>=10.8,
+  Lweight0; G is bit-identical before/after kHybChroma. On the curve G is also bit-identical before/afterUS. A first intrusive
+  diagnostic version changed output and was rejected as baseline evidence. For the bottomline manyF<4, butChromaG is unchanged.
+- Matched Ark111333 has a visibly more continuous glint than SCAMERA111323 in unwarped source crops. They differ by10seconds,
+  tone/exposure and about1degree, so no same-RAW causal ranking is inferred. Pair and exact RAW/trace receipts are saved under
+  ../evidence/window-stair-review-20261030/target111323-20261031. A bright-ridge sharpening guard remains evidence-only: it
+  reduces excess amplification but the controlled final post still has visible breaks, including with unsharpenedYa.
+- Additional111323 controls remain evidence-only. Actual25-frame sigmaAcross0.25 and truegrid2 followed by linear2x2mean
+  reduce peak contrast but leave the discontinuities after identical fixed post; sigma0.25 increases G MAE by more than2%
+  in105/114 known-GT cases.
+  Actual N phases cover6-8of8 normal-phase bins on the curve; a lack of fractional shifts is therefore not established.
+  A read-only geometry audit found no CFA/index/pixel-centre/normalizer bug in the unchanged Main1 expressions.
+- Official SMAA1x three-pass host controls and an independent directional AA prototype are not production fixes. Global
+  SMAA HIGH suppresses a known physical.25px/period4 wave by49.4%; local ULTRA at25% still loses4.1-4.6%, with little visible
+  improvement to the target glint. Local tangential Ya filtering also removes real contour variation. Amplitude-only
+  regularization preserves known geometry better but leaves the visible breaks in the controlled final render.
+  These controls are saved in post-audit/smaa1x-review and target111323-20261031/AA-evaluation; no AA shader/node/settings
+  were added to the app. This is an unresolved quality problem, not proof of a Main1 bug or of ES/Bento causation on this curve.
+- Independent green-phase calibration audit verified all19N source hashes and15257 smooth unclipped32x32 patches. Robust
+  planar/quadratic fits and symmetric opposite-green prediction agree on a small residual: median phase difference.108DN,
+  gain about+.30%; near-window+.26%. A stricter7496-patch subset gives.081DN and+.20%. This scene-bound estimate does not
+  establish laboratory calibration, but its scale is insufficient to explain the roughly298DN glint range; no speculative
+  green gain/black correction was added. Evidence: target111323-20261031/us-source/green-phase-calibration.
+- D:/burst, including nested ZIPs: four window bursts on Oct 30 (111118, 111305, 111323, 111407), no Oct 29 files found.
+  The owner identified the distant windows in 111118 / 111305 and confirmed the date was approximate; no Oct 29 series is missing.
+- The supplied ZIP includes matching capture JSON, JPEGs and diagnostic stages. Diagnostic PFMs are nearest-sampled 1/4 views;
+  they cannot prove native 1-4 px aliasing. Full-resolution replay on OPPO PHY110 used all 103 original RAW frames, byte-verified
+  after compact NCH repacking, exact per-shot tuning, no crop/resize. CRE disabled: not a bit-identical replay of the vivo JPEG.
+- No clean fix from the native Quad controls: disabling Bento loses 3 EV headroom (8 -> 1); removing native US fill blurs frame
+  detail; narrowing the green kernel increases phase-four brightness ripple. These changes were rejected.
+- Existing EDGE_HOLD nearest tangent -> bilinear was rejected: negligible improvement on measured target edges, some 45-degree
+  synthetic edges widen by 0.69-0.87 px. Lowering the bright-edge gate also suppresses real thin detail. No kHybMergeMain1 edit.
+- Full-resolution post replay now includes measured WHY AE, exact ChannelClip and highlight passes; RMSE against quarter-sampled
+  diagnostics is 0.00488 / 0.00715. The earlier no-HL approximation is not evidence that sharpening caused the target defect.
+  Native SceneY coverage and unclipped-R coverage candidates were rejected: they created pink segmented edges and shifted G50
+  by up to 2.48 / 2.30 px. Registered ARK photos share gross seal geometry/pink rims; different shots cannot resolve 1 px causation.
+- A missing clipHiUnflaggedU upload in ScamRgb.clipband was independently corrected and regression-tested. Both target bursts
+  have hiUnflagged=false, so this is not a confirmed fix for their distant windows. Investigation continues in native RAW stages.
+- Isolated diagnostic worker on OPPO: both111118/111305 off/on runs reproduce the original full RGB+flags byte for byte;
+  96-float/site traces expose pre/post-US, actual ES projections and weights. Protected kHybMergeMain1 and production CPP stay
+  unchanged. Actual H-anchor error on both top edges is below0.003 RAW px. Plain US improves measured R contour geometry;
+  green-clipped guidance has a reproducible interpolation bias, but same-colour fallback/gates damage text or add phase ripple.
+  Existing native mosaicUsFillTol1 and post-US chroma bypass controls fail to remove the target stairs/colour rim. No safe fix.
+- Owner added111118's radios/antennas on the right as another target. Unwarped source crops against paired ArkCam111124 show
+  stronger light/dark outlines and rougher silhouettes in SCAMERA; both have some aliasing. The captures are6s apart, with
+  different exposure/processing; this does not isolate demosaic. Front antennas and rear bodies are unclipped in every N/ES,
+  while L frames clip. Actual no-long and Sabre2x->2x2 controls leave the defect; neither is a production fix.
+- Controlled host post includes exact HL/AE/fusion/sharpen/combine components, but omits the original finish ScamDenoise/WhyMS.
+  Original31156 metadata requests multiscale plus WhyMS; current P421 has different finish routing. Quarter-view RMSE does not
+  validate native finish-denoise parity. Radio RL controls show amplification within the controlled replay, not exact original
+  JPEG amplitudes. Final halo bounds were rejected for losing known thin-line/star detail without fixing window stairs.
+- Same-N0 SCAMERA Bayer fallback / ARK209 / Google11 core comparison excludes merge/DN/sharpen and shows more chroma zipper
+  in the fallback. Saved min-pooled robust maps give F_N>=12.0098 throughout the front-antennas ROI; kHybChroma returns atF>=4
+  before calling this fallback. It therefore does not explain the front antennas in that replay. Bounds exclude fallback on
+  99.7306% of the radio group; the remainder is unknown, not proven active. This is not proof about primary Sabre reconstruction
+  or the paired ArkCam v206 JPEG. Full Android Lab31193 replay succeeded with all26, actual primaryDN228ms/SNR567.23 and MS20ms;
+  native RGB before/after primaryDN is saved. On front antennas primaryDN changes p95RGB by.0009766 and G highpass by-.20%.
+  No native final JPEG was exported; the Lab screenshot is UI evidence only. Four tuning differences, FP16 transport and actual
+  Neff differ from the older host replay, so the two runs do not isolate DN. Protected kHybMergeMain1 is unchanged.
+- Owner explicitly requested parallel ES/Bento investigation. In111118 plain BentoBlend1 finalbit4 is reliable (ramp0 prevents
+  its later clearing): front antennas plus16px and rear bodies have no directUSmix, including the8px plainmedian footprint.
+  A new identical-input single-override bento0 worker replay retains23 N/L and changes front/rear-body RGB by at most2.44e-6,
+  with identical zero flags; the tiny numeric difference is not assigned a cause. Rear antennas/windows change substantially.
+  Existing111305-bento-0 is reused. On the traced111118 window edge alpha is practically1, so varying mask does not explain
+  its centre's phase ripple; darkside transition and actual ES radiometry remain under separate control. No production fix yet.
+- Frozen-N/U mask counterfactuals do not support alpha as the dominant phase-four source: on darkside-3 the fitted2/4 alpha
+  contribution is about5% of G amplitude; on the edge centre alpha1 is unchanged. Actual111118 gainRadius0 keeps all26, all
+  final flags and75 donor stage maps byte-identical; local gain is disabled without losing ES headroom. R-G/B-G ripple falls
+  15.3/18.7%, but Y ripple rises4% and G50 geometry barely changes. Thus local Bento gain is a colour contributor, not a fix.
+  The default gain floor0.5 applies despite measured tile flicker0 (intentional P350 policy). Approximate flat-patch radiometric
+  fits do not justify changing global TET/black.
+- Actual3ES core comparison is complete for plain111118: exact saved sourceO/localF6, unchanged weights/clip/normalizer/alpha/gain.
+  Current usColourAt source projection matches trace within1.91e-6; reducer2.27e-6 and stage3 with measured RTZ packing2.87e-6.
+  ARK209/G11 make small, mixed changes on the window and do not remove its edge. Known-GT sharp-text R error is worse (ARK.85
+  6.87x/G11.85 3.51x; G11sharpness1 1.21x), although optical-sigma.75 improves. No unconditional core replacement is justified.
+  Actual prepackU bypassing half quantization changes centre/darkside G phase4 by only-.265/-1.45%; it is not the main source.
+  NativeQuad111305 is not covered by this Bayer-core test. Front dezipper/baseFill are independently excluded by the saved F
+  bound and positive unclipped N0 samples; worker G roughness is present before HL/DN, not caused by the tested ES branches.
+- A bounded post contour-dejitter prototype is rejected after56 known-GT fixtures: straight-edge width changes at most.0319px
+  and thin lines/PSF are preserved, but a real.25px/period4 wave loses70.5% of its G50 amplitude and a1x2 notch loses10.2% depth.
+  It barely changes front antennas and leaves their stairs. Straightening unknown real contours is not a validated fix.
+  Evidence: post-audit/directional-aa-review. All experiments remain in evidence; no new production AA/gain/demosaic change.
+  The supplied archive contains four paired ArkCam JPEGs, no Ark RAW/burst. The owner confirmed Ark111124 has only JPEG;
+  matched-RAW capture/processing separation is unavailable. SCAMERA source and native outputs are saved locally, no new push/APK.
+- Evidence and native/control outputs: ../evidence/window-stair-review-20261030 (relative to the worktree's parent).
+
+### P425 - keep our processing out of film simulations (owner, 2026-10-30): DONE in code and host tests, not APK/device photo validation
+- P369 was incomplete after later additions: creative CCT sat/gains/Dynamic CCT changed scene colour before the film; the scene
+  detail took our clarity/flat protection/gain, and USM/bilateral/RL/Sobel/thinning could undo the film's scatter/softness.
+- Film 100% now uses camera calibration and chosen WB without creative CCT. Every digital sharpening amount fades with 1-s;
+  at 100% WhyLumaSharpen returns the neutral G_CLEAN guide directly. The scene-detail tap precedes our gain/clarity/flat suppression,
+  full-strength film skips EDGE_HOLD, and the effective detail gain is 1 even when sharp_gain is 0. Above 100 MP the detail reference
+  is made before releasing the input in this case too. Digital residual grain fades for every film, including grain=0/format=off.
+- WHY RAW preview uses one ready scene LUT and its film snapshot for both development and combine. Unreadable/pending tables keep
+  the ordinary CCT fallback. Changing the active film strength forces metering even on a repeated RAW, without resetting exposure
+  tracking/easing. Settings explain bypassed colour/detail rows at 100%; explicit LensFilter and user LUT remain.
+- Below 100%, artistic amounts fade and the final print mixes with our look; this is not an exact crossfade between two complete
+  independent upstream pipelines. ISP/plain RAW fallback remains the display-domain approximation from P369.
+- Host: 73 focused tests passed; after the final preview meter change, 26 related tests passed (92 distinct tests in 15 classes).
+  Film GPU checks incl. gain/clarity/flat invariance and a failing old-tap control pass; the film-only commit's FILM_SIM=0 path is
+  token-identical to55c63db1 in3746 define sets (before the intentional P427 AgX change). LUT/colour/sharpen/settings/language
+  checks pass;116 shader units pass the fp16 check. No new APK or phone
+  film photo has been validated. Reproducible reports: ../evidence/film-isolation-review-20261030 and window review/post-audit.
+
+### P426 - Sport mode name and stronger denoising in poor conditions (owner, 2026-10-30): DONE in code and host tests, no new APK/device photo
+- User-facing English/Russian labels, help, shade and lab/settings notes now say Sport / Спорт. Existing MotionMode classes,
+  preference keys and profiles remain compatible. Capture timing, two-frame-earlier anchor and no-bracket policy are unchanged.
+- The sharp-priority denoisers previously retained noisy rejected/base-only reconstruction at every SNR. An immutable per-shot
+  policy now uses valid measured input SNR before manual overrides; fallback model@0.18 is explicitly an estimate, not measured
+  scene exposure. Unknown noise keeps previous behaviour. Smoothstep SNR24 -> SNR8 raises luma sigma up to x1.3, chroma x1.35,
+  lowers revert to x0.35 and residual digital grain to x0.25, and fades rejected-detail retention 0.85 -> 0. The MS pyramid's
+  luma/chroma thresholds rise to x2/x1.35; motion luma returns from -0.75 to the configured positive boost. Film100 grain stays zero.
+- Actual Java policy + GL filter controls pass: bright SNR bit-identical, stronger flat-noise suppression, edge-width change
+  <=0.00051 px. Proposed x1.6 luma was rejected without weakening the edge assertion. These synthetic stage tests do not prove
+  whole-photo quality. The pre-SNR variance map remains usable; q1 output is independent of its rejected-coverage channel.
+- 221 focused host unit tests in 20 classes pass after restoring the required %s ListPreference summary placeholder. CI includes
+  the new Java/resource/uniform tests and portable GPU policy check. Evidence: ../evidence/sports-adaptive-denoise-20261030.
+
+### P427 - AgX excess light-tone colour (owner, 2026-10-30): DONE in code and host GL tests, no device colour validation
+- P419's common vibrance gain handled light tones only for TONE_OP1; AgX retained the stronger P341 term outside the common
+  skin protection. The default slider strength 0.25 therefore acted through vibHlU=1 and a 1.6 coefficient on pale highlights.
+- AgX now uses the same P419 light-tone term at the slider's actual strength, with the common skin protection. Legacy
+  ARK_VIBRANCE0 keeps its original path. Photo and WHY preview share the shader; explicit saturation, calibration and WB remain.
+- Actual GL regression: old shader fails skin protection/default gain/HL slider controls; the new path passes. Skin's share of
+  default HL gain is 0.298 instead of 1.000. Real scene-colour samples from111118/111305 reduce p90 chroma amplification over
+  plain AgX from2.387/2.204 to1.271/1.249 at fixed AE1. This is a colour-response model, not a new phone photo or colour reference.
+- This corrects excessive default pale-light amplification, not universal desaturation: nonlinear AgX/gamut can raise some
+  saturated yellows when pre-tone gain is reduced. The separately found saturation0 highlight-landing bypass and saturation>1
+  chroma reversals are fixed by P429 below, with saturation1/default, film100 and legacy identity guards.
+- Legacy token identity192/192 and film100 old/new render identity pass; CI runs tools/check_agx_colour.py. Evidence:
+  ../evidence/agx-colour-controls-20261030 (old-fail/new-pass reports and exact shader copies).
+
+### P428 - remove the frame-edge interventions (owner screenshot, 2026-10-31): DONE locally, not pushed or installed
+- The owner removed all listed interventions: P416 colour borrowing from the inner edge over the outer6px in both primaryDN
+  and NLM fallback; P418 special reject-edge marker/dilation; the checks specific to these retired features.
+- Removed edgeBandU/EDGE_R and their shader branches, Java uploads/arguments/log field, dn_edge_band developer key; removed
+  rejEdge field/parser/uniform/sentinel and restored the preP418 reject/dilate/SHASTA averaging code, plus app serialization,
+  developer key and P418-only assertion/subtest. kHybMergeMain1 is unchanged. No archival patch was applied to modified sources.
+- P415 deep-shadow read noise and P417 dark chroma tier remain. The independent P417 darkMix GPU check was moved unchanged
+  from check_edge_band.py to check_chroma_dark_mix.py; its CI invocation replaces only the retired script's invocation.
+  The original P358 check_hybrid_stages remains in CI, with only its P418-only subsection removed.
+- Validation:91 tests in7 targeted JVM classes PASS, including real main/test Java compilation;9 GPU own-colour border checks
+  old-fail/new-pass; retained P417 GPU check PASS; reject/dilate compile/link16/16; NDK C++ syntax PASS;116 shader fp16 units PASS.
+  Native Linux/Mesa runtime is unavailable locally; no new APK/device image-quality proof. Sources and incremental transfer
+  patch are saved in ../evidence/edge-features-removal-20261031; full local processing snapshot is updated separately.
+- verify_transfer.py was run: the September22 archive manifest differs from the developed project (log saved), so it is not
+  a current-source checksum proof. Current worktree changes were preserved and patch/tree verification uses a separate index.
+
+### P429 - AgX saturation after highlight landing (owner, 2026-10-31): DONE in code and host GL, not phone colour/timing validation
+- The former RGB extrapolation could create negative channels before the gamut cut, raise lightness and reverse chroma as
+  saturation increased. Highlight landing could restore colour after saturation0. Under ARK_VIBRANCE1, AgX now applies this
+  control once after landing/sun bloom and before explicit user LUT/film, scaling OKLab chroma at fixed lightness. The LC
+  mid-reference uses neutral saturation. The existing skin protection limits increases; decreases can reach neutral.
+- An absolute14-step chroma boundary independent of slider strength prevents a falling gamut plateau. sRGB/P3 and all3gamma
+  encodings are covered. Saturation1 bypasses exactly; ARK_VIBRANCE0 and other tone operators retain their original path.
+  Explicit user LUTs remain able to recolour a neutral input intentionally.
+- Actual GL old-fail/new-pass: old30FAIL/58, final72/72PASS. Maximum OKLabL drift6.06e-7 and minimum adjacent chroma delta
+  -5.86e-7 against2e-5 bounds. The earlier fractional-gamut candidate was rejected, not excused by looser tolerances.
+  Twelve saturation1 old/new renders are bit-identical, legacy192/192 token-identical, film100 old/new exactly equal atsat0/1/2.
+  Full168-patch WhyLow/fusion/tone audit:0coloured sat0 patches with landing on/off,0CIELAB chroma reversals>.05 for sat/vibrance.
+- Existing vibrance/light-chroma/film-strict/viewfinder gates pass;144glslc variants pass. Three existing Why source tests
+  now normalize CRLF before their unchanged multiline GLSL assertions; EdgeHold additionally checks the ready film100 guard.
+  ActualGL controls show each of EdgeHold/yellow/neutral-light changes film0 and leaves film100 bit-identical.
+- Independent integration review found that the otherwise neutral ColourLook could compile out positive AgX saturation's
+  skin protection. Its shader-neutral predicate now accepts the positive-saturation context; photo uses the actual shot r.sat,
+  preview covers configured/pending/eased saturation before program choice. The common vibrance keeps its own protection.
+  Six related JVM classes/30tests PASS with real main/test compilation, including a new actual-Java wiring test,90AE-settings
+  comparisons and preview transitions. CI selects the new test. The default/legacy neutral path is retained.
+- Evidence: ../evidence/agx-saturation-final-20261031 and processing-release-20261031/why-source-test-fix. No capture/worker/
+  Main1 change. Device colour/performance is not inferred from hostGL.
+
+
+### P440 - local speed-p424 integration (owner, 2026-11-01): CHERRY-PICKED locally, in-app PBO/timing pending
+- Read handoff-speed/HANDOFF_SPEED.md from SCAMERA-PC root. Preserve the unresolved P424 investigation and ready film/Sport/AgX/removal work.
+- Processing checkpoint ad970068 precedes conflict-free cherry-picks: 6cf9b2e9 -> ef18bef9 (worker), f4598e88 ->264d4557 (app).
+- Worker sparse marking/lazyCRE/stripTrailers/fastExit and app metadata-pass/log/timeline/async-flicker/PBO changes retain donor code. kHybMergeMain1 remains protected and unchanged.
+- New strip-trailer C++ sanitizer check plus FillFrameLevelsTest/TileBlitterTest added to CI. Integrated offline main/test Java compilation and32targeted classes/194tests PASS, no skips/failures; version.properties unchanged.
+-23native checks PASS on OPPO (chroma-band/overlap use unchanged CI quick variants; new trailer check covers all2^32 float patterns at7scales). Phone replay receipts and final boundary: ../evidence/speed-integration-20261101/REPORT.md. PBO in-app A/B and end-to-end Photo press-to-file timing remain unverified; donor worker timings are not an integrated app speed claim. No APK/push.
+
+
+### P441 - host-only delivery excluding P424 (owner, 2026-11-01): READY FOR MAIN/CI
+- Owner explicitly requested finishing without a phone and pushing all ready work except the window-stair correction. P424 remains open but is no longer a delivery blocker.
+- New tools/check_post_pbo.py: actual host GPU PBO vs client-memory and independent RGBA8 oracle21cases x3repeats;2realGLfault fallbacks PASS. CI selects the check. Android Bitmap semantics remain separately covered by TileBlitterTest.
+- Film strict GL/glslc PASS; AgX72/72 plus192legacy identities/film100 exact identity PASS; Sport Java-policy/luma/MS noise-edge controls PASS. Existing194integratedJVM/23native/28workerreplays receipts retained; no phone access in this step.
+- Host readback timing at12.6MP (~49.6ms tiles/~39.0ms PBO) is not phone Photo latency. In-app PBO, phone time/memory and new real photography are unmeasured and not claimed complete. See RELEASE-20261101.md for the owner-approved boundary.
+- Delivery: one commit atop fresh origin/main, fast-forward main; full LinuxCI, final ActionsAPK/SHA256SUMS/runtime verification. No protected Main1 change, no tests weakened, no keys/local.properties/version.properties or unrelatedp404mode change included.

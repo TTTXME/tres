@@ -79,7 +79,7 @@ final class CameraUIController implements CameraUIEventsListener,
                 final boolean on = !com.particlesdevs.photoncamera.settings.MotionMode.on();
                 com.particlesdevs.photoncamera.settings.MotionMode.set(on);
                 cameraFragment.refreshTopBar();
-                cameraFragment.showSnackBar(Lang.t(view.getContext(), on ? "Движение: вкл." : "Движение: выкл.", on ? "Motion: on" : "Motion: off"));
+                cameraFragment.showSnackBar(Lang.t(view.getContext(), on ? "Спорт: вкл." : "Спорт: выкл.", on ? "Sport: on" : "Sport: off"));
                 Log.i(TAG, "motion mode " + (on ? "on" : "off"));
                 this.restartCamera();
                 break;

@@ -392,7 +392,7 @@ public final class HybridPlan {
      * shutter is free for the next one.
      */
     public static HybridPlan zslOnly(long nShutterNs, int nIso) {
-        return zslOnly(nShutterNs, nIso, "Motion mode: nothing after the shutter");
+        return zslOnly(nShutterNs, nIso, "Sport mode: nothing after the shutter");
     }
 
     /** P315: the ring frames alone for {@code why} (a sensor mode whose camera fails the series: SensorModePick.seriesAllowed). */

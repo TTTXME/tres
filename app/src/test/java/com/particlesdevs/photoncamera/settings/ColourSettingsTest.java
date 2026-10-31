@@ -157,11 +157,15 @@ public class ColourSettingsTest {
                 "pref_scam_hybrid_why_weight_center", "pref_scam_hybrid_why_blend_smoothness", "pref_scam_hybrid_why_ef_coarse",
                 "pref_scam_hybrid_why_sharp_gf_lc", "pref_scam_hybrid_why_sharp_film_grain", "pref_scam_hybrid_colour_mono",
                 "pref_scam_hybrid_colour_mix_red_hue", "pref_scam_hybrid_colour_grade_mids_str", "pref_scam_hybrid_why_skin_protect",
-                "pref_scam_hybrid_colour_gamut", "pref_scam_hybrid_colour_hue_lock", "pref_scam_hybrid_why_vibrance_hl_str"};
+                "pref_scam_hybrid_colour_gamut", "pref_scam_hybrid_colour_hue_lock", "pref_scam_hybrid_why_vibrance_hl_str",
+                "pref_scam_hybrid_why_sharp_gain", "pref_scam_hybrid_why_clarity", "pref_scam_hybrid_why_flat_protect",
+                "pref_scam_hybrid_why_sharp_usm_amount", "pref_scam_hybrid_why_sharp_bilateral_amount",
+                "pref_scam_hybrid_why_sharp_rl1_amount", "pref_scam_hybrid_why_sharp_rl2_amount", "pref_scam_hybrid_why_sharp_rl3_amount",
+                "pref_scam_hybrid_why_sharp_sobel_amount", "pref_scam_hybrid_why_sharp_edge_thinning",
+                "pref_scam_hybrid_why_cct_sat", "pref_scam_hybrid_why_cct_gain_r", "pref_scam_hybrid_why_dynamic_cct"};
         final String[] acting = {"pref_scam_hybrid_colour_warmth", "pref_scam_hybrid_colour_tint", "pref_scam_hybrid_colour_keep_warm",
                 "pref_scam_hybrid_colour_keep_cool", "pref_scam_hybrid_colour_cal_red_hue", "pref_scam_hybrid_why_ae_target",
-                "pref_scam_hybrid_why_hl_overflow", "pref_scam_hybrid_why_sharp_gain", "pref_scam_hybrid_why_clarity",
-                "pref_scam_hybrid_why_sharp_usm_amount", "pref_film_lut", "pref_film_lut_strength"};
+                "pref_scam_hybrid_why_hl_overflow", "pref_film_lut", "pref_film_lut_strength"};
         final String xml = new String(java.nio.file.Files.readAllBytes(new java.io.File("src/main/res/xml/preferences.xml").toPath()),
                 java.nio.charset.StandardCharsets.UTF_8);
         for (String k : bypassed) assertTrue("a real row: " + k, xml.contains("android:key=\"" + k + "\""));

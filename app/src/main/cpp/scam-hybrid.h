@@ -483,7 +483,6 @@ struct HybridTuning {
     float shastaScopeMax=60.f,shastaScopeFeather=0.75f;
     float shastaScopeWeak=0.05f;  // P392 review: the scope's map also takes the blocks beside a moved one over 4 sigma + this x the level (0 = off)
     int shastaScopeAll=0;         // P392 review: 1 = the scope also on a forced long frame at or below shastaMotionMax (0: kept whole as before; P414: the app sends 1)
-    int rejEdge=0;                // P418: the reject's "no sample beyond the frame" marker, not spread by the dilation (0 = off; the app sends 1)
     int shastaScopeLone=0;        // P414: 1 = with the scope, a moved block only the noise decided and without a moved neighbour stays (shastaMotion lone; the app sends 1)
     // misc
     int snrFixed=0;
@@ -892,6 +891,19 @@ struct HybridTuning {
     // the ultrashort mean's noise from the frames' noise model (one sample at u over the number of frames: conservative). The pass
     // is compiled with NAT_US_TOL then; 0 = the program as before.
     float mosaicUsFillTol=0.f;
+    // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the worker's speed
+    // against ArkCam on the OPPO Find X7 Ultra; every switch below leaves the output byte for byte as it was (1 = on, 0 = as before):
+    //   markSparse: the outlier sites marked in the RAW words of the frames through a list of the words that hold one
+    //               (kHybMarkList / kHybMarkSparse) beside the clipped blocks, not over every word of every frame
+    //               (SCAM_NO_MARK_SPARSE: the sparse programs not built)
+    //   creLazy:    with the GPU alignment the worker loads the CRE only when the corner tracker is needed (the GPU failed)
+    //               (SCAM_CRE_EAGER: loaded at the start, as before)
+    //   stripTrailers: the clip flags and the effective map's samples made after every strip's readback (on the merge thread
+    //               while the GPU merges the next strip), the effective map's codes while the chroma consumer finishes its last
+    //               rows; they were whole-frame passes after the merge (SCAM_TRAILERS_LATE: as before)
+    //   fastExit:   the GPU context's teardown and the merge's large buffers after the worker's completion line, then _exit
+    //               (SCAM_NO_FAST_EXIT: freed before the line and a normal return, as before)
+    int markSparse=1,creLazy=1,stripTrailers=1,fastExit=1;
 };
 
 // restoreSensorOrigin() of scam-capture.h for a grid scaled by `scale` (CFA phase shift in output pixels).
@@ -1054,7 +1066,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("bentoPartial",nullptr,&t.bentoPartial)||set("bentoPartialZLo",&t.bentoPartialZLo)||set("bentoPartialZHi",&t.bentoPartialZHi) // P392
             ||set("bentoPartialClose",nullptr,&t.bentoPartialClose)||set("bentoPartialGrow",nullptr,&t.bentoPartialGrow)||set("bentoPartialGuide",nullptr,&t.bentoPartialGuide)
             ||set("bentoPartialPlaus",&t.bentoPartialPlaus)||set("bentoFillReach",&t.bentoFillReach)||set("bentoRefuseShare",&t.bentoRefuseShare)||set("bentoAliasDamp",&t.bentoAliasDamp)||set("bentoPartialEdge",&t.bentoPartialEdge)||set("bentoFillRelax",nullptr,&t.bentoFillRelax)||set("bentoPartialInner",&t.bentoPartialInner)||set("bentoPartialLift",nullptr,&t.bentoPartialLift)||set("bentoPartialOpen",nullptr,&t.bentoPartialOpen)
-            ||set("shastaMotionScope",nullptr,&t.shastaMotionScope)||set("shastaScopeDilate",nullptr,&t.shastaScopeDilate)||set("shastaScopeMax",&t.shastaScopeMax)||set("shastaScopeFeather",&t.shastaScopeFeather)||set("shastaScopeWeak",&t.shastaScopeWeak)||set("shastaScopeAll",nullptr,&t.shastaScopeAll)||set("shastaScopeLone",nullptr,&t.shastaScopeLone)||set("rejEdge",nullptr,&t.rejEdge)
+            ||set("shastaMotionScope",nullptr,&t.shastaMotionScope)||set("shastaScopeDilate",nullptr,&t.shastaScopeDilate)||set("shastaScopeMax",&t.shastaScopeMax)||set("shastaScopeFeather",&t.shastaScopeFeather)||set("shastaScopeWeak",&t.shastaScopeWeak)||set("shastaScopeAll",nullptr,&t.shastaScopeAll)||set("shastaScopeLone",nullptr,&t.shastaScopeLone)
             ||set("bentoUsWeight",&t.bentoUsWeight)||set("bentoUsSigma",&t.bentoUsSigma)||set("bentoFrames",nullptr,&t.bentoFrames)||set("bentoValidate",nullptr,&t.bentoValidate)||set("bentoMotionMax",&t.bentoMotionMax)
             ||set("bentoChromaSigma",&t.bentoChromaSigma)||set("bentoChroma",&t.bentoChroma)||set("dayKernelScale",&t.dayKernelScale)||set("shastaSharpness",&t.shastaSharpness)||set("shastaSharpLo",&t.shastaSharpLo)||set("shastaSharpHi",&t.shastaSharpHi)||set("shastaSat",&t.shastaSat)||set("shastaMaxRatio",&t.shastaMaxRatio)
             ||set("shastaEnable",nullptr,&t.shastaEnable)||set("shastaForce",nullptr,&t.shastaForce)||set("shastaMotionMax",&t.shastaMotionMax)||set("snr",nullptr,&t.snrFixed)||set("snrScale",&t.snrScale)||set("debugFrame",nullptr,&t.debugFrame)
@@ -1089,7 +1101,9 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("gainMeasured",nullptr,&t.gainMeasured)||set("noiseMeasured",nullptr,&t.noiseMeasured)||set("noiseRoles",nullptr,&t.noiseRoles)||set("noiseDarkRead",nullptr,&t.noiseDarkRead)||set("darkReadLo",&t.darkReadLo)||set("darkReadHi",&t.darkReadHi)||set("shastaNoiseWeight",&t.shastaNoiseWeight)||set("chromaGpu",nullptr,&t.chromaGpu)||set("dngDither",nullptr,&t.dngDither)||set("dngMosaic",nullptr,&t.dngMosaic)
             ||set("chromaOverlap",nullptr,&t.chromaOverlap) // P213c
             ||set("auto2x",nullptr,&t.auto2x)||set("auto2xMaxGap",&t.auto2xMaxGap)||set("auto2xMinSnr",&t.auto2xMinSnr)
-            ||set("mochi",nullptr,&t.mochi);
+            ||set("mochi",nullptr,&t.mochi)
+            ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
+            ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit);
         }
         if(report&&!applied.empty())report("HYBRID TUNING FILE "+path+":"+applied);
         break;
@@ -1630,6 +1644,73 @@ void main(){
     }
 }
 )";
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune markSparse): with the
+// outlier tests kHybMark above ran over every word of every frame of the strip (lamp2324 with the test on: ~245 ms of the merge's
+// ~2 s on the OPPO), yet only two kinds of words change: those of a clipped cell (the 32-row blocks of clipped samples and their
+// neighbours, dispatched as without the tests, mFlagsU.z the strip's mode: the clip test skips the outlier sites there as well) and
+// those that hold a flagged site. kHybMarkList lists the second kind once per strip (a RAW word in sensor layout: with cfaShift.x 1
+// a canonical site pair straddles two words, each listed where one of its sites is flagged); kHybMarkSparse marks the listed words
+// of every frame with kHybMark's own helpers (its text before main) and kHybMark's per-word rule. Every word gets the value
+// kHybMark gives it: a fresh upload carries no flag bits, a word outside both kinds keeps them at 0, and a word marked twice gets
+// the same value twice (the value depends on the RAW codes and the site flags only).
+static const char* kHybMarkList=R"(#version 310 es
+precision highp float;
+precision highp int;
+layout(local_size_x=8,local_size_y=8) in;
+layout(std430,binding=2) readonly buffer SiteFlags{uint sflags[];}; // per canonical site of rows [2 x, 2 y) of mFlagsU
+// x = work groups of 8 listed words (the indirect dispatch's x, at most 65535), y / z = its y / z (the host), w = the listed words
+layout(std430,binding=20) buffer MarkList{uvec4 markCmd;uint markList[];};
+uniform ivec2 size;
+uniform ivec2 cfaShift;
+uniform ivec4 mFlagsU;
+uniform int chunkU;
+void main(){
+    int wx=int(gl_GlobalInvocationID.x),r=chunkU+int(gl_GlobalInvocationID.y);
+    if(wx>=size.x/2||r>=2*(mFlagsU.y-mFlagsU.x))return;
+    bool flagged=false;
+    for(int k=0;k<2;k++){ // the word's two sensor sites, canonical x = X - cfaShift.x on canonical row 2 mFlagsU.x + r
+        int x=2*wx+k-cfaShift.x;
+        if(x>=0&&x<size.x&&(sflags[uint(r*size.x+x)]&3u)!=0u)flagged=true;
+    }
+    if(!flagged)return;
+    uint i=atomicAdd(markCmd.w,1u);
+    markList[i]=uint(wx)|(uint(2*mFlagsU.x+r+cfaShift.y)<<16); // the word and its sensor row
+    if((i&7u)==0u&&i<8u*65535u)atomicAdd(markCmd.x,1u);
+}
+)";
+// P440: kHybMarkSparse = kHybMark up to its main (the declarations and helpers as they are) + this main: one invocation per listed
+// word (x, striding by the dispatch when the list outgrows it) and frame (y)
+static const char* kHybMarkSparseMain=R"(
+layout(std430,binding=20) readonly buffer MarkList{uvec4 markCmd;uint markList[];};
+uniform int markFramesU;     // the frames of the strip
+void main(){
+    int f=int(gl_GlobalInvocationID.y);
+    if(f>=markFramesU)return;
+    for(uint e=gl_GlobalInvocationID.x;e<markCmd.w;e+=gl_NumWorkGroups.x*8u){
+        uint v=markList[e];
+        int wx=int(v&0xFFFFu),Y=int(v>>16);
+        int row=Y-int(frameGeo[f].y);
+        if(row<0||row>=int(frameGeo[f].z))continue;
+        uint idx=frameGeo[f].x+uint(row*size.x+2*wx);
+        uint word=frames[idx>>1],read=word;
+        for(int k=0;k<2;k++){
+            int X=2*wx+k;
+            int x=X-cfaShift.x,y=Y-cfaShift.y;   // canonical
+            uint fl=siteOutlier(f,x,y);
+            if((mFlagsU.z&1)!=0&&x>=0&&y>=0&&cellClipped(f,x>>1,y>>1))fl|=2u;
+            uint sh=uint(16*k);
+            word=(word&~(0xC000u<<sh))|((fl&3u)<<(14u+sh));
+        }
+        if(word!=read)frames[idx>>1]=word;
+    }
+}
+)";
+inline std::string hybridMarkSparseSource(){
+    const std::string mark(kHybMark);
+    const size_t at=mark.find("// P76: one invocation per word of two rows");
+    if(at==std::string::npos)throw std::runtime_error("HYBRID GPU: kHybMark without its main");
+    return mark.substr(0,at)+kHybMarkSparseMain;
+}
 
 // Base frame guide per 2x2 cell: colour, texture variance, kernel covariance (Sabre 6.1 of the base RAW, or the round-4 tensor
 // of the raw greens).
@@ -1884,9 +1965,6 @@ layout(std430,binding=10) readonly buffer Guide{vec4 guide[];};
 uniform int ry0;
 uniform int ry1;
 uniform vec4 rj; // cdm, boost, variance threshold, filter variance scale
-// P418 rejEdge: 1 = a donor cell warped beyond the donor's frame is written as -1 (no sample: weight 0 as before, but kHybDilate
-// does not spread it as motion); 0 = 0 as before
-uniform int rejEdgeU;
 uniform vec4 rk; // boost mode (0 off, 1 local motion, 2 everywhere), motion threshold (RAW px), z: 1 = soft motion prior (P335),
                 // w: 1 = a normal donor clearly darker than a clipped base cell is rejected (P337 clipReject)
 uniform vec2 rp; // P341: x 1 = the distance of the 3 x 3 means (rejPool), y: a single cell's own excess over it (rejPoolT)
@@ -2179,7 +2257,7 @@ void main(){
         }
 #endif
     }
-    rawR[(f-1)*(ry1-ry0)*w2+(cy-ry0)*w2+cx]=rejEdgeU!=0&&!inside?-1.0:w;
+    rawR[(f-1)*(ry1-ry0)*w2+(cy-ry0)*w2+cx]=w;
 }
 )";
 
@@ -2245,9 +2323,8 @@ void main(){
         int y=clamp(cy+dj,ry0,ry1-1),x=clamp(cx+di,0,w2-1);
         float v=rawR[(f-1)*(ry1-ry0)*w2+(y-ry0)*w2+x];
 #endif
-        // P418: -1 = no sample beyond the donor's frame (rejEdge): weight 0 here, not spread as motion
-        s+=v<0.0?0.0:max(1.0-v-dl.w,0.0)/max(1.0-dl.w,1.0e-3);
-        if(di==0&&dj==0)wc=max(v,0.0);
+        s+=max(1.0-v-dl.w,0.0)/max(1.0-dl.w,1.0e-3);
+        if(di==0&&dj==0)wc=v;
     }
     float rej=clamp((s-dl.x)/max(dl.y,1.0e-3),0.0,1.0);
 #ifdef REJ_OPTS
@@ -2275,7 +2352,7 @@ void main(){
                 if(sh<1.0){
                     float acc=0.0;int cnt=0;
                     int yy=clamp(cy,ry0,ry1-1);
-                    for(int j=1;j<frameCount;j++){int role=int(fParam[j].w);if(role==5||role==3)continue;acc+=max(rawR[(j-1)*(ry1-ry0)*w2+(yy-ry0)*w2+cx],0.0);cnt++;}
+                    for(int j=1;j<frameCount;j++){int role=int(fParam[j].w);if(role==5||role==3)continue;acc+=rawR[(j-1)*(ry1-ry0)*w2+(yy-ry0)*w2+cx];cnt++;}
                     r*=mix(cnt>0?acc/float(cnt):1.0,1.0,smoothstep(0.9,1.0,sh));
                 }
             }
@@ -5074,6 +5151,50 @@ struct HybridRowsSink {
 // Any other event after the last one voids it. A caller of hybridReconstruct that changes such a result before it returns it must
 // send (null, 0, 0, 0, 0) first (today every caller returns it as it is). The hook must not throw.
 inline std::function<void(const float*,int,int,int,int)>& hybridFinalRowsHook(){static std::function<void(const float*,int,int,int,int)> f;return f;}
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune creLazy): the worker
+// loads the CRE when a merge first needs the corner tracker (hybridAlignmentEnsure: true when it is there); empty = the worker
+// loaded it before the merge, as before. Every place that tests the alignment before using it tests this too.
+inline std::function<bool()>& hybridAlignmentEnsure(){static std::function<bool()> ensure;return ensure;}
+inline bool hybridAlignmentReady(){const auto& e=hybridAlignmentEnsure();return !e||e();}
+// P440 (tune stripTrailers): the effective map's codes of n values, clamp(lround(v x scale), 1, 255): FCVTAS (round to nearest,
+// ties away from zero: lround) on eight products at a time whose magnitude is below 2^31 (lround's value there, bit for bit), the
+// scalar expression for the rest (NaN, infinity, beyond int32). tools/check_hybrid_strip_trailers.cpp: every float bit pattern.
+inline void hybridEffectiveCodes(const float* src,uint8_t* dst,int n,float scale){
+    int i=0;
+#if defined(__aarch64__)
+    const float32x4_t k=vdupq_n_f32(scale),lim=vdupq_n_f32(2147483520.f);
+    for(;i+8<=n;i+=8){
+        const float32x4_t a=vmulq_f32(vld1q_f32(src+i),k),b=vmulq_f32(vld1q_f32(src+i+4),k);
+        if(vminvq_u32(vandq_u32(vcaltq_f32(a,lim),vcaltq_f32(b,lim)))==0u){
+            for(int q=0;q<8;++q)dst[i+q]=uint8_t(std::clamp(std::lround(src[i+q]*scale),1L,255L));
+            continue;
+        }
+        const int32x4_t lo=vdupq_n_s32(1),hi=vdupq_n_s32(255);
+        const int32x4_t ra=vmaxq_s32(vminq_s32(vcvtaq_s32_f32(a),hi),lo),rb=vmaxq_s32(vminq_s32(vcvtaq_s32_f32(b),hi),lo);
+        vst1_u8(dst+i,vmovn_u16(vcombine_u16(vmovn_u32(vreinterpretq_u32_s32(ra)),vmovn_u32(vreinterpretq_u32_s32(rb)))));
+    }
+#endif
+    for(;i<n;++i)dst[i]=uint8_t(std::clamp(std::lround(src[i]*scale),1L,255L));
+}
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune fastExit): what the
+// worker no longer frees before its completion line - the merge's large buffers (OPPO, lamp2324: the merge's return took ~50 ms,
+// most of it frees). The worker sets the hook (hybridLater) when it leaves with _exit right after the line; anywhere else (a STOP,
+// the checks) the holder frees them when it goes.
+class HybridLater {
+public:
+    HybridLater()=default;
+    HybridLater(const HybridLater&)=delete;
+    HybridLater& operator=(const HybridLater&)=delete;
+    ~HybridLater(){drop();}
+    template<class T> void keep(T&& v){
+        auto held=std::make_shared<std::decay_t<T>>(std::forward<T>(v));
+        std::lock_guard<std::mutex> l(lock);kept.push_back(std::move(held));
+    }
+    void drop(){std::vector<std::shared_ptr<void>> k;{std::lock_guard<std::mutex> l(lock);k.swap(kept);}}
+private:
+    std::mutex lock;std::vector<std::shared_ptr<void>> kept;
+};
+inline HybridLater*& hybridLater(){static HybridLater* later=nullptr;return later;}
 // P364: the plain merge's chroma median on its rows while the GPU merges the next strips (MosaicChromaOverlap without an oscillation
 // map: the stream of mosaicChromaMedian's CPU path, the same floats); defined after it
 inline std::unique_ptr<HybridRowsSink> hybridPlainChromaSink(int width,int height,int block);
@@ -5447,6 +5568,9 @@ class HybridGpu {
     const char* cellsSource=nullptr;const char* cellsName="cells";
     // P214k: the plausibility cap of the fixed-pattern test (kHybFlagCap / kHybFlagPrune; compiled with the outlier programs)
     GLuint capProgram=0,pruneProgram=0;
+    // P440: the sparse outlier mark (kHybMarkList / kHybMarkSparse; compiled with the outlier programs, 0 = the full kHybMark pass)
+    // and its word list (binding 20, outside the slots: written and read on the GPU only; the host resets its command per strip)
+    GLuint markListProgram=0,markSparseProgram=0,markListBuf=0;size_t markListCap=0;
     // P34: the fast native merge (kHybNatNorm + kHybMergeMosaicFast [block Quad / Tetra][window r][marked][fill], compiled when
     // first used) and the normalised 2x2 cells of the strip (binding 18, outside the slots: written and read on the GPU only, one bank)
     GLuint natNormProgram=0,natFast[2][9][2][2]{},natNormBuf=0,natFieldBuf=0;
@@ -5524,6 +5648,8 @@ class HybridGpu {
             for(GLuint program:blendStages)if(program&&program!=blendProgram)glDeleteProgram(program); // P364
             for(GLuint program:{natMeanProgram,natFlagsProgram,natMarkProgram,mosaicProgram,natNormProgram})if(program)glDeleteProgram(program); // P29
             for(GLuint program:{capProgram,pruneProgram})if(program)glDeleteProgram(program); // P214k
+            for(GLuint program:{markListProgram,markSparseProgram})if(program)glDeleteProgram(program); // P440
+            if(markListBuf)glDeleteBuffers(1,&markListBuf);
             if(cellsOther)glDeleteProgram(cellsOther); // P364
             for(auto& byBlock:natFast)for(auto& byR:byBlock)for(auto& byMark:byR)for(GLuint program:byMark)if(program)glDeleteProgram(program); // P34
             for(auto& byBlock:natFastFill)for(auto& byR:byBlock)for(GLuint program:byR)if(program)glDeleteProgram(program); // P204
@@ -5755,6 +5881,7 @@ public:
             {cellsProgram,"cells"},{rejectProgram,"reject"},{dilateProgram,"dilate"},{mergeProgram,"merge"},{rimProgram,"rim"},
             {bentoProgram,"bento"},{chromaProgram,"chroma"},{blendProgram,"blend"},{capProgram,"cap"},{pruneProgram,"prune"},
             {blendStages[0],"blend"},{blendStages[2],"blend"},{blendStages[3],"blend"},{blendStages[4],"blend"}, // P364: one sum
+            {markListProgram,"markList"},{markSparseProgram,"markSparse"}, // P440
             {natMeanProgram,"natMean"},{natFlagsProgram,"natFlags"},{natMarkProgram,"natMark"},{natNormProgram,"natNorm"}};
         std::vector<std::pair<std::string,double>> sums;
         for(auto& [program,ms]:programMs){
@@ -5903,6 +6030,16 @@ public:
                 pruneProgram=timed("prune",kHybFlagPrune,true);
             } else if(early)early("HYBRID GPU: outlier tests off, mean / flags programs not compiled");
             markProgram=timed("mark",kHybMark,true);
+            GLint ssboBindings=0;glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS,&ssboBindings);
+            if(outlierPrograms&&ssboBindings>20&&!std::getenv("SCAM_NO_MARK_SPARSE")){ // P440: a driver that refuses them (or binding 20) leaves the full mark pass
+                try{markListProgram=timed("markList",kHybMarkList,true);markSparseProgram=timed("markSparse",hybridMarkSparseSource().c_str(),true);}
+                catch(const std::exception& e){
+                    while(glGetError()!=GL_NO_ERROR){}
+                    if(markListProgram)glDeleteProgram(markListProgram);
+                    markListProgram=markSparseProgram=0;
+                    if(early)early(std::string("HYBRID GPU: sparse outlier mark not built (")+e.what()+"): the full mark pass");
+                }
+            }
             guideProgram=timed("guide",dcg?hybridDcgSources().guide.c_str():kHybGuide); // P320: the zone's texture floor
             // P377: kHybCells on every GPU (md5 as kHybCellsPlain); kHybCellsPlain after a compiler died on it (cellsPlain 1)
             if(hybridCellsPlain()){cellsSource=kHybCellsPlain;cellsName="cellsPlain";} else cellsSource=kHybCells;
@@ -6233,6 +6370,19 @@ public:
         glUniform4f(loc(markProgram,"black"),in.black[0],in.black[1],in.black[2],in.black[3]);
         glUniform4f(loc(markProgram,"inv"),in.inv[0],in.inv[1],in.inv[2],in.inv[3]);
         glUniform1f(loc(markProgram,"clipLevel"),tune.clipLevel);
+        // P440: the sparse mark (the outlier tests on, tune markSparse): its two programs' uniforms as the mark's
+        const bool sparseMark=markListProgram&&markSparseProgram&&tune.markSparse>0;
+        if(sparseMark){
+            glUseProgram(markSparseProgram);
+            glUniform2i(loc(markSparseProgram,"size"),w,h);glUniform2i(loc(markSparseProgram,"cfaShift"),in.cfa&1,in.cfa>>1);
+            glUniform4f(loc(markSparseProgram,"black"),in.black[0],in.black[1],in.black[2],in.black[3]);
+            glUniform4f(loc(markSparseProgram,"inv"),in.inv[0],in.inv[1],in.inv[2],in.inv[3]);
+            glUniform1f(loc(markSparseProgram,"clipLevel"),tune.clipLevel);
+            glUniform1i(loc(markSparseProgram,"markFramesU"),frames);
+            glUseProgram(markListProgram);
+            glUniform2i(loc(markListProgram,"size"),w,h);glUniform2i(loc(markListProgram,"cfaShift"),in.cfa&1,in.cfa>>1);
+            if(!markListBuf)glGenBuffers(1,&markListBuf);
+        }
         for(GLuint program:programs){
             glUseProgram(program);
             glUniform2i(loc(program,"size"),w,h);
@@ -6301,7 +6451,6 @@ public:
         glUniform4f(loc(rejectProgram,"rj"),tune.cdm,tune.boost,tune.varianceThreshold,tune.filterVariance);
         // boost mode 1 needs the Z channel of the local alignment; without it only the forced mode 2 boosts
         const float boostMode=tune.boostEnable>1.5f?2.f:(tune.boostEnable>0.5f&&localAlign?1.f:0.f);
-        glUniform1i(loc(rejectProgram,"rejEdgeU"),tune.rejEdge>0?1:0);
         glUniform4f(loc(rejectProgram,"rk"),boostMode,tune.motionThreshold,tune.rejPrior>0.f?1.f:0.f,tune.clipReject>0.f?1.f:0.f);
         glUniform2f(loc(rejectProgram,"rp"),tune.rejPool>2.5f?3.f:tune.rejPool>1.5f?2.f:tune.rejPool>0.f?1.f:0.f,tune.rejPoolT);
         // P344: the rejection options (all 0 = the program's results as before)
@@ -6860,19 +7009,15 @@ public:
                 glUniform4i(loc(markProgram,"mFlagsU"),ry0,ry1,stripMode,0);
                 const GLint frameIdx=loc(markProgram,"frameIdx");
                 int maxRows=1;for(int f=0;f<frames;++f)maxRows=std::max(maxRows,rows[f]);
-                if(stripMode==1){
-                    // P33 W2.2: cell clip only (no outlier sites): the rows of the 32-row blocks that hold a clipped sample, and of
-                    // their neighbour blocks (a canonical cell may straddle two blocks). Everywhere else the pass writes the words
-                    // back unchanged (fresh uploads: flag bits 0, no clipped cell), so it is not dispatched there.
-                    const GLint chunkLoc=loc(markProgram,"chunkU");
-                    const int chunk=chunkOf(128);
-                    const auto markStarted=std::chrono::steady_clock::now();
+                // P33 W2.2 (P440: also before the sparse outlier mark): the rows of the 32-row blocks that hold a clipped sample, and of
+                // their neighbour blocks (a canonical cell may straddle two blocks), frame by frame
+                auto markClipRuns=[&](GLint chunkLoc,GLint frameIdxLoc,int chunk){
                     auto clipNear=[&](int f,int bk){
                         for(int d=-1;d<=1;++d){const int bb=bk+d;if(bb>=0&&bb<blocks&&clipBlock[size_t(f)*blocks+bb])return true;}
                         return false;
                     };
                     for(int f=0;f<frames;++f){
-                        glUniform1i(frameIdx,f);
+                        glUniform1i(frameIdxLoc,f);
                         int runStart=-1;
                         const int firstBlock=row0[f]/kBlock,lastBlock=(row0[f]+rows[f]-1)/kBlock;
                         for(int bk=firstBlock;bk<=lastBlock+1;++bk){
@@ -6888,9 +7033,52 @@ public:
                             }
                         }
                     }
+                };
+                if(stripMode==1){
+                    // P33 W2.2: cell clip only (no outlier sites): the clipped blocks' rows. Everywhere else the pass writes the words
+                    // back unchanged (fresh uploads: flag bits 0, no clipped cell), so it is not dispatched there.
+                    const GLint chunkLoc=loc(markProgram,"chunkU");
+                    const int chunk=chunkOf(128);
+                    const auto markStarted=std::chrono::steady_clock::now();
+                    markClipRuns(chunkLoc,frameIdx,chunk);
                     glFlush();
                     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                     if(profile){glFinish();passMs[7]+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-markStarted).count();}
+                } else if(sparseMark&&(stripMode&2)){
+                    // P440: the clipped blocks' rows as above with the strip's mode (the clip test skips the outlier sites), then the
+                    // words that hold a flagged site (kHybMarkList over the strip's flag rows, kHybMarkSparse over the list x frames)
+                    const GLint chunkLoc=loc(markProgram,"chunkU");
+                    const int chunk=chunkOf(128);
+                    const auto markStarted=std::chrono::steady_clock::now();
+                    if(stripMode&1)markClipRuns(chunkLoc,frameIdx,chunk);
+                    glFlush();
+                    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                    if(profile){glFinish();const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-markStarted).count();
+                        passMs[7]+=ms;programMs.push_back({markProgram,ms});}
+                    const int flagRows=2*(ry1-ry0);
+                    const size_t listBytes=16+size_t(flagRows)*size_t(w/2)*4; // every word of the flag rows at most
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER,markListBuf);
+                    if(markListCap<listBytes){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(listBytes),nullptr,GL_DYNAMIC_DRAW);markListCap=listBytes;}
+                    const GLuint cmd[4]={0u,GLuint((frames+7)/8),1u,0u};
+                    glBufferSubData(GL_SHADER_STORAGE_BUFFER,0,16,cmd);
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,20,markListBuf);
+                    glUseProgram(markListProgram);
+                    glUniform4i(loc(markListProgram,"mFlagsU"),ry0,ry1,stripMode,0);
+                    dispatchRows(markListProgram,w/2,flagRows,1,chunkOf(256),7);
+                    glUseProgram(markSparseProgram);
+                    glUniform4i(loc(markSparseProgram,"mFlagsU"),ry0,ry1,stripMode,0);
+                    {
+                        const auto t0=std::chrono::steady_clock::now();
+                        glMemoryBarrier(GL_COMMAND_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+                        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER,markListBuf);
+                        glDispatchComputeIndirect(0);
+                        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER,0);
+                        glFlush();
+                        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                        if(profile){glFinish();const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+                            passMs[7]+=ms;programMs.push_back({markSparseProgram,ms});}
+                    }
+                    glUseProgram(markProgram);
                 } else {
                 glUniform1i(frameIdx,0);
                 // two rows an invocation (kHybMark): chunkU stays in rows, the groups cover half of them
@@ -11107,7 +11295,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     };
     // W1.2: the CRE groups' guides (the prefetch drops what the groups did not take after the last group, or on an exception)
     struct PrefetchDrop { bool on=false; ~PrefetchDrop(){if(on&&scamAlignmentPrefetch())scamAlignmentPrefetch()(nullptr,{});} } prefetchDrop;
-    if(ahead&&alignment&&!presetAlignment&&n>1&&scamAlignmentPrefetch()&&!(tune.gpuAlign==1&&laGpuUse)){ // P364: none for the GPU alignment
+    if(ahead&&alignment&&!presetAlignment&&n>1&&scamAlignmentPrefetch()&&!(tune.gpuAlign==1&&laGpuUse)&&hybridAlignmentReady()){ // P364: none for the GPU alignment
         std::vector<std::pair<const uint16_t*,float>> donors;
         for(int f=1;f<n;++f)donors.emplace_back(input.frames[f].raw,input.frames[f].exposure);
         scamAlignmentPrefetch()(&b,donors);prefetchDrop.on=true;
@@ -11494,7 +11682,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         usFallback.clear();
         for(auto& [f,done]:usAsync){done.get();streamFeed(f);}
         usAsync.clear();
-    } else if(alignment){
+    } else if(alignment&&hybridAlignmentReady()){ // P440: a CRE loaded only now (creLazy) that is not there: the global translation
         std::vector<Guide> fallbackRef; // base pyramid of the translation fallback, built on the first failed group
         for(int first=1;first<n;first+=6){
             usCheckJoin(false); // P364
@@ -12677,8 +12865,54 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     HybridRowsSink* const sink=native&&native->rowsSink&&!caModel.ok&&!(mergedDng&&input.mergedDng)&&up2x==1?native->rowsSink:plainSink.get();
     struct SinkStop {HybridRowsSink* sink;~SinkStop(){if(sink)sink->stop();}} sinkStop{sink};
     bool sunk=false;
+    // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune stripTrailers): the
+    // clip flags (shifted to the RGGB origin, P309's Bento bit, the counts) and the effective map's samples of every strip's rows
+    // once they are read back, on the merge thread while the GPU merges the next strip (they were whole-frame passes after the
+    // merge: OPPO, lamp2324, ~50 + ~80 ms of the tail); the same values in the same vectors. The rows [0, rows) of flagsRaw and
+    // effective are final when the merge hands rows over (in.rowsDone: the readback of the strip that finished them).
+    const size_t tpx=size_t(outW)*size_t(outH);
+    const bool stripTrailers=tune.stripTrailers>0&&!std::getenv("SCAM_TRAILERS_LATE")&&(clipFlags||effMap);
+    const int flagDx=(input.cfa&1)*grid,flagDy=(input.cfa>>1)*grid;
+    int flagRowsDone=0;size_t effSampled=0;std::array<long,256> flagHist{};std::vector<float> effSample;bool flagsMade=false;
+    auto stripFinish=[&](int rows){
+        if(clipFlags&&!flagsRaw.empty()&&flagsRaw.size()==tpx){
+            if(!flagsMade){clipFlags->assign(tpx,0);flagsMade=true;}
+            uint8_t* const flagsDst=clipFlags->data();
+            const int yEnd=rows>=outH?outH:std::min(outH,rows+flagDy);
+            const int cw=w/2,ch=h/2;
+            const bool prevOn=bentoPrevOn.size()==size_t(cw)*size_t(ch);
+            const int lead=std::min(flagDx,outW);
+            for(int y=flagRowsDone;y<yEnd;++y){
+                const uint8_t* src=flagsRaw.data()+size_t(std::max(0,y-flagDy))*outW;
+                uint8_t* d=flagsDst+size_t(y)*outW;
+                std::memset(d,src[0],size_t(lead));std::memcpy(d+lead,src,size_t(outW-lead)); // d[x] = src[max(0, x - dx)]
+                // the flagged pixels (few; eight zero bytes at a time skipped): P309's bit 4 and the counts (zeros not counted)
+                for(int x=0;x<outW;){
+                    if(x+8<=outW){uint64_t q;std::memcpy(&q,d+x,8);if(q==0){x+=8;continue;}}
+                    uint8_t v=d[x];
+                    // P309: the ramp spreads the mask (m > 0) over a clip's glow; the post's "inside the Bento mask" (bit 4: the clip
+                    // level of the ultrashort frames, the light statistics of hlrecovery) stays where the previous mask was
+                    if((v&16)!=0&&prevOn){
+                        const size_t c=size_t(std::min(ch-1,std::max(0,y-flagDy)/(2*grid)))*size_t(cw)+size_t(std::min(cw-1,std::max(0,x-flagDx)/(2*grid)));
+                        if(!bentoPrevOn[c]){v&=uint8_t(~16u);d[x]=v;}
+                    }
+                    if(v)++flagHist[v];
+                    ++x;
+                }
+            }
+            flagRowsDone=std::max(flagRowsDone,yEnd);
+        }
+        if(effMap&&effective.size()==tpx){
+            if(effSample.empty())effSample.resize((tpx+6)/7);
+            const size_t end=std::min(tpx,size_t(std::max(rows,0))*size_t(outW));
+            size_t k=effSampled;
+            for(;7*k<end;++k)effSample[k]=effective[7*k];
+            effSampled=k;
+        }
+    };
     // P31 (W1.7): the context goes to a helper thread after the merge (its buffers and programs take 19-57 ms to destroy), joined
-    // before this function returns; the CPU tail below runs meanwhile.
+    // before this function returns; the CPU tail below runs meanwhile. (P440: still joined here - it ends long before the tail
+    // does, and an EGL display torn down beside the other contexts' teardown at the return is not worth its ~0 ms)
     struct GpuTeardown {
         std::thread thread;double ms=0;
         void start(std::unique_ptr<HybridGpu> gpu){
@@ -12700,6 +12934,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     auto gpuMerge=[&](bool withLocalAlign){
         const auto gpuStarted=Clock::now();
         scam_progress::pass("gpu"); // P220: the context and its programs (each program a tick), then Mochi and the strips
+        if(stripTrailers)in.rowsDone=nullptr; // P440: (set below for this attempt)
         if(sink){ // P213c: a new consumer for every attempt (begin stops the one of a failed attempt before the merge writes out again)
             sink->begin(outW,outH,(input.cfa&1)*grid,(input.cfa>>1)*grid);
             in.rowsDone=[sink](std::vector<float>& rgb,int rows){sink->rows(rgb.data(),rows);};
@@ -12709,6 +12944,14 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             in.rowsDone=[&,sink](std::vector<float>& rgb,int rows){
                 const auto t0=Clock::now();caBands->advance(rgb,rows);caBandsMs+=millis(Clock::now()-t0);
                 if(sink&&caBands->done()>0)sink->rows(rgb.data(),caBands->done());
+            };
+        }
+        if(stripTrailers){ // P440: an attempt's trailer rows from row 0, made after the consumer got its rows
+            flagRowsDone=0;effSampled=0;flagHist.fill(0);
+            auto inner=in.rowsDone;
+            in.rowsDone=[&,inner](std::vector<float>& rgb,int rows){
+                if(inner)inner(rgb,rows);
+                stripFinish(rows);
             };
         }
         const bool blendPass=bento.active&&in.blend;
@@ -12899,6 +13142,33 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             +" ms ("+std::to_string(during)+" rows during the merge, "+std::to_string(int(millis(Clock::now()-caStarted)))+" ms after it)");
     };
     if(sink&&caModel.ok)finishCa();
+    // P440 (stripTrailers): the clip flags' and the samples' last rows, then the effective map's codes (the median of the whole
+    // frame's samples) while the consumer finishes the median's last rows; the lines go out where they did. A trailer whose plane
+    // the merge did not give in full is made after the merge as before.
+    bool flagsStrip=false,effStrip=false;std::string effLine;
+    if(stripTrailers){
+        stripFinish(outH);
+        flagsStrip=clipFlags&&(flagsRaw.empty()||flagsMade);
+        effStrip=effMap&&effective.size()==tpx&&effSampled==effSample.size();
+    }
+    if(effStrip){
+        float median=1.f;
+        if(!effSample.empty()){std::nth_element(effSample.begin(),effSample.begin()+effSample.size()/2,effSample.end());median=std::max(effSample[effSample.size()/2],1.f);}
+        const float codeScale=64.f/median;
+        effMap->assign(tpx,0);
+        uint8_t* const dst=effMap->data();
+        auto codes=[&](int y0,int y1){ // P30: rows on all cores (the same codes)
+            const int lead=std::min(flagDx,outW);
+            for(int y=y0;y<y1;++y){
+                const float* src=effective.data()+size_t(std::max(0,y-flagDy))*outW;
+                uint8_t* d=dst+size_t(y)*outW;
+                for(int x=0;x<lead;++x)d[x]=uint8_t(std::clamp(std::lround(src[0]*codeScale),1L,255L));
+                hybridEffectiveCodes(src,d+lead,outW-lead,codeScale);
+            }
+        };
+        if(sink)codes(0,outH); else mergeRowBands(outH,codes); // beside the consumer: this thread alone
+        effLine="HYBRID EFFECTIVE MAP: median frames="+std::to_string(median)+" code scale="+std::to_string(codeScale);
+    }
     if(sink){sunk=sink->finish(out.data());in.rowsDone=nullptr;} // P213c: the last rows (the consumer reports its wait itself)
     scam_progress::pass("finish"); // P220: CA, the DNG RAW, the maps and flags of the merged result
     if(caModel.ok&&!caFinished)finishCa();
@@ -12964,7 +13234,8 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             +(stillSeen==0?", hand-held: x"+std::to_string(keepMedian):stillSeen==1?", still burst: whole":"")+") "
             +std::to_string(int(millis(Clock::now()-t0)))+" ms");
     }
-    if(effMap){
+    if(effStrip)report(effLine); // P440: made while the consumer finished
+    else if(effMap){
         std::vector<float> sample;sample.reserve(effective.size()/7+1);
         for(size_t i=0;i<effective.size();i+=7)sample.push_back(effective[i]);
         float median=1.f;
@@ -12980,14 +13251,24 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         });
         report("HYBRID EFFECTIVE MAP: median frames="+std::to_string(median)+" code scale="+std::to_string(codeScale));
     }
-    std::vector<float>().swap(effective);
+    // P440 (fastExit): the merge's leftovers to the worker's holder (freed after its completion line) - the burst's own plain merge
+    // only (no mosaic split, native or large merge, no 2x resize: nothing runs after this function but the output write)
+    HybridLater* const later=hybridLater()&&!large&&!native&&!preset&&input.subFrames<=1&&up2x==1?hybridLater():nullptr;
+    if(later)later->keep(std::move(effective)); else std::vector<float>().swap(effective);
     // Clip flags trailer (uint8 per output pixel, same grid and origin as the effective map): bit 0/1/2 = R/G/B came from the
     // clipped mean (no sample of that colour outside clipped cells in the kernel window: a lower bound where that colour itself
     // clipped; with cellClip the other colours of a clipped cell keep their real values, so consumers still compare the value
     // with the clip level), 3 = a sample of a clipped cell was excluded near this pixel (clip border), 4 = inside the Bento mask,
     // 5 = the clipped mean holds the ultrashort frame (clip at k x white instead of 1 x white), 6 = bit 3 and the clip-border
     // colour pass (kHybRim, rimRatio) ran: R/B there are the worker's (rebuilt from real-site ratios where they were inconsistent).
-    if(clipFlags){
+    if(clipFlags&&flagsStrip){ // P440: the rows were made after each strip's readback (stripFinish); a merge without flag rows: zeros
+        if(!flagsMade){clipFlags->assign(tpx,0);flagHist.fill(0);}
+        long counts[7]{};
+        for(int v=1;v<256;++v)for(int k=0;k<7;++k)if(v&(1<<k))counts[k]+=flagHist[size_t(v)];
+        report("HYBRID CLIP FLAGS: trailer "+std::to_string(outW)+"x"+std::to_string(outH)+" uint8 (bits R,G,B clipped mean, border, Bento, ultrashort) R="
+            +std::to_string(counts[0])+" G="+std::to_string(counts[1])+" B="+std::to_string(counts[2])+" border="+std::to_string(counts[3])
+            +" bento="+std::to_string(counts[4])+" ultrashort="+std::to_string(counts[5])+(counts[6]?" rimChecked="+std::to_string(counts[6]):std::string()));
+    } else if(clipFlags){
         clipFlags->assign(size_t(outW)*outH,0);
         const int dx=(input.cfa&1)*grid,dy=(input.cfa>>1)*grid;
         long counts[7]{},hist[256]{};
@@ -13014,7 +13295,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             +std::to_string(counts[0])+" G="+std::to_string(counts[1])+" B="+std::to_string(counts[2])+" border="+std::to_string(counts[3])
             +" bento="+std::to_string(counts[4])+" ultrashort="+std::to_string(counts[5])+(counts[6]?" rimChecked="+std::to_string(counts[6]):std::string()));
     }
-    std::vector<uint8_t>().swap(flagsRaw);
+    if(later)later->keep(std::move(flagsRaw)); else std::vector<uint8_t>().swap(flagsRaw);
     if(tune.profile&&teardown.thread.joinable()){ // P31 (W1.7): what the helper thread took off the merge
         const auto waitStarted=Clock::now();teardown.join();
         report("HYBRID GPU: context destroyed on a helper thread in "+std::to_string(int(teardown.ms))+" ms (waited "
@@ -13049,6 +13330,17 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     if(statsOut)*statsOut=stats;
     // P371: the result as the plain sink gave its rows (shifted and consumed there; nothing above changed it after finish)
     if(finalRowsOut&&sunk&&sink==plainSink.get())if(const auto& hook=hybridFinalRowsHook())hook(out.data(),outW,outH,-1,-1);
+    if(later){
+        // P440 (fastExit): the merge's large buffers freed after the worker's completion line; the tasks that write them are done
+        // first (their futures waited, as their destructors would have)
+        for(auto& m:earlyMask)if(m.f.valid())m.f.wait();
+        for(auto& m:earlyMotion)if(m.f.valid())m.f.wait();
+        if(usBaseAhead.valid())usBaseAhead.wait();
+        later->keep(std::move(mochiRaw));later->keep(std::move(bento));later->keep(std::move(bentoValids));later->keep(std::move(bentoZ));
+        later->keep(std::move(bentoRegions));later->keep(std::move(scopeWeights));later->keep(std::move(laFields));later->keep(std::move(laMotions));
+        later->keep(std::move(laAll));later->keep(std::move(laZAll));later->keep(std::move(earlyMask));later->keep(std::move(earlyMotion));
+        later->keep(std::move(usRegBase));later->keep(std::move(effSample));
+    }
     return out;
 }
 
@@ -14515,7 +14807,7 @@ inline std::vector<float> hybridReconstructMosaic(const HybridInput& input,int b
     std::vector<BackwardHomography> Hr(m);std::vector<bool> ok(m,true);
     Burst bb;bb.w=vw;bb.h=vh;bb.cfa=input.cfa;bb.white=input.white;bb.black=input.black;bb.canonicalRggb=true;
     for(int s=0;s<7;++s){bb.raw[s]=binned.data();bb.exposure[s]=1;bb.iso[s]=std::max(1u,input.frames[0].iso);}
-    if(alignment){
+    if(alignment&&hybridAlignmentReady()){ // P440: a CRE loaded only now (creLazy) that is not there: the global translation
         std::vector<Guide> fallbackRef; // as hybridReconstruct: a failed CRE group takes the global translation
         for(int first=1;first<m;first+=6){
             Burst group=bb;const int count=std::min(6,m-first);

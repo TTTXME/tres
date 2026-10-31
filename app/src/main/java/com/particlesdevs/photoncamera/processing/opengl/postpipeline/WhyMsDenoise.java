@@ -100,7 +100,10 @@ public final class WhyMsDenoise extends Node {
         final float shadow = Math.max(0f, WhyTone.value("ms_shadow", 1.5f));
         final List<GLTexture> owned = new ArrayList<>();
         final float[] motion = motionBoost(WhyTone.value("ms_motion", 1f));
-        if (com.particlesdevs.photoncamera.settings.MotionMode.sharpPriority()) motion[0] = -0.75f;
+        final SportsDenoisePolicy sports = pipeline.sportsDenoise != null ? pipeline.sportsDenoise
+                : SportsDenoisePolicy.of(com.particlesdevs.photoncamera.settings.MotionMode.on(),
+                        com.particlesdevs.photoncamera.settings.MotionMode.sharpPriority(), Float.NaN, pipeline.noiseS, pipeline.noiseO);
+        sports.applyMs(th, motion);
         final java.nio.ByteBuffer eff = ScamHybridBurst.lastEffectiveFrames;
         final float effScale = effScale(ScamHybridBurst.lastEffectiveMedian);
         try {
@@ -166,7 +169,8 @@ public final class WhyMsDenoise extends Node {
             WorkingTexture = out;
             Log.i("SCAM_PIPELINE", "ms denoise: model x" + model + " luma " + th[0][0] + "/" + th[1][0] + "/" + th[2][0] + " chroma "
                     + th[0][1] + "/" + th[1][1] + "/" + th[2][1] + " shadow " + shadow + (effMap != null ? " motion " + motion[0] + "/"
-                    + motion[1] : "") + " ms=" + (System.currentTimeMillis() - started));
+                    + motion[1] : "") + (com.particlesdevs.photoncamera.settings.MotionMode.on() ? " sports=" + sports : "")
+                    + " ms=" + (System.currentTimeMillis() - started));
         } finally {
             for (GLTexture t : owned) t.close();
             glProg.closed = true;

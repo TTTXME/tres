@@ -62,11 +62,23 @@ public final class WhyLumaSharpen extends Node {
     }
 
     /**
-     * P369 (texture-sharpen): an amount of our look (the guided filter's local contrast, the sharpening's grain) under a film:
+     * An amount of our sharpening under a film:
      * x (1 - the simulation's strength), none at 100 %; without a film the amount itself, bit for bit.
      */
     static float filmShare(float amount, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
         return film == null ? amount : amount * (1f - film.strength);
+    }
+
+    static boolean cleanDomain(float configured, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        return film != null && film.strength > 0f || Math.round(configured) >= 1;
+    }
+
+    static boolean neutralFilmGuide(@androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        return film != null && film.strength >= 1f;
+    }
+
+    static boolean detailReferenceWanted(float sharpGain, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        return film != null || sharpGain != 0f;
     }
 
     /**
@@ -265,7 +277,7 @@ public final class WhyLumaSharpen extends Node {
      * ae domain, which needs the exposure.
      */
     boolean runEarly(PostPipeline pipeline, GLTexture input) {
-        if (Math.round(WhyTone.value("sharp_domain", 1f)) < 1 || pipeline.why == null || input == null) return false;
+        if (!cleanDomain(WhyTone.value("sharp_domain", 1f), pipeline.film) || pipeline.why == null || input == null) return false;
         issue(pipeline, input, true);
         earlyInput = input;
         return true;
@@ -298,7 +310,7 @@ public final class WhyLumaSharpen extends Node {
         WhyTone.State st = pipeline.why;
         long started = System.currentTimeMillis();
         Point size = input.mSize;
-        boolean gClean = Math.round(WhyTone.value("sharp_domain", 1f)) >= 1;
+        boolean gClean = cleanDomain(WhyTone.value("sharp_domain", 1f), pipeline.film);
         float mul = gClean ? 1f : st.ae.ae;
         float scaleSetting = WhyTone.value("sharp_scale", 0f);
         float s = scaleSetting > 0f ? Math.min(scaleSetting, 4f) : Math.max(1, Math.round(pipeline.mParameters.outputScale));
@@ -308,34 +320,33 @@ public final class WhyLumaSharpen extends Node {
         // P135: a noisy (night) shot gets a share of the sharpening, by the SNR the denoise measured
         final float lowLight = lowLightFactor(pipeline.mParameters.finishSnr);
         float usmRadius = WhyTone.value("sharp_usm_radius", 0.1f);
-        float usmAmount = WhyTone.value("sharp_usm_amount", 0.5f) * lowLight;
+        float usmAmount = filmShare(WhyTone.value("sharp_usm_amount", 0.5f) * lowLight, pipeline.film);
         float usmThresh = WhyTone.value("sharp_usm_thresh", 0f) / 255f;
         float bilRadius = WhyTone.value("sharp_bilateral_radius", 0.5f);
-        float bilAmount = WhyTone.value("sharp_bilateral_amount", 1f) * lowLight;
+        float bilAmount = filmShare(WhyTone.value("sharp_bilateral_amount", 1f) * lowLight, pipeline.film);
         float bilColor = Math.max(WhyTone.value("sharp_bilateral_color", 10f) / 100f, 0.001f);
         float halo = clamp01(WhyTone.value("sharp_halo_control", 100f) / 100f);
         float protectShadows = clamp01(WhyTone.value("sharp_protect_shadows", 0f) / 100f);
         float protectHighlights = clamp01(WhyTone.value("sharp_protect_highlights", 100f) / 100f);
         int gfRadius = Math.round(WhyTone.value("sharp_gf_radius", 8f));
         float gfEps = Math.max(WhyTone.value("sharp_gf_eps_e3", 10f) * 0.001f, 1e-6f);
-        // P369 (texture-sharpen): with a film (any, B10) the guided filter's local contrast and the sharpening's own grain - our
-        // look - only on the share the simulation's strength leaves; USM, bilateral and RL (they restore the merge's blur) stay
+        // Every digital sharpening amount yields to the film's softness and halation.
         float gfLc = filmShare(WhyTone.value("sharp_gf_lc", 0f) * lowLight, pipeline.film);
         float grain = filmShare(WhyTone.value("sharp_film_grain", 0f) / 255f, pipeline.film);
         // P404: the reference app's Sobel edge boost (amount, threshold / 255) and edge thinning; 0 = off
-        float sobelAmount = WhyTone.value("sharp_sobel_amount", 0f) * lowLight, sobelThresh = WhyTone.value("sharp_sobel_thresh", 0f) / 255f;
-        float thin = WhyTone.value("sharp_edge_thinning", 0f);
+        float sobelAmount = filmShare(WhyTone.value("sharp_sobel_amount", 0f) * lowLight, pipeline.film), sobelThresh = WhyTone.value("sharp_sobel_thresh", 0f) / 255f;
+        float thin = filmShare(WhyTone.value("sharp_edge_thinning", 0f), pipeline.film);
         float rlHalo = clamp01(WhyTone.value("sharp_rl_halo_control", 100f) / 100f);
         float rlMargin = WhyTone.value("sharp_rl_halo_margin", 0.15f);
         float rlMacro = WhyTone.value("sharp_rl_halo_macro", 0.4f);
         // (kernel, radius, amount, iterations) of the three RL stages; X8U: Airy 1 x3, off, Gaussian 0.5 x3
         float[][] rl = {
-                {WhyTone.value("sharp_rl1_kernel", 2f), WhyTone.value("sharp_rl1_rad", 1f), WhyTone.value("sharp_rl1_amount", 1f) * lowLight, WhyTone.value("sharp_rl1_iters", 3f),
+                {WhyTone.value("sharp_rl1_kernel", 2f), WhyTone.value("sharp_rl1_rad", 1f), filmShare(WhyTone.value("sharp_rl1_amount", 1f) * lowLight, pipeline.film), WhyTone.value("sharp_rl1_iters", 3f),
                         WhyTone.value("sharp_rl1_damping", 0f)},
-                {WhyTone.value("sharp_rl2_kernel", 1f), WhyTone.value("sharp_rl2_rad", 0f), WhyTone.value("sharp_rl2_amount", 0f) * lowLight, WhyTone.value("sharp_rl2_iters", 0f),
+                {WhyTone.value("sharp_rl2_kernel", 1f), WhyTone.value("sharp_rl2_rad", 0f), filmShare(WhyTone.value("sharp_rl2_amount", 0f) * lowLight, pipeline.film), WhyTone.value("sharp_rl2_iters", 0f),
                         WhyTone.value("sharp_rl2_damping", 0f)},
                 {WhyTone.value("sharp_rl3_kernel", 0f), WhyTone.value("sharp_rl3_rad", 0.5f),
-                        com.particlesdevs.photoncamera.settings.DeviceDefaults.rl3Amount(WhyTone.value("sharp_rl3_amount", 1.5f), pipeline.mParameters.cameraID) * lowLight,
+                        filmShare(com.particlesdevs.photoncamera.settings.DeviceDefaults.rl3Amount(WhyTone.value("sharp_rl3_amount", 1.5f), pipeline.mParameters.cameraID) * lowLight, pipeline.film),
                         WhyTone.value("sharp_rl3_iters", 3f), WhyTone.value("sharp_rl3_damping", 0f)}};   // P404: the TV damping per stage
 
         GLTexture gainMap = pipeline.GainMap;
@@ -353,6 +364,15 @@ public final class WhyLumaSharpen extends Node {
         glProg.drawBlocks(ya);
         final boolean released = releaseImage(pipeline, input, gainMap, mul);
         if (fallback != null) fallback.close();
+        if (neutralFilmGuide(pipeline.film)) {
+            st.lumaS = ya;
+            st.sharpMul = mul;
+            glProg.closed = true;
+            Log.i("SCAM_PIPELINE", "WHY luma sharpen film neutral guide grid=" + size.x + "x" + size.y
+                    + " domain=G_CLEAN mul=" + mul + " ms=" + (System.currentTimeMillis() - started)
+                    + (early ? " (issued before the AE)" : "") + (released ? " imageReleased" : ""));
+            return;
+        }
 
         // P214e R1: on a mosaic shot every pass below reads B(Ya), the 3x3 binomial of Ya, and the residual Ya - B lives until
         // the last pass (S(B) + Ya - B): one full plane more through the RL stages (P214z: so not above 100 MP, r1Fits).
@@ -522,7 +542,7 @@ public final class WhyLumaSharpen extends Node {
         WhyTone.State st = pipeline.why;
         if (!ScamRgb.earlyRelease(input.mSize) || st.factor > 2) return false;
         if (input != pipeline.main1 && input != pipeline.main2) return false;
-        if (WhyTone.value("sharp_gain", 1.0f) != 0f && st.detailRef == null)
+        if (detailReferenceWanted(WhyTone.value("sharp_gain", 1.0f), pipeline.film) && st.detailRef == null)
             st.detailRef = WhyCombine.detailRef(glProg, pipeline, input, gainMap, mul);
         android.opengl.GLES30.glFinish();
         st.inputReleased = pipeline.releaseMain(input);

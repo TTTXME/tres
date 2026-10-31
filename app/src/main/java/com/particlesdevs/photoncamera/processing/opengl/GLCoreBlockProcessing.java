@@ -247,12 +247,31 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         // P187: above 100 MP the textures the last nodes gave back are freed only once the GPU is done with them; the readback
         // waits for that GPU work anyway, so the 0.8 GB bitmap is made after their storage is back, not on top of it
         if ((long) mOutWidth * mOutHeight > 100_000_000L) GLES30.glFinish();
-        if (tenBit) return drawBlocksToBitmap1010102();
+        // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»), step 0c: where the
+        // time between the last node and the bitmap goes, one SCAM_PIPELINE line ("final output ms"). scam_dev.txt "post_sync 1":
+        // the earlier nodes' GPU work finished first ("pending") and a glFinish after every draw and readback, so render /
+        // readback / copy are each their own; without it no glFinish is added and the draws' GPU time lands in the readback.
+        final OutputTiming timing = new OutputTiming(PostGlMode.syncNodes());
+        if (timing.sync) {
+            GLES30.glFinish();
+            timing.pending = timing.lap();
+        }
+        if (tenBit) return drawBlocksToBitmap1010102(timing);
         if (mglFormat.mChannels != 4 || mglFormat.mFormat.mSize != 1)
             throw new IllegalStateException("bitmap readback needs an RGBA8 output, not " + mglFormat.mFormat + "x" + mglFormat.mChannels);
         final int tileRows = GLDrawParams.TileSize;
         if (mBlockBuffer == null || mBlockBuffer.capacity() < mOutWidth * 4 * Math.min(tileRows, mOutHeight))
             throw new IllegalStateException("tile buffer does not match TileSize " + tileRows);
+        String path = "tiles";
+        if (pboReadbackWanted(mOutWidth, mOutHeight)) {
+            final Bitmap direct = drawBlocksToBitmapPbo(timing);
+            if (direct != null) {
+                timing.log("pbo", mOutWidth, mOutHeight);
+                return direct;
+            }
+            timing.reset();
+            path = "tiles (after the pixel-pack buffer failed)";
+        }
         final int stripRows = tileRows % BITMAP_STRIP_ROWS == 0 ? BITMAP_STRIP_ROWS : tileRows;
         final Bitmap dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
         try (TileBlitter blitter = new TileBlitter(dst, stripRows)) {
@@ -268,13 +287,18 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 program.setVar("yOffset", y);
                 program.draw();
                 checkEglError("program");
+                timing.rendered();
                 mBlockBuffer.clear();
                 glReadPixels(0, 0, mOutWidth, height, mglFormat.getGLFormatExternal(), mglFormat.getGLType(), mBlockBuffer);
                 checkEglError("glReadPixels");
+                timing.readBack();
                 blitter.blit(mBlockBuffer, y, height);
+                timing.copied();
+                timing.tiles++;
             }
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             mBlockBuffer = null;
+            timing.log(path, mOutWidth, mOutHeight);
             return dst;
         } catch (RuntimeException e) {
             dst.recycle();
@@ -283,11 +307,168 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
     }
 
     /**
+     * P440 (step 0c): the final readback's times (ms): pending = the earlier nodes' GPU work (post_sync only), render = the final
+     * pass's draws (post_sync only, else inside readback), readback = glReadPixels (the pixel-pack buffer: also its map, which
+     * waits for the GPU's copies), copy = into the bitmap. One line per readback (SCAM_PIPELINE "final output ms"); only
+     * System.nanoTime, plus the glFinish calls under post_sync.
+     */
+    static final class OutputTiming {
+        final boolean sync;
+        long pending, render, readback, copy;
+        int tiles;
+        private long last = System.nanoTime();
+        private final long start = last;
+
+        OutputTiming(boolean sync) {
+            this.sync = sync;
+        }
+
+        long lap() {
+            final long now = System.nanoTime(), d = now - last;
+            last = now;
+            return d;
+        }
+
+        void rendered() {
+            if (!sync) return;
+            GLES30.glFinish();
+            render += lap();
+        }
+
+        void readBack() {
+            if (sync) GLES30.glFinish();
+            readback += lap();
+        }
+
+        void copied() {
+            copy += lap();
+        }
+
+        /** A failed pixel-pack buffer attempt: its time stays in the total only. */
+        void reset() {
+            render = readback = copy = 0;
+            tiles = 0;
+            lap();
+        }
+
+        String line(String path, int w, int h) {
+            return "final output ms: path=" + path + " " + w + "x" + h + " tiles=" + tiles
+                    + (sync ? " pending=" + pending / 1_000_000 + " render=" + render / 1_000_000 : "")
+                    + " readback=" + readback / 1_000_000 + " copy=" + copy / 1_000_000
+                    + " total=" + (System.nanoTime() - start) / 1_000_000
+                    + (sync ? " (post_sync: the GPU finished at every step)" : " (the draws' GPU time inside readback)");
+        }
+
+        void log(String path, int w, int h) {
+            Log.i("SCAM_PIPELINE", line(path, w, h));
+        }
+    }
+
+    /** P440: the pixel-pack buffer readback for an RGBA8 output up to this many pixels (12 MP: 48 MB of GPU memory for a moment). */
+    static final long PBO_MAX_PIXELS = 16_000_000L;
+
+    /**
+     * P440: scam_dev.txt "post_pbo_readback" (on by default; 0: the tiles through the strip bitmap as before), up to 16 MP; never
+     * in the old GL model of post_ab (PostGlMode.legacy) or its readback A/B (PostGlMode.tileReadback).
+     */
+    static boolean pboReadbackWanted(int width, int height) {
+        if (width <= 0 || height <= 0 || (long) width * height > PBO_MAX_PIXELS) return false;
+        if (PostGlMode.legacy() || PostGlMode.tileReadback()) return false;
+        try {
+            return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("post_pbo_readback", true);
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** P440: where the tile of rows {@code y..} starts in the frame's pixel-pack buffer (tightly packed RGBA8 rows). */
+    static long pboOffset(int y, int width) {
+        return (long) y * width * 4;
+    }
+
+    /** P440: GL errors left over (the nodes' log-only checks), cleared so the readback's own checks see only its own; bounded. */
+    private static void drainGlErrors() {
+        for (int i = 0; i < 32 && glGetError() != GL_NO_ERROR; i++) {
+            // nothing: an error of an earlier call
+        }
+    }
+
+    /**
+     * P440 (S4): {@link #drawBlocksToBitmap} through one pixel-pack buffer of the whole frame: every tile is drawn and read back
+     * into its rows of the buffer (the GPU copies them while it draws the next tile), the buffer is mapped once and copied into
+     * the bitmap with copyPixelsFromBuffer - the full-frame buffer plus copyPixelsFromBuffer the strip path was proven equal to
+     * (TileBlitterTest), without the tile buffer's synchronous read per tile, the strip bitmap and a drawBitmap per 16 rows.
+     * The same bytes: glReadPixels writes the pixels it returns into a buffer object or into client memory alike (the same
+     * format, type and pack state). Null when a GL call fails, the buffer cannot be mapped or its contents were lost while
+     * mapped: the caller draws the tiles again the old way (the final pass is a pure function of its textures and uniforms).
+     */
+    private Bitmap drawBlocksToBitmapPbo(OutputTiming timing) {
+        final long bytes = (long) mOutWidth * mOutHeight * 4;
+        if (bytes > Integer.MAX_VALUE) return null;
+        drainGlErrors();
+        final int[] pbo = new int[1];
+        GLES30.glGenBuffers(1, pbo, 0);
+        if (pbo[0] == 0) return null;
+        boolean mapped = false;
+        Bitmap dst = null;
+        try {
+            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
+            GLES30.glBufferData(GLES30.GL_PIXEL_PACK_BUFFER, (int) bytes, null, GLES30.GL_STREAM_READ);
+            if (glGetError() != GL_NO_ERROR) return null;
+            glBindFramebuffer(GL_FRAMEBUFFER, bindFB[0]);
+            final GLProg program = super.mProgram;
+            final GLBlockDivider divider = new GLBlockDivider(mOutHeight, GLDrawParams.TileSize);
+            final int[] row = new int[2];
+            while (divider.nextBlock(row)) {
+                glViewport(0, 0, mOutWidth, row[1]);
+                program.setVar("yOffset", row[0]);
+                program.draw();
+                timing.rendered();
+                GLES30.glReadPixels(0, 0, mOutWidth, row[1], mglFormat.getGLFormatExternal(), mglFormat.getGLType(),
+                        (int) pboOffset(row[0], mOutWidth));
+                timing.readBack();
+                timing.tiles++;
+            }
+            if (glGetError() != GL_NO_ERROR) return null;
+            final java.nio.Buffer view = GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, (int) bytes, GLES30.GL_MAP_READ_BIT);
+            mapped = view != null;
+            if (!(view instanceof ByteBuffer) || view.capacity() < bytes || glGetError() != GL_NO_ERROR) return null;
+            timing.readBack(); // the map waits for the GPU's copies
+            final ByteBuffer src = (ByteBuffer) view;
+            src.clear();
+            src.limit((int) bytes);
+            dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+            dst.copyPixelsFromBuffer(src);
+            mapped = false;
+            // GL_FALSE: the buffer's contents were lost while it was mapped (e.g. a display mode change): the copy is not used
+            if (!GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER)) {
+                Log.w(TAG, "final readback: the pixel-pack buffer was lost while mapped, the tiles are read again");
+                return null;
+            }
+            timing.copied();
+            mBlockBuffer = null;
+            final Bitmap out = dst;
+            dst = null;
+            return out;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "final readback through a pixel-pack buffer failed (" + e + "), the tiles are read again");
+            return null;
+        } finally {
+            if (dst != null) dst.recycle();
+            if (mapped) GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER);
+            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0);
+            GLES30.glDeleteBuffers(1, pbo, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            drainGlErrors(); // the fallback starts clean
+        }
+    }
+
+    /**
      * {@link #drawBlocksToBitmap()} of the 10-bit HEIC: the same tiles rendered into the RGB10_A2 target, read back as
      * GL_UNSIGNED_INT_2_10_10_10_REV words and blitted into an RGBA_1010102 bitmap (the bytes of both are the same packed
      * 32-bit pixels). If the driver rejects the first 10-bit readback, the whole output is rendered again in 8 bits.
      */
-    private Bitmap drawBlocksToBitmap1010102() {
+    private Bitmap drawBlocksToBitmap1010102(OutputTiming timing) {
         final int tileRows = GLDrawParams.TileSize;
         if (mBlockBuffer == null || mBlockBuffer.capacity() < mOutWidth * 4 * Math.min(tileRows, mOutHeight))
             throw new IllegalStateException("tile buffer does not match TileSize " + tileRows);
@@ -308,8 +489,10 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 program.setVar("yOffset", y);
                 program.draw();
                 checkEglError("program");
+                timing.rendered();
                 mBlockBuffer.clear();
                 glReadPixels(0, 0, mOutWidth, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_INT_2_10_10_10_REV, mBlockBuffer);
+                timing.readBack();
                 if (first) {
                     first = false;
                     final int error = glGetError();
@@ -322,10 +505,13 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                     }
                 }
                 blitter.blit(mBlockBuffer, y, height);
+                timing.copied();
+                timing.tiles++;
             }
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             mBlockBuffer = null;
             done = true;
+            timing.log("tiles 10-bit", mOutWidth, mOutHeight);
             return dst;
         } finally {
             if (!done && !dst.isRecycled()) dst.recycle();

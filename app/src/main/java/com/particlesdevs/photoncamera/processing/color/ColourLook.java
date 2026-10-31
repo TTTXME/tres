@@ -53,6 +53,10 @@ public final class ColourLook {
         return mono == 0 && hueLock == 0 && gamut == 0f;
     }
 
+    public boolean shaderNeutral(boolean positiveAgxSaturation) {
+        return !(positiveAgxSaturation && skinProtect > 0f) && shaderNeutral();
+    }
+
     public boolean mixerOn() {
         for (float v : mix) if (v != 0f) return true;
         return false;

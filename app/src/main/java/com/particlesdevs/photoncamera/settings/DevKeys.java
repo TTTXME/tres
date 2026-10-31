@@ -54,6 +54,7 @@ public final class DevKeys {
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "post_priority", "gpu_low_priority", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
+            "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
             "hybrid_la_threads", "hybrid_la_stream", "hybrid_la_scam", "hybrid_rgb_half", "worker_gpu_normal_priority",
             "isp_preview_off_always", "hybrid_isp_ccm", "hybrid_clip_flags", "dng_colour_jpeg",
             "dng_white_spec", // P370 (A1): the scene light and calibration weight of the shot's Parameters
@@ -108,8 +109,8 @@ public final class DevKeys {
         final String pixel = Lang.t("Pixel 10 Pro / Pro XL", "Pixel 10 Pro / Pro XL");
         final String diag = Lang.t("Диагностика и A/B", "Diagnostics and A/B");
         List<Key> k = new ArrayList<>();
-        k.add(s(cap, "motion_capture_v2", true, Lang.t("Движение: короткая выдержка важнее мерцания, опорный кадр за два кадра до нажатия, ограничение возраста доноров", "Motion: short exposures before flicker avoidance, base two frames before the press, bounded donor age")));
-        k.add(s(merge, "motion_sharp_priority", true, Lang.t("Движение: приоритет резкости, строгий отбор доноров и сохранение яркостных деталей в областях отсева", "Motion: sharpness priority, strict donor selection and retained luminance detail in rejected regions")));
+        k.add(s(cap, "motion_capture_v2", true, Lang.t("Спорт: короткая выдержка важнее мерцания, опорный кадр за два кадра до нажатия, ограничение возраста доноров", "Sport: short exposures before flicker avoidance, base two frames before the press, bounded donor age")));
+        k.add(s(merge, "motion_sharp_priority", true, Lang.t("Спорт: приоритет резкости, строгий отбор доноров и сохранение яркостных деталей в областях отсева", "Sport: sharpness priority, strict donor selection and retained luminance detail in rejected regions")));
         // capture and session
         k.add(s(cap, "zsl_memfd_ring", true, Lang.t("ZSL-кольцо в общей памяти (memfd): кадры копируются сразу, камере возвращаются буферы. Выкл — старое кольцо из буферов камеры", "ZSL ring in shared memory (memfd): frames copied on arrival, buffers go back to the camera. Off: the old ring of camera buffers")));
         k.add(n(cap, "vf_min_fps", String.valueOf(com.particlesdevs.photoncamera.capture.ViewfinderFps.DEFAULT_FLOOR),
@@ -130,7 +131,7 @@ public final class DevKeys {
         k.add(s(cap, "force_stab_eis", false, Lang.t("Принудительная стабилизация: ключ EIS превью vivo", "Forced stabilisation: the vivo preview EIS key")));
         k.add(s(cap, "scam_preview_eis", true, Lang.t("EIS превью в профиле vivo", "Preview EIS in the vivo profile")));
         k.add(s(cap, "hal_motion", true, Lang.t("Сигнал движения от HAL ограничивает выдержку кадров Shasta", "The HAL's motion flag caps the Shasta frames' shutter")));
-        k.add(s(cap, "motion_hal_keys", true, Lang.t("«Движение»: ключи HAL для движения (AI shutter MTK, fastmotion OPPO, motion AF vivo)", "«Motion»: the HAL motion keys (MTK AI shutter, OPPO fastmotion, vivo motion AF)")));
+        k.add(s(cap, "motion_hal_keys", true, Lang.t("«Спорт»: ключи HAL для движения (AI shutter MTK, fastmotion OPPO, motion AF vivo)", "«Sport»: the HAL motion keys (MTK AI shutter, OPPO fastmotion, vivo motion AF)")));
         k.add(s(cap, "long_exposure_keys", true, Lang.t("Длинные кадры дольше предела HAL: ключи Qualcomm disableFPSLimits / overrideSensorFrameDuration", "Frames longer than the HAL limit: Qualcomm disableFPSLimits / overrideSensorFrameDuration")));
         k.add(s(cap, "ideal_raw", false, Lang.t("Ключ Qualcomm EnableIdealRAW (опыт)", "Qualcomm EnableIdealRAW key (experiment)")));
         k.add(s(cap, "zoom_override", true, Lang.t("CONTROL_SETTINGS_OVERRIDE ZOOM в видоискателе (быстрее зум), где камера его объявляет", "CONTROL_SETTINGS_OVERRIDE ZOOM in the viewfinder (faster zoom) where listed")));
@@ -241,8 +242,6 @@ public final class DevKeys {
                 "Ultrashort frames: refusal only in the moved regions, the replacement chosen per pixel, the clip filled without seams (0: as before)")));
         k.add(n(merge, "hybrid_long_scope", "1", Lang.t("Длинные кадры: при движении убираются только сдвинутые блоки, а не весь кадр (0 — как раньше)",
                 "Long frames: under motion only the moved blocks are left out, not the whole frame (0: as before)")));
-        k.add(n(merge, "hybrid_rej_edge", "1", Lang.t("Реджекты: ячейка за краем кадра не считается движением и не расширяет отказ (без полосы у края; 0 — как раньше)",
-                "Rejection: a cell beyond the frame's edge is no motion and does not spread the refusal (no strip at the edge; 0: as before)")));
         // P415: the reject's read term in the deep shadows as they measured
         k.add(n(merge, "hybrid_dark_read", "1", Lang.t("Длинные кадры: шум глубоких теней по замеру в реджекте (без цветных пятен; 0 — как раньше)",
                 "Long frames: the deep shadows' measured noise in the rejection (no colour clumps; 0: as before)")));
@@ -291,8 +290,8 @@ public final class DevKeys {
                 "Merge worker watchdog: no progress for longer than max(90 s, 4x the slowest step) - 2: the worker is stopped (no retry when it waited for the GPU), 1: a log line only, 0: off (wait up to 14 min)")));
         // processing
         // P362: RawTherapee's «Inpaint opposed» where no ultrashort frame holds the highlight
-        k.add(s(post, "hybrid_highlight_opposed", true, Lang.t("Пересветы без коротких кадров (одиночные кадры, «Движение», отказ Bento): «Inpaint opposed» из RawTherapee (выкл — восстановление SCAM)",
-                "Highlights without ultrashort frames (single frames, Motion, Bento refused): RawTherapee's «Inpaint opposed» (off: the SCAM recovery)")));
+        k.add(s(post, "hybrid_highlight_opposed", true, Lang.t("Пересветы без коротких кадров (одиночные кадры, «Спорт», отказ Bento): «Inpaint opposed» из RawTherapee (выкл — восстановление SCAM)",
+                "Highlights without ultrashort frames (single frames, Sport, Bento refused): RawTherapee's «Inpaint opposed» (off: the SCAM recovery)")));
         // P393: a clipped channel of a coloured surface also takes the local light's colour (scamhdr/scamrgb oppLocalU)
         k.add(s(post, "hybrid_highlight_opposed_local", true, Lang.t("Пересветы без коротких кадров: клипнутый канал цветной поверхности (листва на солнце) по цвету соседних неклипнутых пикселей, а не только по общей поправке кадра (выкл — как раньше: жёлтые листья уходили в оранжевый и розовый)",
                 "Highlights without ultrashort frames: a clipped channel of a coloured surface (sunlit leaves) from the colour of the unclipped pixels around, not the frame's one correction alone (off: as before - yellow leaves went orange and pink)")));
@@ -332,8 +331,6 @@ public final class DevKeys {
         k.add(n(post, "hybrid_dn_dark_chroma_lo", "1.5", Lang.t("Шумодав: цвет в тенях, нижний порог (x1e-4)", "Denoise: colour in the shadows, lower threshold (x1e-4)")));
         k.add(n(post, "hybrid_dn_dark_tier", "0.1", Lang.t("Шумодав цвета в глубоких тенях: доля самых тёмных блоков, по уровню которых выбирается сила (0 — как раньше)",
                 "Colour denoise in the deep shadows: the share of the darkest blocks whose level picks its strength (0: as before)")));
-        k.add(n(post, "hybrid_dn_edge_band", "6", Lang.t("Шумодав: цвет крайних пикселей кадра из соседней области, ширина полосы (0 — как раньше)",
-                "Denoise: the frame edge's colour from the area beside it, the band's width (0: as before)")));
         k.add(n(post, "hybrid_dn_huge_map", "4.3", Lang.t("Шумодав 200 МП: сила (карта силы; 1 — как при всех склеенных кадрах)", "Denoise 200 MP: strength (strength map; 1: as with every frame merged)")));
         k.add(n(post, "hybrid_dn_huge_fine", "2", Lang.t("Шумодав 200 МП: срез мелкого шума яркости, в сигмах (0 — выкл.)", "Denoise 200 MP: fine luma noise coring, in sigmas (0: off)")));
         k.add(n(post, "hybrid_dn_dark_chroma_noise", "0.35", Lang.t("Шумодав: цвет в тенях, доля шума", "Denoise: colour in the shadows, noise share")));
@@ -474,6 +471,9 @@ public final class DevKeys {
                 "OPPO FULLRES own AE: while the flicker is unknown, a shutter from 30 ms is the one of 30 / 33.3 / 40 / 41.7 ms that bands least at both 100 and 120 Hz. Off: by the region's mains")));
         k.add(s(cap, "flicker_rows", true, Lang.t("Частота мерцания «Авто»: два снимка подряд с одинаковым голосом профиля строк ультракороткого кадра задают частоту. Выкл — голос только в логе",
                 "Flicker frequency Auto: two shots in a row whose ultrashort row profile votes alike set the frequency. Off: the vote is only logged")));
+        // P440: RowFlicker.afterMergeAsync
+        k.add(s(cap, "flicker_vote_async", true, Lang.t("Голос мерцания считается в отдельном потоке, не задерживая обработку снимка (он только для следующих снимков). Выкл — в потоке снимка, как до P440",
+                "The flicker vote is counted on a thread of its own, without holding up the shot's processing (it is for later shots only). Off: on the shot's thread, as before P440")));
         // P198 / P266: «50 Мп: ZSL» (pref_scam_hybrid_fullres50_zsl) is the menu row of fullres_zsl (MENU_BACKED)
         k.add(s(cap, "fullres_plain_merge", true, Lang.t("FULLRES 50 Мп: на время склейки камера в обычном режиме (меньше нагрев и памяти). Выкл — 50 Мп поток идёт и во время склейки",
                 "FULLRES 50 MP: the camera runs its plain session while the shot merges (less heat and memory). Off: the 50 MP stream keeps running")));
@@ -508,6 +508,9 @@ public final class DevKeys {
         // P386: a stream proven without its black pedestal gives its floor to its frames without deep shade (PedestalMemory)
         k.add(s(post, "pedestal_memory", true, Lang.t("Уровень чёрного по данным кадра: поток, пришедший без чёрного пьедестала (так показал кадр с глубокой тенью или RAW-видоискатель), отдаёт свой чёрный кадрам без глубокой тени (небо, фасад на солнце) до перезапуска приложения. Выкл — каждый кадр сам по себе, как до P386",
                 "The black level from the frame's data: a stream that came without its black pedestal (shown by a frame with deep shade or the RAW viewfinder) gives its black to frames without deep shade (the sky, a sunlit facade) until the app restarts. Off: each frame on its own, as before P386")));
+        // P440: GLCoreBlockProcessing's final readback through one pixel-pack buffer
+        k.add(s(post, "post_pbo_readback", true, Lang.t("Готовое фото (до 16 Мп) читается с GPU в один буфер и копируется в картинку разом (те же байты). Выкл — полосами через промежуточную картинку, как до P440",
+                "The finished photo (up to 16 MP) is read from the GPU into one buffer and copied into the bitmap at once (the same bytes). Off: in strips through an intermediate bitmap, as before P440")));
         k.add(s(post, "thermal_async", true, Lang.t("Температурный статус после склейки запрашивается в фоне (вызов системы не задерживает обработку). Выкл — на потоке обработки, как до P371",
                 "The thermal status after the merge is read in the background (the system call does not hold the processing). Off: on the processing thread, as before P371")));
         // P242: the merge worker's GPU priority (A/B, WorkerSpawn.environment)
@@ -571,6 +574,8 @@ public final class DevKeys {
         k.add(s(diag, "early_release", false, Lang.t("Ранний возврат текстур обработки при любом размере (как выше 100 Мп; для A/B)",
                 "Early release of the processing textures at any size (as above 100 MP; for the A/B)")));
         k.add(s(diag, "post_ab_upload", false, Lang.t("A/B: меняется только загрузка RGB", "A/B: only the RGB upload changes")));
+        k.add(s(diag, "post_ab_readback", false, Lang.t("A/B: меняется только чтение готового фото с GPU (буфер / полосы)",
+                "A/B: only the final readback from the GPU changes (buffer / strips)"))); // P440
         k.add(s(diag, "post_ab_dump", false, Lang.t("A/B: сохранить оба результата в PNG", "A/B: save both results as PNG")));
         builtMerge = merge;
         builtPost = post;

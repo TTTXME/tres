@@ -166,6 +166,46 @@ public final class RowFlicker {
         }
     }
 
+    /** P440: the votes in the order of the shots, one at a time (MainsFlicker counts them in that order). */
+    private static final java.util.concurrent.ExecutorService VOTES = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        final Thread t = new Thread(r, "SCAMERA-flicker-vote");
+        t.setDaemon(true);
+        t.setPriority(Thread.MIN_PRIORITY);
+        return t;
+    });
+
+    /**
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): {@link #afterMerge} on
+     * a thread of its own instead of the shot's (~12 ms between the merge's end and the post pipeline). The vote only sets the
+     * anti-banding of later shots (MainsFlicker, read by capture, manual and settings code, never by processing), never this
+     * photo; the shots' votes keep their order; the lines are copied first. Never throws; a rejected task votes here.
+     * scam_dev.txt "flicker_vote_async 0": on the shot's thread as before.
+     */
+    public static void afterMergeAsync(@Nullable List<String> lines, @Nullable Long skewNs) {
+        if (lines == null || lines.isEmpty()) return;
+        final List<String> copy = new java.util.ArrayList<>(lines);
+        boolean async;
+        try {
+            async = PreferenceKeys.scamDevSwitch("flicker_vote_async", true);
+        } catch (RuntimeException | LinkageError e) {
+            async = true;
+        }
+        if (async) {
+            try {
+                VOTES.execute(() -> afterMerge(copy, skewNs));
+                return;
+            } catch (RuntimeException rejected) {
+                // the executor is gone: vote here
+            }
+        }
+        afterMerge(copy, skewNs);
+    }
+
+    /** P440 (tests): waits until the votes handed over so far are counted. */
+    static void awaitVotes() throws Exception {
+        VOTES.submit(() -> { }).get(10, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
     /** Least squares by the normal equations (Gauss-Jordan, partial pivoting); null when singular. */
     @Nullable
     static double[] leastSquares(double[][] x, double[] y, int n) {

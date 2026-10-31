@@ -98,7 +98,8 @@ public final class SettingsAvailability {
         }
         if (!key.startsWith(WHY)) return false;
         final String k = key.substring(WHY.length());
-        if (k.startsWith("agx_") || k.startsWith("aces_") || k.startsWith("uchi_") || k.startsWith("curve_")) return true;
+        if (k.startsWith("agx_") || k.startsWith("aces_") || k.startsWith("uchi_") || k.startsWith("curve_")
+                || k.startsWith("sharp_")) return true;
         switch (k) {
             case "macro_contrast": case "gamma": case "film_toe": case "contrast_boost": case "hl_soft": case "hl_white": case "ccm_sat":
             case "vibrance": case "vibrance_sky": case "vibrance_green":
@@ -110,7 +111,9 @@ public final class SettingsAvailability {
             case "gamma_type": case "vibrance_saturated": case "vibrance_mid": case "vibrance_shadows": case "skin_protect":
             case "skin_hue_center": case "skin_luma_min": case "skin_sat_shift":   // P404
             case "vibrance_hl_str":   // P419
-            case "sharp_gf_lc": case "sharp_film_grain":
+            case "clarity": case "flat_protect": case "edge_hold":
+            case "cct_sat": case "cct_gain_r": case "cct_gain_g": case "cct_gain_b":
+            case "dynamic_cct": case "dynamic_cct_strength":
                 return true;
             default:
                 return false;
@@ -146,14 +149,17 @@ public final class SettingsAvailability {
         // P369: the film gates of the shot (PostPipeline.gainMapWanted, wantsLocalContrast: off with any film) and the rows the
         // film's print replaces at 100 % (below it they act on the share without the film, so they stay open)
         if (film(false)) {
+            if (film(true) && key.equals("pref_scam_hybrid_dn_luma_grain"))
+                return Lang.t("С плёночной симуляцией на силе 100 % зерно задаёт плёнка.",
+                        "With a film simulation at 100 %, the film sets the grain.");
             if (key.equals("pref_ultrahdr_key"))
                 return Lang.t("С плёночной симуляцией фото сохраняется в SDR: HDR изменил бы отпечаток плёнки.",
                         "With a film simulation the photo is saved in SDR: HDR would change the film's print.");
             if (key.equals(WHY + "texture"))
                 return Lang.t("С плёночной симуляцией выключена: фактуру даёт плёнка.", "Off with a film simulation: the film gives the texture.");
             if (film(true) && filmBypassed(key))
-                return Lang.t("С плёночной симуляцией на силе 100 % не действует: тон и цвет задаёт плёнка. При силе ниже 100 % действует на долю без плёнки.",
-                        "No effect with a film simulation at 100 %: the film sets the tone and colour. Below 100 % it acts on the share without the film.");
+                return Lang.t("С плёночной симуляцией на силе 100 % не действует: тон, цвет и фактуру задаёт плёнка. При силе ниже 100 % влияние ослабляется.",
+                        "No effect with a film simulation at 100 %: the film sets the tone, colour and texture. Below 100 % its influence is reduced.");
         }
         // The denoise and watermark switches sit on a parent page of these rows (P6), so the rule replaces android:dependency.
         if ((key.startsWith("pref_scam_hybrid_dn_") || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
@@ -178,26 +184,26 @@ public final class SettingsAvailability {
         // P128: the «Движение» rows replace the normal ones only while the mode is on (MotionMode, ParamController)
         final boolean motion = on("pref_motion_mode", false);
         if (key.startsWith("pref_scam_hybrid_mm_") && !motion)
-            return Lang.t("Действует только в режиме «Движение» (кнопка в верхней панели).", "Acts only in “Motion” mode (the button in the top bar).");
+            return Lang.t("Действует только в режиме «Спорт» (кнопка в верхней панели).", "Acts only in “Sport” mode (the button in the top bar).");
         // ...and while it is on, the merge reads the mode's value of a merge row it replaces (MotionMode.DEFAULTS, read by
         // PreferenceKeys.hybridValue / hybridSwitch); it has no row for the base widening: always 0 there (P111)
         if (motion && any(key, "pref_scam_hybrid_motion_boost", "pref_scam_hybrid_boost_value", "pref_scam_hybrid_motion_threshold"))
-            return Lang.t("В режиме «Движение» действует его значение (страница «Движение»: Для опытных › Другие тонкие настройки › Кадры склейки).",
-                    "In “Motion” mode its own value applies (the “Motion” page: For experts › More fine settings › Merge frames).");
+            return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Для опытных › Другие тонкие настройки › Кадры склейки).",
+                    "In “Sport” mode its own value applies (the “Sport” page: For experts › More fine settings › Merge frames).");
         if (motion && key.equals("pref_scam_hybrid_widen_below"))
-            return Lang.t("В режиме «Движение» не действует: база там не расширяется.", "Not used in “Motion” mode: the base is never widened there.");
+            return Lang.t("В режиме «Спорт» не действует: база там не расширяется.", "Not used in “Sport” mode: the base is never widened there.");
         // «Порог дисперсии для усиления» is not replaced by the mode: it acts with the boost switch in effect (the mode's own in the mode) and F6
         if (key.equals("pref_scam_hybrid_boost_threshold")
                 && !(motion ? on("pref_scam_hybrid_mm_motion_boost", true) : on("pref_scam_hybrid_motion_boost", true)))
-            return motion ? Lang.t("Включите «Против двоения» на странице «Движение» (Для опытных › Другие тонкие настройки › Кадры склейки).",
-                    "Turn on “Anti-ghosting” on the “Motion” page (For experts › More fine settings › Merge frames).")
+            return motion ? Lang.t("Включите «Против двоения» на странице «Спорт» (Для опытных › Другие тонкие настройки › Кадры склейки).",
+                    "Turn on “Anti-ghosting” on the “Sport” page (For experts › More fine settings › Merge frames).")
                     : Lang.t("Включите «Против двоения».", "Turn on “Anti-ghosting”.");
         // Settings audit 2026-10-21 («Кадры светов и теней»): the mode replaces the photo rows of the ring's frame count and of the
         // highlight / shadow switches too (MotionMode.DEFAULTS), and the frames' rows act through the switch the shot reads - the
         // mode's own while it is on (the plan and the merge read it: PreferenceKeys.hybridValue / hybridSwitch)
         if (motion && any(key, "pref_scam_hybrid_zsl_frames", "pref_scam_hybrid_bento", "pref_scam_hybrid_shasta"))
-            return Lang.t("В режиме «Движение» действует его значение (страница «Движение»: Для опытных › Другие тонкие настройки › Кадры склейки).",
-                    "In “Motion” mode its own value applies (the “Motion” page: For experts › More fine settings › Merge frames).");
+            return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Для опытных › Другие тонкие настройки › Кадры склейки).",
+                    "In “Sport” mode its own value applies (the “Sport” page: For experts › More fine settings › Merge frames).");
         // P320: a DCG shot takes no shadow frames (its high-gain read holds the shadows; HybridPlan, the worker's DCG tuning)
         if (dcg && !motion && any(key, "pref_scam_hybrid_shasta", "pref_scam_hybrid_shasta_mode", "pref_scam_hybrid_shasta_motion_max",
                 "pref_scam_hybrid_shasta_frames", "pref_scam_hybrid_shasta_ev", "pref_scam_hybrid_shasta_sharpness",
@@ -205,20 +211,20 @@ public final class SettingsAvailability {
             return Lang.t("С DCG кадры теней не снимаются: один DCG-кадр держит тени сам. Кадры светов — только если он клипует.",
                     "With DCG no shadow frames are taken: one DCG frame holds the shadows itself. Highlight frames only where it clips.");
         if (motion && any(key, "pref_scam_hybrid_mm_bento", "pref_scam_hybrid_mm_shasta"))
-            return Lang.t("В режиме «Движение» брекетинг отключён.", "Exposure bracketing is disabled in Motion mode.");
+            return Lang.t("В режиме «Спорт» брекетинг отключён.", "Exposure bracketing is disabled in Sport mode.");
         final String bento = motion ? "0" : text("pref_scam_hybrid_bento", "2").trim();
         final boolean shasta = !motion && on("pref_scam_hybrid_shasta", true);
         // «Кадры светов» off: no ultrashort frame is planned (HybridPlan) and the worker runs none of their passes
         if (bento.equals("0") && any(key, "pref_scam_hybrid_bento_frames", "pref_scam_hybrid_bento_validate",
                 "pref_scam_hybrid_bento_motion_max", "pref_scam_hybrid_bento_factor", "pref_scam_hybrid_bento_trigger",
                 "pref_scam_hybrid_bento_sigma", "pref_scam_hybrid_bento_ramp", "pref_scam_hybrid_bento_chroma_sigma", "pref_scam_hybrid_bento_scam"))
-            return motion ? Lang.t("В режиме «Движение» кадры светов не снимаются.", "Motion mode takes no highlight brackets.")
+            return motion ? Lang.t("В режиме «Спорт» кадры светов не снимаются.", "Sport mode takes no highlight brackets.")
                     : Lang.t("Включите «Кадры светов».", "Turn on “Highlight frames”.");
         // «Кадры теней» off: no long frame is planned. The whole category follows the switch in effect here, not by
         // android:dependency: in «Движение» the photo switch is greyed (the mode's own rules), which would grey its dependants too
         if (!shasta && any(key, "pref_scam_hybrid_shasta_mode", "pref_scam_hybrid_shasta_motion_max", "pref_scam_hybrid_shasta_frames",
                 "pref_scam_hybrid_shasta_ev", "pref_scam_hybrid_shasta_deep", "pref_scam_hybrid_shasta_auto_count", "pref_scam_hybrid_shasta_sharpness", "pref_scam_hybrid_shasta_max_ratio", "pref_scam_hybrid_lut_sigma"))
-            return motion ? Lang.t("В режиме «Движение» кадры теней не снимаются.", "Motion mode takes no shadow brackets.")
+            return motion ? Lang.t("В режиме «Спорт» кадры теней не снимаются.", "Sport mode takes no shadow brackets.")
                     : Lang.t("Включите «Кадры теней».", "Turn on “Shadow frames”.");
         // the worker reads the motion limit of the long frames under shastaForce only («Всегда»)
         if (key.equals("pref_scam_hybrid_shasta_motion_max") && !text("pref_scam_hybrid_shasta_mode", "2").trim().equals("2"))

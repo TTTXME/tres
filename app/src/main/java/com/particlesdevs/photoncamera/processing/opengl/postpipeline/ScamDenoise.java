@@ -52,12 +52,11 @@ public final class ScamDenoise extends Node {
     static final float LUMA_GRAIN = 0.5f;
 
     /**
-     * P369 (texture-double-grain, night shots): the luma grain put back under a film that adds grain (FilmGrain.addsGrain: a
-     * format and «Зерно» above 0) - x (1 - the simulation's strength), none at 100 % (the film's own grain stands for it); the
-     * value itself, bit for bit, without a film or with a film that adds none.
+     * The film recipe sets its grain, including an explicit zero: no extra denoise residual at 100 %.
+     * Without a film the value is unchanged; at partial strength it fades with our share.
      */
     static float lumaGrainUnderFilm(float lumaGrain, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
-        return film != null && FilmGrain.addsGrain(film) ? lumaGrain * (1f - film.strength) : lumaGrain;
+        return film != null ? lumaGrain * (1f - film.strength) : lumaGrain;
     }
 
     /**
@@ -624,9 +623,8 @@ public final class ScamDenoise extends Node {
         final boolean darkFade = PreferenceKeys.hybridSwitch("dn_dark_fade", true);
         final float[] darkChroma = darkChroma(pipeline.signedRgb);
         final float rhoS = clamp(PreferenceKeys.hybridValue("dn_model_shot", 1.2f), 0.25f, 4f);
-        // P369 (texture-double-grain): with a film that adds its own grain, the digital luma grain put back only on the share the
-        // simulation's strength leaves (the tiers of the denoise unchanged)
-        final float lumaGrain = lumaGrainUnderFilm(clamp(PreferenceKeys.hybridValue("dn_luma_grain", LUMA_GRAIN), 0f, 1f), pipeline.film);
+        // With any film the digital luma grain returns only on the share its strength leaves, including a zero-grain recipe.
+        float lumaGrain = lumaGrainUnderFilm(clamp(PreferenceKeys.hybridValue("dn_luma_grain", LUMA_GRAIN), 0f, 1f), pipeline.film);
         // P330: 2 (was 6). G is the noise measured on the merge itself, so rho_r = 6 filtered the shadows for 2.45 x their real sigma
         // (strict threshold ~3.5-4 sigma, soft ~7-8): low-contrast shadow texture went with the noise
         final float rhoR = clamp(PreferenceKeys.hybridValue("dn_model_read", 2f), 0.25f, 16f);
@@ -901,6 +899,14 @@ public final class ScamDenoise extends Node {
             final float snrMeasured = ScamDenoiseTables.snr(mu, GY[0][0], sG, rGmu, rhoS, rhoR);
             final float snr = snrFixed > 0f ? snrFixed : snrMeasured * snrScale;
             par.finishSnr = snr; // P135: the WHY sharpening backs off on a noisy shot
+            final boolean measuredSnr = gL[0] != null && Float.isFinite(gL[0][0]) && gL[0][0] > 0f && Float.isFinite(p50) && p50 > 0f
+                    && Float.isFinite(sG) && sG >= 0f && Float.isFinite(rGmu) && rGmu >= 0f && !modelSource.equals("fallback");
+            final SportsDenoisePolicy sports = SportsDenoisePolicy.of(com.particlesdevs.photoncamera.settings.MotionMode.on(),
+                    com.particlesdevs.photoncamera.settings.MotionMode.sharpPriority(), measuredSnr ? snrMeasured : Float.NaN,
+                    pipeline.noiseS, pipeline.noiseO);
+            pipeline.sportsDenoise = sports;
+            sports.apply(cfg);
+            lumaGrain = sports.residualGrain(lumaGrain);
 
             // ---- tiers
             ScamDenoiseTables.Pick[] lp = new ScamDenoiseTables.Pick[1], cp = new ScamDenoiseTables.Pick[1];
@@ -965,17 +971,17 @@ public final class ScamDenoise extends Node {
                     if (f0) {
                         d0 = tex(owned, sz, GLFormat.DataType.FLOAT_16, 1, GL_LINEAR);
                         lumaPass(glProg, d0, recon, recon, x0, L == 0, strMap, mapSize, 2, true,
-                                k0 * GY[L][1] * rhoS * sY, k0 * GY[L][1] * rhoR * rY, dcgPass, luma[L + 1][2] * 16f, 0, 0f, 0, null, null, null);
+                                k0 * GY[L][1] * rhoS * sY, k0 * GY[L][1] * rhoR * rY, dcgPass, luma[L + 1][2] * 16f, 0, 0f, 0, null, null, null, sports.sharpKeep);
                     }
                     GLTexture out;
                     if (L >= 2) {
                         out = tex(owned, sz, GLFormat.DataType.FLOAT_16, 1, GL_LINEAR);
                         lumaPass(glProg, out, d0, recon, x0, false, strMap, mapSize, 1, f1,
-                                k1 * GY[L][0] * rhoS * sY, k1 * GY[L][0] * rhoR * rY, dcgPass, luma[L][2] * 16f, 1, luma[L][1], 1, Y[L], null, null);
+                                k1 * GY[L][0] * rhoS * sY, k1 * GY[L][0] * rhoR * rY, dcgPass, luma[L][2] * 16f, 1, luma[L][1], 1, Y[L], null, null, sports.sharpKeep);
                     } else if (L == 1) {
                         GLTexture den1 = tex(owned, sz, GLFormat.DataType.FLOAT_16, 1, GL_LINEAR);
                         lumaPass(glProg, den1, d0, recon, x0, false, strMap, mapSize, 1, f1,
-                                k1 * GY[L][0] * rhoS * sY, k1 * GY[L][0] * rhoR * rY, dcgPass, luma[L][2] * 16f, 1, luma[L][1], 0, null, null, null);
+                                k1 * GY[L][0] * rhoS * sY, k1 * GY[L][0] * rhoR * rY, dcgPass, luma[L][2] * 16f, 1, luma[L][1], 0, null, null, null, sports.sharpKeep);
                         if (d0 != recon) release(owned, d0);
                         if (recon != Y[L]) release(owned, recon);
                         d0 = recon = null;
@@ -984,7 +990,7 @@ public final class ScamDenoise extends Node {
                     } else {
                         out = tex(owned, size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
                         lumaPass(glProg, out, d0, recon, x0, true, strMap, mapSize, 1, f1,
-                                k1 * GY[0][0] * rhoS * sY, k1 * GY[0][0] * rhoR * rY, dcgPass, luma[0][2] * 16f, 1, luma[0][1], 2, x0, delta, x0);
+                                k1 * GY[0][0] * rhoS * sY, k1 * GY[0][0] * rhoR * rY, dcgPass, luma[0][2] * 16f, 1, luma[0][1], 2, x0, delta, x0, sports.sharpKeep);
                     }
                     if (d0 != null && d0 != recon) release(owned, d0);
                     if (recon != null && recon != Y[L]) release(owned, recon);
@@ -1019,11 +1025,6 @@ public final class ScamDenoise extends Node {
             if (x0p != x0) release(owned, x0);
             GLTexture deltaUV = null;
             StringBuilder chromaLog = new StringBuilder();
-            // P416 (owner, 2026-10-30, OPPO Find X8 Ultra: «шумную цветную полосу, она возникает на оппо х8у давно»): the merge's
-            // outer ~6 px (colour blots and 1.4 - 2.4 x the colour noise along every edge of the replays) take the colour of the
-            // band's inner border in the last colour pass (scamdn/cbf edgeBandU, level-0 pixels). scam_dev.txt
-            // "hybrid_dn_edge_band 0" = before.
-            final int edgeBand = (int) Math.ceil(clamp(PreferenceKeys.hybridValue("dn_edge_band", 6f), 0f, 32f) / s);
             output = null;
             // P417: the colour passes' read term with the deep shadows' measured factor while the dark tier runs
             final float rYc = chromaDark != null ? rY * darkRead : rY;
@@ -1052,7 +1053,7 @@ public final class ScamDenoise extends Node {
                 if (f0) {
                     GLTexture c1 = tex(owned, sz, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
                     chromaPass(glProg, c1, c0, null, null, strMap, sz, 2, true, k0 * GC[L][1] * rhoS * sY, k0 * GC[L][1] * rhoR * rYc, dcgPass,
-                            UVS[L][1], UVS[L][3], (float) (int) chroma[L + 1][1], 0, false, 0f, null, null, 0, mix0);
+                            UVS[L][1], UVS[L][3], (float) (int) chroma[L + 1][1], 0, false, 0f, null, null, mix0);
                     if (c0 != level) release(owned, c0);
                     c0 = c1;
                 }
@@ -1065,18 +1066,18 @@ public final class ScamDenoise extends Node {
                 if (L >= 1) {
                     out = tex(owned, sz, GLFormat.DataType.FLOAT_16, 2, GL_LINEAR);
                     chromaPass(glProg, out, c0, null, level, strMap, sz, 1, f1, k1 * GC[L][0] * rhoS * sY, k1 * GC[L][0] * rhoR * rYc, dcgPass,
-                            UVS[L][0], UVS[L][2], (float) (int) chroma[L][1], 1, false, 0f, null, null, 0, mix1);
+                            UVS[L][0], UVS[L][2], (float) (int) chroma[L][1], 1, false, 0f, null, null, mix1);
                 } else if (s == 1) {
                     out = pipeline.getMain(); // the last write of this node
                     lastMainTaken = true;
                     chromaPass(glProg, out, c0, null, null, strMap, sz, 1, f1, k1 * GC[0][0] * rhoS * sY, k1 * GC[0][0] * rhoR * rYc, dcgPass,
-                            UVS[0][0], UVS[0][2], (float) (int) chroma[0][1], 2, darkFade, 0f, darkKeep, grain, edgeBand, mix1);
+                            UVS[0][0], UVS[0][2], (float) (int) chroma[0][1], 2, darkFade, 0f, darkKeep, grain, mix1);
                     output = out;
                 } else {
                     // (Y change, UV(Den0) - keep UV(X0)): final2x upsamples this one texture
                     out = tex(owned, size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
                     chromaPass(glProg, out, c0, null, base, strMap, sz, 1, f1, k1 * GC[0][0] * rhoS * sY, k1 * GC[0][0] * rhoR * rYc, dcgPass,
-                            UVS[0][0], UVS[0][2], (float) (int) chroma[0][1], 3, false, keep2x, null, grain, edgeBand, mix1);
+                            UVS[0][0], UVS[0][2], (float) (int) chroma[0][1], 3, false, keep2x, null, grain, mix1);
                     release(owned, base);
                     base = null;
                 }
@@ -1103,6 +1104,7 @@ public final class ScamDenoise extends Node {
             final long done = System.nanoTime();
             if (laps.on) Log.i("SCAM_PIPELINE", "scam-denoise laps ms:" + laps.text);
             log.append(" snr=").append(round(snr)).append(snrFixed > 0f ? "(fixed)" : "")
+               .append(com.particlesdevs.photoncamera.settings.MotionMode.on() ? " sports=" + sports : "")
                .append(" mu=").append(mu).append(" gain=").append(round(gain)).append(" p50=").append(p50)
                .append(" g01=").append(round(GY[0][0])).append(" rho=").append(rhoS).append('/').append(rhoR)
                .append(" model=").append(modelSource).append(chromaNight != 1f ? " chromaNight=x" + chromaNight : "")
@@ -1113,7 +1115,7 @@ public final class ScamDenoise extends Node {
                .append(" chroma ").append(cp[0]).append(" str=").append(col(chroma, 0)).append(" out=").append(col(chroma, 1))
                .append(" levels").append(chromaLog)
                .append(" G=").append(gainsLog(GY, GC, UVS)).append(" measured=").append(measured).append("/4")
-               .append(" map=").append(mapState).append(" edge=").append(edgeBand)
+               .append(" map=").append(mapState)
                .append(chromaDark != null ? " darkTier=snr" + round(snrDark) + "@" + pDark + ",read x" + round(darkRead) : "").append(" despeckle=").append(despeckle).append(" sigmaU=").append(sigmaU)
                .append(" darkFade=").append(!darkFade ? "off" : darkKeep[1] > 0f ? "keep " + darkKeep[0] + ".." + darkKeep[1]
                        + " noise " + darkKeep[2] + "/" + darkKeep[3] : "luma")
@@ -1152,7 +1154,7 @@ public final class ScamDenoise extends Node {
 
     private static void lumaPass(GLProg glProg, GLTexture target, GLTexture in, GLTexture recon, GLTexture yin, boolean useYin,
                                  GLTexture strMap, Point levelSize, int stride, boolean filter, float nx, float ny, float[] dcg, float thr,
-                                 int stage, float rf, int mode, GLTexture base, GLTexture lowFreq, GLTexture chroma) {
+                                 int stage, float rf, int mode, GLTexture base, GLTexture lowFreq, GLTexture chroma, float sharpKeep) {
         if (dcg != null) glProg.setDefine("DCG_ZONES", 1); // P320: dcg = {noiseHiU / noiseU.y, knee in Y} of a DCG shot
         glProg.useAssetProgram("scamdn/lbf", false);
         glProg.setTexture("InputBuffer", in);
@@ -1172,7 +1174,7 @@ public final class ScamDenoise extends Node {
         glProg.setVar("thrU", thr);
         glProg.setVar("stageU", stage);
         glProg.setVar("rfU", rf);
-        glProg.setVar("sharpU", com.particlesdevs.photoncamera.settings.MotionMode.sharpPriority() ? 0.85f : 0f);
+        glProg.setVar("sharpU", sharpKeep);
         glProg.setVar("modeU", mode);
         glProg.setVar("useYinU", useYin ? 1 : 0);
         glProg.setVar("useMapU", strMap != null ? 1 : 0);
@@ -1184,13 +1186,12 @@ public final class ScamDenoise extends Node {
                                    Point levelSize, int stride, boolean filter, float nx, float ny, float[] dcg, float uvsU, float uvsV,
                                    float thr, int mode, boolean fade, float keep, float[] darkKeep, GLTexture grain) {
         chromaPass(glProg, target, in, deltaUV, orig, strMap, levelSize, stride, filter, nx, ny, dcg, uvsU, uvsV, thr, mode, fade, keep,
-                darkKeep, grain, 0, null);
+                darkKeep, grain, null);
     }
 
     private static void chromaPass(GLProg glProg, GLTexture target, GLTexture in, GLTexture deltaUV, GLTexture orig, GLTexture strMap,
                                    Point levelSize, int stride, boolean filter, float nx, float ny, float[] dcg, float uvsU, float uvsV,
-                                   float thr, int mode, boolean fade, float keep, float[] darkKeep, GLTexture grain, int edgeBand,
-                                   float[] darkMix) {
+                                   float thr, int mode, boolean fade, float keep, float[] darkKeep, GLTexture grain, float[] darkMix) {
         if (dcg != null) glProg.setDefine("DCG_ZONES", 1); // P320: dcg = {noiseHiU / noiseU.y, knee in Y} of a DCG shot
         glProg.useAssetProgram("scamdn/cbf", false);
         glProg.setTexture("InputBuffer", in);
@@ -1217,7 +1218,6 @@ public final class ScamDenoise extends Node {
         glProg.setVar("darkFadeU", 0.0008f, 0.003f);
         glProg.setVar("darkChromaU", darkKeep != null ? darkKeep[0] : 0f, darkKeep != null ? darkKeep[1] : 0f);
         glProg.setVar("darkNoiseU", darkKeep != null ? darkKeep[2] : 0f, darkKeep != null ? darkKeep[3] : 0f);
-        glProg.setVar("edgeBandU", edgeBand);
         glProg.setVar("darkMixU", darkMix != null ? darkMix[0] : 1f, darkMix != null ? darkMix[1] : 0f, darkMix != null ? darkMix[2] : 0f);
         glProg.drawBlocks(target);
     }

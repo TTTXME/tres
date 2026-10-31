@@ -209,6 +209,8 @@ public class GLBasePipeline implements AutoCloseable {
      */
     public Bitmap runAllToBitmap() {
         runNodes();
+        // P440 (step 0c): the final pass's draws and readback start here (post_final .. post_readback: they and finishRun)
+        if (!PostGlMode.legacy()) com.particlesdevs.photoncamera.processing.ShotTimeline.markIfShot("post_final");
         Bitmap bitmap = glint.glProcessing.drawBlocksToBitmap();
         finishRun();
         return bitmap;

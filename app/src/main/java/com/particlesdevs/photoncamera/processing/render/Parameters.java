@@ -452,7 +452,6 @@ public class Parameters {
         }
         exposureTime = ExposureIndex.time2sec(exposure);
 
-        int[] blarr = new int[4];
         BlackLevelPattern level = camera().get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN);
         if (result != null) {
             boolean isHuawei = Build.BRAND.equals("Huawei");
@@ -522,33 +521,7 @@ public class Parameters {
             else if (hotPixels != null && rawCrop != null) hotPixels = keptHotPixels(hotPixels, rawCrop);
             ReCalcColor(false, result);
         }
-        // P127: black and white at the bit depth of the stream (RawLevels: declared levels, the frame's dynamic ones in their own
-        // units, what the session's samples proved), then the user's overrides
-        if (level != null) level.copyTo(blarr, 0);
-        final Integer dynamicWhite = result == null ? null : result.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL);
-        final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                com.particlesdevs.photoncamera.processing.RawLevels.forFrame(
-                        level == null ? null : new float[]{blarr[0], blarr[1], blarr[2], blarr[3]},
-                        staticWhite == null ? 0 : staticWhite,
-                        result == null ? null : result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL),
-                        dynamicWhite == null ? 0 : dynamicWhite, useDynamicBlackLevel, useDynamicWhiteLevel);
-        System.arraycopy(levels.black, 0, blackLevel, 0, 4);
-        whiteLevel = levels.white;
-        usedDynamic = levels.dynamicBlack;
-        levelBits = levels.bits;
-        levelSource = levels.source;
-        // P320: a module's hand-set levels are the plain mode's; a DCG frame keeps the levels its own data resolved
-        if (dcgShot && (whiteLevelOverride >= 0 || blackLevelOverride >= 0)) {
-            Log.i(TAG, "RAW levels: DCG frame, the module's level overrides (white " + whiteLevelOverride + ", black "
-                    + blackLevelOverride + ") are the plain mode's and are not applied");
-        } else {
-            if (whiteLevelOverride >= 0) whiteLevel = whiteLevelOverride;
-            if (blackLevelOverride >= 0) {
-                for (int i = 0; i < 4; i++) blackLevel[i] = blackLevelOverride;
-            }
-        }
-        Log.i(TAG, "RAW levels: " + levels + (whiteLevelOverride >= 0 ? ", white override " + whiteLevelOverride : "")
-                + (blackLevelOverride >= 0 ? ", black override " + blackLevelOverride : ""));
+        frameLevels(result, staticWhite, level, true);
         Float aperture = result.get(CaptureResult.LENS_APERTURE);
         if (aperture == null) {
             aperture = request.get(CaptureRequest.LENS_APERTURE);
@@ -567,6 +540,64 @@ public class Parameters {
         }
         this.focalLength = focalLength;
 
+        binnedLevels();
+    }
+
+    /**
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the RAW levels of one
+     * frame alone - black, white, their bit depth and source, the declared white, the binned scale - exactly as
+     * {@link #FillDynamicParameters} sets them for {@code result}, nothing else and without its log lines. ScamProcessor's first
+     * metadata pass (the last burst callback) ran the whole FillDynamicParameters (lens shading, noise model, colour: ReCalcColor
+     * and ~70 log lines); the reference frame's pass replaced every one of its values before anything read them, except these
+     * levels: the darkest frame's black floor is measured at them (refineBlackLevel) and the reference frame's pass reuses that
+     * measurement. A null result throws as FillDynamicParameters' first read of it did.
+     */
+    public void FillFrameLevels(CaptureResult result) {
+        java.util.Objects.requireNonNull(result, "result");
+        final Integer staticWhite = camera().get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
+        if (staticWhite != null) whiteLevel = staticWhite;
+        declaredWhite = staticWhite == null ? 0 : staticWhite;
+        frameLevels(result, staticWhite, camera().get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN), false);
+        binnedLevels();
+    }
+
+    /**
+     * P127: black and white at the bit depth of the stream (RawLevels: declared levels, the frame's dynamic ones in their own
+     * units, what the session's samples proved), then the user's overrides. P440: one method for FillDynamicParameters and
+     * FillFrameLevels; {@code log}: its lines (FillDynamicParameters only).
+     */
+    private void frameLevels(@Nullable CaptureResult result, @Nullable Integer staticWhite, @Nullable BlackLevelPattern level,
+                             boolean log) {
+        final int[] blarr = new int[4];
+        if (level != null) level.copyTo(blarr, 0);
+        final Integer dynamicWhite = result == null ? null : result.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL);
+        final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
+                com.particlesdevs.photoncamera.processing.RawLevels.forFrame(
+                        level == null ? null : new float[]{blarr[0], blarr[1], blarr[2], blarr[3]},
+                        staticWhite == null ? 0 : staticWhite,
+                        result == null ? null : result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL),
+                        dynamicWhite == null ? 0 : dynamicWhite, useDynamicBlackLevel, useDynamicWhiteLevel);
+        System.arraycopy(levels.black, 0, blackLevel, 0, 4);
+        whiteLevel = levels.white;
+        usedDynamic = levels.dynamicBlack;
+        levelBits = levels.bits;
+        levelSource = levels.source;
+        // P320: a module's hand-set levels are the plain mode's; a DCG frame keeps the levels its own data resolved
+        if (dcgShot && (whiteLevelOverride >= 0 || blackLevelOverride >= 0)) {
+            if (log) Log.i(TAG, "RAW levels: DCG frame, the module's level overrides (white " + whiteLevelOverride + ", black "
+                    + blackLevelOverride + ") are the plain mode's and are not applied");
+        } else {
+            if (whiteLevelOverride >= 0) whiteLevel = whiteLevelOverride;
+            if (blackLevelOverride >= 0) {
+                for (int i = 0; i < 4; i++) blackLevel[i] = blackLevelOverride;
+            }
+        }
+        if (log) Log.i(TAG, "RAW levels: " + levels + (whiteLevelOverride >= 0 ? ", white override " + whiteLevelOverride : "")
+                + (blackLevelOverride >= 0 ? ", black override " + blackLevelOverride : ""));
+    }
+
+    /** The levels of a binned (2x2 summed, Allocator.binning) frame: four times black and white. */
+    private void binnedLevels() {
         if (Allocator.binning) {
             for (int i = 0; i < blackLevel.length; i++) {
                 blackLevel[i] = Math.min(blackLevel[i] * 4f, 65535f);

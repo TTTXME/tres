@@ -85,7 +85,7 @@
     <string name="prefs_scam_hybrid_tensor_noise_title">Шумовая поправка тензора</string>
     <string name="prefs_scam_hybrid_tensor_noise_summary">Только для прежнего ядра: сколько шума не считать краями. Больше — глаже ровные места, меньше — резче.</string>
     <string name="prefs_scam_hybrid_widen_below_title">Расширение ядра базы при малом покрытии</string>
-    <string name="prefs_scam_hybrid_widen_below_summary">Где принято мало кадров (движение), основной кадр смягчается. Больше — чаще: чище, но мягче; меньше — резче. Действует в обычной склейке и при разбиении мозаики на подкадры: нативная склейка Quad / Tetra расширяет базу по своему правилу, а в режиме «Движение» значение всегда 0.</string>
+    <string name="prefs_scam_hybrid_widen_below_summary">Где принято мало кадров (движение), основной кадр смягчается. Больше — чаще: чище, но мягче; меньше — резче. Действует в обычной склейке и при разбиении мозаики на подкадры: нативная склейка Quad / Tetra расширяет базу по своему правилу, а в режиме «Спорт» значение всегда 0.</string>
     <string name="prefs_scam_hybrid_zipper_category_title">Зубцы и муар</string>
     <string name="prefs_scam_hybrid_chroma_diff_title">Цвет базы по цветоразности</string>
     <string name="prefs_scam_hybrid_chroma_diff_summary">Убирает цветную «молнию» на краях движущихся объектов. Больше — сильнее, меньше — слабее, 0 — выключено. Не действует в нативной склейке Quad / Tetra (по умолчанию для мозаики).</string>
@@ -583,7 +583,7 @@
     <string name="prefs_desc_pref_scam_hybrid_dn_chroma_t3_strength">Сумерки: сила шумодава цвета, 5 чисел от мелких пятен к крупным. Больше — чище цвет, меньше — точнее.</string>
     <string name="prefs_desc_pref_scam_hybrid_dn_chroma_t4_strength">Полумрак: сила шумодава цвета, 5 чисел от мелких пятен к крупным. Больше — чище цвет, меньше — точнее.</string>
     <string name="prefs_shooting_settings_screen_title">Съёмка</string>
-    <string name="prefs_shooting_settings_screen_summary">Кадры, мерцание ламп, звуки, режим «Движение»</string>
+    <string name="prefs_shooting_settings_screen_summary">Кадры, мерцание ламп, звуки, режим «Спорт»</string>
     <string name="prefs_interface_settings_screen_title">Интерфейс</string>
     <string name="prefs_interface_settings_screen_summary">Тема, цветовой акцент, значок галереи</string>
     <string name="prefs_backup_settings_screen_title">Резервная копия</string>
@@ -1037,7 +1037,7 @@
     <string name="prefs_viewfinder_screen_title">Видоискатель</string>
     <string name="prefs_viewfinder_screen_summary">Углы, сетка, горизонт, информация, RAW-видоискатель</string>
     <string name="prefs_shooting_screen_title">Съёмка</string>
-    <string name="prefs_shooting_screen_summary">Режим «Движение», ETTR, фокус</string>
+    <string name="prefs_shooting_screen_summary">Режим «Спорт», ETTR, фокус</string>
     <string name="prefs_appearance_screen_title">Оформление</string>
     <string name="prefs_appearance_screen_summary">Акцент, прозрачность шторки, расположение настроек</string>
     <!-- P408: colour matrix and Quad / Tetra white balance as in the reference app -->

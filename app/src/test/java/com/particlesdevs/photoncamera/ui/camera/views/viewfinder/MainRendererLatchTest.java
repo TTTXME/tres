@@ -17,6 +17,7 @@ public class MainRendererLatchTest {
     }
 
     private static String body(String s, String signature) {
+        s = s.replace("\r\n", "\n");
         final int start = s.indexOf(signature);
         assertTrue(signature, start > 0);
         return s.substring(start, s.indexOf("\n    }\n", start));

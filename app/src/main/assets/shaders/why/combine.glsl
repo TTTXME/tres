@@ -139,8 +139,8 @@ precision highp int;
 // + light tones x (L 0.60 .. 0.80 to 0.88 .. 0.98) + mid-tones x (L 0.15 .. 0.35 to 0.55 .. 0.75) + shadows x (L under 0.08 ..
 // 0.25); the skin's own mask (OKLab hue round its centre, sigma 0.28 rad, chroma 0.015 .. 0.28, L from its lower luminance) and its
 // saturation shift. Ours on top of it: the sky term in the sky mask on a clearly blue colour only (P378 C1, the clouds neutral) and
-// the light-tone term not on a near-white's cast (P393: vibHlShapeU's chroma gate); the light tones' term only with TONE_OP 1 (AgX
-// keeps P341's form after it). It replaces the overall / sky / green gain (vibU's protect form), ARK_VIB and «Цвет»'s vibrance by
+// the light-tone term not on a near-white's cast (P393: vibHlShapeU's chroma gate), shared by AgX and the other operators.
+// It replaces the overall / sky / green gain (vibU's protect form), ARK_VIB and «Цвет»'s vibrance by
 // brightness and skin protection of positive gains. 0: the shader before, token for token.
 #define ARK_VIBRANCE 0
 #import interpolation
@@ -1141,6 +1141,9 @@ void main() {
 
     // === 3. detail of the full-size merge (delta), applied after the tone ===
     float delta = 0.0;
+#if FILM_SIM == 1
+    float filmDelta = 0.0;
+#endif
     float lRef = 0.0;
     float sharpTone = sharpU == 1 && sharpToneU > 0.0 ? sharpToneU : 1.0;
     if (detailGainU != 0.0) {
@@ -1177,6 +1180,9 @@ void main() {
         } else {
             delta = cbrtp(max(yFull * ae, 0.000001)) - cbrtp(max(yLow * ae, 0.000001));
         }
+#if FILM_SIM == 1
+        filmDelta = delta;   // The film keeps scene detail before our gain, clarity and flat-area suppression.
+#endif
         // P349 (owner, 2026-10-26, the sunset with the ladder: «грани у нас выглядят гораздо хуже чем у Арк камеры», «ступеньки
         // у Арк тоже выглядят отлично»): a gain above 1 (P340's detail by finish SNR, up to 1.7) lifts texture - the small
         // deltas - and leaves an edge's delta as it is. The whole delta x 1.7 overshot every edge the base (whyLow, B-spline)
@@ -1207,7 +1213,7 @@ void main() {
         float yt = baseY;
         if (detailGainU != 0.0) {
             float l0 = lRef > 0.0 ? lRef : cbrtp(max((f == 1 ? cy : yLow) * ae, 0.000001));
-            float rr = max(l0 + delta, 0.0) / l0;
+            float rr = max(l0 + filmDelta, 0.0) / l0;
             yt *= rr * rr * rr;
             if (bounded) {
                 // the ratio is measured on the bounded reference (min(m Y, 1), with our P311 / P349 rim guards) while the base is
@@ -1281,12 +1287,10 @@ void main() {
         }
         if (abs(vibU.z) > 0.001 && lab.y < 0.0) boost += vibU.z * clamp(-lab.y / cs, 0.0, 1.0);
         float hlT = 0.0;
-#if TONE_OP == 1
         if (abs(vibArkU.y) > 0.001) {
             vec4 hlShape = vibHlShape();
             hlT = vibArkU.y * smoothstep(0.60, 0.80, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)) * smoothstep(hlShape.z, hlShape.w, cs);
         }
-#endif
         if (abs(vibArkU.z) > 0.001) boost += vibArkU.z * smoothstep(0.15, 0.35, lab.x) * (1.0 - smoothstep(0.55, 0.75, lab.x));
         if (abs(vibArkU.w) > 0.001) boost += vibArkU.w * (1.0 - smoothstep(0.08, 0.25, lab.x));
         float skinMult = mix(1.0, 1.0 - 0.70 * skinA, vibSkinU.x);
@@ -1333,6 +1337,8 @@ void main() {
     float cPreK = length(lab.yz);   // P393: the chroma before the light tones' vibrance (its gain is divided out of the mid rendition)
 #endif
 #endif
+#if ARK_VIBRANCE == 0
+    // P341 (legacy): P419 uses the slider's actual strength and one skin protection in the gain above, also under AgX.
     // P341 (owner, 2026-10-26: «нам нужно получить цвет у неба как у стока, при этом чтобы небо не темнило», «сделай чтобы было
     // лучше чем в стоке»): the AgX shoulder and the path to white take most of a pale bright sky's chroma (the 17:57 sunset at
     // OKLab-L 0.85: Lab chroma 8 / 22 against the stock camera's 25 / 42 at the same hue and a lower L). The light tones get
@@ -1347,14 +1353,11 @@ void main() {
     // config's strength 0.25. Host model of the shot: wallpaper / board sRGB 168 150 121 / 167 142 92 -> 164 151 130 / 159 143 115,
     // ArkCam 162 150 129 / 160 144 118.
     // P393's cast gate kept (a white-balance cast on a near-white not raised; the reference raises it x1.25).
-    // P419 (ARK_VIBRANCE 1): inside the one gain above.
-#if ARK_VIBRANCE == 0
     if (vibHlU > 0.0) {
         vec4 hlShape = vibHlShape();
         lab.yz *= 1.0 + 0.25 * vibHlU * smoothstep(0.60, 0.80, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x))
                   * smoothstep(hlShape.z, hlShape.w, length(lab.yz));
     }
-#endif
 #else
 #if SKY == 1
     // P378 (C1): in the sky the neutral gate is 0.015 .. 0.03 - a cloud tinted at chroma 0.004 - 0.012 (the white balance's cast)
@@ -1379,6 +1382,7 @@ void main() {
         vec4 hlShape = vibHlShape();
         lab.yz *= 1.0 + 1.6 * vibHlU * vibHlRamp(hlShape, lab.x, c0) * smoothstep(hlShape.z, hlShape.w, c0) * max(1.0 - c0 / 0.10, 0.0);
     }
+#endif
 #endif
 #endif
 #if COLOUR_LOOK == 1
@@ -1600,6 +1604,7 @@ void main() {
 #if AGX_INSET == 1
     graded = insetFix(graded);
 #endif
+#if ARK_VIBRANCE == 0
     if (abs(agxA.w - 1.0) > 0.001) {
         float ol = dot(graded, LUMA);
 #if COLOUR_LOOK == 1
@@ -1610,6 +1615,7 @@ void main() {
         graded = vec3(ol) + (graded - vec3(ol)) * agxA.w;
 #endif
     }
+#endif
 #endif
     // In gamut by chroma, not per channel: a channel of a saturated light over 1 would otherwise stop its brightening.
 #if P3_OUT == 1
@@ -1678,9 +1684,13 @@ void main() {
             vec3 cK = max(fromOklab(labK), vec3(0.0));
 #endif
             cK *= 0.18 / max(dot(cK, LUMA), 0.000001);
+#if ARK_VIBRANCE == 1
+            float satK = 1.0;
+#else
             float satK = agxA.w;
 #if COLOUR_LOOK == 1
             if (agxA.w > 1.0) satK = 1.0 + (agxA.w - 1.0) * (1.0 - skinU.x * skinW);
+#endif
 #endif
             vec3 midK = toOklab(max(agxGraded(cK, agxA, agxB, look, satK), vec3(0.0)));
             float cMidK = length(midK.yz) * backK;
@@ -1930,6 +1940,54 @@ void main() {
             outRgb = pow(lin, vec3(gammaInv));
         }
     }
+#endif
+#if ARK_VIBRANCE == 1
+#if TONE_OP == 0
+    // Apply the control once, including the landing's colour. RGB extrapolation before the gamut cut lifted lightness
+    // through negative channels and could reduce chroma as saturation rose. The default is an exact bypass.
+    if (abs(agxA.w - 1.0) > 0.001) {
+#if GAMMA_TYPE == 0
+        vec3 satLin = pow(clamp(outRgb, 0.0, 1.0), vec3(1.0 / gammaInv));
+#else
+        vec3 satLin = decG(clamp(outRgb, 0.0, 1.0));
+#endif
+#if P3_OUT == 1
+        satLin = P3_TO_SRGB * satLin;
+#endif
+        vec3 satLab = toOklab(satLin);
+        float satAmount = agxA.w;
+#if COLOUR_LOOK == 1
+        if (satAmount > 1.0) satAmount = 1.0 + (satAmount - 1.0) * (1.0 - skinU.x * skinW);
+#endif
+        float satChroma = length(satLab.yz);
+        if (satAmount > 1.0 && satChroma > 0.000001) {
+            vec2 dir = satLab.yz / satChroma;
+            // An absolute boundary, independent of the slider: repeated fractional gamut searches can make a plateau fall.
+            float lo = 0.0, hi = 1.0;
+            for (int i = 0; i < 14; i++) {
+                float mid = 0.5 * (lo + hi);
+                vec3 trial = fromOklab(vec3(satLab.x, dir * mid));
+#if P3_OUT == 1
+                trial = SRGB_TO_P3 * trial;
+#endif
+                if (all(greaterThanEqual(trial, vec3(0.0))) && all(lessThanEqual(trial, vec3(1.0)))) lo = mid; else hi = mid;
+            }
+            satLab.yz = dir * min(satChroma * satAmount, max(lo, satChroma));
+        } else {
+            satLab.yz *= max(satAmount, 0.0);
+        }
+        satLin = fromOklab(satLab);
+#if P3_OUT == 1
+        satLin = SRGB_TO_P3 * satLin;
+#endif
+        satLin = clamp(satLin, 0.0, 1.0);
+#if GAMMA_TYPE == 0
+        outRgb = pow(max(satLin, vec3(0.0)), vec3(gammaInv));
+#else
+        outRgb = encG(max(satLin, vec3(0.0)));
+#endif
+    }
+#endif
 #endif
 #if FILM_LUT == 1
     {

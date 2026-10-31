@@ -565,8 +565,6 @@ public class ScamProcessor extends ProcessorBase {
                 + " (short headroom available: " + hasShortHeadroom + ")");
         Log.d(TAG, "Wrapper.init");
         ArrayList<ImageFrame> images = new ArrayList<>();
-        int ISO = 0;
-        int isoFrames = 0;
         int normalFrames = 0;
         if(BurstShakiness.size() < mImageFramesToProcess.size()){
             Log.d(TAG,"Warning: Gyro data size:"+BurstShakiness.size()+" is less than image size:"+mImageFramesToProcess.size());
@@ -596,17 +594,9 @@ public class ScamProcessor extends ProcessorBase {
                 frame.frameGyro = BurstShakiness.get(ind);
             }*/
             images.add(frame);
-            // Bracket members shoot at their own ISO (72 for the ultra-short, 166
-            // for the long one here), so averaging all frames moved the burst's ISO
-            // away from the regular frames the result is actually built from, and
-            // with it the noise model and the EXIF value. They contribute highlights
-            // and shadows, not exposure.
-            if (!frame.pair.isHighlightFrame && !frame.pair.isLongFrame) {
-                ISO += frame.pair.iso;
-                isoFrames++;
-            }
+            // P440: the burst's mean ISO of the normal frames fed only the first metadata pass (now the levels alone): the photo's
+            // ISO is the reference frame's (its FillDynamicParameters below)
         }
-        ISO = isoFrames > 0 ? ISO / isoFrames : ISO / images.size();
         // Measured for every frame, bracket members included. Their value is not directly comparable with a regular
         // frame's - the measure is normalised by level, not by the noise model, and a longer exposure has a better SNR,
         // which lowers the noise part of the gradient energy on its own - so it is logged for diagnosis and used only
@@ -627,24 +617,15 @@ public class ScamProcessor extends ProcessorBase {
         }
         Log.d(TAG, frameLog.toString());
 
-        processingParameters.FillDynamicParameters(captureResult, captureRequest,ISO);
-        // The last burst callback belongs to the ultra-short highlight frame: the exposure of the photo (EXIF, DNG) and the key of the
-        // noise store are those of the normal frames the picture is built from.
-        for (ImageFrame f : images) {
-            if (f.pair != null && !f.pair.isHighlightFrame && !f.pair.isLongFrame && f.measuredExposure > 0) {
-                double normalSeconds = com.particlesdevs.photoncamera.processing.parameters.ExposureIndex.time2sec(f.measuredExposure);
-                if (Math.abs(normalSeconds - processingParameters.exposureTime) > 1e-9)
-                    Log.i(TAG, "Exposure time of the normal frames " + normalSeconds + " s instead of the last callback's "
-                            + processingParameters.exposureTime + " s");
-                processingParameters.exposureTime = normalSeconds;
-                break;
-            }
-        }
+        // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): of the last burst
+        // callback's metadata only the levels are read before the reference frame's pass below - the darkest frame's black floor is
+        // measured at them and that pass reuses the measurement. Its whole FillDynamicParameters (lens shading, noise model, colour,
+        // ~70 log lines), the normal frames' exposure time set after it and the EXIF sync made here were all replaced by that pass
+        // (FillDynamicParameters, ParseExif.syncWithParameters) before anything read them (FillFrameLevelsTest).
+        processingParameters.FillFrameLevels(captureResult);
         refineBlackFromDarkestFrame(processingParameters, images);
         processingParameters.cameraRotation = cameraRotation;
         processingStage = "frame selection";
-
-        ParseExif.syncWithParameters(exifData, processingParameters);
 
         // P267: «Наш ремозаик» off and a Quad / Tetra shot (ScamHybridBurst.lastDngMosaic): the merged mosaic DNG alone, no photo
         boolean mosaicDngOnly = false;
@@ -724,8 +705,9 @@ public class ScamProcessor extends ProcessorBase {
                         catch (RuntimeException e) { Log.d(TAG, "series notice: " + e); }
                     }
                     // P212d: the ultrashort frames' row profiles vote on the lamp flicker (MainsFlicker «Авто»), at the reference
-                    // frame's rolling shutter skew; nothing happens when the burst had none (no ultrashort frame, no profile)
-                    com.particlesdevs.photoncamera.capture.RowFlicker.afterMerge(
+                    // frame's rolling shutter skew; nothing happens when the burst had none (no ultrashort frame, no profile).
+                    // P440: on a thread of its own (later shots' anti-banding only, never this photo)
+                    com.particlesdevs.photoncamera.capture.RowFlicker.afterMergeAsync(
                             com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamNeuralClient.lastRowProfiles,
                             rollingSkew(referenceMetadata));
                 }

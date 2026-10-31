@@ -709,6 +709,17 @@ public final class WhyTone {
         return l != null ? l.colour : colourLook();
     }
 
+    static boolean colourLookOn(ColourLook look, int toneOp, float saturation) {
+        return !look.shaderNeutral(toneOp == com.particlesdevs.photoncamera.processing.color.ToneCurve.AGX
+                && saturation - 1f > 0.001f);
+    }
+
+    static float agxSaturation(WhyAe.Settings settings) {
+        float sat = settings.efEnabled && settings.look >= 0 && settings.look < WhyAe.LOOKS.length
+                ? WhyAe.LOOKS[settings.look][5] : settings.sat;
+        return sat * settings.ccmSat;
+    }
+
     /** The «Цвет» rows of the current module (also the RAW viewfinder's look, P134). */
     public static ColourLook colourLook() {
         ColourLook c = new ColourLook();
@@ -751,7 +762,7 @@ public final class WhyTone {
         if (st != null && st.colourMatrix != null) return st.colourMatrix;
         Parameters p = pipeline.mParameters;
         float[] white = colourLook(pipeline).whiteMatrix(p.sceneCct);
-        float[] m = colourMatrixOf(p, white);
+        float[] m = colourMatrixOf(p, white, pipeline.film);
         if (white != null) {
             com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE", "colour: white matrix " + java.util.Arrays.toString(white)
                     + " scene " + p.sceneCct + " K");
@@ -765,11 +776,17 @@ public final class WhyTone {
      * what {@link #colourMatrix(PostPipeline)} uploads and the diagnostic README prints.
      */
     static float[] colourMatrixOf(Parameters p, float[] white) {
+        return colourMatrixOf(p, white, null);
+    }
+
+    static float[] colourMatrixOf(Parameters p, float[] white,
+                                  @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
         float[] m = intermediateToSRGB(p);
         if (white != null) m = ColourLook.mul(white, m);
         // P408: the reference app's Dynamic CCT on the white matrix after the colour matrix, before cct_sat and the R / G / B gains
-        if (dynamicCct()) m = com.particlesdevs.photoncamera.processing.color.CcmPresets.dynamicCct(m, p.iso, dynamicCctStrength());
-        final float[] look = withCctSat(null);
+        if (dynamicCct()) m = com.particlesdevs.photoncamera.processing.color.CcmPresets.dynamicCct(m, p.iso,
+                cctAmount(dynamicCctStrength(), 0f, film));
+        final float[] look = withCctSat(null, film);
         return look != null ? ColourLook.mul(look, m) : m;
     }
 
@@ -790,8 +807,23 @@ public final class WhyTone {
      * pair 2026-10-29: wallpaper / board / chest / curtain CIELAB C* 12.5 / 16.3 / 13.8 / 11.8 against 12.7 / 16.1 / 13.9 / 11.9).
      */
     public static float[] withCctSat(float[] white) {
-        return cctGain(new float[]{gain("cct_gain_r"), gain("cct_gain_g"), gain("cct_gain_b")},
-                cctSat(Math.max(0f, Math.min(2f, value("cct_sat", CCT_SAT))), white));
+        return withCctSat(white, null);
+    }
+
+    public static float[] withCctSat(float[] white,
+                                    @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        if (film != null && film.strength >= 1f) return white;
+        return cctGain(new float[]{cctAmount(gain("cct_gain_r"), 1f, film), cctAmount(gain("cct_gain_g"), 1f, film),
+                        cctAmount(gain("cct_gain_b"), 1f, film)},
+                cctSat(cctAmount(Math.max(0f, Math.min(2f, value("cct_sat", CCT_SAT))), 1f, film), white));
+    }
+
+    // Camera calibration and the chosen white balance stay; only our extra CCT look gives way to the film.
+    static float cctAmount(float value, float neutral,
+                           @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        if (film == null || film.strength <= 0f) return value;
+        if (film.strength >= 1f) return neutral;
+        return neutral + (value - neutral) * (1f - film.strength);
     }
 
     /** P407: the default matrix saturation (pref_scam_hybrid_why_cct_sat). */
@@ -819,7 +851,8 @@ public final class WhyTone {
 
     /** P370 (B1): {@link #colourMatrixOf} with the «Цвет» rows of now (the diagnostic README before the pipeline runs). */
     static float[] colourMatrixNow(Parameters p) {
-        return colourMatrixOf(p, colourLook().whiteMatrix(p.sceneCct));
+        return colourMatrixOf(p, colourLook().whiteMatrix(p.sceneCct),
+                com.particlesdevs.photoncamera.processing.color.FilmSim.current());
     }
 
     /** Colour uniforms of why/low.glsl and why/combine.glsl (sceneLinear): the chain of headroom/render.glsl. */

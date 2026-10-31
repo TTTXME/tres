@@ -4,7 +4,7 @@
 With every strength 0 the define is bit for bit the shader without vibrance (ARK_VIBRANCE 0, vibU 0, vibHlU 0) under SKY 0 / 1 and
 TONE_OP 0 / 1. Each term raises its own colours only: the pastel strength the low chroma, «saturated» the high one, the sky term
 OKLab b < 0 only, the green term a < 0 only, the mid-tones OKLab L 0.35 .. 0.55, the shadows below 0.08 .. 0.25 and the light tones 0.80 ..
-0.88 (TONE_OP 1 only; AgX keeps P341's form) and not a near-white's cast (P393's gate). The skin protection holds a skin-hue colour
+0.88 (AgX and TONE_OP 1) and not a near-white's cast (P393's gate). The skin protection holds a skin-hue colour
 at 0.30 of the gain (x (1 - 0.70)), protection 0 gives it the full gain; the skin saturation shift moves the skin hue only. Compiles
 with COLOUR_LOOK and LIGHT_CHROMA.
 """
@@ -120,14 +120,19 @@ def main():
           'skin protection: the skin\'s share of the gain %.2f (protection 1), %.2f (0)' % (ex_skin / ex, ex_skin0 / ex))
     check(gain('skinsat', 0.45, SKIN_HUE, 0.05) > 1.2 and abs(gain('skinsat', 0.45, 150.0, 0.05) - 1) < 0.01,
           'skin saturation shift: skin x%.3f, hue 150 x%.3f' % (gain('skinsat', 0.45, SKIN_HUE, 0.05), gain('skinsat', 0.45, 150.0, 0.05)))
-    # light tones: TONE_OP 1 only, L 0.85 not L 0.45, not a near-white's cast
+    # light tones: both tone paths, L 0.85 not L 0.45, not a near-white's cast
     ch1, ch1z, ch0 = chroma(r['hl1']), chroma(r['hl1z']), chroma(r['hl0'])
     hl = ch1[(0.85, 110.0, 0.05)] / ch1z[(0.85, 110.0, 0.05)]
     cast = ch1[(0.85, 110.0, 0.003)] / max(ch1z[(0.85, 110.0, 0.003)], 1e-3)
     mid = ch1[(0.45, 110.0, 0.05)] / ch1z[(0.45, 110.0, 0.05)]
     check(1.12 <= hl <= 1.35 and cast < 1.05 and abs(mid - 1) < 0.01,
           'light tones (TONE_OP 1): L 0.85 x%.3f, a near-white\'s cast x%.3f, L 0.45 x%.3f' % (hl, cast, mid))
-    check(np.array_equal(r['hl0'], r['zero']), 'light tones under AgX (TONE_OP 0): no term in the gain (P341\'s form after it)')
+    c0 = chroma(r['zero'])
+    hl0 = ch0[(0.85, 110.0, 0.05)] / c0[(0.85, 110.0, 0.05)]
+    cast0 = ch0[(0.85, 110.0, 0.003)] / max(c0[(0.85, 110.0, 0.003)], 1e-3)
+    mid0 = ch0[(0.45, 110.0, 0.05)] / c0[(0.45, 110.0, 0.05)]
+    check(1.12 <= hl0 <= 1.5 and cast0 < 1.05 and abs(mid0 - 1) < 0.01,
+          'light tones under AgX: L 0.85 x%.3f, a near-white\'s cast x%.3f, L 0.45 x%.3f' % (hl0, cast0, mid0))
     if failures:
         print('%d FAILED' % len(failures))
         return 1

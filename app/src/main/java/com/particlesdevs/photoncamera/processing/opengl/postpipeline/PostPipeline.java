@@ -55,6 +55,7 @@ public class PostPipeline extends GLBasePipeline {
     public boolean signedRgb;
     /** WHY tone of the SCAM Hybrid: state handed from WhyStats to WhyCombine; null outside that route. */
     public WhyTone.State why;
+    SportsDenoisePolicy sportsDenoise;
     /**
      * P349: the glow share of the fully clipped cores (ScamRgb.sunBloom, WhyCombine's sun bloom), the image size it covers and its
      * block, px (P277: the whole frame's on a lab fragment).

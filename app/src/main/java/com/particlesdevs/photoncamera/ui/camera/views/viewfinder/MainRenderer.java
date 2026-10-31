@@ -138,8 +138,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
     private final com.particlesdevs.photoncamera.processing.opengl.postpipeline.LiveWhyTone.RawSource mFusedRaw =
             new com.particlesdevs.photoncamera.processing.opengl.postpipeline.LiveWhyTone.RawSource() {
                 @Override
-                public boolean bind(int program) {
-                    return mRawRenderer.bindFrame(program, mTexRotateMatrix, mMirrorPreview);
+                public boolean bind(int program, com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+                    return mRawRenderer.bindFrame(program, mTexRotateMatrix, mMirrorPreview, film);
                 }
 
                 @Override
@@ -264,7 +264,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                         rawActive = mWhyTone.drawFused(mFusedRaw, rawFbo, 0, 0, rawW, rawH);
                         if (rawActive) mVfRawPasses = 2;
                     } else {
-                        rawActive = mWhyTone.draw(() -> mRawRenderer.drawLinear(pVertex, pTexCoord, mTexRotateMatrix, mMirrorPreview),
+                        rawActive = mWhyTone.draw(film -> mRawRenderer.drawLinear(pVertex, pTexCoord, mTexRotateMatrix, mMirrorPreview, film),
                                 mRawRenderer::lastView, rawFbo, rawW, rawH);
                         if (rawActive) mVfRawPasses = 3;
                     }

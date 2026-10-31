@@ -43,11 +43,12 @@ public final class WhyCombine extends Node {
 
     /**
      * The detail gain of the sharpened luma: «sharp_gain» x {@link #detailBoost}. P369 (texture-detail-boost): with a film (any, B10)
-     * the boost - our look, not the film's - only on the share the simulation's strength leaves (none at 100 %: the film gets the
+     * the gain and boost - our look, not the film's - only on the share the simulation's strength leaves (none at 100 %: the film gets the
      * merge's own detail); without one the expression as before, bit for bit.
      */
     static float detailGain(float sharpGain, float snr, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
-        return film == null ? sharpGain * detailBoost(snr) : sharpGain * (1f + (detailBoost(snr) - 1f) * (1f - film.strength));
+        if (film == null) return sharpGain * detailBoost(snr);
+        return 1f + (sharpGain * detailBoost(snr) - 1f) * (1f - film.strength);
     }
 
     /** P154 «Мягкость засветов»: where the highlight landing starts below the data ceiling (fraction 0 .. 0.9; 0 = off). */
@@ -113,8 +114,8 @@ public final class WhyCombine extends Node {
         final float detail = sharp ? detailGain(WhyTone.value("sharp_gain", 1.0f), pipeline.mParameters.finishSnr, film) : 2.0f;
         // P134 «Цвет»: COLOUR_LOOK only when a colour setting is off its default (else the shader before P134)
         final com.particlesdevs.photoncamera.processing.color.ColourLook look = WhyTone.colourLook(pipeline);
-        final boolean colourOn = !look.shaderNeutral();
         final int toneOp = WhyTone.toneOperator();
+        final boolean colourOn = WhyTone.colourLookOn(look, toneOp, r.sat);
         // P393: the light tones of a saturated colour keep its mid-tone chroma (LIGHT_CHROMA; AgX only, the other operators as before)
         final float lightChroma = toneOp == com.particlesdevs.photoncamera.processing.color.ToneCurve.AGX ? WhyTone.lightChroma() : 0f;
         // P369: with a film the scene-referred table (FILM_SIM: the film fed the exposed scene light, the chosen LUT on its print);
@@ -233,7 +234,7 @@ public final class WhyCombine extends Node {
             if (arkVib != null) glProg.setDefine("ARK_VIB", 1);   // P404: saturated / mid / shadow vibrance, the skin's own mask
             final boolean arkVibrance = WhyTone.arkVibranceOn();
             if (arkVibrance) glProg.setDefine("ARK_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
-            if (WhyTone.edgeHold() > 0f && !st.inputReleased) glProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
+            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
                     ? " backlit (level x" + Math.round(100f * st.skyMask.keep) / 100f + ")" : "");
             // P378 review: Ultra HDR keeps the sky term's change - the combine at whyLow with and without it (skyHdrRatio), its
@@ -305,7 +306,7 @@ public final class WhyCombine extends Node {
             }
             glProg.setVar("sharpU", sharp ? 1 : 0);
             glProg.setVar("fullInputU", st.inputReleased ? 0 : 1);   // P349: the bright rim reads the full-size merge
-            if (WhyTone.edgeHold() > 0f && !st.inputReleased) glProg.setVar("edgeHoldU", WhyTone.edgeHold());   // P394: smooth edges (photo only)
+            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setVar("edgeHoldU", WhyTone.edgeHold());   // P394: smooth edges (photo only)
             glProg.setVar("sharpToneU", sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
             glProg.setVar("fU", st.factor);
             glProg.setVar("colourFU", colourFactor);

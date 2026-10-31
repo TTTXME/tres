@@ -113,6 +113,19 @@ public final class ShotTimeline {
         if (line == null || line.length() < 8) return;
         final char c = line.charAt(0);
         if (c != 'H' && c != 'N' && c != 'S') return; // P236: 'S' too - «SCAM STOCK MOTION» / «SCAM CAPTURE OK» never matched before
+        // P440: a mark the worker prints itself (last homography, end of the F6 tail, Mochi start / end, last readback, ...)
+        if (line.startsWith(WORKER_MARK)) {
+            final Object[] m = workerMark(line);
+            if (m == null) return;
+            final long at = (Long) m[1];
+            if (at < 0) mark((String) m[0]);
+            else {
+                // a time on another clock (not CLOCK_BOOTTIME) or a garbled one: the relay time, as for the other worker lines
+                final long now = android.os.SystemClock.elapsedRealtimeNanos();
+                markAt((String) m[0], Math.abs(now - at) <= MARK_SKEW_NS ? at : now);
+            }
+            return;
+        }
         // P236 (speed-ux F): the native mosaic merge's own stage times, back from its total line (the line comes at its end)
         if (line.startsWith("HYBRID MOSAIC NATIVE: total ")) {
             final long[] stages = nativeStages(line);
@@ -132,6 +145,10 @@ public final class ShotTimeline {
         else if (line.contains("site-class response")) name = "w_response";
         else if (line.startsWith("HYBRID MOSAIC BINNED") || line.startsWith("HYBRID MOSAIC: binned alignment")) name = "w_binning";
         else if (line.startsWith("HYBRID MOSAIC") && line.contains("chroma median (")) name = "w_chroma"; // its end
+        // P440: the plain merge's chroma median line comes at the end of its sink (after the last readback), the first Mochi line
+        // when the first long frame is corrected (until the worker prints its own HYBRID MARK lines for them)
+        else if (line.startsWith("HYBRID PLAIN: chroma median (")) name = "w_chroma";
+        else if (line.startsWith("HYBRID MOCHI: frame ")) name = "w_mochi";
         else if (line.startsWith("HYBRID SHASTA")) name = "w_shasta";
         else if (line.startsWith("HYBRID BENTO")) name = "w_bento";
         else if (line.startsWith("HYBRID LOCAL ALIGN")) name = "w_f6";
@@ -143,6 +160,35 @@ public final class ShotTimeline {
         else if (line.equals("SCAM CAPTURE OK")) name = "w_ok";
         else return;
         mark(name);
+    }
+
+    /**
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): a stage mark the worker
+     * prints itself, {@code HYBRID MARK <name>} (the relay time) or {@code HYBRID MARK <name> <ms>} with the time of the event in
+     * CLOCK_BOOTTIME milliseconds (SystemClock.elapsedRealtime's clock; up to 6 decimals), so a mark the worker reports late
+     * still lands where the event was. The timeline name is {@code w_<name>} (a name already starting with w_ is kept).
+     */
+    static final String WORKER_MARK = "HYBRID MARK ";
+    /** P440: a worker mark's time further than this from the relay time is not CLOCK_BOOTTIME: the relay time stands. */
+    static final long MARK_SKEW_NS = 60_000_000_000L;
+    private static final java.util.regex.Pattern MARK_LINE = java.util.regex.Pattern.compile(
+            "^HYBRID MARK ([A-Za-z][A-Za-z0-9_]{0,47})(?: ([0-9]{1,15}(?:\\.[0-9]{1,6})?))?\\s*$");
+
+    /** P440: {timeline name, time in ns (CLOCK_BOOTTIME) or -1 for the relay time} of a worker mark line, null when it is none. */
+    static Object[] workerMark(String line) {
+        if (line == null) return null;
+        final java.util.regex.Matcher m = MARK_LINE.matcher(line);
+        if (!m.matches()) return null;
+        final String name = m.group(1).startsWith("w_") ? m.group(1) : "w_" + m.group(1);
+        long ns = -1;
+        if (m.group(2) != null) {
+            try {
+                ns = Math.round(Double.parseDouble(m.group(2)) * 1_000_000d);
+            } catch (NumberFormatException e) {
+                ns = -1;
+            }
+        }
+        return new Object[]{name, ns};
     }
 
     private static final java.util.regex.Pattern NATIVE_TOTAL = java.util.regex.Pattern.compile(

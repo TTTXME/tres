@@ -126,7 +126,7 @@ public final class LiveWhyTone {
      */
     public interface RawSource {
         /** Binds the frame to the program {@code program} (its RAW uniforms, units 9 and 10); false without a frame to draw. */
-        boolean bind(int program);
+        boolean bind(int program, com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film);
 
         /** Whether the bound frame is new (not drawn before): the AE counts and runs on new frames. */
         boolean fresh();
@@ -181,6 +181,7 @@ public final class LiveWhyTone {
     private double meteredLogP;
     private long meterAtNs;
     private boolean meterNow;
+    private float meterFilmStrength;
     /** P383: scam_dev vf_ae_scene (the frames drawn against their own exposure; 0: as before, for an A/B) and vf_ae_trace. */
     private boolean aeScene = true, aeTrace;
     private long traceUntilMs;
@@ -288,6 +289,7 @@ public final class LiveWhyTone {
         track.reset();
         trackedSession = trackedVersion = -1;
         meterAtNs = 0;
+        meterFilmStrength = 0f;
         sky.reset();
         skyTex = skyTexW = skyTexH = 0;
         skyLogP = Double.NaN;
@@ -304,20 +306,24 @@ public final class LiveWhyTone {
      * tone size, MainRenderer). The default framebuffer and the viewport are put back. False: nothing drawn (no frame, or the tone
      * failed - then {@link #failed()}).
      */
-    public boolean draw(java.util.function.BooleanSupplier linear,
+    public boolean draw(java.util.function.Function<com.particlesdevs.photoncamera.processing.color.FilmSim.Settings, Boolean> linear,
                         java.util.function.Supplier<com.particlesdevs.photoncamera.processing.LiveWhyMeter.View> frame, int outFbo, int w, int h) {
         if (failed) return false;
         int[] viewport = new int[4];
         GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, viewport, 0);
         try {
             if (!inited && !init()) return fail("init");
+            refreshSettings();
+            final FilmLut lut = lutNow();
+            final com.particlesdevs.photoncamera.processing.color.FilmSim.Settings shownFilm =
+                    filmForTable(filmNow, lutTex != 0 && lut != null && lutShownScene);
+            observeFilm(shownFilm);
             target(lin, w, h, GLES30.GL_RGBA16F, GLES20.GL_NEAREST);
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, lin.fbo);
             GLES20.glViewport(0, 0, w, h);
-            final boolean drawn = linear.getAsBoolean();
+            final boolean drawn = linear.apply(shownFilm);
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
             if (!drawn) return false;
-            refreshSettings();
             if (mode() != LOCAL) {
                 // P314: the photo's tone per pixel - the AE on the CPU from the RAW frame (no readback), then one pass of why/combine
                 final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View view = frame.get();
@@ -328,7 +334,7 @@ public final class LiveWhyTone {
                 final float aeNow = easeShown(true);
                 // P378 review: the sky shown now, its cells in the tone's orientation
                 skyOnDraw = uploadSky(view);
-                combine(ae, aeNow, outFbo, w, h, true);
+                combine(ae, aeNow, outFbo, w, h, true, lut);
                 int error = GLES20.glGetError();
                 if (error != GLES20.GL_NO_ERROR) return fail("GL error 0x" + Integer.toHexString(error));
                 return true;
@@ -388,7 +394,7 @@ public final class LiveWhyTone {
             texture(g3, "MeanB", 2, ab[1].id);
             draw(fused);
             // the tone, as WhyCombine
-            combine(r, aeNow, outFbo, w, h, false);
+            combine(r, aeNow, outFbo, w, h, false, lut);
             int error = GLES20.glGetError();
             if (error != GLES20.GL_NO_ERROR) return fail("GL error 0x" + Integer.toHexString(error));
             return true;
@@ -423,7 +429,9 @@ public final class LiveWhyTone {
             final int p = program("why/combine", combineDefines(lutOn, lutShownScene, true, true));
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, outFbo);
             GLES20.glViewport(x, y, w, h);
-            if (!raw.bind(p)) return false;
+            final com.particlesdevs.photoncamera.processing.color.FilmSim.Settings shownFilm = filmForTable(filmNow, lutOn && lutShownScene);
+            observeFilm(shownFilm);
+            if (!raw.bind(p, shownFilm)) return false;
             final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View view = raw.view();
             if (meterDue(observe(view))) {
                 if (!runAePoint(view)) return fusedFail("ae");
@@ -494,10 +502,20 @@ public final class LiveWhyTone {
         GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
     }
 
+    private void refreshColourOn() {
+        // drawFused chooses its program before the AE/shown update; cover both ends of that transition.
+        float saturation = Math.max(WhyTone.agxSaturation(settings), shown.sat);
+        if (ae != null) saturation = Math.max(saturation, ae.sat);
+        colourOn = WhyTone.colourLookOn(look, toneOp, saturation);
+    }
+
     /** The settings the photo would use now (WhyStats / WhyFusion / WhyCombine read the same). */
     private void refreshSettings() {
         final long now = SystemClock.uptimeMillis();
-        if (now - settingsAt < SETTINGS_MS && settings != null) return;
+        if (now - settingsAt < SETTINGS_MS && settings != null) {
+            refreshColourOn();
+            return;
+        }
         settingsAt = now;
         settings = WhyTone.settings();
         settings.bentoHeadroom = false;     // a single frame: no Bento data above the clip
@@ -513,8 +531,8 @@ public final class LiveWhyTone {
         // P370 (B4): the photo's AgX saturation of the OPPO tuned matrix when the tuned matrix renders this viewfinder (PhotoMatrix)
         settings.ccmSat = WhyTone.ccmSatComp(com.particlesdevs.photoncamera.processing.color.PhotoMatrix.viewfinderTuned);
         look = WhyTone.colourLook();
-        colourOn = !look.shaderNeutral();
         toneOp = WhyTone.toneOperator();
+        refreshColourOn();
         lw = WhyTone.layerWeights();
         center = WhyTone.fusionCenter();
         smooth = WhyTone.value("blend_smoothness", 0.45f);
@@ -914,8 +932,7 @@ public final class LiveWhyTone {
      * same-size bypass, every input the linear frame, the fused luma from the FusedCurve texture); else the guided-filter chain's
      * whyLow / fused at factor 2.
      */
-    private void combine(WhyAe.Result r, float aeNow, int outFbo, int w, int h, boolean point) {
-        final FilmLut lut = lutNow();
+    private void combine(WhyAe.Result r, float aeNow, int outFbo, int w, int h, boolean point, FilmLut lut) {
         final boolean lutOn = lutTex != 0 && lut != null;
         int p = program("why/combine", combineDefines(lutOn, lutShownScene, point, false));
         use(p);
@@ -930,6 +947,19 @@ public final class LiveWhyTone {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, outFbo);
         GLES20.glViewport(0, 0, w, h);
         quad(p);
+    }
+
+    static com.particlesdevs.photoncamera.processing.color.FilmSim.Settings filmForTable(
+            com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film, boolean sceneTableShown) {
+        return sceneTableShown ? film : null;
+    }
+
+    void observeFilm(com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        final float strength = film == null ? 0f : film.strength;
+        if (strength != meterFilmStrength) {
+            meterFilmStrength = strength;
+            meterNow = true;
+        }
     }
 
     /**
