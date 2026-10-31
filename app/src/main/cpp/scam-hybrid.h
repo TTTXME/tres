@@ -2183,7 +2183,7 @@ void main(){
             float Vq[4];
             for(int q=0;q<4;q++){
                 Vq[q]=Vcur;
-                if(RJ_POOL3){
+                if(RJ_POOL3&&q!=0){
                     vec3 a=vec3(0.0),a2=vec3(0.0);
                     for(int j=0;j<3;j++)for(int i=0;i<3;i++){vec3 u=c4[((q>>1)+j)*4+(q&1)+i].xyz;a+=u*(1.0/9.0);a2+=u*u*(1.0/9.0);}
                     vec3 v=max(a2-a*a,vec3(0.0));

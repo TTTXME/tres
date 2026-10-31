@@ -3,6 +3,8 @@
 // descriptors (memfd burst/result) mapped to 3, 4, ... and stdout+stderr on a pipe.
 #include <jni.h>
 #include <android/api-level.h>
+#include <android/log.h>
+#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <csignal>
@@ -17,6 +19,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <vector>
+#include "worker-spawn-fast.h"
 
 #ifndef __NR_close_range
 #define __NR_close_range 436
@@ -43,8 +46,7 @@ std::vector<char*> pointers(std::vector<std::string>& v) {
 }
 
 // Returns {pid, readFd of the child's stdout+stderr}, or null on failure.
-extern "C" JNIEXPORT jintArray JNICALL
-Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jobjectArray jargv,jobjectArray jenv,jintArray jfds) {
+static jintArray spawnWorker(JNIEnv* env,jobjectArray jargv,jobjectArray jenv,jintArray jfds,bool requireFast) {
     auto argvStrings=strings(env,jargv),envStrings=strings(env,jenv);
     if(argvStrings.empty())return nullptr;
     std::vector<int> fds;
@@ -56,7 +58,7 @@ Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jo
     // Sources are moved above the target range first, so mapping never clobbers one.
     std::vector<int> high;
     for(int fd:fds) {
-        int h=fcntl(fd,F_DUPFD_CLOEXEC,64);
+        int h=fcntl(fd,F_DUPFD_CLOEXEC,std::max(64,3+int(fds.size())));
         if(h<0){for(int x:high)close(x);return nullptr;}
         high.push_back(h);
     }
@@ -78,7 +80,10 @@ Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jo
         char* end=nullptr;const long v=std::strtol(e.c_str()+17,&end,10);
         if(end&&*end==0&&end!=e.c_str()+17&&v>=-8&&v<=19)workerNice=int(v);
     }
-    const pid_t pid=fork();
+    timespec spawnAt{};clock_gettime(CLOCK_MONOTONIC,&spawnAt);
+    pid_t pid=scam_spawn::fast(argv.data(),envp.data(),high,pipeFds[1],devNull,workerNice);
+    const bool fast=pid>=0;
+    if(pid<0&&!requireFast)pid=fork();
     if(pid==0) {
         // Child: async-signal-safe calls only.
         if(workerNice!=INT32_MIN&&setpriority(PRIO_PROCESS,0,workerNice)!=0){} // the calling (only) thread; best effort
@@ -96,10 +101,26 @@ Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jo
     if(devNull>=0)close(devNull);
     close(pipeFds[1]);
     if(pid<0){close(pipeFds[0]);return nullptr;}
+    timespec spawnedAt{};clock_gettime(CLOCK_MONOTONIC,&spawnedAt);
+    __android_log_print(ANDROID_LOG_INFO,"SCAM_SPAWN","method=%s pid=%d setup_ms=%.3f nice=%d",
+            fast?"posix_spawn":"fork",int(pid),double(spawnedAt.tv_sec-spawnAt.tv_sec)*1000.+double(spawnedAt.tv_nsec-spawnAt.tv_nsec)/1e6,workerNice);
     jintArray result=env->NewIntArray(2);
     const jint values[2]={pid,pipeFds[0]};
     env->SetIntArrayRegion(result,0,2,values);
     return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jobjectArray argv,jobjectArray vars,jintArray fds){
+    return spawnWorker(env,argv,vars,fds,false);
+}
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawnNoFork(JNIEnv* env,jclass,jobjectArray argv,jobjectArray vars,jintArray fds){
+    return spawnWorker(env,argv,vars,fds,true);
+}
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_particlesdevs_photoncamera_util_WorkerSpawn_supportsFastSpawn(JNIEnv*,jclass){
+    return scam_spawn::api().available()?JNI_TRUE:JNI_FALSE;
 }
 
 // Exit status (0..255), 128+signal, or -1 while still running after timeoutMs.

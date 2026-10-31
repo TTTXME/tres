@@ -44,6 +44,14 @@ jobs:
       - name: Install NDK and CMake
         run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Check fast worker launcher and GCam diagnostic decoder
+        run: |
+          python3 tools/check_gcam61_makernote.py
+          ndk_bin="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for target in aarch64-linux-android26 x86_64-linux-android26; do
+            "$ndk_bin/clang++" --target="$target" -std=c++17 -fsyntax-only app/src/main/cpp/worker-spawn.cpp tools/check_worker_spawn.cpp
+          done
+
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Compute versionCode

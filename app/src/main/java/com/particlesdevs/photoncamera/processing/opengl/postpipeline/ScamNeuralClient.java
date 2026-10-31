@@ -780,9 +780,10 @@ public final class ScamNeuralClient {
                 +"|"+com.particlesdevs.photoncamera.util.WorkerEnv.gpuNormalPriority()+"|"+com.particlesdevs.photoncamera.util.WorkerEnv.workerNice();
     }
 
-    /** review M2: off by default until a phone measures it (it forks the camera app during the 0.4 s bracket capture). */
+    /** Warm during capture only when the native launcher can avoid copying the camera process. */
     private static boolean prespawnOn(){
-        try{return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("worker_prespawn",false);}
+        try{return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("worker_prespawn",
+                android.os.Build.VERSION.SDK_INT>=33&&com.particlesdevs.photoncamera.util.WorkerSpawn.supportsFastSpawn());}
         catch(RuntimeException|LinkageError e){return false;}
     }
 
@@ -919,7 +920,7 @@ public final class ScamNeuralClient {
                 final boolean normalGpu=com.particlesdevs.photoncamera.util.WorkerEnv.gpuNormalPriority();
                 final int nice=com.particlesdevs.photoncamera.util.WorkerEnv.workerNice();
                 final long spawnedNs=android.os.SystemClock.elapsedRealtimeNanos();
-                final com.particlesdevs.photoncamera.util.WorkerSpawn.Child child=com.particlesdevs.photoncamera.util.WorkerSpawn.start(context,args,
+                final com.particlesdevs.photoncamera.util.WorkerSpawn.Child child=com.particlesdevs.photoncamera.util.WorkerSpawn.startFast(context,args,
                         com.particlesdevs.photoncamera.util.WorkerSpawn.environment(context,dir),arena,out.fd,go[0]);
                 go[0].close();
                 arena.close();arena=null; // the worker holds its own fd 3
@@ -1013,8 +1014,8 @@ public final class ScamNeuralClient {
 
     /**
      * P371 (speed, worker_prespawn): the merge worker of a shot whose RAWs go into the arena {@code arenaId} is spawned now (the
-     * shot's requests are submitted), on a thread of its own; job() takes it. Off by default (scam_dev worker_prespawn 1 turns it
-     * on; review M2), without the app-process worker or memfd (SDK 30), outside the original build, with the GPU merge unusable
+     * shot's requests are submitted), on a thread of its own; job() takes it. Android 13+ enables the no-fork launcher by default
+     * (worker_prespawn 0 disables it). Without the app-process worker or memfd (SDK 30), outside the original build, with the GPU merge unusable
      * in this session: nothing.
      */
     public static void prespawn(Context context,int arenaId){

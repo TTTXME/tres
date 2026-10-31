@@ -9627,3 +9627,9 @@ emulation), not tried on a phone
 - Film strict GL/glslc PASS; AgX72/72 plus192legacy identities/film100 exact identity PASS; Sport Java-policy/luma/MS noise-edge controls PASS. Existing194integratedJVM/23native/28workerreplays receipts retained; no phone access in this step.
 - Host readback timing at12.6MP (~49.6ms tiles/~39.0ms PBO) is not phone Photo latency. In-app PBO, phone time/memory and new real photography are unmeasured and not claimed complete. See RELEASE-20261101.md for the owner-approved boundary.
 - Delivery: one commit atop fresh origin/main, fast-forward main; full LinuxCI, final ActionsAPK/SHA256SUMS/runtime verification. No protected Main1 change, no tests weakened, no keys/local.properties/version.properties or unrelatedp404mode change included.
+
+### P442 - GCam61 speed investigation / safe worker prespawn (owner, 2026-11-01)
+- Decoded the supplied GCam JPEG's HDRP v2 diagnostics: Sabre30/30, MergeShot1065ms, Finish295ms, 5.24s capture at1/6s. PackedRAW10 and earlier postview do not establish subsecond capture-to-JPEG.
+- Android13+ Bionic fast launcher and no-fork prespawn default; API/nice/launch failures retain ordinary post-capture fallback. Existing frame counts, exposure policy, detail settings and Main1 unchanged. Native descriptor/signal/environment/priority checks pass on OPPO.
+- Six alternating real Photo shots: prespawn median4004→3774ms; hold383→386ms. q0 variance reuse retains the lamp burst's complete half-output SHA. Existing PBO is now verified against two other Bitmap routes on the same Android texture; no benefit from the extra native route, removed.
+- Coarser GCam-style field spacing and other alignment/rejection experiments are preserved as research only; no unsupported quality/speed claim. See GCAM61-SPEED-20261101.md for evidence and limitations. Final main/CI release receipt is recorded outside Git after delivery.

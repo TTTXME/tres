@@ -19,6 +19,8 @@ public final class WorkerSpawn {
     public static final String WORKER = "libscamera_worker.so";
 
     private static native int[] spawn(String[] argv, String[] env, int[] fds);
+    private static native int[] spawnNoFork(String[] argv, String[] env, int[] fds);
+    public static native boolean supportsFastSpawn();
     private static native int waitFor(int pid, long timeoutMs);
 
     public static File nativeDir(Context context) {
@@ -77,12 +79,20 @@ public final class WorkerSpawn {
 
     /** Starts nativeDir/libscamera_worker.so with args; fds become 3, 4, ... in the child. */
     public static Child start(Context context, List<String> args, String[] env, ParcelFileDescriptor... fds) throws IOException {
+        return start(context, args, env, false, fds);
+    }
+
+    public static Child startFast(Context context, List<String> args, String[] env, ParcelFileDescriptor... fds) throws IOException {
+        return start(context, args, env, true, fds);
+    }
+
+    private static Child start(Context context, List<String> args, String[] env, boolean requireFast, ParcelFileDescriptor... fds) throws IOException {
         String[] argv = new String[args.size() + 1];
         argv[0] = new File(nativeDir(context), WORKER).getAbsolutePath();
         for (int i = 0; i < args.size(); i++) argv[i + 1] = args.get(i);
         int[] raw = new int[fds.length];
         for (int i = 0; i < fds.length; i++) raw[i] = fds[i].getFd();
-        int[] r = spawn(argv, env, raw);
+        int[] r = requireFast ? spawnNoFork(argv, env, raw) : spawn(argv, env, raw);
         if (r == null) throw new IOException(Lang.t("Не удалось запустить обработчик", "Could not start the processor"));
         return new Child(r[0], r[1]);
     }
