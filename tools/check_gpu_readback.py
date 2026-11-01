@@ -6,6 +6,10 @@ s=(root/'app/src/main/cpp/scam-hybrid.h').read_text(encoding='utf-8')
 start=s.index('    int mapMethod=-1;')
 end=s.index('    static GLint loc(',start)
 methods=s[start:end]
+split_header=(root/'app/src/main/cpp/scam-bayer-split.h').read_text(encoding='utf-8')
+shader_start=s.index('static const char* kHybChroma=R"(')
+shader_end=s.index('\n)";',shader_start)+4
+split_source=s[shader_start:shader_end]
 prefix=r'''
 #include <algorithm>
 #include <cstring>
@@ -40,6 +44,24 @@ struct Readback {
 suffix=r'''
 };
 int main(){
+ if(!hybridBayerSplitEligible(1,false,1,2,4,4.f,1.f,1.f)
+    ||!hybridBayerSplitEligible(1,false,1,4,4,4.f,1.f,1.f))
+     throw std::runtime_error("eligible Bayer split refused");
+ if(hybridBayerSplitEligible(0,false,1,4,4,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,true,1,4,4,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,2,4,4,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,1,1,4,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,1,5,4,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,1,4,0,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,1,4,4,0.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,1,4,4,4.f,0.f,1.f)
+    ||hybridBayerSplitEligible(1,false,1,4,4,4.f,1.f,0.f))
+     throw std::runtime_error("unsupported Bayer split enabled");
+ const auto shaders=hybridBayerSplitSources(kHybChroma);
+ for(const auto& shader:shaders)if(shader.find("if(y>=size.y-8)return;")==std::string::npos)
+     throw std::runtime_error("Bayer split lost original boundary");
+ try{hybridBayerSplitSources("invalid");throw std::runtime_error("missing split anchors accepted");}
+ catch(const std::runtime_error& e){if(std::string(e.what())!="Bayer split source anchors")throw;}
  Readback gpu;gpu.mapMethod=4;unsigned output=0;
  gpu.getBuffer(1,3,&output,sizeof(output),false);
  if(output!=value||deletes!=1)throw std::runtime_error("valid fresh-buffer readback changed");
@@ -64,7 +86,7 @@ parser.add_argument('--android-serial')
 parser.add_argument('--android-sdk',type=Path)
 args=parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='scamera-readback-') as directory:
-    source=Path(directory)/'check.cpp';source.write_text(prefix+methods+suffix)
+    source=Path(directory)/'check.cpp';source.write_text(split_header+'\n'+split_source+'\n'+prefix+methods+suffix)
     binary=Path(directory)/'check'
     if args.android_serial:
         assert args.android_sdk,'--android-sdk is required for Android execution'

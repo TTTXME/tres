@@ -1,5 +1,12 @@
 # SCAMERA: settings cleanup, route reduction and portable configs — work plan
 
+### P456 - enable guarded Bayer demosaic split
+- Owner explicitly requested enabling and pushing the experiment. App default hybrid_bayer_split=1 exports bayerSplit=1; historical worker default remains zero.
+- Only plain Bayer, sensor grid 1, 2-4 accepted frames, nonzero base demosaic/chroma and widenBelow, and the compatible mode use the split. DCG, native Quad/Tetra, Sabre 2x and larger bursts retain the original route. No GPU vendor exclusion; physical Mali validation remains open.
+- Two lazy-compiled passes share the original FP32 output. The last eight sensor rows use the original shader/workgroups. A failed merge retries the full original merge with unchanged inputs before any generic recovery. Driver crashes learn only to disable the split, preserving GPU processing.
+- The separate downsample FP16 store rounding fix passes unchanged Resolve/pyramid assertions on NVIDIA and Mesa. Nine real OPPO full-post cases, twice per version, produce identical complete output with and without this fix.
+- See BAYER-SPLIT-20261101.md for validation and delivery state.
+
 ### P447 - integrate owner P441-P443 package and final native culling
 - Three hl-stairs donors applied over b01602a1, without changing other worktrees. Continuous highlight rims/lattice cap, ultrashort edge controls, night tone, Resolve default/legacy selector, night detail, JPEG AQ JNI/core/parallel and menu cleanup included.
 - Changed native modules built. Actual Adreno: 27 worker reference cases exact; three US-keys-on cases repeat exactly; nine real full Android post cases and app JPEG JNI decode checks pass. Added grain-wrap and shadow-chroma shader CI checks; fixed actual timestamp-sort cache crash and near-black colour mottle. Eight requested host checks pass; final2391 units only four pre-existing Editor failures. No tests weakened.

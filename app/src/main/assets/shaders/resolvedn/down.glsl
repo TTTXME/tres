@@ -51,4 +51,7 @@ void main() {
     vec4 t3 = dnTexture_u_tex_src( uv + vec2(0.0,  half_t.y));
 
     o_down = c * 0.25 + (d0 + d1 + d2 + d3) * 0.0625 + (t0 + t1 + t2 + t3) * 0.125;
+    // Avoid cumulative darkening from driver-dependent RGBA16F store rounding.
+    o_down = vec4(unpackHalf2x16(packHalf2x16(o_down.xy)),
+                  unpackHalf2x16(packHalf2x16(o_down.zw)));
 }

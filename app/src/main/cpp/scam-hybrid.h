@@ -430,6 +430,7 @@ struct HybridTuning {
     // sharp (a 2 x 2 box widened a thin frame line's colour fringe). 0 = one read.
     int bentoBlendUsBox=0;
     int bentoUsCache=0;
+    int bayerSplit=0;
     // F10: the ultrashort frames registered sub-pixel against the base after the alignment (hybridUsRegister: translation + level
     // on the base's unclipped texture), before Bento's check, the F6 field and the merge read their transform. 1 = on, 2 = also an
     // ultrashort frame the corner tracker refused (CRE failed on its x8 noise) starts from the global translation instead of being
@@ -1102,7 +1103,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("bentoBlendGateMid",nullptr,&t.bentoBlendGateMid)||set("bentoBlendCellMode",nullptr,&t.bentoBlendCellMode)||set("bentoBlendSatWb",nullptr,&t.bentoBlendSatWb)
             ||set("wbR",&t.wbR)||set("wbB",&t.wbB)||set("bentoValidZ",&t.bentoValidZ)||set("bentoValidZFloor",&t.bentoValidZFloor)||set("bentoValidZRange",nullptr,&t.bentoValidZRange)
             ||set("bentoBlendValidOnce",nullptr,&t.bentoBlendValidOnce)||set("bentoBlendValidBilinear",nullptr,&t.bentoBlendValidBilinear)
-            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)||set("bentoUsCache",nullptr,&t.bentoUsCache)
+            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)||set("bentoUsCache",nullptr,&t.bentoUsCache)||set("bayerSplit",nullptr,&t.bayerSplit)
             ||set("bentoBlendFillMean",nullptr,&t.bentoBlendFillMean)||set("bentoBlendChromaEdge",&t.bentoBlendChromaEdge)||set("mosaicUsFillTol",&t.mosaicUsFillTol)
             ||set("bentoUsRegister",nullptr,&t.bentoUsRegister)||set("bentoUsRegisterMax",&t.bentoUsRegisterMax)||set("bentoBlendGainMin",&t.bentoBlendGainMin)
             ||set("bentoPartial",nullptr,&t.bentoPartial)||set("bentoPartialZLo",&t.bentoPartialZLo)||set("bentoPartialZHi",&t.bentoPartialZHi) // P392
@@ -5713,16 +5714,18 @@ inline const HybridDcgSources& hybridDcgSources(){
 // which waits for that task. ready: set by the task when v holds the fill (the strips check it before they upload v).
 struct HybridFill { int shift=0,w=0,h=0;std::vector<float> v;std::atomic<int> ready{0}; };
 #include "scam-us-cache.h"
+#include "scam-bayer-split.h"
 class HybridGpu {
     EGLDisplay display=EGL_NO_DISPLAY;
     EGLContext context=EGL_NO_CONTEXT;
     EGLSurface surface=EGL_NO_SURFACE;
     static constexpr int kSlots=19; // 0..17 merge (1 fixed-pattern mean, 2 site flags, 6 clip flags, 14 donor covariance, 15 F6 field,
                                     // 16 F6 offset per strip cell, 17 F6 Z channel), 18 readback staging (kSlots - 1)
-    GLuint meanProgram=0,flagsProgram=0,markProgram=0,guideProgram=0,cellsProgram=0,rejectProgram=0,dilateProgram=0,mergeProgram=0,rimProgram=0,bentoProgram=0,chromaProgram=0,blendProgram=0,buffers[kSlots]{};
+    GLuint meanProgram=0,flagsProgram=0,markProgram=0,guideProgram=0,cellsProgram=0,rejectProgram=0,dilateProgram=0,mergeProgram=0,rimProgram=0,bentoProgram=0,chromaProgram=0,bayerSplitA=0,bayerSplitB=0,blendProgram=0,buffers[kSlots]{};
     GLuint usCacheProgram=0,blendCacheProgram=0,usCacheBuffer=0;
     size_t usCacheCapacity=0;
     bool usCacheFailed=false;
+    bool bayerSplitFailed=false,bayerSplitAttempted=false;
     // P364: kHybUsBlend compiled per stage (BLEND_STAGE 0..4: the light stages without stage 1's registers; Adreno), blendProgram
     // = stage 1's then; all 0: blendProgram runs every stage (blendStageU)
     GLuint blendStages[5]{};
@@ -5819,7 +5822,7 @@ class HybridGpu {
     void cleanup() noexcept {
         if(display==EGL_NO_DISPLAY)return;
         if(context!=EGL_NO_CONTEXT&&eglMakeCurrent(display,surface,surface,context)){
-            for(GLuint program:{meanProgram,flagsProgram,markProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram,rimProgram,bentoProgram,chromaProgram,blendProgram})if(program)glDeleteProgram(program);
+            for(GLuint program:{meanProgram,flagsProgram,markProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram,rimProgram,bentoProgram,chromaProgram,bayerSplitA,bayerSplitB,blendProgram})if(program)glDeleteProgram(program);
             for(GLuint program:blendStages)if(program&&program!=blendProgram)glDeleteProgram(program); // P364
             if(usCacheProgram)glDeleteProgram(usCacheProgram);
             if(blendCacheProgram)glDeleteProgram(blendCacheProgram);
@@ -6461,6 +6464,19 @@ public:
     void merge(const Frames& in,const HybridTuning& tune,const SuperResTuning& kernel,bool bento,
                std::vector<float>& out,std::vector<float>& effective,std::vector<double>& robustShare,int grid=1,
                std::vector<uint8_t>* clipFlags=nullptr,bool wantEffective=true){
+        bayerSplitAttempted=false;
+        try{mergeImpl(in,tune,kernel,bento,out,effective,robustShare,grid,clipFlags,wantEffective);}
+        catch(const std::exception& error){
+            if(!bayerSplitAttempted)throw;
+            bayerSplitFailed=true;bayerSplitAttempted=false;
+            if(trace)trace(std::string("HYBRID BAYER SPLIT: retry original with unchanged inputs: ")+error.what());
+            HybridTuning original=tune;original.bayerSplit=0;
+            mergeImpl(in,original,kernel,bento,out,effective,robustShare,grid,clipFlags,wantEffective);
+        }
+    }
+    void mergeImpl(const Frames& in,const HybridTuning& tune,const SuperResTuning& kernel,bool bento,
+               std::vector<float>& out,std::vector<float>& effective,std::vector<double>& robustShare,int grid=1,
+               std::vector<uint8_t>* clipFlags=nullptr,bool wantEffective=true){
         const int frames=int(in.frames.size()),w=in.w,h=in.h,w2=w/2,h2=h/2;
         if(frames<1||frames>kHybridGpuFrames||(w&1)||(h&1)||int(in.homography.size())!=frames)throw std::runtime_error("HYBRID GPU unsupported burst shape");
         // grid 8: only the native Tetra merge on the Sabre 2x grid (P56)
@@ -6524,11 +6540,30 @@ public:
             }
             std::swap(cellsProgram,cellsOther);cellsFine=!cellsFine;
         }
+        bool splitBayer=chromaProgram&&!dcg&&!bayerSplitFailed&&hybridBayerSplitEligible(tune.bayerSplit,
+            in.native!=nullptr,g,frames,in.mergeMode,tune.widenBelow,tune.baseDemosaic,tune.chromaDiff)&&!in.noBase;
+        if(splitBayer&&!bayerSplitA)try{
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+            if(std::getenv("SCAM_BAYER_SPLIT_FAIL_COMPILE"))throw std::runtime_error("injected split compile failure");
+#endif
+            const auto sources=hybridBayerSplitSources(kHybChroma);
+            const std::string prefix=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon();
+            compileName="chromaSplit";bayerSplitA=compile((prefix+sources[0]).c_str());
+            compileName="bayerSplit";bayerSplitB=compile((prefix+sources[1]).c_str());
+        }catch(const std::exception& error){
+            if(bayerSplitA)glDeleteProgram(bayerSplitA);
+            if(bayerSplitB)glDeleteProgram(bayerSplitB);
+            bayerSplitA=bayerSplitB=0;bayerSplitFailed=true;splitBayer=false;
+            while(glGetError()!=GL_NO_ERROR){}
+            if(trace)trace(std::string("HYBRID BAYER SPLIT: original shader after compile failure: ")+error.what());
+        }
+        if(trace&&tune.bayerSplit>0)trace(std::string("HYBRID BAYER SPLIT: ")+(splitBayer?"enabled":"original"));
         std::vector<GLuint> programs={meanProgram,flagsProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram};
         if(!flagsProgram)programs.erase(programs.begin(),programs.begin()+2); // outlierPrograms false: not compiled
         if(rimProgram)programs.push_back(rimProgram);
         if(bentoProgram)programs.push_back(bentoProgram);
         if(chromaProgram)programs.push_back(chromaProgram);
+        if(splitBayer){programs.push_back(bayerSplitA);programs.push_back(bayerSplitB);}
         for(GLuint p:blendSet())programs.push_back(p); // P364: every stage's program (blendProgram alone without them)
         // P29 native mosaic (Frames::native): the frames above are the binned frames, the raw mosaic of each goes to slot 12
         const HybridMosaicNative* nat=in.native;
@@ -7523,7 +7558,21 @@ public:
             if(chromaPass){ // after all sub-positions: the base's colour where the merge widened its kernel
                 glUseProgram(chromaProgram);
                 glUniform1i(loc(chromaProgram,"cy0"),cy0);glUniform1i(loc(chromaProgram,"cy1"),cy1);glUniform1i(loc(chromaProgram,"ry0"),ry0);
-                dispatchRows(chromaProgram,ow,rows2,1,chunkOf(64),5);
+                if(splitBayer){
+                    bayerSplitAttempted=true;
+                    worker_crash::mark("GPU merge (Bayer split)");
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+                    if(std::getenv("SCAM_BAYER_SPLIT_FAIL_RUN"))throw std::runtime_error("injected split dispatch failure");
+#endif
+                    hybridUsCopyUniforms(chromaProgram,bayerSplitA);
+                    dispatchRows(bayerSplitA,ow,rows2,1,chunkOf(64),5);
+                    hybridUsCopyUniforms(chromaProgram,bayerSplitB);
+                    dispatchRows(bayerSplitB,ow,rows2,1,chunkOf(64),5);
+                    if(oy0+rows2>(h-8)*g){
+                        glUseProgram(chromaProgram);
+                        dispatchRows(chromaProgram,ow,rows2,1,chunkOf(64),5,true,false,std::max(0,(h-8)*g-oy0));
+                    }
+                }else dispatchRows(chromaProgram,ow,rows2,1,chunkOf(64),5);
             }
             if(bentoColourPass){ // after all sub-positions, before the clip-border pass (that one reads the merged colour)
                 glUseProgram(bentoProgram);

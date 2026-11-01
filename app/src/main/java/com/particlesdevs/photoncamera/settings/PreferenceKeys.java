@@ -1057,6 +1057,7 @@ public class PreferenceKeys {
         // scam_dev.txt "hybrid_us_edges 0" = before (the worker's defaults keep replays bit-identical).
         if (hybridValue("us_edges", 1f) > 0f) out.append("bentoBlendUsBox 1\nbentoBlendFieldBilinear 1\nbentoBlendPixelMark 1\n");
         if (hybridValue("us_cache", 1f) > 0f) out.append("bentoUsCache 1\n");
+        if (hybridValue("bayer_split", 1f) > 0f) out.append("bayerSplit 1\n");
         // P392: a long frame whose moved share is above «Длинные кадры: отказ при движении» (up to 60 %) is kept and only its moved
         // blocks are left out (dilated, feathered) instead of the whole frame (the owner's burst: all three long frames dropped for a
         // moving hand, 20 % of the blocks). scam_dev.txt "hybrid_long_scope 0" = the whole frame dropped, as before.

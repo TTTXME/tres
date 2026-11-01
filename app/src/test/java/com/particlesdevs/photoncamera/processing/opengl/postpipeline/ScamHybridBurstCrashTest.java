@@ -155,6 +155,24 @@ public class ScamHybridBurstCrashTest {
         assertFalse("a step that changes the photo is not kept for good", ScamHybridBurst.SAME_RESULT_STEPS.contains(ScamHybridBurst.STEP_BLEND));
     }
 
+    @Test public void aSplitDemosaicCrashKeepsTheOriginalGpuPath() {
+        for (String name : new String[]{"chromaSplit", "bayerSplit"})
+            assertEquals(ScamHybridBurst.STEP_BAYER_SPLIT, ScamHybridBurst.stepOf("GPU compile " + name + ": glCompileShader"));
+        final String report = "WORKER CRASH: signal 11 SIGSEGV code=1 addr=0x0 tid=9 thread=mali-cmar stage=- last=GPU merge (Bayer split)\n"
+                + "WORKER EXIT: signal 11 SIGSEGV, no completion line\n";
+        assertEquals(ScamHybridBurst.STEP_BAYER_SPLIT, ScamHybridBurst.stepOf(ScamHybridBurst.crashStage(report)));
+        assertFalse(ScamHybridBurst.gpuInitDeath(12_000_000L, report));
+        ScamHybridBurst.avoidedSteps.clear();
+        try {
+            ScamHybridBurst.avoidedSteps.add(ScamHybridBurst.STEP_BAYER_SPLIT);
+            assertEquals("bayerSplit 0\n", ScamHybridBurst.avoidedTuning());
+            assertEquals("bayerSplit 0\n", ScamHybridBurst.sameResultTuning());
+        } finally {
+            ScamHybridBurst.avoidedSteps.clear();
+        }
+        assertTrue(ScamHybridBurst.SAME_RESULT_STEPS.contains(ScamHybridBurst.STEP_BAYER_SPLIT));
+    }
+
     @Test public void aDemosaicCacheCrashKeepsTheReferenceBlend() {
         for (String name : new String[]{"usCache", "blendCache"})
             assertEquals(ScamHybridBurst.STEP_US_CACHE, ScamHybridBurst.stepOf("GPU compile " + name + ": glCompileShader"));

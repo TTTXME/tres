@@ -244,6 +244,8 @@ public final class DevKeys {
                 "Ultrashort frames: refusal only in the moved regions, the replacement chosen per pixel, the clip filled without seams (0: as before)")));
         k.add(n(merge, "hybrid_us_edges", "1", Lang.t("Короткие кадры у граней: цвет сглаживается вдоль грани, сдвиг и метка пересвета по пикселю — без зубцов вдоль проводов и краёв на свету (0 — как раньше)",
                 "Ultrashort frames at edges: the colour smoothed along the edge, the offset and the clip mark per pixel - no teeth along wires and edges in the light (0: as before)")));
+        k.add(n(merge, "hybrid_bayer_split", "1", Lang.t("Разделённый Bayer-демозаик для серий 2–4 кадра: экспериментальное ускорение без изменения результата (0 — исходный путь)",
+                "Split Bayer demosaic for 2–4 frames: experimental acceleration with unchanged output (0: original path)")));
         k.add(n(merge, "hybrid_us_cache", "1", Lang.t("Кэш демозаика коротких кадров: ускорение обработки светов без изменения расчёта (0 — без кэша)",
                 "Cache the ultrashort demosaic to process highlights faster with unchanged maths (0: uncached)")));
         k.add(n(merge, "hybrid_why_sky_seed_gate", "1", Lang.t("Проверка неба по верхнему краю: пропуск полного расчёта только при отсутствии возможных начальных ячеек (0 — полный расчёт)",
