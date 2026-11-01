@@ -70,6 +70,11 @@ final class WhySky {
             } else {
                 final int cell = WhySkyMask.cellPx(low.x, low.y);
                 final Point grid = new Point((low.x + cell - 1) / cell, (low.y + cell - 1) / cell);
+                if (pipeline.record == null && com.particlesdevs.photoncamera.settings.PreferenceKeys.hybridValue("why_sky_seed_gate", 1f) > 0f
+                        && !topCanSeed(glProg, src, grid, cell, WhySkyMask.topEdge(p.cameraRotation, p.mirror), ev, ceiling)) {
+                    Log.i("SCAM_PIPELINE", "WHY sky: none (no seed on the photo's top edge) ms=" + (System.currentTimeMillis() - started));
+                    return;
+                }
                 final float[][] read = new float[2][];
                 stats[0] = new GLTexture(grid, CELLS, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
                 stats[1] = new GLTexture(grid, CELLS, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
@@ -78,6 +83,7 @@ final class WhySky {
                     glProg.useAssetProgram("why/skycells", false);
                     glProg.setTexture("InputBuffer", src);
                     glProg.setVar("cellU", cell);
+                    glProg.setVar("cellOriginU", 0, 0);
                     glProg.setVar("stepU", WhySkyMask.step(cell));
                     glProg.setVar("clipU", WhySkyMask.CLIP_LEVEL * ceiling);
                     glProg.drawBlocks(stats[mode]);
@@ -127,6 +133,34 @@ final class WhySky {
             if (cells != null) cells.close();
             // P378 review: a failure after the fine mask was made (its program, its draw) leaks it no more
             if (mask != null && st.sky != mask) mask.close();
+        }
+    }
+
+    private static boolean topCanSeed(GLProg glProg, GLTexture src, Point grid, int cell, int top, float ev, float ceiling) {
+        final boolean rows = top == WhySkyMask.TOP_ROW0 || top == WhySkyMask.TOP_ROWN;
+        final Point edge = rows ? new Point(grid.x, 1) : new Point(1, grid.y);
+        final int x = top == WhySkyMask.TOP_COLN ? grid.x - 1 : 0;
+        final int y = top == WhySkyMask.TOP_ROWN ? grid.y - 1 : 0;
+        try (GLTexture stats = new GLTexture(edge, CELLS, null, GL_NEAREST, GL_CLAMP_TO_EDGE)) {
+            glProg.setDefine("MODE", 0);
+            glProg.useAssetProgram("why/skycells", false);
+            glProg.setTexture("InputBuffer", src);
+            glProg.setVar("cellU", cell);
+            glProg.setVar("cellOriginU", x, y);
+            glProg.setVar("stepU", WhySkyMask.step(cell));
+            glProg.setVar("clipU", WhySkyMask.CLIP_LEVEL * ceiling);
+            glProg.drawBlocks(stats);
+            glProg.closed = true;
+            ByteBuffer buffer = ByteBuffer.allocateDirect(edge.x * edge.y * 16).order(ByteOrder.nativeOrder());
+            stats.textureBuffer(CELLS, buffer);
+            if (android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR) return true;
+            float[] mean = new float[edge.x * edge.y * 4];
+            buffer.rewind();buffer.asFloatBuffer().get(mean);
+            return WhySkyMask.topCanSeed(mean, ev);
+        } catch (RuntimeException error) {
+            for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {}
+            Log.w("SCAM_PIPELINE", "WHY sky seed check failed; full cells: " + error);
+            return true;
         }
     }
 

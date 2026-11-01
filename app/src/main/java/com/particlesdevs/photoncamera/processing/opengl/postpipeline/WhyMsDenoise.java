@@ -14,17 +14,8 @@ import java.util.List;
 import static android.opengl.GLES20.GL_CLAMP_TO_EDGE;
 import static android.opengl.GLES20.GL_LINEAR;
 
-/**
- * P402 (owner, 2026-10-29: «Перенеси то чего нам не хватает», the reference app's settings): «Пирамидальный шумодав» - its ms
- * denoise (why/msdn.glsl) on the merge, after the merge's own denoise and before the tone: OKLab of the render's linear sRGB, three
- * Laplacian levels and a base, luminance detail soft-thresholded and colour detail pulled towards a luminance-guided mean. Its
- * thresholds as the reference app's driver sets them: 0.012 x «Яркостный шумодав» and 0.02 x «Цветовой шумодав», x a level's own
- * share, x the noise model's factor (the frame's SNR at grey 0.18: 20 / SNR in 0.4 .. 3.5, eased by «Масштаб модели шума» into
- * 0.25 .. 4). On by default (pref_scam_hybrid_why_ms_denoise, the owner's reference config: the reference app's own default is off;
- * P443: after ArkResolveDenoise it is the reference app's denoise B after its A); a 200 MP shot is left alone (its level 1 alone
- * would be 400 MB).
- * Where the merge kept few frames (its frame map) the detail thresholds rise up to x1.3 (luminance) and x1.5 (colour) x «Усиление в
- * зонах движения».
+/** Post-CCM optics cleanup and the reference's Oklab Laplacian pyramid.
+ * Filtering shaders retain the extracted arithmetic; only the camera/render RGB adapter is local.
  */
 public final class WhyMsDenoise extends Node {
     public WhyMsDenoise() { super("", "WhyMsDenoise"); }
@@ -33,7 +24,7 @@ public final class WhyMsDenoise extends Node {
     public void Compile() {}
 
     static boolean enabled() {
-        return PreferenceKeys.hybridSwitch("why_ms_denoise", true);
+        return PreferenceKeys.isHybridDenoiseEnabled() && PreferenceKeys.hybridSwitch("why_ms_denoise", true);
     }
 
     /** The noise model's factor of the thresholds (1 without a model or with the scale at 0). */
@@ -82,111 +73,207 @@ public final class WhyMsDenoise extends Node {
 
     private static Point half(Point p) { return new Point((p.x + 1) / 2, (p.y + 1) / 2); }
 
+    static int stripRows(int width, int height, int requested) {
+        if (requested <= 0 && (long) width * height <= 16_000_000L) return height;
+        // Whole-pyramid sampling positions stay aligned to its three powers of two.
+        if ((width & 7) != 0 || (height & 7) != 0) return height;
+        final long budget = 256L << 20;
+        final int rows = requested == 1 ? 128 : requested > 0 ? requested
+                : (int) Math.max(8L, budget / (Math.max(1L, width) * 40L) - 128L);
+        return Math.min(height, Math.max(8, rows / 8 * 8));
+    }
+
+    private static final class Grid {
+        final Point full;
+        final int origin;
+        Grid(Point full, int origin) { this.full = full; this.origin = origin; }
+    }
+    private final java.util.IdentityHashMap<GLTexture, Grid> grids = new java.util.IdentityHashMap<>();
+    private Point whole;
+    private int origin, end;
+    private boolean tiled;
+
     @Override
     public void Run() {
         final PostPipeline pipeline = (PostPipeline) basePipeline;
         final GLTexture input = previousNode.WorkingTexture;
         WorkingTexture = input;
         glProg.closed = true;
-        if (!enabled()) return;
-        if ((long) input.mSize.x * input.mSize.y > 100_000_000L) {
-            Log.i("SCAM_PIPELINE", "ms denoise skipped: a 200 MP shot");
-            return;
-        }
+        if (!PreferenceKeys.isHybridDenoiseEnabled()) return;
         final float[] toRender = ScamRgb.toRender(pipeline), fromRender = inverse3(toRender);
-        if (fromRender == null) return;
+        if (fromRender == null) throw new IllegalStateException("Singular denoise colour matrix");
         final float[] wp = pipeline.mParameters.whitePoint;
-        final long started = System.currentTimeMillis();
-        final float model = modelFactor(pipeline.noiseS, pipeline.noiseO, WhyTone.value("ms_model_scale", 1.5f));
+        final long started = System.nanoTime();
+        final float[] so = ArkResolveDenoise.shotNoise(pipeline.mParameters);
+        final float model = modelFactor(so[0], so[1], WhyTone.value("ms_model_scale", 1.5f));
         final float[][] th = thresholds(model);
         final float shadow = Math.max(0f, WhyTone.value("ms_shadow", 1.5f));
-        final List<GLTexture> owned = new ArrayList<>();
-        final float[] motion = motionBoost(WhyTone.value("ms_motion", 1f));
-        final SportsDenoisePolicy sports = pipeline.sportsDenoise != null ? pipeline.sportsDenoise
-                : SportsDenoisePolicy.of(com.particlesdevs.photoncamera.settings.MotionMode.on(),
-                        com.particlesdevs.photoncamera.settings.MotionMode.sharpPriority(), Float.NaN, pipeline.noiseS, pipeline.noiseO);
-        sports.applyMs(th, motion);
+        final boolean pyramid = enabled() && (th[0][0] > 0f || th[1][0] > 0f || th[2][0] > 0f
+                || th[0][1] > 0f || th[1][1] > 0f || th[2][1] > 0f) && input.mSize.x >= 32 && input.mSize.y >= 32;
+        whole = input.mSize;
+        final int requested = Math.max(0, Math.round(PreferenceKeys.hybridValue("resolve_strip_rows", 0f)));
+        final int rows = stripRows(whole.x, whole.y, requested);
+        tiled = rows < whole.y;
+        final GLTexture out = pipeline.getMain();
+        GLTexture codes = null;
         final java.nio.ByteBuffer eff = ScamHybridBurst.lastEffectiveFrames;
-        final float effScale = effScale(ScamHybridBurst.lastEffectiveMedian);
+        final float scale = effScale(ScamHybridBurst.lastEffectiveMedian);
         try {
-            GLTexture effMap = null;
-            if ((motion[0] != 0f || motion[1] != 0f) && eff != null && !Float.isNaN(effScale) && eff.capacity() == input.mSize.x * input.mSize.y) {
-                effMap = ScamDenoise.effectiveFramesTexture(input.mSize, eff);
-                owned.add(effMap);
+            if (pyramid && eff != null && Float.isFinite(scale) && eff.capacity() == (long) whole.x * whole.y)
+                codes = DenoiseStats.effectiveFramesTexture(whole, eff);
+            for (int y = 0; y < whole.y; y += rows) {
+                final int count = Math.min(rows, whole.y - y);
+                origin = tiled ? Math.max(0, y - 64) : 0;
+                end = tiled ? Math.min(whole.y, y + count + 64) : whole.y;
+                grids.clear();
+                grids.put(input, new Grid(whole, 0));
+                final List<GLTexture> owned = new ArrayList<>();
+                try {
+                    GLTexture prepared = tex(owned, 0, 4);
+                    glProg.useAssetProgram("resolvedn/prepare", false);
+                    glProg.setTexture("InputBuffer", input);
+                    glProg.setTexture("GainMap", pipeline.GainMap);
+                    glProg.setVar("toRenderU", toRender);
+                    glProg.setVar("neutralU", wp[0], wp[1], wp[2]);
+                    glProg.setVar("originDstU", origin);
+                    glProg.drawBlocks(prepared);
+
+                    GLTexture filtered = tex(owned, 0, 4);
+                    program("optics", filtered);
+                    bind("u_tex_rgb", prepared);
+                    final boolean speckle = PreferenceKeys.hybridSwitch("resolve_speckle_enable", false);
+                    glProg.setVar("u_quad_speckle_strength", speckle
+                            ? Math.max(0f, Math.min(1f, PreferenceKeys.hybridValue("resolve_speckle_strength", 1f))) : 0f);
+                    glProg.setVar("u_quad_speckle_threshold", Math.max(0.01f,
+                            Math.min(0.5f, PreferenceKeys.hybridValue("resolve_speckle_threshold", 0.15f))));
+                    glProg.drawBlocks(filtered);
+                    release(owned, prepared);
+
+                    if (pyramid) {
+                        GLTexture weights = null;
+                        if (codes != null) {
+                            weights = tex(owned, 0, 1);
+                            glProg.useAssetProgram("resolvedn/frames", false);
+                            glProg.setTexture("EffMap", codes);
+                            glProg.setVar("effScaleU", scale);
+                            glProg.setVar("framesU", ArkResolveDenoise.defaultFrames(ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals));
+                            glProg.setVar("totalU", (float) Math.max(1, ScamHybridBurst.lastNormals));
+                            glProg.setVar("originDstU", origin);
+                            glProg.drawBlocks(weights);
+                        }
+                        final GLTexture[] lab = new GLTexture[4];
+                        lab[0] = tex(owned, 0, 4);
+                        program("lab", lab[0]);
+                        bind("u_tex_rgb", filtered);
+                        glProg.drawBlocks(lab[0]);
+                        release(owned, filtered);
+                        for (int l = 1; l <= 3; l++) {
+                            lab[l] = tex(owned, l, 4);
+                            program("down", lab[l]);
+                            bind("u_tex_src", lab[l - 1]);
+                            final Point fullSource = grids.get(lab[l - 1]).full;
+                            final Point fullTarget = grids.get(lab[l]).full;
+                            glProg.setVar("u_texel_size", 1f / fullSource.x, 1f / fullSource.y);
+                            glProg.setVar("u_dst_w", fullTarget.x);
+                            glProg.setVar("u_dst_h", fullTarget.y);
+                            glProg.drawBlocks(lab[l]);
+                        }
+                        GLTexture rebuilt = tex(owned, 3, 4);
+                        program("base", rebuilt);
+                        bind("u_tex_src", lab[3]);
+                        glProg.setVar("u_chroma_thresh", th[3][1]);
+                        glProg.setVar("u_shadow_boost", shadow);
+                        glProg.drawBlocks(rebuilt);
+                        for (int l = 2; l >= 0; l--) {
+                            final GLTexture detail = tex(owned, l, 4);
+                            final GLTexture next = tex(owned, l, 4);
+                            program("detail", detail);
+                            bind("u_tex_fine", lab[l]);
+                            bind("u_tex_coarse", lab[l + 1]);
+                            bind("u_tex_sabre_weights", weights != null ? weights : lab[l]);
+                            glProg.setVar("u_has_sabre_weights", weights != null ? 1 : 0);
+                            glProg.setVar("u_level", l);
+                            glProg.setVar("u_luma_thresh", th[l][0]);
+                            glProg.setVar("u_chroma_thresh", th[l][1]);
+                            glProg.setVar("u_shadow_boost", shadow);
+                            glProg.drawBlocks(detail);
+                            program("rebuild", next);
+                            bind("u_tex_coarse_recon", rebuilt);
+                            bind("u_tex_laplace_filt", detail);
+                            glProg.drawBlocks(next);
+                            release(owned, detail);
+                            release(owned, rebuilt);
+                            release(owned, lab[l + 1]);
+                            rebuilt = next;
+                        }
+                        release(owned, lab[0]);
+                        release(owned, weights);
+                        filtered = tex(owned, 0, 4);
+                        program("rgb", filtered);
+                        bind("u_tex_oklab", rebuilt);
+                        glProg.drawBlocks(filtered);
+                        release(owned, rebuilt);
+                    }
+                    glProg.useAssetProgram("resolvedn/finish", false);
+                    glProg.setTexture("InputBuffer", input);
+                    glProg.setTexture("Filtered", filtered);
+                    glProg.setTexture("GainMap", pipeline.GainMap);
+                    glProg.setVar("fromRenderU", fromRender);
+                    glProg.setVar("neutralU", wp[0], wp[1], wp[2]);
+                    glProg.setVar("filteredOriginU", origin);
+                    drawRegion(out, y, count);
+                } finally {
+                    for (GLTexture t : owned) t.close();
+                }
             }
-            final GLTexture[] lab = new GLTexture[4];   // lab[0]: the input itself (OKLab per pixel in the shader)
-            Point size = input.mSize;
-            for (int l = 1; l <= 3; l++) {
-                size = half(size);
-                lab[l] = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-                owned.add(lab[l]);
-                glProg.setDefine("MODE", l == 1 ? 0 : 1);
-                glProg.useAssetProgram("why/msdn", false);
-                glProg.setTexture("InputBuffer", l == 1 ? input : lab[l - 1]);
-                glProg.setVar("toRenderU", toRender);
-                glProg.setVar("neutralU", wp[0], wp[1], wp[2]);
-                glProg.drawBlocks(lab[l]);
-            }
-            GLTexture rebuilt = new GLTexture(lab[3].mSize, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-            owned.add(rebuilt);
-            glProg.setDefine("MODE", 2);
-            glProg.useAssetProgram("why/msdn", false);
-            glProg.setTexture("InputBuffer", lab[3]);
-            glProg.setVar("chromaThU", th[3][1]);
-            glProg.setVar("shadowU", shadow);
-            glProg.drawBlocks(rebuilt);
-            for (int l = 2; l >= 1; l--) {
-                final GLTexture next = new GLTexture(lab[l].mSize, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-                owned.add(next);
-                glProg.setDefine("MODE", 3);
-                motionDefine(effMap);
-                glProg.useAssetProgram("why/msdn", false);
-                glProg.setTexture("InputBuffer", lab[l]);
-                glProg.setTexture("Coarse", lab[l + 1]);
-                glProg.setTexture("CoarseRecon", rebuilt);
-                glProg.setVar("lumaThU", th[l][0]);
-                glProg.setVar("chromaThU", th[l][1]);
-                glProg.setVar("shadowU", shadow);
-                glProg.setVar("levelU", l);
-                motionVars(effMap, effScale, motion);
-                glProg.drawBlocks(next);
-                rebuilt = next;
-            }
-            final GLTexture out = pipeline.getMain();
-            glProg.setDefine("MODE", 4);
-            motionDefine(effMap);
-            glProg.useAssetProgram("why/msdn", false);
-            glProg.setTexture("InputBuffer", input);
-            glProg.setTexture("Coarse", lab[1]);
-            glProg.setTexture("CoarseRecon", rebuilt);
-            glProg.setVar("toRenderU", toRender);
-            glProg.setVar("fromRenderU", fromRender);
-            glProg.setVar("neutralU", wp[0], wp[1], wp[2]);
-            glProg.setVar("lumaThU", th[0][0]);
-            glProg.setVar("chromaThU", th[0][1]);
-            glProg.setVar("shadowU", shadow);
-            glProg.setVar("levelU", 0);
-            motionVars(effMap, effScale, motion);
-            glProg.drawBlocks(out);
             WorkingTexture = out;
-            Log.i("SCAM_PIPELINE", "ms denoise: model x" + model + " luma " + th[0][0] + "/" + th[1][0] + "/" + th[2][0] + " chroma "
-                    + th[0][1] + "/" + th[1][1] + "/" + th[2][1] + " shadow " + shadow + (effMap != null ? " motion " + motion[0] + "/"
-                    + motion[1] : "") + (com.particlesdevs.photoncamera.settings.MotionMode.on() ? " sports=" + sports : "")
-                    + " ms=" + (System.currentTimeMillis() - started));
+            Log.i("SCAM_PIPELINE", "resolve post: pyramid=" + pyramid + " model=" + model + " shadow=" + shadow
+                    + " rows=" + rows + " ms=" + (System.nanoTime() - started) / 1_000_000);
         } finally {
-            for (GLTexture t : owned) t.close();
+            if (codes != null) codes.close();
+            grids.clear();
             glProg.closed = true;
         }
     }
 
-    private void motionDefine(GLTexture effMap) {
-        if (effMap != null) glProg.setDefine("MOTION", 1);
+    private void program(String name, GLTexture target) {
+        final Grid grid = grids.get(target);
+        glProg.setDefine("TILED", tiled ? 1 : 0);
+        glProg.useAssetProgram("resolvedn/" + name, false);
+        glProg.setVar("u_width", grid.full.x);
+        glProg.setVar("u_height", grid.full.y);
+        glProg.setVar("originDstU", grid.origin);
     }
 
-    private void motionVars(GLTexture effMap, float effScale, float[] motion) {
-        if (effMap == null) return;
-        glProg.setTexture("EffMap", effMap);
-        glProg.setVar("effScaleU", effScale);
-        glProg.setVar("motionU", motion[0], motion[1]);
+    private void bind(String name, GLTexture texture) {
+        glProg.setTexture(name, texture);
+        if (tiled) {
+            final Grid grid = grids.get(texture);
+            glProg.setVar("full_" + name, grid.full.x, grid.full.y);
+            glProg.setVar("origin_" + name, grid.origin);
+        }
+    }
+
+    private GLTexture tex(List<GLTexture> owned, int level, int channels) {
+        final Point full = new Point(Math.max(1, whole.x >> level), Math.max(1, whole.y >> level));
+        final int first = origin >> level;
+        final Point size = new Point(full.x, Math.max(1, (end >> level) - first));
+        final GLTexture t = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, channels), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+        owned.add(t);
+        grids.put(t, new Grid(full, first));
+        return t;
+    }
+
+    private void release(List<GLTexture> owned, GLTexture t) {
+        if (t != null && owned.remove(t)) { grids.remove(t); t.close(); }
+    }
+
+    private void drawRegion(GLTexture target, int y, int height) {
+        target.BufferLoad();
+        for (int row = 0; row < height; row += 256) {
+            android.opengl.GLES30.glViewport(0, y + row, target.mSize.x, Math.min(256, height - row));
+            glProg.draw();
+        }
+        android.opengl.GLES30.glFlush();
     }
 }

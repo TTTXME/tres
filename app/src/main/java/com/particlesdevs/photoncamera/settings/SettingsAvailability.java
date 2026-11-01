@@ -34,7 +34,9 @@ public final class SettingsAvailability {
     private boolean bentoBlend = true;
     /** P320: the camera running now takes DCG frames (its shots take no shadow frames: HybridPlan). */
     private boolean dcg;
+    private boolean rawViewfinder = true;
     public SettingsAvailability(Map<String, ?> values) { this.values = values; }
+    public SettingsAvailability rawViewfinder(boolean supported) { rawViewfinder = supported; return this; }
     /** The device fact behind «HEIC 10 бит»: the reason it is unavailable here (Android version, no Main10 / P010 encoder) or null. */
     public SettingsAvailability heic10Unavailable(String reason) { heic10Unavailable = reason; return this; }
     /** The device fact behind «HDR в HEIC / AVIF»: the reason it cannot act here (Android version) or null. */
@@ -146,6 +148,9 @@ public final class SettingsAvailability {
     }
 
     public String reason(String key) {
+        if (key.equals("pref_live_viewfinder_raw_key") && !rawViewfinder)
+            return Lang.t("Отключён для процессоров уровня Snapdragon 8 Gen 3 и ниже. Используется обычное превью камеры.",
+                    "Disabled on Snapdragon 8 Gen 3 tier and slower processors. Uses the standard camera preview.");
         // P369: the film gates of the shot (PostPipeline.gainMapWanted, wantsLocalContrast: off with any film) and the rows the
         // film's print replaces at 100 % (below it they act on the share without the film, so they stay open)
         if (film(false)) {
@@ -162,12 +167,11 @@ public final class SettingsAvailability {
                         "No effect with a film simulation at 100 %: the film sets the tone, colour and texture. Below 100 % its influence is reduced.");
         }
         // The denoise and watermark switches sit on a parent page of these rows (P6), so the rule replaces android:dependency.
-        if ((key.startsWith("pref_scam_hybrid_dn_") || key.startsWith("pref_scam_hybrid_ark_dn_") || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
+        if ((key.startsWith("pref_scam_hybrid_dn_") || key.startsWith("pref_scam_hybrid_ark_dn_")
+                || key.startsWith("pref_scam_hybrid_why_ms_") || key.startsWith("pref_scam_hybrid_resolve_speckle_")
+                || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
                 && !on("pref_scam_hybrid_denoise", true)) return Lang.t("Включите «Все шумодавы» (Для опытных › SHDR › Шумоподавление: подробно).",
                 "Turn on “All denoisers” (For experts › SHDR › Noise reduction: details).");
-        // P443: the four Resolve rows act only with that engine («Движок шумодава»; ArkResolveDenoise)
-        if (key.startsWith("pref_scam_hybrid_ark_dn_") && text("pref_scam_hybrid_denoise_engine", "ark").trim().equals("scam"))
-            return Lang.t("Только с движком шумодава «Resolve».", "Only with the “Resolve” denoise engine.");
         // Output size (pref_scam_hybrid_output): every size but the sensor's merges on the Sabre 2x grid; 12 / 16 / 20 MP are
         // then made with the downsampler (HybridFinalResize), 2x is kept as it is.
         String output = text("pref_scam_hybrid_output", "sensor").trim();

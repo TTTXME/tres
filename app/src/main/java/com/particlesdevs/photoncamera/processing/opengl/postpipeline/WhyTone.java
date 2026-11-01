@@ -91,8 +91,8 @@ public final class WhyTone {
      * the one bright layer 1.0 (the closest to the old set's shadows and mid-tones of the curves on a grid of strengths).
      */
     static float[] layerWeights() {
-        if (arkLayout()) return new float[]{value("classic_weight_ext_hl", 0.7f), value("classic_weight_mid", 2f), value("classic_weight_hl", 1f),
-                value("classic_weight_shadow", 1f)};
+        if (arkLayout()) return new float[]{value("classic_weight_ext_hl", 1f), value("classic_weight_mid", 1f), value("classic_weight_hl", 1f),
+                value("classic_weight_shadow", 1.5f)};
         return new float[]{value("weight_hl", LAYER_WEIGHTS[0]), value("weight_mid", LAYER_WEIGHTS[1]),
                 value("weight_dark2", LAYER_WEIGHTS[2]), value("weight_bright", LAYER_WEIGHTS[3])};
     }
@@ -116,7 +116,7 @@ public final class WhyTone {
     /** AE / Smart-HDR / AgX settings (defaults: WhyCam 2.85 X8U effective values, tone_port.md section 3). */
     static WhyAe.Settings settings() {
         WhyAe.Settings s = new WhyAe.Settings();
-        s.aeTarget = value("ae_target", 0.15f);
+        s.aeTarget = value("ae_target", 0.18f);
         s.maxBoost = value("ae_max_boost", 5.0f);
         s.minLimit = Math.min(value("ae_min_limit", 0.5f), s.maxBoost);
         s.hlOverflow = value("hl_overflow", 2.0f);
@@ -132,10 +132,10 @@ public final class WhyTone {
         s.noiseMax = nightVal;
         s.nightDim = value("night_dim", 1.0f);
         s.metering = Math.round(value("metering", 0f));
-        s.brightThresh = value("bright_thresh", 0.9f);
-        s.darkThresh = value("dark_thresh", 12.5f);
-        s.darkPixelThresh = value("dark_pixel_thresh", 22f);
-        s.hlBoost = value("hl_boost", 1.1f);
+        s.brightThresh = value("bright_thresh", 1f);
+        s.darkThresh = value("dark_thresh", 10f);
+        s.darkPixelThresh = value("dark_pixel_thresh", 22.5f);
+        s.hlBoost = value("hl_boost", 1f);
         s.contrastBoost = value("contrast_boost", 0.3f);
         s.shadowStr = Math.max(value("shadow_str", 2.0f), 0f);
         // P442: a night scene (median EV100 from night_ev_hi down to night_ev_lo) meters to night_ae_target and lifts its shadows
@@ -144,7 +144,7 @@ public final class WhyTone {
         s.nightEvLo = value("night_ev_lo", 5.0f);
         s.nightAeTarget = value("night_ae_target", 0.13f);
         s.nightShadowStr = Math.max(value("night_shadow_str", 1.5f), 0f);   // pushCurrentLut 0x80db8
-        s.highlightStr = value("highlight_str", 2.1f);
+        s.highlightStr = value("highlight_str", 2f);
         s.efEnabled = true;
         s.look = Math.round(value("agx_look", 4f));
         s.slope = value("agx_slope", 2.45f);

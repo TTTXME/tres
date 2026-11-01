@@ -47,6 +47,13 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
                 CheckBoxPreference p=new CheckBoxPreference(requireContext());p.setPersistent(false);p.setKey(key);p.setTitle(ModuleSensorSettings.title(a.title()));sensors.addPreference(p);
             }
             CheckBoxPreference tags=new CheckBoxPreference(requireContext());tags.setPersistent(false);tags.setKey(ModuleSensorSettings.COPY_PREFIX+"tunablekeys");tags.setTitle(Lang.t(getContext(),"Пользовательские vendor tags","Custom vendor tags"));sensors.addPreference(tags);
+            String[] aeTitles={Lang.t("Автоэкспозиция","Auto exposure"),Lang.t("Замер AE","AE metering"),
+                    Lang.t("Минимальный ISO AE","AE minimum ISO"),Lang.t("Максимальный ISO AE","AE maximum ISO"),
+                    Lang.t("Короткая выдержка AE","AE fastest shutter"),Lang.t("Длинная выдержка AE","AE slowest shutter")};
+            for(int i=0;i<UnspektraAePreferences.KEYS.length;i++){
+                CheckBoxPreference row=new CheckBoxPreference(requireContext());row.setPersistent(false);
+                row.setKey(ModuleSensorSettings.COPY_PREFIX+UnspektraAePreferences.KEYS[i]);row.setTitle(aeTitles[i]);sensors.addPreference(row);
+            }
         }
         // P181: a module's FULLRES profiles (50 MP, 200 MP) are sources and targets of their own
         source=com.particlesdevs.photoncamera.settings.FullResProfiles.profileFor(ModuleRegistry.active());

@@ -2,35 +2,18 @@ precision highp float;
 precision highp int;
 precision highp sampler2D;
 precision highp usampler2D;
-// P443 (owner, 2026-11-01: «сделай его максимально схожим с шумодавом Арк»): the reference app's resolve denoise (its s032,
-// "denoise A", ARK_DENOISE.md 1.1) on the merge. Three a-trous passes (stepU 1, 2, 4 px,
-// passU 0, 1, 2) of a pair-symmetric 3x3 bilateral in GCam YUV (Y = Rec.709 luminance, U = Y - R, V = Y - B):
-// - range sigma^2 = factorU x var / N, var = the camera model of the centre sample (0.562 S |Y| + 0.25 S |U| + 0.25 S |V| + O),
-//   N = the merged frames of the pixel; all three channels take the luma weights;
-// - motion (few frames): blurry = clamp(1.25 - 0.25 N) switches on the X prefilter of the key (pass 0) and the wide-sigma outlier
-//   rescue, fallback = clamp(1 - (N - 1) / (0.7 x reference)) moves the luma revert from globalRevertU to rejectRevertU and keeps
-//   the luma-guided colour filter in pass 2; grain sqrt(var / N) x grainU x blurry with the reference app's Weyl hash (pass 2);
-// - colour: the luma-guided 3x3 mean (range max(0.04, 0.22 Y)) mixed in by max(0.65, edge risk) in passes 0 and 1;
-// - luma revert: Y = mix(Y_filtered, Y_centre, mix(globalRevertU, rejectRevertU, max(blurry, fallback)));
-// - the SNR-gated vignette boost of sigma^2 (vignetteBoostU, 0 above a one-frame SNR of 4).
-// The final pass also guides low-SNR shadow chroma over a wider footprint; luminance is unchanged by that guide.
-// Differences, all of the input side (ArkResolveDenoise): the input is the white-balanced linear camera RGB of ScamRgb (Ark: the
-// normalised accumulators x the white-balance gains, the same domain; ScamRgb has applied the colour part of the lens shading,
-// normalised to mean 1, which Ark applies after), so pass 0 reads a texture instead of the accumulators (Ark's RawTherapee
-// highlight blend there is ScamRgb's own highlight recovery here) and zeroes a non-finite sample (one NaN would spread over the
-// 13 x 13 footprint); N comes from the worker's effective-frame map (the noise-effective frames of the weighted mean, Ark: its
-// weight sum + 1), code 0 = unknown -> framesU; the fallback ramp's reference is the map's median coverage (refU: a fully
-// merged pixel in the map's units, where Ark's static pixel has N = total), so a static pixel keeps fallback 0 as in Ark.
-// Integer pixel addressing (texelFetch) with the same mirror at the frame edge as Ark's frame_border (0, 0, 1, 1) on texel
-// centres; the reference samples texel centres exactly, so the values are the same.
+// Three full-output-grid a-trous passes; coordinates remain global on bounded-memory strips.
 uniform sampler2D InputBuffer;      // pass 0: linear RGB (signed allowed); passes 1, 2: the signed YUV of the pass before
 uniform usampler2D EffMap;          // the merge's effective-frame codes on this grid (useEffU 1; else a 1 x 1 placeholder)
-uniform float darkChromaU;
+uniform ivec2 fullSizeU;
+uniform ivec2 sensorSizeU;
+uniform ivec2 sensorOriginU;
+uniform int inputOriginU;
+uniform int outputOriginU;
 uniform int useEffU;
 uniform float effScaleU;            // frames per code (the map's median frames / 64)
 uniform float framesU;              // N without a map and of code 0
 uniform float totalU;               // u_total_frames: the merged normal frames (N is clamped to 1 .. totalU)
-uniform float refU;                 // the fallback ramp's full coverage (see above)
 uniform int passU;                  // 0, 1, 2 (dilation.z)
 uniform int stepU;                  // 1, 2, 4 px (dilation.xy x size)
 uniform vec4 noiseModelU;           // yuv_noise_model: (0.562 S, 0.25 S, 0.25 S, O)
@@ -65,7 +48,7 @@ float Weight(int x) {
 float finite1(float v) { return (isnan(v) || isinf(v)) ? 0.0 : v; }
 
 vec3 SampleTexture(ivec2 p) {
-    vec3 c = texelFetch(InputBuffer, p, 0).rgb;
+    vec3 c = texelFetch(InputBuffer, clamp(p - ivec2(0, inputOriginU), ivec2(0), textureSize(InputBuffer, 0) - 1), 0).rgb;
     if (passU == 0) c = vec3(finite1(c.r), finite1(c.g), finite1(c.b));
     return c;
 }
@@ -104,8 +87,8 @@ float hash(highp ivec2 c) {
 }
 
 void main() {
-    ivec2 xy = ivec2(gl_FragCoord.xy);
-    ivec2 size = textureSize(InputBuffer, 0);
+    ivec2 xy = ivec2(gl_FragCoord.xy) + ivec2(0, outputOriginU);
+    ivec2 size = fullSizeU;
     // number of merged frames
     float total_f = max(1.0, totalU);
     float num_merged_frames = max(framesU, 1.0);
@@ -118,7 +101,7 @@ void main() {
     // blurry weight ramp: 1 to 5 frames for the luma denoiser
     float blurry_weight = clamp(1.25 - num_merged_frames * 0.25, 0.0, 1.0);
     // motion fallback / partial donor rejection relative to a fully merged pixel
-    float fallback_weight = clamp(1.0 - (num_merged_frames - 1.0) / max(1.0, max(refU, 1.0) * 0.70), 0.0, 1.0);
+    float fallback_weight = clamp(1.0 - (num_merged_frames - 1.0) / max(1.0, total_f * 0.70), 0.0, 1.0);
 
     int k = max(stepU, 1);
     int x0 = mirror(xy.x - k, size.x), x2 = mirror(xy.x + k, size.x);
@@ -153,7 +136,8 @@ void main() {
     float bilateral_sigma = max(1.0e-6, noise_model_var);
 
     // optical vignetting compensation
-    vec2 tex_coord = (vec2(xy) + 0.5) / vec2(size);
+    ivec2 sensorSize = all(greaterThan(sensorSizeU, ivec2(0))) ? sensorSizeU : size;
+    vec2 tex_coord = (vec2(xy + sensorOriginU) + 0.5) / vec2(sensorSize);
     vec2 vignette_coords_shifted = (tex_coord - 0.5) * vignetteScaleU;
     float vignette_dist_sq = dot(vignette_coords_shifted, vignette_coords_shifted);
     float vignette = clamp(vignette_dist_sq / 0.25 - 0.25, 0.0, 1.0);
@@ -225,28 +209,8 @@ void main() {
     // pass 2: the calibrated grain where few frames merged, back to linear RGB
     if (passU == 2) {
         float noise_magnitude = sqrt(max(0.0, noise_model_var) / num_merged_frames) * grainU * blurry_weight;
-        float uniform_noise = hash(xy);
+        float uniform_noise = hash(xy + sensorOriginU);
         denoised.x = max(0.0, denoised.x + uniform_noise * noise_magnitude);
-        float sigma = sqrt(max(noise_model_var / num_merged_frames, 1.0e-12));
-        float dark = darkChromaU * (1.0 - smoothstep(4.0, 16.0, max(col.x, 0.0) / sigma))
-                   * (1.0 - smoothstep(0.005, 0.02, col.x));
-        if (dark > 0.0) {
-            // The three fine passes leave low-frequency colour noise; only noisy shadows need this wider guide.
-            vec2 sum_uv = vec2(0.0);
-            float sum_w = 0.0;
-            float range = max(3.0 * sigma, 0.15 * max(col.x, 0.0));
-            for (int y = -1; y <= 1; ++y) {
-                for (int x = -1; x <= 1; ++x) {
-                    ivec2 p = ivec2(mirror(xy.x + 16 * x, size.x), mirror(xy.y + 16 * y, size.y));
-                    vec3 sample_yuv = SampleTexture(p);
-                    float d = (sample_yuv.x - col.x) / range;
-                    float w = Weight(x) * Weight(y) * exp(-0.5 * d * d);
-                    sum_uv += sample_yuv.yz * w;
-                    sum_w += w;
-                }
-            }
-            denoised.yz = mix(denoised.yz, sum_uv / max(sum_w, 1.0e-6), 0.9 * dark);
-        }
         Output = vec4(max(vec3(0.0), FromGcamYUV(denoised)), 1.0);
     } else {
         // intermediate passes: signed YUV

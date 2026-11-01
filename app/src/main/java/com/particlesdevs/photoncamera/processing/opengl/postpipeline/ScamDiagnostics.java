@@ -276,7 +276,12 @@ public final class ScamDiagnostics {
         }catch(Exception e){Log.e("SCAM_DIAG","Native diagnostic copy failed",e);}
     }
     public static void gpu(String name,GLTexture source) {
-        if(active.get()==null||source==null||!Arrays.asList("ScamRgb","WhyCombine","Sharpening").contains(name))return;
+        if(active.get()==null||source==null||!Arrays.asList("ScamRgb","WhyFused","WhyLumaS","WhyDetailRef","WhyCombine","Sharpening").contains(name))return;
+        for(int i=0;i<32;i++) {
+            int error=glGetError();
+            if(error==GL_NO_ERROR)break;
+            Log.e("SCAM_DIAG","GL error before "+name+": 0x"+Integer.toHexString(error));
+        }
         // Read sampled rows through a temporary READ framebuffer. No diagnostic
         // shader/texture bindings can disturb the processing program's state.
         int[] oldRead=new int[1],framebuffer=new int[1];

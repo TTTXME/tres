@@ -160,10 +160,6 @@
         <item>Долгое нажатие</item>
         <item>Касание</item>
     </string-array>
-    <string-array name="scam_hybrid_denoise_engine_entries">
-        <item>Resolve</item>
-        <item>SCAM 9.6 (многомасштабный)</item>
-    </string-array>
     <string-array name="scam_hybrid_why_metering_entries">
         <item>По всему кадру</item>
         <item>Центровзвешенный</item>

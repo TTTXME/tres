@@ -81,7 +81,7 @@ public class DcgPostTest {
 
     @Test public void denoiseTermsScaleTheMeasuredGreenByTheCameraRatios() {
         // neutral camera channels, white point 1: the luma weights of the single curve on the measured green
-        float[] t = ScamDenoiseTables.dcgTerms(ZONES, new float[]{3e-4f, 3e-4f, 3e-4f}, new float[]{5e-6f, 5e-6f, 5e-6f},
+        float[] t = NoiseMath.dcgTerms(ZONES, new float[]{3e-4f, 3e-4f, 3e-4f}, new float[]{5e-6f, 5e-6f, 5e-6f},
                 new float[]{1f, 1f, 1f});
         assertEquals(ZONES[0] * W2, t[0], 1e-6 * t[0]);
         assertEquals(ZONES[1] * W2, t[1], 1e-6 * t[1]);
@@ -91,10 +91,10 @@ public class DcgPostTest {
         assertEquals(ZONES[2], t[5], 0f);
         assertEquals(ZONES[3], t[6], 0f);
         // no camera model, no white point: ratios and gains 1 (the same numbers)
-        assertArrayEquals(t, ScamDenoiseTables.dcgTerms(ZONES, null, null, null), 0f);
+        assertArrayEquals(t, NoiseMath.dcgTerms(ZONES, null, null, null), 0f);
         // channel ratios of the camera model (R 2x, B 1.5x the green slope; R 2x the green offset) and white-balance gains
         final float[] wp = {0.5f, 0.8f, 0.4f};
-        t = ScamDenoiseTables.dcgTerms(ZONES, new float[]{4e-4f, 2e-4f, 3e-4f}, new float[]{2e-6f, 1e-6f, 1e-6f}, wp);
+        t = NoiseMath.dcgTerms(ZONES, new float[]{4e-4f, 2e-4f, 3e-4f}, new float[]{2e-6f, 1e-6f, 1e-6f}, wp);
         final double gR = 1 / 0.5, gG = 1 / 0.8, gB = 1 / 0.4;
         final double wR = 0.2126, wG = 0.7152, wB = 0.0721996;
         final double s = ZONES[0], oh = ZONES[1], ol = ZONES[2];
@@ -109,14 +109,14 @@ public class DcgPostTest {
 
     /** The finish SNR (the tiers, par.finishSnr) at mu reads mu's zone: the shadows are as clean as the high-gain read. */
     @Test public void finishSnrTakesTheZoneOfMu() {
-        final float[] t = ScamDenoiseTables.dcgTerms(ZONES, null, null, null);
+        final float[] t = NoiseMath.dcgTerms(ZONES, null, null, null);
         final float g01 = 0.6f, low = 0.05f, high = 0.5f;
-        final float snrLow = ScamDenoiseTables.snr(low, g01, t[3], NoiseModeler.zoneOffset(low, t[4], t[5], t[6]), 1.2f, 6f);
-        assertEquals(ScamDenoiseTables.snr(low, g01, t[3], t[4], 1.2f, 6f), snrLow, 0f);
-        assertEquals(ScamDenoiseTables.snr(high, g01, t[3], t[5], 1.2f, 6f),
-                ScamDenoiseTables.snr(high, g01, t[3], NoiseModeler.zoneOffset(high, t[4], t[5], t[6]), 1.2f, 6f), 0f);
+        final float snrLow = NoiseMath.snr(low, g01, t[3], NoiseModeler.zoneOffset(low, t[4], t[5], t[6]), 1.2f, 6f);
+        assertEquals(NoiseMath.snr(low, g01, t[3], t[4], 1.2f, 6f), snrLow, 0f);
+        assertEquals(NoiseMath.snr(high, g01, t[3], t[5], 1.2f, 6f),
+                NoiseMath.snr(high, g01, t[3], NoiseModeler.zoneOffset(high, t[4], t[5], t[6]), 1.2f, 6f), 0f);
         assertTrue("one low-gain curve would understate the shadows' SNR",
-                snrLow > ScamDenoiseTables.snr(low, g01, t[3], t[5], 1.2f, 6f) * 1.05f);
+                snrLow > NoiseMath.snr(low, g01, t[3], t[5], 1.2f, 6f) * 1.05f);
     }
 
     /**
@@ -128,35 +128,35 @@ public class DcgPostTest {
                 "HYBRID NOISE CHECK: base vs frame 1, 812 flat of 1024 blocks, measured / model 2.1 -> model x1 (DCG: the measured zones"
                         + " replace the model)\nHYBRID NOISE CHECK DCG: slope=0.0002 hcg=1e-06 lcg=4e-05 knee=0.125 blocks=790/1024 zones=2\n"));
         assertArrayEquals(ZONES, two, 1e-12f);
-        float[] t = ScamDenoiseTables.dcgTerms(two, null, null, null);
-        assertArrayEquals(new float[]{t[2] / t[1], t[6]}, ScamDenoise.dcgShaderPass(t[1], t[2], t[6]), 0f);
+        float[] t = NoiseMath.dcgTerms(two, null, null, null);
+        assertArrayEquals(new float[]{t[2] / t[1], t[6]}, DenoiseStats.dcgShaderPass(t[1], t[2], t[6]), 0f);
         final float[] one = NoiseModeler.dcgZones(ScamNeuralClient.dcgNoise(
                 "HYBRID NOISE CHECK DCG: slope=0.000213 hcg=3.1e-06 lcg=3.1e-06 knee=0 blocks=801/1024 zones=1\n"));
         assertArrayEquals(new float[]{2.13e-4f, 3.1e-6f, 3.1e-6f, 0f}, one, 0f);
-        t = ScamDenoiseTables.dcgTerms(one, null, null, null);
+        t = NoiseMath.dcgTerms(one, null, null, null);
         assertEquals("one zone: one read term", t[1], t[2], 0f);
         assertEquals(0f, t[6], 0f);
-        assertNull("one zone: the plain shaders (smoothstep(0, 0, Y) is undefined)", ScamDenoise.dcgShaderPass(t[1], t[2], t[6]));
+        assertNull("one zone: the plain shaders (smoothstep(0, 0, Y) is undefined)", DenoiseStats.dcgShaderPass(t[1], t[2], t[6]));
         assertEquals(t[4], NoiseModeler.zoneOffset(0.18f, t[4], t[5], t[6]), 0f);
         final float[] clamp = WhyAe.dcgClampModel(one, 6e-4f, 1.5e-5f, Double.NaN, Double.NaN);
         assertEquals(one[0], clamp[0], 0f);
         assertEquals(one[1], clamp[1], 0f);
-        assertNull(ScamDenoise.dcgShaderPass(1e-6f, 4e-5f, Float.NaN));
-        assertNull(ScamDenoise.dcgShaderPass(0f, 4e-5f, 0.125f));
+        assertNull(DenoiseStats.dcgShaderPass(1e-6f, 4e-5f, Float.NaN));
+        assertNull(DenoiseStats.dcgShaderPass(0f, 4e-5f, 0.125f));
     }
 
     @Test public void denoiseZonesOnlyForADcgShotWithUsableZones() {
-        assertNull(ScamDenoise.dcgZones(null));
+        assertNull(DenoiseStats.dcgZones(null));
         final Parameters p = new Parameters();
-        assertNull("a plain shot", ScamDenoise.dcgZones(p));
+        assertNull("a plain shot", DenoiseStats.dcgZones(p));
         p.dcgNoise = ZONES.clone();
-        assertNull("zones without the DCG flag", ScamDenoise.dcgZones(p));
+        assertNull("zones without the DCG flag", DenoiseStats.dcgZones(p));
         p.dcgShot = true;
-        assertArrayEquals(ZONES, ScamDenoise.dcgZones(p), 0f);
+        assertArrayEquals(ZONES, DenoiseStats.dcgZones(p), 0f);
         p.dcgNoise = new float[]{2e-4f, 1e-6f, 4e-5f, 0f};
-        assertNull("unusable zones: the camera's curve", ScamDenoise.dcgZones(p));
+        assertNull("unusable zones: the camera's curve", DenoiseStats.dcgZones(p));
         p.dcgNoise = null;
-        assertNull(ScamDenoise.dcgZones(p));
+        assertNull(DenoiseStats.dcgZones(p));
     }
 
     @Test public void gainClampTakesTheOffsetOfMidGreysZone() {

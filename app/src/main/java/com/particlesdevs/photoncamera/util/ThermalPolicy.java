@@ -28,6 +28,8 @@ public final class ThermalPolicy {
      * (0 = every frame, as before).
      */
     static final int BUSY_VF_FPS = 15;
+    private static volatile int defaultBusyVfFps = BUSY_VF_FPS;
+    private static volatile boolean memoryPolicyKnown;
     /** A processing flag older than this counts as cleared (a path that never cleared it must not slow the viewfinder for good). */
     static final long BUSY_MAX_NS = 20_000_000_000L;
     private static volatile long busySinceNs;
@@ -41,6 +43,17 @@ public final class ThermalPolicy {
 
     /** Registers the platform's thermal listener once (API 29+); never throws. */
     public static void watch(Context context) {
+        if (!memoryPolicyKnown && context != null) {
+            try {
+                android.app.ActivityManager manager = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                if (manager != null) {
+                    android.app.ActivityManager.MemoryInfo memory = new android.app.ActivityManager.MemoryInfo();
+                    manager.getMemoryInfo(memory);
+                    defaultBusyVfFps = busyFpsForDevice(memory.totalMem, Build.BOARD);
+                    memoryPolicyKnown = memory.totalMem > 0;
+                }
+            } catch (RuntimeException ignored) {}
+        }
         if (registered || context == null || Build.VERSION.SDK_INT < 29) return;
         try {
             final PowerManager pm = (PowerManager) context.getApplicationContext().getSystemService(Context.POWER_SERVICE);
@@ -79,16 +92,33 @@ public final class ThermalPolicy {
 
     static int busyFps() {
         try {
-            return Math.max(0, Math.round(com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevNumber("vf_busy_fps", BUSY_VF_FPS)));
+            return Math.max(0, Math.round(com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevNumber("vf_busy_fps", defaultBusyVfFps)));
         } catch (RuntimeException | LinkageError e) {
-            return BUSY_VF_FPS;
+            return defaultBusyVfFps;
         }
+    }
+
+    static int busyFpsForMemory(long totalBytes) {
+        return totalBytes > 0 && totalBytes <= (9L << 29) ? 2 : BUSY_VF_FPS;
+    }
+
+    static int busyFpsForDevice(long totalBytes, String board) {
+        return "msm8998".equalsIgnoreCase(board) ? 2 : busyFpsForMemory(totalBytes);
     }
 
     /** P353: a shot is being processed (set less than {@link #BUSY_MAX_NS} ago). */
     static boolean busy(long nowNs) {
         final long since = busySinceNs;
-        return since != 0 && nowNs - since < BUSY_MAX_NS;
+        if (since == 0) return false;
+        if (nowNs - since < BUSY_MAX_NS) return true;
+        // A real merge can exceed 20 s on older GPUs. Only expire an orphaned flag.
+        try {
+            if (com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy.getAsBoolean()) {
+                busySinceNs = nowNs;
+                return true;
+            }
+        } catch (RuntimeException ignored) {}
+        return false;
     }
 
     /** SEVERE or worse, with the policy on. */
@@ -107,10 +137,10 @@ public final class ThermalPolicy {
      * {@link #SEVERE_VF_FPS} s passed since the last one shown (a small tolerance keeps a 30 fps stream at 15).
      */
     public static synchronized boolean viewfinderFrameDue(long nowNs) {
-        if (severe()) return due(nowNs, SEVERE_VF_FPS);
         // P353: while a shot is processed (the flag's age on the monotonic clock; nowNs is the frame's sensor time)
         final int busyFps = busy(android.os.SystemClock.elapsedRealtimeNanos()) ? busyFps() : 0;
-        if (busyFps > 0) return due(nowNs, busyFps);
+        final int limit = severe() ? (busyFps > 0 ? Math.min(SEVERE_VF_FPS, busyFps) : SEVERE_VF_FPS) : busyFps;
+        if (limit > 0) return due(nowNs, limit);
         lastVfNs = nowNs;
         return true;
     }

@@ -64,7 +64,9 @@ public class BuildIdentityTest {
     }
 
     @Test public void everySessionOfTheDailyLogStartsWithTheBuildLine() throws Exception {
+        org.robolectric.shadows.ShadowBuild.setSystemOnChipModel("SM8650");
         Log.setLogEnabled(true);
+        Log.setLogFolder(null);
         Handler handler = (Handler) field("logHandler").get(null);
         Method close = Log.class.getDeclaredMethod("closeWriter");
         close.setAccessible(true);

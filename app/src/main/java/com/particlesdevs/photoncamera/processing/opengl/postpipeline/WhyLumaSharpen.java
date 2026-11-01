@@ -322,7 +322,7 @@ public final class WhyLumaSharpen extends Node {
         float usmRadius = WhyTone.value("sharp_usm_radius", 0.1f);
         float usmAmount = filmShare(WhyTone.value("sharp_usm_amount", 0.5f) * lowLight, pipeline.film);
         float usmThresh = WhyTone.value("sharp_usm_thresh", 0f) / 255f;
-        float bilRadius = WhyTone.value("sharp_bilateral_radius", 0.5f);
+        float bilRadius = WhyTone.value("sharp_bilateral_radius", 0f);
         float bilAmount = filmShare(WhyTone.value("sharp_bilateral_amount", 1f) * lowLight, pipeline.film);
         float bilColor = Math.max(WhyTone.value("sharp_bilateral_color", 10f) / 100f, 0.001f);
         float halo = clamp01(WhyTone.value("sharp_halo_control", 100f) / 100f);

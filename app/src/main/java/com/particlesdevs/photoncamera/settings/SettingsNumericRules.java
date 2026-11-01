@@ -54,6 +54,8 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_despeckle": return new double[]{0,1,1};
             case "pref_scam_hybrid_bento_denoise_max": return new double[]{1,12,0};
             // P443: the reference app's resolve denoise (ArkResolveDenoise), its ranges
+            case "pref_scam_hybrid_resolve_speckle_threshold": return new double[]{0.01,0.5,0};
+            case "pref_scam_hybrid_resolve_speckle_strength": return new double[]{0,1,0};
             case "pref_scam_hybrid_ark_dn_factor": case "pref_scam_hybrid_ark_dn_grain": return new double[]{0,2,0};
             case "pref_scam_hybrid_ark_dn_luma_revert": case "pref_scam_hybrid_ark_dn_motion_revert": return new double[]{0,1,0};
             // SCAM Hybrid noise reduction (ScamDenoise, engine "multiscale")

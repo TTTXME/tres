@@ -96,6 +96,16 @@ public class ParamController implements Observer {
             return;
         }
         final boolean isoManual = manualIso(), shutterManual = manualShutter();
+        if (captureController.unspektraAe() != null) {
+            captureController.unspektraAe().invalidate();
+            if (!(isoManual && shutterManual) && captureController.unspektraAe().eligible()) {
+                stopPriority(builder);
+                priority = ExposurePriority.NONE;
+                captureController.resetPreviewAEMode();
+                captureController.rebuildPreviewBuilder();
+                return;
+            }
+        }
         // P377: ETTR's shutter (the automatic exposure only): shutter priority at it, the AE's compensation keeps the ISO
         final boolean ettr = !isoManual && !shutterManual && ettrShutterNs > 0;
         final int mode = ExposurePriority.mode(isoManual, shutterManual || ettr);
@@ -163,10 +173,39 @@ public class ParamController implements Observer {
     }
 
     /** P82: one viewfinder result (camera thread): checks the camera's priority AE, or moves the software loop. */
+    private boolean unspektraWasActive;
+
+    public synchronized void prepareUnspektraAe() {
+        CaptureRequest.Builder builder = captureController.mPreviewRequestBuilder;
+        if (builder == null) return;
+        stopPriority(builder);
+        priority = ExposurePriority.NONE;
+        ettrShutterNs = 0;
+        ettrAeProduct = 0;
+        motion.reset();
+        motionActive = false;
+        unspektraWasActive = true;
+    }
+
     public synchronized void onPreviewResult(CaptureResult result) {
         if (result == null) return;
         com.particlesdevs.photoncamera.capture.MainsFlicker.observe(result); // P118 «Частота мерцания» Авто
         learnNeutral(result); // P121
+        if (captureController.unspektraAe() != null) {
+            captureController.unspektraAe().noteResult(result);
+            if (captureController.unspektraAe().ownsExposure()) {
+                if (!unspektraWasActive && captureController.mPreviewRequestBuilder != null) {
+                    stopPriority(captureController.mPreviewRequestBuilder);
+                    priority = ExposurePriority.NONE;
+                }
+                unspektraWasActive = true;
+                return;
+            }
+            if (unspektraWasActive) {
+                unspektraWasActive = false;
+                applyExposure();
+            }
+        }
         motionStep(result);
         if (priority == ExposurePriority.NONE) return;
         CaptureRequest.Builder builder = captureController.mPreviewRequestBuilder;
@@ -342,6 +381,7 @@ public class ParamController implements Observer {
 
     public void motionMeteringTap() {
         motionTap = true;
+        if (captureController.unspektraAe() != null) captureController.unspektraAe().resetMeter();
     }
 
     /** The longest shutter of a ring frame: one frame of the ring (its AE target range), at most 1/10 s. */
@@ -684,6 +724,7 @@ public class ParamController implements Observer {
     }
 
     public void setEV(int ev) {
+        if (captureController.unspektraAe() != null) captureController.unspektraAe().resetMeter();
         CaptureRequest.Builder builder = captureController.mPreviewRequestBuilder;
         if (builder == null) {
             Log.w(TAG, "setEV(): mPreviewRequestBuilder is null");
@@ -835,6 +876,8 @@ public class ParamController implements Observer {
     }
 
     public void setupPreview() {
+        if (captureController.unspektraAe() != null) captureController.unspektraAe().reset();
+        unspektraWasActive = false;
         synchronized (this) {
             // P110: a new session (lens, restart) starts on the camera AE; the ceiling learns its frames again
             motion.reset();

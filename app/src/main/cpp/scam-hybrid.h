@@ -429,6 +429,7 @@ struct HybridTuning {
     // step over 2 px is an edge): the 2 px comb of a single Bayer frame along a thin line cancels, across the edge the read stays
     // sharp (a 2 x 2 box widened a thin frame line's colour fringe). 0 = one read.
     int bentoBlendUsBox=0;
+    int bentoUsCache=0;
     // F10: the ultrashort frames registered sub-pixel against the base after the alignment (hybridUsRegister: translation + level
     // on the base's unclipped texture), before Bento's check, the F6 field and the merge read their transform. 1 = on, 2 = also an
     // ultrashort frame the corner tracker refused (CRE failed on its x8 noise) starts from the global translation instead of being
@@ -1101,7 +1102,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("bentoBlendGateMid",nullptr,&t.bentoBlendGateMid)||set("bentoBlendCellMode",nullptr,&t.bentoBlendCellMode)||set("bentoBlendSatWb",nullptr,&t.bentoBlendSatWb)
             ||set("wbR",&t.wbR)||set("wbB",&t.wbB)||set("bentoValidZ",&t.bentoValidZ)||set("bentoValidZFloor",&t.bentoValidZFloor)||set("bentoValidZRange",nullptr,&t.bentoValidZRange)
             ||set("bentoBlendValidOnce",nullptr,&t.bentoBlendValidOnce)||set("bentoBlendValidBilinear",nullptr,&t.bentoBlendValidBilinear)
-            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)
+            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)||set("bentoUsCache",nullptr,&t.bentoUsCache)
             ||set("bentoBlendFillMean",nullptr,&t.bentoBlendFillMean)||set("bentoBlendChromaEdge",&t.bentoBlendChromaEdge)||set("mosaicUsFillTol",&t.mosaicUsFillTol)
             ||set("bentoUsRegister",nullptr,&t.bentoUsRegister)||set("bentoUsRegisterMax",&t.bentoUsRegisterMax)||set("bentoBlendGainMin",&t.bentoBlendGainMin)
             ||set("bentoPartial",nullptr,&t.bentoPartial)||set("bentoPartialZLo",&t.bentoPartialZLo)||set("bentoPartialZHi",&t.bentoPartialZHi) // P392
@@ -5665,6 +5666,7 @@ inline std::string hybridPartialSpec(const HybridTuning& t,bool native=false){
         +(!native&&t.bentoBlend>0&&t.bentoBlendFieldBilinear>0?"#define US_FIELD_BILIN 1\n":"") // P441: kHybUsBlend's F6 field
         +(!native&&t.bentoBlend>0&&t.bentoBlendPixelMark>0?"#define US_PIXMARK 1\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsBox>0?"#define US_BOX 1\n":"")
+        +(!native&&t.bentoBlend>0&&t.bentoUsCache>0?"#define US_CACHE 1\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsAa>0.f?"#define US_AA "+std::to_string(std::clamp(t.bentoBlendUsAa,0.f,1.f))+"\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsSoftClip>0.f?"#define US_SOFTCLIP "+std::to_string(std::clamp(t.bentoBlendUsSoftClip,0.5f,0.99f))+"\n":""); // P441
 }
@@ -5710,6 +5712,7 @@ inline const HybridDcgSources& hybridDcgSources(){
 // before the task that fills v starts (the strips are laid out with them); v's values are read only after the merge's maskReady,
 // which waits for that task. ready: set by the task when v holds the fill (the strips check it before they upload v).
 struct HybridFill { int shift=0,w=0,h=0;std::vector<float> v;std::atomic<int> ready{0}; };
+#include "scam-us-cache.h"
 class HybridGpu {
     EGLDisplay display=EGL_NO_DISPLAY;
     EGLContext context=EGL_NO_CONTEXT;
@@ -5717,6 +5720,9 @@ class HybridGpu {
     static constexpr int kSlots=19; // 0..17 merge (1 fixed-pattern mean, 2 site flags, 6 clip flags, 14 donor covariance, 15 F6 field,
                                     // 16 F6 offset per strip cell, 17 F6 Z channel), 18 readback staging (kSlots - 1)
     GLuint meanProgram=0,flagsProgram=0,markProgram=0,guideProgram=0,cellsProgram=0,rejectProgram=0,dilateProgram=0,mergeProgram=0,rimProgram=0,bentoProgram=0,chromaProgram=0,blendProgram=0,buffers[kSlots]{};
+    GLuint usCacheProgram=0,blendCacheProgram=0,usCacheBuffer=0;
+    size_t usCacheCapacity=0;
+    bool usCacheFailed=false;
     // P364: kHybUsBlend compiled per stage (BLEND_STAGE 0..4: the light stages without stage 1's registers; Adreno), blendProgram
     // = stage 1's then; all 0: blendProgram runs every stage (blendStageU)
     GLuint blendStages[5]{};
@@ -5815,6 +5821,9 @@ class HybridGpu {
         if(context!=EGL_NO_CONTEXT&&eglMakeCurrent(display,surface,surface,context)){
             for(GLuint program:{meanProgram,flagsProgram,markProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram,rimProgram,bentoProgram,chromaProgram,blendProgram})if(program)glDeleteProgram(program);
             for(GLuint program:blendStages)if(program&&program!=blendProgram)glDeleteProgram(program); // P364
+            if(usCacheProgram)glDeleteProgram(usCacheProgram);
+            if(blendCacheProgram)glDeleteProgram(blendCacheProgram);
+            if(usCacheBuffer)glDeleteBuffers(1,&usCacheBuffer);
             for(GLuint program:{natMeanProgram,natFlagsProgram,natMarkProgram,mosaicProgram,natNormProgram})if(program)glDeleteProgram(program); // P29
             for(GLuint program:{capProgram,pruneProgram})if(program)glDeleteProgram(program); // P214k
             for(GLuint program:{markListProgram,markSparseProgram})if(program)glDeleteProgram(program); // P440
@@ -5941,23 +5950,24 @@ class HybridGpu {
     // and the second 8 MB chunk of the same buffer); the ladder below tries the variants and keeps the first that
     // works for the rest of the run.
     int mapMethod=-1;
+    GLenum mapFailureError=GL_NO_ERROR;
     const void* tryMap(GLenum target,size_t offset,size_t n,GLbitfield flags){
         const void* p=glMapBufferRange(target,GLintptr(offset),GLsizeiptr(n),flags);
-        if(!p)glGetError();
+        if(!p){const GLenum error=glGetError();if(error!=GL_NO_ERROR)mapFailureError=error;}
         return p;
     }
     void get(int slot,void* data,size_t bytes){getBuffer(buffers[slot],slot,data,bytes,false);}
-    // fenced: the caller waited for the fence of the commands that wrote the buffer, so an unsynchronized map (no implicit
-    // wait for the commands submitted after them) is tried first; the method ladder below stays the fallback.
+    // A signaled fence permits a normal read map. ES forbids MAP_READ with MAP_UNSYNCHRONIZED even after a fence.
     int fencedMapFails=0;
     void getBuffer(GLuint source,int slot,void* data,size_t bytes,bool fenced){
         constexpr size_t kChunk=size_t(32)<<20; // strips are sized so that every readback is one map from offset 0
         for(size_t offset=0;offset<bytes;offset+=kChunk){
+            mapFailureError=GL_NO_ERROR;
             const size_t n=std::min(kChunk,bytes-offset);
             bool done=false;
             if(fenced&&fencedMapFails<2){
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER,source);
-                if(const void* mapped=tryMap(GL_SHADER_STORAGE_BUFFER,offset,n,GL_MAP_READ_BIT|GL_MAP_UNSYNCHRONIZED_BIT)){
+                if(const void* mapped=tryMap(GL_SHADER_STORAGE_BUFFER,offset,n,GL_MAP_READ_BIT)){
                     std::memcpy(static_cast<char*>(data)+offset,mapped,n);
                     if(!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER))throw std::runtime_error("HYBRID GPU storage invalidated");
                     continue;
@@ -5967,7 +5977,7 @@ class HybridGpu {
             for(int method=mapMethod<0?0:mapMethod;method<5&&!done;++method){
                 const void* mapped=nullptr;GLenum target=GL_SHADER_STORAGE_BUFFER;
                 if(method==0){glBindBuffer(GL_SHADER_STORAGE_BUFFER,source);mapped=tryMap(target,offset,n,GL_MAP_READ_BIT);}
-                else if(method==1){glFinish();glBindBuffer(GL_SHADER_STORAGE_BUFFER,source);mapped=tryMap(target,offset,n,GL_MAP_READ_BIT|GL_MAP_UNSYNCHRONIZED_BIT);}
+                else if(method==1){glFinish();glBindBuffer(GL_SHADER_STORAGE_BUFFER,source);mapped=tryMap(target,offset,n,GL_MAP_READ_BIT);}
                 else if(method==2){target=GL_COPY_READ_BUFFER;glBindBuffer(target,source);mapped=tryMap(target,offset,n,GL_MAP_READ_BIT);}
                 else if(method==3){ // staging copy into a GL_DYNAMIC_READ buffer, mapped from offset 0
                     target=GL_COPY_WRITE_BUFFER;
@@ -5983,7 +5993,13 @@ class HybridGpu {
                     glCopyBufferSubData(GL_COPY_READ_BUFFER,GL_COPY_WRITE_BUFFER,GLintptr(offset),0,GLsizeiptr(n));
                     glFinish();
                     mapped=tryMap(target,0,n,GL_MAP_READ_BIT);
-                    if(mapped){std::memcpy(static_cast<char*>(data)+offset,mapped,n);glUnmapBuffer(target);glDeleteBuffers(1,&tmp);mapMethod=method;done=true;break;}
+                    if(mapped){
+                        std::memcpy(static_cast<char*>(data)+offset,mapped,n);
+                        const bool valid=glUnmapBuffer(target)!=GL_FALSE;
+                        glDeleteBuffers(1,&tmp);
+                        if(!valid)throw std::runtime_error("HYBRID GPU storage invalidated");
+                        mapMethod=method;done=true;break;
+                    }
                     glDeleteBuffers(1,&tmp);
                 }
                 if(mapped){
@@ -5993,7 +6009,7 @@ class HybridGpu {
                     done=true;
                 }
             }
-            if(!done)throw std::runtime_error("HYBRID GPU readback failed slot="+std::to_string(slot)+" offset="+std::to_string(offset)+" bytes="+std::to_string(n)+" total="+std::to_string(bytes));
+            if(!done)throw std::runtime_error("HYBRID GPU readback failed slot="+std::to_string(slot)+" offset="+std::to_string(offset)+" bytes="+std::to_string(n)+" total="+std::to_string(bytes)+" glError="+std::to_string(mapFailureError));
         }
     }
     static GLint loc(GLuint program,const char* n){return glGetUniformLocation(program,n);}
@@ -6257,7 +6273,27 @@ public:
                     const char* names[5]={"blend0","blend1","blend2","blend3","blend4"};
                     for(int s=0;s<5;++s)blendStages[s]=timed(names[s],(std::string("#define BLEND_STAGE ")+std::to_string(s)+"\n"+body).c_str());
                     blendProgram=blendStages[1];
-                } else blendProgram=timed("blend",body.c_str());}
+                } else blendProgram=timed("blend",body.c_str());
+                if((partialSpec.find("#define US_CACHE ")!=std::string::npos||std::getenv("SCAM_US_CACHE"))
+                   &&partialSpec.find("#define US_BOX ")!=std::string::npos&&partialSpec.find("#define US_AA ")==std::string::npos
+                   &&!std::getenv("SCAM_NO_US_CACHE")&&ssboBindings>19){
+                    try{
+                        std::string cacheSource=std::string(mergeCommon())+hybridUsCacheProgram();
+#ifdef SCAM_US_CACHE_FAULTS
+                        if(std::getenv("SCAM_US_CACHE_FAIL_COMPILE"))cacheSource+="\n#error injected US cache compile failure\n";
+#endif
+                        usCacheProgram=timed("usCache",cacheSource.c_str());
+                        const std::string prefix=body.substr(0,body.size()-std::strlen(kHybUsBlend));
+                        blendCacheProgram=timed("blendCache",(std::string("#define BLEND_STAGE 1\n")+prefix+hybridUsCachedBlend(kHybUsBlend)).c_str());
+                    }catch(const std::exception& e){
+                        while(glGetError()!=GL_NO_ERROR){}
+                        if(usCacheProgram)glDeleteProgram(usCacheProgram);
+                        if(blendCacheProgram)glDeleteProgram(blendCacheProgram);
+                        usCacheProgram=blendCacheProgram=0;
+                        if(early)early(std::string("HYBRID US CACHE: reference blend (")+e.what()+")");
+                    }
+                }
+            }
             if(chromaPass){const std::string body=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon()+kHybChroma;chromaProgram=timed("chroma",body.c_str());}
             if(nativeMosaic){ // P29: new programs only, the ones above are compiled from the same sources as without it
                 natMeanProgram=timed("natMean",(std::string(kHybNatAccess)+kHybNatMean).c_str());
@@ -6832,6 +6868,7 @@ public:
         constexpr int64_t kReadbackCap=int64_t(256)*4624*12;
         const size_t blockLimit=maxStorageBlock>0?maxStorageBlock:(size_t(128)<<20);
         uint64_t gpuBudget=0;
+        const uint64_t usCacheLimit=usCacheProgram?std::min<uint64_t>({maxStorageBlock,uint64_t(128)<<20,hybridMemAvailable()/8}):0;
         if(fit){
             stripCells=std::max(8,std::min(stripCells,int(kReadbackCap/(2*int64_t(g)*ow*12))&~7));
             // P200 (OPPO Find X7 Ultra, 50 MP, 18 native frames: ~400 MB available at the GPU merge after its frames and output):
@@ -7029,6 +7066,7 @@ public:
             }
         };
         int stripIndex=0,stripsShrunk=0,smallestStrip=stripCells;
+        int cacheStrips=0;bool cacheTouched=false;
         // P200: why the first strip was halved (the slot over the storage block, or the bytes over the memory budget)
         std::string shrinkWhy;
         for(int cy0=0,cy1=0;cy0<h2;cy0=cy1,++stripIndex){
@@ -7504,6 +7542,45 @@ public:
                 // the blend's scratch (the guide is used up) and, behind the longest strip's rows, two carry rows of the gain
                 if(in.maskReady)in.maskReady(std::min(h2,cy1+1)); // P364: the rows fillMask reads (the edge row below included)
                 fillMask();
+                bool cacheReady=false;
+                if(usCacheProgram&&!usCacheFailed&&in.mask&&in.mask->size()>=size_t(w2)*h2){
+                    const size_t area=size_t(cy1-cy0)*w2;
+                    size_t active=0;
+                    for(size_t k=size_t(cy0)*w2;k<size_t(cy1)*w2;++k)active+=(*in.mask)[k]>0.01f;
+                    if(active>=std::max<size_t>(512,area/32))try{
+                        std::vector<GLuint> geo(size_t(kHybridGpuFrames)*4,0);
+                        size_t count=kHybridGpuFrames;
+                        for(int f=1;f<frames;++f)if(in.role[f]==5){
+                            geo[4*f]=GLuint(count);geo[4*f+1]=GLuint(row0[f]-8);geo[4*f+2]=GLuint(rows[f]+16);geo[4*f+3]=GLuint(w+16);
+                            count+=size_t(rows[f]+16)*size_t(w+16);
+                        }
+                        if(count<=usCacheLimit/16){
+                            worker_crash::mark("GPU merge (US cache)");cacheTouched=true;
+                            if(!usCacheBuffer)glGenBuffers(1,&usCacheBuffer);
+                            glBindBuffer(GL_SHADER_STORAGE_BUFFER,usCacheBuffer);
+                            if(usCacheCapacity<count*16){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(count*16),nullptr,GL_DYNAMIC_DRAW);usCacheCapacity=count*16;}
+                            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,19,usCacheBuffer);
+                            glBufferSubData(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(geo.size()*sizeof(GLuint)),geo.data());
+#ifdef SCAM_US_CACHE_FAULTS
+                            if(std::getenv("SCAM_US_CACHE_FAIL_ALLOC"))glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0xFFFFFFFFu,0);
+#endif
+                            check("US cache allocation");
+                            hybridUsCopyUniforms(blendStage(1),usCacheProgram);
+                            for(int f=1;f<frames;++f)if(in.role[f]==5){
+                                glUseProgram(usCacheProgram);glUniform1i(loc(usCacheProgram,"cacheFrameU"),f);
+                                dispatchRows(usCacheProgram,w+16,rows[f]+16,1,chunkOf(64),5);
+                            }
+#ifdef SCAM_US_CACHE_FAULTS
+                            if(std::getenv("SCAM_US_CACHE_FAIL_RUN"))glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0xFFFFFFFFu,usCacheBuffer);
+#endif
+                            check("US cache");cacheReady=true;++cacheStrips;
+                        }
+                    }catch(const std::exception& e){
+                        while(glGetError()!=GL_NO_ERROR){}
+                        usCacheFailed=true;
+                        if(trace)trace(std::string("HYBRID US CACHE: reference blend (")+e.what()+")");
+                    }
+                }
                 for(GLuint bp:blendSet()){ // P392 (BLEND_PARTIAL only): the fill planes' place and rows, the plausibility share
                     glUseProgram(bp);
                     glUniform4i(loc(bp,"fillU"),int(fillAt),int(fillRows),fillRow0,fillShift);
@@ -7538,12 +7615,13 @@ public:
                 }
                 // P377: a crash from here takes the blend without its lists - kept until the last strip is read back (the driver runs
                 // the indirect dispatches later, on its own threads: review)
-                if(listOn)worker_crash::mark("GPU merge (blend lists)");
+                if(listOn&&!cacheTouched)worker_crash::mark("GPU merge (blend lists)");
                 for(int k=0;k<5;++k){
                     const int stage=k==0?0:k==1?4:k-1; // P364: 0, the tile pass (4), 1, 2, 3
                     if(stage==4&&!list1On)continue;
                     if(k)glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-                    const GLuint bp=blendStage(stage); // P364: its own program (or blendProgram with the stage uniform)
+                    const GLuint bp=stage==1&&cacheReady?blendCacheProgram:blendStage(stage);
+                    if(stage==1&&cacheReady)hybridUsCopyUniforms(blendStage(1),bp);
                     glUseProgram(bp);
                     glUniform1i(loc(bp,"blendStageU"),stage);
                     if(stage==4)dispatchRows(bp,tw,th,1,(th+7)&~7,5);
@@ -7567,6 +7645,7 @@ public:
          if(doneRows>0)scam_progress::at(doneRows);
          if(doneRows>0&&in.rowsDone)in.rowsDone(out,doneRows);}
         worker_crash::mark("GPU merge"); // P377: the blend lists' strips are all read back
+        if(usCacheProgram&&trace)trace("HYBRID US CACHE: "+std::to_string(cacheStrips)+" of "+std::to_string(stripIndex)+" strips, "+hybridMB(usCacheCapacity)+" MB scratch, reference blend elsewhere");
         if(stripsShrunk&&trace)trace("HYBRID GPU: "+std::to_string(stripsShrunk)+" of "+std::to_string(stripIndex)+" strips shrunk to fit the storage block / memory budget (smallest "
             +std::to_string(smallestStrip)+" cells; first: "+shrinkWhy+")");
         std::vector<GLuint> sums(zeros.size());

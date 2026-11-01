@@ -19,6 +19,7 @@ import java.util.Locale;
 
 public class Log {
     private static final String LOG_SUBFOLDER = "Log";
+    private static volatile boolean fileLogEnabled;
 
     private static java.io.File logDir = null;
     private static Context logContext = null; // Application context for SimpleStorage
@@ -49,11 +50,8 @@ public class Log {
     private static final java.util.concurrent.atomic.AtomicInteger droppedLines = new java.util.concurrent.atomic.AtomicInteger();
     private static final int BUFFER_FLUSH_INTERVAL = 1000; // Flush every 1 second
 
-    static {
-        initLogThread();
-    }
-
-    private static void initLogThread() {
+    private static synchronized void initLogThread() {
+        if (logHandler != null) return;
         logThread = new HandlerThread("LogWriterThread");
         logThread.start();
         logHandler = new Handler(logThread.getLooper());
@@ -74,6 +72,9 @@ public class Log {
      * Call this when the app has SAF storage access (e.g. from SplashActivity).
      */
     public static void setLogFolder(Context context) {
+        if (!com.particlesdevs.photoncamera.settings.DeviceDefaults.flagshipSoc()) return;
+        initLogThread();
+        fileLogEnabled = true;
         final Context app = context == null ? null : context.getApplicationContext();
         logHandler.post(() -> {
             closeWriter();
@@ -205,7 +206,7 @@ public class Log {
         // folder is unavailable. ScameraDebugLog is a no-op while the switch is off.
         ScameraDebugLog.mirror(level, tag, message);
 
-        if (!logEnabled) return;
+        if (!logEnabled || !fileLogEnabled) return;
         // No SAF/Binder/file operation on the caller (UI/capture/GL) thread.
         // A stalled storage provider cannot create an unbounded logging queue.
         if (pendingLines.incrementAndGet() > MAX_PENDING_LINES) {

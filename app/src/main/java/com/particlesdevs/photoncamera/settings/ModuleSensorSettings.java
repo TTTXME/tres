@@ -56,6 +56,7 @@ public final class ModuleSensorSettings {
             double number;
             try{number=Double.parseDouble(value);}catch(NumberFormatException notNumber){if(!value.isEmpty())return true;continue;}
             if(ModuleDuplicates.SENSOR_MODE_SUFFIX.equals(field)){if(number>=0)return true;continue;}
+            if(UnspektraAePreferences.SLOW.equals(field)&&number==30)continue;
             if(number!=0&&number!=-1)return true;
         }
         return false;

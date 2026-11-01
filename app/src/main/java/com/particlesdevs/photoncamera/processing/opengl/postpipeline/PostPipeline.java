@@ -55,7 +55,6 @@ public class PostPipeline extends GLBasePipeline {
     public boolean signedRgb;
     /** WHY tone of the SCAM Hybrid: state handed from WhyStats to WhyCombine; null outside that route. */
     public WhyTone.State why;
-    SportsDenoisePolicy sportsDenoise;
     /**
      * P349: the glow share of the fully clipped cores (ScamRgb.sunBloom, WhyCombine's sun bloom), the image size it covers and its
      * block, px (P277: the whole frame's on a lab fragment).
@@ -151,6 +150,20 @@ public class PostPipeline extends GLBasePipeline {
     public boolean filmTaken;
     public String filmUserLut = "";
     public float filmUserStrength;
+    GLTexture referenceFilmTexture;
+    com.particlesdevs.photoncamera.processing.color.FilmSim.Settings referenceFilmSettings;
+    com.particlesdevs.photoncamera.processing.color.FilmLut referenceFilmUserLut;
+    boolean referenceFilmApplied, referenceFilmNativeP3;
+    private final java.util.Set<com.particlesdevs.photoncamera.processing.opengl.nodes.Node> referenceFilmEffects =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private final java.util.Set<com.particlesdevs.photoncamera.processing.opengl.nodes.Node> referenceFilmTone =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    @Override protected boolean skipNode(com.particlesdevs.photoncamera.processing.opengl.nodes.Node node) {
+        return referenceFilmApplied && (referenceFilmEffects.contains(node)
+                || referenceFilmSettings.strength >= 1f && referenceFilmTone.contains(node));
+    }
+
     /**
      * Owner, 2026-10-28 («в видоискателе вижу эффект, на конечном фото нет»): the shot's lens filter as the viewfinder showed it
      * at the press (ScamProcessor sets it from the shot's saver); null: none taken, the settings now (the lab's renders, under
@@ -206,6 +219,16 @@ public class PostPipeline extends GLBasePipeline {
         final FilmHalation halation = FilmHalation.from(film);
         if (halation != null) out.add(halation);
         return out;
+    }
+
+    private static java.util.List<com.particlesdevs.photoncamera.processing.opengl.nodes.Node> filmLightNodes(
+            com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
+        java.util.List<com.particlesdevs.photoncamera.processing.opengl.nodes.Node> nodes = new java.util.ArrayList<>();
+        LensFilter diffusion = LensFilter.film(film);
+        if (diffusion != null) nodes.add(diffusion);
+        FilmHalation halation = FilmHalation.from(film);
+        if (halation != null) nodes.add(halation);
+        return nodes;
     }
 
     /** The shot's lens filter: the press's ({@link #lensFilter}), else the settings now. */
@@ -333,6 +356,12 @@ public class PostPipeline extends GLBasePipeline {
         if (!filmTaken) takeFilm();
         captureDemosaic = gainMapWanted(mSettings.gainMapPass(), film);
         mCaptured = false;
+        referenceFilmApplied = false;
+        referenceFilmTexture = null;
+        referenceFilmSettings = null;
+        referenceFilmUserLut = null;
+        referenceFilmEffects.clear();
+        referenceFilmTone.clear();
         linearDisplayGain = 1.0f;
         scamNoiseSigma = 0f;
         signedRgb = false;
@@ -962,7 +991,7 @@ public class PostPipeline extends GLBasePipeline {
         // P129: HighlightRecovery is gone (SCAM HDR's; SHDR recovers the highlights per channel in ScamRgb)
         add(new ScamHdrDenoise());
         // P402 «Пирамидальный шумодав» (the reference app's ms denoise): only when switched on (no node otherwise)
-        if (WhyMsDenoise.enabled()) add(new WhyMsDenoise());
+        if (PreferenceKeys.isHybridDenoiseEnabled()) add(new WhyMsDenoise());
         // P228: the lens filter on the linear RGB (highlights with their headroom), before the tone; none: no node at all.
         // Owner, 2026-10-28: the one of the press, not of the settings after the merge
         final LensFilter.Choice shotFilter = lensFilterOfShot(), filterNow = lensFilter != null ? LensFilter.Choice.now() : shotFilter;
@@ -970,13 +999,24 @@ public class PostPipeline extends GLBasePipeline {
             Log.i("SCAM_PIPELINE", "lens filter of the press: " + shotFilter + " (the settings now: " + filterNow + ")");
         // P281: the film simulation's halation, on the linear light too (none: no node); P369: of the shot's film snapshot; P380: the
         // film's diffusion between the two (lightNodes)
-        for (com.particlesdevs.photoncamera.processing.opengl.nodes.Node n : lightNodes(shotFilter, film)) add(n);
+        final boolean referenceFilm = film != null && PreferenceKeys.scamDevSwitch("film_reference", true)
+                && ReferenceFilm.supported(film);
+        if (referenceFilm) {
+            for (com.particlesdevs.photoncamera.processing.opengl.nodes.Node n : lightNodes(shotFilter, null)) add(n);
+            add(new ReferenceFilm());
+            for (com.particlesdevs.photoncamera.processing.opengl.nodes.Node n : filmLightNodes(film)) {
+                referenceFilmEffects.add(n); add(n);
+            }
+        } else {
+            for (com.particlesdevs.photoncamera.processing.opengl.nodes.Node n : lightNodes(shotFilter, film)) add(n);
+        }
         // The WhyCam 1.23 photo tone (tone_port.md 7.1): its own AE, fusion and AgX. LinearExposure only keeps the
         // Ultra HDR linear snapshot.
         if (captureDemosaic) add(new LinearExposure());
         final WhyStats whyStats = new WhyStats();
         add(whyStats);
-        add(new WhyFusion());
+        final WhyFusion whyFusion = new WhyFusion();
+        add(whyFusion);
         // The only sharpening is WhyCam's own (WhyLumaSharpen before the detail delta; P118, owner 2026-10-13: the
         // RawTherapee and SCAM sharpenings and «off» are gone, the WHY strength rows weaken it).
         final WhyLumaSharpen whyLumaSharpen = new WhyLumaSharpen();
@@ -984,7 +1024,13 @@ public class PostPipeline extends GLBasePipeline {
         // the CPU Smart-HDR statistics run (WhyLumaSharpen then only passes the image on).
         whyStats.earlySharpen = whyLumaSharpen;
         add(whyLumaSharpen);
-        add(new WhyCombine());
+        final WhyCombine whyCombine = new WhyCombine();
+        add(whyCombine);
+        if (referenceFilm) {
+            referenceFilmTone.add(whyStats); referenceFilmTone.add(whyFusion);
+            referenceFilmTone.add(whyLumaSharpen); referenceFilmTone.add(whyCombine);
+            add(new ReferenceFilmMix());
+        }
         // Texture only on request (WhyCam has no mid-frequency boost).
         final boolean texture = PreferenceKeys.hybridSwitch("why_texture", false);
         Log.i("SCAM_PIPELINE", "WHY tail: sharpen=why (WhyLumaSharpen) texture=" + texture
@@ -993,7 +1039,7 @@ public class PostPipeline extends GLBasePipeline {
         if (finalSize != null) add(new HybridFinalResize(finalSize, PreferenceKeys.hybridDownsampler()));
         // P281: the film's sharpness and grain on the finished picture, at its final size (none: no node); P369: of the snapshot
         final FilmGrain grain = FilmGrain.from(film);
-        if (grain != null) add(grain);
+        if (grain != null) { if (referenceFilm) referenceFilmEffects.add(grain); add(grain); }
         add(new RotateWatermark(getRotation()));
     }
 }

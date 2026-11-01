@@ -62,7 +62,7 @@ final class NoiseQuantileGpu {
         }
     }
 
-    private static boolean rawReadbackExact(GLProg prog) {
+    static boolean rawReadbackExact(GLProg prog) {
         // Validate both the integer image view and the driver's GL_FLOAT conversion, including every subnormal.
         if (rawReadbackState != 0) return rawReadbackState > 0;
         int[] read = new int[1], draw = new int[1], viewport = new int[4];
@@ -110,7 +110,7 @@ final class NoiseQuantileGpu {
         return exact;
     }
 
-    private static final class ImageBinding implements AutoCloseable {
+    static final class ImageBinding implements AutoCloseable {
         private final int[] saved = new int[6];
         ImageBinding(GLTexture texture) {
             int[] names = {GLES31.GL_IMAGE_BINDING_NAME,GLES31.GL_IMAGE_BINDING_LEVEL,GLES31.GL_IMAGE_BINDING_LAYERED,

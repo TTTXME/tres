@@ -13,6 +13,7 @@ uniform sampler2D InputBuffer;      // whyLow after bracket_dn (linear Rec.709)
 uniform int cellU;                  // the cell's side, whyLow px
 uniform int stepU;                  // the sample stride
 uniform float clipU;                // MODE 1: the clipped level of the largest channel (0.9 x the data ceiling)
+uniform ivec2 cellOriginU;
 out vec4 Output;
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -26,7 +27,7 @@ float lum(vec3 c) { return log2(max(dot(c, LUMA), 0.000001)); }
 
 void main() {
     ivec2 size = textureSize(InputBuffer, 0);
-    ivec2 o = ivec2(gl_FragCoord.xy) * cellU;
+    ivec2 o = (ivec2(gl_FragCoord.xy) + cellOriginU) * cellU;
     ivec2 e = min(o + ivec2(cellU), size);
     int stride = max(stepU, 1);
     vec4 acc = vec4(0.0);

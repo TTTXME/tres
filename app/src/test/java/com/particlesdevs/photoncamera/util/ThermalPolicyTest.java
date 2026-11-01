@@ -15,8 +15,63 @@ import static org.junit.Assert.*;
 @Config(sdk = 35, application = Application.class)
 public class ThermalPolicyTest {
     @After public void cleanup() {
+        ThermalPolicy.processing(false);
+        com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy = () -> false;
         ThermalPolicy.set(-1);
         ThermalPolicy.resetNotice();
+    }
+
+    @Test public void longMergeDoesNotLoseItsPreviewCapAfterTwentySeconds() {
+        ThermalPolicy.processing(true);
+        com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy = () -> true;
+        long now = android.os.SystemClock.elapsedRealtimeNanos() + ThermalPolicy.BUSY_MAX_NS + 1;
+        assertTrue(ThermalPolicy.busy(now));
+        assertTrue(ThermalPolicy.busy(now + ThermalPolicy.BUSY_MAX_NS + 1));
+        ThermalPolicy.processing(false);
+        assertFalse(ThermalPolicy.busy(now + ThermalPolicy.BUSY_MAX_NS + 2));
+    }
+
+    @Test public void abandonedProcessingFlagStillExpires() {
+        ThermalPolicy.processing(true);
+        assertFalse(ThermalPolicy.busy(android.os.SystemClock.elapsedRealtimeNanos() + ThermalPolicy.BUSY_MAX_NS + 1));
+    }
+
+    @Test public void smallMemoryDevicesReserveGpuTimeForProcessing() {
+        assertEquals(2, ThermalPolicy.busyFpsForMemory(4L << 30));
+        assertEquals(2, ThermalPolicy.busyFpsForMemory(3L << 30));
+        assertEquals(15, ThermalPolicy.busyFpsForMemory(6L << 30));
+        assertEquals(15, ThermalPolicy.busyFpsForMemory(0));
+    }
+
+    @Test public void nubiaBoardReservesGpuTimeEvenWithMoreRam() {
+        assertEquals(2, ThermalPolicy.busyFpsForDevice(6L << 30, "msm8998"));
+        assertEquals(2, ThermalPolicy.busyFpsForDevice(8L << 30, "MSM8998"));
+        assertEquals(15, ThermalPolicy.busyFpsForDevice(8L << 30, "kalama"));
+        assertEquals(15, ThermalPolicy.busyFpsForDevice(0, null));
+    }
+
+    @Test public void thermalStatusCannotRaiseAStricterProcessingCap() throws Exception {
+        java.lang.reflect.Field field = ThermalPolicy.class.getDeclaredField("defaultBusyVfFps");
+        field.setAccessible(true);
+        int previous = field.getInt(null);
+        try {
+            field.setInt(null, 2);
+            ThermalPolicy.resetNotice();
+            ThermalPolicy.set(3);
+            ThermalPolicy.processing(true);
+            int shown = 0;
+            for (int i = 0; i < 60; i++)
+                if (ThermalPolicy.viewfinderFrameDue(5_000_000_000L + i * 33_333_333L)) shown++;
+            assertTrue("a hot busy device retains the 2 fps cap: " + shown, shown >= 3 && shown <= 5);
+            ThermalPolicy.processing(false);
+            ThermalPolicy.resetNotice();
+            shown = 0;
+            for (int i = 0; i < 60; i++)
+                if (ThermalPolicy.viewfinderFrameDue(9_000_000_000L + i * 33_333_333L)) shown++;
+            assertEquals(30, shown);
+        } finally {
+            field.setInt(null, previous);
+        }
     }
 
     @Test public void belowSevereEveryViewfinderFrameIsShown() {

@@ -52,6 +52,12 @@ import static org.mockito.Mockito.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, qualifiers = "w400dp-h880dp-mdpi")
 public class SessionKeysTest {
+    @org.junit.Test public void alternativeAeRequestsMatchedRawWithoutChangingOtherModules() {
+        assertTrue(SessionKeys.needsNewSession("pref_sensorconfig_back0_ae_engine"));
+        assertFalse(SessionKeys.needsNewSession("pref_sensorconfig_back0_ae_max_iso"));
+        assertArrayEquals(new String[]{"back0", "ae_engine"},SessionKeys.sensorKey("pref_sensorconfig_back0_ae_engine"));
+        assertArrayEquals(new String[]{"back0_fullres", "ae_min_iso"},SessionKeys.sensorKey("pref_sensorconfig_back0_fullres_ae_min_iso"));
+    }
     private Context context;
     private SettingsManager manager;
     private SharedPreferences prefs;

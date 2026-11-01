@@ -244,6 +244,10 @@ public final class DevKeys {
                 "Ultrashort frames: refusal only in the moved regions, the replacement chosen per pixel, the clip filled without seams (0: as before)")));
         k.add(n(merge, "hybrid_us_edges", "1", Lang.t("Короткие кадры у граней: цвет сглаживается вдоль грани, сдвиг и метка пересвета по пикселю — без зубцов вдоль проводов и краёв на свету (0 — как раньше)",
                 "Ultrashort frames at edges: the colour smoothed along the edge, the offset and the clip mark per pixel - no teeth along wires and edges in the light (0: as before)")));
+        k.add(n(merge, "hybrid_us_cache", "1", Lang.t("Кэш демозаика коротких кадров: ускорение обработки светов без изменения расчёта (0 — без кэша)",
+                "Cache the ultrashort demosaic to process highlights faster with unchanged maths (0: uncached)")));
+        k.add(n(merge, "hybrid_why_sky_seed_gate", "1", Lang.t("Проверка неба по верхнему краю: пропуск полного расчёта только при отсутствии возможных начальных ячеек (0 — полный расчёт)",
+                "Check sky seeds at the top edge; skip the full calculation only when no seed is possible (0: full calculation)")));
         k.add(n(merge, "hybrid_long_scope", "1", Lang.t("Длинные кадры: при движении убираются только сдвинутые блоки, а не весь кадр (0 — как раньше)",
                 "Long frames: under motion only the moved blocks are left out, not the whole frame (0: as before)")));
         // P415: the reject's read term in the deep shadows as they measured
@@ -308,8 +312,6 @@ public final class DevKeys {
                 "One processing GPU context for the whole run: the shader programs are not loaded again for every shot (off: a new context every shot)")));
         k.add(s(post, "effmap_real", true, Lang.t("Карта числа кадров для шумоподавления — реальная (выкл — старая)", "Frame-count map for the denoise: the real one (off: the old one)")));
         // P214d: ScamDenoise.lscTerm
-        k.add(s(post, "denoise_lsc", true, Lang.t("Шумоподавление сильнее к углам кадра по коррекции виньетирования (g² карты затенения объектива)", "Denoise harder towards the frame corners after the vignetting correction (g² of the lens-shading map)")));
-        k.add(n(post, "denoise_lsc_max", "2", Lang.t("Шумоподавление к углам: предел множителя дисперсии (1–16; 2 — шум в углах считается в 1,4 раза сильнее)", "Corner denoise: cap of the variance multiplier (1-16; 2: the corner noise counts 1.4 times as strong)")));
         // P214e: WhyLumaSharpen.smoothedSource (R1); P214z: not above 100 MP (r1Fits)
         k.add(s(post, "sharpen_r1", true, Lang.t("Резкость мозаичных снимков (ISZ Quad/Tetra, FULLRES до 100 Мп) по яркости, сглаженной 3×3: решётка мозаики почти не усиливается. Выкл — резкость как у снимков Bayer",
                 "Sharpening of mosaic shots (ISZ Quad / Tetra, FULLRES up to 100 MP) on the 3x3-smoothed luma: the mosaic lattice is hardly lifted. Off: the sharpening of Bayer shots")));
@@ -326,37 +328,15 @@ public final class DevKeys {
                 "The scene's colour temperature and the DNG calibration weight from the DNG SDK's white estimate (off: the former estimate on row-normalised matrices)")));
         k.add(s(post, "ccm_signed_hue", true, Lang.t("Цвет за пределами sRGB после матрицы камеры: тон и яркость OKLab по цвету без обрезки каналов (выкл — по обрезанному цвету, как раньше)",
                 "A colour the camera matrix puts outside sRGB: OKLab hue and lightness from the colour before the channel clamp (off: from the clamped colour, as before)")));
-        k.add(n(post, "hybrid_dn_luma_grain", "0.5", Lang.t("Шумодав: доля убранного мелкого зерна яркости, которая возвращается (0 — как раньше)", "Denoise: share of the removed fine luma grain that comes back (0: as before)")));
+        k.add(n(post, "hybrid_resolve_strip_rows", "0", Lang.t("Шумодав: строк в полосе (0 — авто, 1 — проверка по 128 строк)", "Denoise: rows per strip (0: auto, 1: 128-row validation)")));
         // P421: the finish denoise's diagnostics out of the menu
         k.add(n(post, "hybrid_dn_snr", "0", Lang.t("Шумодав: ручная чистота кадра (SNR), 0 — авто", "Denoise: manual shot cleanness (SNR), 0: auto")));
-        k.add(n(post, "hybrid_dn_strength_map", "0", Lang.t("Шумодав: карта силы — 0 авто, 1 по кадрам, 2 равномерно", "Denoise: strength map - 0 auto, 1 by frames, 2 uniform")));
-        k.add(n(post, "hybrid_dn_chroma_day", "0.5", Lang.t("Шумодав цвета днём: множитель при SNR 80 и выше (1 — как раньше; до SNR 20 всегда 1)", "Daylight colour denoise: multiplier at SNR 80 and above (1: as before; up to SNR 20 always 1)")));
-        k.add(n(post, "hybrid_dn_dark_chroma_hi", "4", Lang.t("Шумодав: цвет в тенях, верхний порог (x1e-4)", "Denoise: colour in the shadows, upper threshold (x1e-4)")));
-        k.add(n(post, "hybrid_dn_dark_chroma_lo", "1.5", Lang.t("Шумодав: цвет в тенях, нижний порог (x1e-4)", "Denoise: colour in the shadows, lower threshold (x1e-4)")));
-        k.add(n(post, "hybrid_dn_dark_tier", "0.1", Lang.t("Шумодав цвета в глубоких тенях: доля самых тёмных блоков, по уровню которых выбирается сила (0 — как раньше)",
-                "Colour denoise in the deep shadows: the share of the darkest blocks whose level picks its strength (0: as before)")));
-        k.add(n(post, "hybrid_dn_huge_map", "4.3", Lang.t("Шумодав 200 МП: сила (карта силы; 1 — как при всех склеенных кадрах)", "Denoise 200 MP: strength (strength map; 1: as with every frame merged)")));
-        k.add(n(post, "hybrid_dn_huge_fine", "2", Lang.t("Шумодав 200 МП: срез мелкого шума яркости, в сигмах (0 — выкл.)", "Denoise 200 MP: fine luma noise coring, in sigmas (0: off)")));
-        k.add(n(post, "hybrid_dn_dark_chroma_noise", "0.35", Lang.t("Шумодав: цвет в тенях, доля шума", "Denoise: colour in the shadows, noise share")));
-        k.add(s(post, "hybrid_ark_dn_dark_chroma", true, Lang.t("Resolve: сглаживать цветовой шум в глубоких тенях", "Resolve: smooth colour noise in deep shadows")));
         // P443: the SCAM 9.6 engine's rows out of the menu (the Resolve engine is the default), the JPEG and night detail lines
         k.add(s(post, "jpeg_aq", false, Lang.t("JPEG: адаптивное квантование jpegli (вкл. — как раньше: в тёмных и ровных местах стирает мелкие детали и зерно)", "JPEG: jpegli's adaptive quantisation (on: as before - it erases fine detail and grain in dark and flat areas)")));
         k.add(n(post, "hybrid_why_night_detail", "1.3", Lang.t("Детали ночью: усиление детали при SNR 15 и ниже до SNR 5 (1 — как раньше: x1 до SNR 20)", "Night detail: the detail gain from SNR 5 up to SNR 15 and beyond (1: as before, x1 up to SNR 20)")));
-        k.add(n(post, "hybrid_dn_luma_mult", "1", Lang.t("Шумодав SCAM 9.6: сила шумодава яркости (множитель)", "SCAM 9.6 denoise: luma strength (multiplier)")));
-        k.add(n(post, "hybrid_dn_sabre_luma_mult", "1", Lang.t("Шумодав SCAM 9.6: яркость, множитель тёмных сцен (таблицы 1, 3, 4)", "SCAM 9.6 denoise: luma, dark-scene multiplier (tiers 1, 3, 4)")));
-        k.add(n(post, "hybrid_dn_luma_gid14_mult", "1", Lang.t("Шумодав SCAM 9.6: яркость, множитель обычных сцен (таблицы 2, 5)", "SCAM 9.6 denoise: luma, regular-scene multiplier (tiers 2, 5)")));
-        k.add(n(post, "hybrid_dn_chroma_mult", "1", Lang.t("Шумодав SCAM 9.6: сила шумодава цвета (множитель)", "SCAM 9.6 denoise: colour strength (multiplier)")));
-        k.add(n(post, "hybrid_dn_revert_mult", "1", Lang.t("Шумодав SCAM 9.6: множитель возврата деталей", "SCAM 9.6 denoise: detail revert multiplier")));
-        k.add(n(post, "hybrid_dn_revert_max", "1", Lang.t("Шумодав SCAM 9.6: предел возврата деталей", "SCAM 9.6 denoise: detail revert limit")));
-        k.add(n(post, "hybrid_dn_coarse_stock", "0", Lang.t("Шумодав SCAM 9.6: доля исходного крупного шума яркости", "SCAM 9.6 denoise: share of the coarse luma noise kept")));
-        k.add(n(post, "hybrid_dn_chroma_floor", "0", Lang.t("Шумодав SCAM 9.6: минимальная сила шумодава цвета", "SCAM 9.6 denoise: the colour strength floor")));
-        k.add(n(post, "hybrid_dn_chroma_2x_keep", "0", Lang.t("Шумодав SCAM 9.6: доля цвета мельче пикселя сенсора на сетке 2x", "SCAM 9.6 denoise: share of the colour finer than a sensor pixel on the 2x grid")));
         k.add(n(post, "hybrid_dn_snr_scale", "1", Lang.t("Шумодав: множитель SNR кадра (резкость и детали ночью читают его в обоих движках)", "Denoise: the shot SNR multiplier (the sharpening and the night detail read it with either engine)")));
         k.add(n(post, "hybrid_dn_model_shot", "1.2", Lang.t("Шумодав: дробовая составляющая модели шума (для SNR кадра)", "Denoise: the noise model's shot term (for the shot SNR)")));
         k.add(n(post, "hybrid_dn_model_read", "2", Lang.t("Шумодав: составляющая шума считывания модели (для SNR кадра)", "Denoise: the noise model's read term (for the shot SNR)")));
-        k.add(s(post, "hybrid_dn_dark_fade", true, Lang.t("Шумодав SCAM 9.6: гасить цвет в самом тёмном", "SCAM 9.6 denoise: fade the colour in the darkest areas")));
-        k.add(n(post, "hybrid_bento_denoise_max", "3", Lang.t("Шумодав SCAM 9.6: предел усиления в местах из малого числа кадров", "SCAM 9.6 denoise: boost limit where few frames merged")));
-        k.add(n(post, "hybrid_why_chroma_denoise", "0", Lang.t("Тон: цветовой шумодав поднятых теней (0 — выкл.)", "Tone: colour denoise of the lifted shadows (0: off)")));
         k.add(n(post, "hybrid_why_hr_mix", "0.5", Lang.t("Тон, света Bento выше 4x: пик к p99.9 (доля)", "Tone, Bento highlights above 4x: peak towards p99.9 (share)")));
         k.add(n(post, "hybrid_why_weight_center_hr", "0.75", Lang.t("Тон с запасом Bento: центр весов слияния (без строки — «Смещение центра экспозиции» + 0,15)", "Tone with Bento headroom: fusion weight centre (without the line: “Exposure centre shift” + 0.15)")));
         k.add(n(post, "hybrid_why_weight_hl_hr", "0.4", Lang.t("Тон с запасом Bento: вес слоя светов (без строки — половина «Вес слоя светов»)", "Tone with Bento headroom: highlight layer weight (without the line: half the “Highlight layer weight”)")));
@@ -443,8 +423,6 @@ public final class DevKeys {
         k.add(n(post, "hybrid_why_light_chroma", "1.0", Lang.t("Тон: насыщенные оранжево-жёлтые цвета в светах (листва на солнце) держат насыщенность полутонов, оттенок сдвигается к AgX только там, где sRGB его не удержит; кожа, зелень, синие, лампы, небо и бледные цвета как раньше; 0 — выкл., как раньше",
                 "Tone: saturated orange-yellow colours in the light tones (sunlit leaves) keep their mid-tone saturation, the hue moves towards AgX's only where sRGB cannot hold it; skin, greens, blues, lamps, the sky and pale colours as before; 0 = off, as before")));
         k.add(n(post, "hybrid_why_hr_detail", "0.35", Lang.t("Тон, света Bento выше 4x: деталь светов", "Tone, Bento highlights above 4x: highlight detail")));
-        k.add(n(post, "hybrid_grain_level", "0.0002", Lang.t("Шумодав: уровень оставляемого зерна", "Denoise: level of the grain left")));
-        k.add(n(post, "hybrid_grain_min", "0.12", Lang.t("Шумодав: наименьшая доля возвращаемого зерна", "Denoise: least share of the grain put back")));
         k.add(n(post, "hybrid_texture_g0", null, Lang.t("Текстура: усиление полосы 0 (по умолчанию 1.5, на 8 Elite 1.35)", "Texture: gain of band 0 (default 1.5, 1.35 on the 8 Elite)")));
         k.add(n(post, "hybrid_texture_g1", "1.25", Lang.t("Текстура: усиление полосы 1", "Texture: gain of band 1")));
         k.add(n(post, "hybrid_texture_g2", "1.3", Lang.t("Текстура: усиление полосы 2", "Texture: gain of band 2")));
@@ -600,6 +578,9 @@ public final class DevKeys {
         // diagnostics and A/B
         k.add(s(diag, "stab_trace", true, Lang.t("Журнал стабилизации в логе", "Stabilisation trace in the log")));
         k.add(sAuto(diag, "stab_trace_ois", Lang.t("Отсчёты OIS в журнале стабилизации (по умолчанию — на vivo)", "OIS samples in the stabilisation trace (default: on vivo)")));
+        k.add(s(diag, "film_reference", true, Lang.t("Спектральный движок плёнки", "Spectral film engine")));
+        k.add(s(diag, "film_reference_dump", false, Lang.t("Сохранять вход и выход спектральной плёнки для сравнения", "Export spectral film input and output for comparison")));
+        k.add(n(diag, "hybrid_film_reference_budget_mb", "0", Lang.t("Лимит памяти спектральной плёнки, МБ (0 — автоматически)", "Spectral film memory budget, MB (0: automatic)")));
         k.add(s(diag, "post_sync", false, Lang.t("Синхронные узлы обработки (замер времени)", "Synchronous processing nodes (timing)")));
         k.add(s(diag, "diag_sync", false, Lang.t("Диагностика: превью этапов считаются и пишутся на потоке обработки, как до P371 (выкл — в фоне, снимок не ждёт)",
                 "Diagnostics: the stage previews are computed and written on the processing thread, as before P371 (off: in the background, the shot does not wait)")));

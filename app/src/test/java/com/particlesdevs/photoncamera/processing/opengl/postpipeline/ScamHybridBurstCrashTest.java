@@ -155,6 +155,24 @@ public class ScamHybridBurstCrashTest {
         assertFalse("a step that changes the photo is not kept for good", ScamHybridBurst.SAME_RESULT_STEPS.contains(ScamHybridBurst.STEP_BLEND));
     }
 
+    @Test public void aDemosaicCacheCrashKeepsTheReferenceBlend() {
+        for (String name : new String[]{"usCache", "blendCache"})
+            assertEquals(ScamHybridBurst.STEP_US_CACHE, ScamHybridBurst.stepOf("GPU compile " + name + ": glCompileShader"));
+        final String report = "WORKER CRASH: signal 11 SIGSEGV code=1 addr=0x0 tid=9 thread=mali-cmar stage=- last=GPU merge (US cache)\n"
+                + "WORKER EXIT: signal 11 SIGSEGV, no completion line\n";
+        assertEquals(ScamHybridBurst.STEP_US_CACHE, ScamHybridBurst.stepOf(ScamHybridBurst.crashStage(report)));
+        assertFalse(ScamHybridBurst.gpuInitDeath(12_000_000L, report));
+        ScamHybridBurst.avoidedSteps.clear();
+        try {
+            ScamHybridBurst.avoidedSteps.add(ScamHybridBurst.STEP_US_CACHE);
+            assertEquals("bentoUsCache 0\n", ScamHybridBurst.avoidedTuning());
+            assertEquals("bentoUsCache 0\n", ScamHybridBurst.sameResultTuning());
+        } finally {
+            ScamHybridBurst.avoidedSteps.clear();
+        }
+        assertTrue(ScamHybridBurst.SAME_RESULT_STEPS.contains(ScamHybridBurst.STEP_US_CACHE));
+    }
+
     @Test public void aCrashOnTheCellsPassTakesThePlainBuild() {
         final String report = X200_PRO_REPORT.replace("WORKER EXIT:",
                 "WORKER CRASH: signal 11 SIGSEGV code=1 addr=0x8 tid=28996 thread=libscamera_work stage=GPU compile cells: glCompileShader"

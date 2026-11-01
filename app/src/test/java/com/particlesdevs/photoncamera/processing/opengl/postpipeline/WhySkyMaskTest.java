@@ -23,6 +23,52 @@ import static org.junit.Assert.assertTrue;
 public class WhySkyMaskTest {
     static final int W = 256, H = 192;
 
+    private static float[] topMeans(WhySkyMask.Cells cells, int top) {
+        boolean rows = top == WhySkyMask.TOP_ROW0 || top == WhySkyMask.TOP_ROWN;
+        float[] values = new float[(rows ? cells.nx : cells.ny) * 4];
+        for (int k = 0; k < values.length / 4; k++) {
+            int x = rows ? k : top == WhySkyMask.TOP_COLN ? cells.nx - 1 : 0;
+            int y = rows ? (top == WhySkyMask.TOP_ROWN ? cells.ny - 1 : 0) : k;
+            int at = y * cells.nx + x;
+            values[4 * k] = cells.r[at];values[4 * k + 1] = cells.g[at];values[4 * k + 2] = cells.b[at];values[4 * k + 3] = cells.l[at];
+        }
+        return values;
+    }
+
+    @Test public void aTopWithoutPossibleSeedsCannotProduceASkyMask() {
+        Random random = new Random(448);
+        int skipped = 0;
+        for (int fixture = 0; fixture < 300; fixture++) {
+            WhySkyMask.Cells c = new WhySkyMask.Cells(2 + random.nextInt(16), 2 + random.nextInt(12), 16, 1);
+            float ev = 6f + random.nextFloat() * 12f;
+            for (int i = 0; i < c.nx * c.ny; i++) {
+                float level = (float) Math.pow(2, -12 + 14 * random.nextFloat());
+                c.r[i] = level * (0.6f + random.nextFloat());c.g[i] = level;c.b[i] = level * (0.6f + random.nextFloat());
+                c.l[i] = (float) (Math.log(level) / Math.log(2));c.sd[i] = random.nextFloat();c.tex[i] = random.nextFloat() * .2f;
+                c.max[i] = 2f * Math.max(c.r[i], Math.max(c.g[i], c.b[i]));
+            }
+            for (int top = 0; top < 4; top++) {
+                if (!WhySkyMask.topCanSeed(topMeans(c, top), ev)) {
+                    assertNull("fixture " + fixture + " top " + top, WhySkyMask.decide(c, new WhySkyMask.Scene(ev, top, 8f)).mask);
+                    skipped++;
+                }
+            }
+        }
+        assertTrue("the test exercised early exits", skipped > 100);
+    }
+
+    @Test public void uncertainSeedBoundsKeepTheFullDecision() {
+        assertTrue(WhySkyMask.topCanSeed(null, 12f));
+        assertTrue(WhySkyMask.topCanSeed(new float[]{1, 1, 1}, 12f));
+        assertTrue(WhySkyMask.topCanSeed(new float[]{1, 1, 1, Float.NaN}, 12f));
+        assertTrue(WhySkyMask.topCanSeed(new float[]{1, 1, 1, 0}, Float.NaN));
+        assertTrue("the exact seed threshold is not discarded", WhySkyMask.topCanSeed(new float[]{1, 1, 1, 0}, 11.25f));
+        WhySkyMask.Cells c = WhySkyMask.Cells.of(skyOverGround(44).px, W, H, 3, .98f);
+        float ev = WhySkyMask.evOffset(100, 1 / 2000., 1.8f, 1f);
+        assertTrue(WhySkyMask.topCanSeed(topMeans(c, WhySkyMask.TOP_ROW0), ev));
+        assertNotNull(WhySkyMask.decide(c, new WhySkyMask.Scene(ev, WhySkyMask.TOP_ROW0, 1.2f)).mask);
+    }
+
     /** A whyLow of W x H, RGB. */
     static final class Img {
         final float[] px = new float[W * H * 3];

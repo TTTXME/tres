@@ -201,7 +201,7 @@ public class SettingsModelCheck {
         for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(ark,"pref_scam_hybrid_ark_dn_"+k);
         active(ark,"pref_scam_hybrid_denoise_engine");
         ark.put("pref_scam_hybrid_denoise_engine","scam");
-        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})inactive(ark,"pref_scam_hybrid_ark_dn_"+k);
+        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(ark,"pref_scam_hybrid_ark_dn_"+k);
         ark.put("pref_scam_hybrid_denoise_engine","ark");active(ark,"pref_scam_hybrid_ark_dn_factor");
         Map<String,Object> out=new HashMap<>(); // output "sensor" (default)
         inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_output");

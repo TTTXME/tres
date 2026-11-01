@@ -212,6 +212,7 @@ public class SensorConfigPreferenceGenerator {
         if (ModuleRegistry.slots().contains(slot)) ModuleSensorSettings.ensure(slot);
         PreferenceCategory category = findOrCreateCategory(context, group, slot, getCameraLensMap().get(slot));
         for (TunableFieldInfo info : scanFields()) addPreference(context, category, slot, info);
+        UnspektraAePreferences.addRows(context, category, slot, onChange);
         addTunableKeySection(context, category, slot, onChange);
         addResetRow(context, category, slot, onReset);
         return category;

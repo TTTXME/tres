@@ -54,6 +54,14 @@ public class PassOutputOrderTest {
 
     @Test
     public void hdrDenoiseOutputMadeBeforeItsSamplers() throws IOException {
-        outputBeforeSamplers("ScamHdrDenoise.java", "void runNlm()", "chromadn/apply", "pipeline");
+        final String run = WhyCombineUniformParityTest.method(read("ArkResolveDenoise.java"), "static GLTexture process(");
+        final int out = run.indexOf("final GLTexture out = pipeline.getMain();");
+        final int program = run.indexOf("glProg.useAssetProgram(\"scamdn/ark_resolve\"");
+        final int bind = run.indexOf("glProg.setTexture(\"InputBuffer\"", program);
+        final int draw = run.indexOf("drawRegion(glProg, target, y, count)", bind);
+        assertTrue(out >= 0 && program > out && bind > program && draw > bind);
+        assertTrue(run.contains("final GLTexture target = pass == 0 ? p0 : pass == 1 ? p1 : out;"));
+        assertFalse(run.substring(bind, draw).contains("getMain("));
+        assertFalse(run.substring(bind, draw).contains("new GLTexture("));
     }
 }

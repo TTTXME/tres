@@ -119,6 +119,10 @@ public final class WhyCombine extends Node {
         PostPipeline pipeline = (PostPipeline) basePipeline;
         WhyTone.State st = pipeline.why;
         if (st == null || st.ae == null || st.fused == null) throw new IllegalStateException("WHY tone: no fusion (WhyStats/WhyFusion did not run)");
+        // Capture the remaining inputs before combine closes them; inactive outside an explicit diagnostic shot.
+        ScamDiagnostics.gpu("WhyFused", st.fused);
+        ScamDiagnostics.gpu("WhyLumaS", st.lumaS);
+        ScamDiagnostics.gpu("WhyDetailRef", st.detailRef);
         long started = System.currentTimeMillis();
         GLTexture input = previousNode.WorkingTexture;
         WhyAe.Result r = st.ae;
@@ -366,13 +370,13 @@ public final class WhyCombine extends Node {
             if (hlB != null) glProg.setVar("hlSoftU", hlSoft);
             glProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
             glProg.setVar("gammaInvU", 1f / WhyTone.gamma());
-            glProg.setVar("macroU", WhyTone.value("macro_contrast", 1.1f));
+            glProg.setVar("macroU", WhyTone.value("macro_contrast", 1f));
             glProg.setVar("vibU", WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f));
             glProg.setVar("vibHlU", WhyTone.vibranceHl());
             glProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones
             if (WhyTone.yellowHue() > 0f) glProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
             if (WhyTone.hlNeutral() > 0f) glProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
-            glProg.setVar("chromaDnU", WhyFusion.whyDenoise(basePipeline.mParameters) ? PreferenceKeys.hybridValue("why_chroma_denoise", 0f) : 0f);
+            glProg.setVar("chromaDnU", 0f);
             glProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             glProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));
             glProg.setVar("detailGainU", detail);

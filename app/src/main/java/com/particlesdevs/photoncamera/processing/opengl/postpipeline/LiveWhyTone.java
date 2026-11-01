@@ -535,14 +535,14 @@ public final class LiveWhyTone {
         refreshColourOn();
         lw = WhyTone.layerWeights();
         center = WhyTone.fusionCenter();
-        smooth = WhyTone.value("blend_smoothness", 0.45f);
+        smooth = WhyTone.value("blend_smoothness", 1f);
         gammaInv = 1f / WhyTone.gamma();
         toe = WhyTone.value("aces_toe", 0.05f);
         radius = WhyFusion.GF_RADIUS > 1 ? WhyFusion.GF_RADIUS >> 1 : 1;
         eps = WhyFusion.GF_EPS;
         mono = WhyTone.fusionMono();
         inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
-        macro = WhyTone.value("macro_contrast", 1.1f);
+        macro = WhyTone.value("macro_contrast", 1f);
         vib = new float[]{WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f)};
         hlWhite = Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f)));
         filmToe = WhyTone.value("film_toe", 0f);

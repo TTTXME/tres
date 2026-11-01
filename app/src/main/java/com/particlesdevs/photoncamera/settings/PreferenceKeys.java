@@ -460,10 +460,6 @@ public class PreferenceKeys {
     public static boolean isScamHdrRoute() {
         return ScamHybridKeys.ROUTE_SCAM_HDR.equals(mergeRoute());
     }
-    public static boolean isScamDespeckleEnabled() {
-        if (isHybridShot()) return hybridSwitch("despeckle", true);
-        return preferenceKeys.settingsManager.getBoolean("default_scope", "pref_scamhdr_post_despeckle", true);
-    }
     public static boolean isScamDiagnosticsEnabled() {
         if (isHybridShot()) return hybridSwitch("diagnostics", false);
         return preferenceKeys.settingsManager.getBoolean("default_scope", "pref_scamhdr_diagnostics", false);
@@ -1060,6 +1056,7 @@ public class PreferenceKeys {
         // OPPO replays: the comb along the wire mostly gone, the purple fringe 887 -> 920 px, the lamp ring's dots gone.
         // scam_dev.txt "hybrid_us_edges 0" = before (the worker's defaults keep replays bit-identical).
         if (hybridValue("us_edges", 1f) > 0f) out.append("bentoBlendUsBox 1\nbentoBlendFieldBilinear 1\nbentoBlendPixelMark 1\n");
+        if (hybridValue("us_cache", 1f) > 0f) out.append("bentoUsCache 1\n");
         // P392: a long frame whose moved share is above «Длинные кадры: отказ при движении» (up to 60 %) is kept and only its moved
         // blocks are left out (dilated, feathered) instead of the whole frame (the owner's burst: all three long frames dropped for a
         // moving hand, 20 % of the blocks). scam_dev.txt "hybrid_long_scope 0" = the whole frame dropped, as before.
@@ -1348,8 +1345,6 @@ public class PreferenceKeys {
     private static final Map<String, String[]> HYBRID_DEV_LISTS = new HashMap<>();
     static {
         HYBRID_DEV_LISTS.put("dn_strength_map", new String[]{"auto", "frames", "uniform"});
-        // P443: «Движок шумодава»: "hybrid_denoise_engine 0" = the reference app's resolve, 1 = SCAM 9.6 (ScamDenoise)
-        HYBRID_DEV_LISTS.put("denoise_engine", new String[]{"ark", "scam"});
     }
     /** SCAM Hybrid text value pref_scam_hybrid_&lt;key&gt; (a ListPreference entry value), {@code fallback} when unset. */
     public static String hybridString(String key, String fallback) {
@@ -1523,7 +1518,7 @@ public class PreferenceKeys {
     }
 
     public static boolean isLiveViewfinderRawEnabled() {
-        return preferenceKeys.settingsManager.getBoolean(
+        return DeviceDefaults.rawViewfinderSoc() && preferenceKeys.settingsManager.getBoolean(
                 "default_scope", Key.KEY_LIVE_VIEWFINDER_RAW, false);
     }
 

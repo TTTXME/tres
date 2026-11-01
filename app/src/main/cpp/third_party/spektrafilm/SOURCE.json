@@ -1,0 +1,339 @@
+{
+  "upstream": "https://github.com/chaert-s/spektrafilm-ofx",
+  "commit": "86476afc5b077de77e2278e3658d1ba9309892a1",
+  "original": {
+    "commit": "86476afc5b077de77e2278e3658d1ba9309892a1",
+    "files": [
+      {
+        "path": "LICENSE.txt",
+        "bytes": 35147,
+        "sha256": "a79d73c6bc912a54e92759bd1b117f587aec86070dd22c8633229fee6e8a48e1"
+      },
+      {
+        "path": "shaders/vulkan/SpektraCopy.comp",
+        "bytes": 514,
+        "sha256": "493d93f69a29e26c4738eba27a20ceefbb539c2616ac7e03ce2503abd5438184"
+      },
+      {
+        "path": "shaders/vulkan/SpektraCurveDevelop.comp",
+        "bytes": 8229,
+        "sha256": "f2e27441f0b0f56caade66cd591452e20fffd3bbb6ce45549ac2d4941ac6de1a"
+      },
+      {
+        "path": "shaders/vulkan/SpektraDiffusion.comp",
+        "bytes": 19842,
+        "sha256": "5c84a6c694e4e5abb4493bfabbcd2f4c376b3b2e0d9f34c98e9ff267034b67ff"
+      },
+      {
+        "path": "shaders/vulkan/SpektraDir.comp",
+        "bytes": 11128,
+        "sha256": "9e04e256c542a951f72b071631ea9cbd80a2cea95dc746774f363f6808a49ef3"
+      },
+      {
+        "path": "shaders/vulkan/SpektraFilmExposure.comp",
+        "bytes": 9028,
+        "sha256": "4bd37f898172cbb84fee518c3506916fc3922174fea6cfd1116f1068f59d3ebe"
+      },
+      {
+        "path": "shaders/vulkan/SpektraFormatConvert.comp",
+        "bytes": 2592,
+        "sha256": "26bea0d64b88e01d92648678e9378ef2d39ca8b30afd4aac6975120e992a2da9"
+      },
+      {
+        "path": "shaders/vulkan/SpektraGrain.comp",
+        "bytes": 42951,
+        "sha256": "1511c548ef54198d7ab4d62db0a31f7e89abdaf9b2e907b4803074053f96bf70"
+      },
+      {
+        "path": "shaders/vulkan/SpektraHalation.comp",
+        "bytes": 10638,
+        "sha256": "f529f6b1fa5c1a57daec29eb7f2b60aaad52512b7acc297c5196845268ba98fb"
+      },
+      {
+        "path": "shaders/vulkan/SpektraPrintScan.comp",
+        "bytes": 57625,
+        "sha256": "ff13836d3428641a44ee76852e9c8643ab9bcafba45468c4f4f2cf9dd5da3fbb"
+      },
+      {
+        "path": "shaders/vulkan/SpektraScannerPost.comp",
+        "bytes": 20769,
+        "sha256": "0a2662d15594205aa6a9ab6817ad2b624f64b3d6febe615005d3a78414b8f846"
+      },
+      {
+        "path": "src/SpektraParameters.h",
+        "bytes": 9923,
+        "sha256": "70db7239d041749a92b779a9a5a0fc8fe84755743b65cbf755a7b6449fab79ac"
+      },
+      {
+        "path": "src/SpektraProfileCurves.h",
+        "bytes": 3033,
+        "sha256": "8e237fb1f5595717b8edfd176162e003094f61bbbf6c0d144e4b00f624bfece7"
+      },
+      {
+        "path": "src/SpektraRenderer.h",
+        "bytes": 3710,
+        "sha256": "728e468278b169f8cd314cb850b538e2905222b7775eac03b02c4ba5ab9e6325"
+      },
+      {
+        "path": "src/SpektraVulkanRenderer.cpp",
+        "bytes": 337833,
+        "sha256": "e73fd3888993e58378902f1c030425816865b94fc9272a94f018db46848d0d33"
+      },
+      {
+        "path": "tools/generate_profile_curves.py",
+        "bytes": 54085,
+        "sha256": "41b773792c93ba808f0617badd426288c8073a73a384eea2fae6145d9f937833"
+      },
+      {
+        "path": "tools/run_final_core_profile.py",
+        "bytes": 7378,
+        "sha256": "9725834bc6a1bfe9850a7ff4c8aa350d2cb606675100bccd815c6e4152dcfc94"
+      },
+      {
+        "path": "tools/test_run_final_core_profile.py",
+        "bytes": 1816,
+        "sha256": "82e619f630f380b62d58543db46818890e715ab59467497e57f88bf7a5abb850"
+      }
+    ]
+  },
+  "profiles": {
+    "commit": "86476afc5b077de77e2278e3658d1ba9309892a1",
+    "files": [
+      {
+        "path": "Resources/data/filters/dichroics/durst_digital_light/filter_c.csv",
+        "bytes": 6447,
+        "sha256": "d462d257d1345248f6d134cb00254a713b54cc9125d822f191942c577f15f070"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/durst_digital_light/filter_m.csv",
+        "bytes": 6768,
+        "sha256": "891f2fcad2df32a1d7b3ddc222cae1c61f005126ef6656d01463f3022b9c2b66"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/durst_digital_light/filter_y.csv",
+        "bytes": 4004,
+        "sha256": "f8631b4868630db366d1b7d52473d371419d250101d8ffab94878cc8862c593f"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/edmund_optics/filter_c.csv",
+        "bytes": 6663,
+        "sha256": "f72dc5b7ae571d8f5539756ac7951036639ed77f135fdf21e8a18d48f41b2ad2"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/edmund_optics/filter_m.csv",
+        "bytes": 6787,
+        "sha256": "40c42c1feed00cf0cb76781f83ab5de0e8c0d90cca9ba7670bb8dbda05cc5612"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/edmund_optics/filter_y.csv",
+        "bytes": 5318,
+        "sha256": "21607355113717a854f8e61e78dd9784a7a1e91bfbd79dd1704293b9f58d9da9"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/edmund_optics/info.txt",
+        "bytes": 116,
+        "sha256": "b77f383a39ebd1f034ef6cc89e1e87ecbeaf499c9a8b3bb71f2b78b3ccea846d"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/thorlabs/filter_c.csv",
+        "bytes": 5604,
+        "sha256": "114a7afdc772b7ab2561c9ca54872dcac04c71bd8c20295774f45325c44b200b"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/thorlabs/filter_m.csv",
+        "bytes": 5692,
+        "sha256": "6bbb5491980138d0a3b3e691da552497363e483ca10a87b5b03a2684734d2f24"
+      },
+      {
+        "path": "Resources/data/filters/dichroics/thorlabs/filter_y.csv",
+        "bytes": 5688,
+        "sha256": "ba50c8d55b94a8ea98b406a34f45783dd5719d6dcb220c0c3528fdb825a60ad0"
+      },
+      {
+        "path": "Resources/data/filters/heat_absorbing/schott/KG1.csv",
+        "bytes": 5784,
+        "sha256": "211761b6203796b091c09a597bea110bb4c3687551c9ff03fe2221478bbe9555"
+      },
+      {
+        "path": "Resources/data/filters/heat_absorbing/schott/KG3.csv",
+        "bytes": 5609,
+        "sha256": "7654aa57fa8e42ae280e8d679ae9ebf8cef48ed5cbe6c2ab43eba1c6608f3d1f"
+      },
+      {
+        "path": "Resources/data/filters/heat_absorbing/schott/KG5.csv",
+        "bytes": 5351,
+        "sha256": "254ab420a9f296adca669f6130b1b7512d402c945c25542b420d3ecf32fc8665"
+      },
+      {
+        "path": "Resources/data/filters/heat_absorbing/schott/info.txt",
+        "bytes": 88,
+        "sha256": "cd9ae1fa3694cf0d6c422cfafd06e80250520023479294d628f4d678a1ba58db"
+      },
+      {
+        "path": "Resources/data/filters/lens_transmission/canon/canon_24_f28_is.csv",
+        "bytes": 3969,
+        "sha256": "6edc1be37bc22ef4e36b98981c09c45ff0e9b3a3ce80e00c62906d8ec941df3a"
+      },
+      {
+        "path": "Resources/data/filters/lens_transmission/canon/canon_24_f28_is_info.txt",
+        "bytes": 90,
+        "sha256": "3f776692ad77f102afa228ad87498050e09681cc296ab83f717215e21f6ed04e"
+      },
+      {
+        "path": "Resources/data/filters/neutral_print_filters.json",
+        "bytes": 22185,
+        "sha256": "0b795daf7ddc05e430ff8e828e75562e63c5fa187edd7f952fc67f6463e33ac0"
+      },
+      {
+        "path": "Resources/data/luts/spectral_upsampling/hanatos_irradiance_xy_coeffs_250304.lut",
+        "bytes": 4194741,
+        "sha256": "6bfb031761bd5a68975030d61426351a58bd15a3254ff42f384e09d7d3d1e40f"
+      },
+      {
+        "path": "Resources/data/luts/spectral_upsampling/irradiance_xy_tc.npy",
+        "bytes": 5972096,
+        "sha256": "52f90c724811f5fab80769f8548bf24d08a521eb09e65ab6e016893258d2a783"
+      },
+      {
+        "path": "Resources/data/profiles/fujifilm_c200.json",
+        "bytes": 204962,
+        "sha256": "f9bf3fe298db189892fadbfbd18895d376922ba3b458dd6b6fe39406b2f89ed7"
+      },
+      {
+        "path": "Resources/data/profiles/fujifilm_crystal_archive_typeii.json",
+        "bytes": 204145,
+        "sha256": "2e54f218aacc5d74af5907898072c8a481e5227daedbff12d3bd38852e1b2eb1"
+      },
+      {
+        "path": "Resources/data/profiles/fujifilm_pro_400h.json",
+        "bytes": 204904,
+        "sha256": "6005c7fbc4e5e25b570b97d3fc366217ccabfc768e007f3c050d2fcdf67e36b9"
+      },
+      {
+        "path": "Resources/data/profiles/fujifilm_provia_100f.json",
+        "bytes": 207749,
+        "sha256": "0ccb0f7e3c19772cc5ec41983317d0b3256cb3c0dbad85832af110be6b5532d6"
+      },
+      {
+        "path": "Resources/data/profiles/fujifilm_velvia_100.json",
+        "bytes": 206221,
+        "sha256": "44830c7ee8590ef0c46049293f33b2844a303c9f2035ae319c7a8cabda7022f9"
+      },
+      {
+        "path": "Resources/data/profiles/fujifilm_xtra_400.json",
+        "bytes": 205036,
+        "sha256": "bf46032bce519368e91f07c2a00011fc39c602c2809b17a29b907262cc6a0f93"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_2383.json",
+        "bytes": 204243,
+        "sha256": "bd0137ce7006229a3f70f0de425d9a2a14526e9742e6e0b2a951591fd513703a"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_2393.json",
+        "bytes": 203920,
+        "sha256": "1ba13d512b05c085452ee0378742051f772883867683d99dfbcf67a5822dd8d0"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_ektachrome_100.json",
+        "bytes": 207242,
+        "sha256": "44a51a18a268fae8eda3b47d322d5b42adf10f60ff1f122a83ec2477ec4aa309"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_ektacolor_edge.json",
+        "bytes": 204080,
+        "sha256": "39b25e964c9157511658e3c6f5670fd51f444f96f8c2b53cfa59e3f580e778b0"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_ektar_100.json",
+        "bytes": 205071,
+        "sha256": "0c41a8cc8b3b1a8703caf24a6e9c8c7ae85ad4b79359672535f8575598d97e7a"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_endura_premier.json",
+        "bytes": 204001,
+        "sha256": "c4aa8d1a9007b58bbd14820561a54b7ca363761e822ea5089bc5a7b7f94541c8"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_gold_200.json",
+        "bytes": 205316,
+        "sha256": "0ec751ea22986c66a7a329ec382b1a4882d232da34d331ae4050b4b61059b169"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_kodachrome_64.json",
+        "bytes": 206866,
+        "sha256": "05c2bf3c0a55ced171b3181fa407938449c4e273928de98e701314db6c7bd037"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_portra_160.json",
+        "bytes": 204890,
+        "sha256": "59e22542ef0f03382ff3432c6c6eafec9db4cc458e77effa7e67e7321fa11904"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_portra_400.json",
+        "bytes": 204725,
+        "sha256": "57b6b7f10e4412c0283dcbbc54076f794525fa90ad13ce7a9f47ca22fa6ebd81"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_portra_800.json",
+        "bytes": 204930,
+        "sha256": "4eef7bf51e9d2eb7a833fcacf94045fda13f52ae7ccccb97987ef9647e7bb9cc"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_portra_800_push1.json",
+        "bytes": 204865,
+        "sha256": "664afe43e169c773c1491995d06d43c109b7d09f89f36008af1e13936be35e27"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_portra_800_push2.json",
+        "bytes": 204882,
+        "sha256": "20f8c4d61195a05fa72a048a49eafec96853ccd6990e72cf30ae74996ae0f77c"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_portra_endura.json",
+        "bytes": 203891,
+        "sha256": "dc141dc67f0b218bc3fac082fe2f61aba12b38724aa520a2582aca2092ca9c3c"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_supra_endura.json",
+        "bytes": 203890,
+        "sha256": "de1f66fd9291db0492d54b5573ec2e460c2bdb90d8aecd0f44eb8336de48b395"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_ultra_endura.json",
+        "bytes": 204069,
+        "sha256": "3d6e4f35a3fb7e9f71134de2986f1fca2d58e132081ae96901189f0fa25a75e2"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_ultramax_400.json",
+        "bytes": 204986,
+        "sha256": "1a96f975709639c53de6ae8e9da6f8728072e06348ed53443682f2de7791b5db"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_verita_200d.json",
+        "bytes": 205151,
+        "sha256": "0d8852126dd2c0cb9444af8c970f4b5585601237d6c08546f2d1d70a663c73c3"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_vision3_200t.json",
+        "bytes": 205148,
+        "sha256": "22e3b8db687a6f806cf2c9a7917d5e3a5cce00d150e7de7f92cfa6c1e04545fe"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_vision3_250d.json",
+        "bytes": 205699,
+        "sha256": "b6e5f62ce5a1dfa69394631ea0df0734a345406c6f60114ff0590d9f2da60774"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_vision3_500t.json",
+        "bytes": 205480,
+        "sha256": "99c1d740affbb41552bebaeb84a8dd535d511102169c8c4eadbf5fb98fd395c1"
+      },
+      {
+        "path": "Resources/data/profiles/kodak_vision3_50d.json",
+        "bytes": 205203,
+        "sha256": "280e40500a912706824f1244a225333c8b81556ab082bb4fe7ced22af2a4a4a8"
+      }
+    ]
+  }
+}

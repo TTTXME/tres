@@ -457,6 +457,17 @@ public final class WhySkyMask {
         }
     }
 
+    static boolean topCanSeed(float[] mean, float evOffset) {
+        if (mean == null || mean.length == 0 || mean.length % 4 != 0 || !Float.isFinite(evOffset)) return true;
+        for (int i = 0; i < mean.length; i += 4) {
+            if (!Float.isFinite(mean[i]) || !Float.isFinite(mean[i + 1]) || !Float.isFinite(mean[i + 2]) || !Float.isFinite(mean[i + 3])) return true;
+            float upper = smooth(EV_LO, EV_HI, mean[i + 3] + evOffset) * colourGate(mean[i], mean[i + 1], mean[i + 2]);
+            // Texture, spread and the subject-reference gates only reduce this bound; leave a float-rounding margin.
+            if (!(upper < SEED - 0.00001f)) return true;
+        }
+        return false;
+    }
+
     static Decision decide(Cells c, Scene s) {
         if (!Float.isFinite(s.evOffset)) return new Decision(null, "none (exposure unknown)");
         final int n = c.nx * c.ny;

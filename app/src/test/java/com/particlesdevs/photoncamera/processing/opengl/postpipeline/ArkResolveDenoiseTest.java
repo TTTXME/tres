@@ -38,10 +38,10 @@ public class ArkResolveDenoiseTest {
         assertEquals(4f, ArkResolveDenoise.vignetteBoost(1f, 1f), 0f);
     }
 
-    @Test public void framesWithoutAMapAreTheMedianElseAShareOfTheNormals() {
+    @Test public void framesWithoutAMapUseTheFullFrameCount() {
         assertEquals(12.84f, ArkResolveDenoise.defaultFrames(12.84f, 20), 1e-6f);
         assertEquals(20f, ArkResolveDenoise.defaultFrames(43f, 20), 0f);                        // within the normals
-        assertEquals(WhyNoiseClamp.EXPECTED_SHARE * 20, ArkResolveDenoise.defaultFrames(Float.NaN, 20), 1e-6f);
+        assertEquals(20f, ArkResolveDenoise.defaultFrames(Float.NaN, 20), 1e-6f);
         assertEquals(1f, ArkResolveDenoise.defaultFrames(Float.NaN, 1), 0f);
         assertEquals(1f, ArkResolveDenoise.defaultFrames(0.2f, 0), 0f);
     }

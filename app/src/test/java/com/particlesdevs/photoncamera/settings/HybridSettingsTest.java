@@ -167,7 +167,7 @@ public class HybridSettingsTest {
         assertTrue(PreferenceKeys.isHybridShot());assertTrue(PreferenceKeys.isScamHybridShot());
         assertEquals(1f,PreferenceKeys.routeInternalValue("noise_photon",1f),0f);
         assertEquals(20,PreferenceKeys.getScamZslFrames());assertEquals(20,PreferenceKeys.getHybridZslFrames());
-        assertTrue(PreferenceKeys.isScamDespeckleEnabled());
+        assertTrue(PreferenceKeys.isHybridDenoiseEnabled());
         assertFalse(PreferenceKeys.useStockBracketPlanner());
         assertEquals("auto",PreferenceKeys.getScamCreSource());
         manager.set("default_scope","pref_scam_hybrid_noise_photon","2,5");
@@ -184,7 +184,7 @@ public class HybridSettingsTest {
         assertFalse(PreferenceKeys.isHybridShot());
         assertEquals(3f,PreferenceKeys.routeInternalValue("noise_photon",1f),0f);
         assertEquals(8,PreferenceKeys.getScamZslFrames());
-        assertFalse(PreferenceKeys.isScamDespeckleEnabled());
+        assertTrue(PreferenceKeys.isHybridDenoiseEnabled());
         assertEquals("bundled",PreferenceKeys.getScamCreSource());
         assertEquals("pref_scamold_ae_mid",PreferenceKeys.profileKey("pref_scamold_ae_mid"));
         assertEquals(12f,PreferenceKeys.routeInternalValue("hybrid_bento_factor",8f),0f);
@@ -699,6 +699,24 @@ public class HybridSettingsTest {
         }finally{
             java.nio.file.Files.deleteIfExists(file.toPath());
             stamp.setLong(null,-1);
+        }
+    }
+
+    @Test public void ultrashortDemosaicCacheCanBeDisabledWithoutChangingEdges() {
+        assertTrue(PreferenceKeys.hybridTuningText().contains("bentoUsCache 1\n"));
+        final Object scope = PreferenceValue.scope();
+        java.util.HashMap<String, Float> dev = new java.util.HashMap<>();
+        dev.put("hybrid_us_cache", 0f);
+        try {
+            PreferenceKeys.labDevOverlay(dev);
+            String tuning = PreferenceKeys.hybridTuningText();
+            assertFalse(tuning, tuning.contains("bentoUsCache 1\n"));
+            assertTrue(tuning, tuning.contains("bentoBlendUsBox 1\n"));
+            assertTrue(tuning, tuning.contains("bentoBlendFieldBilinear 1\n"));
+            assertTrue(tuning, tuning.contains("bentoBlendPixelMark 1\n"));
+        } finally {
+            PreferenceKeys.labDevOverlay(null);
+            PreferenceValue.adoptScope(scope);
         }
     }
 

@@ -14,3 +14,12 @@ Used by SCAMERA (2026-10-28, P380), as numbers in its own Java code (processing/
 The colour model, the DIR couplers' amount and the camera diffusion filters are ports of spektrafilm by Andrea Volpato
 (https://github.com/andreavolpato/spektrafilm, GPL-3.0 code: src/spektrafilm/model/couplers.py and diffusion.py at commit
 3bb2c2d); its film and paper profiles are CC BY-SA 4.0 (LICENSE-spektrafilm.txt and CHANGELOG.txt in this folder).
+
+The spectral photo renderer also includes spektrafilm-ofx by Aedan Diez,
+https://github.com/chaert-s/spektrafilm-ofx at commit
+86476afc5b077de77e2278e3658d1ba9309892a1 (GPL-3.0).
+SCAMERA adapts its JNI interface, scratch pools, device/memory limits and tiled
+scheduling; the source, license and profile provenance are distributed in
+app/src/main/cpp/third_party/spektrafilm. Unspektrawesome 1.2.7 by
+JohnTheFarm3r is the Android comparison reference; its native library is not
+included. Existing monochrome profiles use SCAMERA's separate model.

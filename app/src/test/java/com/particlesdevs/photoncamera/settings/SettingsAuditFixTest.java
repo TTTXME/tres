@@ -54,6 +54,18 @@ public class SettingsAuditFixTest {
         PreferenceScreen screen=pm.inflateFromResource(context,R.xml.preferences,null);pm.setPreferences(screen);
         return screen;
     }
+
+    @Test public void storedRawViewfinderCannotEnableItOnEightGenThreeOrOlder() {
+        prefs.edit().putBoolean("pref_live_viewfinder_raw_key",true).commit();
+        for(String soc:new String[]{"SM8650","SM8550","MSM8998","unknown"}){
+            org.robolectric.shadows.ShadowBuild.setSystemOnChipModel(soc);
+            assertFalse(soc,PreferenceKeys.isLiveViewfinderRawEnabled());
+        }
+        org.robolectric.shadows.ShadowBuild.setSystemOnChipModel("SM8750");
+        assertTrue(PreferenceKeys.isLiveViewfinderRawEnabled());
+        prefs.edit().putBoolean("pref_live_viewfinder_raw_key",false).commit();
+        assertFalse(PreferenceKeys.isLiveViewfinderRawEnabled());
+    }
     /** Two module profiles and the baseline, as ModuleProfiles stores them. */
     private SharedPreferences[] profiles(){
         context.getSharedPreferences("module_profiles_meta",Context.MODE_PRIVATE).edit().clear()
@@ -302,7 +314,11 @@ public class SettingsAuditFixTest {
         assertNull("the device is on the version row",screen.findPreference("pref_this_device_key"));
         // P286: the film data's credit (CC BY-SA 4.0 asks for it in the app)
         assertNotNull(about.findPreference("film_data_credit"));
-        assertEquals("app, version, film data credit, messages",4,about.getPreferenceCount());
+        androidx.preference.Preference aeCredit = about.findPreference("unspektra_ae_credit");
+        assertNotNull(aeCredit);
+        assertTrue(aeCredit.getSummary().toString().contains("JohnTheFarm3r"));
+        assertEquals("https://github.com/JohnTheFarm3r/Unspektrawesome-Releases", aeCredit.getIntent().getDataString());
+        assertEquals("app, version, film data credit, AE credit, messages",5,about.getPreferenceCount());
     }
 
     /** P129: SCAM HDR is gone: its settings (and the L frame / stock planner keys) are obsolete everywhere, the route row too. */

@@ -53,8 +53,8 @@ public final class DeviceDefaults {
         final boolean note11Pro = redmiNote11Pro(), pixel7 = pixel7(), flagship = flagshipSoc();
         if (!oppo && !note11Pro && !pixel7 && !flagship) return null;
         Map<String, Object> out = new LinkedHashMap<>();
-        // v6 (P301): the RAW viewfinder with the photo's tone on a flagship SoC
-        if (since < 6 && flagship) out.put("pref_live_viewfinder_raw_key", Boolean.TRUE);
+        // The owner excludes the 8 Gen 3 tier itself from the optional RAW viewfinder (2026-11-01).
+        if (since < 6 && rawViewfinderSoc()) out.put("pref_live_viewfinder_raw_key", Boolean.TRUE);
         // v4: Redmi Note 11 Pro (owner's log 2026-10-10: device viva, model 2201116TG)
         if (since < 4 && note11Pro) {
             out.put("pref_scam_hybrid_zsl_frames", "12");
@@ -155,7 +155,7 @@ public final class DeviceDefaults {
     /** Pixel 7: Google, device panther (owner's log 2026-10-10). */
     /**
      * P301: Snapdragon 8 Gen 3 (SM8650), 8 Elite (SM8750), 8 Elite Gen 5 (SM8850) and Dimensity 9300 (MT6989) / 9400 / 9500
-     * (MT699x) - the GPUs that run the photo's tone on every viewfinder frame. Build.SOC_MODEL (API 31+); older: none.
+     * (MT699x): the existing flagship tier, also the floor for persistent DCIM logs. Build.SOC_MODEL (API 31+); older: none.
      */
     public static boolean flagshipSoc() {
         return flagshipSoc(android.os.Build.VERSION.SDK_INT >= 31 ? Build.SOC_MODEL : null);
@@ -165,6 +165,16 @@ public final class DeviceDefaults {
         if (soc == null) return false;
         final String s = soc.toUpperCase(java.util.Locale.ROOT);
         return s.startsWith("SM8650") || s.startsWith("SM8750") || s.startsWith("SM8850") || s.startsWith("MT6989") || s.startsWith("MT699");
+    }
+
+    public static boolean rawViewfinderSoc() {
+        return rawViewfinderSoc(android.os.Build.VERSION.SDK_INT >= 31 ? Build.SOC_MODEL : null);
+    }
+
+    static boolean rawViewfinderSoc(String soc) {
+        if (soc == null) return false;
+        final String s = soc.toUpperCase(java.util.Locale.ROOT);
+        return s.startsWith("SM8750") || s.startsWith("SM8850") || s.startsWith("MT699");
     }
 
     public static boolean pixel7() {

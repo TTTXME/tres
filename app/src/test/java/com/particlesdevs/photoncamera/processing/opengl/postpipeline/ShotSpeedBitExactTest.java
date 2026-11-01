@@ -61,13 +61,13 @@ public class ShotSpeedBitExactTest {
             for (int levels : new int[]{0, 3, 16, 256}) {
                 float[] b = blocks(r, count, levels);
                 assertSameBits("count " + count + " levels " + levels,
-                        ScamDenoiseTables.reduceLegacy(b, count, 0.8f), ScamDenoiseTables.reduce(b, count, 0.8f));
+                        NoiseMath.reduceLegacy(b, count, 0.8f), NoiseMath.reduce(b, count, 0.8f));
             }
         }
         // Fewer than 16 valid blocks: null in both.
         float[] few = blocks(new Random(1), 10, 0);
-        assertNull(ScamDenoiseTables.reduce(few, 10, 0.8f));
-        assertNull(ScamDenoiseTables.reduceLegacy(few, 10, 0.8f));
+        assertNull(NoiseMath.reduce(few, 10, 0.8f));
+        assertNull(NoiseMath.reduceLegacy(few, 10, 0.8f));
     }
 
     /** P364: the selections give the sorted array's elements (medians, the n/4 noise element, the m lowest keys) bit for bit. */
@@ -82,20 +82,20 @@ public class ShotSpeedBitExactTest {
                             : r.nextInt(4) == 0 ? special[r.nextInt(special.length)] : r.nextInt(3) - 1f;
                 }
                 float[] keep = a.clone();
-                assertEquals("median n " + n + " kind " + kind, Float.floatToIntBits(ScamDenoiseTables.median(a, n)),
-                        Float.floatToIntBits(ScamDenoiseTables.medianSelect(a, n)));
+                assertEquals("median n " + n + " kind " + kind, Float.floatToIntBits(NoiseMath.median(a, n)),
+                        Float.floatToIntBits(NoiseMath.medianSelect(a, n)));
                 float[] sorted = a.clone();
                 java.util.Arrays.sort(sorted);
                 for (int k : new int[]{0, n / 4, n / 2, n - 1})
                     assertEquals("select n " + n + " k " + k, Float.floatToIntBits(sorted[k]),
-                            Float.floatToIntBits(ScamDenoiseTables.selectFloat(a, n, k)));
+                            Float.floatToIntBits(NoiseMath.selectFloat(a, n, k)));
                 assertSameBits("input unchanged", keep, a);
                 long[] keys = new long[n];
-                for (int i = 0; i < n; i++) keys[i] = ((long) ScamDenoiseTables.sortableBits(a[i]) << 32) | i;
+                for (int i = 0; i < n; i++) keys[i] = ((long) NoiseMath.sortableBits(a[i]) << 32) | i;
                 long[] all = keys.clone();
                 java.util.Arrays.sort(all);
                 int m = Math.max(1, n / 4);
-                ScamDenoiseTables.selectSmallest(keys, n, m);
+                NoiseMath.selectSmallest(keys, n, m);
                 java.util.Arrays.sort(keys, 0, m);
                 for (int i = 0; i < m; i++) assertEquals("smallest n " + n + " i " + i, all[i], keys[i]);
             }
@@ -107,7 +107,7 @@ public class ShotSpeedBitExactTest {
                 Float.MIN_VALUE, Float.MIN_NORMAL, 1f, Float.MAX_VALUE, Float.POSITIVE_INFINITY, Float.NaN};
         for (float a : v) for (float b : v)
             assertEquals(a + " vs " + b, Integer.signum(Float.compare(a, b)),
-                    Integer.signum(Integer.compare(ScamDenoiseTables.sortableBits(a), ScamDenoiseTables.sortableBits(b))));
+                    Integer.signum(Integer.compare(NoiseMath.sortableBits(a), NoiseMath.sortableBits(b))));
     }
 
     /** An independent IEEE half decoder (Math.scalb), the reference of the read-back table. */
@@ -241,7 +241,7 @@ public class ShotSpeedBitExactTest {
                 if (v > 0) { expected[v]++; expectedCount++; }
             }
             int[] got = new int[256];
-            assertEquals("size " + size, expectedCount, ScamDenoise.effHistogram(eff, got));
+            assertEquals("size " + size, expectedCount, DenoiseStats.effHistogram(eff, got));
             for (int v = 0; v < 256; v++) assertEquals("size " + size + " code " + v, expected[v], got[v]);
             assertEquals(0, eff.position());
         }
@@ -283,7 +283,7 @@ public class ShotSpeedBitExactTest {
         for (int[] sz : sizes) {
             int[][] g = statsGrids(sz[0], sz[1]);
             int[] w = g[0], h = g[1], x = new int[7], y = new int[7];
-            int[] atlas = ScamDenoise.statsAtlas(w, h, x, y);
+            int[] atlas = DenoiseStats.statsAtlas(w, h, x, y);
             for (int i = 0; i < 7; i++) {
                 String what = sz[0] + "x" + sz[1] + " level " + i;
                 assertTrue(what, x[i] >= 0 && y[i] >= 0 && x[i] + w[i] <= atlas[0] && y[i] + h[i] <= atlas[1]);
@@ -294,7 +294,7 @@ public class ShotSpeedBitExactTest {
             assertEquals(0, y[0]);
         }
         // 12 MP: 256 x 192 blocks of level 0 over two shelves of 128 x 96 and 64 x 48 / 32 x 24 rectangles
-        int[] atlas = ScamDenoise.statsAtlas(statsGrids(4096, 3072)[0], statsGrids(4096, 3072)[1], new int[7], new int[7]);
+        int[] atlas = DenoiseStats.statsAtlas(statsGrids(4096, 3072)[0], statsGrids(4096, 3072)[1], new int[7], new int[7]);
         assertEquals(256, atlas[0]);
         assertEquals(336, atlas[1]);
     }
@@ -304,7 +304,7 @@ public class ShotSpeedBitExactTest {
         Random r = new Random(364);
         int[][] g = statsGrids(1000, 700);
         int[] w = g[0], h = g[1], x = new int[7], y = new int[7];
-        int[] atlas = ScamDenoise.statsAtlas(w, h, x, y);
+        int[] atlas = DenoiseStats.statsAtlas(w, h, x, y);
         int[] texels = new int[atlas[0] * atlas[1] * 4];
         for (int i = 0; i < texels.length; i++) {
             int lo = r.nextInt(65536), hi = r.nextInt(65536);
@@ -319,12 +319,12 @@ public class ShotSpeedBitExactTest {
                     for (int c = 0; c < 4; c++) {
                         int v = texels[((y[level] + by) * atlas[0] + x[level] + bx) * 4 + c];
                         int i = (by * w[level] + bx) * 4 + c;
-                        expected[2 * i] = ScamDenoiseTables.half(v & 0xffff);
-                        expected[2 * i + 1] = ScamDenoiseTables.half((v >>> 16) & 0xffff);
+                        expected[2 * i] = NoiseMath.half(v & 0xffff);
+                        expected[2 * i + 1] = NoiseMath.half((v >>> 16) & 0xffff);
                     }
                 }
             }
-            float[] got = ScamDenoise.statsOf(texels, atlas[0], x[level], y[level], w[level], h[level]);
+            float[] got = DenoiseStats.statsOf(texels, atlas[0], x[level], y[level], w[level], h[level]);
             assertEquals("level " + level + " length", expected.length, got.length);
             for (int i = 0; i < expected.length; i++) {
                 if (Float.isNaN(expected[i])) assertTrue("level " + level + " [" + i + "]", Float.isNaN(got[i]));
@@ -344,8 +344,8 @@ public class ShotSpeedBitExactTest {
                 float[] sorted = ys.clone();
                 java.util.Arrays.sort(sorted, 0, n);
                 int k50 = Math.min(n - 1, n / 2), k90 = Math.min(n - 1, (int) (n * 0.9f));
-                assertEquals("p50 n " + n, Float.floatToRawIntBits(sorted[k50]), Float.floatToRawIntBits(ScamDenoiseTables.selectFloat(ys, n, k50)));
-                assertEquals("p90 n " + n, Float.floatToRawIntBits(sorted[k90]), Float.floatToRawIntBits(ScamDenoiseTables.selectFloat(ys, n, k90)));
+                assertEquals("p50 n " + n, Float.floatToRawIntBits(sorted[k50]), Float.floatToRawIntBits(NoiseMath.selectFloat(ys, n, k50)));
+                assertEquals("p90 n " + n, Float.floatToRawIntBits(sorted[k90]), Float.floatToRawIntBits(NoiseMath.selectFloat(ys, n, k90)));
             }
         }
     }

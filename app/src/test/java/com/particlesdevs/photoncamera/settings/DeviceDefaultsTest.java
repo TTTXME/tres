@@ -298,10 +298,16 @@ public class DeviceDefaultsTest {
         assertTrue(main.getAll().isEmpty());
     }
 
-    /** P301: the RAW viewfinder with the photo's tone starts on for flagship SoCs only. */
     @Test
-    public void flagshipSocsStartWithTheRawViewfinder() {
+    public void flagshipSocsKeepThePersistentLog() {
         for (String soc : new String[]{"SM8650", "SM8750", "SM8850", "MT6989", "MT6991", "MT6993"}) assertTrue(soc, DeviceDefaults.flagshipSoc(soc));
         for (String soc : new String[]{"SM8550", "SM8250", "SM7550", "MT6983", "MT6781", "", null}) assertFalse(String.valueOf(soc), DeviceDefaults.flagshipSoc(soc));
+    }
+
+    @Test public void rawViewfinderRequiresANewerTierThanEightGenThree() {
+        for (String soc : new String[]{"SM8750", "SM8850", "MT6991", "MT6993", "sm8750"})
+            assertTrue(soc, DeviceDefaults.rawViewfinderSoc(soc));
+        for (String soc : new String[]{"SM8650", "SM8650-AB", "SM8550", "MSM8998", "MT6989", "MT6983", "", null})
+            assertFalse(String.valueOf(soc), DeviceDefaults.rawViewfinderSoc(soc));
     }
 }

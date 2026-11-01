@@ -82,7 +82,7 @@ public class WhyV207PortTest {
         assertTrue(live.contains("if (arkBase) defs.add(new String[]{\"ARK_BASE\", \"1\"});"));
         assertTrue(live.contains("if (inset < 0.999f) defs.add(new String[]{\"AGX_INSET\", \"1\"});"));
         assertTrue(live.contains("WhyFusion.liveExposures(r)"));
-        assertTrue("the pyramid denoise only when on", read(src + "PostPipeline.java").contains("if (WhyMsDenoise.enabled()) add(new WhyMsDenoise());"));
+        assertTrue("the pyramid denoise only when on", read(src + "PostPipeline.java").contains("if (PreferenceKeys.isHybridDenoiseEnabled()) add(new WhyMsDenoise());"));
         assertTrue("the matrix saturation on the viewfinder too",
                 read("src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/LiveRawRenderer.java").contains("lookWhite=WhyTone.withCctSat("));
         final String dev = read("src/main/java/com/particlesdevs/photoncamera/settings/DevKeys.java");
@@ -138,7 +138,7 @@ public class WhyV207PortTest {
         final String xml = read("src/main/res/xml/preferences.xml");
         for (String k : new String[]{"sharp_sobel_amount", "sharp_sobel_thresh", "sharp_edge_thinning", "sharp_rl1_damping",
                 "sharp_rl2_damping", "sharp_rl3_damping", "gamma_type", "curve_lift", "curve_contrast", "curve_shadow_contrast",
-                "curve_highlight_contrast", "curve_deep_shadows", "curve_extreme_highlights", "curve_offset", "curve_boost", "ms_motion",
+                "curve_highlight_contrast", "curve_deep_shadows", "curve_extreme_highlights", "curve_offset", "curve_boost",
                 "vibrance_saturated", "vibrance_mid", "vibrance_shadows", "skin_protect", "skin_hue_center", "skin_luma_min",
                 "skin_sat_shift", "cct_gain_r", "cct_gain_g", "cct_gain_b"})
             assertTrue("a settings row: " + k, xml.contains("android:key=\"pref_scam_hybrid_why_" + k + "\""));

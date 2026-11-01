@@ -106,6 +106,11 @@ public final class SessionKeys {
     static String[] sensorKey(String key) {
         if (!key.startsWith(SENSOR_PREFIX)) return null;
         String rest = key.substring(SENSOR_PREFIX.length());
+        for (String ae : UnspektraAePreferences.KEYS) {
+            String suffix = "_" + ae;
+            if (rest.endsWith(suffix) && rest.length() > suffix.length())
+                return new String[]{rest.substring(0, rest.length() - suffix.length()), ae};
+        }
         int cut = rest.lastIndexOf('_');
         if (cut <= 0 || cut == rest.length() - 1) return null;
         return new String[]{rest.substring(0, cut), rest.substring(cut + 1)};
@@ -114,7 +119,8 @@ public final class SessionKeys {
     private static boolean sessionField(String field) {
         // P384: the module's row of the camera's sensor mode table (SensorModePick, read when the session is built: its RAW
         // stream size and the mode key) - it had no restart pill, and a camera beside the settings (multi-window) kept its old mode
-        return VENDOR_FIELD.equals(field) || ModuleDuplicates.SENSOR_MODE_SUFFIX.equals(field) || sessionFields().contains(field);
+        return VENDOR_FIELD.equals(field) || ModuleDuplicates.SENSOR_MODE_SUFFIX.equals(field)
+                || UnspektraAePreferences.ENGINE.equals(field) || sessionFields().contains(field);
     }
 
     /** True when a new camera session is needed for a change of this preference to reach the camera. */

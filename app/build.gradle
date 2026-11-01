@@ -187,6 +187,7 @@ android {
         unitTests.returnDefaultValues = true
         unitTests.includeAndroidResources = true
         unitTests.all {
+            maxHeapSize = "2g"
             testLogging { exceptionFormat = "full" }
             jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED', '--add-opens=java.base/java.util=ALL-UNNAMED',
                     '--add-opens=java.base/java.io=ALL-UNNAMED', '--add-opens=java.base/java.net=ALL-UNNAMED',
@@ -215,8 +216,30 @@ def buildScamNeuralWorker = tasks.register('buildScamNeuralWorker', Exec) {
     }
 }
 android.sourceSets.main.assets.srcDir(neuralAssets)
+
+def filmAssets = layout.buildDirectory.dir('generated/filmReferenceAssets')
+def compileFilmReferenceShaders = tasks.register('compileFilmReferenceShaders') {
+    def sources = fileTree('src/main/cpp/third_party/spektrafilm/shaders') { include '*.comp' }
+    inputs.files(sources)
+    inputs.property('ndkVersion', '27.2.12479018')
+    outputs.dir(filmAssets)
+    doLast {
+        def host = System.getProperty('os.name').toLowerCase()
+        def tag = host.contains('windows') ? 'windows-x86_64' : host.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+        def compiler = new File(android.sdkDirectory, "ndk/27.2.12479018/shader-tools/${tag}/glslc${host.contains('windows') ? '.exe' : ''}")
+        def target = filmAssets.get().dir('film-reference/shaders').asFile
+        target.mkdirs()
+        sources.files.sort().each { shader ->
+            exec {
+                commandLine compiler.absolutePath, '-O', '--target-env=vulkan1.0', shader.absolutePath,
+                        '-o', new File(target, shader.name + '.spv').absolutePath
+            }
+        }
+    }
+}
+android.sourceSets.main.assets.srcDir(filmAssets)
 tasks.configureEach {
-    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(buildScamNeuralWorker)
+    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(buildScamNeuralWorker, compileFilmReferenceShaders)
 }
 
 dependencies {

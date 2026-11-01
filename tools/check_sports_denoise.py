@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual Java policy and actual GL filters: noise variance, hard edges, coverage and bright-path identity."""
+"""Historical SCAM noise-policy fixtures; not the production Resolve/pyramid chain."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -16,6 +16,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 PKG = 'com.particlesdevs.photoncamera.processing.opengl.postpipeline'
 JAVA = ROOT / 'app/src/main/java' / PKG.replace('.', '/')
+TEST_JAVA = ROOT / 'app/src/test/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline'
 SHADERS = ROOT / 'app/src/main/assets/shaders'
 VS = '#version 310 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.-1.,0,1);}'
 try:
@@ -141,8 +142,8 @@ def main():
     args = parser.parse_args()
     javac, java = java_tools()
     with tempfile.TemporaryDirectory(prefix='sports-policy-') as folder:
-        subprocess.run([javac, '-d', folder, str(JAVA / 'ScamDenoiseTables.java'),
-                        str(JAVA / 'SportsDenoisePolicy.java'), str(ROOT / 'tools/java/SportsDenoiseReplay.java')], check=True)
+        subprocess.run([javac, '-d', folder, str(TEST_JAVA / 'ScamDenoiseTables.java'),
+                        str(TEST_JAVA / 'SportsDenoisePolicy.java'), str(ROOT / 'tools/java/SportsDenoiseReplay.java')], check=True)
         def policy(snr, policy_snr, sports=True):
             s = subprocess.check_output([java, '-cp', folder, PKG + '.SportsDenoiseReplay',
                                          str(snr), str(policy_snr), str(sports).lower()], text=True)
@@ -200,7 +201,7 @@ def main():
         assert after['contrast'] / before['contrast'] > .98
         results['ms'][name] = {'luma_variance_ratio': v, 'chroma_variance_ratio': cv, 'before': before, 'after': after, 'bright_bit_identical': True}
     results['source_sha256'] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in
-                                [JAVA / 'SportsDenoisePolicy.java', JAVA / 'ScamDenoiseTables.java', SHADERS / 'scamdn/lbf.glsl', SHADERS / 'why/msdn.glsl']}
+                                [TEST_JAVA / 'SportsDenoisePolicy.java', TEST_JAVA / 'ScamDenoiseTables.java', SHADERS / 'scamdn/lbf.glsl', SHADERS / 'why/msdn.glsl']}
     results['scope'] = 'Actual Java policy/tables; actual host GL luma pass and full multiscale pyramid; synthetic noisy moving-subject hard step; not whole-phone image quality.'
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True); args.output.write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')

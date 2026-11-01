@@ -31,6 +31,14 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/deps)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
+set(FILM_DIR ${SRC_DIR}/third_party/spektrafilm)
+add_library(scameraFilm SHARED film-reference-jni.cpp
+    ${FILM_DIR}/SpektraVulkanRenderer.cpp ${FILM_DIR}/SpektraGeneratedProfileCurves.cpp)
+target_compile_features(scameraFilm PRIVATE cxx_std_17)
+target_include_directories(scameraFilm PRIVATE ${FILM_DIR})
+target_compile_options(scameraFilm PRIVATE -O2 -fvisibility=hidden)
+target_link_libraries(scameraFilm PRIVATE vulkan dl log)
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
     ${SRC_DIR}/dngCreator.cpp
 )

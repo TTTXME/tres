@@ -364,14 +364,6 @@
         <item>tap</item>
     </string-array>
     <!-- Settings audit H4: the enum-like WHY sliders became lists (stored values unchanged: "0", "1", ...). -->
-    <string-array name="scam_hybrid_denoise_engine_entries">
-        <item>Resolve</item>
-        <item>SCAM 9.6 (multiscale)</item>
-    </string-array>
-    <string-array name="scam_hybrid_denoise_engine_values" translatable="false">
-        <item>ark</item>
-        <item>scam</item>
-    </string-array>
     <string-array name="scam_hybrid_why_metering_entries">
         <item>Whole frame</item>
         <item>Centre-weighted</item>

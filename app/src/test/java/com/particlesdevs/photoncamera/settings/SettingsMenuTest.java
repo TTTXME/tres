@@ -139,25 +139,25 @@ public class SettingsMenuTest {
     @Test public void mixedTypeMigrationAndRebindPreservePreciseValues(){
         prefs.edit().putInt("pref_scam_hybrid_mosaic_native_clamp",1).putBoolean("pref_tunable_parameters_usedynamicwhitelevel",false)
                 .putString("pref_film_lut_strength","37.12345")
-                .putInt("pref_scam_hybrid_despeckle",1).putString("pref_scam_hybrid_cdm","0.18973").commit();
+                .putInt("pref_scam_hybrid_denoise",1).putString("pref_scam_hybrid_cdm","0.18973").commit();
         PreferenceScreen screen=inflate();
-        assertEquals("1",prefs.getString("pref_scam_hybrid_mosaic_native_clamp",""));assertTrue(prefs.getBoolean("pref_scam_hybrid_despeckle",false));
+        assertEquals("1",prefs.getString("pref_scam_hybrid_mosaic_native_clamp",""));assertTrue(prefs.getBoolean("pref_scam_hybrid_denoise",false));
         visit(screen,new HashSet<>(),new ArrayList<>());
         assertEquals("0.18973",prefs.getString("pref_scam_hybrid_cdm",""));assertEquals("37.12345",prefs.getString("pref_film_lut_strength",""));
         assertFalse(PreferenceNumber.bool(prefs.getAll().get("pref_tunable_parameters_usedynamicwhitelevel"),true));
     }
     /** P193: the old per-camera JSON (written once, at the first camera start) no longer takes over a module without a profile. */
     @Test public void perLensRestoreKeepsTheCurrentSettingsOverTheOldPerCameraJson(){
-        prefs.edit().putString(PreferenceKeys.Key.KEY_THEME.mValue,"keep").putBoolean("pref_scam_hybrid_despeckle",false)
+        prefs.edit().putString(PreferenceKeys.Key.KEY_THEME.mValue,"keep").putBoolean("pref_scam_hybrid_denoise",false)
                 .putFloat("pref_film_lut_strength",12.5f).commit();
         manager.set(PreferenceKeys.Key.PER_LENS_FILE_NAME.mValue,"settings_for_camera_audit",
-                "{\"pref_scam_hybrid_despeckle\":true,\"pref_scam_hybrid_mosaic_native_clamp\":1,\"pref_film_lut_strength\":37.125,\"ignored_null\":null,\""+PreferenceKeys.Key.KEY_THEME.mValue+"\":\"replace\"}");
+                "{\"pref_scam_hybrid_denoise\":true,\"pref_scam_hybrid_mosaic_native_clamp\":1,\"pref_film_lut_strength\":37.125,\"ignored_null\":null,\""+PreferenceKeys.Key.KEY_THEME.mValue+"\":\"replace\"}");
         PreferenceKeys.profiles();
         prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();
         PreferenceKeys.profiles().changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
         PreferenceKeys.loadSettingsForCamera("audit");
         assertEquals("audit",PreferenceKeys.profiles().editing());
-        assertFalse(prefs.getBoolean("pref_scam_hybrid_despeckle",true));
+        assertFalse(prefs.getBoolean("pref_scam_hybrid_denoise",true));
         assertFalse(prefs.contains("pref_scam_hybrid_mosaic_native_clamp"));
         assertEquals(12.5f,prefs.getFloat("pref_film_lut_strength",0),0);
         assertFalse(prefs.contains("ignored_null"));assertEquals("keep",prefs.getString(PreferenceKeys.Key.KEY_THEME.mValue,""));
@@ -165,22 +165,22 @@ public class SettingsMenuTest {
     }
 
     @Test public void moduleProfilesKeepTypedValuesAndCopyOnlySelection(){
-        prefs.edit().putFloat("pref_film_lut_strength",37.125f).putBoolean("pref_scam_hybrid_despeckle",true)
+        prefs.edit().putFloat("pref_film_lut_strength",37.125f).putBoolean("pref_scam_hybrid_denoise",true)
                 .putString("pref_tunable_test","1.234567").putString("pref_sensorconfig_test","hardware").commit();
         ModuleProfiles profiles=PreferenceKeys.profiles();
         prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();
         profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
         profiles.activate("back0");
-        prefs.edit().putFloat("pref_film_lut_strength",12.25f).putBoolean("pref_scam_hybrid_despeckle",false).commit();
+        prefs.edit().putFloat("pref_film_lut_strength",12.25f).putBoolean("pref_scam_hybrid_denoise",false).commit();
         profiles.activate("back1");
         assertEquals(37.125f,prefs.getFloat("pref_film_lut_strength",0),0);
         prefs.edit().putString("pref_tunable_test","destination").commit();
         profiles.copy("back0",Arrays.asList("back1"),new HashSet<>(Arrays.asList("pref_film_lut_strength","pref_sensorconfig_test")));
         assertEquals(12.25f,prefs.getFloat("pref_film_lut_strength",0),0);
         assertEquals("destination",prefs.getString("pref_tunable_test",""));
-        assertTrue(prefs.getBoolean("pref_scam_hybrid_despeckle",false));
+        assertTrue(prefs.getBoolean("pref_scam_hybrid_denoise",false));
         assertEquals("hardware",prefs.getString("pref_sensorconfig_test",""));
-        profiles.activate("back0");assertFalse(prefs.getBoolean("pref_scam_hybrid_despeckle",true));
+        profiles.activate("back0");assertFalse(prefs.getBoolean("pref_scam_hybrid_denoise",true));
         prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,false).commit();profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
         assertEquals(37.125f,prefs.getFloat("pref_film_lut_strength",0),0);
         prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
@@ -1349,7 +1349,7 @@ public class SettingsMenuTest {
         java.util.List<String> order=new java.util.ArrayList<>();
         for(int i=0;i<noise.getPreferenceCount();i++)order.add(noise.getPreference(i).getKey());
         // P443: the switches, the engine and the Resolve rows (the SCAM 9.6 tuning left the menu; its strength is the everyday slider)
-        assertEquals(Arrays.asList("pref_scam_hybrid_denoise","pref_scam_hybrid_despeckle","pref_scam_hybrid_denoise_engine",
+        assertEquals(Arrays.asList("pref_scam_hybrid_denoise",
                 "pref_scam_hybrid_ark_dn_luma_revert","pref_scam_hybrid_ark_dn_motion_revert","pref_scam_hybrid_ark_dn_grain"),order);
         // P403 / P406: the short frames' denoise with the highlight frames on «Настройки HDR», as the reference app
         assertEquals("scam_hybrid_capture_category",screen.findPreference("pref_scam_hybrid_why_bracket_denoise").getParent().getKey());
@@ -1566,8 +1566,9 @@ public class SettingsMenuTest {
                 keys(screen.findPreference("scam_hybrid_merge_screen")));
         assertEquals(Arrays.asList("scam_hybrid_hdr_shoulder_category","scam_hybrid_capture_category","scam_hybrid_shasta_category"),
                 keys(screen.findPreference("scam_hybrid_hdr_screen")));
-        assertEquals(Arrays.asList("scam_hybrid_ms_general_category","scam_hybrid_ms_luma_category","scam_hybrid_ms_chroma_category",
-                "scam_hybrid_nr_merge_category"),keys(screen.findPreference("scam_hybrid_photo_screen")));
+        assertEquals(Arrays.asList("scam_hybrid_nr_merge_category","scam_hybrid_resolve_optics_category",
+                "scam_hybrid_ms_general_category","scam_hybrid_ms_luma_category","scam_hybrid_ms_chroma_category"),
+                keys(screen.findPreference("scam_hybrid_photo_screen")));
         // «Лаборатория» (P277: a row that opens ScamLabFragment, no page of its own), «Логи», «О приложении»
         assertEquals(Arrays.asList("scam_lab_screen"),keys(screen.findPreference("root_lab")));
         assertEquals(0,((PreferenceScreen)screen.findPreference("scam_lab_screen")).getPreferenceCount());
@@ -2018,11 +2019,14 @@ public class SettingsMenuTest {
         assertTrue(category.isVisible());
         List<String> keys=new ArrayList<>();
         for(int i=0;i<category.getPreferenceCount();i++){String key=category.getPreference(i).getKey();keys.add(key.startsWith("pref_sensorconfig_back1_")?key.substring("pref_sensorconfig_back1_".length()):key);}
-        // RAW levels, stabilization (only with OIS hardware), session, P266's ISP stream and RAW frame rate; then the vendor tag
-        // button (the exposure limits read by nothing were removed); P384: the module's own sensor reset at the end
+        // Sensor rows, the module's live RAW AE controls, vendor keys, then its reset.
         keys.remove("oismode");
-        assertEquals(Arrays.asList("blackleveloverride","whiteleveloverride","sessiontype","ispsurface","rawfps","rawviewfinder","fpsprobe","add_tunablekey",
+        assertEquals(Arrays.asList("blackleveloverride","whiteleveloverride","sessiontype","ispsurface","rawfps","rawviewfinder",
+                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","fpsprobe","add_tunablekey",
                 "pref_reset_sensor_config_settings_back1"),keys);
+        androidx.preference.ListPreference ae=category.findPreference("pref_sensorconfig_back1_ae_engine");
+        assertEquals("0",ae.getValue());
+        assertFalse(category.findPreference("pref_sensorconfig_back1_ae_min_iso").isEnabled());
     }
     /**
      * P148: a copy of a module with a lens crop: «1.3×» of the 1× camera crops its frame 1.3x from the lens's uncropped zoom - also

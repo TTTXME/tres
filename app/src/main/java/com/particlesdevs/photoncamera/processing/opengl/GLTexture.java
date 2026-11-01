@@ -86,8 +86,8 @@ public class GLTexture implements AutoCloseable {
 
         mTextureID = TexID[0];
         //Log.d("GLTexture","Size:"+size+" ID:"+mTextureID);
-        glActiveTexture(GL_TEXTURE1+mTextureID);
-        glBindTexture(GL_TEXTURE_2D, mTextureID);
+        int previousBinding = beginEdit();
+        try {
         //if(bmp.byteBuffer != null) {
             glTexStorage2D(GL_TEXTURE_2D, 1, mFormat.getGLFormatInternal(),  mSize.x, mSize.y);
             checkEglError("glTexStorage2D");
@@ -99,6 +99,9 @@ public class GLTexture implements AutoCloseable {
         checkEglError("glTexSubImage2D");
         reSetParameters();
         checkEglError("Tex glTexParameter");
+        } finally {
+            glBindTexture(GL_TEXTURE_2D, previousBinding);
+        }
     }
     public GLTexture(Point size, GLFormat glFormat, Buffer pixels, int textureFilter, int textureWrapper,int level) {
         mFormat = glFormat;
@@ -114,8 +117,8 @@ public class GLTexture implements AutoCloseable {
         slot = SLOTS.take(TexID[0]);
         mTextureID = TexID[0];
         //Log.d("GLTexture","Size:"+size+" ID:"+mTextureID);
-        glActiveTexture(GL_TEXTURE1+mTextureID);
-        glBindTexture(GL_TEXTURE_2D, mTextureID);
+        int previousBinding = beginEdit();
+        try {
         //if(pixels != null) {
             glTexStorage2D(GL_TEXTURE_2D, 1, glFormat.getGLFormatInternal(),  size.x, size.y);
             checkEglError("glTexStorage2D");
@@ -127,17 +130,23 @@ public class GLTexture implements AutoCloseable {
         checkEglError("glTexSubImage2D");
         reSetParameters();
         checkEglError("Tex glTexParameter");
+        } finally {
+            glBindTexture(GL_TEXTURE_2D, previousBinding);
+        }
     }
 
     /**
      * P187: this texture's min/mag filter from now on, for a texture that takes over another's role (the pipeline input as
-     * main2: a main samples GL_LINEAR). Bound on its own unit, as the constructor does.
+     * main2: a main samples GL_LINEAR).
      */
     public void setFilter(int filter) {
         mFormat.filter = filter;
-        glActiveTexture(GL_TEXTURE1 + mTextureID);
-        glBindTexture(GL_TEXTURE_2D, mTextureID);
-        reSetParameters();
+        int previousBinding = beginEdit();
+        try {
+            reSetParameters();
+        } finally {
+            glBindTexture(GL_TEXTURE_2D, previousBinding);
+        }
     }
 
     /** P187: RGBA16F, the format of the pipeline's ping-pong textures (main1 / main2). */
@@ -146,8 +155,20 @@ public class GLTexture implements AutoCloseable {
     }
 
     public void loadData(Buffer pixels){
+        int previousBinding = beginEdit();
+        try {
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mSize.x, mSize.y, mFormat.getGLFormatExternal(), mFormat.getGLType(), pixels);
+        } finally {
+            glBindTexture(GL_TEXTURE_2D, previousBinding);
+        }
+    }
+
+    private int beginEdit() {
+        // Texture names are not texture units. Keep every caller's sampler binding intact.
+        int[] binding = new int[1];
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, binding, 0);
         glBindTexture(GL_TEXTURE_2D, mTextureID);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mSize.x, mSize.y, mFormat.getGLFormatExternal(), mFormat.getGLType(), pixels);
+        return binding[0];
     }
     void reSetParameters(){
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mFormat.filter);

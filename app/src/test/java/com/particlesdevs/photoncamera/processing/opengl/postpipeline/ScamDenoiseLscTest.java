@@ -163,22 +163,13 @@ public class ScamDenoiseLscTest {
      * A uniform name the host sets that the shader does not declare is silently ignored by GL (location -1): the term
      * would be off without a trace. Every name of the strmap block of ScamDenoise.process is a uniform of strmap.glsl.
      */
-    @Test public void hostSetsTheShadersUniforms() throws IOException {
-        String glsl = new String(Files.readAllBytes(src("src/main/assets/shaders/scamdn/strmap.glsl").toPath()), StandardCharsets.UTF_8);
-        String java = new String(Files.readAllBytes(src("src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/ScamDenoise.java").toPath()), StandardCharsets.UTF_8);
-        int start = java.indexOf("useAssetProgram(\"scamdn/strmap\"");
-        int end = java.indexOf("drawBlocks(strMap)", start);
-        assertTrue(start > 0 && end > start);
-        Set<String> set = new TreeSet<>();
-        Matcher m = Pattern.compile("set(?:Var|Texture)\\(\"([A-Za-z0-9_]+)\"").matcher(java.substring(start, end));
-        while (m.find()) set.add(m.group(1));
-        Set<String> declared = new TreeSet<>();
-        m = Pattern.compile("(?m)^uniform\\s+\\w+\\s+([A-Za-z0-9_]+)\\s*;").matcher(glsl);
-        while (m.find()) declared.add(m.group(1));
-        assertEquals(declared, set);
-        for (String u : new String[]{"GainMap", "lscU", "noEffU", "fullInvU", "EffMap"}) assertTrue(u, set.contains(u));
-        // the lens-shading term multiplies the frame factor; with lscU.x = 0 nothing touches it (the map of before)
-        assertTrue(glsl.contains("if (lscU.x > 0.0)"));
-        assertTrue(glsl.contains("f = s / float(F * F);"));
+    @Test public void postCcmAdapterAppliesShadingWithoutOldVarianceBoost() throws IOException {
+        String shader = new String(Files.readAllBytes(src("src/main/assets/shaders/resolvedn/prepare.glsl").toPath()), StandardCharsets.UTF_8);
+        String host = new String(Files.readAllBytes(src("src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyMsDenoise.java").toPath()), StandardCharsets.UTF_8);
+        assertTrue(shader.contains("uniform sampler2D GainMap;"));
+        assertTrue(shader.contains("toRenderU * (texelFetch(InputBuffer, xy, 0).rgb * neutralU * lsc)"));
+        assertTrue(host.contains("setTexture(\"GainMap\", pipeline.GainMap)"));
+        assertFalse(host.contains("scamdn/strmap"));
+        assertFalse(host.contains("SportsDenoisePolicy"));
     }
 }

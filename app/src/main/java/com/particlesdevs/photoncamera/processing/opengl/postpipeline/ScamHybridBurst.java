@@ -961,7 +961,7 @@ public final class ScamHybridBurst implements ScamTransport {
             /** P377: the ultrashort blend's per-stage programs (blend0 - blend4): one program with the stage uniform instead. */
             STEP_BLEND_STAGES = "blend stage programs",
             /** P377: the blend's GPU-built tile lists (its indirect dispatches): every pixel instead. */
-            STEP_BLEND_LISTS = "blend tile lists";
+            STEP_BLEND_LISTS = "blend tile lists", STEP_US_CACHE = "ultrashort demosaic cache";
     /**
      * P377 (owner, 2026-10-28: «всё что работает на адрено на гпу, на мали тоже должно работать на гпу. При этом чтобы никто из них не
      * пострадал и результат не ухудшился»): the GPU variants P364 kept to Adreno (the own-quad cells, the blend's stage programs and
@@ -969,7 +969,7 @@ public final class ScamHybridBurst implements ScamTransport {
      * it out for good on this build of the phone and of the app ({@link #storeLearned}): a crash once, not at every start.
      */
     static final java.util.Set<String> SAME_RESULT_STEPS = new java.util.HashSet<>(java.util.Arrays.asList(STEP_CELLS,
-            STEP_BLEND_STAGES, STEP_BLEND_LISTS));
+            STEP_BLEND_STAGES, STEP_BLEND_LISTS, STEP_US_CACHE));
     /** Crash site that leaves no GPU merge (a required program, the context): the session goes to the CPU fallback. */
     static final String STEP_GPU = "GPU";
 
@@ -986,6 +986,7 @@ public final class ScamHybridBurst implements ScamTransport {
         if (avoidedSteps.contains(STEP_CELLS)) t.append("cellsPlain 1\n");
         if (avoidedSteps.contains(STEP_BLEND_STAGES)) t.append("blendStages 0\n");
         if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
+        if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
         return t.toString();
     }
 
@@ -1007,7 +1008,7 @@ public final class ScamHybridBurst implements ScamTransport {
             if (stage.equals("-") && l > s) {
                 String last = line.substring(l + 6).trim();
                 // P377 (review): the blend's lists run on the driver's threads too (Mali's command threads die with stage=-)
-                stage = last.startsWith("GPU compile ") || last.startsWith("GPU merge (blend lists)") ? last : "-";
+                stage = last.startsWith("GPU compile ") || last.startsWith("GPU merge (blend lists)") || last.startsWith("GPU merge (US cache)") ? last : "-";
             }
             return stage.isEmpty() || stage.equals("-") ? null : stage;
         }
@@ -1033,6 +1034,7 @@ public final class ScamHybridBurst implements ScamTransport {
                 case "rim": return STEP_RIM;
                 case "bento": return STEP_BENTO;
                 case "blend": return STEP_BLEND;
+                case "usCache": case "blendCache": return STEP_US_CACHE;
                 // P377: one of the blend's stage programs (the blend itself stays, as one program)
                 case "blend0": case "blend1": case "blend2": case "blend3": case "blend4": return STEP_BLEND_STAGES;
                 case "mosaicUs": case "mosaicUsT": return STEP_US_FILL;
@@ -1044,6 +1046,7 @@ public final class ScamHybridBurst implements ScamTransport {
         }
         if (stage.startsWith("GPU context") || stage.startsWith("GPU init") || stage.startsWith("EGL")) return STEP_GPU;
         if (stage.startsWith("GPU merge (blend lists)")) return STEP_BLEND_LISTS; // P377: the worker marks their dispatches
+        if (stage.startsWith("GPU merge (US cache)")) return STEP_US_CACHE;
         return null;
     }
 
@@ -1074,6 +1077,7 @@ public final class ScamHybridBurst implements ScamTransport {
         if (avoidedSteps.contains(STEP_CELLS)) t.append("cellsPlain 1\n");
         if (avoidedSteps.contains(STEP_BLEND_STAGES)) t.append("blendStages 0\n");
         if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
+        if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
         return t.toString();
     }
 

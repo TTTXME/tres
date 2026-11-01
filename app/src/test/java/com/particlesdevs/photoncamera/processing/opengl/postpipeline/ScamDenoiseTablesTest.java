@@ -88,10 +88,10 @@ public class ScamDenoiseTablesTest {
     }
 
     @Test public void halfDecodingAndStatisticsReduction() {
-        assertEquals(1f, ScamDenoiseTables.half(0x3c00), 0f);
-        assertEquals(-2f, ScamDenoiseTables.half(0xc000), 0f);
-        assertEquals(65504f, ScamDenoiseTables.half(0x7bff), 0f);
-        assertEquals(5.9604645e-8f, ScamDenoiseTables.half(0x0001), 1e-12f);
+        assertEquals(1f, NoiseMath.half(0x3c00), 0f);
+        assertEquals(-2f, NoiseMath.half(0xc000), 0f);
+        assertEquals(65504f, NoiseMath.half(0x7bff), 0f);
+        assertEquals(5.9604645e-8f, NoiseMath.half(0x0001), 1e-12f);
         // 64 flat blocks with g = 0.25 and 16 textured ones with g = 4: the flattest quarter gives 0.25
         int n = 80;
         float[] b = new float[8 * n];
@@ -101,14 +101,14 @@ public class ScamDenoiseTablesTest {
             float[] v = {0.05f, flat ? 1f + i * 0.01f : 50f, g, g * 1.1f, 2 * g, 2.2f * g, 4 * g, 4.4f * g};
             System.arraycopy(v, 0, b, 8 * i, 8);
         }
-        float[] r = ScamDenoiseTables.reduce(b, n, 0.8f);
+        float[] r = NoiseMath.reduce(b, n, 0.8f);
         assertNotNull(r);
         assertEquals(0.25f, r[0], 1e-6f); assertEquals(0.275f, r[1], 1e-6f);
         assertEquals((float) Math.sqrt(0.5), r[6], 1e-5f);                // uvs U = sqrt(gY / gU)
         assertEquals(0.5f, r[8], 1e-5f);                                  // uvs V
-        assertNull(ScamDenoiseTables.reduce(b, 10, 0.8f));
+        assertNull(NoiseMath.reduce(b, 10, 0.8f));
         // the SNR estimate: mu / sqrt(g01 / 2 * (rho_s s mu + rho_r r))
-        assertEquals(0.01f / (float) Math.sqrt(0.125 * (1e-3 * 0.01 + 1e-6)), ScamDenoiseTables.snr(0.01f, 0.25f, 1e-3f, 1e-6f, 1f, 1f), 1e-3f);
+        assertEquals(0.01f / (float) Math.sqrt(0.125 * (1e-3 * 0.01 + 1e-6)), NoiseMath.snr(0.01f, 0.25f, 1e-3f, 1e-6f, 1f, 1f), 1e-3f);
     }
 
     /** P335: the daylight colour denoise multiplier: 1 up to SNR 20, log-linear to atHigh at SNR 80, constant above. */

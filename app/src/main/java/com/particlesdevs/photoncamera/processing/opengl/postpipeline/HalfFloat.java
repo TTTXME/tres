@@ -10,6 +10,6 @@ final class HalfFloat {
     /** TABLE[h & 0xffff] = the float value of half h. */
     static final float[] TABLE = new float[65536];
     static {
-        for (int h = 0; h < 65536; h++) TABLE[h] = ScamDenoiseTables.half(h);
+        for (int h = 0; h < 65536; h++) TABLE[h] = NoiseMath.half(h);
     }
 }

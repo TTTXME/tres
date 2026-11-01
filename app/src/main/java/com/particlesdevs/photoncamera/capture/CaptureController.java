@@ -366,6 +366,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private static int mTargetFormat = RAW_FORMAT;
     private ManualModeConsole manualModeConsole;
     private final ParamController paramController;
+    private final UnspektraCameraAe unspektraAe = new UnspektraCameraAe(this);
+
+    public UnspektraCameraAe unspektraAe() { return unspektraAe; }
     public TouchFocus mTouchFocus;
     /** P42: face detection and tracking AF (null until the viewfinder is ready). */
     public volatile com.particlesdevs.photoncamera.control.subject.SubjectFocus mSubjectFocus;
@@ -2088,6 +2091,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         LiveRawFrame.setEnabled(false);
         LiveRawFrame.setMosaicPreview(false);
         mLiveRawSession = false;
+        unspektraAe.reset();
         mMosaicPreview = false;
         mNativeRawPslCapture = false;
         mLiveRawRouter.clear();
@@ -2415,6 +2419,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         try {
 //            mCaptureSession.stopRepeating();
             if (mVivoSdkRawSession != null) applyVivoSdkPreview(mPreviewRequestBuilder);
+            unspektraAe.apply(mPreviewRequestBuilder);
             mCaptureSession.setRepeatingRequest(mPreviewInputRequest = mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
         } catch (IllegalStateException | IllegalArgumentException | NullPointerException e) {
             Logger.warnShort(TAG, "Cannot rebuildPreviewBuilder()!", e);
@@ -2430,6 +2435,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
         try {
             Log.d(TAG, "rebuildPreviewBuilderOneShot: " + mCaptureSession + " " + mPreviewRequestBuilder + " " + mCaptureCallback + " " + mBackgroundHandler);
+            unspektraAe.apply(mPreviewRequestBuilder);
             mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
         } catch (IllegalStateException | IllegalArgumentException | NullPointerException e) {
             Logger.warnShort(TAG, "Cannot rebuildPreviewBuilderOneShot()!", e);
@@ -3483,6 +3489,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     Surface surface;
     public void createCameraPreviewSession(boolean isBurstSession) {
         final int generation = mSessionGeneration.incrementAndGet();
+        unspektraAe.reset();
         final CameraDevice sessionDevice = mCameraDevice;
         if (!isCameraResumed || sessionDevice == null) return;
         final boolean sdkFullRes = mVivoSdkRawSession != null;
@@ -3577,13 +3584,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P252 A/B (scam_dev.txt "isp_preview_off_always 1"): every photo session repeats the RAW stream only (the ISP preview in
             // the session, not in the request) - on the OPPO X7U that picks the HAL's ZSL use case; does its AF focus at night?
             if (photoMode && PreferenceKeys.scamDevSwitch("isp_preview_off_always", false)) mIspPreviewOff = true;
+            final boolean rawDisplaySession = nativeIsz || nativeVivoFullRes() || PreferenceKeys.isLiveViewfinderRawEnabled()
+                    || mFullResSession || mIspPreviewOff;
             mLiveRawSession = photoMode && !isBurstSession && !mIsRecordingVideo && !mLiveRawRejected && (!sdkFullRes || nativeVivoFullRes())
-                    && isRawFormat(mTargetFormat) && (nativeIsz || nativeVivoFullRes() || PreferenceKeys.isLiveViewfinderRawEnabled() || mFullResSession
-                    || mIspPreviewOff);
+                    && isRawFormat(mTargetFormat) && (rawDisplaySession
+                    || com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID));
             LiveRawFrame.setMaxLongSide(rawViewfinder); // P266
             LiveRawFrame.setEnabled(false); // invalidate the previous session even when RAW remains enabled
             resetEttr(); // P356: each session meters its own boost (before setupPreview reads ettrIndex)
-            LiveRawFrame.setEnabled(mLiveRawSession);
+            LiveRawFrame.setEnabled(mLiveRawSession && rawDisplaySession);
             // P13: a module whose stream was measured as a mosaic before starts on the RAW viewfinder at once
             mMosaicMeasure = PreferenceKeys.scamDevSwitch("mosaic_preview", true);
             com.particlesdevs.photoncamera.processing.MosaicStream.startSession(mMosaicMeasure ? mosaicStreamKey() : "off");
@@ -5179,6 +5188,51 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
     }
 
+    private void unspektraMeter(Image img, TotalCaptureResult matched) {
+        if (!unspektraAe.eligible() || matched == null || burst || mShotInProgress || shotInFlight() || mPayloadBad
+                || !mPreviewLayouts.isEmpty() || !isRawFormat(img.getFormat())) return;
+        final long revision = unspektraAe.revision();
+        try {
+            CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
+            if (c == null) c = mCameraCharacteristics;
+            if (c == null) return;
+            CaptureResult result = matched;
+            if (Build.VERSION.SDK_INT >= 28) {
+                CaptureResult physical = matched.getPhysicalCameraResults().get(physicalID);
+                if (physical != null) result = physical;
+            }
+            Long timestamp = result.get(CaptureResult.SENSOR_TIMESTAMP);
+            if (timestamp == null || timestamp != img.getTimestamp()) return;
+            Integer arrangement = c.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+            int cfa = mLiveCfaPattern >= 0 ? mLiveCfaPattern : arrangement == null ? -1 : arrangement;
+            if (cfa < 0 || cfa > 3) return;
+            com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
+                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+            android.hardware.camera2.params.RggbChannelVector wb = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
+            android.hardware.camera2.params.ColorSpaceTransform transform = result.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
+            if (wb == null || transform == null) return;
+            float[] gains = {wb.getRed(), (wb.getGreenEven() + wb.getGreenOdd()) * .5f, wb.getBlue()};
+            for (float gain : gains) if (!(gain > 0) || !Float.isFinite(gain)) return;
+            float[] column = new float[9];
+            for (int col = 0; col < 3; col++) for (int row = 0; row < 3; row++)
+                column[col * 3 + row] = transform.getElement(col, row).floatValue();
+            int block = stillOnlyFullRes() ? Math.max(1, com.particlesdevs.photoncamera.processing.MosaicStream.block())
+                    : nativeVivoFullRes() ? VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
+                    : mFullResSession ? 2 : Math.max(PreferenceKeys.mosaicBlock(), com.particlesdevs.photoncamera.processing.MosaicStream.block());
+            float[] photo = viewfinderMatrix(c, result, gains, column, block > 1);
+            if (photo == null) return;
+            float[] rowMajor = NativeViewfinder.columnMajor(photo);
+            java.nio.ByteBuffer samples = meterSamples(img);
+            if (samples == null) return;
+            double ev = UnspektraRawMeter.measure(samples, img.getWidth(), img.getHeight(), mMeterStride, cfa, block,
+                    levels.black, levels.white, gains, rowMajor, meterSetup(c, result, null), unspektraAe.method());
+            if (Double.isFinite(ev) && !unspektraAe.ownsExposure()) paramController.prepareUnspektraAe();
+            if (unspektraAe.observe(result, ev, revision)) rebuildPreviewBuilder();
+        } catch (RuntimeException error) {
+            Log.w("SCAM_AE", "Unspektra RAW meter: " + error);
+        }
+    }
+
     private void onMatchedLiveRaw(Image img, TotalCaptureResult result) {
         boolean retained = false;
         java.nio.ByteBuffer ringView = null; // P365: a view of the frame's ring slot until the viewfinder takes it
@@ -5203,6 +5257,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             final boolean viaRing = shown && zslPass && !mClosedForProcessing && ringRefFrame(img);
             final LiveRawFrame.Meta ringMeta = viaRing ? liveRawMeta(img, result) : null;
             if (shown && !viaRing) publishLiveRawFrame(img, result);
+            if (!probe) unspektraMeter(img, result);
             if (!probe) nativeExposure(img, result);
             if (!probe) ettrMeter(img, result); // P356
             vivoAeAudit(img, result); // P212h: the vivo HAL AE against our RAW meter (log only)
@@ -5567,13 +5622,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P212a: the ISO the mode really delivers (ExposureLimits, learned from these frames and stored): no request above it
             // (they came back at ISO 1600, 2 EV short, and were rebuilt every 6 frames); first, so a hand-set ISO stops there too
             final boolean capOn = PreferenceKeys.scamDevSwitch("native_ae_cap", true);
-            if (ae.isoCap(capOn ? honouredIsoCap() : Integer.MAX_VALUE)) {
+            if (!unspektraAe.ownsExposure() && ae.isoCap(capOn ? honouredIsoCap() : Integer.MAX_VALUE)) {
                 Log.i("SCAM_CAPTURE", "native AE camera " + mVivoSdkCameraId + ": ISO cap "
                         + (ae.isoCap() == Integer.MAX_VALUE ? "-" : String.valueOf(ae.isoCap())) + " -> " + ae);
                 rebuildPreviewBuilder();
             }
             // P201: a hand-set ISO / shutter holds (both: no metering, one: the other follows)
-            if (ae.setManual(paramController.manualIsoValue(), paramController.manualPreviewShutterNs())) {
+            if (!unspektraAe.ownsExposure() && ae.setManual(paramController.manualIsoValue(), paramController.manualPreviewShutterNs())) {
                 Log.i("SCAM_CAPTURE", "native AE camera " + mVivoSdkCameraId + ": manual -> " + ae);
                 rebuildPreviewBuilder();
             }
@@ -5582,13 +5637,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // a shutter from 30 ms takes the one of 30 / 33.3 / 40 / 41.7 ms that bands least at both 100 and 120 Hz
             final int flickerHz = PreferenceKeys.getAntibandingHz();
             final boolean flickerKnown = nativeFlickerKnown();
-            if (ae.flicker(flickerHz, flickerKnown)) {
+            if (!unspektraAe.ownsExposure() && ae.flicker(flickerHz, flickerKnown)) {
                 Log.i("SCAM_CAPTURE", "native AE camera " + mVivoSdkCameraId + ": flicker " + flickerHz + " Hz ("
                         + (flickerKnown ? "known" : MainsFlicker.source() + ", both bands from 30 ms") + ") -> " + ae);
                 rebuildPreviewBuilder();
             }
             final float ev = nativeAeEv(c);
-            final boolean changed = m != null && exposure != null && iso != null && ae.update(m[0], m[1], exposure, iso, ev);
+            final boolean changed = !unspektraAe.ownsExposure() && m != null && exposure != null && iso != null && ae.update(m[0], m[1], exposure, iso, ev);
             final long now = android.os.SystemClock.elapsedRealtime();
             if (changed) {
                 if (now - mNativeAeLogMs >= 1000) {
@@ -5603,7 +5658,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 rebuildPreviewBuilder();
             }
             // P212b: a settled exposure (a second inside the band or at the deliverable limit) is the next session's start
-            if (exposure != null && iso != null && ae.settled() && !ae.handSet()) {
+            if (!unspektraAe.ownsExposure() && exposure != null && iso != null && ae.settled() && !ae.handSet()) {
                 if (mNativeAeSettledMs == 0) mNativeAeSettledMs = now;
                 else if (now - mNativeAeSettledMs >= NativeAeSeed.SETTLED_HOLD_MS) {
                     final double delivered = (double) exposure * iso / 100.0;
@@ -5616,7 +5671,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             } else mNativeAeSettledMs = 0;
             // P212a: once a session, a request above the cap shows whether the firmware gives more gain after all (never while a
             // shot is pending: its frame would be in the ring; isNativeIsoProbe keeps it out of the ring and the AE anyway)
-            if (capOn && !mShotInProgress && !shotInFlight() && !fullResMergeRunning()) {
+            if (!unspektraAe.ownsExposure() && capOn && !mShotInProgress && !shotInFlight() && !fullResMergeRunning()) {
                 final int probe = ae.probeIso(now - mNativeAeStartMs);
                 if (probe > 0) sendNativeIsoProbe(ae, probe);
             }
@@ -5634,8 +5689,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // P212e (W3 = M7): the session's gated filter - measured every 8th frame while the AE holds (nothing pending, no
                 // rebuild in its last 3 frames) and the frame is neither dark nor clipped; a gated frame waits for the next one
                 OppoNativeWb.hand(mVivoSdkCameraId, null);
-                final boolean settled = ae.settled();
-                if (OppoNativeWb.wants(mVivoSdkCameraId, ae.pending(), ae.sinceRebuild(), settled, m == null ? -1f : m[0],
+                final boolean alternative = unspektraAe.ownsExposure();
+                final boolean settled = alternative ? unspektraAe.stable() : ae.settled();
+                if (OppoNativeWb.wants(mVivoSdkCameraId, alternative ? !settled : ae.pending(), alternative ? (settled ? 3 : 0) : ae.sinceRebuild(), settled, m == null ? -1f : m[0],
                         m == null ? -1f : m[1], metered == null ? -1f : metered.clip)) {
                     final com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Result own =
                             nativeOwnNeutral(buffer, img, plane, cfa, levels, block, c, result);
@@ -5886,6 +5942,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * range (static: a controller without its session state - a test's mock - adds nothing).
      */
     public static int ettrIndex(CaptureController cc, int userIndex) {
+        if (cc != null && cc.unspektraAe != null && cc.unspektraAe.ownsExposure()) return userIndex;
         final Ettr ettr = cc == null ? null : cc.mEttr;
         final CameraCharacteristics c = cc == null ? null : cc.mCameraCharacteristics;
         // the switch turned off where nothing meters (the boost is cleared by the next meter or session): nothing added
@@ -5898,6 +5955,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     /** P377: the ETTR boost in force (EV, 0 none): ParamController's software loop brightens by it. */
     public static float ettrEv(CaptureController cc) {
+        if (cc != null && cc.unspektraAe != null && cc.unspektraAe.ownsExposure()) return 0;
         return cc == null || cc.mEttr == null || !PreferenceKeys.isEttr() ? 0f : cc.mEttr.ev();
     }
 
@@ -5916,6 +5974,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * session, the forced stabilisation; a shot in progress): no boost.
      */
     private void ettrMeter(Image img, TotalCaptureResult result) {
+        if (unspektraAe.ownsExposure()) { ettrStop("Unspektra AE"); return; }
         final boolean isoByHand = paramController.manualIsoValue() != 0;
         final String held = Ettr.hold(PreferenceKeys.isEttr(), mNativeAe != null, mVivoSdkCapture != null,
                 com.particlesdevs.photoncamera.settings.MotionMode.on() || paramController.motionCeilingActive(),

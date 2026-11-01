@@ -91,6 +91,30 @@ public final class SettingsMigration {
      * can never bring them back invisibly. Keys listed here have no getter and no XML row any more.
      */
     static final java.util.Set<String> OBSOLETE_KEYS = new java.util.HashSet<>(java.util.Arrays.asList(
+            // Resolve and the post-CCM pyramid replace the old SCAM/NLM filters.
+            "pref_scam_hybrid_denoise_engine",
+            "pref_scam_hybrid_despeckle",
+            "pref_scam_hybrid_ark_dn_dark_chroma",
+            "pref_scam_hybrid_why_ms_motion",
+            "pref_scam_hybrid_dn_luma_mult",
+            "pref_scam_hybrid_dn_sabre_luma_mult",
+            "pref_scam_hybrid_dn_luma_gid14_mult",
+            "pref_scam_hybrid_dn_chroma_mult",
+            "pref_scam_hybrid_dn_chroma_floor",
+            "pref_scam_hybrid_dn_revert_mult",
+            "pref_scam_hybrid_dn_revert_max",
+            "pref_scam_hybrid_dn_coarse_stock",
+            "pref_scam_hybrid_dn_luma_grain",
+            "pref_scam_hybrid_dn_dark_tier",
+            "pref_scam_hybrid_dn_dark_chroma_hi",
+            "pref_scam_hybrid_dn_dark_chroma_lo",
+            "pref_scam_hybrid_dn_dark_chroma_noise",
+            "pref_scam_hybrid_dn_dark_fade",
+            "pref_scam_hybrid_dn_chroma_day",
+            "pref_scam_hybrid_dn_chroma_2x_keep",
+            "pref_scam_hybrid_dn_strength_map",
+            "pref_scam_hybrid_dn_huge_map",
+            "pref_scam_hybrid_dn_huge_fine",
             // P1: vivo upscale (RAISR, SoftPQE, VSR) and the Lanczos after it
             "pref_scam_upscale_backend_key", "pref_scam_downscale_kernel_key", "pref_scam_downscale_size_key",
             // P2: "Кадрирование DNG" (the 16:9 crop is always centred now)
@@ -903,14 +927,14 @@ public final class SettingsMigration {
     static final String CONFIG_DEFAULTS_REV = "pref_scam_hybrid_config_defaults_rev";
     /** P405: {key after pref_scam_hybrid_, the former default, the reference config's}. */
     static final Object[][] CONFIG_DEFAULTS = {
-            {"why_bright_thresh", 0.8f, 0.9f}, {"why_hl_boost", 1f, 1.1f}, {"why_hl_blend", 0.33f, 0.5f}, {"why_dark_thresh", 15f, 12.5f},
-            {"why_dark_pixel_thresh", 10f, 22f}, {"why_contrast_boost", 0.5f, 0.3f}, {"why_agx_slope", 2.7f, 2.45f}, {"why_agx_tp", 1.6f, 2f},
+            {"why_bright_thresh", 0.8f, 1f}, {"why_hl_boost", 1f, 1f}, {"why_hl_blend", 0.33f, 0.5f}, {"why_dark_thresh", 15f, 10f},
+            {"why_dark_pixel_thresh", 10f, 22.5f}, {"why_contrast_boost", 0.5f, 0.3f}, {"why_agx_slope", 2.7f, 2.45f}, {"why_agx_tp", 1.6f, 2f},
             {"why_agx_ev", 0.3f, 0f}, {"why_agx_inset", 100f, 50f}, {"why_uchi_post_gain", 0.9f, 1f}, {"why_curve_on", false, true},
             {"why_curve_points", com.particlesdevs.photoncamera.processing.color.ToneCurve.DEFAULT_POINTS,
                     com.particlesdevs.photoncamera.processing.color.ToneCurve.SETTING_POINTS},
-            {"why_curve_boost", 0f, 1f}, {"why_film_toe", 0.1f, 0f}, {"why_highlight_str", 2f, 2.1f}, {"why_fusion_layout", "0", "1"},
-            {"why_classic_weight_hl", 0.8f, 1f}, {"why_classic_weight_mid", 1f, 2f}, {"why_classic_weight_shadow", 0.5f, 1f},
-            {"why_classic_weight_center", 0.5f, 1f}, {"why_blend_smoothness", 0.25f, 0.45f}, {"why_bracket_denoise", 1f, 0f},
+            {"why_curve_boost", 0f, 1f}, {"why_film_toe", 0.1f, 0f}, {"why_highlight_str", 2f, 2f}, {"why_fusion_layout", "0", "1"},
+            {"why_classic_weight_hl", 0.8f, 1f}, {"why_classic_weight_mid", 1f, 1f}, {"why_classic_weight_shadow", 0.5f, 1.5f},
+            {"why_classic_weight_center", 0.5f, 1f}, {"why_blend_smoothness", 0.25f, 1f}, {"why_bracket_denoise", 1f, 0f},
             {"why_ms_denoise", false, true}, {"why_ms_luma", 1f, 0.2f}, {"why_ms_luma_l0", 1f, 0.4f}, {"why_ms_luma_l1", 1f, 0.1f},
             {"why_ms_luma_l2", 1f, 0.35f}, {"why_ms_chroma", 2f, 0.5f}, {"why_ms_chroma_l0", 1f, 0.2f}, {"why_ms_chroma_l1", 1f, 0.4f},
             {"why_ms_chroma_l2", 1f, 0.6f}, {"why_ms_model_scale", 1f, 1.5f}, {"why_hr_strength", 1f, 0.6f}, {"why_hr_knee", 0.5f, 0.6f},

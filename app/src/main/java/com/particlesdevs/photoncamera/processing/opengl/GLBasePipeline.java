@@ -216,12 +216,20 @@ public class GLBasePipeline implements AutoCloseable {
         return bitmap;
     }
 
+    protected boolean skipNode(Node node) { return false; }
+
     /** Runs every node; the last one stays bound for the readback. */
     private void runNodes() {
         lastI();
         final boolean syncNodes = PostGlMode.syncNodes();
         for (int i = 0; i < Nodes.size(); i++) {
             Node node = Nodes.get(i);
+            if (skipNode(node)) {
+                if (node.previousNode == null) throw new IllegalStateException("Cannot skip the first post node");
+                node.WorkingTexture = node.previousNode.WorkingTexture;
+                glint.glProgram.closed = true;
+                continue;
+            }
             try {
                 prepareNode(node,i);
             } catch (RuntimeException error) {

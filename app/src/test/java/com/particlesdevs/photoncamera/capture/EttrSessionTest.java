@@ -475,7 +475,8 @@ public class EttrSessionTest {
         final int session = s.indexOf("LiveRawFrame.setEnabled(false); // invalidate the previous session");
         final int sessionReset = s.indexOf("resetEttr();", session);
         assertTrue(session > 0 && sessionReset > session
-                && sessionReset < s.indexOf("LiveRawFrame.setEnabled(mLiveRawSession);", session));
+                && sessionReset < s.indexOf("LiveRawFrame.setEnabled(mLiveRawSession && rawDisplaySession);", session));
+        assertTrue(s.contains("|| com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID)"));
         final int close = s.indexOf("public void closeCamera() {");
         final int closeReset = s.indexOf("resetEttr();", close);
         assertTrue(close > 0 && closeReset > close && closeReset < s.indexOf("mCameraOpenCloseLock.acquire();", close));

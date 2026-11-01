@@ -28,7 +28,9 @@ public class AsyncLogTest {
         Field f=Log.class.getDeclaredField(name);f.setAccessible(true);return f;
     }
     @Test public void callerDoesNotQueryStorageAndQueueIsBounded() throws Exception {
+        org.robolectric.shadows.ShadowBuild.setSystemOnChipModel("SM8650");
         Log.setLogEnabled(true);
+        Log.setLogFolder(null);
         Handler handler=(Handler)field("logHandler").get(null);
         // Pause the writer: equivalent to a stalled SAF provider. The caller
         // must only enqueue, even with an active SAF logging destination.

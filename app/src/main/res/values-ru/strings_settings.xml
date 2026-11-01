@@ -162,8 +162,6 @@
     <string name="prefs_scam_hybrid_photo_screen_summary">Пирамидальный шумодав и шумодав склейки</string>
     <string name="prefs_scam_hybrid_denoise_title">Все шумодавы</string>
     <string name="prefs_scam_hybrid_denoise_summary">Все шумодавы SHDR. Выключено — остаётся только склейка кадров: снимок зернистее, но детальнее.</string>
-    <string name="prefs_scam_hybrid_denoise_engine_title">Движок шумодава</string>
-    <string name="prefs_scam_hybrid_denoise_engine_summary">Resolve — лёгкий шумодав склейки в три прохода, сохраняет фактуру и мелкое зерно (по умолчанию). SCAM 9.6 — прежний многомасштабный шумодав: глаже, но в тенях меньше деталей.</string>
     <string name="prefs_scam_hybrid_ark_dn_factor_title">Шумоподавление Resolve</string>
     <string name="prefs_scam_hybrid_ark_dn_factor_summary">Сила шумодава Resolve. Больше — глаже, меньше — больше зерна и деталей; 0 — выкл.</string>
     <string name="prefs_scam_hybrid_ark_dn_luma_revert_title">Сохранение сырой резкости</string>
@@ -172,8 +170,6 @@
     <string name="prefs_scam_hybrid_ark_dn_motion_revert_summary">Та же доля там, где склеилось мало кадров (движение). Больше — резче и зернистее, меньше — глаже.</string>
     <string name="prefs_scam_hybrid_ark_dn_grain_title">Зернистость Resolve</string>
     <string name="prefs_scam_hybrid_ark_dn_grain_summary">Мелкое зерно там, где склеилось меньше пяти кадров, чтобы движущиеся места не выглядели восковыми. 0 — без зерна.</string>
-    <string name="prefs_scam_hybrid_despeckle_title">Удаление одиночных точек</string>
-    <string name="prefs_scam_hybrid_despeckle_summary">Убирает одиночные светлые и тёмные точки. Может стереть мелкие далёкие объекты на небе или воде.</string>
     <string name="prefs_scam_hybrid_bento_denoise_max_title">Мало кадров: предел усиления шумодава</string>
     <string name="prefs_scam_hybrid_bento_denoise_max_summary">Насколько сильнее чистятся места из малого числа кадров (лампы, движение). Больше — чище, меньше — детальнее.</string>
     <string name="prefs_scam_hybrid_nr_snr_screen_title">SNR и модель шума</string>
@@ -1082,4 +1078,13 @@
     <string name="module_row_lens">Настройки линзы</string>
     <string name="module_row_lens_summary">Сенсор, RAW, уровни, матрица цвета и шум</string>
     <string name="module_row_id">Camera ID</string>
+    <string name="prefs_scam_hybrid_resolve_speckle_threshold_title">Порог цветных точек</string>
+    <string name="prefs_scam_hybrid_resolve_speckle_threshold_summary">Отличие цвета от соседей, при котором начинается очистка.</string>
+    <string name="prefs_scam_hybrid_resolve_speckle_strength_title">Сила очистки цветных точек</string>
+    <string name="prefs_scam_hybrid_resolve_speckle_strength_summary">Доля исправления цветных точек; яркость сохраняется.</string>
+    <string name="prefs_scam_hybrid_resolve_optics_category_title">Очистка цветных точек</string>
+    <string name="prefs_scam_hybrid_resolve_speckle_enable_title">Очистка цветных точек</string>
+    <string name="prefs_scam_hybrid_resolve_speckle_enable_summary">Медианная очистка цвета перед пирамидальным шумодавом. Яркость сохраняется.</string>
+    <string name="prefs_unspektra_ae_credit_title">Unspektra AE</string>
+    <string name="prefs_unspektra_ae_credit_summary">Источник: Unspektrawesome, разработчик JohnTheFarm3r. Адаптация для SCAMERA. Нажмите, чтобы открыть исходный проект.</string>
 </resources>
