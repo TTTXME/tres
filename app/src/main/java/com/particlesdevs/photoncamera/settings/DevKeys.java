@@ -55,6 +55,7 @@ public final class DevKeys {
             "post_priority", "gpu_low_priority", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
+            "post_noise_quantile_gpu",
             "hybrid_la_threads", "hybrid_la_stream", "hybrid_la_scam", "hybrid_rgb_half", "worker_gpu_normal_priority",
             "isp_preview_off_always", "hybrid_isp_ccm", "hybrid_clip_flags", "dng_colour_jpeg",
             "dng_white_spec", // P370 (A1): the scene light and calibration weight of the shot's Parameters
@@ -511,6 +512,8 @@ public final class DevKeys {
         // P440: GLCoreBlockProcessing's final readback through one pixel-pack buffer
         k.add(s(post, "post_pbo_readback", true, Lang.t("Готовое фото (до 16 Мп) читается с GPU в один буфер и копируется в картинку разом (те же байты). Выкл — полосами через промежуточную картинку, как до P440",
                 "The finished photo (up to 16 MP) is read from the GPU into one buffer and copied into the bitmap at once (the same bytes). Off: in strips through an intermediate bitmap, as before P440")));
+        k.add(s(post, "post_noise_quantile_gpu", true, Lang.t("Ускоренная оценка шума на GPU. При несовместимости используется прежний расчёт на CPU; результат шумоподавления сохраняется",
+                "Faster noise estimation on the GPU. Incompatible cases use the original CPU calculation; denoising is unchanged")));
         k.add(s(post, "thermal_async", true, Lang.t("Температурный статус после склейки запрашивается в фоне (вызов системы не задерживает обработку). Выкл — на потоке обработки, как до P371",
                 "The thermal status after the merge is read in the background (the system call does not hold the processing). Off: on the processing thread, as before P371")));
         // P242: the merge worker's GPU priority (A/B, WorkerSpawn.environment)

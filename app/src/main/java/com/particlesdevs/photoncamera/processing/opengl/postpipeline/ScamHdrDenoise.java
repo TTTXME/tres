@@ -146,6 +146,11 @@ public final class ScamHdrDenoise extends Node {
             glProg.setVar("pxStepU", s);
             glProg.drawBlocks(est);
             android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
+            if (!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()
+                    && PreferenceKeys.scamDevSwitch("post_noise_quantile_gpu", true)) {
+                final Float quarter = NoiseQuantileGpu.quarter(glProg, est);
+                if (quarter != null) return quarter / 0.8463f / (float) Math.sqrt(1.125);
+            }
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
