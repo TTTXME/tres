@@ -81,9 +81,13 @@ public class HybridSettingsTest {
         PreferenceGroup hybrid=root.findPreference("root_colour");
         assertNotNull(hybrid);
         for(String screen:new String[]{"scam_hybrid_photo_screen","scam_hybrid_why_sharp_screen","scam_hybrid_why_tone_screen",
-                "scam_hybrid_hdr_screen","scam_hybrid_merge_screen","scam_hybrid_nr_snr_screen","scam_hybrid_nr_mult_screen",
-                "scam_hybrid_nr_safe_screen","scam_hybrid_mosaic_screen","scam_hybrid_why_rl_screen","photo_processing_screen"})
+                "scam_hybrid_hdr_screen","scam_hybrid_merge_screen","scam_hybrid_mosaic_screen","scam_hybrid_why_rl_screen",
+                "photo_processing_screen"})
             assertTrue(screen,hybrid.findPreference(screen) instanceof PreferenceScreen);
+        // P443: the SCAM 9.6 denoise's tuning pages left the menu (the Resolve engine is the default; scam_dev keys)
+        for(String screen:new String[]{"scam_hybrid_nr_snr_screen","scam_hybrid_nr_mult_screen","scam_hybrid_nr_safe_screen",
+                "scam_hybrid_nr_why_luma_screen","scam_hybrid_nr_why_chroma_screen"})
+            assertNull(screen,root.findPreference(screen));
         // P175: the neural remosaic page is gone
         assertNull(root.findPreference("shdr_neural_remosaic_screen"));
         // P134: «Цвет» holds the colour rows (the vibrance page dissolved into its «Насыщенность»)
@@ -675,6 +679,27 @@ public class HybridSettingsTest {
             stamp.setLong(null,-1);
         }
         assertTrue(PreferenceKeys.hybridTuningText().contains("bentoPartial 1\n"));
+    }
+
+    @Test public void p441UltrashortEdgesOnByDefault() throws Exception {
+        // P441: the ultrashort colour along the edge, the bilinear F6 field and the per-pixel clip mark; scam_dev "hybrid_us_edges 0"
+        // takes the three lines out (the worker as before)
+        final String set="bentoBlendUsBox 1\nbentoBlendFieldBilinear 1\nbentoBlendPixelMark 1\n";
+        assertTrue(PreferenceKeys.hybridTuningText().contains(set));
+        java.io.File file=ScamDevFile.file(context);
+        if(file.getParentFile()!=null)file.getParentFile().mkdirs();
+        java.lang.reflect.Field stamp=PreferenceKeys.class.getDeclaredField("scamDevStamp");
+        stamp.setAccessible(true);
+        try{
+            java.nio.file.Files.write(file.toPath(),"hybrid_us_edges 0\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            stamp.setLong(null,-1);
+            String t=PreferenceKeys.hybridTuningText();
+            assertFalse(t,t.contains("bentoBlendUsBox")||t.contains("bentoBlendFieldBilinear")||t.contains("bentoBlendPixelMark"));
+            assertTrue(t,t.contains("bentoPartial 1\n"));
+        }finally{
+            java.nio.file.Files.deleteIfExists(file.toPath());
+            stamp.setLong(null,-1);
+        }
     }
 
     @Test public void p68DefaultsOnEveryPhone() {

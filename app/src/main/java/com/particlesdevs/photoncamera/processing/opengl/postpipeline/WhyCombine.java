@@ -34,11 +34,34 @@ public final class WhyCombine extends Node {
      * ISO 2900 night at SNR 39: 1.22). Host replay of the sunset: the finest band of the display luma 0.0072 -> 0.0101 (LMC 9.6
      * 0.0106 .. 0.016 on the same water and deck, the stock camera 0.030 .. 0.036), the 1 - 3 px band +20 %; noise is the denoise's
      * matter at low SNR, where it stays x1. 1 when the SNR is unknown.
+     * <p>
+     * P443 (the night port 230628, SNR 17.9, against the reference app's photo: the quay wall, the fenders' chains and the hull at
+     * the waterline flat): a night floor, max(the above, 1 at SNR 5 rising log-linearly to {@link #NIGHT_DETAIL} at SNR 15, flat
+     * after) - the reference app's own resolve keeps 85 % of the luma at every scale and its picture keeps that texture, where ours
+     * stayed x1 below SNR 20. Host replay of the app's post with its JPEG encoder (the fenders / the hull, high-pass std in codes):
+     * 3.43 / 4.40 (the app's JPEG) -> 3.98 / 4.89, the reference app 4.44 / 5.16; the dark sky's grain 0.59 -> 1.16 (the
+     * reference app 1.50). Shots at SNR 15 - 47 move to 1.3 (013638 at SNR 22: 1.03 -> 1.3), from SNR 47 nothing changes.
      */
     static float detailBoost(float snr) {
-        if (!(snr > 20f)) return 1f;   // NaN (unknown) included
-        if (snr >= 150f) return 1.7f;
-        return (float) (1.0 + 0.7 * Math.log(snr / 20.0) / Math.log(150.0 / 20.0));
+        return detailBoost(snr, NIGHT_DETAIL);
+    }
+
+    /** P443: the night floor's top (scam_dev "hybrid_why_night_detail"; 1 or below = the P340 rule alone, as before). */
+    static final float NIGHT_DETAIL = 1.3f;
+
+    static float detailBoost(float snr, float night) {
+        final float day;
+        if (!(snr > 20f)) day = 1f;   // NaN (unknown) included
+        else if (snr >= 150f) day = 1.7f;
+        else day = (float) (1.0 + 0.7 * Math.log(snr / 20.0) / Math.log(150.0 / 20.0));
+        if (!(night > 1f) || !(snr > 5f)) return day;
+        final float t = snr >= 15f ? 1f : (float) (Math.log(snr / 5.0) / Math.log(3.0));
+        return Math.max(day, 1f + (night - 1f) * t);
+    }
+
+    static float nightDetail() {
+        final float v = PreferenceKeys.hybridValue("why_night_detail", NIGHT_DETAIL);
+        return Float.isNaN(v) ? NIGHT_DETAIL : Math.max(0f, Math.min(2f, v));
     }
 
     /**
@@ -47,8 +70,9 @@ public final class WhyCombine extends Node {
      * merge's own detail); without one the expression as before, bit for bit.
      */
     static float detailGain(float sharpGain, float snr, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film) {
-        if (film == null) return sharpGain * detailBoost(snr);
-        return 1f + (sharpGain * detailBoost(snr) - 1f) * (1f - film.strength);
+        final float boost = detailBoost(snr, nightDetail());
+        if (film == null) return sharpGain * boost;
+        return 1f + (sharpGain * boost - 1f) * (1f - film.strength);
     }
 
     /** P154 «Мягкость засветов»: where the highlight landing starts below the data ceiling (fraction 0 .. 0.9; 0 = off). */
@@ -235,6 +259,7 @@ public final class WhyCombine extends Node {
             final boolean arkVibrance = WhyTone.arkVibranceOn();
             if (arkVibrance) glProg.setDefine("ARK_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
+            if (WhyTone.rimSmooth()) glProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
                     ? " backlit (level x" + Math.round(100f * st.skyMask.keep) / 100f + ")" : "");
             // P378 review: Ultra HDR keeps the sky term's change - the combine at whyLow with and without it (skyHdrRatio), its
@@ -347,7 +372,7 @@ public final class WhyCombine extends Node {
             glProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones
             if (WhyTone.yellowHue() > 0f) glProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
             if (WhyTone.hlNeutral() > 0f) glProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
-            glProg.setVar("chromaDnU", WhyFusion.whyDenoise(basePipeline.mParameters) ? WhyTone.value("chroma_denoise", 0f) : 0f);
+            glProg.setVar("chromaDnU", WhyFusion.whyDenoise(basePipeline.mParameters) ? PreferenceKeys.hybridValue("why_chroma_denoise", 0f) : 0f);
             glProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             glProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));
             glProg.setVar("detailGainU", detail);

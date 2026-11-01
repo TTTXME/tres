@@ -44,13 +44,28 @@ public class SettingsMovesKeepValuesTest {
     /**
      * The rows removed on purpose: the 2026-10-27 layout's empty LUT link (no stored value, no action left); P419 the «Цвет» shadow /
      * light vibrance and its skin protection, duplicates of the reference app's vibrance rows (SettingsMigration moves their values
-     * into why_vibrance_shadows / why_vibrance_hl_str once; why_skin_protect is the one protection).
+     * into why_vibrance_shadows / why_vibrance_hl_str once; why_skin_protect is the one protection); P443 the SCAM 9.6 denoise's
+     * tuning rows (its tables, multipliers, noise model and safeguards).
      */
     private static final List<String> REMOVED = java.util.Arrays.asList("photo_style_lut", "pref_scam_hybrid_colour_vib_shadows",
             "pref_scam_hybrid_colour_vib_highlights", "pref_scam_hybrid_colour_skin_protect",
             // P421: the hybrid's NLM engine and its two strengths, the manual SNR and «Карта силы» (scam_dev keys now)
             "pref_scam_hybrid_dn_engine", "pref_scam_hybrid_post_luma", "pref_scam_hybrid_post_chroma", "pref_scam_hybrid_dn_snr",
-            "pref_scam_hybrid_dn_strength_map");
+            "pref_scam_hybrid_dn_strength_map",
+            // P443: the SCAM 9.6 engine's tuning rows (the Resolve engine is the default): the numbers are scam_dev keys, the tables
+            // their built-in defaults; a value stored before stays
+            "pref_scam_hybrid_bento_denoise_max", "pref_scam_hybrid_dn_chroma_2x_keep", "pref_scam_hybrid_dn_chroma_floor", "pref_scam_hybrid_dn_chroma_mult",
+            "pref_scam_hybrid_dn_chroma_t1_outlier", "pref_scam_hybrid_dn_chroma_t1_snr", "pref_scam_hybrid_dn_chroma_t1_strength", "pref_scam_hybrid_dn_chroma_t2_outlier",
+            "pref_scam_hybrid_dn_chroma_t2_snr", "pref_scam_hybrid_dn_chroma_t2_strength", "pref_scam_hybrid_dn_chroma_t3_outlier", "pref_scam_hybrid_dn_chroma_t3_snr",
+            "pref_scam_hybrid_dn_chroma_t3_strength", "pref_scam_hybrid_dn_chroma_t4_outlier", "pref_scam_hybrid_dn_chroma_t4_snr", "pref_scam_hybrid_dn_chroma_t4_strength",
+            "pref_scam_hybrid_dn_coarse_stock", "pref_scam_hybrid_dn_dark_fade", "pref_scam_hybrid_dn_luma_gid14_mult", "pref_scam_hybrid_dn_luma_mult",
+            "pref_scam_hybrid_dn_luma_t1_outlier", "pref_scam_hybrid_dn_luma_t1_revert", "pref_scam_hybrid_dn_luma_t1_snr", "pref_scam_hybrid_dn_luma_t1_strength",
+            "pref_scam_hybrid_dn_luma_t2_outlier", "pref_scam_hybrid_dn_luma_t2_revert", "pref_scam_hybrid_dn_luma_t2_snr", "pref_scam_hybrid_dn_luma_t2_strength",
+            "pref_scam_hybrid_dn_luma_t3_outlier", "pref_scam_hybrid_dn_luma_t3_revert", "pref_scam_hybrid_dn_luma_t3_snr", "pref_scam_hybrid_dn_luma_t3_strength",
+            "pref_scam_hybrid_dn_luma_t4_outlier", "pref_scam_hybrid_dn_luma_t4_revert", "pref_scam_hybrid_dn_luma_t4_snr", "pref_scam_hybrid_dn_luma_t4_strength",
+            "pref_scam_hybrid_dn_luma_t5_outlier", "pref_scam_hybrid_dn_luma_t5_revert", "pref_scam_hybrid_dn_luma_t5_snr", "pref_scam_hybrid_dn_luma_t5_strength",
+            "pref_scam_hybrid_dn_model_read", "pref_scam_hybrid_dn_model_shot", "pref_scam_hybrid_dn_revert_max", "pref_scam_hybrid_dn_revert_mult",
+            "pref_scam_hybrid_dn_sabre_luma_mult", "pref_scam_hybrid_dn_snr_scale", "pref_scam_hybrid_why_chroma_denoise");
 
     private static File src(String path) {
         File f = new File(path);

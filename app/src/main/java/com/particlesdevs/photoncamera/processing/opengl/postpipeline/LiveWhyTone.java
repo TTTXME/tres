@@ -700,6 +700,8 @@ public final class LiveWhyTone {
         if (v == null || v.frame == null || v.frame.buffer == null) return ae != null;
         final com.particlesdevs.photoncamera.processing.LiveRawFrame.Frame f = v.frame;
         mergedNoise(f.noiseS, f.noiseO);
+        // P442: the photo's night rule from the frame's exposure (the decision's EV100 of base white, as the sky's below)
+        settings.evWhite = WhySkyMask.evOffset(f.iso, f.exposureNs / 1e9, aperture, inScale);
         final WhyAe.Result r = meter.measure(v, inScale, settings, f.iso, f.maxAnalogIso);
         if (r == null) return ae != null;
         filmAeTarget = WhyAe.filmAe(r);

@@ -20,7 +20,9 @@ import static android.opengl.GLES20.GL_LINEAR;
  * Laplacian levels and a base, luminance detail soft-thresholded and colour detail pulled towards a luminance-guided mean. Its
  * thresholds as the reference app's driver sets them: 0.012 x «Яркостный шумодав» and 0.02 x «Цветовой шумодав», x a level's own
  * share, x the noise model's factor (the frame's SNR at grey 0.18: 20 / SNR in 0.4 .. 3.5, eased by «Масштаб модели шума» into
- * 0.25 .. 4). Off by default (pref_scam_hybrid_why_ms_denoise); a 200 MP shot is left alone (its level 1 alone would be 400 MB).
+ * 0.25 .. 4). On by default (pref_scam_hybrid_why_ms_denoise, the owner's reference config: the reference app's own default is off;
+ * P443: after ArkResolveDenoise it is the reference app's denoise B after its A); a 200 MP shot is left alone (its level 1 alone
+ * would be 400 MB).
  * Where the merge kept few frames (its frame map) the detail thresholds rise up to x1.3 (luminance) and x1.5 (colour) x «Усиление в
  * зонах движения».
  */

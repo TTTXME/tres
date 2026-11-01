@@ -137,7 +137,13 @@ public final class WhyTone {
         s.darkPixelThresh = value("dark_pixel_thresh", 22f);
         s.hlBoost = value("hl_boost", 1.1f);
         s.contrastBoost = value("contrast_boost", 0.3f);
-        s.shadowStr = Math.max(value("shadow_str", 2.0f), 0f);   // pushCurrentLut 0x80db8
+        s.shadowStr = Math.max(value("shadow_str", 2.0f), 0f);
+        // P442: a night scene (median EV100 from night_ev_hi down to night_ev_lo) meters to night_ae_target and lifts its shadows
+        // with night_shadow_str; scam_dev hybrid_why_night_ev_hi 0 = off (as before)
+        s.nightEvHi = value("night_ev_hi", 6.5f);
+        s.nightEvLo = value("night_ev_lo", 5.0f);
+        s.nightAeTarget = value("night_ae_target", 0.13f);
+        s.nightShadowStr = Math.max(value("night_shadow_str", 1.5f), 0f);   // pushCurrentLut 0x80db8
         s.highlightStr = value("highlight_str", 2.1f);
         s.efEnabled = true;
         s.look = Math.round(value("agx_look", 4f));
@@ -403,6 +409,25 @@ public final class WhyTone {
      */
     static float edgeHold() {
         return Math.max(0f, Math.min(1f, value("edge_hold", 1f)));
+    }
+
+    /**
+     * P441 (owner, 2026-11-01: «ступеньки на гранях»): why/sharp_r1 latCapU - P337's 2 px lattice estimate clamped to this share of
+     * Ya (+ 0.0002): along every edge the estimate was a +-step / 8 burst the sharpening lifted into dashes; the merge's own lattice
+     * (~0.1 % of the level) still goes. scam_dev hybrid_why_sharp_lattice_cap (0 = unclamped, as before).
+     */
+    static float latticeCap() {
+        return Math.max(0f, value("sharp_lattice_cap", 0.005f));
+    }
+
+    /**
+     * P441: why/combine RIM_SMOOTH - P311's and P349's rim rules of the detail delta on every darkening pixel from one pass over
+     * the disc, the far side continuous in the pixel's position (they switched with the 2 x 2 phase: steps along a plate's edge
+     * and dotted lines along grooves by a sunlit panel; the edge against sunlit white keeps no dark line). scam_dev
+     * hybrid_why_rim_smooth 0 = the rules before.
+     */
+    static boolean rimSmooth() {
+        return value("rim_smooth", 1f) > 0.5f;
     }
 
     /**

@@ -196,6 +196,13 @@ public class SettingsModelCheck {
         dn.put("pref_scam_hybrid_dn_engine","nlm");
         active(dn,"pref_scam_hybrid_dn_luma_mult");active(dn,"pref_scam_hybrid_dn_luma_t1_snr");active(dn,"pref_scam_hybrid_dn_dark_fade");
         active(dn,"pref_scam_hybrid_despeckle");
+        // P443: the Resolve rows act with their engine (the default) only
+        Map<String,Object> ark=new HashMap<>();
+        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(ark,"pref_scam_hybrid_ark_dn_"+k);
+        active(ark,"pref_scam_hybrid_denoise_engine");
+        ark.put("pref_scam_hybrid_denoise_engine","scam");
+        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})inactive(ark,"pref_scam_hybrid_ark_dn_"+k);
+        ark.put("pref_scam_hybrid_denoise_engine","ark");active(ark,"pref_scam_hybrid_ark_dn_factor");
         Map<String,Object> out=new HashMap<>(); // output "sensor" (default)
         inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_output");
         // the 2x colour share also acts on 200 MP shots (their 2x2 means): inactive at the sensor size only without them

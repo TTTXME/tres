@@ -390,6 +390,8 @@ public final class WhyLumaSharpen extends Node {
             if (gather && !r1) glProg.setDefine("GATHER", 1);
             glProg.useAssetProgram("why/sharp_r1", false);
             glProg.setTexture("InputBuffer", ya);
+            // P441: the lattice estimate clamped to this share of Ya (edges no longer dashed); why_sharp_lattice_cap 0 = unclamped
+            if (!r1) glProg.setVar("latCapU", WhyTone.latticeCap());
             glProg.setVar("modeU", r1 ? 0 : 3);
             glProg.drawBlocks(src);
             residual = plane(size, GLFormat.DataType.FLOAT_16, 1);

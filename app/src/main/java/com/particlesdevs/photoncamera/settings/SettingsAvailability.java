@@ -162,9 +162,12 @@ public final class SettingsAvailability {
                         "No effect with a film simulation at 100 %: the film sets the tone, colour and texture. Below 100 % its influence is reduced.");
         }
         // The denoise and watermark switches sit on a parent page of these rows (P6), so the rule replaces android:dependency.
-        if ((key.startsWith("pref_scam_hybrid_dn_") || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
+        if ((key.startsWith("pref_scam_hybrid_dn_") || key.startsWith("pref_scam_hybrid_ark_dn_") || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
                 && !on("pref_scam_hybrid_denoise", true)) return Lang.t("Включите «Все шумодавы» (Для опытных › SHDR › Шумоподавление: подробно).",
                 "Turn on “All denoisers” (For experts › SHDR › Noise reduction: details).");
+        // P443: the four Resolve rows act only with that engine («Движок шумодава»; ArkResolveDenoise)
+        if (key.startsWith("pref_scam_hybrid_ark_dn_") && text("pref_scam_hybrid_denoise_engine", "ark").trim().equals("scam"))
+            return Lang.t("Только с движком шумодава «Resolve».", "Only with the “Resolve” denoise engine.");
         // Output size (pref_scam_hybrid_output): every size but the sensor's merges on the Sabre 2x grid; 12 / 16 / 20 MP are
         // then made with the downsampler (HybridFinalResize), 2x is kept as it is.
         String output = text("pref_scam_hybrid_output", "sensor").trim();

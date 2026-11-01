@@ -26,6 +26,7 @@
 
 #include "lib/jpegli/common.h"
 #include "lib/jpegli/encode.h"
+#include "scamera-jpeg-core.h"   // P443: adaptiveQuantisation()
 
 namespace scamera_jpeg {
 namespace parallel {
@@ -223,6 +224,7 @@ inline std::vector<uint8_t> encodeStrip(const uint8_t* pixels, int width, int h,
         cinfo.in_color_space = JCS_EXT_RGBA;
         jpegli_set_defaults(&cinfo);
         jpegli_set_quality(&cinfo, quality < 1 ? 1 : quality > 100 ? 100 : quality, TRUE);
+        jpegli_enable_adaptive_quantization(&cinfo, adaptiveQuantisation().load() ? TRUE : FALSE);   // P443 (scamera-jpeg-core.h)
         jpegli_set_progressive_level(&cinfo, 0);   // one sequential scan
         for (int c = 0; c < cinfo.num_components; ++c) {
             cinfo.comp_info[c].h_samp_factor = 1;

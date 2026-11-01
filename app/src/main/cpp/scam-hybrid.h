@@ -405,6 +405,30 @@ struct HybridTuning {
     // F12: the 5 x 5 chroma smoothing weighted by luma similarity exp(-((lq - lp) / max(lq, lp) / k)^2) (k = this; 0 = off): the
     // colour of a light no longer bleeds across its edge
     float bentoBlendChromaEdge=0.f;
+    // P441 (owner, 2026-11-01: «ступеньки на гранях и ... замыливание в областях хайлайтов ... Это очень важная проблема»): the
+    // ultrashort colour of an output pixel was read at the frame position of its 2x2 cell's corner plus the offset, with the F6 field
+    // of that cell (originM: one offset per cell) - three frames whose fields step by 0.3 - 1 px between cells (clipped, textureless
+    // light: p90 ~1 px) drew a 2 px staircase / comb along every edge through the light. 1 = the field bilinear between the cell
+    // centres (kHybUsBlend only; the merge keeps originM). 0 = as before.
+    int bentoBlendFieldBilinear=0;
+    // P441: the ultrashort frames clip too on a bright highlight (a glossy panel in the sun: 17 - 29 % of their sites at 1023): their
+    // colour then steps between clipped and unclipped sites per channel along a ragged, noisy clip contour (cream / yellow patches,
+    // a comb along a wire, ripples) and each frame's contour differs (smear). x > 0: the ultrashort colour rolls smoothly into the
+    // clip as its brightest colour goes from x to 0.995 of the frames' clip - every colour to the clip, the clip bits set from half
+    // way - as the N clip itself (the post's clip handling makes it white). 0 = as before.
+    float bentoBlendUsSoftClip=0.f;
+    // P441: the N clip of the blend per pixel - its own brightest colour from 0.98 (and the clip mark's level ramp) - not the
+    // merge's clipped-mean bits, which follow the frames' 2x2-cell clip (a union of cells: the region of the ultrashort colour
+    // stepped along every edge through the light). 1 = on; 0 = as before.
+    int bentoBlendPixelMark=0;
+    // P441: the ultrashort frame's colour mixed with a smooth tent of its same-colour sites (radius 2 px) by this share: a single
+    // Bayer frame's directional demosaic drew a 2 px zipper / comb along a thin line at an angle (a wire across a sunlit panel);
+    // three frames cannot average it as the N merge's do. 0 = as before (WhyCam's short-frame kernel: 50 % round / linear).
+    float bentoBlendUsAa=0.f;
+    // P441: 1 = the ultrashort colour smoothed along the local edge (a tent of +-4 px along the tangent, only where the relative
+    // step over 2 px is an edge): the 2 px comb of a single Bayer frame along a thin line cancels, across the edge the read stays
+    // sharp (a 2 x 2 box widened a thin frame line's colour fringe). 0 = one read.
+    int bentoBlendUsBox=0;
     // F10: the ultrashort frames registered sub-pixel against the base after the alignment (hybridUsRegister: translation + level
     // on the base's unclipped texture), before Bento's check, the F6 field and the merge read their transform. 1 = on, 2 = also an
     // ultrashort frame the corner tracker refused (CRE failed on its x8 noise) starts from the global translation instead of being
@@ -1077,7 +1101,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("bentoBlendGateMid",nullptr,&t.bentoBlendGateMid)||set("bentoBlendCellMode",nullptr,&t.bentoBlendCellMode)||set("bentoBlendSatWb",nullptr,&t.bentoBlendSatWb)
             ||set("wbR",&t.wbR)||set("wbB",&t.wbB)||set("bentoValidZ",&t.bentoValidZ)||set("bentoValidZFloor",&t.bentoValidZFloor)||set("bentoValidZRange",nullptr,&t.bentoValidZRange)
             ||set("bentoBlendValidOnce",nullptr,&t.bentoBlendValidOnce)||set("bentoBlendValidBilinear",nullptr,&t.bentoBlendValidBilinear)
-            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)
+            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)
             ||set("bentoBlendFillMean",nullptr,&t.bentoBlendFillMean)||set("bentoBlendChromaEdge",&t.bentoBlendChromaEdge)||set("mosaicUsFillTol",&t.mosaicUsFillTol)
             ||set("bentoUsRegister",nullptr,&t.bentoUsRegister)||set("bentoUsRegisterMax",&t.bentoUsRegisterMax)||set("bentoBlendGainMin",&t.bentoBlendGainMin)
             ||set("bentoPartial",nullptr,&t.bentoPartial)||set("bentoPartialZLo",&t.bentoPartialZLo)||set("bentoPartialZHi",&t.bentoPartialZHi) // P392
@@ -2977,6 +3001,51 @@ float blendAt(vec2 pos){
     float a=mix(blendCell(x0,y0),blendCell(x0+1,y0),t.x),b=mix(blendCell(x0,y0+1),blendCell(x0+1,y0+1),t.x);
     return mix(a,b,t.y);
 }
+// P441: frame f's position of output pixel p (sensor px) for the ultrashort colour: the cell corner's origin plus the offset, the F6
+// field bilinear between the cell centres (the strip's cells; rows clamped to it) - originM's one offset per 2x2 cell drew a
+// staircase along edges through the light (three frames: nothing averages it away as the N frames do in the merge)
+vec3 usColourAt(int f,vec2 O,inout uint cl);
+// P441 (bentoBlendUsBox): the ultrashort colour at O smoothed along the local edge (the clip bits of the centre read)
+vec3 usColourBox(int f,vec2 O,inout uint cl){
+#ifdef US_BOX
+    // P441 (bentoBlendUsBox): smoothing ALONG the local edge only - a single Bayer frame's 2 px comb along a thin line varies along
+    // it; across it the read stays sharp (a box widened a thin frame line's colour fringe 2 - 3 px). The tangent from the luma of
+    // four reads 1 px around O; flat areas keep the one read.
+    uint cc=0u,cx_=0u;
+    vec3 one=usColourAt(f,O,cc);
+    const vec3 LW=vec3(0.25,0.5,0.25);
+    float lxp=dot(usColourAt(f,O+vec2(1.0,0.0),cx_),LW),lxm=dot(usColourAt(f,O-vec2(1.0,0.0),cx_),LW);
+    float lyp=dot(usColourAt(f,O+vec2(0.0,1.0),cx_),LW),lym=dot(usColourAt(f,O-vec2(0.0,1.0),cx_),LW);
+    vec2 gr=vec2(lxp-lxm,lyp-lym);
+    float gm=length(gr),l0=max(dot(one,LW),1.0e-6);
+    float ke=smoothstep(0.05,0.2,gm/l0);              // an edge: the relative step over 2 px
+    if(ke<=0.0){cl|=cc;return one;}
+    vec2 tg=vec2(-gr.y,gr.x)/max(gm,1.0e-9);
+    // a tent along the tangent, +-4 px (weights 1, 0.8, 0.6, 0.4, 0.2)
+    vec3 sm=one;float sw=1.0;
+    for(int k=1;k<=4;k++){
+        uint c1=0u;float wk=1.0-0.2*float(k);
+        sm+=wk*(usColourAt(f,O+float(k)*tg,c1)+usColourAt(f,O-float(k)*tg,c1));sw+=2.0*wk;
+    }
+    cl|=cc;
+    return mix(one,sm/sw,ke);
+#else
+    return usColourAt(f,O,cl);
+#endif
+}
+vec2 usOrigin(int f,vec2 p,int cx,int cy,vec2 cell){
+#if defined(US_FIELD_BILIN)&&defined(LOCAL_ALIGN)
+    int w2=size.x/2,f1=clamp(f,1,max(frameCount-1,1))-1,rows=max(cy1-cy0,1);
+    vec2 c=(p-0.5)*0.5,fl=floor(c),t=c-fl;
+    int xa=clamp(int(fl.x),0,w2-1),xb=clamp(int(fl.x)+1,0,w2-1),ya=clamp(int(fl.y)-cy0,0,rows-1),yb=clamp(int(fl.y)+1-cy0,0,rows-1);
+    uint b0=uint(f1*rows*w2);
+    vec2 a=mix(unpackHalf2x16(laCell[b0+uint(ya*w2+xa)]),unpackHalf2x16(laCell[b0+uint(ya*w2+xb)]),t.x);
+    vec2 b=mix(unpackHalf2x16(laCell[b0+uint(yb*w2+xa)]),unpackHalf2x16(laCell[b0+uint(yb*w2+xb)]),t.x);
+    return origin(f,2*cx,2*cy)+(p-cell)+mix(a,b,t.y);
+#else
+    return originM(f,2*cx,2*cy)+(p-cell);
+#endif
+}
 // The ultrashort frame f's colour at frame position O, demosaiced at its own sites (WhyCam does the same for its short frames; a
 // gaussian splat of three single Bayer frames that hardly move against each other staircased every thin line) and bilinear between
 // the four sites around O: green at an R / B site by Hamilton-Adams with soft direction weights, R and B by their colour
@@ -3044,6 +3113,21 @@ vec3 usColourAt(int f,vec2 O,inout uint cl){
         }
         o+=s3*((q&1)!=0?t.x:1.0-t.x)*((q>>1)!=0?t.y:1.0-t.y);
     }
+#ifdef US_AA
+    // P441 (bentoBlendUsAa): a smooth tent of every colour's own sites (radius 2 px around O) mixed in - no direction choice to
+    // alternate along a thin line
+    {
+        vec3 sn=vec3(0.0),sd=vec3(0.0);
+        for(int j=1;j<5;j++)for(int i=1;i<5;i++){
+            float dx=float(x0+i)-O.x,dy=float(y0+j)-O.y;
+            float wt=max(0.0,1.0-0.5*abs(dx))*max(0.0,1.0-0.5*abs(dy));
+            int c=phaseColor[(((y0+j)&1)<<1)|((x0+i)&1)];
+            sn[c]+=wt*w[j*6+i];sd[c]+=wt;
+        }
+        vec3 lin=vec3(sd.r>0.0?sn.r/sd.r:o.r,sd.g>0.0?sn.g/sd.g:o.g,sd.b>0.0?sn.b/sd.b:o.b);
+        o=mix(o,lin,float(US_AA)*smoothstep(0.4,0.7,max(o.r,max(o.g,o.b))/max(g*clipLevel,1.0e-6))); // in the bright light only
+    }
+#endif
     for(int c=0;c<3;c++)if((nearClip&(1u<<uint(c)))!=0u&&o[c]>=0.97*clipLevel*g)cl|=1u<<uint(c);
     return o;
 }
@@ -3079,7 +3163,7 @@ bool usAt(vec2 p,bool inLight,out vec3 U,out float cover,out uint uclip,out bool
         if(k<validPlanesU)v=bmask[(k+1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx];
 #endif
         k++;
-        vec2 O=originM(f,2*cx,2*cy)+(p-cell);
+        vec2 O=usOrigin(f,p,cx,cy,cell);
         vec3 uNum=vec3(0.0),uDen=vec3(0.0),uClip=vec3(0.0);
         usWide(uNum,uDen,uClip,f,O,1.0,kE.z>0.0?kE.z:0.25);
         if(uDen.y<=0.0&&uClip.y<=0.0)continue;
@@ -3114,7 +3198,7 @@ bool usAt(vec2 p,bool inLight,out vec3 U,out float cover,out uint uclip,out bool
         if(w<0.004)continue;
         int f=fr[j];
         uint cl=0u;
-        U+=w*usColourAt(f,originM(f,2*cx,2*cy)+(p-cell),cl);
+        U+=w*usColourBox(f,usOrigin(f,p,cx,cy,cell),cl);
         lvl+=w*mxw[j];
         sw+=w;sww+=w*w;
         uclip&=cl;
@@ -3179,7 +3263,7 @@ bool usAtP(vec2 p,bool inLight,vec4 Tv,vec4 Tv1,vec4 Tm,float c,vec3 lift,out ve
         if(k<validPlanesU)v=bmask[(k+1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx];
 #endif
         k++;
-        vec2 O=originM(f,2*cx,2*cy)+(p-cell);
+        vec2 O=usOrigin(f,p,cx,cy,cell);
         vec3 uNum=vec3(0.0),uDen=vec3(0.0),uClip=vec3(0.0);
         usWide(uNum,uDen,uClip,f,O,1.0,kE.z>0.0?kE.z:0.25);
         if(uDen.y<=0.0&&uClip.y<=0.0)continue;
@@ -3217,7 +3301,7 @@ bool usAtP(vec2 p,bool inLight,vec4 Tv,vec4 Tv1,vec4 Tm,float c,vec3 lift,out ve
         if(wa+wb<0.004)continue;
         int f=fr[j];
         uint cl=0u;
-        vec3 col=usColourAt(f,originM(f,2*cx,2*cy)+(p-cell),cl);
+        vec3 col=usColourBox(f,usOrigin(f,p,cx,cy,cell),cl);
         sv0+=wa;sm0+=wb;
         float po=ts[j].y>0.0?smoothstep(ts[j].x,ts[j].y,max(col.r,max(col.g,col.b))):1.0;
         wa*=po;wb*=po;
@@ -3325,7 +3409,11 @@ void regionStage(int i,int row,int ox,int rows,int ow,bool flags){
     vec3 N=vec3(outRgb[i*3],outRgb[i*3+1],outRgb[i*3+2]);
     float mxN=max(N.r,max(N.g,N.b));
     uint cfl=flags?cflags[i]:0u;
+#ifdef US_PIXMARK
+    bool nClipped=mxN>=0.98; // P441: per pixel, not the 2x2-cell clip bits
+#else
     bool nClipped=(cfl&7u)!=0u||mxN>=0.98;
+#endif
     if(blendStageU==0){
         // stage 0: every pixel's N marks, read around by stage 1 (the N merge's clip is the union of its frames' clips and steps
         // by 2x2 cells, wider than the base frame's): bits 16-23 the clip mark (1 = a colour fell back to the clipped mean or
@@ -3486,6 +3574,28 @@ void regionStage(int i,int row,int ox,int rows,int ow,bool flags){
 #else
     bool got=usAt(pos,inLight,U,cover,uclip,coloured,bestV,lvl);
 #endif
+#ifdef US_SOFTCLIP
+    // P441 (HybridTuning::bentoBlendUsSoftClip): the ultrashort colour into the frames' own clip smoothly, every colour alike
+    if(got){
+        float gU=0.0;
+        for(int f=1;f<frameCount&&gU<=0.0;f++)if(int(fParam[f].w)==5)gU=fParam[f].x;
+        // the pixel's own brightest colour (with bentoBlendUsBox already the 2 x 2 box: smooth enough; the wide colour bloated small
+        // lights into white discs)
+        float Lc=gU*clipLevel,mU=max(U.r,max(U.g,U.b));
+        float tc=Lc>0.0?smoothstep(float(US_SOFTCLIP)*Lc,0.995*Lc,mU):0.0;
+#ifdef BLEND_OPTS
+        // near neutral only (a saturated lamp keeps its colour): the white-balanced min / max from 0.35 to 0.65
+        vec3 wb=max(blendOpt3U.yzw,vec3(1.0e-3)),Uw=max(U,vec3(0.0))*wb;
+        float qx=max(Uw.r,max(Uw.g,Uw.b)),qn=min(Uw.r,min(Uw.g,Uw.b));
+        tc*=qx>0.0?smoothstep(0.35,0.65,qn/qx):1.0;
+        vec3 white=(1.0/wb)/max(1.0/wb.r,max(1.0/wb.g,1.0/wb.b)); // the neutral in camera RGB, its brightest colour 1
+        U=mix(U,white*max(mU,Lc),tc);
+#else
+        U=mix(U,vec3(max(mU,Lc)),tc);
+#endif
+        if(tc>=0.5)uclip|=7u;
+    }
+#endif
     // the gate also opens where the ultrashort colour itself is bright: its light 1-3 px beside the N frames' clipped one (the
     // residual of the global alignment on a thin LED line) is taken whole with the clip it replaces, not cut by N's dark side
 #ifdef BLEND_OPTS
@@ -3524,6 +3634,14 @@ void regionStage(int i,int row,int ox,int rows,int ow,bool flags){
 #ifdef BLEND_OPTS
         if(blendPxU.w>5.5)for(int k=0;k<3;k++)U[k]=k<validPlanesU?validAt(k,pos):0.0; // 6: the first three frames' validity planes
 #endif
+        // 7 (P441 diagnostics): the last ultrashort frame's own demosaiced colour at the pixel, no weights, no other frame
+        if(blendPxU.w>6.5){
+            int w2=size.x/2;vec2 pp=pos;pp.y=clamp(pp.y,float(2*cy0),float(2*cy1)-0.5);
+            int cx=clamp(int(floor(pp.x*0.5)),0,w2-1),cy=clamp(int(floor(pp.y*0.5)),cy0,cy1-1);
+            uint cl7=0u;int f7=frameCount-1;
+            for(int j=frameCount-1;j>=1;j--)if(int(fParam[j].w)==5){f7=j;break;}   // the last ultrashort frame (role 5)
+            U=usColourAt(f7,usOrigin(f7,pp,cx,cy,vec2(float(2*cx),float(2*cy))),cl7);alpha=1.0;got=true;
+        }
     }
 #else
     // The cells' check (the best ultrashort frame's validity: a dark object moved over a clipped window, a hand) scales the
@@ -4646,6 +4764,27 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
         bool green=ph==1||ph==2;
         if(selfCover&&!green)continue;
         float kk=-0.72135*(green?natK.y:natK.z);
+#ifdef NAT_CULL
+#ifndef NAT_CULL_EXP
+#define NAT_CULL_EXP 10.0
+#endif
+        if(skipSmall&&kD.z>=0.0&&kD.z<0.0001){
+            // Lower bounds over the whole 2x2 block; exp2(-10)+kD.z stays below the existing 0.002 cutoff.
+            vec2 d=max(abs(vec2(float(2*bx)+0.5,float(2*by)+0.5)-O)-0.5,0.0);
+            float lower=max(min(P.x,P.y)-abs(P.z),0.0)*0.999;
+            float bound=lower*dot(d,d);
+#ifdef NAT_CULL_TIGHT
+            if(P.x>0.0&&P.y>0.0&&P.x*P.y>P.z*P.z*1.001){
+                vec2 c=vec2(float(2*bx)+0.5,float(2*by)+0.5)-O;
+                vec2 a=P.z/P.yx;
+                vec2 e=max(abs(c.yx+a*c)-0.5*(1.0+abs(a)),0.0);
+                vec2 k=max(P.xy-P.z*a,0.0);
+                bound=max(bound,0.99*max(k.x*d.x*d.x+P.y*e.x*e.x,k.y*d.y*d.y+P.x*e.y*e.y));
+            }
+#endif
+            if(-kk*bound>NAT_CULL_EXP)continue;
+        }
+#endif
         uvec4 u=natBlock(geo,bx,by);
         float nm=0.0,dn=0.0,cn=0.0,cd=0.0;
         for(int t=0;t<4;t++){
@@ -5513,9 +5652,21 @@ inline bool hybridPartialOn(const HybridTuning& t,bool native=false){
 // P392: the defines of the partial ultrashort rejection (kHybUsBlend: BLEND_PARTIAL) and of the long frames' block scope
 // (kHybDilate: SHASTA_SCOPE; not on the native mosaic, whose merge has no scope planes); "" with both keys off (the programs exactly
 // as before). Part of the programs' source: the cache key.
+// P441: the line of spec that starts with key ("" when none), for a define carrying a value
+inline std::string hybridSpecLine(const std::string& spec,const char* key){
+    const size_t at=spec.find(key);
+    if(at==std::string::npos)return std::string();
+    const size_t end=spec.find('\n',at);
+    return spec.substr(at,end==std::string::npos?std::string::npos:end-at+1);
+}
 inline std::string hybridPartialSpec(const HybridTuning& t,bool native=false){
     return std::string(hybridPartialOn(t,native)?"#define BLEND_PARTIAL 1\n":"")+(!native&&t.shastaMotionScope>0?"#define SHASTA_SCOPE 1\n":"")
-        +(t.dezipper>0.f?"#define DEZIP 1\n":""); // P402: DEZIP into the merge program
+        +(t.dezipper>0.f?"#define DEZIP 1\n":"") // P402: DEZIP into the merge program
+        +(!native&&t.bentoBlend>0&&t.bentoBlendFieldBilinear>0?"#define US_FIELD_BILIN 1\n":"") // P441: kHybUsBlend's F6 field
+        +(!native&&t.bentoBlend>0&&t.bentoBlendPixelMark>0?"#define US_PIXMARK 1\n":"")
+        +(!native&&t.bentoBlend>0&&t.bentoBlendUsBox>0?"#define US_BOX 1\n":"")
+        +(!native&&t.bentoBlend>0&&t.bentoBlendUsAa>0.f?"#define US_AA "+std::to_string(std::clamp(t.bentoBlendUsAa,0.f,1.f))+"\n":"")
+        +(!native&&t.bentoBlend>0&&t.bentoBlendUsSoftClip>0.f?"#define US_SOFTCLIP "+std::to_string(std::clamp(t.bentoBlendUsSoftClip,0.5f,0.99f))+"\n":""); // P441
 }
 struct HybridDcgSources { std::string helpers,mergeCommon,mosaicFast,guide; };
 inline std::string hybridDcgReplace(const std::string& text,const char* what,const char* from,const char* to){
@@ -5615,6 +5766,7 @@ class HybridGpu {
             std::string body=std::string(usPass?"#define NAT_US_PASS 1\n":"")+(usTol?"#define NAT_US_TOL 1\n":"")+"#define NAT_B "+(tetra?"4":"2")+"\n#define NAT_R "+std::to_string(r)+"\n#define NAT_MARKED "+(marked?"1":"0")
                 +"\n#define NAT_FILL "+(fill?"1":"0")+"\n#define NAT_BASEFILL "+(baseFill?"1":"0")+"\n#define NAT_DEMOSAIC "+(demosaic?"1":"0")+"\n"
                 +mergeCommon()+kHybNatAccess+mosaicFast();
+            if(!std::getenv("SCAM_NO_NAT_CULL"))body="#define NAT_CULL 1\n#define NAT_CULL_TIGHT 1\n"+body;
             // P313: the ultrashort pass reads and writes the merged colour, the effective map and the clip flags (its text alone)
             if(usPass)for(const char* w:{"writeonly buffer Out{","writeonly buffer Eff{","writeonly buffer CFlags{"}){
                 const std::string k(w);size_t at;
@@ -6093,7 +6245,12 @@ public:
             if(rimPass){const std::string body=std::string("#define RIM_STATS 1\n")+blendDefs+mergeCommon()+kHybRim;rimProgram=timed("rim",body.c_str());}
             if(bentoPass){const std::string body=std::string("#define RIM_STATS 1\n#define BENTO_PASS 1\n")+mergeCommon()+kHybBento;bentoProgram=timed("bento",body.c_str());}
             if(blendPass){const std::string body=std::string("#define RIM_STATS 1\n#define BENTO_PASS 1\n")+blendDefs
-                +(partialSpec.find("BLEND_PARTIAL")!=std::string::npos?"#define BLEND_PARTIAL 1\n":"")+mergeCommon()+kHybUsBlend; // P310; P392
+                +(partialSpec.find("BLEND_PARTIAL")!=std::string::npos?"#define BLEND_PARTIAL 1\n":"")
+                +(partialSpec.find("US_FIELD_BILIN")!=std::string::npos?"#define US_FIELD_BILIN 1\n":"")
+                +hybridSpecLine(partialSpec,"#define US_SOFTCLIP ")
+                +(partialSpec.find("US_PIXMARK")!=std::string::npos?"#define US_PIXMARK 1\n":"")
+                +hybridSpecLine(partialSpec,"#define US_AA ")
+                +(partialSpec.find("US_BOX")!=std::string::npos?"#define US_BOX 1\n":"")+mergeCommon()+kHybUsBlend; // P310; P392; P441
                 // P364: one program per stage (stage 1's registers kept out of the others); P377: on every GPU, the stages named apart
                 // (blend0 - blend4: a compiler crash on one takes the single program, «blend» alone is the blend itself)
                 if(!hybridBlendStagesOff()&&!std::getenv("SCAM_BLEND_STAGES_OFF")){

@@ -42,6 +42,19 @@ public final class JpegliEncoder {
      */
     private static native String encode(Bitmap bitmap, int quality, OutputStream out, int threads, int[] mode);
 
+    /**
+     * P443: jpegli's adaptive quantisation for the next encodes (scamera-jpeg-core.h): it raised the zero bias of the AC coefficients
+     * in flat and dark blocks (~0.85 of a quantisation step instead of 0.59), and at q98 it erased the night shadows' fine detail and
+     * half the grain of a dark sky that the reference app's photo keeps (host emulation with the app's tables on the night port
+     * 230628: the fenders' high-pass +2.5 %, the hull +1.2 %, a dark sky +34 % of the grain the JPEG had erased). Off; scam_dev.txt
+     * "jpeg_aq 1" = on, as before.
+     */
+    private static native void setAdaptiveQuantization(boolean on);
+
+    static boolean adaptiveQuantization() {
+        return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("jpeg_aq", false);
+    }
+
     /** P147: threads of the JPEG encode - every core, at most 8; scam_dev.txt "jpeg_threads" (1 = the one-thread encode). */
     static int threads() {
         final int cores = Math.max(1, Math.min(8, Runtime.getRuntime().availableProcessors()));
@@ -58,10 +71,16 @@ public final class JpegliEncoder {
         if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) throw new IOException("jpegli needs ARGB_8888, got " + bitmap.getConfig());
         final int[] mode = {1};
         final long started = System.nanoTime();
+        final boolean aq = adaptiveQuantization();
+        try {
+            setAdaptiveQuantization(aq);
+        } catch (UnsatisfiedLinkError old) {
+            Log.w(TAG, "jpegli without the adaptive quantisation switch: " + old);
+        }
         String error = encode(bitmap, quality, out, threads(), mode);
         if (error != null) throw new IOException("jpegli: " + error);
         Log.d(TAG, "jpegli " + bitmap.getWidth() + "x" + bitmap.getHeight() + " q" + quality + " "
-                + (mode[0] > 1 ? "strips on " + mode[0] + " threads" : "one thread") + " ms=" + (System.nanoTime() - started) / 1000000);
+                + (mode[0] > 1 ? "strips on " + mode[0] + " threads" : "one thread") + (aq ? " aq" : "") + " ms=" + (System.nanoTime() - started) / 1000000);
     }
 
     /** Android's encoder (4:2:0), the fallback when jpegli failed. */

@@ -30,6 +30,15 @@ public final class WhyAe {
         public int metering = 0;
         public float brightThresh = 0.8f, darkThresh = 15f, darkPixelThresh = 10f, hlBoost = 1.0f, contrastBoost = 0.5f;
         public float shadowStr = 2.0f, highlightStr = 2.0f;
+        /**
+         * P442 (owner, 2026-11-01, a lamp on a ship's balcony at night against the reference app: «займись динамическим
+         * диапазоном»): a night scene - its median at EV100 from nightEvHi down to nightEvLo - meters to nightAeTarget and lifts
+         * its shadows with nightShadowStr. evWhite: the EV100 of a whyLow value of 1 (WhySkyMask.evOffset); NaN or
+         * nightEvHi <= nightEvLo: off. Host replay of the owner's night bursts against the reference app's photos of the same
+         * scenes: the balcony lamp 9.5 -> 2.5 codes mean error (the frame and the lamp's glow ~10 codes too bright, the sky grey),
+         * the night port 3.6 -> 3.2; the daylight and the fog shots (median EV 7 - 12) unchanged bit for bit.
+         */
+        public float evWhite = Float.NaN, nightEvHi = 6.5f, nightEvLo = 5.0f, nightAeTarget = 0.13f, nightShadowStr = 1.5f;
         /** pref_sharp_ef_enabled_key: the adaptive fusion strengths (always on in 2.85). */
         public boolean efEnabled = true;
         public int look = 4;
@@ -77,6 +86,8 @@ public final class WhyAe {
         public float hr;
         /** P216: how far the highlight peak went towards p99.9 (hrMix times the area gate; 0 = P159's peak). */
         public float hrPull;
+        /** P442: the night scene's share of the night target and shadow strength (0 by day). */
+        public float nightW;
         public boolean bento;
         public float slope, sp, tp, minEv, maxEv, sat, ev;
         public int look;
@@ -89,7 +100,8 @@ public final class WhyAe {
                             + " effS=%.4f effH=%.4f flat=%.3f spread=%.4f ov=%.4f bento=%d agx(slope=%.3f sp=%.2f tp=%.2f ev=[%.2f,%.2f]+%.2f sat=%.2f look=%d)",
                     clip, gmax, ae, geo, mean, p10, p50, p98, p995, p98x, p995x, nf, deficit, effS, effH, flat, spread, ovArea, bento ? 1 : 0,
                     slope, sp, tp, minEv, maxEv, ev, sat, look)
-                    + (hr > 0f ? String.format(Locale.ROOT, " hr=%.2f hrPull=%.2f realPeak=%.3f", hr, hrPull, realPeak) : "");
+                    + (hr > 0f ? String.format(Locale.ROOT, " hr=%.2f hrPull=%.2f realPeak=%.3f", hr, hrPull, realPeak) : "")
+                    + (nightW > 0f ? String.format(Locale.ROOT, " night=%.2f", nightW) : "");
         }
     }
 
@@ -365,6 +377,17 @@ public final class WhyAe {
     }
 
     /** The exposure, ceiling, fusion strengths and AgX parameters from the statistics (the rest of smart_hdr). */
+    /**
+     * P442: how much a shot is a night scene, from its median (whyLow p50) at EV100 (evWhite + log2 p50): 0 at nightEvHi and above,
+     * 1 at nightEvLo and below, smooth between; 0 without the exposure (evWhite NaN) or with the rule off.
+     */
+    static double nightShare(Settings s, double p50) {
+        if (!Float.isFinite(s.evWhite) || !(p50 > 0) || !(s.nightEvHi > s.nightEvLo)) return 0.0;
+        final double ev = s.evWhite + log2(p50);
+        final double t = Math.min(Math.max((s.nightEvHi - ev) / (s.nightEvHi - s.nightEvLo), 0), 1);
+        return t * t * (3 - 2 * t);
+    }
+
     public static Result finish(Stats st, Settings s, int iso, int maxIso) {
         final float gmax = st.gmax;
         final double clip = clip(gmax);
@@ -398,6 +421,10 @@ public final class WhyAe {
         if (p999 < 0) p999 = p995;
         if (p98 == clip) p98 = clip * 0.99975586;
         r.p10 = (float) p10; r.p50 = (float) p50; r.p98 = (float) p98; r.p995 = (float) p995;
+        // P442: the night scene's share (0 by day, in the fog, without the shot's exposure) and its target / shadow strength
+        r.nightW = (float) nightShare(s, p50);
+        final double aeTarget = s.aeTarget + (s.nightAeTarget - s.aeTarget) * r.nightW;
+        final double shadowStr = s.shadowStr + (s.nightShadowStr - s.shadowStr) * r.nightW;
         // P159: the bright area's own level beyond the ceiling, for the highlight strength only
         final double p98x = beyond(0.98, p98, clip, tot, st.tail), p995x = beyond(0.995, p995, clip, tot, st.tail);
         r.p98x = (float) p98x; r.p995x = (float) p995x;
@@ -418,7 +445,7 @@ public final class WhyAe {
         final boolean hasNoiseModel = s.noiseS > 0 || s.noiseO > 0;
         if (meter > 1e-4) {                                                                  // 0x72c50
             // In AGC target is not lowered by ISO; protection against noise and dark overexposure is built on Noise-based Gain Clamp
-            double target = hasNoiseModel ? s.aeTarget : (0.2857143 + 0.7142857 * Math.pow(nf, 0.6)) * s.aeTarget;          // 0x72c74-0x72ca4
+            double target = hasNoiseModel ? aeTarget : (0.2857143 + 0.7142857 * Math.pow(nf, 0.6)) * aeTarget;          // 0x72c74-0x72ca4
             ae = target / meter;                                                             // 0x72cb0
             double nd = s.nightDim;
             if (nd > 0.01 && Math.abs(nd - 1) > 0.001) ae = Math.pow(ae, nd);                  // 0x72cb4-0x72cd8
@@ -464,7 +491,7 @@ public final class WhyAe {
         // AgX parameters: Custom (look 4) unless a preset look overrides them.
         r.look = s.look;
         r.slope = s.slope; r.sp = s.sp; r.tp = s.tp; r.minEv = s.minEv; r.maxEv = s.maxEv; r.sat = s.sat; r.ev = s.ev;
-        r.effS = s.shadowStr;
+        r.effS = (float) shadowStr;
         r.effH = s.highlightStr;
         if (s.efEnabled) {                                                                   // 0x72e98
             double a = ae;
@@ -474,7 +501,7 @@ public final class WhyAe {
             double rr = spread / Math.max(s.darkThresh * 0.15, 0.001);                          // 0x72f04-0x72f2c
             double m = Math.min(Math.max((sp50 - 0.2) / 0.22, 0), 1);                          // 0x72f3c-0x72f6c
             double shadowF = (1 - 0.35 * m * m) * (rr + 0.5 * rr * rr) / (1 + 1.5 * rr);        // 0x72f50-0x72f78
-            double effS = Math.max((s.v207 ? 1.0 : nf) * (s.shadowStr * shadowF + 0.5 * log2(Math.max(deficit, 1))), 0);   // 0x72f7c-0x72fd4
+            double effS = Math.max((s.v207 ? 1.0 : nf) * (shadowStr * shadowF + 0.5 * log2(Math.max(deficit, 1))), 0);   // 0x72f7c-0x72fd4
             double e = Math.min(Math.max(p995x * a - bt, 0) / Math.max(bt, 0.5), 0.5);          // 0x72f98-0x72fb8
             double realPeak = a * (p98x * (1 - e) + p995x * e);                                 // 0x72fc0-0x72fd8 (P159: x)
             double hlCap = s.highlightStr;

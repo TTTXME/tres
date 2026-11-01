@@ -1123,7 +1123,8 @@ public class ScamLabFragment extends ModuleConceptFragment {
         // «Кадры теней»'s rows: the same (no android:dependency since the mode greys the photo switch: its own rules there)
         if (Arrays.asList(HYBRID + "shasta_mode", HYBRID + "shasta_motion_max", HYBRID + "shasta_frames", HYBRID + "shasta_ev").contains(key))
             return HYBRID + "shasta";
-        if (key.startsWith(HYBRID + "dn_") || key.equals(HYBRID + "why_bracket_denoise") || key.equals(HYBRID + "why_chroma_denoise")) return DENOISE;
+        if (key.startsWith(HYBRID + "dn_") || key.startsWith(HYBRID + "ark_dn_") || key.equals(HYBRID + "why_bracket_denoise")
+                || key.equals(HYBRID + "why_chroma_denoise")) return DENOISE;
         return null;
     }
 
@@ -1149,6 +1150,9 @@ public class ScamLabFragment extends ModuleConceptFragment {
         final String modeDep = dep == null ? null : effectiveKey(dep, motionShot(shot), tree);
         if (modeDep != null) dep = modeDep;
         if (dep != null && !own.contains(dep) && !switchAt(dep, shot, tree)) f.put(dep, true);
+        // P443: the Resolve rows act with their engine only: a shot taken with «SCAM 9.6» compares them on the Resolve engine
+        if (key.startsWith(HYBRID + "ark_dn_") && "scam".equals(String.valueOf(shot.get(HYBRID + "denoise_engine"))))
+            f.put(HYBRID + "denoise_engine", "ark");
         final String operator = ACES_ON.equals(key) || UCHI_ON.equals(key) ? key : ACES_ON.equals(dep) || UCHI_ON.equals(dep) ? dep : null;
         if (operator != null) {
             if (switchAt(CURVE_ON, shot, tree)) f.put(CURVE_ON, false);

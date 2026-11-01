@@ -104,7 +104,7 @@ final class GLProgramDiskCache {
         final java.util.List<String> out = new java.util.ArrayList<>();
         File[] files = dir.listFiles((d, n) -> n.startsWith("glr-") && n.endsWith(".rcp"));
         if (files == null) return out;
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+        sortByModified(files, true);
         for (File f : files) {
             if (out.size() >= limit) break;
             final String recipe;
@@ -222,7 +222,7 @@ final class GLProgramDiskCache {
         final java.util.List<String> out = new java.util.ArrayList<>();
         File[] files = dir.listFiles((d, n) -> n.startsWith("gls-") && n.endsWith(".src"));
         if (files == null || driver == null) return out;
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+        sortByModified(files, true);
         for (File f : files) {
             if (out.size() >= limit) break;
             final String key;
@@ -242,13 +242,21 @@ final class GLProgramDiskCache {
         evict("gls-", ".src", MAX_SOURCES, MAX_SOURCE_BYTES, false);
     }
 
+    static void sortByModified(File[] files, boolean newestFirst) {
+        // Loads touch these files while the writer prunes; the comparator must see immutable timestamps.
+        java.util.Map<File, Long> modified = new java.util.HashMap<>();
+        for (File file : files) modified.put(file, file.lastModified());
+        Comparator<File> order = Comparator.comparingLong((File file) -> modified.get(file)).thenComparing(File::getName);
+        Arrays.sort(files, newestFirst ? order.reversed() : order);
+    }
+
     private void evict(String prefix, String suffix, int maxFiles, long maxBytes, boolean counted) {
         File[] files = dir.listFiles((d, n) -> n.startsWith(prefix) && n.endsWith(suffix));
         if (files == null) return;
         long bytes = 0;
         for (File f : files) bytes += f.length();
         if (files.length <= maxFiles && bytes <= maxBytes) return;
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+        sortByModified(files, false);
         int count = files.length;
         for (File f : files) {
             if (count <= maxFiles && bytes <= maxBytes) break;

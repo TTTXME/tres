@@ -11,6 +11,27 @@ import static org.junit.Assert.*;
 public class GLProgramDiskCacheTest {
     @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
+    @Test public void sortingUsesOneTimestampSnapshotDespiteConcurrentTouches() {
+        for (boolean newestFirst : new boolean[]{false, true}) {
+            int[] reads = new int[64];
+            File[] files = new File[64];
+            for (int i = 0; i < files.length; i++) {
+                final int time = (i * 37) % files.length;
+                files[i] = new File("shader-" + time) {
+                    @Override public long lastModified() {
+                        assertEquals("metadata must not change between comparator calls", 1, ++reads[time]);
+                        return time;
+                    }
+                };
+            }
+            GLProgramDiskCache.sortByModified(files, newestFirst);
+            for (int i = 0; i < files.length; i++) {
+                assertEquals("shader-" + (newestFirst ? files.length - 1 - i : i), files[i].getName());
+                assertEquals(1, reads[i]);
+            }
+        }
+    }
+
     @Test public void roundTripOnlyForTheSameDriverAndSource() throws Exception {
         File dir = new File(tmp.getRoot(), "glprog");
         GLProgramDiskCache cache = new GLProgramDiskCache(dir);

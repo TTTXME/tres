@@ -1131,6 +1131,115 @@ public final class ScamDenoise extends Node {
     }
 
     /**
+     * P443: the finish SNR of {@link #process} (Parameters.finishSnr: the WHY sharpening's low-light share, P135, and the detail gain
+     * of WhyCombine, P340) and its sports policy (pipeline.sportsDenoise, which WhyMsDenoise reads) for a shot denoised by
+     * {@link ArkResolveDenoise}: the same single-frame model (DCG zones, lastNoiseFactor), the level-0 YUV at the sensor scale of
+     * {@code clean} (the despeckled input: on the 1x grid process()'s x0 exactly; on the 2x grid despeckled before its kD8 down
+     * instead of after), the same level-0 block statistics, display gain, mu and ScamDenoiseTables.snr with dn_model_shot /
+     * dn_model_read / dn_snr / dn_snr_scale, the lab's frozen brightness. Nothing of the denoise itself runs; the engines' sharpening
+     * and detail gain stay the same for a shot. Returns the SNR (also logged into {@code log}).
+     */
+    static float finishSnr(GLProg glProg, PostPipeline pipeline, GLTexture clean, StringBuilder log) {
+        final Parameters par = pipeline.mParameters;
+        final Point full = clean.mSize;
+        final int s = Math.max(1, Math.min(2, Math.round(par.outputScale)));
+        final Point size0 = new Point((full.x + s - 1) / s, (full.y + s - 1) / s);
+        final float rhoS = clamp(PreferenceKeys.hybridValue("dn_model_shot", 1.2f), 0.25f, 4f);
+        final float rhoR = clamp(PreferenceKeys.hybridValue("dn_model_read", 2f), 0.25f, 16f);
+        final float snrFixed = clamp(PreferenceKeys.hybridValue("dn_snr", 0f), 0f, 200f);
+        final float snrScale = clamp(PreferenceKeys.hybridValue("dn_snr_scale", 1f), 0.25f, 8f);
+        final List<GLTexture> owned = new ArrayList<>();
+        try {
+            final float[] wY = {0.2126f, 0.7152f, 0.0721996f};
+            float[] S = {2e-4f, 2e-4f, 2e-4f}, O = {2e-6f, 2e-6f, 2e-6f};
+            boolean camera = false;
+            final float[] zones = dcgZones(par);
+            if (par.noiseModeler != null && par.noiseModeler.baseModel != null && par.noiseModeler.baseModel[0] != null) {
+                for (int c = 0; c < 3; c++) {
+                    S[c] = (float) Math.max(1e-9, par.noiseModeler.baseModel[c].first);
+                    O[c] = (float) Math.max(1e-12, par.noiseModeler.baseModel[c].second);
+                }
+                camera = true;
+                final float k = ScamHybridBurst.lastNoiseFactor;
+                if (k != 1f && zones == null) for (int c = 0; c < 3; c++) { S[c] *= k; O[c] *= k; }
+            }
+            float sY = 0f, rY = 0f, sG = 0f, rG = 0f;
+            for (int c = 0; c < 3; c++) {
+                float wp = par.whitePoint != null && par.whitePoint.length > c && par.whitePoint[c] > 1e-6f ? par.whitePoint[c] : 1f;
+                float g = 1f / wp;
+                sY += wY[c] * wY[c] * g * S[c];
+                rY += wY[c] * wY[c] * g * g * O[c];
+                if (c == 1) { sG = g * S[c]; rG = g * g * O[c]; }
+            }
+            float rGhi = rG, kneeY = 0f;
+            float[] dcgPass = null;
+            if (zones != null) {
+                final float[] t = ScamDenoiseTables.dcgTerms(zones, S, O, par.whitePoint);
+                sY = t[0]; rY = t[1]; sG = t[3]; rG = t[4]; rGhi = t[5]; kneeY = t[6];
+                dcgPass = dcgShaderPass(rY, t[2], kneeY);
+            }
+            GLTexture base = clean;
+            if (s == 2) {
+                base = tex(owned, size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
+                glProg.useAssetProgram("scamdn/down2x", false);
+                glProg.setTexture("InputBuffer", clean);
+                glProg.drawBlocks(base);
+            }
+            final GLTexture x0 = tex(owned, size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
+            glProg.useAssetProgram("scamdn/yuv", false);
+            glProg.setTexture("InputBuffer", base);
+            glProg.drawBlocks(x0);
+            if (base != clean) release(owned, base);
+            final float[][] raw0 = new float[1][];
+            final float[] g0 = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()
+                    ? levelNoise(glProg, owned, x0, 16, sY, rY, dcgPass, raw0)
+                    : levelNoiseBatch(glProg, owned, new GLTexture[]{x0}, 16, sY, rY, dcgPass, raw0, new Laps(), null)[0];
+            final float gy00 = g0 != null ? g0[0] : ScamDenoiseTables.whiteGain(0, false) / 4f;
+            float p50 = 0f, p90 = 0f;
+            if (raw0[0] != null) {
+                final float[] raw = raw0[0];
+                final int n = raw.length / 8;
+                int m = 0;
+                final float[] ys = new float[n];
+                for (int i = 0; i < n; i++) if (raw[8 * i] >= 0f && Float.isFinite(raw[8 * i])) ys[m++] = raw[8 * i];
+                if (m > 0) {
+                    p50 = ScamDenoiseTables.selectFloat(ys, m, Math.min(m - 1, m / 2));
+                    p90 = ScamDenoiseTables.selectFloat(ys, m, Math.min(m - 1, (int) (m * 0.9f)));
+                }
+            }
+            if (pipeline.frozen != null && pipeline.frozen.p50 > 0f) {
+                p50 = pipeline.frozen.p50;
+                p90 = pipeline.frozen.p90;
+            }
+            if (pipeline.record != null) {
+                pipeline.record.p50 = p50;
+                pipeline.record.p90 = p90;
+            }
+            final float rawScale = par.scamHdrMode ? Math.max(1e-6f, par.scamHdrRawScale) : 1f;
+            float mu = 0.18f, gain = 1f;
+            if (p50 > 0f) {
+                gain = displayGain(p50 / rawScale, p90 / rawScale, PreferenceKeys.isScamNetSoc());
+                mu = 0.18f * rawScale / gain;
+            }
+            final float rGmu = zones != null ? NoiseModeler.zoneOffset(mu, rG, rGhi, kneeY) : rG;
+            final float snrMeasured = ScamDenoiseTables.snr(mu, gy00, sG, rGmu, rhoS, rhoR);
+            final float snr = snrFixed > 0f ? snrFixed : snrMeasured * snrScale;
+            par.finishSnr = snr;
+            final boolean measuredSnr = g0 != null && Float.isFinite(gy00) && gy00 > 0f && Float.isFinite(p50) && p50 > 0f
+                    && Float.isFinite(sG) && sG >= 0f && Float.isFinite(rGmu) && rGmu >= 0f && (camera || zones != null);
+            pipeline.sportsDenoise = SportsDenoisePolicy.of(com.particlesdevs.photoncamera.settings.MotionMode.on(),
+                    com.particlesdevs.photoncamera.settings.MotionMode.sharpPriority(), measuredSnr ? snrMeasured : Float.NaN,
+                    pipeline.noiseS, pipeline.noiseO);
+            if (log != null) log.append(" finishSnr=").append(round(snr)).append(snrFixed > 0f ? "(fixed)" : "").append(" mu=").append(mu)
+                    .append(" gain=").append(round(gain)).append(" g00=").append(round3(gy00));
+            return snr;
+        } finally {
+            for (GLTexture t : owned) if (t != null) t.close();
+            owned.clear();
+        }
+    }
+
+    /**
      * P306: memory the 200 MP denoise asks to be free before it starts (bytes): on the 2x2 means its largest set of RGBA16F
      * textures is five half-size ones (the chroma pass of level 0: base, the luma result, two filter stages, the strength map and
      * pyramids beside them), plus the full-grid noise statistic (R16F), plus a quarter and 512 MB of margin.

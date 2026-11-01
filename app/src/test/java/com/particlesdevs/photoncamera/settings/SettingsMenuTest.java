@@ -721,7 +721,7 @@ public class SettingsMenuTest {
     @Test public void sliderThumbIsNeverClipped(){
         PreferenceScreen screen=inflate();
         int checked=0;
-        for(String key:new String[]{"pref_scam_hybrid_shasta_ev","pref_scam_hybrid_dn_luma_mult","pref_scam_hybrid_dn_sabre_luma_mult"}){
+        for(String key:new String[]{"pref_scam_hybrid_shasta_ev","pref_scam_hybrid_ark_dn_factor","pref_scam_hybrid_ark_dn_grain"}){
             Preference p=screen.findPreference(key);assertNotNull(key,p);
             android.view.View card=row(p);
             android.widget.SeekBar bar=card.findViewById(R.id.seekbar);
@@ -1348,10 +1348,9 @@ public class SettingsMenuTest {
         PreferenceGroup noise=screen.findPreference("scam_hybrid_nr_merge_category");
         java.util.List<String> order=new java.util.ArrayList<>();
         for(int i=0;i<noise.getPreferenceCount();i++)order.add(noise.getPreference(i).getKey());
-        int hl=order.indexOf("pref_scam_hybrid_bento_denoise_max"),dark=order.indexOf("pref_scam_hybrid_dn_dark_fade");
-        assertTrue(order.toString(),hl>0&&dark>0);
-        assertEquals("pref_scam_hybrid_dn_dark_fade",order.get(hl+1));
-        assertEquals("pref_scam_hybrid_why_chroma_denoise",order.get(dark+1));
+        // P443: the switches, the engine and the Resolve rows (the SCAM 9.6 tuning left the menu; its strength is the everyday slider)
+        assertEquals(Arrays.asList("pref_scam_hybrid_denoise","pref_scam_hybrid_despeckle","pref_scam_hybrid_denoise_engine",
+                "pref_scam_hybrid_ark_dn_luma_revert","pref_scam_hybrid_ark_dn_motion_revert","pref_scam_hybrid_ark_dn_grain"),order);
         // P403 / P406: the short frames' denoise with the highlight frames on «Настройки HDR», as the reference app
         assertEquals("scam_hybrid_capture_category",screen.findPreference("pref_scam_hybrid_why_bracket_denoise").getParent().getKey());
         for(String k:new String[]{"pref_scam_hybrid_diagnostics","pref_scam_hybrid_profile","pref_scam_hybrid_dev_note",
@@ -1528,7 +1527,7 @@ public class SettingsMenuTest {
         // «Настройки изображения»: the style page, the six everyday sliders, the processing categories in the reference app's order,
         // the profiles (its configs)
         assertEquals(Arrays.asList("photo_style_screen","pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast",
-                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_dn_luma_mult",
+                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor",
                 "scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen","photo_processing_screen",
                 "scam_hybrid_why_sharp_screen","scam_hybrid_why_rl_screen","scam_hybrid_photo_screen","scam_hybrid_merge_screen",
                 "scam_hybrid_hdr_screen","scam_hybrid_artifacts_screen","backup_settings_screen"),keys(screen.findPreference("root_colour")));
@@ -1635,7 +1634,7 @@ public class SettingsMenuTest {
     @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void everydayRowsWithinTwoTaps(){
         PreferenceScreen screen=inflate();
         for(String key:new String[]{"pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat",
-                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_dn_luma_mult","photo_style","pref_film_lut",
+                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor","photo_style","pref_film_lut",
                 "pref_film_sim_stock","pref_lens_filter","pref_photo_format","photo_size_choice","pref_camera_sounds_all","pref_show_grid_key",
                 "pref_af_mode_key","pref_face_detect_mode","pref_scam_hybrid_colour_tint","pref_ettr","pref_reset_preferences_key"}){
             Preference p=screen.findPreference(key);assertNotNull(key,p);
@@ -1643,7 +1642,7 @@ public class SettingsMenuTest {
         }
         // the six sliders sit on the root page itself
         for(String key:new String[]{"pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat",
-                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_dn_luma_mult"})
+                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor"})
             assertEquals(key,0,pagesAbove(screen.findPreference(key)));
         List<String> found=new ArrayList<>();
         for(var e:com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.index(screen))if(e.matches("яркость"))found.add(e.key);
@@ -1652,7 +1651,7 @@ public class SettingsMenuTest {
         var index=com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.index(screen);
         var words=com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.searchWords(context,index);
         String[][] former={{"базовая экспозиция","pref_scam_hybrid_why_ae_target"},{"macro contrast","pref_scam_hybrid_why_macro_contrast"},
-                {"сила детали резкости","pref_scam_hybrid_why_sharp_gain"},{"многомасштабный шумодав яркость","pref_scam_hybrid_dn_luma_mult"},
+                {"сила детали резкости","pref_scam_hybrid_why_sharp_gain"},{"многомасштабный шумодав яркость","pref_scam_hybrid_ark_dn_factor"},
                 {"экспозиция вправо","pref_ettr"},{"звук таймера","pref_camera_sounds_all"}};
         for(String[] q:former){
             List<String> hits=new ArrayList<>();
@@ -1669,7 +1668,7 @@ public class SettingsMenuTest {
     @Test public void technicalRowsOnlyUnderExperts(){
         PreferenceScreen screen=inflate();
         Set<String> everyday=new HashSet<>(Arrays.asList("pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast",
-                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_dn_luma_mult",
+                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor",
                 "pref_scam_hybrid_colour_mono","pref_scam_hybrid_output"));
         List<String> stray=new ArrayList<>();
         int checked=0;

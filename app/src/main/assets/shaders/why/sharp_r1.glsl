@@ -30,6 +30,11 @@ uniform sampler2D Smoothed;         // mode 1: B(Ya) (.r) of mode 0
 uniform sampler2D Sharpened;        // mode 2: S(B(Ya)) (.r), the chain's last output
 uniform sampler2D Residual;         // mode 2: D = Ya - B (.r) of mode 1
 uniform int modeU;
+// P441 (owner, 2026-11-01: «ступеньки на гранях»): mode 3's estimate is 0 only for a constant or linear Ya; along every edge or
+// thin line it is a +-step / 8 burst of 2 px alternation within 2 px of the edge, which the USM, bilateral and RL stages then
+// lifted into a dashed line (mode 2 puts back only the unlifted estimate). The merge's own lattice is ~0.1 % of the level, so the
+// estimate is clamped to latCapU x Ya + 0.0002: the lattice still goes, an edge keeps its pixels. <= 0 / unset: unclamped.
+uniform float latCapU;
 out vec4 Output;
 
 #if GATHER == 1
@@ -71,7 +76,9 @@ void main() {
                 lt = latTap(lt, 1, by + 1, g1.y); lt = latTap(lt, 2, by + 1, g2.x);
             }
         }
-        Output = vec4(texelFetch(InputBuffer, xy, 0).r - lt, 0.0, 0.0, 1.0);
+        float c0 = texelFetch(InputBuffer, xy, 0).r;
+        if (latCapU > 0.0) { float cap = latCapU * max(c0, 0.0) + 0.0002; lt = clamp(lt, -cap, cap); }
+        Output = vec4(c0 - lt, 0.0, 0.0, 1.0);
         return;
 #endif
         const float w5[5] = float[5](0.125, 0.25, 0.25, 0.25, 0.125);
@@ -84,7 +91,9 @@ void main() {
                 lat += (si * sj + sj + si) * v;   // checker + row + column alternation, sign + at xy
             }
         }
-        Output = vec4(texelFetch(InputBuffer, xy, 0).r - lat, 0.0, 0.0, 1.0);
+        float c = texelFetch(InputBuffer, xy, 0).r;
+        if (latCapU > 0.0) { float cap = latCapU * max(c, 0.0) + 0.0002; lat = clamp(lat, -cap, cap); }
+        Output = vec4(c - lat, 0.0, 0.0, 1.0);
         return;
     }
     float s = 0.0;

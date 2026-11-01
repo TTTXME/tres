@@ -186,6 +186,8 @@ public final class WhyStats extends Node {
             WhyAe.Settings settings = WhyTone.settings();
             settings.noiseS = pipeline.noiseS;
             settings.noiseO = pipeline.noiseO;
+            // P442: the EV100 of base white for the night rule (NaN without the shot's exposure: the rule stays off)
+            settings.evWhite = WhySkyMask.evOffset(iso, pipeline.mParameters.exposureTime, pipeline.mParameters.aperture, st.inScale);
             // P320: a DCG frame keeps its captured exposure and its night factor reads ISO / dcgIsoScale (the clamp's model is
             // its measured zones: PostPipeline.computeNoise); the old run of post_ab keeps the plain rules
             settings.dcg = pipeline.mParameters.dcgShot && !legacy;

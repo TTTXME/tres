@@ -109,6 +109,9 @@ precision highp int;
 // P394 (owner, 2026-10-29: «нам нужно сделать грань максимально гладкой без зубчиков»): 1 = edgeHold, the sharpened luma averaged along
 // a strong edge and held within the full-size merge's 3 x 3 range (WhyCombine with the full-size merge; 0 = the shader before)
 #define EDGE_HOLD 0
+// P441 RIM_SMOOTH 1: the P311 / P349 rim rules of the detail delta on every darkening pixel with a continuous far side (rimDelta;
+// the photo, WhyCombine); 0: the rules before P441 (lightRimDelta / rimDeltaBy, the viewfinder), token for token.
+#define RIM_SMOOTH 0
 // P395 (owner, 2026-10-29: the «Лента» facade orange-ochre beside ArkCam's yellow): 1 = the saturated orange-yellow scene hues
 // turned towards yellow (yellowHueU; 0 = the shader before)
 #define YELLOW_HUE 0
@@ -471,6 +474,66 @@ float rimDeltaBy(float delta, float y, float yRef, int bx, int by, float fx, flo
 float lightRimDelta(float delta, float y, float yRef, float lightW, int bx, int by, float fx, float fy, float m) {
     return rimDeltaBy(delta, y, yRef, bx, by, fx, fy, m, 0.0, 0.0);
 }
+
+#if RIM_SMOOTH == 1
+// P441 (owner, 2026-11-01: «ступеньки на гранях», crops of a sunlit panel: steps along a plate's top edge, dotted lines along
+// every groove): both rules on every darkening pixel and every input continuous in the pixel's position. Before, P311 ran only
+// where the 16 footprint taps held light and P349 only where their brightest was above 0.7 x white - that tap set moves by one
+// whyLow px every 2 output px while the disc reaches 4: the rules switched on and off along a slanted edge. The far side was the
+// footprint's taps on a half plane (a near-binary weight that flipped with the 2 x 2 phase) and P349's trench term was read per
+// pixel from the merge (alternating along a slanted edge). Now the disc's moments of both shares come from one pass over its
+// taps, the far side is the B-spline of WhyDetailRef at the pixel's own whyLow position moved RIM_FAR whyLow px away from the
+// light (continuous in the position), and the trench term is gone (the far side's level is the floor: the merge's 1 px ring
+// at a hard edge by sunlit white stays out). With no light in the disc both weights are 0 and the delta is unchanged.
+// Host replay of the owner's crops: the steps and dots gone, the edge against sunlit white without its dark line; LED rings
+// (P311's synthetic pink / blue / white) as before.
+const float RIM_FAR = 1.25;
+
+float rimTo(float delta, float y, float yRef, int bx, int by, float fx, float fy, vec3 mm, vec3 sec, bool bright) {
+    float mass = mm.z;
+    if (mass <= 0.0) return delta;
+    vec2 mom = mm.xy;
+    float m2 = dot(mom, mom);
+    float q = sec.x * mom.x * mom.x + 2.0 * sec.y * mom.x * mom.y + sec.z * mom.y * mom.y;
+    float side = m2 * m2 / max(mass * q, 1e-20);
+    vec2 n = mom / max(sqrt(m2), 1e-12);
+    ivec2 last = textureSize(WhyDetailRef, 0) - ivec2(1);
+    vec2 u = vec2(float(bx) + fx, float(by) + fy) - RIM_FAR * n;
+    vec2 u0 = floor(u);
+    ivec2 b0 = ivec2(u0);
+    vec4 wx = bsplineWeights(u.x - u0.x), wy = bsplineWeights(u.y - u0.y);
+    float yFar = 0.0;
+    for (int dy = -1; dy <= 2; dy++)
+        for (int dx = -1; dx <= 2; dx++)
+            yFar += wx[dx + 1] * wy[dy + 1] * max(texelFetch(WhyDetailRef, clamp(b0 + ivec2(dx, dy), ivec2(0), last), 0).r, 0.000001);
+    float rim = smoothstep(0.3, 0.7, side) * smoothstep(0.0, 2.0, mass);
+    // P349: beside light above white the pixel's own luma dips below the far side too (the merge's 1 px ring at a hard edge,
+    // sharpened): there the darkening goes down to the far side's level and no further - a sharp edge, no trench
+    if (bright) return mix(delta, max(delta, cbrtp(max(yFar, 0.000001)) - cbrtp(max(yRef, 0.000001))), rim);
+    return mix(delta, max(delta, min(cbrtp(max(y, 0.000001)) - cbrtp(max(yFar, 0.000001)), 0.0)), rim);
+}
+
+float rimDelta(float delta, float y, float yRef, int bx, int by, float fx, float fy, float m, float brightAe) {
+    ivec2 last = textureSize(WhyDetailRef, 0) - ivec2(1);
+    vec3 lm = vec3(0.0), bm = vec3(0.0), ls = vec3(0.0), bs = vec3(0.0);
+    for (int dy = -3; dy <= 4; dy++) {
+        for (int dx = -3; dx <= 4; dx++) {
+            vec2 v = vec2(float(dx) - fx, float(dy) - fy);
+            float k = 1.0 - smoothstep(3.0, 4.0, length(v));
+            if (k <= 0.0) continue;
+            vec3 tap = texelFetch(WhyLow, clamp(ivec2(bx + dx, by + dy), ivec2(0), last), 0).rgb;
+            float hl = k * lightShare(tap, m);
+            float hb = k * smoothstep(0.7, 1.1, max(dot(tap, LUMA), 0.0) * brightAe);
+            vec3 s2 = vec3(v.x * v.x, v.x * v.y, v.y * v.y);
+            lm += hl * vec3(v, 1.0); ls += hl * s2;
+            bm += hb * vec3(v, 1.0); bs += hb * s2;
+        }
+    }
+    delta = rimTo(delta, y, yRef, bx, by, fx, fy, lm, ls, false);   // P311: beside a clipped light
+    if (delta < 0.0) delta = rimTo(delta, y, yRef, bx, by, fx, fy, bm, bs, true);   // P349: beside light above white
+    return delta;
+}
+#endif
 
 // P349: the full-size merge's luminance at a clamped pixel.
 float sceneY(ivec2 p, ivec2 size) {
@@ -1162,9 +1225,14 @@ void main() {
             float yD = sharpU == 1 ? yS : min(yFull * ae, 1.0);
             delta = cbrtp(max(yD, 0.000001)) - lRef;
             // P311: beside a clipped light, against the side of the neighbourhood that is not the light
+#if RIM_SMOOTH == 1
+            // P441: on every darkening pixel, both rim rules in one pass (rimDelta: no tap-set gate, continuous far side)
+            if (delta < 0.0) delta = rimDelta(delta, yD, yRef, lbx, lby, lfx, lfy, refDomain, ae);
+#else
             if (delta < 0.0 && lightW > 0.0) delta = lightRimDelta(delta, yD, yRef, lightW, lbx, lby, lfx, lfy, refDomain);
             // P349: and beside light above white (the window frame by the sun: a 1 px trench 2 - 3 px into the wall)
             if (delta < 0.0 && brightMax > 0.7) delta = rimDeltaBy(delta, yD, yRef, lbx, lby, lfx, lfy, refDomain, ae, trenchAt(xy, size));
+#endif
             // P315 (owner, X8U LED fan rings: two parallel bright lines with a darker gap along the core): the guide is clamped
             // flat at 1 across a light's core while the reference takes in the dark beside it, so the positive delta ridged
             // just inside both rims and nowhere in the middle. No positive detail inside a light's footprint (HDR detail above
@@ -1784,6 +1852,11 @@ void main() {
             if (dl < 0.0) dl *= smoothstep(0.55, 0.85, ratio);
             float dHL = gate * clamp(dl, -0.03, 0.12);
             if (dHL > 0.0) dHL *= 1.0 - smoothstep(0.85, 1.0, post.x);
+            // P441 (owner, 2026-11-01, lamps in night fog: a grey «donut» round every white core): near white only the darkening
+            // half was left - a glow's convex foot beside a clipped core (yF under its B-spline, ratio 0.6 - 0.95, past the rim
+            // guard above) drew a grey contour 1 - 4 px round the core. No darkening where the footprint holds light 1.5 - 2.5 x
+            // brighter than the pixel (a core beside it); texture in a cloud or a window's glow, without such a light, keeps it
+            else dHL *= 1.0 - smoothstep(1.5, 2.5, brightMax / max(yF, 0.000001));
             post.x = clamp(post.x + dHL * post.x, 0.0001, 1.0);
         }
     }

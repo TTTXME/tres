@@ -3,6 +3,7 @@
 // full-resolution chroma (4:4:4). Android's Bitmap.compress always subsamples chroma 4:2:0, which halved the colour
 // resolution of the merge's detail. jpegli: third_party/README.md.
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -16,6 +17,16 @@ namespace scamera_jpeg {
 
 // Receives the encoded bytes in order; returns false to abort the encode.
 using Writer = std::function<bool(const uint8_t* data, size_t size)>;
+
+// P443 (the night port 230628 against the reference app's photo: the shadows' fine detail): jpegli's adaptive quantisation,
+// on in jpegli_set_defaults, raises the zero bias of the AC coefficients in flat and dark blocks to ~0.85 of a quantisation
+// step (0.59 without it): at q98 it zeroed 16 % more AC coefficients of the fenders and the quay wall than the denoise did,
+// and halved the grain of a dark sky. Off unless the app turns it on (JpegliEncoder: scam_dev "jpeg_aq 1" = before); the
+// quantisation tables are the same either way. Both encoders (one thread, strips) read it.
+inline std::atomic<bool>& adaptiveQuantisation() {
+    static std::atomic<bool> on{false};
+    return on;
+}
 
 namespace detail {
 struct Destination {
@@ -74,6 +85,7 @@ inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stri
         cinfo.in_color_space = JCS_EXT_RGBA;
         jpegli_set_defaults(&cinfo);
         jpegli_set_quality(&cinfo, quality < 1 ? 1 : quality > 100 ? 100 : quality, TRUE);
+        jpegli_enable_adaptive_quantization(&cinfo, adaptiveQuantisation().load() ? TRUE : FALSE);   // P443
         for (int c = 0; c < cinfo.num_components; ++c) {
             cinfo.comp_info[c].h_samp_factor = 1;
             cinfo.comp_info[c].v_samp_factor = 1;

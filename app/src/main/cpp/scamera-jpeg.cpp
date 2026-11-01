@@ -21,6 +21,12 @@ struct PixelLock {
 };
 }  // namespace
 
+// P443: jpegli's adaptive quantisation for the following encodes (scamera-jpeg-core.h; off by default).
+extern "C" JNIEXPORT void JNICALL
+Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_setAdaptiveQuantization(JNIEnv*, jclass, jboolean on) {
+    scamera_jpeg::adaptiveQuantisation().store(on == JNI_TRUE);
+}
+
 // Returns null on success, else the reason (nothing usable was written when it fails before the first chunk).
 // P147: threads > 1 and at least 4 MP: strips on that many threads (scamera-jpeg-parallel.h); when the strips cannot be
 // joined (nothing written yet) the one-thread progressive encode runs. *modeOut: "strips N" / "one thread".

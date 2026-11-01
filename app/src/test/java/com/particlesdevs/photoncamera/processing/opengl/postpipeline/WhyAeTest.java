@@ -265,4 +265,26 @@ public class WhyAeTest {
         assertEquals(WhyAe.stats((y, row) -> java.util.Arrays.fill(row, 0.2f), 3, 96, 64, 1).tot, WhyAeGpu.totalWeight(96, 64, 1), 0);
         assertEquals(WhyAe.stats((y, row) -> java.util.Arrays.fill(row, 0.2f), 3, 96, 64, 2).tot, WhyAeGpu.totalWeight(96, 64, 2), 0);
     }
+    @Test
+    public void p442NightRuleOnlyAtNight() {
+        // P442: the night scene's share from the median at EV100 (evWhite + log2 p50): 0 by day / without the exposure, 1 at night
+        WhyAe.Settings s = new WhyAe.Settings();
+        assertEquals(0.0, WhyAe.nightShare(s, 0.03), 0);                              // evWhite NaN: off
+        s.evWhite = 12f;
+        assertEquals(0.0, WhyAe.nightShare(s, 0.03), 0);                              // EV 6.9: day
+        s.evWhite = 10f;
+        assertEquals(1.0, WhyAe.nightShare(s, 0.03), 0);                              // EV 4.9: night
+        double mid = WhyAe.nightShare(s, Math.pow(2, 5.75 - 10));                     // half way: smoothstep 0.5
+        assertEquals(0.5, mid, 1e-9);
+        s.nightEvHi = 0f; s.nightEvLo = 0f;
+        assertEquals(0.0, WhyAe.nightShare(s, 0.03), 0);                              // the rule off
+        // the synthetic frame at a night exposure: the night share meters to the night target, the day result is unchanged without evWhite
+        WhyAe.Settings day = new WhyAe.Settings(), night = new WhyAe.Settings();
+        day.noiseS = night.noiseS = 1e-6; night.evWhite = 3f;
+        WhyAe.Result a = WhyAe.smartHdr(synth(1.0, false), 3, W, H, day, 0, 0), b = WhyAe.smartHdr(synth(1.0, false), 3, W, H, night, 0, 0);
+        assertEquals(0f, a.nightW, 0f);
+        assertEquals(1f, b.nightW, 0f);
+        assertTrue(b.ae + " < " + a.ae, b.ae < a.ae);                                 // (the highlight overflow blends it: not x0.13 / 0.15)
+        assertTrue(b.effS + " < " + a.effS, b.effS < a.effS);
+    }
 }

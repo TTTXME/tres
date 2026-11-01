@@ -373,8 +373,8 @@ public class SettingsAuditFixTest {
         assertEquals("SIMPLE_UI §4: a «Съёмка» row","root_shoot",screen.findPreference("pref_tunable_parameters_disablemirror").getParent().getKey());
         assertEquals("Параметры",String.valueOf(screen.findPreference("pref_category_tunable_parameters").getTitle()));
         Set<String> titles=new HashSet<>();
-        // P421: the NLM rows are gone; the finish and the pyramid denoise's luma / colour rows keep distinct names
-        for(String key:new String[]{"pref_scam_hybrid_why_ms_luma","pref_scam_hybrid_why_ms_chroma","pref_scam_hybrid_dn_luma_mult","pref_scam_hybrid_dn_chroma_mult"})
+        // P421: the NLM rows are gone; P443: the Resolve and the pyramid denoise's rows keep distinct names
+        for(String key:new String[]{"pref_scam_hybrid_why_ms_luma","pref_scam_hybrid_why_ms_chroma","pref_scam_hybrid_ark_dn_factor","pref_scam_hybrid_ark_dn_luma_revert"})
             assertTrue(key,titles.add(String.valueOf(screen.findPreference(key).getTitle())));
         assertEquals("Общий яркостный шумодав",String.valueOf(screen.findPreference("pref_scam_hybrid_why_ms_luma").getTitle()));
         assertNull(screen.findPreference("pref_scam_hybrid_post_luma"));

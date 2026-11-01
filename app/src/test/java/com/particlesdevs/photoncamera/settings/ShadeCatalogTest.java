@@ -218,12 +218,13 @@ public class ShadeCatalogTest {
         assertTrue(catalog.changed(shasta));
         assertEquals(context.getString(R.string.shade_off), catalog.valueText(shasta, true));
 
-        ShadeCatalog.Entry luma = catalog.entry("pref_scam_hybrid_dn_luma_mult");
+        // P443: «Шумодав» is the Resolve denoise's strength
+        ShadeCatalog.Entry luma = catalog.entry("pref_scam_hybrid_ark_dn_factor");
         assertEquals(ShadeCatalog.SLIDER, luma.kind);
         assertEquals(0.01f, luma.step, 1e-6f);
-        assertEquals("1" + point + "00", catalog.valueText(luma, true));
+        assertEquals("0" + point + "40", catalog.valueText(luma, true));
         catalog.write(luma, 0.6f);
-        assertEquals("0.6", prefs.getString("pref_scam_hybrid_dn_luma_mult", null));
+        assertEquals("0.6", prefs.getString("pref_scam_hybrid_ark_dn_factor", null));
         assertEquals("0" + point + "60", catalog.valueText(luma, true));
         assertTrue(catalog.changed(luma));
 
@@ -361,10 +362,10 @@ public class ShadeCatalogTest {
         Set<String> keys = new HashSet<>();
         for (ShadeCatalog.Entry e : luma) keys.add(e.key);
         assertTrue(keys.contains("pref_scam_hybrid_why_ms_luma"));
-        assertTrue(keys.contains("pref_scam_hybrid_dn_luma_mult"));
+        assertTrue(keys.contains("pref_scam_hybrid_why_ms_luma_l0"));
         Set<String> cyrillic = new HashSet<>();
         for (ShadeCatalog.Entry e : catalog.search("люма")) cyrillic.add(e.key);
-        assertTrue(cyrillic.contains("pref_scam_hybrid_dn_sabre_luma_mult"));   // its English title «Luma denoise: dark scenes»
+        assertTrue(cyrillic.contains("pref_scam_hybrid_why_skin_luma_min"));   // its English title «Skin brightness threshold»
         Set<String> grid = new HashSet<>();
         for (ShadeCatalog.Entry e : catalog.search("grid")) grid.add(e.key);
         assertTrue(grid.contains("pref_show_grid_key"));

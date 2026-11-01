@@ -118,6 +118,7 @@ jobs:
           /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
           LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
           LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
+          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_resolve_shadows.py
           LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_scam_hdr_gpu.py
           LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_highlights.py
           LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid.py
@@ -208,6 +209,10 @@ jobs:
           ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-prefetch
           g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_native_widen.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-native-widen
           ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-native-widen
+          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_native_cull_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-native-cull-gpu
+          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-native-cull-gpu
+          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_resolve_grain_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-resolve-grain-gpu
+          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-resolve-grain-gpu
           g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_fullres_2x.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-fullres-2x
           ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-fullres-2x
           g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_mosaic_chroma_bands.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-mosaic-chroma-bands

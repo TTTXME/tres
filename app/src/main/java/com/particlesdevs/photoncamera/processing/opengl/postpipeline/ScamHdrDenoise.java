@@ -29,7 +29,8 @@ import static android.opengl.GLES20.GL_NEAREST;
  * spectrum like a reference render) instead of a denoiser's cloudy mid-frequency residue.
  * Runs on the white-balanced linear image after ScamRgb.
  * <p>
- * SCAM Hybrid shots go to {@link ScamDenoise} (SCAM 9.6 finish denoise); this NLM route stays its fallback on a failure (at the
+ * SCAM Hybrid shots go to {@link ArkResolveDenoise} (P443, the reference app's resolve denoise, default) or {@link ScamDenoise}
+ * (SCAM 9.6 finish denoise; «Движок шумодава», and every 200 MP shot); this NLM route stays their fallback on a failure (at the
  * former defaults, P421) and the SCAM HDR (SCAM) denoise, unchanged.
  */
 public final class ScamHdrDenoise extends Node {
@@ -235,23 +236,28 @@ public final class ScamHdrDenoise extends Node {
             return;
         }
         if (ScamDenoise.enabledFor(pipeline)) {
+            // P443: «Движок шумодава» - the reference app's resolve denoise (default) or the SCAM 9.6 finish denoise; a 200 MP shot
+            // keeps the latter's 2x2-means path (P306)
+            final boolean ark = !huge && ArkResolveDenoise.engineArk();
             try {
                 dumpInput(pipeline); // developer switch dump-denoise: the linear input for offline replays (tools/check_scamdn.py)
-                WorkingTexture = ScamDenoise.process(glProg, pipeline, previousNode.WorkingTexture);
+                WorkingTexture = ark ? ArkResolveDenoise.process(glProg, pipeline, previousNode.WorkingTexture)
+                        : ScamDenoise.process(glProg, pipeline, previousNode.WorkingTexture);
                 glProg.closed = true;
-                pipeline.signedRgb = false; // scamdn/cbf mode 2 and scamdn/final2x clamp their output
+                pipeline.signedRgb = false; // scamdn/ark_resolve pass 2, scamdn/cbf mode 2 and scamdn/final2x clamp their output
                 dumpTexture(pipeline, WorkingTexture, "denoise-out");
                 return;
             } catch (RuntimeException error) {
-                if (ScamDenoise.lastInputReleased) throw error; // P179: the input is gone (200 MP): no NLM pass can read it
-                Log.e("SCAM_PIPELINE", "scam-denoise failed, NLM denoise instead: " + error);
-                if (ScamDenoise.lastMainTaken) {
+                if (!ark && ScamDenoise.lastInputReleased) throw error; // P179: the input is gone (200 MP): no NLM pass can read it
+                Log.e("SCAM_PIPELINE", (ark ? "ark-resolve" : "scam-denoise") + " failed, NLM denoise instead: " + error);
+                if (ark ? ArkResolveDenoise.lastMainTaken : ScamDenoise.lastMainTaken) {
                     // The failure came after the output texture was taken: the ping-pong cursor already points past
                     // this node's input. Taking it once more turns it back (getMain alternates two textures), so the
-                    // NLM pass writes the texture ScamDenoise took and the next node does not get its own input as
+                    // NLM pass writes the texture the engine took and the next node does not get its own input as
                     // target (which a plain pass-through would have caused).
                     pipeline.getMain();
                     ScamDenoise.lastMainTaken = false;
+                    ArkResolveDenoise.lastMainTaken = false;
                 }
                 if (huge) {
                     WorkingTexture = previousNode.WorkingTexture;

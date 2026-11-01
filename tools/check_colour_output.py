@@ -177,6 +177,29 @@ def without_p393(src: str) -> str:
     return P393_FUNCTIONS.sub('\n', src, count=1).replace(P393_VIB_BLOCK, P341_VIB_BLOCK, 1)
 
 
+# P441 (owner, 2026-11-01: «ступеньки на гранях»): RIM_SMOOTH 1 (the photo) runs the P311 / P349 rim rules from one pass with
+# a continuous far side; RIM_SMOOTH 0 keeps the rules before it. The token comparison takes the define, the new functions and the
+# new call out (the shader before P441 at RIM_SMOOTH 0); P441's darkening fade of the P216 highlight detail is inside
+# HEADROOM_WIDE, which the comparison does not compile.
+P441_DEFINE = re.compile(r'// P441 RIM_SMOOTH 1:.*?\n#define RIM_SMOOTH 0\n', re.S)
+P441_FUNCS = re.compile(r'#if RIM_SMOOTH == 1\n// P441 \(owner.*?\n#endif\n\n', re.S)
+P441_CALL = re.compile(r'#if RIM_SMOOTH == 1\n {12}// P441: on every darkening pixel.*?\n#else\n(.*?)#endif\n', re.S)
+
+
+def has_p441(src: str) -> bool:
+    src = src.replace('\r\n', '\n')
+    return (P441_DEFINE.search(src) is not None and P441_FUNCS.search(src) is not None and P441_CALL.search(src) is not None
+            and 'float rimDelta(' in src)
+
+
+def without_p441(src: str) -> str:
+    """P441: the define, rimDelta and its call taken out (the rim rules of before, as RIM_SMOOTH 0 compiles them)."""
+    src = src.replace('\r\n', '\n')
+    src = P441_DEFINE.sub('', src, count=1)
+    src = P441_FUNCS.sub('', src, count=1)
+    return P441_CALL.sub(lambda m: m.group(1), src, count=1)
+
+
 def with_p310_white(src: str) -> str:
     """The P310 edit on the baseline shader (no TONE_OP there: the AgX gate the default TONE_OP 0 takes)."""
     src = src.replace('\r\n', '\n')
@@ -412,7 +435,8 @@ def shader_part(strict: bool) -> None:
     check(('\n' + P305_HIGHP_INT) in new.replace('\r\n', '\n'), 'combine.glsl lost "precision highp int;" (P305: fp16 dither streaks on Adreno)')
     check(P310_BLOCK.search(new.replace('\r\n', '\n')) is not None,
           'combine.glsl lost the P310 AgX gate of the highlight white (the LED rings\' colour goes white)')
-    n = new.replace('\r\n', '\n')
+    check(has_p441(new), 'combine.glsl lost P441\'s rim rules (RIM_SMOOTH: steps and dotted lines along edges beside light come back)')
+    n = without_p441(new)
     check('float lightRimDelta(' in n and all(e[0] in n for e in P311_RIM_EDITS),
           'combine.glsl lost the P311 rim rule of the detail delta (the dark / crimson line beside LED rings comes back)')
     check(P315_RAIL_LINE in n, 'combine.glsl lost the P315 rail rule of the detail delta (two lines along LED rings come back)')
@@ -444,7 +468,8 @@ def shader_part(strict: bool) -> None:
         return
     # P144: the tone operators (TONE_OP 1) alone and with P3 and the colour look
     variants = (('P3_OUT 0', {'P3_OUT': '0'}), ('P3_OUT 1', {'P3_OUT': '1'}), ('TONE_OP 1', {'TONE_OP': '1'}),
-                ('TONE_OP 1 + P3_OUT 1 + COLOUR_LOOK 1', {'TONE_OP': '1', 'P3_OUT': '1', 'COLOUR_LOOK': '1'}))
+                ('TONE_OP 1 + P3_OUT 1 + COLOUR_LOOK 1', {'TONE_OP': '1', 'P3_OUT': '1', 'COLOUR_LOOK': '1'}),
+                ('RIM_SMOOTH 1', {'RIM_SMOOTH': '1'}))   # P441: the photo's rim rules
     for label, defines in variants:
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / 'combine.frag'

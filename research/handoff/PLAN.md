@@ -1,5 +1,10 @@
 # SCAMERA: settings cleanup, route reduction and portable configs — work plan
 
+### P447 - integrate owner P441-P443 package and final native culling
+- Three hl-stairs donors applied over b01602a1, without changing other worktrees. Continuous highlight rims/lattice cap, ultrashort edge controls, night tone, Resolve default/legacy selector, night detail, JPEG AQ JNI/core/parallel and menu cleanup included.
+- Changed native modules built. Actual Adreno: 27 worker reference cases exact; three US-keys-on cases repeat exactly; nine real full Android post cases and app JPEG JNI decode checks pass. Added grain-wrap and shadow-chroma shader CI checks; fixed actual timestamp-sort cache crash and near-black colour mottle. Eight requested host checks pass; final2391 units only four pre-existing Editor failures. No tests weakened.
+- One local delivery commit, no push without a new owner command. Physical Mali/new 50MP-Tetra Android post/CI remain separate evidence boundaries; no GCam6.1 parity claim. Details: P441-INTEGRATION-20261101.md.
+
 Base: `origin/main` 56b8125 (= Actions build 30415, the latest APK). All paths below are relative to the repo root; Java paths are relative to `app/src/main/java/com/particlesdevs/photoncamera/`. Line numbers are from 56b8125 and are approximate — re-locate before editing.
 
 Abbreviations: PK = `settings/PreferenceKeys.java`, SA = `settings/SettingsAvailability.java`, CC = `capture/CaptureController.java`, HP = `processing/processor/HdrxProcessor.java`, PP = `processing/opengl/postpipeline/PostPipeline.java`, XML = `app/src/main/res/xml/preferences.xml`.
@@ -9649,3 +9654,9 @@ emulation), not tried on a phone
 - Retain P444's cheap sampled path first. For remaining RGBA16F statistics, a GLES3.1 RGBA16UI image reads the original half bits only after an all65536-code integer/GL_FLOAT agreement probe; failures/mismatches retain CPU. Independent visited-pixel count validates complete coverage; binding/FBO/viewport state restored.
 - Final Android PostPipeline9/9 full original bursts exact baseline:6 sampled GPU,3 integer GPU.11 device sort fixtures retain forced sampled-path guards;24 host sort cases plus production probe pass. Six injected failures/mismatches return exact CPU estimate without GL errors.
 - Stage medians28->8.5/28.5->8ms on063029/Moving, unaffected control3->3ms. Full-post Moving913->896ms; two controls show no additional dependable gain. No capture-to-JPEG or Mali speed claim; no physical Mali here. Main1/tone/sharpening/count/resolution unchanged. POST-SPEED-RAW-BITS-20261101.md; final release receipts outside Git after CI.
+
+### P446 - exact native Quad/Tetra block culling
+- Skip native 2x2 colour blocks only when conservative kernel bounds prove all original weights below the existing 0.002 donor cutoff. Keep all contributing arithmetic, native windows, frame budgets, resolution, base widening and ultrashort processing. One million production-GLSL GPU bound cases pass; original route available with SCAM_NO_NAT_CULL.
+- Reference KLT patch/Hessian caching remained exact but had no dependable Bayer speed gain in the final balanced repeat (3759 to3777ms); excluded from delivery. The existing alignment, memory guard and CPU fallback remain unchanged.
+- Experimental51 worker runs and final default30 cases have exact complete RGB/map/flag outputs. All30 old/new role, weight, merge-factor, dropped-frame and Bento decisions match. Include8 fresh Штрихи + Moving8, Quad/Tetra motion/highlights/one-frame cases, main/UW/tele FULLRES, ISZ and50MP Sabre2x. Actual Adreno error/reuse/memory/FULLRES checks pass; CI includes the new production-GLSL bound check.
+- The installed original GCam native engine can be created headlessly from validated original JPEG metadata for diagnostics. No proprietary Google binary ships and no identical-burst GCam runtime is claimed. No live Mali or GCam61 latency-parity proof. Main1 hash, capture/tone/sharpening unchanged. See GCAM61-SPEED-ROUND3-20261101.md and local evidence; final CI/APK receipts remain outside Git.

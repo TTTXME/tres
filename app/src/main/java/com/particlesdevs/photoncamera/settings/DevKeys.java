@@ -56,6 +56,7 @@ public final class DevKeys {
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
             "post_noise_quantile_gpu",
+            "jpeg_aq", // P443: how the JPEG is written, not the replayed image
             "hybrid_la_threads", "hybrid_la_stream", "hybrid_la_scam", "hybrid_rgb_half", "worker_gpu_normal_priority",
             "isp_preview_off_always", "hybrid_isp_ccm", "hybrid_clip_flags", "dng_colour_jpeg",
             "dng_white_spec", // P370 (A1): the scene light and calibration weight of the shot's Parameters
@@ -241,6 +242,8 @@ public final class DevKeys {
         // P392: partial rejection of the ultrashort frames and of the long frames under motion
         k.add(n(merge, "hybrid_us_partial", "1", Lang.t("Короткие кадры: отказ только в областях движения, замена по пикселю, заполнение пересвета без швов (0 — как раньше)",
                 "Ultrashort frames: refusal only in the moved regions, the replacement chosen per pixel, the clip filled without seams (0: as before)")));
+        k.add(n(merge, "hybrid_us_edges", "1", Lang.t("Короткие кадры у граней: цвет сглаживается вдоль грани, сдвиг и метка пересвета по пикселю — без зубцов вдоль проводов и краёв на свету (0 — как раньше)",
+                "Ultrashort frames at edges: the colour smoothed along the edge, the offset and the clip mark per pixel - no teeth along wires and edges in the light (0: as before)")));
         k.add(n(merge, "hybrid_long_scope", "1", Lang.t("Длинные кадры: при движении убираются только сдвинутые блоки, а не весь кадр (0 — как раньше)",
                 "Long frames: under motion only the moved blocks are left out, not the whole frame (0: as before)")));
         // P415: the reject's read term in the deep shadows as they measured
@@ -335,6 +338,25 @@ public final class DevKeys {
         k.add(n(post, "hybrid_dn_huge_map", "4.3", Lang.t("Шумодав 200 МП: сила (карта силы; 1 — как при всех склеенных кадрах)", "Denoise 200 MP: strength (strength map; 1: as with every frame merged)")));
         k.add(n(post, "hybrid_dn_huge_fine", "2", Lang.t("Шумодав 200 МП: срез мелкого шума яркости, в сигмах (0 — выкл.)", "Denoise 200 MP: fine luma noise coring, in sigmas (0: off)")));
         k.add(n(post, "hybrid_dn_dark_chroma_noise", "0.35", Lang.t("Шумодав: цвет в тенях, доля шума", "Denoise: colour in the shadows, noise share")));
+        k.add(s(post, "hybrid_ark_dn_dark_chroma", true, Lang.t("Resolve: сглаживать цветовой шум в глубоких тенях", "Resolve: smooth colour noise in deep shadows")));
+        // P443: the SCAM 9.6 engine's rows out of the menu (the Resolve engine is the default), the JPEG and night detail lines
+        k.add(s(post, "jpeg_aq", false, Lang.t("JPEG: адаптивное квантование jpegli (вкл. — как раньше: в тёмных и ровных местах стирает мелкие детали и зерно)", "JPEG: jpegli's adaptive quantisation (on: as before - it erases fine detail and grain in dark and flat areas)")));
+        k.add(n(post, "hybrid_why_night_detail", "1.3", Lang.t("Детали ночью: усиление детали при SNR 15 и ниже до SNR 5 (1 — как раньше: x1 до SNR 20)", "Night detail: the detail gain from SNR 5 up to SNR 15 and beyond (1: as before, x1 up to SNR 20)")));
+        k.add(n(post, "hybrid_dn_luma_mult", "1", Lang.t("Шумодав SCAM 9.6: сила шумодава яркости (множитель)", "SCAM 9.6 denoise: luma strength (multiplier)")));
+        k.add(n(post, "hybrid_dn_sabre_luma_mult", "1", Lang.t("Шумодав SCAM 9.6: яркость, множитель тёмных сцен (таблицы 1, 3, 4)", "SCAM 9.6 denoise: luma, dark-scene multiplier (tiers 1, 3, 4)")));
+        k.add(n(post, "hybrid_dn_luma_gid14_mult", "1", Lang.t("Шумодав SCAM 9.6: яркость, множитель обычных сцен (таблицы 2, 5)", "SCAM 9.6 denoise: luma, regular-scene multiplier (tiers 2, 5)")));
+        k.add(n(post, "hybrid_dn_chroma_mult", "1", Lang.t("Шумодав SCAM 9.6: сила шумодава цвета (множитель)", "SCAM 9.6 denoise: colour strength (multiplier)")));
+        k.add(n(post, "hybrid_dn_revert_mult", "1", Lang.t("Шумодав SCAM 9.6: множитель возврата деталей", "SCAM 9.6 denoise: detail revert multiplier")));
+        k.add(n(post, "hybrid_dn_revert_max", "1", Lang.t("Шумодав SCAM 9.6: предел возврата деталей", "SCAM 9.6 denoise: detail revert limit")));
+        k.add(n(post, "hybrid_dn_coarse_stock", "0", Lang.t("Шумодав SCAM 9.6: доля исходного крупного шума яркости", "SCAM 9.6 denoise: share of the coarse luma noise kept")));
+        k.add(n(post, "hybrid_dn_chroma_floor", "0", Lang.t("Шумодав SCAM 9.6: минимальная сила шумодава цвета", "SCAM 9.6 denoise: the colour strength floor")));
+        k.add(n(post, "hybrid_dn_chroma_2x_keep", "0", Lang.t("Шумодав SCAM 9.6: доля цвета мельче пикселя сенсора на сетке 2x", "SCAM 9.6 denoise: share of the colour finer than a sensor pixel on the 2x grid")));
+        k.add(n(post, "hybrid_dn_snr_scale", "1", Lang.t("Шумодав: множитель SNR кадра (резкость и детали ночью читают его в обоих движках)", "Denoise: the shot SNR multiplier (the sharpening and the night detail read it with either engine)")));
+        k.add(n(post, "hybrid_dn_model_shot", "1.2", Lang.t("Шумодав: дробовая составляющая модели шума (для SNR кадра)", "Denoise: the noise model's shot term (for the shot SNR)")));
+        k.add(n(post, "hybrid_dn_model_read", "2", Lang.t("Шумодав: составляющая шума считывания модели (для SNR кадра)", "Denoise: the noise model's read term (for the shot SNR)")));
+        k.add(s(post, "hybrid_dn_dark_fade", true, Lang.t("Шумодав SCAM 9.6: гасить цвет в самом тёмном", "SCAM 9.6 denoise: fade the colour in the darkest areas")));
+        k.add(n(post, "hybrid_bento_denoise_max", "3", Lang.t("Шумодав SCAM 9.6: предел усиления в местах из малого числа кадров", "SCAM 9.6 denoise: boost limit where few frames merged")));
+        k.add(n(post, "hybrid_why_chroma_denoise", "0", Lang.t("Тон: цветовой шумодав поднятых теней (0 — выкл.)", "Tone: colour denoise of the lifted shadows (0: off)")));
         k.add(n(post, "hybrid_why_hr_mix", "0.5", Lang.t("Тон, света Bento выше 4x: пик к p99.9 (доля)", "Tone, Bento highlights above 4x: peak towards p99.9 (share)")));
         k.add(n(post, "hybrid_why_weight_center_hr", "0.75", Lang.t("Тон с запасом Bento: центр весов слияния (без строки — «Смещение центра экспозиции» + 0,15)", "Tone with Bento headroom: fusion weight centre (without the line: “Exposure centre shift” + 0.15)")));
         k.add(n(post, "hybrid_why_weight_hl_hr", "0.4", Lang.t("Тон с запасом Bento: вес слоя светов (без строки — половина «Вес слоя светов»)", "Tone with Bento headroom: highlight layer weight (without the line: half the “Highlight layer weight”)")));
@@ -357,6 +379,15 @@ public final class DevKeys {
         // P394: the sharpening's overshoot held and the pixel steps smoothed along strong edges
         k.add(n(post, "hybrid_why_edge_hold", "1.0", Lang.t("Тон: на резких границах (рама окна, край лампы на фоне света) резкость сглаживается вдоль границы и не выходит за яркость соседей — без тёмной обводки и лесенки; текстура как раньше; 0 — выкл.",
                 "Tone: at strong edges (a window frame, a lamp's rim against light) the sharpening is smoothed along the edge and held within its neighbours' light - no dark outline, no pixel steps; texture as before; 0: off")));
+        k.add(n(post, "hybrid_why_sharp_lattice_cap", "0.005", Lang.t("Резкость: решётка склейки убирается только в пределах этой доли яркости — края не превращаются в пунктир (0 — без ограничения, как раньше)",
+                "Sharpening: the merge's lattice is taken out only within this share of the level - edges no longer turn dashed (0: unclamped, as before)")));
+        k.add(n(post, "hybrid_why_night_ev_hi", "6.5", Lang.t("Тон ночью: сцена считается ночной, когда её медиана ниже этого EV (полностью — ниже «нижней границы»); 0 — правило выкл., как раньше",
+                "Night tone: a scene is a night scene when its median is below this EV (fully below the lower bound); 0: the rule off, as before")));
+        k.add(n(post, "hybrid_why_night_ev_lo", "5.0", Lang.t("Тон ночью: нижняя граница EV (ниже — полностью ночные значения)", "Night tone: the lower EV bound (below it the full night values)")));
+        k.add(n(post, "hybrid_why_night_ae_target", "0.13", Lang.t("Тон ночью: цель экспозиции (днём 0,15)", "Night tone: the exposure target (0.15 by day)")));
+        k.add(n(post, "hybrid_why_night_shadow_str", "1.5", Lang.t("Тон ночью: подъём теней (днём 2,0)", "Night tone: the shadow lift (2.0 by day)")));
+        k.add(n(post, "hybrid_why_rim_smooth", "1", Lang.t("Тон: ободок у света считается без привязки к сетке 2×2 — без ступенек и пунктира вдоль граней на свету и без тёмной линии у края на фоне солнца (0 — как раньше)",
+                "Tone: the rim beside light without the 2 x 2 grid - no steps or dotted lines along edges in the light, no dark line at an edge against the sun (0: as before)")));
         k.add(n(post, "hybrid_why_fusion_bands", "1", Lang.t("Тон: у резких границ полосы пирамиды берутся из попиксельного слияния (без ореолов у рам окон, веток, ламп, горизонта); 0 — выкл., пирамида как раньше",
                 "Tone: at strong edges the pyramid's bands come from the per-pixel fusion (no halos at window frames, twigs, lamps, the horizon); 0: off, the pyramid as before")));
         k.add(n(post, "hybrid_why_fusion_bands_lo", "1.2", Lang.t("Тон, полосы: перепад света у границы (EV), с которого она берёт полосы попиксельного слияния (текстура ±0,5 EV остаётся пирамиде)",

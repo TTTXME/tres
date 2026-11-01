@@ -27,11 +27,21 @@ public class WhyPairsTest {
     @Test public void theDetailGrowsWithTheFinishSnr() {
         assertEquals(1f, WhyCombine.detailBoost(Float.NaN), 0f);
         assertEquals(1f, WhyCombine.detailBoost(4f), 0f);
-        assertEquals(1f, WhyCombine.detailBoost(20f), 0f);
+        assertEquals(1f, WhyCombine.detailBoost(5f), 0f);
+        // P443: the night floor - log-linear from 1 at SNR 5 to 1.3 at SNR 15, flat after, until the P340 rule passes it (SNR ~47)
+        assertEquals(1f + 0.3f * (float) (Math.log(2.0) / Math.log(3.0)), WhyCombine.detailBoost(10f), 1e-5f);
+        assertEquals(1.3f, WhyCombine.detailBoost(15f), 1e-6f);
+        assertEquals(1.3f, WhyCombine.detailBoost(17.91f), 1e-6f);   // the night port 230628
+        assertEquals(1.3f, WhyCombine.detailBoost(20f), 1e-6f);
+        assertEquals(1.3f, WhyCombine.detailBoost(38.53f), 1e-6f);   // the owner's ISO 2900 night (P340: 1.22)
         assertEquals(1.7f, WhyCombine.detailBoost(150f), 0f);
         assertEquals(1.7f, WhyCombine.detailBoost(683f), 0f);
         assertEquals(1.7f, WhyCombine.detailBoost(Float.POSITIVE_INFINITY), 0f);
-        assertEquals(1.22f, WhyCombine.detailBoost(38.53f), 0.01f);  // the owner's ISO 2900 night
+        // scam_dev hybrid_why_night_detail 1: the P340 rule alone, as before
+        assertEquals(1f, WhyCombine.detailBoost(20f, 1f), 0f);
+        assertEquals(1f, WhyCombine.detailBoost(10f, 1f), 0f);
+        assertEquals(1.22f, WhyCombine.detailBoost(38.53f, 1f), 0.01f);
+        assertEquals(WhyCombine.detailBoost(60f, 1f), WhyCombine.detailBoost(60f), 0f);   // above the floor: unchanged
         float last = 0f;
         for (float snr = 1f; snr < 400f; snr *= 1.1f) {
             final float b = WhyCombine.detailBoost(snr);

@@ -266,7 +266,7 @@ public class ShadeUiTest {
         android.widget.EditText search = view.findViewWithTag("shade_catalog_search");
         search.setText("Luma");
         assertTrue(view.shownKeys().contains("pref_scam_hybrid_why_ms_luma"));
-        assertTrue(view.shownKeys().contains("pref_scam_hybrid_dn_luma_mult"));
+        assertTrue(view.shownKeys().contains("pref_scam_hybrid_ark_dn_luma_revert"));
         assertFalse(view.shownKeys().contains("pref_show_grid_key"));
         String counter = ((android.widget.TextView) view.findViewWithTag("shade_catalog_count")).getText().toString();
         assertTrue(counter, counter.trim().endsWith(" 7"));   // P167: «in the panel: 7», no «of 12»
@@ -443,7 +443,7 @@ public class ShadeUiTest {
     public void russianTilesFitAt360dpWithoutEllipsis() throws Exception {
         // The twelve longest names and values of the curated rows, in Russian, on the narrowest phone.
         List<String> longest = Arrays.asList("pref_scam_hybrid_downsampler", "pref_show_watermark_key", "pref_scam_hybrid_zsl_frames",
-                "pref_scam_hybrid_shasta", "pref_scam_hybrid_dn_luma_mult", "pref_face_detect_mode", "pref_peak_method_key",
+                "pref_scam_hybrid_shasta", "pref_scam_hybrid_ark_dn_factor", "pref_face_detect_mode", "pref_peak_method_key",
                 "pref_live_viewfinder_raw_key", "pref_show_afdata_key", "pref_scam_hybrid_cdm", ShadeCatalog.METERING_STD,
                 "pref_scam_hybrid_bento_frames");
         ShadeTiles.save(prefs, longest);
@@ -539,17 +539,17 @@ public class ShadeUiTest {
     @Test
     public void sliderTileOpensTheInlineCardAndPinsAreLimitedToTwelve() throws Exception {
         layoutFull();
-        sheet.togglePin("pref_scam_hybrid_dn_luma_mult");
+        sheet.togglePin("pref_scam_hybrid_ark_dn_factor");
         assertEquals(8, sheet.pinnedKeys().size());
         assertEquals(sheet.pinnedKeys(), ShadeTiles.stored(prefs));
         layoutFull();
         View card = sheet.findViewWithTag("shade_slider_card");
         assertEquals(View.GONE, card.getVisibility());
-        tile("pref_scam_hybrid_dn_luma_mult").performClick();
+        tile("pref_scam_hybrid_ark_dn_factor").performClick();
         layoutFull();
         assertEquals(View.VISIBLE, card.getVisibility());
         render("shade-full-slider.png");
-        tile("pref_scam_hybrid_dn_luma_mult").performClick();
+        tile("pref_scam_hybrid_ark_dn_factor").performClick();
         layoutFull();
         assertEquals(View.GONE, card.getVisibility());
         for (String key : new String[]{"pref_scam_hybrid_shasta", "pref_scam_hybrid_cdm", "pref_scam_hybrid_zsl_frames",

@@ -116,8 +116,8 @@ public class ScamLabFragmentTest {
                 H + "bento", H + "bento_frames", H + "bento_validate", H + "bento_motion_max", H + "bento_sigma", H + "bento_ramp",
                 H + "bento_chroma_sigma", H + "bento_scam", H + "shasta", H + "shasta_mode", H + "shasta_motion_max",
                 H + "shasta_sharpness", H + "shasta_max_ratio", H + "lut_sigma", H + "bento_factor", H + "shasta_ev",
-                // the denoise tables
-                H + "dn_luma_t1_snr", H + "dn_luma_t5_outlier", H + "dn_chroma_t4_strength", H + "dn_chroma_t1_outlier",
+                // the denoise engine and the Resolve rows (P443; the SCAM 9.6 tables left the menu)
+                H + "denoise_engine", H + "ark_dn_factor", H + "ark_dn_luma_revert", H + "ark_dn_motion_revert", H + "ark_dn_grain",
                 // «Движение», the noise model, the photo size
                 H + "mm_boost_value", H + "mm_bento", H + "mm_shutter", H + "noise_photon", "pref_noise_model_profile_key",
                 H + "downsampler", H + "auto2x", H + "output", "pref_crop_upscale",
@@ -144,27 +144,20 @@ public class ScamLabFragmentTest {
             assertTrue(key, ScamLabFragment.AT_SHOT.contains(key));
     }
 
-    @Test public void theDenoiseTablesCompareAsNumbers() {
-        final ScamLabFragment.Spec snr = ScamLabFragment.spec(tree, context, H + "dn_luma_t1_snr");
-        assertEquals(ScamLabFragment.Spec.SLIDER, snr.kind);
-        assertEquals(0.1f, snr.min, 0f);
-        assertEquals(500f, snr.max, 0f);
-        assertEquals("5.0", snr.def);
-        final ScamLabFragment.Spec strength = ScamLabFragment.spec(tree, context, H + "dn_luma_t1_strength");
-        assertEquals(ScamLabFragment.Spec.TEXT, strength.kind);
-        assertEquals(5, strength.count);
-        assertEquals("1.2,1.1,1.2,1.1,1", strength.def);
-        // each band a quarter of the range (0..10) away
-        assertEquals("3.7,3.6,3.7,3.6,3.5", ScamLabFragment.suggested(strength, strength.def));
-        assertEquals("7.5,7.5,7.5,7.5,7.5", ScamLabFragment.suggested(strength, "10,10,10,10,10"));
-        final ScamLabFragment.Spec outlier = ScamLabFragment.spec(tree, context, H + "dn_chroma_t1_outlier");
-        assertFalse(outlier.decimal);
-        assertEquals("4,9,9,8,8", ScamLabFragment.suggested(outlier, "0,5,5,4,4"));
-        // a value of another length reads as the default
-        assertArrayEquals(new float[]{1.2f, 1.1f, 1.2f, 1.1f, 1f}, ScamLabFragment.numbers(strength, "1,2"), 0f);
-        // the denoise switch off at the shot: the table compares with it on
+    @Test public void theResolveRowsCompareOnTheirEngine() {
+        final ScamLabFragment.Spec factor = ScamLabFragment.spec(tree, context, H + "ark_dn_factor");
+        assertEquals(ScamLabFragment.Spec.SLIDER, factor.kind);
+        assertEquals(0f, factor.min, 0f);
+        assertEquals(2f, factor.max, 0f);
+        final ScamLabFragment.Spec revert = ScamLabFragment.spec(tree, context, H + "ark_dn_luma_revert");
+        assertEquals(ScamLabFragment.Spec.SLIDER, revert.kind);
+        assertEquals(1f, revert.max, 0f);
+        // the denoise switch off at the shot: the row compares with it on; a «SCAM 9.6» shot compares it on the Resolve engine
         assertEquals(Collections.singletonMap(H + "denoise", true),
-                ScamLabFragment.forced(H + "dn_luma_t1_strength", Collections.singletonMap(H + "denoise", false), tree));
+                ScamLabFragment.forced(H + "ark_dn_luma_revert", Collections.singletonMap(H + "denoise", false), tree));
+        assertEquals(Collections.singletonMap(H + "denoise_engine", "ark"),
+                ScamLabFragment.forced(H + "ark_dn_grain", Collections.singletonMap(H + "denoise_engine", "scam"), tree));
+        assertTrue(ScamLabFragment.forced(H + "ark_dn_grain", Collections.singletonMap(H + "denoise_engine", "ark"), tree).isEmpty());
     }
 
     @Test public void aMotionShotComparesTheModesOwnValues() {
