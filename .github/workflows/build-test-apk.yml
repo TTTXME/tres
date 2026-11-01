@@ -2,6 +2,7 @@ name: Build SCAMERA test APK
 
 # Actions minutes and artifact storage are budgeted: builds run for main only (no PR or stale-branch duplicates, docs-only
 # pushes skipped), a newer push cancels the running build, and the artifacts are kept for days, not the 90-day default.
+# Independent checks and Android compilation overlap; only publish waits for every job to succeed.
 on:
   push:
     branches: [ main ]
@@ -19,10 +20,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60     # the longest successful build of the last month took 41 min
-    env:
-      # ci_neural_assets.py decrypts the bundle from git with this key and never reads the artifact copy then
-      HAS_NEURAL_KEY: ${{ secrets.SCAMERA_NEURAL_ASSETS_KEY_V2 != '' }}
+    timeout-minutes: 30
+    outputs:
+      version_code: ${{ steps.ver.outputs.code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,224 +73,10 @@ jobs:
       - name: Check UI language (English defaults, Russian in values-ru, Java text through Lang)
         run: python3 tools/check_ui_language.py
 
-      - name: Check Ultra HDR container (MPF, GContainer XMP, gain map metadata, both images decode)
-        run: python3 tools/check_ultrahdr.py --self-test
-
-      - name: Check 10-bit HEIC container (x265 Main10 tiles wrapped by the app's writer, libheif decode at 10 bits, Exif)
-        run: |
-          python3 -m venv /tmp/heic10-check
-          /tmp/heic10-check/bin/pip install pillow-heif==1.8.0 numpy==2.3.5
-          /tmp/heic10-check/bin/python tools/check_heic10.py --self-test
-
-      - name: Check Display P3 / HDR colour output (P46; shader unchanged by default, ICC in JPEG / WebP / HEIF, HLG maths)
-        run: /tmp/heic10-check/bin/python tools/check_colour_output.py --shader --files --strict
-
-      - name: Check AVIF output (the app's encoder built for the host; 8/10/12-bit, 4:4:4/4:2:0, lossless, EXIF, nclx, Display P3 / HLG; decoded by Pillow/dav1d)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y nasm ninja-build
-          python3 -m venv /tmp/avif-check
-          /tmp/avif-check/bin/pip install pillow==12.3.0 numpy==2.3.5
-          /tmp/avif-check/bin/python tools/check_avif.py
-
-      - name: Check the merge worker builds and starts on the host
-        run: |
-          # The worker includes the EGL/GLES GPU helpers (SHDR merge / super-resolution).
-          sudo apt-get update -qq
-          sudo apt-get install -y libegl-dev libgles-dev
-          g++ -pthread -std=c++17 -O2 -Wall -Wextra app/src/main/cpp/scam-neural-worker.cpp -ldl -lEGL -lGLESv2 -o /tmp/scam-neural-worker
-          /tmp/scam-neural-worker --transport-check
-
-      - name: Build debug APK
-        # The APK build only starts after the host checks pass.
+      - name: Build debug APK and run unit tests
         env:
           SCAMERA_VERSION_CODE: ${{ steps.ver.outputs.code }}
         run: |
-          node tools/scam-zsl-live/check_ae_solver_context.js
-          python3 tools/check_scam_legacy_isolation.py
-          python3 tools/check_scam_ae_context.py
-          python3 tools/check_scam_capture_sequence.py
-          # P317: no mediump (fp16 on Mali) shader operation with a constant outside the fp16 range (NDK glslc)
-          python3 tools/check_shader_fp16.py
-          sudo apt-get update -qq
-          sudo apt-get install -y python3-numpy libegl1 libgl1-mesa-dri libegl-dev libgles-dev
-          python3 -m venv /tmp/tetra-gpu-check
-          /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
-          python3 tools/check_gpu_readback.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_resolve_denoise.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_scam_hdr_gpu.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_highlights.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid_edge.py
-          # P391: the pyramid's edge-aware bands and continuous depth; the noise-bound deep floor and band cap
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid_bands.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_noise.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_sky.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_vibrance_hl.py
-          # P419: the reference app's vibrance in one gain (every strength 0 bit for bit no vibrance; each term on its own colours)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ark_vibrance.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_agx_colour.py
-          # P395: the saturated orange-yellows towards yellow (skin, oranges, pale colours, greens, blues bit for bit)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_yellow_hue.py
-          # P398: pale light at the top of the tone towards white (blue near-whites and saturated colours bit for bit)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hl_neutral.py
-          # P399: the lens's purple fringe against a bright light neutral (violet lights, skies, reds and surfaces away from lights bit for bit)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_purple_fringe.py
-          # P400: a daylit window's mid-tones under its sky darker in a room (the room, the sky, a backlit face, a sunlit sill bit for bit)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_window.py
-          # P402: the reference app's settings ported (the tone's inset / shoulder strength / base, the pyramid denoise, the dezipper)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_v207.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ms_denoise.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_motion_sharp.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_sports_denoise.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hybrid_dezipper.py
-          # P404: the denoise's motion boost, vibrance / skin / matrix gains, curve modifiers, gamma standard, Sobel / thinning / RL damping
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_p404.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_luma_grain.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_sharpen.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_headroom.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_recovery.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_neutral.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_opposed.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_one_channel_off.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_ceiling.py
-          # P393: a clipped channel of sunlit foliage without ultrashort content from the local light (scamhdr/scamrgb oppLocalU)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_opposed_foliage.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hybrid_mochi.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hybrid_outlier_cap.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_signed_rgb.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_effmap_onesided.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_dark_fade.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_chroma_dark_mix.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_output.py --gl --strict
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_look.py
-          # P370: the same with the signed hue on (signedHueU 1, the shipped default); the other GL checks render both themselves
-          SIGNED_HUE=1 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_output.py --gl --strict
-          SIGNED_HUE=1 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_look.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ccm_gamut.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ccm_chain.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_tone_ops.py
-          # P393: a saturated colour's light tones keep its mid-tone chroma (why/combine LIGHT_CHROMA 1; 0 is the shader before, token for token)
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_light_chroma.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_film_lut.py
-          # P369: the film fed scene light (why/combine FILM_SIM 1); FILM_SIM 0 is the shader without it, token for token
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_film_sim.py --strict
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_landing.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_viewfinder_look.py
-          # P365: the RAW viewfinder's fused WHY pass against P314's passes; RAW_SOURCE 0 is the photo's combine token for token
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_vf_fused.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_ae_gpu.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_half_rgba.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_gainmap_gpu.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ultrahdr.py --scene-luma
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_rotate.py
-          LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_linear_resize.py
-          mkdir -p /tmp/zsl-quality-check
-          javac -d /tmp/zsl-quality-check app/src/main/java/com/particlesdevs/photoncamera/capture/RawFrameQuality.java tools/java/RawFrameQualityCheck.java
-          java -ea -cp /tmp/zsl-quality-check RawFrameQualityCheck
-          /usr/bin/python3 tools/check_lanczos_downscale.py
-          cmake -S tools/jpeg-check -B /tmp/jpeg-check -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/jpeg-check -j 4
-          /tmp/jpeg-check/scamera-jpeg-check 2592 1944 95 4 - /tmp && /tmp/jpeg-check/scamera-jpeg-check 1000 3000 100 3 - /tmp
-          g++ -std=c++17 -O1 -fsanitize=address tools/check_dng_memory.cpp -o /tmp/check-dng-memory
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-memory /tmp
-          LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/python3 tools/checks/preview_gl.py
-          g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_preprocess.cpp -lEGL -lGLESv2 -o /tmp/check-scam-preprocess
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-preprocess
-          g++ -std=c++17 -O2 -fsanitize=address,undefined tools/check_scam_capture.cpp -lEGL -lGLESv2 -o /tmp/check-scam-capture
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-capture
-          g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_motion_capture.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-scam-motion-capture
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-motion-capture
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_measured_gain.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-measured-gain
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-measured-gain
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_dark_noise.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-dark-noise
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-dark-noise
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_prefetch.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-prefetch
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-prefetch
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_native_widen.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-native-widen
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-native-widen
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_native_cull_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-native-cull-gpu
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-native-cull-gpu
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_us_cache_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-us-cache-gpu
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-us-cache-gpu
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_resolve_grain_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-resolve-grain-gpu
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-resolve-grain-gpu
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_fullres_2x.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-fullres-2x
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-fullres-2x
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_mosaic_chroma_bands.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-mosaic-chroma-bands
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-mosaic-chroma-bands
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_CHROMA_RING_CHECK tools/check_chroma_band.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-chroma-band
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-chroma-band quick
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_CHROMA_RING_CHECK tools/check_chroma_overlap.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-chroma-overlap
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-chroma-overlap quick
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_still.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-still
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-still
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_stages.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-stages
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-stages
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_series.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-series
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-series
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_us_rows.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-us-rows
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-us-rows
-          # P366: the lamp-flicker corrections of the ultrashort frames held in daylight and for an incoherent tile field (one decision per burst)
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_us_daylight.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-us-daylight
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-us-daylight
-          # P364: a merge that throws while the ultrashort check runs beside it waits for the check before its copies are freed
-          # (ASan: the use after free; TSan, setarch -R for its fixed shadow layout: the missing join, whatever the timing)
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_us_pending.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-us-pending
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-us-pending
-          g++ -pthread -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS -fsanitize=thread tools/check_hybrid_us_pending.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-us-pending-tsan
-          setarch "$(uname -m)" -R /tmp/check-hybrid-us-pending-tsan
-          # P364: the GPU homography and field on their error paths (no broken promise, no slot off by one) and the memory they hold
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_LA_GPU_FAULTS tools/check_la_gpu_errors.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-errors
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-la-gpu-errors
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_la_gpu_reuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-reuse
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-la-gpu-reuse
-          g++ -pthread -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS -fsanitize=thread tools/check_la_gpu_reuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-reuse-tsan
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless TSAN_OPTIONS="suppressions=$PWD/tools/check_hybrid_gpu_align.tsan.supp" setarch "$(uname -m)" -R /tmp/check-la-gpu-reuse-tsan
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_us_measure_reuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-us-measure-reuse
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-us-measure-reuse
-          # P364: the plain merge with the GPU alignment under ThreadSanitizer (no race on the ultrashort registration's state), the
-          # GPU field's memory guard with the homography counted, and a GPU field fault mid-burst (the merge goes on: the frames the
-          # failed worker left by the global translation, the CPU field)
-          g++ -pthread -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS -fsanitize=thread -DSCAM_LA_GPU_FAULTS tools/check_hybrid_gpu_align.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-gpu-align
-          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless TSAN_OPTIONS="suppressions=$PWD/tools/check_hybrid_gpu_align.tsan.supp" setarch "$(uname -m)" -R /tmp/check-hybrid-gpu-align
-          # P337: the lateral CA beyond the old 2-cell cut (R +6 / B -3 px at the corner) measured and corrected
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_raw_ca.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-raw-ca
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-raw-ca
-          # P219: the mosaic merges' frame pick (the split unchanged, the native merge takes every frame) and the skipped detector
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_mosaic_pick.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-mosaic-pick
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-mosaic-pick
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_dng_ceiling.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-dng-ceiling
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-ceiling
-          # P268: the site response field of the mosaic merges (2x2-OCL Quad sensors)
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_gain_field.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-gain-field
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-gain-field
-          # P220: the merge worker's heartbeat (scam-progress.h) that the app's watchdog and processing ring read
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_worker_progress.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-worker-progress
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-worker-progress
-          # P371: the worker's RGB halves streamed into the output memfd during the merge (scam-stream-out.h, the plain sink's rows)
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_stream_out.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-stream-out
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-stream-out
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_strip_trailers.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-strip-trailers
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-strip-trailers
-          g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_probe.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-scam-probe
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-probe /tmp/scam-probe-fixture
-          # P214a: NativeEngine lookups leave no JNI global reference (fake JNIEnv against the NDK's jni.h).
-          mkdir -p /tmp/native-engine-host && cp "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/jni.h" /tmp/native-engine-host/
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host tools/check_native_engine_refs.cpp -ldl -o /tmp/check-native-engine-refs
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-native-engine-refs
-          # P318: a Quad / Tetra mosaic DNG declares its CFA, black level and GainMap sites over the colour blocks; every CFA order
-          # keeps its colour tags (the 4-byte CFA array overflow)
-          g++ -std=c++17 -O1 -fsanitize=address,undefined -fno-sanitize-recover=bounds -I/tmp/native-engine-host -Itools/host-include -Iapp/src/main/cpp/deps tools/check_dng_mosaic_cfa.cpp -ldl -o /tmp/check-dng-mosaic-cfa
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-mosaic-cfa
-          # P371: the merge client reads the worker's result in place (allocator.cpp arenaAdopt: views of the memfd, the RGB view's
-          # free punches its pages, unmapped after the last view; review B1: the trailers between the views survive the release)
-          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_allocator_adopt.cpp -o /tmp/check-allocator-adopt
-          ASAN_OPTIONS=detect_leaks=0 /tmp/check-allocator-adopt
-          g++ -std=c++17 -O1 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all tools/check_dcg_noise.cpp -o /tmp/check-dcg-noise
-          /tmp/check-dcg-noise
-          python3 tools/check_scam_reference_metadata.py
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest --tests "com.particlesdevs.photoncamera.processing.color.FilmReferenceParametersTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ReferenceFilmTransferTest" --tests "com.particlesdevs.photoncamera.manual.UnspektraAeTest" --tests "com.particlesdevs.photoncamera.manual.UnspektraMeterTest" --tests "com.particlesdevs.photoncamera.capture.UnspektraRawMeterTest" --tests "com.particlesdevs.photoncamera.capture.UnspektraCameraAeTest" --tests "com.particlesdevs.photoncamera.settings.UnspektraAePreferencesTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ArkResolveDenoiseTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ResolveMemoryPolicyTest" --tests "com.particlesdevs.photoncamera.util.AsyncLogTest" --tests "com.particlesdevs.photoncamera.util.ParallelWorkOwnTest" --tests "com.particlesdevs.photoncamera.processing.PedestalFloorTest" --tests "com.particlesdevs.photoncamera.util.ScameraFilesTest" --tests "com.particlesdevs.photoncamera.util.DcimMoveBackTest" --tests "com.particlesdevs.photoncamera.settings.SettingsMenuTest" --tests "com.particlesdevs.photoncamera.settings.SettingsMovesKeepValuesTest" --tests "com.particlesdevs.photoncamera.ui.settings.ModuleProfilesPageTest" --tests "com.particlesdevs.photoncamera.ui.settings.ScamLabFragmentTest" --tests "com.particlesdevs.photoncamera.ui.settings.ScamLabSandboxTest" --tests "com.particlesdevs.photoncamera.ui.settings.SettingHelpTest" --tests "com.particlesdevs.photoncamera.ui.settings.PageResetTest" --tests "com.particlesdevs.photoncamera.ui.settings.ModuleRowsTest" --tests "com.particlesdevs.photoncamera.ui.settings.SettingsLayoutPageTest" --tests "com.particlesdevs.photoncamera.settings.SettingsLayoutTest" --tests "com.particlesdevs.photoncamera.settings.SettingsLayoutConfigTest" --tests "com.particlesdevs.photoncamera.settings.CameraIdCheckTest" --tests "com.particlesdevs.photoncamera.ui.settings.SoundsRowTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyHeadroomWeightsTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyVibranceHlShapeTest" --tests "com.particlesdevs.photoncamera.processing.color.ColourLookTest" --tests "com.particlesdevs.photoncamera.processing.color.ToneCurveTest" --tests "com.particlesdevs.photoncamera.processing.color.LensFiltersTest" --tests "com.particlesdevs.photoncamera.processing.color.DiffusionModelTest" --tests "com.particlesdevs.photoncamera.capture.AfTriggerRepeatTest" --tests "com.particlesdevs.photoncamera.capture.PlainPreviewCamerasTest" --tests "com.particlesdevs.photoncamera.capture.TorchToggleTest" --tests "com.particlesdevs.photoncamera.capture.FullResMosaicProofTest" --tests "com.particlesdevs.photoncamera.capture.ParkedLensTest" --tests "com.particlesdevs.photoncamera.capture.FpsProbeTest" --tests "com.particlesdevs.photoncamera.processing.CropUpscaleTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.LensFilterNodeTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.LiveLensFilterTest" --tests "com.particlesdevs.photoncamera.ui.camera.CameraSoundsTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ScalingMatrixTest" --tests "com.particlesdevs.photoncamera.ui.settings.custompreferences.ToneCurveCompareTest" --tests "com.particlesdevs.photoncamera.ui.settings.custompreferences.ToneCurveHistoryTest" --tests "com.particlesdevs.photoncamera.ui.settings.IconStyleTest" --tests "com.particlesdevs.photoncamera.settings.ViewfinderUiTest" --tests "com.particlesdevs.photoncamera.settings.ApprovedConceptsTest" --tests "com.particlesdevs.photoncamera.processing.LiveRawFrameTest" --tests "com.particlesdevs.photoncamera.processing.LiveRawPaceTest" --tests "com.particlesdevs.photoncamera.processing.LiveRawMeterTest" --tests "com.particlesdevs.photoncamera.processing.LiveWhyMeterTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.FusedCurveTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.LiveRawGeometryTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.LiveRawFusedTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.LiveWhyToneFusedTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ToneEaseTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.FrameExposureTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersPedestalLossTest" --tests "com.particlesdevs.photoncamera.processing.PedestalMemoryTest" --tests "com.particlesdevs.photoncamera.processing.processor.ScamProcessorBlackFloorTest" --tests "com.particlesdevs.photoncamera.processing.RawPayloadCheckTest" --tests "com.particlesdevs.photoncamera.processing.RawLevelsTest" --tests "com.particlesdevs.photoncamera.processing.RawLinearityTest" --tests "com.particlesdevs.photoncamera.processing.DcgGatesTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.DcgPostTest" --tests "com.particlesdevs.photoncamera.processing.render.NoiseModelerDcgTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhySharpenLowLightTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyLumaSharpenTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDenoiseTablesTest" --tests "com.particlesdevs.photoncamera.settings.BackupLensMatchTest" --tests "com.particlesdevs.photoncamera.settings.DeviceDefaultsTest" --tests "com.particlesdevs.photoncamera.capture.CameraResumeTest" --tests "com.particlesdevs.photoncamera.capture.ScamStockAePlanTest" --tests "com.particlesdevs.photoncamera.capture.HybridPlanTest" --tests "com.particlesdevs.photoncamera.capture.ExposureLimitsTest" --tests "com.particlesdevs.photoncamera.capture.EttrTest" --tests "com.particlesdevs.photoncamera.capture.ExposureRangesTest" --tests "com.particlesdevs.photoncamera.capture.FlushLossStatsTest" --tests "com.particlesdevs.photoncamera.processing.RawBinTest" --tests "com.particlesdevs.photoncamera.processing.RawCropTest" --tests "com.particlesdevs.photoncamera.ui.controls.PrecisionRulerTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.HorizonIndicatorViewTest" --tests "com.particlesdevs.photoncamera.settings.RawCropSettingsTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurstAnyResolutionTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurstRolesTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamNoiseFactorReportTest" --tests "com.particlesdevs.photoncamera.capture.ZslSteadiestTest" --tests "com.particlesdevs.photoncamera.capture.ZslRingBudgetTest" --tests "com.particlesdevs.photoncamera.capture.RawViewfinderStreamsTest" --tests "com.particlesdevs.photoncamera.capture.HalHiddenOisTest" --tests "com.particlesdevs.photoncamera.capture.HiddenFeaturesTest" --tests "com.particlesdevs.photoncamera.capture.PixelPro10Test" --tests "com.particlesdevs.photoncamera.capture.spoof.CameraAttributionSpoofTest" --tests "com.particlesdevs.photoncamera.capture.VivoQcomStreamUsageTest" --tests "com.particlesdevs.photoncamera.capture.SerialRawCaptureTest" --tests "com.particlesdevs.photoncamera.capture.VivoSdkFullResModeTest" --tests "com.particlesdevs.photoncamera.capture.VivoNativeFullResTest" --tests "com.particlesdevs.photoncamera.capture.OppoNativeFullResTest" --tests "com.particlesdevs.photoncamera.capture.OppoPlainStateTest" --tests "com.particlesdevs.photoncamera.capture.OppoNativeWbTest" --tests "com.particlesdevs.photoncamera.capture.NativeRawExposureTest" --tests "com.particlesdevs.photoncamera.capture.MainsFlickerTest" --tests "com.particlesdevs.photoncamera.capture.RowFlickerTest" --tests "com.particlesdevs.photoncamera.capture.NativeAeSeedTest" --tests "com.particlesdevs.photoncamera.capture.SessionOperationModeTest" --tests "com.particlesdevs.photoncamera.ui.camera.SensorModeSwitchesTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.AuxButtonsOverflowTest" --tests "com.particlesdevs.photoncamera.capture.IszCapturePolicyTest" --tests "com.particlesdevs.photoncamera.capture.VivoPd2454IszTest" --tests "com.particlesdevs.photoncamera.processing.IszAspectCropTest" --tests "com.particlesdevs.photoncamera.processing.IszAspectCaptureTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.IszGainMapCropTest" --tests "com.particlesdevs.photoncamera.capture.VivoSdkFullResCaptureTest" --tests "com.particlesdevs.photoncamera.capture.FullResZslTest" --tests "com.particlesdevs.photoncamera.ui.camera.FullResIconsTest" --tests "com.particlesdevs.photoncamera.capture.VivoSdkRawSessionTest" --tests "com.particlesdevs.photoncamera.capture.VivoSdkRawSignalTest" --tests "com.particlesdevs.photoncamera.capture.PixelFullResSizeTest" --tests "com.particlesdevs.photoncamera.processing.LiveRawQuadBinTest" --tests "com.particlesdevs.photoncamera.util.RawUnpackShiftTest" --tests "com.particlesdevs.photoncamera.settings.DevKeysCoverageTest" --tests "com.particlesdevs.photoncamera.settings.ScamDevSnapshotTest" --tests "com.particlesdevs.photoncamera.settings.IszModuleTest" --tests "com.particlesdevs.photoncamera.settings.IszModuleDuplicateTest" --tests "com.particlesdevs.photoncamera.settings.ZoomLabelsTest" --tests "com.particlesdevs.photoncamera.capture.VendorHintsTest" --tests "com.particlesdevs.photoncamera.settings.MotionModeTest" --tests "com.particlesdevs.photoncamera.settings.SportModeNameTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.SportsDenoisePolicyTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgbUniformParityTest" --tests "com.particlesdevs.photoncamera.capture.CroppedRawTest" --tests "com.particlesdevs.photoncamera.processing.color.OplusCcmTest" --tests "com.particlesdevs.photoncamera.processing.color.MosaicNeutralTest" --tests "com.particlesdevs.photoncamera.processing.color.MosaicLocusTest" --tests "com.particlesdevs.photoncamera.processing.color.MosaicTeacherTest" --tests "com.particlesdevs.photoncamera.processing.color.MosaicIszNoonTest" --tests "com.particlesdevs.photoncamera.util.ScameraTimingLogTest" --tests "com.particlesdevs.photoncamera.capture.PreviewFrameMatcherTest" --tests "com.particlesdevs.photoncamera.capture.TimestampFrameRouterTest" --tests "com.particlesdevs.photoncamera.processing.color.DcpProfileTest" --tests "com.particlesdevs.photoncamera.settings.ShadeCatalogTest" --tests "com.particlesdevs.photoncamera.settings.ShadeTilesTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeUiTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeZoomTest" --tests "com.particlesdevs.photoncamera.ui.camera.Shade169Test" --tests "com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ConfigMenuTest" --tests "com.particlesdevs.photoncamera.util.LangTest" --tests "com.particlesdevs.photoncamera.util.OriginalBuildTest" --tests "com.particlesdevs.photoncamera.settings.QuadBayerResetTest" --tests "com.particlesdevs.photoncamera.settings.HybridSettingsTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.LensLabelLocaleTest" --tests "com.particlesdevs.photoncamera.ui.camera.PermissionPlanTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.LensButtonTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.AuxButtonsFitTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ZoomStopsTest" --tests "com.particlesdevs.photoncamera.settings.FullResProfilesTest" --tests "com.particlesdevs.photoncamera.settings.ModuleProfilesCarryTest" --tests "com.particlesdevs.photoncamera.settings.FullResFramesTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.BottomChromeTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ShotSpeedBitExactTest" --tests "com.particlesdevs.photoncamera.processing.MosaicBlockDetectorSpeedTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersBlackFloorTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersStoredShadingTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersHandSetWbTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurstCrashTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridLearnedTest" --tests "com.particlesdevs.photoncamera.control.ZoomControllerRangeTest" --tests "com.particlesdevs.photoncamera.processing.MosaicBlockStoreTest" --tests "com.particlesdevs.photoncamera.settings.ModuleChoiceTest" --tests "com.particlesdevs.photoncamera.settings.ModuleDuplicatesTest" --tests "com.particlesdevs.photoncamera.capture.XiaomiTeleZoomTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ZoomDialDetentTest" --tests "com.particlesdevs.photoncamera.processing.PhotoFormatTest" --tests "com.particlesdevs.photoncamera.settings.PhotoFormatSettingsTest" --tests "com.particlesdevs.photoncamera.processing.AvifOutputTest" --tests "com.particlesdevs.photoncamera.settings.AvifSettingsTest" --tests "com.particlesdevs.photoncamera.processing.ultrahdr.UltraHdrContainerStreamTest" --tests "com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputerTest" --tests "com.particlesdevs.photoncamera.manual.ParamControllerEvLockTest" --tests "com.particlesdevs.photoncamera.manual.ExposurePriorityTest" --tests "com.particlesdevs.photoncamera.manual.MotionShutterTest" --tests "com.particlesdevs.photoncamera.capture.RawLevelTest" --tests "com.particlesdevs.photoncamera.capture.MotionMeterTest" --tests "com.particlesdevs.photoncamera.capture.MotionPolicyTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ManualFormatTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ManualPanelUiTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ManualRulerTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ManualRangeTest" --tests "com.particlesdevs.photoncamera.settings.FormatChoiceTest" --tests "com.particlesdevs.photoncamera.capture.SafeStreamSizesTest" --tests "com.particlesdevs.photoncamera.capture.StabilizationTraceTest" --tests "com.particlesdevs.photoncamera.capture.ScamPreviewTest" --tests "com.particlesdevs.photoncamera.capture.ForcedStabilizationTest" --tests "com.particlesdevs.photoncamera.settings.BrandMigrationTest" --tests "com.particlesdevs.photoncamera.settings.WhyRenameMigrationTest" --tests "com.particlesdevs.photoncamera.capture.PreviewStallTest" --tests "com.particlesdevs.photoncamera.control.SubjectMappingTest" --tests "com.particlesdevs.photoncamera.control.TouchFocusSplitTest" --tests "com.particlesdevs.photoncamera.control.TouchFocusActiveScanTest" --tests "com.particlesdevs.photoncamera.processing.color.FilmLutTest" --tests "com.particlesdevs.photoncamera.processing.color.FilmLooksTest" --tests "com.particlesdevs.photoncamera.control.subject.FaceDetectModesTest" --tests "com.particlesdevs.photoncamera.control.subject.SubjectPolicyTest" --tests "com.particlesdevs.photoncamera.control.subject.PatchTrackerTest" --tests "com.particlesdevs.photoncamera.processing.heif.HevcNalTest" --tests "com.particlesdevs.photoncamera.processing.heif.HeifContainerWriterTest" --tests "com.particlesdevs.photoncamera.processing.heif.P010Test" --tests "com.particlesdevs.photoncamera.processing.heif.TileGridTest" --tests "com.particlesdevs.photoncamera.processing.heif.Heic10SupportTest" --tests "com.particlesdevs.photoncamera.processing.heif.TenBitBitmapsTest" --tests "com.particlesdevs.photoncamera.processing.ml.Lanczos1010102Test" --tests "com.particlesdevs.photoncamera.processing.opengl.TenBitReadbackTest" --tests "com.particlesdevs.photoncamera.processing.PhotoOutputHeic10Test" --tests "com.particlesdevs.photoncamera.settings.SettingsAuditFixTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ViewfinderScaleLayoutTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ProcessingRingTest" --tests "com.particlesdevs.photoncamera.ui.camera.BottomBarStyleTest" --tests "com.particlesdevs.photoncamera.capture.PreviewGapMeterTest" --tests "com.particlesdevs.photoncamera.capture.PreviewContinuityTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.PlainShotSpeedTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ShrinkingReadTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.FullResMemoryTest" --tests "com.particlesdevs.photoncamera.control.ZoomStreamCropTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgbOneChannelOffTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgbOpposedTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgbHalfTransportTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.HalfRgbUploadTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyAeTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyAgxSkinProtectionTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeterTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.ViewfinderGainTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.LiveRawLookTest" --tests "com.particlesdevs.photoncamera.control.FovSelfCheckTest" --tests "com.particlesdevs.photoncamera.gallery.dng.DngPreviewTest" --tests "com.particlesdevs.photoncamera.gallery.dng.DngRawTest" --tests "com.particlesdevs.photoncamera.gallery.editor.EditStateTest" --tests "com.particlesdevs.photoncamera.gallery.editor.CropMathTest" --tests "com.particlesdevs.photoncamera.gallery.editor.EditMathTest" --tests "com.particlesdevs.photoncamera.gallery.raw.RawFormatsTest" --tests "com.particlesdevs.photoncamera.gallery.GalleryLauncherIconTest" --tests "com.particlesdevs.photoncamera.gallery.ui.GalleryUiTest" --tests "com.particlesdevs.photoncamera.gallery.ui.PhotoInfoTest" --tests "com.particlesdevs.photoncamera.gallery.helper.ImageHeaderSizeTest" --tests "com.particlesdevs.photoncamera.gallery.ui.fragments.ComparePaneLabelTest" --tests "com.particlesdevs.photoncamera.util.DeviceNameTest" --tests "com.particlesdevs.photoncamera.processing.PhotoMakeModelTest" --tests "com.particlesdevs.photoncamera.gallery.glide.AvifGlideDecoderTest" --tests "com.particlesdevs.photoncamera.api.CameraLensScanTest" --tests "com.particlesdevs.photoncamera.api.AuxiliarySensorTest" --tests "com.particlesdevs.photoncamera.api.CameraAuxModuleTest" --tests "com.particlesdevs.photoncamera.processing.MergeStampTest" --tests "com.particlesdevs.photoncamera.processing.ShotLookAtPressTest" --tests "com.particlesdevs.photoncamera.processing.opengl.GLProgramDiskCacheTest" --tests "com.particlesdevs.photoncamera.processing.opengl.GLInterfaceLayoutsTest" --tests "com.particlesdevs.photoncamera.gallery.adapters.GalleryDecodeRetryTest" --tests "com.particlesdevs.photoncamera.gallery.glide.GalleryKeysTest" --tests "com.particlesdevs.photoncamera.processing.color.OutputColourTest" --tests "com.particlesdevs.photoncamera.processing.color.IccProfilesTest" --tests "com.particlesdevs.photoncamera.processing.color.IccEmbedTest" --tests "com.particlesdevs.photoncamera.processing.color.HlgRenditionTest" --tests "com.particlesdevs.photoncamera.processing.color.DefaultOutputGoldenTest" --tests "com.particlesdevs.photoncamera.processing.heif.HeifColourTest" --tests "com.particlesdevs.photoncamera.processing.PhotoOutputColourTest" --tests "com.particlesdevs.photoncamera.processing.JpegExifStreamTest" --tests "com.particlesdevs.photoncamera.processing.ultrahdr.IsoGainMapTest" --tests "com.particlesdevs.photoncamera.processing.heif.HeifGainMapTest" --tests "com.particlesdevs.photoncamera.settings.ColourSettingsTest" --tests "com.particlesdevs.photoncamera.settings.AccentSystemTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhySharpenR1Test" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyPairsTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDenoiseLscTest" --tests "com.particlesdevs.photoncamera.util.RotatingLogFileTest" --tests "com.particlesdevs.photoncamera.util.MessageLogTest" --tests "com.particlesdevs.photoncamera.ui.camera.MessageCardTest" --tests "com.particlesdevs.photoncamera.util.BuildIdentityTest" --tests "com.particlesdevs.photoncamera.util.LogStoragePolicyTest" --tests "com.particlesdevs.photoncamera.util.ScameraCrashReporterTest" --tests "com.particlesdevs.photoncamera.processing.DngMetadataTest" --tests "com.particlesdevs.photoncamera.api.ReflectionCacheTest" --tests "com.particlesdevs.photoncamera.api.ExposureCompensationRangeTest" --tests "com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolverTest" --tests "com.particlesdevs.photoncamera.processing.color.PlainColourMemoryTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersPlainTableTest" --tests "com.particlesdevs.photoncamera.processing.render.OppoTunedAnchorTest" --tests "com.particlesdevs.photoncamera.processing.render.OppoTunedColorTest" --tests "com.particlesdevs.photoncamera.settings.SessionKeysTest" --tests "com.particlesdevs.photoncamera.capture.FullResTrialsTest" --tests "com.particlesdevs.photoncamera.capture.VivoQcomIszTest" --tests "com.particlesdevs.photoncamera.capture.SensorModePickTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabOrientTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabBurstTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabParamsTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.LabFrameTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabRunTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabSeriesTest" --tests "com.particlesdevs.photoncamera.settings.ItemOrderTest" --tests "com.particlesdevs.photoncamera.processing.color.FilmSimTest" --tests "com.particlesdevs.photoncamera.processing.color.FilmSpectralTest" --tests "com.particlesdevs.photoncamera.processing.color.DiffusionFftTest" --tests "com.particlesdevs.photoncamera.processing.color.DiffusionGaussTest" --tests "com.particlesdevs.photoncamera.processing.color.FilmEffectsTest" --tests "com.particlesdevs.photoncamera.ui.camera.FullResButtonTest" --tests "com.particlesdevs.photoncamera.ui.camera.PhotoSizeBadgeTest" --tests "com.particlesdevs.photoncamera.capture.NativeViewfinderTest" --tests "com.particlesdevs.photoncamera.capture.VivoAeAuditTest" --tests "com.particlesdevs.photoncamera.capture.VivoSeriesExposureTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyNoiseClampTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WorkerWatchdogTest" --tests "com.particlesdevs.photoncamera.processing.MergeProgressTest" --tests "com.particlesdevs.photoncamera.capture.FullResInFlightTest" --tests "com.particlesdevs.photoncamera.capture.XiaomiDcgTest" --tests "com.particlesdevs.photoncamera.capture.SensorModeBandTest" --tests "com.particlesdevs.photoncamera.ui.camera.TopBarFitTest" --tests "com.particlesdevs.photoncamera.ui.camera.LutTrayTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.LutWipeViewTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.ExposureSunViewTest" --tests "com.particlesdevs.photoncamera.ui.camera.SmoothZoomTest" --tests "com.particlesdevs.photoncamera.ui.camera.CameraSheetsTest" --tests "com.particlesdevs.photoncamera.ui.camera.CameraBackTest" --tests "com.particlesdevs.photoncamera.processing.color.LutLookTest" --tests "com.particlesdevs.photoncamera.settings.PhotoStyleTest" --tests "com.particlesdevs.photoncamera.ui.camera.UiScaleTest" --tests "com.particlesdevs.photoncamera.capture.ViewfinderFpsTest" --tests "com.particlesdevs.photoncamera.processing.RingArenaMoveTest" --tests "com.particlesdevs.photoncamera.processing.ShotTimelineTest" --tests "com.particlesdevs.photoncamera.processing.render.FillFrameLevelsTest" --tests "com.particlesdevs.photoncamera.processing.opengl.TileBlitterTest" --tests "com.particlesdevs.photoncamera.util.ThermalPolicyTest" --tests "com.particlesdevs.photoncamera.capture.FullResRingPolicyTest" --tests "com.particlesdevs.photoncamera.capture.ExperimentalRoutesTest" --tests "com.particlesdevs.photoncamera.settings.DiagnosticsAutoOffTest" --tests "com.particlesdevs.photoncamera.util.WorkerEnvTest" --tests "com.particlesdevs.photoncamera.processing.opengl.GLProgramRecipesTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WorkerCompletionTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WorkerStandbyTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersBlockScanTest" --tests "com.particlesdevs.photoncamera.processing.color.DngColourTest" --tests "com.particlesdevs.photoncamera.processing.color.FilmChainTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.FilmGatesTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyCctFilmTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyCombineUniformParityTest" --tests "com.particlesdevs.photoncamera.gallery.ui.GalleryNavRecreateTest" --tests "com.particlesdevs.photoncamera.gallery.ui.GalleryActivityRoutesTest" --tests "com.particlesdevs.photoncamera.gallery.ui.fragments.ImageViewerNavigationTest" --tests "com.particlesdevs.photoncamera.gallery.viewmodel.GalleryViewModelTest" --tests "com.particlesdevs.photoncamera.gallery.editor.CurveViewTest" --tests "com.particlesdevs.photoncamera.gallery.editor.EditorViewModelTest" --tests "com.particlesdevs.photoncamera.gallery.editor.EditExporterUriTest" --tests "com.particlesdevs.photoncamera.gallery.GalleryManifestTest" --tests "com.particlesdevs.photoncamera.capture.EttrSessionTest" --tests "com.particlesdevs.photoncamera.capture.CameraDisconnectTest" --tests "com.particlesdevs.photoncamera.capture.ShotPressStateTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersShotCameraTest" --tests "com.particlesdevs.photoncamera.ui.camera.FrozenViewfinderTest" --tests "com.particlesdevs.photoncamera.ui.camera.views.viewfinder.MainRendererLatchTest" --tests "com.particlesdevs.photoncamera.processing.opengl.GLTextureSlotTableTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.PostPipelineTeardownTest" --tests "com.particlesdevs.photoncamera.processing.processor.ScamProcessorFailureTest" --tests "com.particlesdevs.photoncamera.processing.ImageSaverDngFailureTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyCombineTextureOrderTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.PassOutputOrderTest" --tests "com.particlesdevs.photoncamera.processing.processor.ScamProcessorTeardownOrderTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabFoldersTest" --tests "com.particlesdevs.photoncamera.ui.settings.ScamLabJobsTest" --tests "com.particlesdevs.photoncamera.settings.LabScopeTest" --tests "com.particlesdevs.photoncamera.app.ScameraAppRestartTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDiagnosticsReadmeTest" --tests "com.particlesdevs.photoncamera.gallery.dng.DngWhiteTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersSceneCctTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersSingleCalibrationTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersPlaceholderFmTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersColourMethodTest" --tests "com.particlesdevs.photoncamera.settings.DeviceAvailabilityColourTest" --tests "com.particlesdevs.photoncamera.api.Camera2ApiAutoFixTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ViewfinderColourTest" --tests "com.particlesdevs.photoncamera.processing.color.ViewfinderMosaicWbTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabTemplateTest" --tests "com.particlesdevs.photoncamera.processing.render.ParametersWhiteInvariantTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.SceneLumaWeightsTest" --tests "com.particlesdevs.photoncamera.processing.DngCreatorColourTagsTest" --tests "com.particlesdevs.photoncamera.ui.settings.DialogStyleTest" --tests "com.particlesdevs.photoncamera.ui.settings.SettingsDialogsTest" --tests "com.particlesdevs.photoncamera.ui.camera.CameraDialogsTest" --tests "com.particlesdevs.photoncamera.processing.LensFilterAtPressTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.OpposedLandingMapTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhySkyMaskTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhySkyTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.LiveSkyTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyFusionBandsTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyEdgeHoldTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyYellowHueTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyHlNeutralTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgbPurpleFringeTest" --tests "com.particlesdevs.photoncamera.processing.opengl.postpipeline.WhyWindowTest" :app:assembleDebug --stacktrace --no-daemon
 
@@ -354,6 +140,70 @@ jobs:
           fi
           "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$APK" | head -1
 
+      # This is an internal template, never a release or a Telegram attachment.
+      - name: Upload internal APK template
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCAMERA-internal-template
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  host:
+    name: Host checks (${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        lane: [shaders, native-a, native-b, native-c, strip-trailers, codecs]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        if: matrix.lane == 'shaders' || matrix.lane == 'native-c' || matrix.lane == 'codecs'
+        with:
+          packages: ''
+      - name: Install host shader and JNI toolchain
+        if: matrix.lane == 'shaders' || matrix.lane == 'native-c' || matrix.lane == 'codecs'
+        run: sdkmanager --install "ndk;27.2.12479018" "platforms;android-36"
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-numpy libegl1 libgl1-mesa-dri libegl-dev libgles-dev nasm ninja-build
+      - name: Run unchanged host checks
+        run: bash tools/ci/host-${{ matrix.lane }}.sh
+
+  publish:
+    # Default needs semantics prohibit signing or posting when ANY check failed/skipped.
+    needs: [build, host]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HAS_NEURAL_KEY: ${{ secrets.SCAMERA_NEURAL_ASSETS_KEY_V2 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Install APK signing tools
+        run: sdkmanager --install "build-tools;36.0.0"
+      - name: Download this run's checked APK template
+        uses: actions/download-artifact@v4
+        with:
+          name: SCAMERA-internal-template
+          path: app/build/outputs/apk/debug
+
       # Private vendor binaries stay out of git: decrypted from the neural-assets-v2 branch with a secret key; without
       # the key a URL secret bootstraps the pinned bundle once and later builds restore the verified artifact.
       - name: Restore and verify private neural assets
@@ -385,7 +235,7 @@ jobs:
             --hexquad-dir "$RUNNER_TEMP/neural-assets/hexquad" \
             --scam-dir "$RUNNER_TEMP/neural-assets/nice" \
             --apksigner "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" \
-            --output "out/SCAMERA-0.98-${{ steps.ver.outputs.code }}-SCAM.apk"
+            --output "out/SCAMERA-0.98-${{ needs.build.outputs.version_code }}-SCAM.apk"
           (cd out && sha256sum *.apk > SHA256SUMS.txt)
           cat out/SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
 
@@ -400,7 +250,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SCAMERA-Build-${{ steps.ver.outputs.code }}
+          name: SCAMERA-Build-${{ needs.build.outputs.version_code }}
           path: out/*
           if-no-files-found: error
           retention-days: 3       # the APK itself goes to Telegram; /post <n> reaches the last 3 days
@@ -426,5 +276,5 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/telegram"
           "$RUNNER_TEMP/telegram/bin/pip" install -q -r tools/telegram-requirements.txt
           "$RUNNER_TEMP/telegram/bin/python" tools/telegram_publish.py --notify fail \
-            --apk "out/SCAMERA-0.98-${{ steps.ver.outputs.code }}-SCAM.apk" \
+            --apk "out/SCAMERA-0.98-${{ needs.build.outputs.version_code }}-SCAM.apk" \
             --from-rev "${{ github.event.before }}" --to-rev "${{ github.sha }}"

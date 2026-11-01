@@ -1,5 +1,11 @@
 # SCAMERA: settings cleanup, route reduction and portable configs — work plan
 
+### P457 - overlap CI checks and Android compilation
+- Latest serial CI31202 took 3008 seconds. The build/check step took 2670 seconds, including 593 seconds of Gradle and approximately ten minutes in the full strip-trailer sweep.
+- Six isolated host matrix lanes run alongside Android compilation and the complete unit-test list. All original test/compiler/runtime commands, flags and environments are retained exactly.
+- Publish requires successful Android and all host lanes. Final signing, pinned assets, SHA256SUMS, release artifact and Telegram are unchanged; the intermediate template is internal only.
+- Mechanical command inventory, bash syntax and actionlint pass. Actual parallel-run duration and final signed artifact verification remain delivery gates. See CI-PARALLEL-20261102.md.
+
 ### P456 - enable guarded Bayer demosaic split
 - Owner explicitly requested enabling and pushing the experiment. App default hybrid_bayer_split=1 exports bayerSplit=1; historical worker default remains zero.
 - Only plain Bayer, sensor grid 1, 2-4 accepted frames, nonzero base demosaic/chroma and widenBelow, and the compatible mode use the split. DCG, native Quad/Tetra, Sabre 2x and larger bursts retain the original route. No GPU vendor exclusion; physical Mali validation remains open.
