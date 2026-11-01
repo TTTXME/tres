@@ -85,6 +85,9 @@ struct RendererDiagnostics {
   bool scannerMps = false;
   bool grainBlurRecurrence = true;
   bool tiledRendering = false;
+  bool stagedRendering = false;
+  uint64_t storageBufferLimitBytes = 0;
+  std::string deviceName;
   uint32_t tileCount = 0;
   uint32_t tileWidth = 0;
   uint32_t tileHeight = 0;

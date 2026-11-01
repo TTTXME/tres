@@ -23,7 +23,10 @@ public final class FilmReferenceEngine {
         if(!LOADED)return false;
         if(capable)return true;
         try {
+            final long started=System.nanoTime();
             capable=availableNative(resources(com.particlesdevs.photoncamera.app.ScameraApp.getAppContext()).getAbsolutePath());
+            com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","spectral film initialization available="+capable
+                    +" ms="+(System.nanoTime()-started)/1_000_000);
             return capable;
         } catch(java.io.IOException|RuntimeException|LinkageError|OutOfMemoryError error) {
             return false;

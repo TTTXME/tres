@@ -194,9 +194,10 @@ public class PostPipeline extends GLBasePipeline {
             if (!now.toString().equals(l.toString()))
                 Log.i("SCAM_PIPELINE", "look of the press: " + l + " (the settings now: " + now + ")");
         }
-        // the film's table now (FilmChain.scene caches it for WhyCombine): film data that cannot be read gives the whole shot the
-        // path without a film - our look, the chosen LUT, the gain map - instead of the film's gates with no film drawn
-        if (film != null && com.particlesdevs.photoncamera.processing.color.FilmChain.scene(
+        // The native GPU engine reads its own profiles. Build a legacy table only for the legacy route.
+        final boolean nativeFilm = film != null && PreferenceKeys.scamDevSwitch("film_reference", true)
+                && ReferenceFilm.supported(film);
+        if (film != null && !nativeFilm && com.particlesdevs.photoncamera.processing.color.FilmChain.scene(
                 com.particlesdevs.photoncamera.app.ScameraApp.getAppContext(), film, filmUserLut, filmUserStrength) == null) {
             Log.w("SCAM_PIPELINE", "film data unreadable (" + film.stock.id + "): the photo without the film");
             film = null;

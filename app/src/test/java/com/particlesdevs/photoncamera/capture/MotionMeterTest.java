@@ -1,6 +1,7 @@
 package com.particlesdevs.photoncamera.capture;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -133,6 +134,33 @@ public class MotionMeterTest {
         assertNotNull(s);
         assertEquals(480, s.subjectPxPerS, 60);
         assertEquals(123, s.atNs);
+    }
+
+    @Test
+    public void smallFocusRegionDoesNotNeedToContainATileCentre() {
+        final int side = 64;
+        float[] a = new float[side * side], b = new float[side * side];
+        java.util.Arrays.fill(a, 1f);
+        java.util.Arrays.fill(b, 1f);
+        for (int y = 5; y < 13; y++) for (int x = 17; x < 25; x++) {
+            float value = 1f + (float) (0.4 * Math.sin(x * 1.1) * Math.cos(y * 0.7));
+            a[y * side + x] = value;
+            b[y * side + x + 1] = value;
+        }
+        MotionMeter.Sample sample = MotionMeter.compare(new MotionMeter.Thumb(a, side, side, 0),
+                new MotionMeter.Thumb(b, side, side, FRAME), FRAME, 123,
+                new MotionMeter.Region(17f / side, 5f / side, 19f / side, 7f / side));
+        assertNotNull(sample);
+        assertTrue(sample.pxPerS() > 300);
+    }
+
+    @Test
+    public void aFocusRegionOnlyTouchingAnEdgeDoesNotSelectTheNeighbour() {
+        MotionMeter.Region region = new MotionMeter.Region(.25f, .25f, .3f, .3f);
+        assertTrue(region.intersects(.2f, .2f, .26f, .26f));
+        assertFalse(region.intersects(.1f, .25f, .25f, .3f));
+        assertFalse(region.intersects(.3f, .25f, .4f, .3f));
+        assertFalse(region.intersects(.25f, .1f, .3f, .25f));
     }
 
     @Test

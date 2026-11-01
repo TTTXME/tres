@@ -108,7 +108,10 @@ Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderN
         const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
         std::string report="ms="+std::to_string(ms)+" passes="+std::to_string(d.passCount)
                 +" tiles="+std::to_string(d.tileCount)+" scratch="+std::to_string(d.transientCachedBytes)
-                +" budget="+std::to_string(budget);
+                +" budget="+std::to_string(budget)+" route="+(d.stagedRendering?"staged":"whole")
+                +" storageLimit="+std::to_string(d.storageBufferLimitBytes)+" device="+d.deviceName
+                +" setupMs="+std::to_string(d.cpuSetupMs)+" submitMs="+std::to_string(d.commandBufferMs)
+                +" copyMs="+std::to_string(d.sourceCopyMs+d.outputCopyMs);
         renderer->releaseTransientResources();
         return env->NewStringUTF(report.c_str());
     }catch(const std::exception& error){

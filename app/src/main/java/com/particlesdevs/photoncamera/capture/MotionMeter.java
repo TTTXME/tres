@@ -88,7 +88,9 @@ public final class MotionMeter {
         Region(float left, float top, float right, float bottom) {
             this.left = left; this.top = top; this.right = right; this.bottom = bottom;
         }
-        boolean contains(float x, float y) { return x >= left && x <= right && y >= top && y <= bottom; }
+        boolean intersects(float l, float t, float r, float b) {
+            return l < right && r > left && t < bottom && b > top;
+        }
     }
 
     public static void region(float left, float top, float right, float bottom) {
@@ -238,7 +240,8 @@ public final class MotionMeter {
         for (int j = 0; j < tilesY; j++) {
             for (int i = 0; i < tilesX; i++) {
                 final int ox = SEARCH + i * TILE, oy = SEARCH + j * TILE;
-                final boolean selectedRegion = roi != null && roi.contains((ox + TILE * 0.5f) / a.w, (oy + TILE * 0.5f) / a.h);
+                final boolean selectedRegion = roi != null && roi.intersects(ox / (float) a.w, oy / (float) a.h,
+                        (ox + TILE) / (float) a.w, (oy + TILE) / (float) a.h);
                 if (((i + j) & 1) != 0 && !selectedRegion) continue;
                 double total = 0;
                 for (int sy = -SEARCH; sy <= SEARCH; sy++) {

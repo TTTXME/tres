@@ -49,6 +49,7 @@ int scameraDiffusionTile(uint32_t halo,uint32_t planeBytes){
 bool scameraDiffusionSubmit(VulkanCorePushConstants push,const std::array<size_t,7>& sizes,
     const std::array<const float*,7>& inputs,const std::vector<ScameraDiffusionOp>& operations,
     int readIndex,const float*& result){
+  const auto setupStart=PerfClock::now();
   if(!ensureCoreFrameResources())return false;
   for(int i=0;i<7;i++){
     const size_t n=std::max<size_t>(sizes[i],16);
@@ -107,12 +108,37 @@ bool scameraDiffusionSubmit(VulkanCorePushConstants push,const std::array<size_t
   rc=vkEndCommandBuffer(command);
   if(rc==VK_SUCCESS)rc=vkResetFences(device,1,&coreFrame.fence);
   VkSubmitInfo submit{};submit.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;submit.commandBufferCount=1;submit.pCommandBuffers=&command;
+  const auto submitStart=PerfClock::now();
+  diagnostics.cpuSetupMs+=elapsedMilliseconds(setupStart,submitStart);
   if(rc==VK_SUCCESS)rc=backend->submit(queueIndex,submit,coreFrame.fence);
   if(rc==VK_SUCCESS)rc=vkWaitForFences(device,1,&coreFrame.fence,VK_TRUE,UINT64_MAX);
+  diagnostics.commandBufferMs+=elapsedMilliseconds(submitStart,PerfClock::now());
   if(rc!=VK_SUCCESS){lastError=vkError("diffusion submit/wait",rc);return false;}
   if(!invalidateMappedScratchBuffer(scameraDiffusionScratch[readIndex],sizes[readIndex],"diffusion tile readback"))return false;
   result=static_cast<const float*>(scameraDiffusionScratch[readIndex].mapped);
   diagnostics.tileCount++;return true;
+}
+bool scameraReduceOnGpu(const float* raw,int w,int h,uint32_t scale,std::vector<float>& reduced){
+  if(scale==0||scale>32){lastError="Unsupported diffusion reduction scale";return false;}
+  const int lw=(w+int(scale)-1)/int(scale),lh=(h+int(scale)-1)/int(scale);
+  reduced.resize(size_t(lw)*lh*4);
+  const int tile=scameraDiffusionTile(0,16)/int(scale)*int(scale);
+  if(tile<=0)return false;
+  scameraReleaseDiffusionScratch();
+  for(int y=0;y<h;y+=tile)for(int x=0;x<w;x+=tile){
+    const int cw=std::min(tile,w-x),ch=std::min(tile,h-y);
+    const int rw=(cw+int(scale)-1)/int(scale),rh=(ch+int(scale)-1)/int(scale);
+    auto source=scameraWindow(raw,w,x,y,cw,ch);
+    std::array<size_t,7> sizes{source.size()*4,16,16,16,size_t(rw)*rh*16,16,16};
+    std::array<const float*,7> inputs{};inputs[0]=source.data();
+    VulkanCorePushConstants push{};push.width=cw;push.height=ch;push.fullWidth=w;push.fullHeight=h;
+    push.tileOriginX=x;push.tileOriginY=y;
+    const std::vector<ScameraDiffusionOp> ops{{kDiffusionOpDownsample,scale,0,uint32_t(rw),uint32_t(rh)}};
+    const float* output=nullptr;
+    if(!scameraDiffusionSubmit(push,sizes,inputs,ops,4,output))return false;
+    scameraStoreWindow(reduced.data(),lw,x/int(scale),y/int(scale),rw,rh,output,rw,0,0);
+  }
+  scameraReleaseDiffusionScratch();return true;
 }
 bool renderGlobalCameraDiffusionLegacy(const ImageView& source,const MutableImageView& destination,const RenderParams& p,bool rawOutput){
   const int w=source.width,h=source.height;
@@ -159,15 +185,8 @@ bool renderGlobalCameraDiffusionLegacy(const ImageView& source,const MutableImag
       }
     }else{
       if(cachedScale!=scale){
-        cachedScale=scale;lw=(w+scale-1)/scale;lh=(h+scale-1)/scale;reduced.assign(size_t(lw)*lh*4,0);
-        for(int y=0;y<lh;y++)for(int x=0;x<lw;x++){
-          float value[4]={0,0,0,0};
-          for(uint32_t yy=0;yy<scale;yy++)for(uint32_t xx=0;xx<scale;xx++){
-            const float* pixel=raw+(size_t(std::min(h-1,int(y*scale+yy)))*w+std::min(w-1,int(x*scale+xx)))*4;
-            for(int c=0;c<4;c++)value[c]+=pixel[c];
-          }
-          for(int c=0;c<4;c++)reduced[(size_t(y)*lw+x)*4+c]=value[c]/float(scale*scale);
-        }
+        cachedScale=scale;lw=(w+scale-1)/scale;lh=(h+scale-1)/scale;
+        if(!scameraReduceOnGpu(raw,w,h,scale,reduced))return false;
       }
       std::vector<float> blurred(size_t(lw)*lh*n*4);
       const int lowTile=scameraDiffusionTile(radius,16*n);if(lowTile<=0)return false;
@@ -260,15 +279,8 @@ bool renderGlobalCameraDiffusion(const ImageView& source,const MutableImageView&
   for(auto& g:groups){
     if(g.scale==1)continue;
     if(currentScale!=g.scale){
-      currentScale=g.scale;reduced.assign(size_t(g.lw)*g.lh*4,0);
-      for(int y=0;y<g.lh;y++)for(int x=0;x<g.lw;x++){
-        float value[4]={0,0,0,0};
-        for(uint32_t yy=0;yy<g.scale;yy++)for(uint32_t xx=0;xx<g.scale;xx++){
-          const float* pixel=raw+(size_t(std::min(h-1,int(y*g.scale+yy)))*w+std::min(w-1,int(x*g.scale+xx)))*4;
-          for(int c=0;c<4;c++)value[c]+=pixel[c];
-        }
-        for(int c=0;c<4;c++)reduced[(size_t(y)*g.lw+x)*4+c]=value[c]/float(g.scale*g.scale);
-      }
+      currentScale=g.scale;
+      if(!scameraReduceOnGpu(raw,w,h,g.scale,reduced))return false;
     }
     g.image.resize(size_t(g.lw)*g.lh*g.n*4);scameraReleaseDiffusionScratch();
     const int tile=scameraDiffusionTile(g.radius,16*g.n);if(tile<=0)return false;

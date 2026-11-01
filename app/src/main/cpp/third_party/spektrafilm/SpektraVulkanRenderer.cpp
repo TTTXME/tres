@@ -2739,6 +2739,7 @@ struct VulkanRenderer::Impl {
     std::array<VkDescriptorSet, kCoreScannerPostSetCount> scannerPostDescriptorSets{};
     std::array<VkDescriptorSet, kCoreGrainSetCount> grainDescriptorSets{};
     VkDescriptorPool formatDescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet sourceFormatDescriptorSet = VK_NULL_HANDLE;
     VkDescriptorSet destinationFormatDescriptorSet = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
@@ -2986,6 +2987,35 @@ struct VulkanRenderer::Impl {
     uint32_t centerTileWidth,
     uint32_t centerTileHeight
   );
+
+  uint64_t scameraTilePixelCapacity(const RenderParams& footprint,int destinationBytes,int stage) const {
+    const bool grain=footprint.grainEnabled && footprint.grainAmount>0.0f;
+    const bool layered=grain && footprint.grainModel!=GrainModel::Preview;
+    const bool diffusion=footprint.cameraDiffusionEnabled && footprint.cameraDiffusionStrength>0.0f;
+    const bool printDiffusion=footprint.printDiffusionEnabled && footprint.printDiffusionStrength>0.0f;
+    const bool halo=footprint.halationEnabled;
+    const bool dir=footprint.dirCouplersAmount>0.0f;
+    const bool scanner=footprint.scannerEnabled;
+    uint64_t pool[9]={0,0,0,0,0,0,16,16,0};
+    if(halo){pool[0]=pool[1]=pool[2]=pool[3]=16;}
+    if(dir){pool[0]=pool[1]=16;pool[2]=std::max<uint64_t>(pool[2],16);pool[8]=16;}
+    if(grain){pool[4]=pool[5]=16;}
+    if(layered){pool[0]=pool[1]=16;pool[2]=pool[3]=36;}
+    if(diffusion||printDiffusion){pool[4]=32;pool[5]=pool[8]=16;}
+    if(scanner){pool[0]=pool[1]=16;pool[2]=std::max<uint64_t>(pool[2],16);pool[3]=std::max<uint64_t>(pool[3],16);}
+    uint64_t bytesPerPixel=48+(stage>=2?16:0);
+    for(uint64_t p:pool)bytesPerPixel+=p;
+    if(halo||diffusion)bytesPerPixel+=16;
+    if(diffusion||printDiffusion)bytesPerPixel+=32;
+    if(footprint.halationBoostEv>0.0f)bytesPerPixel+=24;
+    if(destinationBytes==4)bytesPerPixel+=16;
+    if(footprint.process!=ProcessMode::PrintSimulation)bytesPerPixel=512;
+    // Leave space for parameter buffers, alignment and retained edge-tile allocations.
+    const uint64_t available=scratchBudgetBytes>16ull*1024*1024?scratchBudgetBytes-16ull*1024*1024:0;
+    const uint64_t maxPlaneBytes=layered?36u:(diffusion||printDiffusion?32u:16u);
+    const uint64_t storagePixels=physicalDeviceProperties.limits.maxStorageBufferRange/maxPlaneBytes;
+    return std::min(available/(bytesPerPixel+bytesPerPixel/8),storagePixels);
+  }
 
   #include "ScameraDiffusionTiles.h"
   bool renderTiledBootstrap(
@@ -4430,11 +4460,11 @@ bool VulkanRenderer::Impl::ensureCoreFrameResources() {
   if (coreFrame.formatDescriptorPool == VK_NULL_HANDLE) {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 2;
+    poolSize.descriptorCount = 4;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.maxSets = 1;
+    poolInfo.maxSets = 2;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
     VkResult result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &coreFrame.formatDescriptorPool);
@@ -4451,6 +4481,12 @@ bool VulkanRenderer::Impl::ensureCoreFrameResources() {
     result = vkAllocateDescriptorSets(device, &setInfo, &coreFrame.destinationFormatDescriptorSet);
     if (result != VK_SUCCESS) {
       lastError = vkError("vkAllocateDescriptorSets(format)", result);
+      destroyCoreFrameResources();
+      return false;
+    }
+    result = vkAllocateDescriptorSets(device, &setInfo, &coreFrame.sourceFormatDescriptorSet);
+    if (result != VK_SUCCESS) {
+      lastError = vkError("vkAllocateDescriptorSets(source format)", result);
       destroyCoreFrameResources();
       return false;
     }
@@ -4526,6 +4562,7 @@ void VulkanRenderer::Impl::destroyCoreFrameResources() {
   if (coreFrame.formatDescriptorPool != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(device, coreFrame.formatDescriptorPool, nullptr);
     coreFrame.formatDescriptorPool = VK_NULL_HANDLE;
+    coreFrame.sourceFormatDescriptorSet = VK_NULL_HANDLE;
     coreFrame.destinationFormatDescriptorSet = VK_NULL_HANDLE;
   }
   destroyScratchBuffer(coreFrame.grainLayerB);
@@ -4864,6 +4901,8 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   const uint32_t coordinateHeight =
     activeTileContext.enabled ? std::max(activeTileContext.fullHeight, 1u) : static_cast<uint32_t>(height);
   const bool fullFrameSourcePath = activeTileContext.enabled && activeTileContext.fullFrameSource;
+  const bool sourceFormatConvert = !fullFrameSourcePath && source.bytesPerComponent == 2 && !params.autoExposure;
+  const VkDeviceSize sourceUploadBytes = sourceFormatConvert ? halfByteCount : byteCount;
   const uint64_t sourcePixelCount = fullFrameSourcePath
     ? static_cast<uint64_t>(coordinateWidth) * static_cast<uint64_t>(coordinateHeight)
     : pixelCount;
@@ -5093,7 +5132,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
     (params.filmPushPullMode == PushPullMode::Standard ? filmPushPullGamma(params.filmPushPullStops) : 1.0f);
   const float effectivePrintGamma = params.printGamma * printPushPullGamma(params.printPushPullStops);
 
-  diagnostics.uploadBytes = fullFrameSourcePath ? 0u : static_cast<uint64_t>(byteCount);
+  diagnostics.uploadBytes = fullFrameSourcePath ? 0u : static_cast<uint64_t>(sourceUploadBytes);
   diagnostics.diffusionGroupSize = diffusionGroupSize;
   diagnostics.threadgroupMode = threadgroupMode;
   diagnostics.passTimingMode = "cpu-fence";
@@ -5137,7 +5176,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   if (!fullFrameSourcePath &&
       !ensureUploadScratchBuffer(
         coreFrame.sourceStaging,
-        byteCount,
+        sourceUploadBytes,
         "core source staging",
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
       )) {
@@ -5268,6 +5307,12 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       }
       autoExposureEv = measureAutoExposureEv(sourcePixels.data(), width, height, params);
       std::memcpy(coreFrame.sourceStaging.mapped, sourcePixels.data(), static_cast<size_t>(byteCount));
+    } else if (sourceFormatConvert) {
+      if (!copyWindowToMappedBytes(source, window, width, height, coreFrame.sourceStaging.mapped,
+                                  static_cast<size_t>(sourceUploadBytes))) {
+        lastError = "The requested half-image window does not fit inside the Vulkan source image view.";
+        return false;
+      }
     } else if (!copySourceToFloatStaging(
                  source,
                  window,
@@ -5278,7 +5323,7 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       lastError = "The requested render window does not fit inside the Vulkan source image view.";
       return false;
     }
-    if (!flushMappedScratchBuffer(coreFrame.sourceStaging, byteCount, "core source staging")) {
+    if (!flushMappedScratchBuffer(coreFrame.sourceStaging, sourceUploadBytes, "core source staging")) {
       return false;
     }
   }
@@ -6183,6 +6228,12 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
       destinationHalfBufferInfo
     );
   }
+  if (sourceFormatConvert) {
+    VkDescriptorBufferInfo halfSource{};
+    halfSource.buffer = coreFrame.sourceStaging.buffer;
+    halfSource.range = sourceUploadBytes;
+    updateFormatDescriptorSet(coreFrame.sourceFormatDescriptorSet, halfSource, sourceBufferInfo);
+  }
 
   VkCommandBuffer commandBuffer = coreFrame.commandBuffer;
   result = vkResetCommandBuffer(commandBuffer, 0);
@@ -6218,17 +6269,27 @@ bool VulkanRenderer::Impl::renderCoreBootstrap(
   );
 
   if (!fullFrameSourcePath) {
-    VkBufferCopy sourceUploadRegion{};
-    sourceUploadRegion.size = pixelStorageByteCount;
-    vkCmdCopyBuffer(commandBuffer, coreFrame.sourceStaging.buffer, coreFrame.source.buffer, 1, &sourceUploadRegion);
+    if (sourceFormatConvert) {
+      const uint32_t formatPush[6] = {static_cast<uint32_t>(pixelCount), 0u, static_cast<uint32_t>(width), 0u, 0u, coordinateWidth};
+      vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, formatConvertPipeline);
+      vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, copyPipelineLayout, 0, 1,
+                              &coreFrame.sourceFormatDescriptorSet, 0, nullptr);
+      vkCmdPushConstants(commandBuffer, copyPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(formatPush), formatPush);
+      vkCmdDispatch(commandBuffer, formatGroups, 1, 1);
+      diagnostics.passCount++;
+    } else {
+      VkBufferCopy sourceUploadRegion{};
+      sourceUploadRegion.size = pixelStorageByteCount;
+      vkCmdCopyBuffer(commandBuffer, coreFrame.sourceStaging.buffer, coreFrame.source.buffer, 1, &sourceUploadRegion);
+    }
 
     VkMemoryBarrier sourceUploadBarrier{};
     sourceUploadBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    sourceUploadBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    sourceUploadBarrier.srcAccessMask = sourceFormatConvert ? VK_ACCESS_SHADER_WRITE_BIT : VK_ACCESS_TRANSFER_WRITE_BIT;
     sourceUploadBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     vkCmdPipelineBarrier(
       commandBuffer,
-      VK_PIPELINE_STAGE_TRANSFER_BIT,
+      sourceFormatConvert ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT,
       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       0,
       1,
@@ -7584,32 +7645,7 @@ bool VulkanRenderer::Impl::renderTiledBootstrap(
   );
   const RenderParams footprint=scameraFootprint(params,scameraStage);
   const uint32_t overlap = scameraStageOverlap(footprint,fullWidth,fullHeight,estimateVulkanTileOverlap(footprint));
-  const bool grain=footprint.grainEnabled && footprint.grainAmount>0.0f;
-  const bool layered=grain && footprint.grainModel!=GrainModel::Preview;
-  const bool diffusion=footprint.cameraDiffusionEnabled && footprint.cameraDiffusionStrength>0.0f;
-  const bool printDiffusion=footprint.printDiffusionEnabled && footprint.printDiffusionStrength>0.0f;
-  const bool halo=footprint.halationEnabled;
-  const bool dir=footprint.dirCouplersAmount>0.0f;
-  const bool scanner=footprint.scannerEnabled;
-  uint64_t pool[9]={0,0,0,0,0,0,16,16,0};
-  if(halo){pool[0]=pool[1]=pool[2]=pool[3]=16;}
-  if(dir){pool[0]=pool[1]=16;pool[2]=std::max<uint64_t>(pool[2],16);pool[8]=16;}
-  if(grain){pool[4]=pool[5]=16;}
-  if(layered){pool[0]=pool[1]=16;pool[2]=pool[3]=36;}
-  if(diffusion||printDiffusion){pool[4]=32;pool[5]=pool[8]=16;}
-  if(scanner){pool[0]=pool[1]=16;pool[2]=std::max<uint64_t>(pool[2],16);pool[3]=std::max<uint64_t>(pool[3],16);}
-  uint64_t bytesPerPixel=48+(scameraStage>=2?16:0);
-  for(uint64_t p:pool)bytesPerPixel+=p;
-  if(halo||diffusion)bytesPerPixel+=16;
-  if(diffusion||printDiffusion)bytesPerPixel+=32;
-  if(params.halationBoostEv>0.0f)bytesPerPixel+=24;
-  if(destination.bytesPerComponent==4)bytesPerPixel+=16;
-  if(params.process!=ProcessMode::PrintSimulation)bytesPerPixel=512;
-  // Leave space for parameter buffers, alignment and retained edge-tile allocations.
-  const uint64_t available=scratchBudgetBytes>16ull*1024*1024?scratchBudgetBytes-16ull*1024*1024:0;
-  const uint64_t maxPlaneBytes=layered?36u:(diffusion||printDiffusion?32u:16u);
-  const uint64_t storagePixels=physicalDeviceProperties.limits.maxStorageBufferRange/maxPlaneBytes;
-  const uint64_t pixels=std::min(available/(bytesPerPixel+bytesPerPixel/8),storagePixels);
+  const uint64_t pixels=scameraTilePixelCapacity(footprint,destination.bytesPerComponent,scameraStage);
   if(static_cast<uint64_t>(fullWidth)*fullHeight<=pixels){
     centerTileWidth=static_cast<uint32_t>(fullWidth);centerTileHeight=static_cast<uint32_t>(fullHeight);
   }else{
@@ -7892,13 +7928,14 @@ bool VulkanRenderer::Impl::renderStagedBootstrap(const ImageView& source,const M
       MutableImageView diffOutput{next,0,0,w,h,w*16,4,4};
       diagnostics={};
       if(!renderGlobalCameraDiffusion(diffInput,diffOutput,p,scameraHalation(p)))return false;
+      total.cpuSetupMs+=diagnostics.cpuSetupMs;total.commandBufferMs+=diagnostics.commandBufferMs;
       total.passCount+=diagnostics.passCount;total.tileCount+=diagnostics.tileCount;
       total.transientCachedBytes=std::max(total.transientCachedBytes,diagnostics.transientCachedBytes);
       total.scratchAllocationBytes=std::max(total.scratchAllocationBytes,transientAllocationBytes());
       previous=next;useFirst=!useFirst;
     }
   }
-  total.tiledRendering=true;diagnostics=total;return true;
+  total.tiledRendering=true;total.stagedRendering=true;diagnostics=total;return true;
 }
 
 VulkanRenderer::VulkanRenderer() : impl_(std::make_unique<Impl>()) {}
@@ -7959,7 +7996,10 @@ bool VulkanRenderer::render(
     const bool stagedSupported=params.renderOutput==RenderOutputMode::FinalPreview&&params.halationBoostEv<=0&&params.grainModel!=GrainModel::GrainSynthesis
         &&params.process!=ProcessMode::ProcessNegative&&!params.printDiffusionEnabled;
     const uint64_t pixels=uint64_t(window.x2-window.x1)*uint64_t(window.y2-window.y1);
-    const bool largeSpatial=spatial&&pixels>impl_->physicalDeviceProperties.limits.maxStorageBufferRange/36u;
+    const bool exceedsStorage=pixels>impl_->physicalDeviceProperties.limits.maxStorageBufferRange/36u;
+    const bool exceedsBudget=pixels>impl_->scameraTilePixelCapacity(params,destination.bytesPerComponent,-1);
+    const bool milestonesFit=pixels<(impl_->scratchBudgetBytes>(64ull<<20)?(impl_->scratchBudgetBytes-(64ull<<20))/44u:0u);
+    const bool largeSpatial=spatial&&(exceedsStorage||(exceedsBudget&&milestonesFit));
     if(stagedSupported&&(stagedOverride?stagedOverride[0]=='1':largeSpatial)){
       ok=impl_->renderStagedBootstrap(source,destination,window,params,time);
     }else if (tileMode == GpuRenderTilingMode::Tiled) {
@@ -7971,6 +8011,8 @@ bool VulkanRenderer::render(
 
   if (ok) {
     if (impl_) {
+      impl_->diagnostics.storageBufferLimitBytes=impl_->physicalDeviceProperties.limits.maxStorageBufferRange;
+      impl_->diagnostics.deviceName=impl_->physicalDeviceProperties.deviceName;
       lastRenderDiagnostics_ = impl_->diagnostics;
     }
     lastRenderError_.clear();
