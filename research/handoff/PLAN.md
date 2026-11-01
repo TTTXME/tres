@@ -9633,3 +9633,9 @@ emulation), not tried on a phone
 - Android13+ Bionic fast launcher and no-fork prespawn default; API/nice/launch failures retain ordinary post-capture fallback. Existing frame counts, exposure policy, detail settings and Main1 unchanged. Native descriptor/signal/environment/priority checks pass on OPPO.
 - Six alternating real Photo shots: prespawn median4004→3774ms; hold383→386ms. q0 variance reuse retains the lamp burst's complete half-output SHA. Existing PBO is now verified against two other Bitmap routes on the same Android texture; no benefit from the extra native route, removed.
 - Coarser GCam-style field spacing and other alignment/rejection experiments are preserved as research only; no unsupported quality/speed claim. See GCAM61-SPEED-20261101.md for evidence and limitations. Final main/CI release receipt is recorded outside Git after delivery.
+
+
+### P443 - GCam61 round 2: reuse ultrashort measurements and unchanged normal alignment
+- Preserve row/local measurements on unchanged correction copies; a local field is remeasured after any row correction. Reuse successful normal homographies and completed F6 data only inside the ultrashort-check restart, with matching input/geometry/noise/tuning keys. Fresh GPU workers import CPU-owned results; no EGL context is kept across teardown.
+- Full real-burst old/off/on outputs identical on all8 new Штрихи series plus Moving8, with original per-shot tuning. Warm three-pair worker medians: windows4841→3554 and4736→3541ms; deck3755→3523ms. No gain claimed for the two unaffected controls; no full-app/6.1 timing equivalence.
+- Import/invalidation and row/local measurement-equivalence device checks PASS; Linux ASan/UBSan/TSan added to CI. All shaders/Main1, frame counts, capture and sharpening unchanged. Alternative SAD/coarse/convergence routes remain evidence-only. Details and evidence boundary: GCAM61-SPEED-ROUND2-20261101.md.

@@ -1169,7 +1169,7 @@ public:
         if(failed||closed||job.f<0||size_t(job.f)>=fed.size())return;
         Job& last=fed[size_t(job.f)];
         if(same(last,job))return;
-        last=job;ready[size_t(job.f)]=0;queue.push_back(job);
+        workStarted=true;last=job;ready[size_t(job.f)]=0;queue.push_back(job);
         cv.notify_all();
     }
     // the frames' fields ready; false when the GPU failed (error())
@@ -1184,6 +1184,21 @@ public:
         return k;
     }
     LaGpuResult take(int f){std::lock_guard<std::mutex> l(m);return std::move(results[size_t(f)]);}
+    // A restart consumes completed fields before this worker is destroyed; no EGL objects cross the restart.
+    bool takeReady(int f,Job& job,LaGpuResult& result){
+        std::lock_guard<std::mutex> l(m);
+        if(f<0||size_t(f)>=ready.size()||!ready[size_t(f)]||results[size_t(f)].field.empty())return false;
+        job=fed[size_t(f)];result=std::move(results[size_t(f)]);ready[size_t(f)]=0;
+        return true;
+    }
+    // Import only into a fresh worker, before any add/estimate can race the restored frame.
+    bool prime(const Job& job,LaGpuResult result){
+        std::lock_guard<std::mutex> l(m);
+        if(failed||closed||stop||workStarted||job.f<0||size_t(job.f)>=fed.size()||fed[size_t(job.f)].raw
+           ||result.field.empty()||result.field.size()!=2*result.motion.size()||result.flags.size()!=result.motion.size())return false;
+        fed[size_t(job.f)]=job;results[size_t(job.f)]=std::move(result);ready[size_t(job.f)]=1;
+        cv.notify_all();return true;
+    }
     // P364: a donor's GPU homography, before any queued field (the alignment waits for it)
     std::shared_future<LaGpuHom> estimate(int f,const uint16_t* raw,float gain,bool field=false){
         auto pr=std::make_shared<std::promise<LaGpuHom>>();
@@ -1191,7 +1206,7 @@ public:
         {
             std::lock_guard<std::mutex> l(m);
             if(failed||closed||stop){LaGpuHom h;h.why=failed?"GPU failed: "+failure:"closed";pr->set_value(h);return fut;}
-            homQueue.push_back(HomJob{f,raw,gain,pr,field});
+            workStarted=true;homQueue.push_back(HomJob{f,raw,gain,pr,field});
         }
         cv.notify_all();
         return fut;
@@ -1212,7 +1227,7 @@ public:
     double baseMs(){std::lock_guard<std::mutex> l(m);return built;}
 private:
     std::mutex m;std::condition_variable cv;
-    std::deque<Job> queue;bool closed=false,stop=false,failed=false;
+    std::deque<Job> queue;bool closed=false,stop=false,failed=false,workStarted=false;
     struct HomJob { int f=0;const uint16_t* raw=nullptr;float gain=1.f;std::shared_ptr<std::promise<LaGpuHom>> pr;bool field=false; };
     std::deque<HomJob> homQueue; // P364
     void failHoms(const std::string& why){ // under the lock: every waiting estimate gets an answer

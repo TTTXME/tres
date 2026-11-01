@@ -61,6 +61,22 @@ struct HybridFrame {
     float dcgKnee=0,dcgOffsetLcg=0;
 };
 
+// Scoped to one ultrashort-check restart. Only unchanged normal RAWs keep their estimates and completed fields.
+struct HybridAlignReuse {
+    struct Estimate {
+        const uint16_t* raw=nullptr;
+        float gain=0;
+        bool field=false;
+        std::shared_future<LaGpuHom> result;
+    };
+    std::vector<Estimate> estimates;
+    std::vector<LaGpuWorker::Job> jobs;
+    std::vector<LaGpuResult> fields;
+    const uint16_t* base=nullptr;
+    std::array<float,19> key{};
+    int capacity=0;
+};
+
 struct HybridInput {
     int w=0,h=0,cfa=0;
     float white=0;
@@ -91,6 +107,7 @@ struct HybridInput {
     // alignment: its frames unchanged - the usual case - the merge goes on with its usFlicker; changed, the merge starts again
     // with the checked frames); null = checked before (or not at all)
     std::shared_ptr<struct HybridUsPending> usPending;
+    std::shared_ptr<HybridAlignReuse> alignReuse;
     // P320: NCH header flag 32: a DCG burst (dual conversion gain: one exposure read at a high and a low conversion gain, fused into one
     // linear frame; the app proved the linearity). Its noise is two zones (the noise check fits them, hybridDcgZones); 0 = every other
     // burst and every old burst, unchanged.
@@ -9733,13 +9750,15 @@ struct HybridUsCheck { bool corrected=false,refused=false; HybridUsRows rows; bo
 // field measured, not applied; hybridUsRowsFinish - the field decided with the burst's incoherence (HybridUsGate::burst; -1 = the
 // frame's own), reported, applied, and the gain check. checked: the frame went through the measure.
 inline HybridUsCheck hybridUsRowsMeasure(const HybridInput& input,int f,const uint16_t* base,uint16_t* us,int w,int h,const HybridTuning& t,
-                                        const std::string& tag,const std::function<void(const std::string&)>& report){
+                                        const std::string& tag,const std::function<void(const std::string&)>& report,
+                                        const HybridUsRows* measuredRows=nullptr,const HybridUsLocal* measuredLocal=nullptr){
     HybridUsCheck res;
     if(!t.mosaicUsRows||f<=0||f>=int(input.frames.size()))return res;
     res.checked=true;
     const float expected=input.frames[f].exposure;
     const HybridUsGate gate=hybridUsGate(t); // P366
-    res.rows=hybridUltrashortRows(base,us,w,h,input.cfa,input.black,input.white,expected,std::max(0.f,t.mosaicUsRowsMin),gate.daylight());
+    // The plain path measured the same bytes before making its correction copy.
+    res.rows=measuredRows?*measuredRows:hybridUltrashortRows(base,us,w,h,input.cfa,input.black,input.white,expected,std::max(0.f,t.mosaicUsRowsMin),gate.daylight());
     const HybridUsRows& r=res.rows;
     char line[512];
     if(!r.measured)std::snprintf(line,sizeof(line),"%s: ultrashort frame %d rows against the base: no row profile (%ld tiles; %d of %d bands with agreeing tiles)",
@@ -9762,8 +9781,9 @@ inline HybridUsCheck hybridUsRowsMeasure(const HybridInput& input,int f,const ui
     }
     if(r.apply){hybridUsRowsApply(r,us,w,h,input.cfa,input.black,input.white,0.f);res.corrected=true;}
     // P290: what the rows leave, tile by tile (decided and applied in hybridUsRowsFinish)
+    // A row correction changes those bytes, so its local field must still be measured afterwards.
     if(t.usLocal)
-        res.rows.local=hybridUltrashortLocal(base,us,w,h,input.cfa,input.black,input.white,expected,std::max(0.f,t.mosaicUsRowsMin),
+        res.rows.local=measuredLocal&&!r.apply?*measuredLocal:hybridUltrashortLocal(base,us,w,h,input.cfa,input.black,input.white,expected,std::max(0.f,t.mosaicUsRowsMin),
                                              t.usLocalAlign!=0,gate);
     return res;
 }
@@ -9931,7 +9951,8 @@ inline HybridInput hybridPlainUsRows(const HybridInput& input,const HybridTuning
         own.emplace_back(input.frames[f].raw,input.frames[f].raw+pix);
         ownOf[f]=int(own.size())-1;
         rowChecks[f]=hybridUsRowsMeasure(input,int(f),base,own.back().data(),w,h,t,"HYBRID PLAIN",
-                                         [&rowLines,f](const std::string& l){rowLines[f].push_back(l);});
+                                         [&rowLines,f](const std::string& l){rowLines[f].push_back(l);},
+                                         std::getenv("SCAM_NO_US_MEASURE_REUSE")?nullptr:&done[f].r);
     }
     {
         std::vector<const HybridUsLocal*> fields;
@@ -9995,7 +10016,10 @@ inline HybridInput hybridPlainUsRows(const HybridInput& input,const HybridTuning
         }else{
             own.emplace_back(input.frames[f].raw,input.frames[f].raw+pix);
             copy=own.back().data();
-            c=hybridUsRowsCheck(input,int(f),base,copy,w,h,t,"HYBRID PLAIN",report,gate.burst);
+            if(!std::getenv("SCAM_NO_US_MEASURE_REUSE")){
+                c=hybridUsRowsMeasure(input,int(f),base,copy,w,h,t,"HYBRID PLAIN",report,&u.r,u.measured?&u.lc:nullptr);
+                hybridUsRowsFinish(c,input,int(f),base,copy,w,h,t,gate,"HYBRID PLAIN",report);
+            }else c=hybridUsRowsCheck(input,int(f),base,copy,w,h,t,"HYBRID PLAIN",report,gate.burst);
         }
         if(c.rows.local.tiles>=64)out.usFlicker=std::max(out.usFlicker,c.rows.local.flicker());
         else if(c.rows.apply)out.usFlicker=std::max(out.usFlicker,c.rows.maxDev); // rolling-shutter flicker: lamps on other phases
@@ -11130,10 +11154,12 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 }catch(const std::system_error&){} // no thread: the check first below
                 if(started){
                     HybridInput spec=input;spec.usRowsChecked=true;spec.usPending=pending;
+                    if(tune.gpuAlign==1&&tune.localAlign>0&&!std::getenv("SCAM_NO_GPU_ALIGN")&&!std::getenv("SCAM_NO_US_ALIGN_REUSE"))try{spec.alignReuse=std::make_shared<HybridAlignReuse>();}catch(const std::bad_alloc&){}
                     try{return hybridReconstruct(spec,seenTune,alignment,report,mergedDng,effMap,statsOut,clipFlags,preset,native);}
                     catch(const HybridUsRestart&){
                         report("HYBRID PLAIN: the ultrashort check changed the frames: merged again with them");
-                        return hybridReconstruct(pending->result,seenTune,alignment,report,mergedDng,effMap,statsOut,clipFlags,preset,native);
+                        HybridInput checked=pending->result;checked.alignReuse=spec.alignReuse;
+                        return hybridReconstruct(checked,seenTune,alignment,report,mergedDng,effMap,statsOut,clipFlags,preset,native);
                     }
                 }
             }
@@ -11196,6 +11222,19 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     // the GPU F6 on a thread of its own (LaGpuWorker): context, programs and the base pyramid while the frames align, then each frame
     // as the alignment hands it over (streamFeed below); a thread the system refuses or any failure leaves the CPU field
     std::unique_ptr<LaGpuWorker> laGpuWorker;
+    if(input.alignReuse){
+        auto& reuse=*input.alignReuse;
+        const auto& base=input.frames[0];
+        const std::array<float,19> key{float(w),float(h),float(input.cfa),input.white,
+            input.black[0],input.black[1],input.black[2],input.black[3],base.slope,base.offset,
+            hybridLaV0(input,std::max(base.slope,1e-9f),std::max(base.offset,0.f)),
+            tune.laMu,tune.laKappa,tune.laMaxShift,float(tune.laIters),float(tune.laItersCoarse),
+            float(tune.laMedian),float(tune.laWin),float(tune.laStride)};
+        if(!laGpuUse||reuse.base!=base.raw||reuse.key!=key||reuse.capacity<n){
+            reuse.estimates.clear();reuse.jobs.clear();reuse.fields.clear();
+            reuse.base=base.raw;reuse.key=key;reuse.capacity=n;
+        }
+    }
     if(laGpuUse)try{laGpuWorker=std::make_unique<LaGpuWorker>(n,[&b,&input,&tune]{
         const float slope=std::max(input.frames[0].slope,1e-9f),offset=std::max(input.frames[0].offset,0.f);
         const float eps=std::max(offset/std::max(slope,1e-9f),1e-5f);
@@ -11211,6 +11250,17 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         gpu->base(gb,input.frames[0].raw,eps,hybridLaV0(input,slope,offset),LaGpuGrid{a.nx,a.ny,a.win,a.stride,a.s},LaGpuGrid{c.nx,c.ny,c.win,c.stride,c.s},gt);
         return gpu;
     });}catch(const std::exception&){laGpuWorker.reset();}
+    if(input.alignReuse&&laGpuWorker){
+        auto& reuse=*input.alignReuse;int primed=0;
+        for(size_t f=1;f<reuse.fields.size()&&f<input.frames.size()&&f<reuse.estimates.size()&&f<reuse.jobs.size();++f){
+            auto& e=reuse.estimates[f];const auto& fr=input.frames[f];const auto& job=reuse.jobs[f];
+            if(fr.role==kRoleNormal&&job.f==int(f)&&job.raw==fr.raw&&job.gain==1.f/fr.exposure
+               &&e.result.valid()&&e.result.get().ok&&e.result.get().h==job.h&&job.up==1.f
+               &&laGpuWorker->prime(job,std::move(reuse.fields[f])))++primed;
+        }
+        reuse.fields.clear();reuse.jobs.clear();
+        if(primed)report("HYBRID GPU FIELD REUSE: "+std::to_string(primed)+" unchanged normal fields restored");
+    }
     // W1.7: the context with the programs this merge will ask for as far as the tuning tells (the local alignment as asked, the
     // Bento colour pass whenever an ultrashort frame may be merged: merge() runs a pass only when its own flags say so).
     struct EarlyGpuLog { std::mutex lock;std::vector<std::string> lines;bool direct=false;double ms=0; };
@@ -11451,6 +11501,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     // the latest after the alignment: its lines then, its tile deviation for the blend gain; frames it changed (a correction or a
     // refusal) start the merge again with them - early, so a changing check costs little more than when it ran first
     float usFlicker=input.usFlicker;
+    std::function<void()> saveAlignment;
     auto usCheckJoin=[&](bool wait){
         if(!input.usPending||!input.usPending->checked.valid())return;
         if(!wait&&input.usPending->checked.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
@@ -11458,7 +11509,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         {std::lock_guard<std::mutex> l(input.usPending->lock);for(const std::string& line:input.usPending->lines)report(line);}
         bool same=checked.frames.size()==input.frames.size();
         for(size_t f=0;same&&f<input.frames.size();++f)same=checked.frames[f].raw==input.frames[f].raw&&checked.frames[f].role==input.frames[f].role;
-        if(!same){input.usPending->result=checked;throw HybridUsRestart();}
+        if(!same){if(saveAlignment)saveAlignment();input.usPending->result=checked;throw HybridUsRestart();}
         usFlicker=checked.usFlicker;
     };
     const auto alignStarted=Clock::now();
@@ -11510,6 +11561,15 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     };
     auto sameH=[](const BackwardHomography& a,const BackwardHomography& c){return a.h==c.h&&a.upRatio==c.upRatio;};
     std::vector<std::shared_future<LaGpuHom>> est(static_cast<size_t>(n));
+    if(input.alignReuse&&laGpuWorker)saveAlignment=[&]{
+        auto& reuse=*input.alignReuse;
+        if(!laGpuWorker->error().empty()){reuse.estimates.clear();reuse.jobs.clear();reuse.fields.clear();return;}
+        try{
+            reuse.jobs.resize(size_t(n));reuse.fields.resize(size_t(n));
+            for(int f=1;f<n;++f)if(input.frames[f].role==kRoleNormal)
+                laGpuWorker->takeReady(f,reuse.jobs[size_t(f)],reuse.fields[size_t(f)]);
+        }catch(const std::bad_alloc&){reuse.estimates.clear();reuse.jobs.clear();reuse.fields.clear();}
+    };
     // the ultrashort frames first (their registration runs on the CPU while the GPU aligns the rest), then the bracketed ones
     // (Shasta), then the normal frames
     std::vector<int> order;
@@ -11521,9 +11581,21 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         // (SCAM_HOM_FIELD: each frame's F6 right after its homography, on its levels - the homographies then wait for the fields and
         // the CPU stages after the alignment start later: lamp2324 +0.1 s; by default the fields follow all homographies)
         const bool homField=std::getenv("SCAM_HOM_FIELD")!=nullptr;
-        for(int f:order)est[size_t(f)]=laGpuWorker->estimate(f,input.frames[f].raw,1.f/input.frames[f].exposure,
-                                                             input.frames[f].role==kRoleNormal?!std::getenv("SCAM_NO_HOM_FIELD")
-                                                             :homField&&(input.frames[f].role!=kRoleUltrashort||tune.laUltrashort));
+        int reused=0;
+        if(input.alignReuse&&input.alignReuse->estimates.size()<size_t(n))input.alignReuse->estimates.resize(size_t(n));
+        for(int f:order){
+            const auto& fr=input.frames[f];const float gain=1.f/fr.exposure;
+            const bool field=fr.role==kRoleNormal?!std::getenv("SCAM_NO_HOM_FIELD")
+                :homField&&(fr.role!=kRoleUltrashort||tune.laUltrashort);
+            auto* cached=input.alignReuse&&fr.role==kRoleNormal?&input.alignReuse->estimates[size_t(f)]:nullptr;
+            if(cached&&cached->raw==fr.raw&&cached->gain==gain&&cached->field==field&&cached->result.valid()&&cached->result.get().ok){
+                est[size_t(f)]=cached->result;++reused;
+            }else{
+                est[size_t(f)]=laGpuWorker->estimate(f,fr.raw,gain,field);
+                if(cached)*cached=HybridAlignReuse::Estimate{fr.raw,gain,field,est[size_t(f)]};
+            }
+        }
+        if(reused)report("HYBRID GPU ALIGN REUSE: "+std::to_string(reused)+" unchanged normal homographies reused");
         // a GPU that fails (its context, a program the driver refuses): the corner tracker for the whole burst, as before
         const LaGpuHom first=est[size_t(order.front())].get();
         if(!first.ok&&(first.why.rfind("GPU",0)==0||first.why=="closed")){

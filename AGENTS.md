@@ -68,3 +68,5 @@ the push to `main` builds it and the workflow posts it to Telegram. Owner, the s
 day: «если будет недостаточно места, можешь залить то что уже сделал одним
 комитом» - when the session's disk runs short, the finished work may go to `main`
 as one commit before the whole plan is done.
+# Processing speed validation (owner, 2026-11-01)
+For every speed candidate, replay identical real bursts with identical tuning and compare the full output, frame decisions and detail/motion crops before deciding whether quality regresses. Synthetic alignment error alone, or a changed output hash alone, does not establish worse image quality. Include the owner's latest detail and motion series. Preserve frame counts and resolution in comparisons.

@@ -235,6 +235,12 @@ jobs:
           # P364: the GPU homography and field on their error paths (no broken promise, no slot off by one) and the memory they hold
           g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_LA_GPU_FAULTS tools/check_la_gpu_errors.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-errors
           LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-la-gpu-errors
+          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_la_gpu_reuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-reuse
+          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-la-gpu-reuse
+          g++ -pthread -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS -fsanitize=thread tools/check_la_gpu_reuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-reuse-tsan
+          LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless TSAN_OPTIONS="suppressions=$PWD/tools/check_hybrid_gpu_align.tsan.supp" setarch "$(uname -m)" -R /tmp/check-la-gpu-reuse-tsan
+          g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_us_measure_reuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-us-measure-reuse
+          ASAN_OPTIONS=detect_leaks=0 /tmp/check-us-measure-reuse
           # P364: the plain merge with the GPU alignment under ThreadSanitizer (no race on the ultrashort registration's state), the
           # GPU field's memory guard with the homography counted, and a GPU field fault mid-burst (the merge goes on: the frames the
           # failed worker left by the global translation, the CPU field)
