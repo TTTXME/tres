@@ -55,7 +55,8 @@ def main():
         size = size or (w, h)
         rgba = np.ones((h, w, 4), 'f4'); rgba[..., :3] = rgb
         if src not in programs:
-            programs[src] = r.ctx.program(vertex_shader=VS, fragment_shader='#version 310 es\n' + cco.expand_imports(src))
+            # GLInterface adds highp ints to assets without a version, including why/low.
+            programs[src] = r.ctx.program(vertex_shader=VS, fragment_shader='#version 310 es\nprecision highp int;\n' + cco.expand_imports(src))
         p = programs[src]
         texture, target = r.tex(rgba), r.ctx.texture(size, 4, dtype='f4')
         fb = r.ctx.framebuffer([target]); fb.use(); r.ctx.viewport = (0, 0, *size)
@@ -145,7 +146,7 @@ def main():
         src = combine
         for k, v in dict(defs, PORTRAIT='1').items():
             src = cco.set_define(src, k, v)
-        r.ctx.program(vertex_shader=VS, fragment_shader='#version 310 es\n' + cco.expand_imports(src)).release()
+        r.ctx.program(vertex_shader=VS, fragment_shader='#version 310 es\nprecision highp int;\n' + cco.expand_imports(src)).release()
     values = dict(uniforms(), portraitMapU=identity)
     rows, scales = [clc.norm(colour(85)), clc.norm(colour(45))], [0.09, 0.18, 0.36]
     for defs in ({}, {'P3_OUT': '1'}):
