@@ -29,6 +29,7 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ark_vibrance
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_agx_colour.py
 # P395: the saturated orange-yellows towards yellow (skin, oranges, pale colours, greens, blues bit for bit)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_yellow_hue.py
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_portrait.py
 # P398: pale light at the top of the tone towards white (blue near-whites and saturated colours bit for bit)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hl_neutral.py
 # P399: the lens's purple fringe against a bright light neutral (violet lights, skies, reds and surfaces away from lights bit for bit)

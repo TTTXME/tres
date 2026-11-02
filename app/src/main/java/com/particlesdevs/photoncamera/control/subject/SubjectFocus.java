@@ -199,7 +199,9 @@ public final class SubjectFocus implements SubjectFrames.Sink {
         if (builder == null) return resolved;
         try {
             Integer current = builder.get(CaptureRequest.STATISTICS_FACE_DETECT_MODE);
-            int wanted = resolved.halMode;
+            int wanted = FaceDetectModes.captureMode(resolved,
+                    characteristics == null ? null : characteristics.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES),
+                    PreferenceKeys.isPortraitEnabled());
             // OFF is only written over a previous non-OFF value: an untouched template keeps its own default.
             if (wanted != FaceDetectModes.HAL_OFF || (current != null && current != FaceDetectModes.HAL_OFF))
                 builder.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, wanted);
@@ -306,7 +308,7 @@ public final class SubjectFocus implements SubjectFrames.Sink {
         faceMode = resolved;
         Integer current = builder.get(CaptureRequest.STATISTICS_FACE_DETECT_MODE);
         int now0 = current == null ? FaceDetectModes.HAL_OFF : current;
-        if (now0 != resolved.halMode && !cc.subjectRegionsFrozen()) {
+        if (now0 != FaceDetectModes.captureMode(resolved, fdModes, PreferenceKeys.isPortraitEnabled()) && !cc.subjectRegionsFrozen()) {
             applyFaceDetectMode(builder, chars);
             cc.rebuildPreviewBuilder();
             Log.d(TAG, "face detection " + before + " -> " + resolved);

@@ -62,6 +62,10 @@ public final class FaceDetectModes {
         return HAL_OFF;
     }
 
+    public static int captureMode(Resolved mode, int[] available, boolean portrait) {
+        return mode.halMode != HAL_OFF || !portrait ? mode.halMode : bestHal(available);
+    }
+
     /**
      * The effective mode of a preference value on a module.
      *

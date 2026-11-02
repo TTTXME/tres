@@ -1326,6 +1326,14 @@ public class PreferenceKeys {
         }
     }
 
+    public static boolean isPortraitEnabled() {
+        return preferenceKeys != null && preferenceKeys.settingsManager.getBoolean("default_scope", "pref_portrait_enabled", false);
+    }
+
+    public static boolean isPortraitSkinWarmthEnabled() {
+        return isPortraitEnabled() && preferenceKeys.settingsManager.getBoolean("default_scope", "pref_portrait_skin_warmth", true);
+    }
+
     /** P103: «Яркий видоискатель в темноте» (global). */
     public static boolean isLowLightBoost() {
         try {

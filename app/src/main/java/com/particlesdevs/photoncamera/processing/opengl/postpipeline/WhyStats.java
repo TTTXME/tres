@@ -184,6 +184,11 @@ public final class WhyStats extends Node {
             final boolean legacy = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy();
             int iso = pipeline.mParameters.iso, maxIso = maxAnalogIso(pipeline.mParameters);
             WhyAe.Settings settings = WhyTone.settings();
+            settings.portraitFace = pipeline.mParameters.portraitEnabled && pipeline.mParameters.portraitFaceDetected;
+            if (settings.portraitFace && pipeline.mParameters.portraitSkinWarmth) {
+                st.portrait = PortraitGpu.measure(glProg, st.low, pipeline.mParameters.portraitFaces);
+                Log.i("SCAM_PIPELINE", "Portrait: face protection, skin faces=" + (st.portrait == null ? 0 : st.portrait.count));
+            }
             settings.noiseS = pipeline.noiseS;
             settings.noiseO = pipeline.noiseO;
             // P442: the EV100 of base white for the night rule (NaN without the shot's exposure: the rule stays off)

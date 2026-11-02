@@ -20,6 +20,7 @@ public final class WhyTone {
     /** Per-shot state; the textures are closed by WhyCombine (all but none are needed after it). */
     public static final class State {
         public WhyAe.Result ae;
+        com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.Result portrait;
         /** G_CLEAN equivalent (half the sensor, RGBA16F) before and after bracket_denoise. */
         public GLTexture low, lowDn;
         /** 2x grid only: 2x2 mean of the output grid (the 1x-equivalent colour source of WhyCombine). */

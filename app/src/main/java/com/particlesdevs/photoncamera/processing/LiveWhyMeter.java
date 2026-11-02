@@ -222,6 +222,10 @@ public final class LiveWhyMeter {
         return lastGrid.clone();
     }
 
+    public float[] lastCells() {
+        return buffer;
+    }
+
     /** WhyAe.smartHdr on the cells of the view; null when the crop holds no colour quad. One thread at a time (the GL thread). */
     public WhyAe.Result measure(View v, float inScale, WhyAe.Settings s, int iso, int maxIso) {
         final int[] n = new int[2];

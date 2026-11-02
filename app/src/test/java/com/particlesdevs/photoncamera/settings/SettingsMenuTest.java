@@ -164,6 +164,64 @@ public class SettingsMenuTest {
         manager.openPreferences(PreferenceKeys.Key.PER_LENS_FILE_NAME.mValue).edit().clear().commit();
     }
 
+    @Test public void portraitSwitchesHaveIndependentDefaultsAndResetWithTheirPage(){
+        assertFalse(PreferenceKeys.isPortraitEnabled());
+        assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        PreferenceScreen root=inflate();root.onAttached();
+        PreferenceScreen page=root.findPreference("portrait_screen");
+        assertEquals("root_colour",page.getParent().getKey());
+        assertEquals(Arrays.asList("pref_portrait_enabled","pref_portrait_skin_warmth"),keys(page));
+        TwoStatePreference enabled=page.findPreference("pref_portrait_enabled"),warmth=page.findPreference("pref_portrait_skin_warmth");
+        assertNotNull(page.getIcon());assertNotNull(enabled.getIcon());assertNotNull(warmth.getIcon());
+        assertFalse(enabled.isChecked());assertTrue(warmth.isChecked());assertFalse(warmth.isEnabled());
+        assertEquals("pref_portrait_enabled",warmth.getDependency());
+        enabled.setChecked(true);
+        assertTrue(warmth.isEnabled());assertTrue(PreferenceKeys.isPortraitEnabled());assertTrue(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        warmth.setChecked(false);
+        assertTrue(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        prefs.edit().putString("pref_scam_hybrid_why_macro_contrast","1.3").commit();
+        assertEquals(2,com.particlesdevs.photoncamera.ui.settings.PageReset.reset(context,page));
+        assertFalse(enabled.isChecked());assertTrue(warmth.isChecked());assertFalse(warmth.isEnabled());
+        assertFalse(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        assertEquals("1.3",prefs.getString("pref_scam_hybrid_why_macro_contrast",""));
+        prefs.edit().putString("pref_portrait_enabled","1").putString("pref_portrait_skin_warmth","0").commit();
+        assertTrue(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+    }
+
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void portraitPageKeepsRequestedNameAndSearchesInBothLanguages(){
+        PreferenceScreen root=inflate(),page=root.findPreference("portrait_screen");
+        assertEquals("Портерт",String.valueOf(page.getTitle()));
+        android.content.res.Configuration en=new android.content.res.Configuration(context.getResources().getConfiguration());
+        en.setLocale(Locale.ENGLISH);
+        assertEquals("Portrait",context.createConfigurationContext(en).getString(R.string.prefs_portrait_title));
+        var index=com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.index(root);
+        var words=com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.searchWords(context,index);
+        for(String key:new String[]{"portrait_screen","pref_portrait_enabled","pref_portrait_skin_warmth"}){
+            var entry=index.stream().filter(e->e.key.equals(key)).findFirst().orElseThrow();
+            assertEquals("portrait_screen",entry.page);
+            assertTrue(entry.matches("портерт",words.get(key)));assertTrue(entry.matches("portrait",words.get(key)));
+            assertTrue(key,pagesAbove(root.findPreference(key))<=1);
+        }
+    }
+
+    @Test public void portraitValuesFollowModuleProfilesAndCopySelection(){
+        for(String key:new String[]{"pref_portrait_enabled","pref_portrait_skin_warmth"}){
+            assertTrue(key,ModuleProfiles.isLocal(key));assertFalse(key,ModuleProfiles.isGlobal(key));
+        }
+        prefs.edit().putBoolean("pref_portrait_enabled",true).putBoolean("pref_portrait_skin_warmth",false).commit();
+        ModuleProfiles profiles=PreferenceKeys.profiles();
+        prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();
+        profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);profiles.activate("back0");
+        prefs.edit().putBoolean("pref_portrait_enabled",false).putBoolean("pref_portrait_skin_warmth",true).commit();
+        profiles.activate("back1");
+        assertTrue(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        profiles.copy("back0",Collections.singletonList("back1"),Collections.singleton("pref_portrait_enabled"));
+        assertFalse(PreferenceKeys.isPortraitEnabled());assertFalse(prefs.getBoolean("pref_portrait_skin_warmth",true));
+        profiles.copy("back0",Collections.singletonList("back1"),Collections.singleton("pref_portrait_skin_warmth"));
+        assertTrue(prefs.getBoolean("pref_portrait_skin_warmth",false));
+        assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+    }
+
     @Test public void moduleProfilesKeepTypedValuesAndCopyOnlySelection(){
         prefs.edit().putFloat("pref_film_lut_strength",37.125f).putBoolean("pref_scam_hybrid_denoise",true)
                 .putString("pref_tunable_test","1.234567").putString("pref_sensorconfig_test","hardware").commit();
@@ -450,6 +508,8 @@ public class SettingsMenuTest {
             android.view.View picture=copy.requireView().findViewWithTag("group_root_colour");
             assertNotNull(tags(copy.requireView()),picture);assertTrue(picture.performClick());
             assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_scam_hybrid_colour_warmth"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_portrait_enabled"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_portrait_skin_warmth"));
             activity.getOnBackPressedDispatcher().onBackPressed();
             // P406: «Модули камеры и линзы» holds the camera's colour profile (the DCP profile) and the modules' sensor settings,
             // copied from «Сенсор по модулям» (the module cards hold no value), as the reference app's lens settings
@@ -1528,7 +1588,7 @@ public class SettingsMenuTest {
         // the profiles (its configs)
         assertEquals(Arrays.asList("photo_style_screen","pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast",
                 "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor",
-                "scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen","photo_processing_screen",
+                "scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen","portrait_screen","photo_processing_screen",
                 "scam_hybrid_why_sharp_screen","scam_hybrid_why_rl_screen","scam_hybrid_photo_screen","scam_hybrid_merge_screen",
                 "scam_hybrid_hdr_screen","scam_hybrid_artifacts_screen","backup_settings_screen"),keys(screen.findPreference("root_colour")));
         // «Стиль и плёнка»: the style, the B&W filter, and the film pages together (the LUT link that only opened its page is gone)
@@ -1698,7 +1758,7 @@ public class SettingsMenuTest {
                 androidx.preference.PreferenceGroup g=root.findPreference(group);assertNotNull(group,g);
                 List<String> shown=new ArrayList<>();
                 for(int i=0;i<g.getPreferenceCount();i++)if(g.getPreference(i).isVisible())shown.add(g.getPreference(i).getKey());
-                assertTrue(group+" shows "+shown,shown.size()<=(group.equals("root_colour")?18:10)&&!shown.isEmpty());
+                assertTrue(group+" shows "+shown,shown.size()<=(group.equals("root_colour")?19:10)&&!shown.isEmpty());
             }
             // P390: the main page shows one row of the modules, their page the cards
             androidx.preference.PreferenceGroupAdapter rootAdapter=(androidx.preference.PreferenceGroupAdapter)root.getListView().getAdapter();

@@ -13,6 +13,26 @@ import static org.junit.Assert.assertTrue;
  * same synthetic image (rational formula, identical in float64 in both languages, then cast to float32).
  */
 public class WhyAeTest {
+    @Test public void portraitDisablesFlatBoostWithoutChangingExposure() {
+        WhyAe.Settings s = new WhyAe.Settings();
+        s.darkPixelThresh = 40f;
+        for (int look : new int[]{0, 1, 2, 3, 4}) {
+            s.look = look;
+            s.portraitFace = false;
+            WhyAe.Result plain = WhyAe.smartHdr(synth(.02, false), 3, W, H, s, 100, 6400);
+            s.portraitFace = true;
+            WhyAe.Result portrait = WhyAe.smartHdr(synth(.02, false), 3, W, H, s, 100, 6400);
+            assertTrue(plain.contrastC > 0f);
+            assertEquals(0f, portrait.flat, 0f);
+            assertEquals(0f, portrait.contrastC, 0f);
+            assertEquals(plain.slope - plain.contrastC, portrait.slope, 1e-6f);
+            assertEquals(plain.ae, portrait.ae, 0f);
+            assertEquals(plain.effS, portrait.effS, 0f);
+            assertEquals(plain.effH, portrait.effH, 0f);
+            assertTrue(portrait.portraitFace);
+        }
+    }
+
     private static final int W = 96, H = 64;
 
     private static FloatBuffer synth(double scale, boolean bento) {

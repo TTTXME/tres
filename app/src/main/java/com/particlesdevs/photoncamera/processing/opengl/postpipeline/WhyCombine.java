@@ -230,6 +230,7 @@ public final class WhyCombine extends Node {
             // P46 Display P3: the same shader with P3_OUT 1 (colour source, OKLab and gamut in P3); sRGB sets no define.
             if (pipeline.p3Output) glProg.setDefine("P3_OUT", 1);
             if (colourOn) glProg.setDefine("COLOUR_LOOK", 1);
+            if (st.portrait != null && st.portrait.corrected()) glProg.setDefine("PORTRAIT", 1);
             // P144: ACES / Uchimura / the own curve instead of AgX (TONE_OP 0, the AgX shader, otherwise)
             if (toneOp != com.particlesdevs.photoncamera.processing.color.ToneCurve.AGX) glProg.setDefine("TONE_OP", 1);
             if (lut != null) glProg.setDefine("FILM_LUT", 1);
@@ -370,7 +371,13 @@ public final class WhyCombine extends Node {
             if (hlB != null) glProg.setVar("hlSoftU", hlSoft);
             glProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
             glProg.setVar("gammaInvU", 1f / WhyTone.gamma());
-            glProg.setVar("macroU", WhyTone.value("macro_contrast", 1f));
+            glProg.setVar("macroU", r.portraitFace ? 1f : WhyTone.value("macro_contrast", 1f));
+            if (st.portrait != null && st.portrait.corrected()) {
+                glProg.setVar("portraitCountU", st.portrait.count);
+                glProg.setVarVec4s("portraitFacesU", st.portrait.faces);
+                glProg.setVarVec4s("portraitAdjustU", st.portrait.adjust);
+                glProg.setVar("portraitMapU", new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1});
+            }
             glProg.setVar("vibU", WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f));
             glProg.setVar("vibHlU", WhyTone.vibranceHl());
             glProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones

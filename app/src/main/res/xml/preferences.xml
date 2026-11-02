@@ -265,6 +265,10 @@
         <SwitchPreferenceCompat android:key="pref_scam_hybrid_why_texture" android:title="@string/prefs_scam_hybrid_why_texture_title" android:defaultValue="false" app:iconSpaceReserved="false" android:summary="@string/prefs_scam_hybrid_why_texture_summary" />
       </PreferenceCategory>
     </PreferenceScreen>
+    <PreferenceScreen android:key="portrait_screen" android:title="@string/prefs_portrait_title" android:summary="@string/prefs_portrait_summary" android:icon="@drawable/settings_ic_face" app:iconSpaceReserved="false">
+      <SwitchPreferenceCompat android:key="pref_portrait_enabled" android:title="@string/prefs_portrait_enabled_title" android:summary="@string/prefs_portrait_enabled_summary" android:defaultValue="false" android:icon="@drawable/settings_ic_face" />
+      <SwitchPreferenceCompat android:key="pref_portrait_skin_warmth" android:title="@string/prefs_portrait_skin_warmth_title" android:summary="@string/prefs_portrait_skin_warmth_summary" android:defaultValue="true" android:dependency="pref_portrait_enabled" android:icon="@drawable/settings_ic_sun" />
+    </PreferenceScreen>
     <PreferenceScreen android:key="photo_processing_screen" android:title="@string/prefs_shdr_colour_title" android:icon="@drawable/settings_ic_sliders" app:iconSpaceReserved="false" android:summary="@string/prefs_shdr_colour_summary">
       <PreferenceCategory android:key="colour_sat_category" android:title="@string/prefs_colour_sat_category_title" app:iconSpaceReserved="false">
         <com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference android:key="pref_scam_hybrid_why_vibrance" android:title="@string/prefs_scam_hybrid_why_vibrance_title" android:summary="@string/prefs_scam_hybrid_why_vibrance_summary" android:defaultValue="0" app:minValue="-1" app:maxValue="1" app:stepPerUnit="100" app:isFloat="true" android:icon="@drawable/settings_ic_palette" />

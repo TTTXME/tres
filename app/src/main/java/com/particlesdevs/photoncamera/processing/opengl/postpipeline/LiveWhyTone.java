@@ -10,6 +10,8 @@ import com.particlesdevs.photoncamera.processing.color.FilmLut;
 import com.particlesdevs.photoncamera.processing.color.ToneCurve;
 import com.particlesdevs.photoncamera.processing.opengl.GLInterface;
 import com.particlesdevs.photoncamera.processing.opengl.GLProg;
+import com.particlesdevs.photoncamera.processing.portrait.PortraitFaces;
+import com.particlesdevs.photoncamera.processing.portrait.PortraitSkin;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 import com.particlesdevs.photoncamera.util.Log;
 
@@ -162,6 +164,9 @@ public final class LiveWhyTone {
     private final FloatBuffer quad = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
             .put(new float[]{-1, -1, 1, -1, -1, 1, 1, 1});
     private FloatBuffer aePixels;
+    private PortraitSkin.Result portrait;
+    private com.particlesdevs.photoncamera.processing.LiveWhyMeter.View portraitView;
+    private long portraitAt;
     private WhyAe.Result ae;
     /**
      * P383: the tone shown, one drawn frame closer to {@link #ae} each time (ToneEase: before, it moved once per AE run - steps every
@@ -327,6 +332,7 @@ public final class LiveWhyTone {
             if (mode() != LOCAL) {
                 // P314: the photo's tone per pixel - the AE on the CPU from the RAW frame (no readback), then one pass of why/combine
                 final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View view = frame.get();
+                observePortrait(view);
                 if (meterDue(observe(view))) {
                     if (!runAePoint(view)) return fail("ae");
                 }
@@ -353,6 +359,7 @@ public final class LiveWhyTone {
             draw(low);
             // the AE every few frames, on a factor-8 whyLow
             final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View drawnView = frame.get();
+            observePortrait(drawnView);
             observe(drawnView);
             if (ae == null || meterNow || frames++ % AE_EVERY == 0) {
                 // the drawn frame's ISO, the analog ceiling and its noise model
@@ -433,6 +440,7 @@ public final class LiveWhyTone {
             observeFilm(shownFilm);
             if (!raw.bind(p, shownFilm)) return false;
             final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View view = raw.view();
+            observePortrait(view);
             if (meterDue(observe(view))) {
                 if (!runAePoint(view)) return fusedFail("ae");
             }
@@ -643,6 +651,10 @@ public final class LiveWhyTone {
         aePixels.position(0);
         mergedNoise(noiseS, noiseO);
         final WhyAe.Result r = WhyAe.smartHdr(aePixels, 4, aw, ah, settings, iso, maxIso);
+        if (portraitView != null && settings.portraitFace && PreferenceKeys.isPortraitSkinWarmthEnabled()) {
+            int[] grid = new int[2];
+            measurePortrait(portraitView, com.particlesdevs.photoncamera.processing.LiveWhyMeter.cells(portraitView, inScale, grid), grid);
+        }
         filmAeTarget = WhyAe.filmAe(r);
         emTarget = WhyFusion.liveExposures(r);
         metered();
@@ -704,6 +716,7 @@ public final class LiveWhyTone {
         settings.evWhite = WhySkyMask.evOffset(f.iso, f.exposureNs / 1e9, aperture, inScale);
         final WhyAe.Result r = meter.measure(v, inScale, settings, f.iso, f.maxAnalogIso);
         if (r == null) return ae != null;
+        measurePortrait(v, meter.lastCells(), meter.lastGrid());
         filmAeTarget = WhyAe.filmAe(r);
         emTarget = WhyFusion.liveExposures(r);
         metered();
@@ -718,6 +731,32 @@ public final class LiveWhyTone {
                     + (skyWanted ? "; sky: " + skyLog : ""));
         }
         return true;
+    }
+
+    private void observePortrait(com.particlesdevs.photoncamera.processing.LiveWhyMeter.View v) {
+        boolean face = PreferenceKeys.isPortraitEnabled() && v != null && v.frame != null && v.frame.portraitFaceDetected;
+        if (settings.portraitFace != face) meterNow = true;
+        settings.portraitFace = face;
+        portraitView = v;
+        if (!face || !PreferenceKeys.isPortraitSkinWarmthEnabled()) portrait = null;
+    }
+
+    private void measurePortrait(com.particlesdevs.photoncamera.processing.LiveWhyMeter.View v, float[] cells, int[] grid) {
+        portrait = null;
+        if (!settings.portraitFace || !PreferenceKeys.isPortraitSkinWarmthEnabled() || v == null || v.frame == null || cells == null) return;
+        final float fw = v.frame.width, fh = v.frame.height;
+        final float[] cover = com.particlesdevs.photoncamera.processing.LiveWhyMeter.cover(v);
+        if (cover == null) return;
+        float[] faces = PortraitFaces.crop(v.frame.portraitFaces, v.left / fw, v.top / fh, v.width / fw, v.height / fh);
+        faces = PortraitFaces.crop(faces, 0f, 0f, cover[0], cover[1]);
+        portrait = PortraitSkin.measure(cells, 3, grid[0], grid[1], faces, 1f);
+        for (int i = 0; i < portrait.count * 4; i += 4) {
+            portrait.faces[i] = (v.left + portrait.faces[i] * cover[0] * v.width) / fw;
+            portrait.faces[i + 2] = (v.left + portrait.faces[i + 2] * cover[0] * v.width) / fw;
+            portrait.faces[i + 1] = (v.top + portrait.faces[i + 1] * cover[1] * v.height) / fh;
+            portrait.faces[i + 3] = (v.top + portrait.faces[i + 3] * cover[1] * v.height) / fh;
+        }
+        portraitAt = SystemClock.uptimeMillis();
     }
 
     /**
@@ -999,7 +1038,18 @@ public final class LiveWhyTone {
         set(p, "clipU", shown.clip); // P383: the shown (eased) values, as aeNow
         set(p, "toeU", toe);
         set(p, "gammaInvU", gammaInv);
-        set(p, "macroU", macro);
+        set(p, "macroU", r.portraitFace ? 1f : macro);
+        if (PreferenceKeys.isPortraitEnabled()) {
+            final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View v = portraitView;
+            final float[] map = v == null || v.frame == null ? null : PortraitFaces.viewTransform(v.rotation, v.mirror,
+                    v.left / (float) v.frame.width, v.top / (float) v.frame.height, v.width / (float) v.frame.width, v.height / (float) v.frame.height);
+            set(p, "portraitCountU", portrait != null && settings.portraitFace && map != null && SystemClock.uptimeMillis() - portraitAt < 250 ? portrait.count : 0);
+            if (portrait != null && settings.portraitFace && map != null) {
+                GLES20.glUniform4fv(loc(p, "portraitFacesU"), PortraitSkin.MAX_FACES, portrait.faces, 0);
+                GLES20.glUniform4fv(loc(p, "portraitAdjustU"), PortraitSkin.MAX_FACES, portrait.adjust, 0);
+                GLES20.glUniformMatrix3fv(loc(p, "portraitMapU"), 1, false, map, 0);
+            }
+        }
         GLES20.glUniform3f(loc(p, "vibU"), vib[0], vib[1], vib[2]);
         set(p, "chromaDnU", 0f);
         set(p, "clarityU", clarity);
@@ -1144,6 +1194,7 @@ public final class LiveWhyTone {
         if (WhyTone.macroToe()) defs.add(new String[]{"MACRO_TOE", "1"});
         if (point && fused) defs.add(new String[]{"RAW_SOURCE", "1"});
         if (colourOn) defs.add(new String[]{"COLOUR_LOOK", "1"});
+        if (PreferenceKeys.isPortraitEnabled()) defs.add(new String[]{"PORTRAIT", "1"});
         if (toneOp != ToneCurve.AGX) defs.add(new String[]{"TONE_OP", "1"});
         // P393: the light tones of a saturated colour keep its mid-tone chroma, as the photo (AgX only)
         if (toneOp == ToneCurve.AGX && lightChroma > 0f) defs.add(new String[]{"LIGHT_CHROMA", "1"});

@@ -1,5 +1,10 @@
 precision highp float;
 precision highp sampler2D;
+#define PORTRAIT 0
+#if PORTRAIT == 1
+#import portrait
+uniform mat3 portraitMapU;
+#endif
 // P305: the pixel coordinates (ivec2 xy) are highp too. A fragment shader's ints default to mediump, which Adreno runs as
 // fp16: the dither below took float(xy) and its phase 0.067 x + 0.0058 y in fp16, so instead of +-0.5 LSB noise it had 4..16
 // values in plates 1..4 px wide and 11..43 rows tall (wider and taller with x), which jpegli's dead-zone quantisation kept as
@@ -1120,6 +1125,16 @@ void main() {
         skyGlow *= skyG;
     }
 #endif
+#endif
+#if PORTRAIT == 1
+#if RAW_SOURCE == 1
+    vec2 portraitUv = (vec2(crop_left, crop_top) + vfUv(texCoord) * vec2(crop_width, crop_height)) / vec2(width, height);
+#else
+    vec2 portraitUv = (portraitMapU * vec3((vec2(xy) + 0.5) / vec2(size), 1.0)).xy;
+#endif
+    vec3 portraitRgb = portraitSkin(orig, portraitUv);
+    origS += portraitRgb - orig;
+    orig = portraitRgb;
 #endif
     // === 2. ACES inversion and base gain [:1500-1509] ===
 #if GAMMA_TYPE == 0

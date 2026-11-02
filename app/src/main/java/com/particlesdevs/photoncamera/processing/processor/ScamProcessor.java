@@ -473,6 +473,7 @@ public class ScamProcessor extends ProcessorBase {
         processingParameters.dcgShot = dcgShot;
         processingParameters.manualWbAtPress = manualWb;
         processingParameters.mosaicWbAtPress = mosaicWb;
+        processingParameters.portraitLookAtPress = lookAtPress;
         if (rawCrop != null && rawCrop.area != null) {
             processingParameters.rawCrop = rawCrop.area;
             processingParameters.rawCropFull = new Point(rawCrop.fullWidth, rawCrop.fullHeight);

@@ -130,6 +130,18 @@ public class ShotLookAtPressTest {
         assertEquals("", lab.filmUserLut);
     }
 
+    @Test public void portraitSwitchesStayWithTheQueuedShot() {
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_portrait_enabled", true);
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_portrait_skin_warmth", true);
+        ShotLook press = ShotLook.now();
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_portrait_enabled", false);
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_portrait_skin_warmth", false);
+        ShotLook processed = queued(press);
+        assertTrue(processed.portraitEnabled);
+        assertTrue(processed.portraitSkinWarmth);
+        assertFalse(ShotLook.now().portraitEnabled);
+    }
+
     @Test public void everyShotTakesItsLookWithThePress() throws Exception {
         final String capture = src("capture/CaptureController.java");
         final int filter = capture.indexOf("mShutterLensFilter = com.particlesdevs.photoncamera.processing.opengl.postpipeline.LensFilter.Choice.now();");

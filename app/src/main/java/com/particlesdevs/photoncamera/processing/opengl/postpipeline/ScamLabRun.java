@@ -517,6 +517,10 @@ public final class ScamLabRun {
     /** The shot's Parameters for {@code burst}: the whole frame as shot, or the fragment's size and lens shading. */
     static Parameters parameters(Shot shot, @Nullable int[] crop, ScamLabBurst burst) throws org.json.JSONException {
         final Parameters p = ScamLabParams.fromJson(shot.meta.getJSONObject("params"));
+        if (shot.templated) {
+            p.portraitFaceDetected = false;
+            p.portraitFaces = new float[0];
+        }
         if (crop == null) return p;
         final int ow = burst.outputWidth(), oh = burst.outputHeight();
         final Point full = p.rawSize;
@@ -527,6 +531,11 @@ public final class ScamLabRun {
         p.labWholeSize = full != null ? new Point(full) : null; // P306: a 200 MP shot's fragment takes its 200 MP denoise
         // P378 review: the fragment's place in the whole shot (WhySky: the whole frame's sky cells there)
         if (shot.width > 0 && shot.height > 0) p.labOrigin = new android.graphics.PointF(crop[0] / (float) shot.width, crop[1] / (float) shot.height);
+        p.portraitFaces = shot.width > 0 && shot.height > 0
+                ? com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.crop(p.portraitFaces,
+                        burst.crop[0] / (float) shot.width, burst.crop[1] / (float) shot.height,
+                        burst.crop[2] / (float) shot.width, burst.crop[3] / (float) shot.height)
+                : new float[0];
         p.rawSize = new Point(ow, oh);
         p.sensorPix = new android.graphics.Rect(0, 0, ow, oh);
         if (p.gainMap != null && p.mapSize != null)

@@ -15,6 +15,10 @@ precision highp sampler2D;
 // zero (red mottling of a dark teal curtain under the WHY shadow lift). DETAIL_REF clamps per pixel as why/combine's
 // detail luminance does (the delta compares the two). For non-negative input both are the former means.
 #define DETAIL_REF 0
+#define PORTRAIT 0
+#if PORTRAIT == 1
+#import portrait
+#endif
 #import interpolation
 uniform sampler2D InputBuffer;      // white-balanced linear camera RGB (ScamRgb .. ScamHdrDenoise), output grid
 uniform sampler2D GainMap;          // lens shading gains (r, g_even, g_odd, b)
@@ -65,6 +69,10 @@ void main() {
             sum += sceneLinear(min(origin + ivec2(i, j), last), size, false);
         }
     }
+#if PORTRAIT == 1
+    Output = vec4(portraitSkin(sum / float(f * f), (vec2(origin) + 0.5) / vec2(size)), 1.0);
+#else
     Output = vec4(sum / float(f * f), 1.0);
+#endif
 #endif
 }

@@ -554,6 +554,12 @@
     <!-- P42: face detection and tracking autofocus (after WhyCamera v50) -->
     <string name="prefs_face_detect_title">Face detection</string>
     <string name="prefs_face_detect_summary">Finds faces, frames them and aims focus and exposure at them. Manual focus and a tap win.</string>
+    <string name="prefs_portrait_title">Portrait</string>
+    <string name="prefs_portrait_summary">Face contrast protection and automatic skin warmth</string>
+    <string name="prefs_portrait_enabled_title">Protect faces</string>
+    <string name="prefs_portrait_enabled_summary">When a face is detected, disables the flat-scene contrast boost and keeps midtone contrast at 1.0. Without a detected face, processing stays as set.</string>
+    <string name="prefs_portrait_skin_warmth_title">Automatic skin warmth</string>
+    <string name="prefs_portrait_skin_warmth_summary">Gently cools yellow skin or warms blue skin inside detected faces. Correction is limited and preserves natural skin colour.</string>
     <string name="prefs_tracking_af_title">Tracking autofocus</string>
     <string name="prefs_tracking_af_summary">How to start tracking: focus and exposure follow the chosen subject across the frame.</string>
     <string name="prefs_split_af_ae_title">Separate exposure</string>

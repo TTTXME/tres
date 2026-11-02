@@ -76,6 +76,8 @@ public final class LiveRawFrame {
     private static long dropped;
     private static int width, height, rowStride;
     private static float[] crop = {0,0,1,1};
+    private static float[] portraitFaces = new float[0];
+    private static boolean portraitFaceDetected;
     private static int cfaPattern, cfaBlock=1, iso=100, maxAnalogIso=6400;
     /** P383: the published frame's SENSOR_EXPOSURE_TIME (0: unknown). */
     private static long exposureNs;
@@ -513,7 +515,7 @@ public final class LiveRawFrame {
         // P314: nothing is binned or copied while the GL thread has not taken the last frame (drop-when-busy)
         if (plane == null || !takesFrame()) return;
         publishFrame(plane,w,h,stride,cfa,white,black,gains,ccm,lensShading,sw,sh,cropRect,block,sensorIso,analogIso,automatic,shotNoise,readNoise,
-                format,minGain,maxGain,sceneLuma,false,false,System.nanoTime(),0L);
+                format,minGain,maxGain,sceneLuma,false,false,System.nanoTime(),0L,false,null);
     }
 
     /**
@@ -530,6 +532,8 @@ public final class LiveRawFrame {
         public Long exposureNs;
         public boolean automatic = true, sceneLuma = true;
         public double shotNoise, readNoise;
+        public boolean portraitFaceDetected;
+        public float[] portraitFaces;
     }
 
     /** P365: {@link #publish} with the parameters of {@code m} (the camera's plane, copied as before). */
@@ -538,7 +542,7 @@ public final class LiveRawFrame {
         if (m == null || plane == null || !takesFrame()) return;
         publishFrame(plane, m.width, m.height, m.rowStride, m.cfa, m.white, m.black, m.gains, m.ccm, m.shading, m.shadingWidth,
                 m.shadingHeight, m.crop, m.block, m.sensorIso, m.analogIso, m.automatic, m.shotNoise, m.readNoise, m.format, m.minGain,
-                m.maxGain, m.sceneLuma, false, false, System.nanoTime(), exposureOf(m));
+                m.maxGain, m.sceneLuma, false, false, System.nanoTime(), exposureOf(m), m.portraitFaceDetected, m.portraitFaces);
     }
 
     /** P383: the exposure time a Meta carries, 0 when unknown. */
@@ -561,7 +565,7 @@ public final class LiveRawFrame {
         try {
             if (m != null) pinned = publishFrame(view, m.width, m.height, m.rowStride, m.cfa, m.white, m.black, m.gains, m.ccm, m.shading,
                     m.shadingWidth, m.shadingHeight, m.crop, m.block, m.sensorIso, m.analogIso, m.automatic, m.shotNoise, m.readNoise, m.format,
-                    m.minGain, m.maxGain, m.sceneLuma, false, true, System.nanoTime(), exposureOf(m));
+                    m.minGain, m.maxGain, m.sceneLuma, false, true, System.nanoTime(), exposureOf(m), m.portraitFaceDetected, m.portraitFaces);
         } finally {
             if (!pinned) free(view);
         }
@@ -584,7 +588,8 @@ public final class LiveRawFrame {
      * when it was copied or not taken. {@code startNs}: when the caller began (P365: the copy time of a published frame).
      */
     private static boolean publishFrame(ByteBuffer plane,int w,int h,int stride,int cfa,float white,float[] black,float[] gains,float[] ccm,float[] lensShading,int sw,int sh,float[] cropRect,int block,Integer sensorIso,Integer analogIso,boolean automatic,double shotNoise,double readNoise,int format,
-                               float minGain,float maxGain,boolean sceneLuma,boolean means,boolean pin,long startNs,long exposureTimeNs){
+                               float minGain,float maxGain,boolean sceneLuma,boolean means,boolean pin,long startNs,long exposureTimeNs,
+                               boolean faceDetected,float[] faces){
         if (!enabled || plane == null) return false;
         // P108: a full-resolution Quad-Bayer frame (Pixel 10 Pro: 8160x6144 RAW10, the ISP's own viewfinder is green in that
         // mode) is shown 2x2-binned as the plain Bayer 4080x3072, at most every QUAD_BIN_INTERVAL_NS (the camera thread); P194 a
@@ -602,7 +607,7 @@ public final class LiveRawFrame {
             // P365: a ring view was read by the bin (cached memory) and is not kept
             publishFrame(binned, w / cell, h / cell, w / cell * 2, cfa, white, black, gains, ccm, lensShading, sw, sh, cropRect, 1, sensorIso, analogIso,
                     automatic, shotNoise, readNoise, android.graphics.ImageFormat.RAW_SENSOR, minGain, maxGain, sceneLuma, cellMeans, false, startNs,
-                    exposureTimeNs);
+                    exposureTimeNs,faceDetected,faces);
             return false;
         }
         // P266: the module's «Разрешение видоискателя RAW» - a plain Bayer frame halved until it fits. P316 (settings audit): a
@@ -749,6 +754,8 @@ public final class LiveRawFrame {
             noiseS=Double.isFinite(shotNoise)?Math.max(0,shotNoise):0;noiseO=Double.isFinite(readNoise)?Math.max(0,readNoise):0;
             cfaPattern = cfa;
             crop = cropRect == null ? new float[]{0,0,1,1} : cropRect.clone();
+            portraitFaceDetected = faceDetected;
+            portraitFaces = com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.crop(faces, 0f, 0f, 1f, 1f);
             whiteLevel = white;
             java.util.Arrays.fill(blackLevel,0);
             java.util.Arrays.fill(wbGains,1);
@@ -801,6 +808,8 @@ public final class LiveRawFrame {
         f.buffer = consumer.duplicate().order(ByteOrder.nativeOrder());
         f.buffer.position(0);
         f.crop = crop.clone();
+        f.portraitFaceDetected = portraitFaceDetected;
+        f.portraitFaces = portraitFaces.clone();
         f.width = width;
         f.height = height;
         f.rowStride = rowStride;
@@ -863,6 +872,9 @@ public final class LiveRawFrame {
         public long publishedNanos;
         public int shadingWidth,shadingHeight;
         public float[] shading, crop;
+        public boolean portraitFaceDetected;
+        /** Normalized boxes before visibleCrop; binning and resize preserve this coordinate system. */
+        public float[] portraitFaces;
         public float whiteLevel;
         public float[] blackLevel, wbGains, colorTransform;
     }

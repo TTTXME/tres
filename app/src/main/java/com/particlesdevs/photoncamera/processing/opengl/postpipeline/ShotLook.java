@@ -23,12 +23,20 @@ public final class ShotLook {
     public final float lutStrength;
     /** The «Цвет» rows (WhyTone.colourLook()). */
     public final ColourLook colour;
+    public final boolean portraitEnabled, portraitSkinWarmth;
+    public final boolean portraitSensorWindowUnknown;
 
     ShotLook(@Nullable FilmSim.Settings film, String lut, float lutStrength, ColourLook colour) {
         this.film = film;
         this.lut = lut;
         this.lutStrength = lutStrength;
         this.colour = colour;
+        portraitEnabled = PreferenceKeys.isPortraitEnabled();
+        portraitSkinWarmth = PreferenceKeys.isPortraitSkinWarmthEnabled();
+        portraitSensorWindowUnknown = portraitEnabled && (
+                com.particlesdevs.photoncamera.capture.IszCapturePolicy.mosaicModule(com.particlesdevs.photoncamera.settings.ModuleRegistry.active())
+                        || com.particlesdevs.photoncamera.capture.SensorModePick.session() != null
+                        || com.particlesdevs.photoncamera.capture.XiaomiTeleZoom.isz());
     }
 
     /** The look the settings give now (the press). */

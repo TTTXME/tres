@@ -108,11 +108,20 @@ final class ReferenceFilm extends Node {
             if(Float.isFinite(forced)&&forced>=32f)budget=Math.min(budget,(long)(Math.min(forced,3072f)*(1L<<20)));
             input=Allocator.allocate((int)bytes);output=Allocator.allocate((int)bytes);
             if(input==null||output==null)throw new OutOfMemoryError("Film image buffers");
+            com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.Result skin=null;
+            if(p.mParameters.portraitEnabled&&p.mParameters.portraitFaceDetected&&p.mParameters.portraitSkinWarmth)
+                skin=PortraitGpu.measureScene(glProg,p,WorkingTexture,p.mParameters.portraitFaces);
             scene=new GLTexture(WorkingTexture.mSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            if(skin!=null&&skin.corrected())glProg.setDefine("PORTRAIT",1);
             glProg.useAssetProgram("why/low",false);
             glProg.setTexture("InputBuffer",WorkingTexture);
             WhyTone.setColour(glProg,p,p.GainMap,1f);
             glProg.setVar("factorU",1);
+            if(skin!=null&&skin.corrected()){
+                glProg.setVar("portraitCountU",skin.count);
+                glProg.setVarVec4s("portraitFacesU",skin.faces);
+                glProg.setVarVec4s("portraitAdjustU",skin.adjust);
+            }
             glProg.drawBlocks(scene);
             readHalf(glProg,scene,input);
             scene.close();scene=null;

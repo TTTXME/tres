@@ -3,6 +3,33 @@ import java.nio.ByteBuffer;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public class LiveRawFrameTest {
+    @Test public void portraitMetadataTravelsWithItsFrameAndIsNeverShared() {
+        LiveRawFrame.pendingNs = Long.MAX_VALUE;
+        LiveRawFrame.setEnabled(true);
+        try {
+            LiveRawFrame.Meta m = new LiveRawFrame.Meta();
+            m.width = m.height = 8; m.rowStride = 16;
+            m.portraitFaceDetected = true;
+            m.portraitFaces = new float[]{.1f, .2f, .4f, .6f};
+            ByteBuffer pixels = ByteBuffer.allocate(128);
+            pixels.put(0, (byte) 21);
+            LiveRawFrame.publish(pixels, m);
+            m.portraitFaces[0] = .8f;
+            m.portraitFaceDetected = false;
+            LiveRawFrame.publish(pixels, m);
+            LiveRawFrame.Frame first = LiveRawFrame.acquire();
+            assertTrue(first.portraitFaceDetected);
+            assertArrayEquals(new float[]{.1f, .2f, .4f, .6f}, first.portraitFaces, 0f);
+            first.portraitFaces[0] = .9f;
+            assertEquals(.1f, LiveRawFrame.acquire().portraitFaces[0], 0f);
+            publish(23);
+            LiveRawFrame.Frame second = LiveRawFrame.acquire();
+            assertEquals(23, second.buffer.get(0));
+            assertFalse(second.portraitFaceDetected);
+            assertEquals(0, second.portraitFaces.length);
+            assertTrue(first.portraitFaceDetected);
+        } finally { LiveRawFrame.setEnabled(false); LiveRawFrame.pendingNs = LiveRawFrame.PENDING_NS; }
+    }
     @Test public void captureCannotOverwriteFrameBeingUploaded(){
         LiveRawFrame.pendingNs=Long.MAX_VALUE; // no replacement by age, however slow the machine
         LiveRawFrame.setEnabled(true);

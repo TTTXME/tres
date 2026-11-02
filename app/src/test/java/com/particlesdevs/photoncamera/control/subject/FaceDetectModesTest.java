@@ -8,6 +8,13 @@ import org.junit.Test;
 
 /** P42: face detection mode per camera module — only advertised HAL modes are ever written. */
 public class FaceDetectModesTest {
+    @Test public void portraitRequestsHalFacesWithoutChangingTheUiPreference() {
+        FaceDetectModes.Resolved off = FaceDetectModes.resolve("off", new int[]{0, 1});
+        assertEquals(0, off.halMode);
+        assertEquals(1, FaceDetectModes.captureMode(off, new int[]{0, 1}, true));
+        assertEquals(0, FaceDetectModes.captureMode(off, new int[]{0, 1}, false));
+        assertEquals(0, FaceDetectModes.captureMode(off, new int[]{0}, true));
+    }
     /** OPPO Find X8 Ultra and vivo X200 Ultra: every module lists OFF + SIMPLE (dumpsys media.camera). */
     private static final int[] SIMPLE_ONLY = {0, 1};
     private static final int[] FULL = {0, 1, 2};

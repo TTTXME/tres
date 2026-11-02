@@ -32,6 +32,7 @@ import static org.mockito.Mockito.mockStatic;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
 public class ScamLabRunTest {
+    @org.junit.Rule public org.junit.rules.TemporaryFolder tmp = new org.junit.rules.TemporaryFolder();
     private static final String H = "pref_scam_hybrid_";
     private MockedStatic<ScameraApp> camera;
 
@@ -48,6 +49,29 @@ public class ScamLabRunTest {
     @After public void tearDown() {
         PreferenceKeys.labDevOverlay(null);
         if (camera != null) camera.close();
+    }
+
+    @Test public void portraitFacesFollowTheAlignedLabFragment() throws Exception {
+        camera.when(ScameraApp::getSettings).thenReturn(new com.particlesdevs.photoncamera.api.Settings());
+        final com.particlesdevs.photoncamera.processing.render.Parameters p = new com.particlesdevs.photoncamera.processing.render.Parameters();
+        p.rawSize = new android.graphics.Point(256, 192);
+        p.portraitFaceDetected = p.portraitEnabled = true;
+        p.portraitFaces = new float[]{.375f, .5f, .625f, .625f};
+        java.io.File file = new ScamLabBurstTest() {{ tmp = ScamLabRunTest.this.tmp; }}.burst(12);
+        final ScamLabBurst whole = new ScamLabBurst(file, null, "");
+        final ScamLabRun.Shot shot = new ScamLabRun.Shot(tmp.newFolder(),
+                new org.json.JSONObject().put("params", ScamLabParams.toJson(p)), whole);
+        int[] requested = {40, 33, 64, 50};
+        final ScamLabBurst fragment = new ScamLabBurst(file, requested, "");
+        assertArrayEquals(new int[]{32, 32, 64, 32}, fragment.crop);
+        final com.particlesdevs.photoncamera.processing.render.Parameters q = ScamLabRun.parameters(shot, requested, fragment);
+        assertArrayEquals(new float[]{.25f, .5f, .75f, .875f}, q.portraitFaces, 1e-6f);
+        assertTrue(q.portraitFaceDetected);
+        final ScamLabRun.Shot templated = new ScamLabRun.Shot(tmp.newFolder(),
+                new org.json.JSONObject().put("params", ScamLabParams.toJson(p)).put("imported", true), whole);
+        final com.particlesdevs.photoncamera.processing.render.Parameters imported = ScamLabRun.parameters(templated, null, whole);
+        assertFalse(imported.portraitFaceDetected);
+        assertEquals(0, imported.portraitFaces.length);
     }
 
     @Test public void aSidesDevLinesLeaveOutTheComparedSettings() {

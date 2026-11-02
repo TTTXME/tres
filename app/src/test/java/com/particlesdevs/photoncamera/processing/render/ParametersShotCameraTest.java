@@ -126,6 +126,44 @@ public class ParametersShotCameraTest {
         assertEquals(1023, p.declaredWhite);
     }
 
+    @Test public void portraitSnapshotUsesReferenceFacesAfterRawCropAndSurvivesReplay() throws Exception {
+        prefs.when(PreferenceKeys::isPortraitEnabled).thenReturn(true);
+        prefs.when(PreferenceKeys::isPortraitSkinWarmthEnabled).thenReturn(true);
+        final CameraCharacteristics shot = camera(1023, 64);
+        when(shot.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)).thenReturn(new android.graphics.Rect(0, 0, 400, 300));
+        when(shot.get(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE)).thenReturn(new android.graphics.Rect(0, 0, 400, 300));
+        when(shot.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)).thenReturn(new android.util.Size(400, 300));
+        final Parameters p = new Parameters();
+        p.FillConstParameters(shot, new Point(200, 150));
+        p.rawCropFull = new Point(400, 300);
+        p.rawCrop = new com.particlesdevs.photoncamera.processing.RawCrop.Area(40, 30, 200, 150);
+        final CaptureResult result = mock(CaptureResult.class);
+        when(result.get(CaptureResult.SENSOR_TIMESTAMP)).thenReturn(123L);
+        when(result.get(CaptureResult.SENSOR_SENSITIVITY)).thenReturn(100);
+        when(result.get(CaptureResult.SENSOR_EXPOSURE_TIME)).thenReturn(10_000_000L);
+        final android.hardware.camera2.params.Face face = mock(android.hardware.camera2.params.Face.class);
+        when(face.getBounds()).thenReturn(new android.graphics.Rect(100, 75, 200, 150));
+        when(face.getScore()).thenReturn(90);
+        when(result.get(CaptureResult.STATISTICS_FACES)).thenReturn(new android.hardware.camera2.params.Face[]{face});
+        try { p.FillDynamicParameters(result, mock(CaptureRequest.class), 100); } catch (RuntimeException unusedColour) { }
+        org.junit.Assert.assertArrayEquals(new float[]{.3f, .3f, .8f, .8f}, p.portraitFaces, 1e-6f);
+        assertTrue(p.portraitFaceDetected);
+        assertTrue(p.portraitEnabled);
+        assertTrue(p.portraitSkinWarmth);
+        p.hotPixels = new android.graphics.Point[0];
+        final Parameters copy = p.Build();
+        p.portraitFaces[0] = 0f;
+        assertEquals(.3f, copy.portraitFaces[0], 1e-6f);
+        final Parameters replay = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabParams.fromJson(
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLabParams.toJson(copy));
+        org.junit.Assert.assertArrayEquals(copy.portraitFaces, replay.portraitFaces, 0f);
+        assertTrue(replay.portraitFaceDetected && replay.portraitEnabled && replay.portraitSkinWarmth);
+        when(result.get(CaptureResult.STATISTICS_FACES)).thenReturn(new android.hardware.camera2.params.Face[0]);
+        try { p.FillDynamicParameters(result, mock(CaptureRequest.class), 100); } catch (RuntimeException unusedColour) { }
+        assertFalse(p.portraitFaceDetected);
+        assertEquals(0, p.portraitFaces.length);
+    }
+
     /**
      * Review: a FULLRES shot merged in the plain session now develops with its own (the SDK session's) characteristics instead of
      * the plain session's object; the keys where the two differ are what the processing log names (nothing for equal values).

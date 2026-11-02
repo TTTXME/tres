@@ -514,6 +514,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private static final CaptureResult.Key<int[]> AWB_CCT_LABEL =
             new CaptureResult.Key<>("org.quic.camera2.statsconfigs.AWBFrameControlCCT", int[].class);
     private volatile boolean mLiveRawSession;
+    private boolean mPortraitVendorWindow;
     /**
      * P13: the stream of this session is a colour-block mosaic (a sensor mode without remosaic, MosaicStream): its ISP preview
      * is purple, so the ZSL frames also go to the developed-RAW viewfinder, whose shader bins the colour blocks.
@@ -3591,6 +3592,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     || com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID));
             LiveRawFrame.setMaxLongSide(rawViewfinder); // P266
             LiveRawFrame.setEnabled(false); // invalidate the previous session even when RAW remains enabled
+            mPortraitVendorWindow = IszCapturePolicy.mosaicModule(com.particlesdevs.photoncamera.settings.ModuleRegistry.active())
+                    || SensorModePick.session() != null || mIszLease != null;
             resetEttr(); // P356: each session meters its own boost (before setupPreview reads ettrIndex)
             LiveRawFrame.setEnabled(mLiveRawSession && rawDisplaySession);
             // P13: a module whose stream was measured as a mosaic before starts on the RAW viewfinder at once
@@ -6655,6 +6658,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             m.minGain = minGain;
             m.maxGain = maxGain;
             m.sceneLuma = sceneLuma;
+            if (PreferenceKeys.isPortraitEnabled()) {
+                final com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.Result faces =
+                        com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.fromResult(c, matchedResult, physicalID, logicalID,
+                                img.getWidth(), img.getHeight(), img.getTimestamp(), mPortraitVendorWindow || XiaomiTeleZoom.isz());
+                m.portraitFaceDetected = faces.detected;
+                m.portraitFaces = faces.boxes;
+            }
             return m;
         } catch (Exception e) {
             Log.w(TAG, "publishLiveRawFrame: " + e.getMessage());
@@ -8201,6 +8211,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             }
             Antibanding.apply(captureBuilder, mCameraCharacteristics); // P411
+            if (PreferenceKeys.isPortraitEnabled())
+                com.particlesdevs.photoncamera.control.subject.SubjectFocus.applyFaceDetectMode(captureBuilder, mCameraCharacteristics);
             float focus = mFocus;
             double frametime = stockPlan != null ? ExposureIndex.time2sec(stockPlan.shutter(0)) : 1 / 30.0;
             //this.mCaptureSession.stopRepeating();

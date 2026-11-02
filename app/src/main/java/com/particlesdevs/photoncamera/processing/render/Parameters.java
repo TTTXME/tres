@@ -105,6 +105,10 @@ public class Parameters {
      * window written to the buffer's top, Xiaomi 15 Ultra DCG +256): the lens shading map over the active array is read there.
      */
     public int rawCropSensorShiftY;
+    public boolean portraitEnabled, portraitSkinWarmth, portraitFaceDetected;
+    /** Face boxes in the cropped linear RGB, normalized and in sensor orientation. */
+    public float[] portraitFaces = new float[0];
+    public transient com.particlesdevs.photoncamera.processing.opengl.postpipeline.ShotLook portraitLookAtPress;
     /** P165: BaselineExposure of the DNG (EV; 0 = none): set for the merged DNG written over its headroom. */
     public float dngBaselineExposure;
     /**
@@ -427,6 +431,23 @@ public class Parameters {
     }
 
     public void FillDynamicParameters(CaptureResult result, CaptureRequest request, int ISO) {
+        portraitEnabled = portraitLookAtPress != null ? portraitLookAtPress.portraitEnabled : PreferenceKeys.isPortraitEnabled();
+        portraitSkinWarmth = portraitLookAtPress != null ? portraitLookAtPress.portraitSkinWarmth : PreferenceKeys.isPortraitSkinWarmthEnabled();
+        portraitFaceDetected = false;
+        portraitFaces = new float[0];
+        if (portraitEnabled && rawSize != null && result != null) {
+            final Point full = rawCropFull != null ? rawCropFull : new Point(rawSize.x * rawBinning, rawSize.y * rawBinning);
+            final Long ts = result.get(CaptureResult.SENSOR_TIMESTAMP);
+            final com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.Result faces =
+                    com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.fromResult(camera(), result,
+                            String.valueOf(physicalID), String.valueOf(logicalID), full.x, full.y, ts == null ? 0L : ts,
+                            portraitLookAtPress != null && portraitLookAtPress.portraitSensorWindowUnknown);
+            portraitFaceDetected = faces.detected;
+            portraitFaces = rawCrop == null ? faces.boxes
+                    : com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.crop(faces.boxes,
+                            rawCrop.x / (float) full.x, (rawCrop.y + rawCropSensorShiftY) / (float) full.y,
+                            rawCrop.width / (float) full.x, rawCrop.height / (float) full.y);
+        }
         // Selection may change the reference after the first metadata pass.
         // Missing tags must not retain another frame's dynamic calibration.
         usedDynamic = false;
@@ -1984,6 +2005,10 @@ public class Parameters {
         params.rawCrop = rawCrop;
         params.rawCropFull = rawCropFull == null ? null : new Point(rawCropFull);
         params.rawCropSensorShiftY = rawCropSensorShiftY;
+        params.portraitEnabled = portraitEnabled;
+        params.portraitSkinWarmth = portraitSkinWarmth;
+        params.portraitFaceDetected = portraitFaceDetected;
+        params.portraitFaces = portraitFaces.clone();
         params.gainMap = gainMap.clone();
         params.proPhotoToSRGB = proPhotoToSRGB.clone();
         params.sensorToProPhoto = sensorToProPhoto.clone();

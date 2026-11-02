@@ -41,6 +41,7 @@ public final class WhyAe {
         public float evWhite = Float.NaN, nightEvHi = 6.5f, nightEvLo = 5.0f, nightAeTarget = 0.13f, nightShadowStr = 1.5f;
         /** pref_sharp_ef_enabled_key: the adaptive fusion strengths (always on in 2.85). */
         public boolean efEnabled = true;
+        public boolean portraitFace;
         public int look = 4;
         public float slope = 2.7f, sp = 1.35f, tp = 1.6f, minEv = -8.5f, maxEv = 3.5f, sat = 1.0f, ev = 0.30f;
         /**
@@ -89,6 +90,7 @@ public final class WhyAe {
         /** P442: the night scene's share of the night target and shadow strength (0 by day). */
         public float nightW;
         public boolean bento;
+        public boolean portraitFace;
         public float slope, sp, tp, minEv, maxEv, sat, ev;
         public int look;
 
@@ -533,7 +535,7 @@ public final class WhyAe {
                         * (0.2 + 0.8 * area));
             }
             double q = Math.max(1 - spread / Math.max(s.darkPixelThresh * 0.05, 0.001), 0);      // 0x73000-0x73058
-            double flat = q * q * (3 - 2 * q);                                                  // 0x73060-0x73068
+            double flat = s.portraitFace ? 0.0 : q * q * (3 - 2 * q);
             if (s.look >= 0 && s.look <= 3) {                                                  // 0x7306c-0x730e0
                 float[] l = LOOKS[s.look];
                 r.slope = l[0]; r.sp = l[1]; r.tp = l[2]; r.minEv = l[3]; r.maxEv = l[4]; r.sat = l[5]; r.ev = l[6];
@@ -551,6 +553,7 @@ public final class WhyAe {
         }
         // the OPPO matrix's compensation on the look's saturation (Custom: the setting's, as before; a preset: its own)
         if (s.ccmSat != 1f) r.sat *= s.ccmSat;
+        r.portraitFace = s.portraitFace;
         return r;
     }
 
