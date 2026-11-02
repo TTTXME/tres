@@ -131,7 +131,11 @@ def main():
     zero = render(cco.set_define(low, 'PORTRAIT', '1'), image, factorU=1, **scene, **uniforms(count=0))
     corrected = render(cco.set_define(low, 'PORTRAIT', '1'), image, factorU=1, **scene, **uniforms())
     assert np.array_equal(plain, zero), 'film scene count zero exact bypass'
-    assert np.array_equal(corrected, render(CORE, image, **uniforms())), 'film scene uses the same portrait correction'
+    film_error = np.max(np.abs(corrected - render(CORE, image, **uniforms())))
+    # Separate programs can contract the identity colour chain into different float operations.
+    assert film_error < 3e-6, ('film scene uses the same portrait correction', film_error)
+    assert np.max(np.abs((corrected - plain) @ clc.LUMA)) < 3e-7, 'film portrait preserves luminance'
+    print(f'film scene / direct portrait error: {film_error:.3g}')
 
     combine = (cco.SH / 'why/combine.glsl').read_text(encoding='utf-8')
     variants = ({}, {'P3_OUT': '1'}, {'POINT_FUSED': '1', 'RAW_SOURCE': '1'},
