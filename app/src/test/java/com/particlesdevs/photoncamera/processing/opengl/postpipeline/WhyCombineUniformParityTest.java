@@ -38,6 +38,14 @@ public class WhyCombineUniformParityTest {
 
     private static final String SRC = "src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/";
 
+    private static String shader(String path) throws IOException {
+        String source = read(path);
+        Matcher imports = Pattern.compile("(?m)^#import (\\w+)\\s*$").matcher(source);
+        StringBuilder expanded = new StringBuilder(source);
+        while (imports.find()) expanded.append('\n').append(shader("src/main/assets/shaders/utils/import_" + imports.group(1) + ".glsl"));
+        return expanded.toString();
+    }
+
     /** The body of the method {@code signature} (from its declaration to its closing brace). */
     static String method(String src, String signature) {
         final int at = src.indexOf(signature);
@@ -83,8 +91,10 @@ public class WhyCombineUniformParityTest {
                 && view.containsAll(Arrays.asList("WhySky", "skyU", "skyMU", "skyTopU")));
         assertTrue("the film's scene feed on both", photo.containsAll(Arrays.asList("filmExpU", "filmLogU", "lutU", "FilmLut"))
                 && view.containsAll(Arrays.asList("filmExpU", "filmLogU", "lutU", "FilmLut")));
+        assertTrue("portrait geometry and correction on both", photo.containsAll(Arrays.asList("portraitCountU", "portraitFacesU", "portraitAdjustU", "portraitMapU"))
+                && view.containsAll(Arrays.asList("portraitCountU", "portraitFacesU", "portraitAdjustU", "portraitMapU")));
         // every name is the shader's
-        final String shader = read("src/main/assets/shaders/why/combine.glsl");
+        final String shader = shader("src/main/assets/shaders/why/combine.glsl");
         final Set<String> undeclared = new TreeSet<>();
         for (String n : photo) if (!Pattern.compile("uniform [\\w ]+ " + n + "(\\[\\d+\\])?;").matcher(shader).find()) undeclared.add(n);
         assertTrue("not declared by why/combine.glsl: " + undeclared, undeclared.isEmpty());

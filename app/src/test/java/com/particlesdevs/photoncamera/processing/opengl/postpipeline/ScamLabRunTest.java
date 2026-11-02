@@ -74,6 +74,53 @@ public class ScamLabRunTest {
         assertEquals(0, imported.portraitFaces.length);
     }
 
+    @Test public void labPortraitSwitchesOverrideTheShotWithoutReplacingItsFaceMetadata() throws Exception {
+        camera.when(ScameraApp::getSettings).thenReturn(new com.particlesdevs.photoncamera.api.Settings());
+        final com.particlesdevs.photoncamera.processing.render.Parameters saved = new com.particlesdevs.photoncamera.processing.render.Parameters();
+        saved.portraitEnabled = saved.portraitSkinWarmth = saved.portraitFaceDetected = true;
+        saved.portraitFaces = new float[]{.2f, .3f, .5f, .7f};
+        final java.io.File file = new ScamLabBurstTest() {{ tmp = ScamLabRunTest.this.tmp; }}.burst(12);
+        final ScamLabBurst burst = new ScamLabBurst(file, null, "");
+        final org.json.JSONObject params = ScamLabParams.toJson(saved);
+        final ScamLabRun.Shot own = new ScamLabRun.Shot(tmp.newFolder(), new org.json.JSONObject().put("params", params), burst);
+        final ScamLabRun.Shot template = new ScamLabRun.Shot(tmp.newFolder(),
+                new org.json.JSONObject().put("params", params).put("imported", true), burst);
+        final android.content.SharedPreferences stored = ScameraApp.getSettingsManagerStatic().getDefaultPreferences();
+        assertFalse(PreferenceKeys.isPortraitEnabled());
+        try {
+            for (boolean[] state : new boolean[][]{{true, true}, {false, true}, {true, false}, {true, true}}) {
+                final Map<String, Object> side = new HashMap<>();
+                side.put("pref_portrait_enabled", state[0]);
+                side.put("pref_portrait_skin_warmth", state[1]);
+                com.particlesdevs.photoncamera.settings.PreferenceValue.overlay(stored, side);
+                final com.particlesdevs.photoncamera.processing.render.Parameters replay = ScamLabRun.parameters(own, null, burst);
+                assertEquals(state[0], replay.portraitEnabled);
+                assertEquals(state[0] && state[1], replay.portraitSkinWarmth);
+                assertTrue(replay.portraitFaceDetected);
+                assertArrayEquals(saved.portraitFaces, replay.portraitFaces, 0f);
+                replay.portraitFaces[0] = .9f;
+                final com.particlesdevs.photoncamera.processing.render.Parameters foreign = ScamLabRun.parameters(template, null, burst);
+                assertFalse(foreign.portraitFaceDetected);
+                assertEquals(0, foreign.portraitFaces.length);
+            }
+            final org.json.JSONObject old = new org.json.JSONObject(params.toString());
+            old.remove("portraitFaceDetected");
+            old.remove("portraitFaces");
+            old.put("portraitEnabled", false).put("portraitSkinWarmth", false);
+            final ScamLabRun.Shot unavailable = new ScamLabRun.Shot(tmp.newFolder(), new org.json.JSONObject().put("params", old), burst);
+            final com.particlesdevs.photoncamera.processing.render.Parameters noFaces = ScamLabRun.parameters(unavailable, null, burst);
+            assertTrue(noFaces.portraitEnabled);
+            assertFalse(noFaces.portraitFaceDetected);
+            assertEquals(0, noFaces.portraitFaces.length);
+        } finally {
+            com.particlesdevs.photoncamera.settings.PreferenceValue.overlay(null, null);
+        }
+        assertFalse(PreferenceKeys.isPortraitEnabled());
+        final com.particlesdevs.photoncamera.processing.render.Parameters original = ScamLabRun.parameters(own, null, burst);
+        assertTrue(original.portraitEnabled && original.portraitSkinWarmth && original.portraitFaceDetected);
+        assertArrayEquals(saved.portraitFaces, original.portraitFaces, 0f);
+    }
+
     @Test public void aSidesDevLinesLeaveOutTheComparedSettings() {
         final Map<String, Float> shot = new HashMap<>();
         shot.put("hybrid_motion_boost", 0f);   // the merge row compared

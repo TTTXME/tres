@@ -517,6 +517,10 @@ public final class ScamLabRun {
     /** The shot's Parameters for {@code burst}: the whole frame as shot, or the fragment's size and lens shading. */
     static Parameters parameters(Shot shot, @Nullable int[] crop, ScamLabBurst burst) throws org.json.JSONException {
         final Parameters p = ScamLabParams.fromJson(shot.meta.getJSONObject("params"));
+        if (PreferenceValue.overlaid()) {
+            p.portraitEnabled = PreferenceKeys.isPortraitEnabled();
+            p.portraitSkinWarmth = PreferenceKeys.isPortraitSkinWarmthEnabled();
+        }
         if (shot.templated) {
             p.portraitFaceDetected = false;
             p.portraitFaces = new float[0];

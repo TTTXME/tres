@@ -84,7 +84,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
      * colour method and calibration, in «Другие тонкие настройки» since 2026-10-27).
      */
     static final String[] GROUPS = {"scam_hybrid_why_ae_screen", "scam_hybrid_why_curves_screen", "scam_hybrid_why_tone_screen",
-            "photo_processing_screen", "scam_hybrid_why_sharp_screen", "scam_hybrid_why_rl_screen", "scam_hybrid_photo_screen",
+            "portrait_screen", "photo_processing_screen", "scam_hybrid_why_sharp_screen", "scam_hybrid_why_rl_screen", "scam_hybrid_photo_screen",
             "scam_hybrid_merge_screen", "scam_hybrid_hdr_screen", "scam_hybrid_artifacts_screen", "lens_noise_category", "photo_size_screen", "adv_output",
             "scam_hybrid_motion_screen", "root_colour", "lens_colour_category"};   // P413: the camera colour rows on the lens page
     /**

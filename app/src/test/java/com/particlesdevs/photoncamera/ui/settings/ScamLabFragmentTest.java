@@ -108,7 +108,7 @@ public class ScamLabFragmentTest {
             assertTrue(p.getKey(), groups.contains(p.getKey()));
             pages++;
         }
-        assertEquals(10, pages);
+        assertEquals(11, pages);
         assertTrue(groups.contains("root_colour"));
         final Set<String> offered = offered();
         for (String key : new String[]{
@@ -123,12 +123,38 @@ public class ScamLabFragmentTest {
                 H + "downsampler", H + "auto2x", H + "output", "pref_crop_upscale",
                 // «Цвет и стиль»: the warmth and saturation beside its pages, its pages' rows
                 H + "colour_warmth", H + "why_agx_sat", H + "colour_tint", "pref_color_method_key", FilmSim.GRAIN_KEY,
-                LensFilters.KEY, "pref_film_lut", H + "colour_mono"})
+                LensFilters.KEY, "pref_film_lut", H + "colour_mono", "pref_portrait_enabled", "pref_portrait_skin_warmth"})
             assertTrue(key, offered.contains(key));
         // a fixed-at-the-shot entry is a row the lab shows (none left unreachable)
         for (String key : ScamLabFragment.AT_SHOT) assertTrue("AT_SHOT " + key, offered.contains(key));
         // and every row offered has its control
         for (String key : offered) assertNotNull(key, ScamLabFragment.spec(tree, context, key));
+    }
+
+    @Test public void portraitRowsKeepTheirDefaultsAndCompareWarmthWithProtectionEnabled() {
+        final String enabled = "pref_portrait_enabled", warmth = "pref_portrait_skin_warmth";
+        final ScamLabFragment.Spec master = ScamLabFragment.spec(tree, context, enabled);
+        final ScamLabFragment.Spec skin = ScamLabFragment.spec(tree, context, warmth);
+        assertEquals(ScamLabFragment.Spec.SWITCH, master.kind);
+        assertEquals(ScamLabFragment.Spec.SWITCH, skin.kind);
+        assertEquals(Boolean.FALSE, ScamLabFragment.shotValue(master, Collections.emptyMap()));
+        assertEquals(Boolean.TRUE, ScamLabFragment.shotValue(skin, Collections.emptyMap()));
+        assertEquals(Boolean.TRUE, ScamLabFragment.shotValue(master, Collections.singletonMap(enabled, "1")));
+        assertEquals(Boolean.FALSE, ScamLabFragment.shotValue(skin, Collections.singletonMap(warmth, "0")));
+        assertEquals(enabled, ScamLabFragment.requires(warmth, tree));
+        assertEquals(Collections.singletonMap(enabled, true), ScamLabFragment.forced(warmth, Collections.emptyMap(), tree));
+        assertTrue(ScamLabFragment.forced(warmth, Collections.singletonMap(enabled, true), tree).isEmpty());
+        assertTrue(ScamLabFragment.forced(enabled, Collections.emptyMap(), tree).isEmpty());
+        final List<SettingsSearchFragment.Entry> entries = SettingsSearchFragment.index(tree);
+        final Map<String, String> words = SettingsSearchFragment.searchWords(context, entries);
+        for (String key : new String[]{enabled, warmth}) {
+            assertFalse(key, ScamLabFragment.AT_SHOT.contains(key));
+            assertEquals(key, ScamLabFragment.effectiveKey(key, true, tree));
+            assertTrue(key, com.particlesdevs.photoncamera.settings.ModuleProfiles.isLocal(key));
+            final SettingsSearchFragment.Entry found = entries.stream().filter(e -> e.key.equals(key)).findFirst().orElseThrow();
+            assertEquals("portrait_screen", found.page);
+            assertTrue(found.matches("portrait", words.get(key)));
+        }
     }
 
     @Test public void onlyWhatTheShotFixedIsMarkedFixed() {
