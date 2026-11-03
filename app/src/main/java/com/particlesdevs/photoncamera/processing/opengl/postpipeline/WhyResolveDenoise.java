@@ -84,8 +84,10 @@ public final class WhyResolveDenoise {
         try {
             // P479 (speed): the SNR's statistics issued now, their read-back and CPU part after this node's passes are issued
             // (only WhyLumaSharpen and WhyCombine use the SNR): no GPU drain here, the CPU part runs alongside the passes
+            // OFF by default (owner, 2026-11-03): on the Snapdragon 8 Elite (Adreno 830) photos came out with only the last resolve
+            // strip (the first two thirds black); the read-back with the wait as before
             snr = DenoiseStats.finishSnrBegin(glProg, pipeline, input,
-                    !com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("snr_async", true));
+                    !com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("snr_async", false));
             com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("resolve finishSnr");
 
             // ---- the uniforms of the reference app's resolve

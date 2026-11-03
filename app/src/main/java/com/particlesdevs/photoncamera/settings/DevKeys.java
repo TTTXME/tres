@@ -336,7 +336,7 @@ public final class DevKeys {
                 "Framebuffer contents invalidated before an overwrite (the same result)")));
         k.add(s(post, "scamrgb_tail", true, Lang.t("Хвост загрузки пересветов на вспомогательном потоке (тот же результат); выкл — на основном",
                 "The highlight upload tail on the helper thread (the same result); off: on the main one")));
-        k.add(s(post, "snr_async", true, Lang.t("Чтение SNR без остановки GPU (тот же результат); выкл — с ожиданием как раньше",
+        k.add(s(post, "snr_async", false, Lang.t("Чтение SNR без остановки GPU (тот же результат); выкл — с ожиданием как раньше",
                 "The SNR read-back without draining the GPU (the same result); off: with the wait as before")));
         // P479b (owner, 2026-11-03: at most 1 level of the 8-bit JPEG, invisible); off = the exact route before
         k.add(s(post, "ms_fuse", false, Lang.t("Пирамидальный шумодав: сборка уровня 0 и RGB слиты в finish (быстрее, но отдельные пиксели до 11 уровней, поэтому выкл)",
