@@ -18,6 +18,9 @@
 
 #include "../app/src/main/cpp/allocator.cpp"
 
+// P482: scam-ahb.cpp (Android hardware buffers) is not built on the host; no pointer is ever a hardware buffer view here
+bool scamAhbFreeView(const void*) { return false; }
+
 namespace {
 struct Direct { void* address; jlong capacity; };
 std::vector<Direct*> made;
