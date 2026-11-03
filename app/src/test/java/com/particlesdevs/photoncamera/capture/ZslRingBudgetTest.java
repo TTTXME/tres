@@ -52,4 +52,13 @@ public class ZslRingBudgetTest {
             assertTrue(s[0] >= 1 && s[1] >= 1);
         }
     }
+
+    @org.junit.Test
+    public void aTightBudgetShrinksTheShotsSpareNotTheRing() {
+        assertEquals(16, ZslRing.spareSlots(48, 32));   // room for both: the ring as asked, SPARE for the shot
+        assertEquals(8, ZslRing.spareSlots(17, 31));    // Nubia Z17: was ring 1 + shot 16, now ring 9 + shot 8
+        assertEquals(10, ZslRing.spareSlots(30, 20));   // the ring as asked, the shot the rest
+        assertEquals(8, ZslRing.spareSlots(9, 31));     // never below MIN_SPARE ...
+        assertEquals(4, ZslRing.spareSlots(5, 31));     // ... nor all of the slots (one stays the ring's)
+    }
 }

@@ -314,6 +314,10 @@ public final class DevKeys {
                 "Merge worker watchdog: no progress for longer than max(90 s, 4x the slowest step) - 2: the worker is stopped (no retry when it waited for the GPU), 1: a log line only, 0: off (wait up to 14 min)")));
         // processing
         // P362: RawTherapee's «Inpaint opposed» where no ultrashort frame holds the highlight
+        k.add(n(post, "why_combine_stop", "0", Lang.t("Замер: проход тона Why обрывается после этапа (1 — выборка, 2 — тон, 3 — цвет, 4 — гамут; фото будет неверным), 0 — выкл.",
+                "Timing: the Why tone pass stops after a stage (1 taps, 2 tone, 3 colour, 4 gamut; the photo is wrong), 0 off")));
+        k.add(s(post, "half_rgb_gpu", true, Lang.t("Загрузка RGB склейки: перепаковка на GPU (выкл — на CPU, тот же результат; для сравнения на Adreno 5xx)",
+                "Merged RGB upload: repacked on the GPU (off: on the CPU, the same result; an A/B for Adreno 5xx)")));
         k.add(s(post, "hybrid_highlight_opposed", true, Lang.t("Пересветы без коротких кадров (одиночные кадры, «Спорт», отказ Bento): «Inpaint opposed» из RawTherapee (выкл — восстановление SCAM)",
                 "Highlights without ultrashort frames (single frames, Sport, Bento refused): RawTherapee's «Inpaint opposed» (off: the SCAM recovery)")));
         // P393: a clipped channel of a coloured surface also takes the local light's colour (scamhdr/scamrgb oppLocalU)

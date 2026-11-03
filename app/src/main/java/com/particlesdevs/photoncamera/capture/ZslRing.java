@@ -32,6 +32,11 @@ public final class ZslRing {
     private static final String TAG = "SCAM_CAPTURE";
     /** Slots beyond the ring for one shot's own frames (the post-shutter series, converted ring frames) while the ring runs on. */
     static final int SPARE = 16;
+    /**
+     * P497 (Nubia Z17, 22 MP: 17 slots fit, «ring 1 + shot 16» - one N frame merged): with less memory than ring + SPARE the spare
+     * shrinks to this (three ES, three L and room) and the ring keeps the rest.
+     */
+    static final int MIN_SPARE = 8;
 
     private final int id;
     private final long slotBytes;
@@ -64,11 +69,17 @@ public final class ZslRing {
         final int wanted = ringFrames + SPARE;
         final int fit = budgetSlots(context, slot);
         final int count = Math.max(Math.min(8, ringFrames) + 4, Math.min(wanted, fit));
+        final int spare = spareSlots(count, ringFrames);
         final int id = memfd(slot, count);
         if (id <= 0) return null;
-        Log.i(TAG, "ZSL ring in memfd: " + count + " slots x " + (slot >> 20) + " MB (ring " + Math.max(1, count - SPARE)
-                + " + shot " + Math.min(SPARE, count - 1) + ", asked " + ringFrames + ", budget " + fit + ")");
-        return new ZslRing(id, slot, count, SPARE, false);
+        Log.i(TAG, "ZSL ring in memfd: " + count + " slots x " + (slot >> 20) + " MB (ring " + Math.max(1, count - spare)
+                + " + shot " + spare + ", asked " + ringFrames + ", budget " + fit + ")");
+        return new ZslRing(id, slot, count, spare, false);
+    }
+
+    /** P497: the shot's slots of {@code count}: SPARE, less when the ring would get fewer than it asked, at least MIN_SPARE. */
+    static int spareSlots(int count, int ringFrames) {
+        return Math.min(count - 1, Math.min(SPARE, Math.max(MIN_SPARE, count - ringFrames)));
     }
 
     private static int memfd(long slot, int count) {

@@ -1062,7 +1062,8 @@ public final class ScamRgb extends Node {
             if(half){
                 // P145: the 3 -> 4 halves repack as a compute pass (HalfRgbUpload); the CPU repack on drivers that would not keep
                 // every half, for the old model (post_ab) and when a GL call fails
-                if(!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()){input=HalfRgbUpload.upload(glProg,size,big);gpuRepack=input!=null;}
+                // P497: scam_dev half_rgb_gpu 0 = the CPU repack (the same halves; an A/B for Adreno 5xx, whose storage buffer reads are slow)
+                if(!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("half_rgb_gpu",true)){input=HalfRgbUpload.upload(glProg,size,big);gpuRepack=input!=null;}
                 if(input==null)input=uploadHalfRgba(size,big);
                 rgbaBands=input!=null;
                 if(input==null)throw new IllegalStateException("no staging memory for the half-float RGB upload");

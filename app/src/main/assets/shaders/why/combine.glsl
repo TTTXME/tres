@@ -132,6 +132,8 @@ precision highp int;
 // inset matrix of the tone goes towards the identity (insetU 1: the matrix, 0: per channel) and the outset is its inverse, as there.
 // 0: the shader before P402, token for token.
 #define AGX_INSET 0
+// P497: 1..4 = the pass cut after the footprint taps / the tone / the colour / the gamut (scam_dev why_combine_stop: timing only)
+#define WHY_STOP 0
 // P404 GAMMA_TYPE (WhyTone.gammaType, «Стандарт гаммы дисплея»): 1 sRGB (IEC 61966-2-1), 2 Rec.709 for the display encoding, the
 // fusion's lumas (import why_fusion) and their inversion, as the reference app's u_gamma_curve_type; 0: the pure power 1 / gamma,
 // the shader as before token for token. The sun glow keeps its pure-power round trip (an approximate linear, exact where none).
@@ -1140,6 +1142,9 @@ void main() {
 #endif
     }
 
+#if WHY_STOP == 1
+    Output = vec4(clamp(orig, 0.0, 1.0), 1.0); return;   // P497: diagnostic cut (scam_dev why_combine_stop)
+#endif
 #if SKY == 1
 #if POINT_FUSED == 1
     // P378 review (the viewfinder): why/skymask.glsl's gate of the pixel - its luminance against the cell's local sky level, its hue
@@ -1343,6 +1348,9 @@ void main() {
     }
 #endif
 
+#if WHY_STOP == 2
+    Output = vec4(clamp(lin, 0.0, 1.0), 1.0); return;   // P497: diagnostic cut (scam_dev why_combine_stop)
+#endif
     // === OKLab grading [:1599-1658] ===
 #if COLOUR_LOOK == 1
     // Monochrome through a colour filter: the luminance of the filtered light (a neutral grey keeps its own).
@@ -1574,6 +1582,9 @@ void main() {
     vec2 hueDir = inChroma > 0.000001 ? lab.yz / inChroma : vec2(0.0);
 #if LIGHT_CHROMA == 1
     vec3 labK = vec3(lab.x, lab.yz / hlGainK);  // P393: the colour the tone renders, without the light tones' vibrance
+#endif
+#if WHY_STOP == 3
+    Output = vec4(clamp(fromOklab(lab), 0.0, 1.0), 1.0); return;   // P497: diagnostic cut (scam_dev why_combine_stop)
 #endif
 #if P3_OUT == 1
     vec3 scene = clampP3(fromOklab(lab));
@@ -1936,6 +1947,9 @@ void main() {
     if (neutralW > 0.0) graded = mix(graded, vec3(max(graded.r, max(graded.g, graded.b))), neutralW);   // P398
 #endif
 
+#if WHY_STOP == 4
+    Output = vec4(clamp(graded, 0.0, 1.0), 1.0); return;   // P497: diagnostic cut (scam_dev why_combine_stop)
+#endif
     // === display: power 1/gamma, film toe [:1805-1825], dither [:1836-1843] ===
 #if P3_OUT == 1
     // P3 values, display-encoded; the film toe scales them by the factor the sRGB render takes (same linear scale).

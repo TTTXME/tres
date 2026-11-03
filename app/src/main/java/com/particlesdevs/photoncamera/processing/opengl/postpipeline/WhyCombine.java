@@ -315,6 +315,9 @@ public final class WhyCombine extends Node {
             WorkingTexture = pipeline.getMain();
             if (rimTiles != null) glProg.setDefine("RIM_SUPPORT", 1);
             if (sceneY != null) glProg.setDefine("EDGE_LUMA_CACHE", 1);
+            // P497: scam_dev why_combine_stop 1..4 cuts the pass after a stage (timing on old GPUs only: the photo is wrong)
+            final int stop = Math.round(PreferenceKeys.scamDevNumber("why_combine_stop", 0f));
+            if (stop > 0) glProg.setDefine("WHY_STOP", stop);
             try {
                 glProg.useAssetProgram("why/combine", false);
             } catch (RuntimeException error) {
