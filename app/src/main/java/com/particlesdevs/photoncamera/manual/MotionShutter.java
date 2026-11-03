@@ -150,6 +150,7 @@ public final class MotionShutter {
         int isoMin, isoMax;
         boolean flickerSafe, motionPriority;
         double evStops, underStops;
+        long mainsHalfNs;
 
         public Limits set(long settingNs, long maxNs, int isoMin, int isoMax, boolean flickerSafe, double evStops) {
             this.settingNs = settingNs;
@@ -160,6 +161,17 @@ public final class MotionShutter {
             this.evStops = evStops;
             this.underStops = 0;
             this.motionPriority = false;
+            this.mainsHalfNs = 0;
+            return this;
+        }
+        /**
+         * P496 (owner, 2026-11-04, vivo Sport in a corridor under lamps: «Сделай округление выдержки для того чтобы снимать под
+         * мерцающими лампами»): the mains flicker the camera knows (MainsFlicker, the half period; 0: none): the shutters round to
+         * whole half periods of it, the short action shutters too (each frame took another phase of the lamps: the viewfinder
+         * flickered in brightness and colour).
+         */
+        public Limits mains(long halfNs) {
+            this.mainsHalfNs = Math.max(0, halfNs);
             return this;
         }
 
@@ -359,8 +371,8 @@ public final class MotionShutter {
             final long frame = Math.max(cap, l.maxNs);
             long s = Math.round(product / top / Math.pow(2, l.underStops) * 1e9);
             s = l.motionPriority ? cap : Math.max(cap, Math.min(frame, s));
-            // Keep measuring bands, but a mains latch must not lengthen an action exposure.
-            final long period = l.motionPriority && cap < flickerHalfNs ? 0 : flickerHalfNs;
+            // P496: under mains light every shutter takes whole half periods, at least one (an action shutter too)
+            final long period = Math.max(flickerHalfNs, l.mainsHalfNs);
             s = l.motionPriority || l.underStops > 0 ? quantizeDown(s, period) : quantize(s, period, frame);
             shutterNs = Math.max(1, s);
             iso = (int) Math.max(l.isoMin, Math.min(top, Math.round(product / (shutterNs / 1e9))));

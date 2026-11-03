@@ -513,7 +513,7 @@ public class ParamController implements Observer {
                     levelBefore, motionLevels.level(), moving.subjectPxPerS, moving.cameraPxPerS, moving.moved, moving.textured, cap));
         // the top ISO: the rulers' range, at most what the HAL honours for AE-off requests (P27, paired with their requests)
         motionLimits.set(cap, motionMaxNs(), isoMin(), Math.min(isoMax(), captureController.honouredIsoCap()), flickerSafe,
-                evStops()).under(motionLevels.level() > 0 ? MotionShutter.MOTION_UNDER_STOPS : 0)
+                evStops()).under(motionLevels.level() > 0 ? MotionShutter.MOTION_UNDER_STOPS : 0).mains(motionMainsHalfNs(flickerSafe))
                 .motionPriority(com.particlesdevs.photoncamera.settings.MotionMode.captureV2()
                         && (motionLevels.level() > 0 || motionSeenAtNs != 0
                         && System.nanoTime() - motionSeenAtNs <= MotionShutter.Levels.STALE_NS));
@@ -562,6 +562,18 @@ public class ParamController implements Observer {
             captureController.rebuildPreviewBuilder();
         }
         motionActive = motion.active();
+    }
+
+    /**
+     * P496: the half period of the mains flicker the camera knows (MainsFlicker latched from evidence, or «Мерцание ламп» set by
+     * hand; 0: none, «Выкл.», «Движение: учитывать мерцание» off, or scam_dev motion_flicker_round 0).
+     */
+    private static long motionMainsHalfNs(boolean flickerSafe) {
+        if (!flickerSafe || !PreferenceKeys.scamDevSwitch("motion_flicker_round", true)) return 0;
+        final int setting = PreferenceKeys.antibandingSetting();
+        final int hz = setting > 0 ? setting : setting < 0 && com.particlesdevs.photoncamera.capture.MainsFlicker.known()
+                ? com.particlesdevs.photoncamera.capture.MainsFlicker.hz() : 0;
+        return hz > 0 ? Math.round(1e9 / hz) : 0;
     }
 
     private void stopPriority(CaptureRequest.Builder builder) {

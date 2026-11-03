@@ -9,8 +9,10 @@ import org.junit.Test;
 import java.util.ArrayDeque;
 
 public class MotionShutterTest {
+    // P496 (owner, 2026-11-04: «Сделай округление выдержки для того чтобы снимать под мерцающими лампами»): an action shutter under
+    // a latched lamp takes one half period (was: kept short, every frame another phase of the lamps)
     @Test
-    public void bandsRemainMeasuredAfterPriorityOverridesLatchedFlicker() {
+    public void priorityTakesWholeHalfPeriodsUnderALatchedLamp() {
         Sim loop = new Sim(true, 0.03);
         loop.lamps = true;
         loop.engage(20 * MS, 500);
@@ -19,19 +21,29 @@ public class MotionShutterTest {
         loop.l.motionPriority(true);
         loop.l.settingNs = 707_107L;
         for (int i = 0; i < 30; i++) loop.held();
-        assertEquals(707_107L, loop.c.shutterNs());
-        assertTrue(loop.c.bands() > MotionShutter.BAND_MAX);
+        assertEquals(10 * MS, loop.c.shutterNs());
     }
     @Test
-    public void actionExposureRemainsShortUnderALatchedSixtyHzLamp() {
+    public void actionExposureTakesAHalfPeriodUnderALatchedSixtyHzLamp() {
         Sim loop = new Sim(true, 0.03);
         loop.l.motionPriority(true);
         loop.l.settingNs = 707_107L;
         for (int i = 0; i < 20; i++)
             loop.frame(8_333_333L, 500, false, CONVERGED, MotionShutter.FLICKER_60HZ, loop.level(8_333_333L, 500));
         assertTrue(loop.c.active());
-        assertEquals(707_107L, loop.c.shutterNs());
+        assertEquals(8_333_333L, loop.c.shutterNs());
         assertEquals(8_333_333L, loop.c.flickerHalfNs());
+    }
+    @Test
+    public void theCamerasMainsFlickerRoundsTheShutterToo() {
+        // the camera latched 120 Hz elsewhere (MainsFlicker): no latch of the ceiling's own, the shutter still whole half periods
+        Sim loop = new Sim(true, 0.03);
+        loop.l.motionPriority(true).mains(8_333_333L);
+        loop.l.settingNs = 707_107L;
+        for (int i = 0; i < 20; i++) loop.frame(23 * MS, 500, false, CONVERGED, null, loop.level(23 * MS, 500));
+        assertTrue(loop.c.active());
+        assertEquals(0, loop.c.flickerHalfNs());
+        assertEquals(8_333_333L, loop.c.shutterNs());
     }
     private static final long MS = 1_000_000L;
     // X500 Pro Max: ISO range of the rulers 50..62509, ring frame 33.3 ms, ceiling 1/250 s

@@ -267,6 +267,21 @@ public class HybridPlanTest {
         assertEquals(ImageFrame.CaptureRole.NORMAL, plan.classify(request(0, ImageFrame.CaptureRole.NORMAL), result(16_666_667L, 12000)));
     }
 
+    /** P496: Nubia Z17 under 120 Hz lamps - N 58.3 ms at ISO 1600 above the ISO cap 1024: 91.15 ms became 91.67 ms (11 half periods). */
+    @Test public void normalBackShuttersTakeWholeFlickerHalfPeriods() {
+        prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(120);
+        try {
+            HybridPlan plan = HybridPlan.buildNormalBack(58_336_216L, 1600, 0f, camera(1024), 4);
+            HybridPlan.Request r = plan.requests.get(0);
+            assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
+            assertEquals(91_666_663L, r.shutterNs);
+            assertEquals(1018, r.iso); // the ISO gives back the 0.5 ms
+            assertEquals(1.0, r.ratio, 0.01);
+        } finally {
+            prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(0);
+        }
+    }
+
     /** «Движение» after a shot (empty ring): X200 Ultra, the ceiling's 4 ms at ISO 20000, declared ISO up to 3200. */
     @Test public void motionNormalBackKeepsTheShortShutter() {
         HybridPlan plan = HybridPlan.buildNormalBack(4_000_000L, 20000, 0f, camera(3200), 4, null, 4_000_000L);

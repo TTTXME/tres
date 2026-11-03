@@ -460,10 +460,14 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         queryCounter=reinterpret_cast<QueryCounterFn>(eglGetProcAddress("glQueryCounterEXT"));
         queryResult=reinterpret_cast<GetQueryObjectui64Fn>(eglGetProcAddress("glGetQueryObjectui64vEXT"));
     }
-    const bool profile=queryCounter&&queryResult;
+    // profile 2: a glFinish at every boundary and the CPU clock (Adreno's timestamps read 0 around compute passes); replays only
+    const bool syncProfile=tune.profile==2;
+    const bool profile=syncProfile||(queryCounter&&queryResult);
     std::array<double,16> stageMs{}; // profile: see the profile line
     std::vector<std::pair<GLuint,int>> stamps; // (query, stage that ends at it)
+    auto syncAt=Clock::now();
     auto lap=[&](int k){
+        if(syncProfile){glFinish();const auto t=Clock::now();if(k>=0)stageMs[size_t(k)]+=ms(syncAt,t);syncAt=t;return;}
         if(!profile)return;
         GLuint q=0;glGenQueries(1,&q);queryCounter(q,0x8E28 /*GL_TIMESTAMP_EXT*/);stamps.emplace_back(q,k);
     };
@@ -1399,7 +1403,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     }
     FastMergeGpu::check("readback");
     const auto readDone=Clock::now();
-    if(profile&&stamps.size()>1){
+    if(!syncProfile&&profile&&stamps.size()>1){
         GLuint64 prev=0;
         for(size_t i=0;i<stamps.size();++i){
             GLuint64 t=0;queryResult(stamps[i].first,0x8866 /*GL_QUERY_RESULT*/,&t);

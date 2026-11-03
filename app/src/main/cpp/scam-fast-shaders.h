@@ -3939,12 +3939,9 @@ vec2 fetch_pair_raw12(int qx, int py) {
 }
 
 vec2 fetch_pair_raw16(int qx, int py) {
-    int base = qx << 2;
-    uint lo0 = rawByte(ivec2(base, py));
-    uint hi0 = rawByte(ivec2(base + 1, py));
-    uint lo1 = rawByte(ivec2(base + 2, py));
-    uint hi1 = rawByte(ivec2(base + 3, py));
-    return vec2(float((hi0 << 8) | lo0), float((hi1 << 8) | lo1));
+    // P497: a pair's 4 bytes are one aligned word (u_row_bytes = 2 W, W a multiple of 4): one load, the same values
+    uint w = raw_words[uint(py * u_row_bytes + (qx << 2)) >> 2];
+    return vec2(float(w & 65535u), float(w >> 16));
 }
 
 vec4 unpack_quad(ivec2 qpos) {

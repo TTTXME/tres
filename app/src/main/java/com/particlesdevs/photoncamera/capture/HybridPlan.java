@@ -298,6 +298,14 @@ public final class HybridPlan {
         final long top = Math.max(nShutterNs, motion ? motionCapNs : HANDHELD_SHUTTER_CAP_NS);
         if (times != null) ns = Math.max(times.getLower(), Math.min(Math.min(times.getUpper(), top), ns));
         else if (motion) ns = Math.min(top, ns);
+        // P496 (Nubia Z17 Sport under 120 Hz lamps: the N exposure moved into a 91.15 ms shutter, 10.9 half periods): the nearest
+        // whole half period within the range, the ISO giving back the difference
+        final long snapped = flickerNearest(ns, times == null ? 1 : times.getLower(), times == null ? top : Math.min(times.getUpper(), top));
+        if (snapped != ns) {
+            ns = snapped;
+            final long want = Math.round((double) nShutterNs * nIso / ns);
+            if (!motion && isos != null) iso = (int) Math.max(isos.getLower(), Math.min(isos.getUpper(), want));
+        }
         final double ratio = (double) ns * iso / ((double) nShutterNs * nIso);
         List<Request> out = new ArrayList<>();
         for (int i = 0; i < Math.max(1, normals); i++) out.add(new Request(ImageFrame.CaptureRole.NORMAL, ns, iso, ratio));
@@ -474,6 +482,18 @@ public final class HybridPlan {
         final long period = Math.round(1e9 / hz);   // hz: the light's flicker (100 / 120)
         if (nShutterNs < period) return ns;
         return Math.max(nShutterNs, (ns / period) * period);
+    }
+
+    /** P496: {@code ns} at the nearest whole flicker half period in [lo, hi] (no flicker, shorter than one, none in range: unchanged). */
+    static long flickerNearest(long ns, long lo, long hi) {
+        int hz;
+        try { hz = PreferenceKeys.getAntibandingHz(); } catch (RuntimeException e) { hz = 0; }
+        if (hz <= 0) return ns;
+        final long period = Math.round(1e9 / hz);
+        if (ns < period) return ns;
+        final long down = ns / period * period, up = down + period;
+        final long pick = ns - down <= up - ns && down >= lo || up > hi ? down : up;
+        return pick >= lo && pick <= hi ? pick : ns;
     }
 
     private static long snapAntibanding(long ns, long nShutterNs) {
