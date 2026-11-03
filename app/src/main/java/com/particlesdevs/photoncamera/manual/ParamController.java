@@ -566,10 +566,10 @@ public class ParamController implements Observer {
 
     /**
      * P496: the half period of the mains flicker the camera knows (MainsFlicker latched from evidence, or «Мерцание ламп» set by
-     * hand; 0: none, «Выкл.», «Движение: учитывать мерцание» off, or scam_dev motion_flicker_round 0).
+     * hand; 0: none, «Выкл.» or «Движение: учитывать мерцание» off).
      */
     private static long motionMainsHalfNs(boolean flickerSafe) {
-        if (!flickerSafe || !PreferenceKeys.scamDevSwitch("motion_flicker_round", true)) return 0;
+        if (!flickerSafe) return 0;
         final int setting = PreferenceKeys.antibandingSetting();
         final int hz = setting > 0 ? setting : setting < 0 && com.particlesdevs.photoncamera.capture.MainsFlicker.known()
                 ? com.particlesdevs.photoncamera.capture.MainsFlicker.hz() : 0;
