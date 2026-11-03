@@ -100,6 +100,7 @@ public final class ScameraFileLog {
             return;
         }
         collectorFailed = false;
+        uncollectedSince = 0;
         writer().append(sessionHeader(new Date()));
         final String since = new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
         Thread collector = new Thread(() -> collect(token, since), "SCAMERA-logcat-collector");
@@ -114,9 +115,28 @@ public final class ScameraFileLog {
         if (enabled) writer().append(text);
     }
 
-    /** Java logs remain available if this firmware forbids reading the app's logcat. */
+    /** When the collector last delivered a line, and the first app line written since then (nanoTime; 0: none). */
+    private static volatile long lastCollected, uncollectedSince;
+    /** An app line the collector has not delivered for this long: the collector is stalled. */
+    static final long STALL_NS = 3_000_000_000L;
+
+    /**
+     * Java logs remain available if this firmware forbids reading the app's logcat - or (owner, 2026-11-03: the vivo logs ended
+     * right after the startup lines) when the collector goes silent while the app keeps logging: an app line not delivered within
+     * {@link #STALL_NS} switches the session to writing the app's own lines.
+     */
     static void fallback(String level, String tag, String message) {
-        if (enabled && collectorFailed) append(level + "/" + tag + ": " + message + '\n');
+        if (!enabled) return;
+        if (!collectorFailed) {
+            final long now = System.nanoTime();
+            final long since = uncollectedSince;
+            if (since == 0 || lastCollected - since >= 0) uncollectedSince = now;
+            else if (now - since > STALL_NS) {
+                collectorFailed = true;
+                append("[logcat collector silent for " + (now - since) / 1_000_000 + " ms; the app's own log lines from here]\n");
+            }
+        }
+        if (collectorFailed) append(level + "/" + tag + ": " + message + '\n');
     }
 
     private static boolean active(long token) { return enabled && generation == token; }
@@ -160,6 +180,7 @@ public final class ScameraFileLog {
                 String line;
                 while (active(token) && (line = reader.readLine()) != null) {
                     if (!active(token)) break;
+                    lastCollected = System.nanoTime();
                     if (line.contains(TAG)) {
                         int at = line.indexOf("FLUSH ");
                         if (at >= 0) {
@@ -173,7 +194,7 @@ public final class ScameraFileLog {
                 collectorFailed = true;
                 append("[logcat collector stopped; Java/worker log fallback active]\n");
             }
-        } catch (IOException | RuntimeException e) {
+        } catch (IOException | RuntimeException | Error e) { // an Error too: a dead collector must not end the log silently
             if (active(token)) {
                 collectorFailed = true;
                 append("[logcat unavailable; Java/worker log fallback active: " + e + "]\n");

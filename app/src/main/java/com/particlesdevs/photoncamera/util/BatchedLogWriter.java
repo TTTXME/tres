@@ -99,12 +99,12 @@ final class BatchedLogWriter {
                     failedRecords = 0;
                 }
                 sink.flush();
-            } catch (Exception e) {
+            } catch (Exception | Error e) { // an Error too: it would end this thread and the log with it, silently
                 failedRecords += batchRecords;
             }
             if (control != null) {
                 try { control.run(); }
-                catch (RuntimeException ignored) { /* A failed export must not stop logging. */ }
+                catch (RuntimeException | Error ignored) { /* A failed export must not stop logging. */ }
             }
         }
     }
