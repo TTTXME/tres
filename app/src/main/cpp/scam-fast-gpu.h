@@ -4,7 +4,17 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl31.h>
+#ifdef __ANDROID__
 #include <android/hardware_buffer.h>
+#else
+// The host checks (desktop g++): the types the readback buffers name; libandroid.so is not there, so ahbReady() stays false
+#include <cstdint>
+struct AHardwareBuffer;
+struct ARect { int32_t left, top, right, bottom; };
+struct AHardwareBuffer_Desc { uint32_t width, height, layers, format; uint64_t usage; uint32_t stride, rfu0; uint64_t rfu1; };
+enum : uint32_t { AHARDWAREBUFFER_FORMAT_BLOB = 0x21 };
+enum : uint64_t { AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN = 3, AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER = 1ULL << 24 };
+#endif
 #include <dlfcn.h>
 #include "scam-superres-gpu.h" // scamProcessingContext
 #include "scam-fast-shaders.h"
