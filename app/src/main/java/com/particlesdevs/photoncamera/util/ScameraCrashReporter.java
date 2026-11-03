@@ -65,6 +65,8 @@ public final class ScameraCrashReporter {
         String report = report(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()),
                 BuildIdentity.line(), processName(), context.getPackageName(), thread.getName(), throwable);
 
+        ScameraFileLog.crash(report);
+
         if (append(ScameraFiles.file(FILE_NAME), report)) {
             return;
         }

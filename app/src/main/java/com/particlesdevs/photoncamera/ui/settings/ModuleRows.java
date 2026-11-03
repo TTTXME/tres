@@ -81,7 +81,7 @@ public final class ModuleRows {
     /** P390 (owner, 2026-10-28: «Положи эти настройки в одну группу»): the page of the three groups, one row on the main page. */
     static final String PAGE = "modules_screen";
     /**
-     * P413 (owner, 2026-10-30: «Сделай настройки линз аналогично Арк, убедись что настройки нигде не дублируются»): one module's
+     * P413 (owner, 2026-10-30: «Сделай настройки линз аналогично Why, убедись что настройки нигде не дублируются»): one module's
      * lens page (sensor, RAW format, levels, colour matrix, noise model), opened from its card as the reference app's lens button.
      */
     static final String LENS = "lens_screen";

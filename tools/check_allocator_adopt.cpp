@@ -43,6 +43,18 @@ int main() {
     JNIEnv env{};
     env.functions = &functions;
 
+    for (size_t n : {(size_t(32) << 20) - 1, size_t(32) << 20, (size_t(32) << 20) + 1,
+                     (size_t(32) << 20) + 2, (size_t(32) << 20) + 3, (size_t(48) << 20) + 3}) {
+        std::vector<uint8_t> source(n), copied(n + 32, 0xa5);
+        for (size_t i = 0; i < n; ++i) source[i] = uint8_t(i * 37u + 19u);
+        copyBytes(copied.data() + 16, source.data(), n);
+        expect(std::memcmp(copied.data() + 16, source.data(), n) == 0,
+               "parallel copy keeps the final partial page: " + std::to_string(n));
+        bool guards = true;
+        for (size_t i = 0; i < 16; ++i) guards &= copied[i] == 0xa5 && copied[n + 16 + i] == 0xa5;
+        expect(guards, "parallel copy stays inside the destination");
+    }
+
     // a result as the worker leaves it: halves (here 72 MB + a page), then a 12 MB trailer of clip flags
     const size_t rgb = (size_t(72) << 20) + 4096, clip = size_t(12) << 20, total = rgb + clip;
     const int fd = int(syscall(__NR_memfd_create, "check-out", 1));

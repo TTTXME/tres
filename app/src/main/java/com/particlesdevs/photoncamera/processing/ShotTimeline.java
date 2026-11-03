@@ -163,7 +163,7 @@ public final class ShotTimeline {
     }
 
     /**
-     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): a stage mark the worker
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): a stage mark the worker
      * prints itself, {@code HYBRID MARK <name>} (the relay time) or {@code HYBRID MARK <name> <ms>} with the time of the event in
      * CLOCK_BOOTTIME milliseconds (SystemClock.elapsedRealtime's clock; up to 6 decimals), so a mark the worker reports late
      * still lands where the event was. The timeline name is {@code w_<name>} (a name already starting with w_ is kept).

@@ -1,7 +1,7 @@
 precision highp float;
 precision highp int;
 precision highp sampler2D;
-// P335 (owner, 2026-10-25: «по поводу зерна шумодава же, у нас должно быть что-то между арк и нашим»): the share keepU of the
+// P335 (owner, 2026-10-25: «по поводу зерна шумодава же, у нас должно быть что-то между Why и нашим»): the share keepU of the
 // luma noise the denoise removed on a fine scale, put back at the end (scamdn/cbf adds it to Y of the output). Only the fine part of
 // the removed r = Y_in - Y_den (r minus its 5-tap binomial blur): the grain comes back, never the blotches of the coarse levels; it
 // is the frame's own noise (no synthetic grain), so it is never more than the merge left, and edges the denoise kept are not

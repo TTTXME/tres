@@ -65,6 +65,39 @@ public class FilmChainTest {
         manager.set(SettingsManager.SCOPE_GLOBAL, FilmSim.STOCK_KEY, id);
     }
 
+    @Test public void unsetReferenceDefaultsDoNotOverwriteAnExplicitRecipe() {
+        String[] keys = {FilmSim.PRINT_KEY, FilmSim.GRAIN_KEY, FilmSim.HALATION_KEY, FilmSim.SOFTNESS_KEY, FilmSim.DIR_KEY};
+        android.content.SharedPreferences.Editor clear = manager.getDefaultPreferences().edit();
+        for (String key : keys) clear.remove(key);
+        clear.commit();
+        FilmSim.Settings defaults = FilmSim.current();
+        assertNotNull(defaults);
+        assertEquals("kodak_supra_endura", defaults.print.id);
+        assertEquals(0, defaults.grain, 0);
+        assertEquals(0, defaults.halation, 0);
+        assertEquals(0, defaults.softness, 0);
+        assertEquals(0, defaults.couplers, 0);
+        java.nio.ByteBuffer packet = FilmReferenceParameters.from(defaults, false, 1).buffer();
+        for (int offset : new int[]{256, 436, 580}) assertEquals(0, packet.getInt(offset));
+        assertEquals(0, packet.getFloat(196), 0);
+        for (String key : keys) assertFalse("Reading defaults does not store a recipe", manager.getDefaultPreferences().contains(key));
+        String[] explicit = {"kodak_2383", "150", "200", "70", "35"};
+        for (int i = 0; i < keys.length; i++) manager.set(SettingsManager.SCOPE_GLOBAL, keys[i], explicit[i]);
+        for (FilmSim.Stock film : FilmSim.STOCKS) {
+            if (film.spectral == null) continue;
+            stock(film.id);
+            FilmSim.Settings chosen = FilmSim.current();
+            assertNotNull(chosen);
+            assertEquals(film.id, "kodak_2383", chosen.print.id);
+            assertEquals(film.id, 1.5f, chosen.grain, 0);
+            assertEquals(film.id, 2, chosen.halation, 0);
+            assertEquals(film.id, .7f, chosen.softness, 0);
+            assertEquals(film.id, .35f, chosen.couplers, 0);
+            for (int i = 0; i < keys.length; i++)
+                assertEquals(film.id, explicit[i], manager.getString(SettingsManager.SCOPE_GLOBAL, keys[i], ""));
+        }
+    }
+
     static FilmSim.Settings set(String stock, String print, String format, float grain, float halation, float softness, float ev,
                                 float printEv, float tone, float m, float y, float strength) {
         return new FilmSim.Settings(FilmSim.stock(stock), FilmSim.print(print, FilmSim.stock(stock)), FilmSim.format(format), grain,
@@ -189,7 +222,8 @@ public class FilmChainTest {
         assertSame("nor the scene table the chain", chain, FilmChain.lut(context, FilmChain.current().key));
         // the strength is the shader's: the same table at another strength
         final FilmSim.Settings half = new FilmSim.Settings(sim.stock, sim.print, sim.format, sim.grain, sim.halation, sim.softness,
-                sim.exposure, sim.printEv, sim.tone, sim.printM, sim.printY, .5f);
+                sim.exposure, sim.printEv, sim.tone, sim.printM, sim.printY, .5f, sim.diffusion, sim.diffusionGrade, sim.couplers);
+        assertEquals("Only the simulation strength changes", sim.lutKey(), half.lutKey());
         final FilmChain.Scene s2 = FilmChain.scene(context, half, "", 1f);
         assertSame(s1.lut, s2.lut);
         assertEquals(.5f, s2.strength, 0f);

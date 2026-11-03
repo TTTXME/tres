@@ -14,7 +14,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
 /**
- * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the streams
+ * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the streams
  * of the RAW viewfinder as the reference app's on the OPPO Find X7 Ultra - RAW10 where the lens's samples fit 10 bits, unpacked
  * into the ZSL ring slot on arrival, and the ISP stream of the 1440x1080 class under the RAW viewfinder.
  */

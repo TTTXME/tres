@@ -97,7 +97,7 @@ public final class ShadeCatalog {
      * 1x/16/20/2x»): «Разрешение» (pref_scam_hybrid_output: 1× / 12 / 16 / 20 / 2×) in «Размер»'s place.
      */
     public static final List<String> DEFAULT_TILES = Collections.unmodifiableList(Arrays.asList(FLASH, TIMER, "pref_show_grid_key",
-            FORMAT, OUTPUT, "pref_ultrahdr_key", HORIZON, MOTION, SOUND, STYLE, "pref_face_detect_mode", FLICKER, MIRROR,
+            FORMAT, OUTPUT, "pref_hdr_frames", "pref_ultrahdr_key", HORIZON, MOTION, SOUND, STYLE, "pref_face_detect_mode", FLICKER, MIRROR,
             "pref_wide169_key", "pref_tracking_af_mode", "pref_peak_method_key", "pref_scam_hybrid_bento", "pref_show_afdata_key"));
     /** The default pins before SIMPLE_UI: a stored list equal to it moves to the new defaults (a custom list stays). */
     public static final List<String> OLD_DEFAULT_TILES = Collections.unmodifiableList(Arrays.asList(FLASH, TIMER, FORMAT,
@@ -127,8 +127,8 @@ public final class ShadeCatalog {
             new Group(R.string.shade_group_shoot, FLASH, TIMER, "pref_scam_hybrid_why_metering", ETTR),
             new Group(R.string.shade_group_format, FORMAT, OUTPUT, DOWNSAMPLER, "pref_ultrahdr_key", "pref_wide169_key",
                     "pref_show_watermark_key"),
-            new Group(R.string.shade_group_hybrid, "pref_scam_hybrid_bento", "pref_scam_hybrid_bento_frames",
-                    "pref_scam_hybrid_shasta", "pref_scam_hybrid_zsl_frames", "pref_scam_hybrid_ark_dn_factor",
+            new Group(R.string.shade_group_hybrid, "pref_hdr_frames", "pref_scam_hybrid_bento", "pref_scam_hybrid_bento_frames",
+                    "pref_scam_hybrid_shasta", "pref_scam_hybrid_zsl_frames", "pref_scam_hybrid_why_dn_factor",
                     "pref_scam_hybrid_why_ms_chroma", "pref_scam_hybrid_cdm"),
             new Group(R.string.shade_group_view, "pref_show_grid_key", "pref_peak_method_key", "pref_live_viewfinder_raw_key",
                     "pref_show_afdata_key", "pref_face_detect_mode", "pref_tracking_af_mode")));
@@ -161,6 +161,7 @@ public final class ShadeCatalog {
         CONCEPT_ICONS.put("pref_show_grid_key", R.drawable.ui_ic_grid);
         CONCEPT_ICONS.put("pref_horizon", R.drawable.ui_ic_level);
         CONCEPT_ICONS.put("pref_ultrahdr_key", R.drawable.ui_ic_hdr);
+        CONCEPT_ICONS.put("pref_hdr_frames", R.drawable.ui_ic_hdr); // P494
         CONCEPT_ICONS.put("pref_motion_mode", R.drawable.ui_ic_motion);
         CONCEPT_ICONS.put("pref_camera_sounds_key", R.drawable.ui_ic_sound);
         CONCEPT_ICONS.put("pref_scam_hybrid_colour_mono", R.drawable.ui_ic_palette);
@@ -220,6 +221,8 @@ public final class ShadeCatalog {
         spec(OUTPUT, R.string.shade_t_output, R.array.shade_s_output, R.drawable.settings_ic_zoom);
         spec(DOWNSAMPLER, R.string.shade_t_downsampler, R.array.shade_s_downsampler, R.drawable.ic_sheet_downsampler);
         spec("pref_ultrahdr_key", R.string.shade_t_ultrahdr, 0, R.drawable.settings_ic_hdr);
+        // P494 (owner, 2026-11-03: the HDR tile «в положении выкл он должен полностью отключать длинные и сверхкороткие кадры»)
+        spec("pref_hdr_frames", R.string.shade_t_hdr_frames, 0, R.drawable.settings_ic_hdr);
         spec("pref_wide169_key", R.string.wide169, 0, R.drawable.settings_ic_ratio);
         spec("pref_show_watermark_key", R.string.shade_t_watermark, 0, R.drawable.settings_ic_water);
         spec("pref_scam_hybrid_bento", R.string.shade_t_bento, R.array.shade_s_bento, R.drawable.settings_ic_flash);
@@ -227,7 +230,7 @@ public final class ShadeCatalog {
         spec("pref_scam_hybrid_shasta", R.string.shade_t_shasta, 0, R.drawable.settings_ic_layers);
         spec("pref_scam_hybrid_zsl_frames", R.string.shade_t_hybrid_frames, 0, R.drawable.settings_ic_frames);
         // P443: «Шумодав» is the Resolve denoise's strength, «Цв. шум» the pyramid denoise's colour (the SCAM 9.6 multipliers left the menu)
-        spec("pref_scam_hybrid_ark_dn_factor", R.string.shade_t_luma, 0, R.drawable.settings_ic_noise);
+        spec("pref_scam_hybrid_why_dn_factor", R.string.shade_t_luma, 0, R.drawable.settings_ic_noise);
         spec("pref_scam_hybrid_why_ms_chroma", R.string.shade_t_chroma, 0, R.drawable.settings_ic_palette);
         spec("pref_scam_hybrid_cdm", R.string.shade_t_rejection, 0, R.drawable.settings_ic_eye);
         spec("pref_show_grid_key", R.string.shade_t_grid, R.array.shade_s_grid, R.drawable.settings_ic_grid,
@@ -663,7 +666,7 @@ public final class ShadeCatalog {
      */
     public static final List<String> ADVANCED = Collections.unmodifiableList(Arrays.asList("pref_scam_hybrid_bento",
             "pref_scam_hybrid_bento_frames", "pref_scam_hybrid_shasta", "pref_scam_hybrid_zsl_frames",
-            "pref_scam_hybrid_ark_dn_factor", "pref_scam_hybrid_why_ms_chroma", OUTPUT, DOWNSAMPLER,
+            "pref_scam_hybrid_why_dn_factor", "pref_scam_hybrid_why_ms_chroma", OUTPUT, DOWNSAMPLER,
             "pref_peak_method_key", "pref_face_detect_mode", "pref_tracking_af_mode", "pref_wide169_key",
             "pref_live_viewfinder_raw_key", "pref_show_afdata_key", "pref_show_watermark_key"));
 

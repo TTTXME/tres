@@ -10,14 +10,12 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Build;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Size;
 
 import androidx.preference.PreferenceManager;
 
-import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
@@ -26,26 +24,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * "Full debug" diagnostics sink for SCAMERA.
- *
- * <p>Writes one plain-text file per phone, {@code /storage/emulated/0/Download/SCAMERA/SCAMERA-debug.txt}, that every
- * process appends to under its own session header (start time, build line, the real path); at 8 MB it becomes
- * SCAMERA-debug.1.txt, then .2 (P214b, {@link RotatingLogFile}: before, every process made a new
- * "SCAMERA-debug.log (N).txt"). Everything happens on a dedicated {@link HandlerThread}: callers never touch the file
- * system, so this is safe to call from the capture and processing paths.
- *
- * <p>The whole class is inert unless the {@link #PREF_KEY} switch is on. When it is off,
- * {@link #isEnabled()} short-circuits before any string is built, so there is no cost on the
- * capture path and no file is created.
- */
+/** Compatibility diagnostics API backed by the single opt-in session recorder. */
 public final class ScameraDebugLog {
     public static final String PREF_KEY = "scamera_full_debug";
 
-    private static final String DIR_NAME = "SCAMERA";
-    /** P214b: Download/SCAMERA/SCAMERA-debug.txt, rotated to .1.txt / .2.txt (RotatingLogFile). */
-    static final String STEM = "SCAMERA-debug";
-    private static final int FLUSH_INTERVAL_MS = 1000;
 
     private static final ThreadLocal<SimpleDateFormat> TS =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US));
@@ -56,15 +38,8 @@ public final class ScameraDebugLog {
     private static Context appContext;
     private static HandlerThread thread;
     private static Handler handler;
-    /** P214b: one file per phone for every process; a file that reached the cap continues under a line with the build. */
-    private static final RotatingLogFile FILE = new RotatingLogFile(STEM, ".txt", RotatingLogFile.CAP_BYTES,
-            RotatingLogFile.GENERATIONS, ScameraFiles::dir, () -> RotatingLogFile.installStem(appContext, STEM),
-            (file, rotated) -> {
-                ScameraFiles.index(appContext, file);
-                return rotated ? "--- " + TS.get().format(new Date()) + " continued from the previous file (rotated at "
-                        + (RotatingLogFile.CAP_BYTES >> 20) + " MB): " + BuildIdentity.line() + " ---\n" : null;
-            });
     private static long sessionStartNs;
+    private static volatile long session;
     private static final java.util.Set<String> remosaicCameras = new java.util.HashSet<>();
 
     private ScameraDebugLog() {}
@@ -86,27 +61,21 @@ public final class ScameraDebugLog {
     public static void attach(Context context) {
         if (context == null) return;
         appContext = context.getApplicationContext();
+        ScameraFileLog.attach(appContext);
     }
 
     public static void setEnabled(boolean value) {
         if (value == enabled) return;
         enabled = value;
+        final long token = ++session;
+        ScameraFileLog.setEnabled(value);
         if (value) {
             startThread();
             sessionStartNs = System.nanoTime();
             synchronized (LOCK) { remosaicCameras.clear(); }
-            handler.post(ScameraDebugLog::writeSessionHeader);
-            handler.post(ScameraDebugLog::writeDeviceSection);
-            handler.post(ScameraDebugLog::writeCameraSection);
-            installCrashHandler();
-            schedulePeriodicFlush();
-        } else {
-            if (handler != null) {
-                handler.post(() -> {
-                    rawWrite("--- full debug disabled ---\n");
-                    closeWriter();
-                });
-            }
+            handler.post(() -> { if (enabled && session == token) writeSessionHeader(); });
+            handler.post(() -> { if (enabled && session == token) writeDeviceSection(); });
+            handler.post(() -> { if (enabled && session == token) writeCameraSection(); });
         }
     }
 
@@ -122,14 +91,6 @@ public final class ScameraDebugLog {
                 handler = new Handler(thread.getLooper());
             }
         }
-    }
-
-    private static void schedulePeriodicFlush() {
-        if (handler == null) return;
-        handler.postDelayed(() -> {
-            flush();
-            if (enabled) schedulePeriodicFlush();
-        }, FLUSH_INTERVAL_MS);
     }
 
     // ---------------------------------------------------------------- public API
@@ -220,43 +181,22 @@ public final class ScameraDebugLog {
         post(stage, sb.toString());
     }
 
-    public static void flush() {
-        if (handler == null) return;
-        handler.post(() -> {
-            synchronized (LOCK) {
-                FILE.flush();
-            }
-        });
-    }
+    public static void flush() { ScameraFileLog.flush(); }
 
-    /**
-     * Absolute path of the log, for showing in the UI: the file being (or last) written, else where it will be opened.
-     * P214b: the real one; the header used to print .../SCAMERA-debug.log, which MediaStore had stored as .log.txt.
-     */
-    public static String getPath() {
-        File open = FILE.file();
-        if (open != null) return open.getAbsolutePath();
-        return Environment.getExternalStorageDirectory() + "/" + Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/"
-                + RotatingLogFile.name(STEM, ".txt", 0);
-    }
+    public static String getPath() { return ScameraFileLog.getPath(); }
 
-    /** P214b: runs {@code action} with {@link #getPath()} once the queued session header is written (so its real file). */
     public static void whenOpen(java.util.function.Consumer<String> action) {
-        Handler h = handler;
-        if (h == null || !h.post(() -> action.accept(getPath()))) action.accept(getPath());
+        ScameraFileLog.afterFlush(() -> action.accept(getPath()));
     }
 
     // ---------------------------------------------------------------- sections
 
     private static void writeSessionHeader() {
-        // P214b: the file is opened first, so the header names the file it is in; the build line ties it to a commit
-        synchronized (LOCK) {
-            if (appContext == null || !FILE.ensureOpen()) return;
-        }
+        if (appContext == null) return;
         rawWrite("\n================ SCAMERA full debug session ================\n"
                 + "started: " + TS.get().format(new Date()) + "\n"
                 + "build: " + BuildIdentity.line() + "\n"
-                + "log path: " + getPath() + " (one file for every session; at " + (RotatingLogFile.CAP_BYTES >> 20)
+                + "log path: " + getPath() + " (daily session file; at " + (RotatingLogFile.CAP_BYTES >> 20)
                 + " MB it moves to .1.txt, up to ." + (RotatingLogFile.GENERATIONS - 1) + ".txt)\n");
     }
 
@@ -439,50 +379,14 @@ public final class ScameraDebugLog {
         }
     }
 
-    // ---------------------------------------------------------------- crash handler
-
-    private static boolean crashHandlerInstalled = false;
-
-    private static void installCrashHandler() {
-        if (crashHandlerInstalled) return;
-        crashHandlerInstalled = true;
-        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            try {
-                StringWriter sw = new StringWriter();
-                e.printStackTrace(new PrintWriter(sw));
-                // Synchronous: the process is about to die, a posted task would never run.
-                rawWrite(TS.get().format(new Date()) + " FATAL on thread " + t.getName() + "\n" + sw + "\n");
-                synchronized (LOCK) {
-                    FILE.flush();
-                }
-            } catch (Throwable ignored) {
-                // Never mask the original crash.
-            }
-            if (previous != null) previous.uncaughtException(t, e);
-        });
-    }
-
     // ---------------------------------------------------------------- writing
 
     private static void post(String stage, String message) {
-        startThread();
+        if (!enabled) return;
         final String time = TS.get().format(new Date());
         final long sinceStartMs = (System.nanoTime() - sessionStartNs) / 1_000_000L;
-        handler.post(() -> rawWrite(time + " [+" + sinceStartMs + "ms] " + stage + ": " + message + "\n"));
+        ScameraFileLog.append(time + " [+" + sinceStartMs + "ms] " + stage + ": " + message + "\n");
     }
 
-    /** Must run on the log thread, except from the crash handler where the process is dying. */
-    private static void rawWrite(String text) {
-        synchronized (LOCK) {
-            if (appContext == null) return;
-            FILE.write(text);
-        }
-    }
-
-    private static void closeWriter() {
-        synchronized (LOCK) {
-            FILE.close();
-        }
-    }
+    private static void rawWrite(String text) { ScameraFileLog.append(text); }
 }

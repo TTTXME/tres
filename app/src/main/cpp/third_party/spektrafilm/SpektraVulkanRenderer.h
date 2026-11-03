@@ -4,6 +4,7 @@
 #include <string>
 
 #include "SpektraRenderer.h"
+#include "ScameraFilmPolicy.h"
 
 namespace spektrafilm {
 
@@ -12,7 +13,7 @@ using VulkanRenderDiagnostics = RendererDiagnostics;
 
 class VulkanRenderer final : public Renderer {
 public:
-  VulkanRenderer();
+  explicit VulkanRenderer(QueuePolicy queuePolicy = QueuePolicy::Legacy);
   ~VulkanRenderer() override;
 
   VulkanRenderer(const VulkanRenderer &) = delete;
@@ -22,6 +23,7 @@ public:
   bool isAvailable() const override;
   const VulkanRenderDiagnostics &lastDiagnostics() const override;
   const std::string &lastError() const override;
+  const std::string &queueDescription() const;
   void releaseTransientResources() override;
 
   bool render(

@@ -66,7 +66,7 @@ def resolve(g, image, codes, total, rows, dtype='f2'):
         source = inp
         for pas, k in enumerate((1, 2, 4)):
             target = (p0, p1, out)[pas]
-            g.draw('scamdn/ark_resolve', target, dict(InputBuffer=source, EffMap=eff),
+            g.draw('scamdn/why_resolve', target, dict(InputBuffer=source, EffMap=eff),
                    dict(values, passU=pas, stepU=k, inputOriginU=0 if pas == 0 else first, outputOriginU=0 if pas == 2 else first),
                    viewport=(0, y if pas == 2 else 0, w, count if pas == 2 else height))
             source = target

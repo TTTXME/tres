@@ -16,6 +16,9 @@ public final class SubjectFrames {
         /** A free buffer of at least {@code bytes}, or null to skip this frame (the worker is still busy). */
         byte[] obtainBuffer(int bytes);
 
+        /** Returns an obtained buffer when GPU readback failed before ownership could pass to {@link #onFrame}. */
+        default void releaseBuffer(byte[] rgba) {}
+
         /**
          * A frame: RGBA8888, {@code width * height * 4} bytes in {@code rgba}, rows bottom-up (GL order). Ownership of
          * the buffer passes to the sink.

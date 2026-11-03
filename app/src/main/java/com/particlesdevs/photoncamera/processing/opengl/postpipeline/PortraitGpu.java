@@ -38,7 +38,10 @@ final class PortraitGpu {
             if (GLES20.glGetError() != GLES20.GL_NO_ERROR) return null;
             float[] rgb = new float[size.x * size.y * 4];
             bytes.asFloatBuffer().get(rgb);
-            return PortraitSkin.measure(rgb, 4, size.x, size.y, faces, 1f);
+            final PortraitSkin.Result skin = PortraitSkin.measure(rgb, 4, size.x, size.y, faces, 1f);
+            // P473: every gate's evidence in the debug log (the first round's five scenes left no trace of why nothing moved)
+            Log.i("SCAM_PIPELINE", "Portrait skin " + size.x + "x" + size.y + ": " + skin.describe());
+            return skin;
         } catch (RuntimeException e) {
             Log.w("SCAM_PIPELINE", "Portrait skin sample skipped: " + e);
             return null;

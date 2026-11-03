@@ -156,12 +156,15 @@ public class ScamHybridBurstCrashTest {
     }
 
     @Test public void aSplitDemosaicCrashKeepsTheOriginalGpuPath() {
-        for (String name : new String[]{"chromaSplit", "bayerSplit"})
+        for (String name : new String[]{"chromaSplit", "bayerSplit", "chromaTile", "nativeTile", "donorMerge", "donorChroma"})
             assertEquals(ScamHybridBurst.STEP_BAYER_SPLIT, ScamHybridBurst.stepOf("GPU compile " + name + ": glCompileShader"));
         final String report = "WORKER CRASH: signal 11 SIGSEGV code=1 addr=0x0 tid=9 thread=mali-cmar stage=- last=GPU merge (Bayer split)\n"
                 + "WORKER EXIT: signal 11 SIGSEGV, no completion line\n";
         assertEquals(ScamHybridBurst.STEP_BAYER_SPLIT, ScamHybridBurst.stepOf(ScamHybridBurst.crashStage(report)));
         assertFalse(ScamHybridBurst.gpuInitDeath(12_000_000L, report));
+        for(String suffix:new String[]{" tile"," native tile"," donor sums"})
+            assertEquals(ScamHybridBurst.STEP_BAYER_SPLIT,
+                    ScamHybridBurst.stepOf(ScamHybridBurst.crashStage(report.replace("(Bayer split)","(Bayer split)"+suffix))));
         ScamHybridBurst.avoidedSteps.clear();
         try {
             ScamHybridBurst.avoidedSteps.add(ScamHybridBurst.STEP_BAYER_SPLIT);

@@ -39,7 +39,7 @@
     <string name="shade_t_metering">Замер для тона</string>
     <string name="shade_t_output">Разрешение</string>
     <string name="shade_t_downsampler">Уменьшение</string>
-    <string name="shade_t_ultrahdr">HDR-фото</string>
+    <string name="shade_t_ultrahdr">UHDR</string>
     <string name="shade_t_watermark">Водяной знак</string>
     <string name="shade_t_bento">Света</string>
     <string name="shade_t_bento_frames">Кадры светов: число</string>
@@ -218,4 +218,5 @@
         <item>Зеркало</item>
         <item>Как есть</item>
     </string-array>
+    <string name="shade_t_hdr_frames">HDR</string>
 </resources>

@@ -20,8 +20,8 @@ import static android.opengl.GLES20.GL_NEAREST;
  * Input adapter: normalized merged WB camera RGB and this worker's effective-frame map,
  * not the reference's accumulator weight sum. The filter itself uses the reference formulas.
  */
-public final class ArkResolveDenoise {
-    private ArkResolveDenoise() {}
+public final class WhyResolveDenoise {
+    private WhyResolveDenoise() {}
 
     /** The reference app's defaults (ParamRegistry): sabre_denoising_factor, global / reject luma revert, grain strength. */
     static final float FACTOR = 0.4f, LUMA_REVERT = 0.85f, MOTION_REVERT = 0.5f, GRAIN = 0.15f;
@@ -74,14 +74,19 @@ public final class ArkResolveDenoise {
         final int sensorX = par.labOrigin != null ? Math.round(par.labOrigin.x * sensorSize.x) : 0;
         final int sensorY = par.labOrigin != null ? Math.round(par.labOrigin.y * sensorSize.y) : 0;
         final int s = Math.max(1, Math.min(2, Math.round(par.outputScale)));
-        final float factor = clamp(PreferenceKeys.hybridValue("ark_dn_factor", FACTOR), 0f, 2f);
-        final float lumaRevert = clamp(PreferenceKeys.hybridValue("ark_dn_luma_revert", LUMA_REVERT), 0f, 1f);
-        final float motionRevert = clamp(PreferenceKeys.hybridValue("ark_dn_motion_revert", MOTION_REVERT), 0f, 1f);
-        final float grain = clamp(PreferenceKeys.hybridValue("ark_dn_grain", GRAIN), 0f, 2f);
-        final StringBuilder log = new StringBuilder("ark-resolve grid=").append(s).append('x');
+        final float factor = clamp(PreferenceKeys.hybridValue("why_dn_factor", FACTOR), 0f, 2f);
+        final float lumaRevert = clamp(PreferenceKeys.hybridValue("why_dn_luma_revert", LUMA_REVERT), 0f, 1f);
+        final float motionRevert = clamp(PreferenceKeys.hybridValue("why_dn_motion_revert", MOTION_REVERT), 0f, 1f);
+        final float grain = clamp(PreferenceKeys.hybridValue("why_dn_grain", GRAIN), 0f, 2f);
+        final StringBuilder log = new StringBuilder("why-resolve grid=").append(s).append('x');
         final List<GLTexture> owned = new ArrayList<>();
+        DenoiseStats.PendingSnr snr = null;
         try {
-            DenoiseStats.finishSnr(glProg, pipeline, input, log);
+            // P479 (speed): the SNR's statistics issued now, their read-back and CPU part after this node's passes are issued
+            // (only WhyLumaSharpen and WhyCombine use the SNR): no GPU drain here, the CPU part runs alongside the passes
+            snr = DenoiseStats.finishSnrBegin(glProg, pipeline, input,
+                    !com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("snr_async", true));
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("resolve finishSnr");
 
             // ---- the uniforms of the reference app's resolve
             final float[] so = shotNoise(par);
@@ -100,6 +105,7 @@ public final class ArkResolveDenoise {
             // P317 (Mali): the usampler2D always gets a unit of its own; the 1 x 1 placeholder is never read (useEffU 0)
             final GLTexture effTex = effMap != null ? effMap : tex(owned, new Point(1, 1), GLFormat.DataType.UNSIGNED_8, 1, GL_NEAREST);
 
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("resolve effmap");
             final int rows = stripRows(size.x, size.y);
             final Point tile = new Point(size.x, Math.min(size.y, rows + 14));
             final GLTexture p0 = tex(owned, tile, GLFormat.DataType.FLOAT_16, 4, GL_NEAREST);
@@ -113,7 +119,7 @@ public final class ArkResolveDenoise {
                 GLTexture source = input;
                 for (int pass = 0; pass < 3; pass++) {
                     final GLTexture target = pass == 0 ? p0 : pass == 1 ? p1 : out;
-                    glProg.useAssetProgram("scamdn/ark_resolve", false);
+                    glProg.useAssetProgram("scamdn/why_resolve", false);
                     glProg.setTexture("InputBuffer", source);
                     glProg.setTexture("EffMap", effTex);
                     glProg.setVar("useEffU", effMap != null ? 1 : 0);
@@ -140,6 +146,8 @@ public final class ArkResolveDenoise {
                     source = target;
                 }
             }
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("resolve passes");
+            DenoiseStats.finishSnrEnd(snr, log);
             log.append(" factor=").append(factor).append(" revert=").append(lumaRevert).append('/').append(motionRevert)
                .append(" grain=").append(grain).append(" S=").append(so[0]).append(" O=").append(so[1]).append(" vignette=").append(boost)
                .append(" rows=").append(rows).append(" N=").append(effMap != null ? "map(x" + effScale + ")" : "flat").append(" default=").append(frames)
@@ -150,6 +158,7 @@ public final class ArkResolveDenoise {
         } finally {
             for (GLTexture t : owned) if (t != null) t.close();
             owned.clear();
+            if (snr != null) DenoiseStats.dropPending(snr); // a failure between the two halves: its pixel-pack buffer
         }
     }
 

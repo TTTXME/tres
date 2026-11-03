@@ -137,7 +137,7 @@ public final class ScamHdrDenoise extends Node {
         glProg.closed = true;
         if (!PreferenceKeys.isHybridDenoiseEnabled()) return;
         dumpInput(pipeline);
-        WorkingTexture = ArkResolveDenoise.process(glProg, pipeline, WorkingTexture);
+        WorkingTexture = WhyResolveDenoise.process(glProg, pipeline, WorkingTexture);
         pipeline.signedRgb = false;
         dumpTexture(pipeline, WorkingTexture, "denoise-out");
         glProg.closed = true;

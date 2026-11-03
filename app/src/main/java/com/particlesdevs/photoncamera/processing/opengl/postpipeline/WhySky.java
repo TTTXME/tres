@@ -17,7 +17,7 @@ import static android.opengl.GLES20.GL_LINEAR;
 import static android.opengl.GLES20.GL_NEAREST;
 
 /**
- * P378 (owner, 2026-10-28: «исправить тонмапинг чтобы у нас небо было схожее с фото с Арк камеры. при этом чтобы в остальных
+ * P378 (owner, 2026-10-28: «исправить тонмапинг чтобы у нас небо было схожее с фото с Why камеры. при этом чтобы в остальных
  * сценариях ничего не сломалось»): the sky mask of the WHY tone's sky term, built once per photo in WhyFusion before the fusion -
  * the cells of whyLow on the GPU (why/skycells.glsl, two 64 x 48 read-backs), the decision on the CPU (WhySkyMask: daylight,
  * bright over the frame, smooth, grey or blue, connected to the photo's top edge, the backlit gate), then the fine mask at whyLow

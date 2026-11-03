@@ -14,7 +14,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the fused WHY
+ * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the fused WHY
  * pass's program - its vertex shader (the RAW viewfinder's, as GLSL ES 3.10 like why/combine), its defines, and the uniforms
  * LiveRawRenderer.bindFrame sets, declared by utils/import_vfraw.glsl (tools/check_vf_fused.py renders the program itself).
  */

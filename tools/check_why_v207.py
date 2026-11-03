@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """P402 (owner, 2026-10-29: «Перенеси то чего нам не хватает», the reference app's settings): why/combine.glsl's AGX_INSET
-(«Плёночное выгорание светов»), hrEaseU («Сила удержания цвета в светах») and ARK_BASE (the reference fusion layout's base of the
+(«Плёночное выгорание светов»), hrEaseU («Сила удержания цвета в светах») and WHY_BASE (the reference fusion layout's base of the
 tone) on the GPU (moderngl), the shipped shader as check_light_chroma's Renderer draws it. Checks:
 - AGX_INSET with the full strength (insetU 1) is the shader without it (within 2e-6: the inverse is computed); at 0.5 a neutral
   grey keeps its colour (the inset's rows sum to 1, within 1e-3) and a saturated light keeps more chroma than at full strength;
 - hrEaseU 0 bit-identical to unset; at 1 (strength 0) the light above the shoulder's knee is brighter than with the shoulder, at
   0.4 in between; below the knee bit-identical;
-- ARK_BASE without headroom (clip 1) and an exposure in range bit-identical; with headroom (clip 4) the fused target above 0.7 of
+- WHY_BASE without headroom (clip 1) and an exposure in range bit-identical; with headroom (clip 4) the fused target above 0.7 of
   the tonemapper top is pulled under it (never brighter than without), an exposure sweep stays monotonic and without steps.
 Usage: check_why_v207.py
 """
@@ -77,18 +77,18 @@ def main():
     check(np.all(y(mid[:, up]) <= y(off[:, up]) + 1e-6) and np.all(y(mid[:, up]) >= y(plain[:, up]) - 1e-6),
           'strength 0.6 lies between')
 
-    arkd = {'ARK_BASE': '1'}
+    arkd = {'WHY_BASE': '1'}
     low = r.render(rows, scales, arkd, {'clipU': 1.0, 'headroomU': 0})
     lowb = r.render(rows, scales, {}, {'clipU': 1.0, 'headroomU': 0})
-    check(np.abs(low - lowb).max() == 0.0, 'ARK_BASE without headroom bit-identical (%.1e)' % np.abs(low - lowb).max())
+    check(np.abs(low - lowb).max() == 0.0, 'WHY_BASE without headroom bit-identical (%.1e)' % np.abs(low - lowb).max())
     hb = r.render(rows, bright, wide, hr)
     ha = r.render(rows, bright, dict(wide, **arkd), hr)
-    check(np.all(y(ha) <= y(hb) + 1e-5), 'ARK_BASE with headroom never brighter than without')
+    check(np.all(y(ha) <= y(hb) + 1e-5), 'WHY_BASE with headroom never brighter than without')
     fine = 0.18 * 2.0 ** np.arange(-2.0, 7.01, 0.05)
     for i, k in enumerate(cols):
         s = y(r.render([rows[i]], fine, dict(wide, **arkd), hr)[0])
         d = np.diff(s)
-        check(np.all(d >= -2e-4), '%s: ARK_BASE exposure sweep monotonic (min step %.1e)' % (k, d.min()))
+        check(np.all(d >= -2e-4), '%s: WHY_BASE exposure sweep monotonic (min step %.1e)' % (k, d.min()))
         sb = y(r.render([rows[i]], fine, wide, hr)[0])
         check(np.abs(d).max() <= np.abs(np.diff(sb)).max() + 0.01, '%s: no step (%.3f against %.3f)' % (k, np.abs(d).max(), np.abs(np.diff(sb)).max()))
     print('why reference tone check %s' % ('FAIL' if FAIL else 'PASS'))

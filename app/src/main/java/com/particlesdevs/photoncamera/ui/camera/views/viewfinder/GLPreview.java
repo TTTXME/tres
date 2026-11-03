@@ -14,8 +14,16 @@ import android.util.AttributeSet;
 import android.view.SurfaceHolder;
 import android.view.TextureView;
 import com.particlesdevs.photoncamera.circularbarlib.api.ManualModeConsole;
+import com.particlesdevs.photoncamera.util.Log;
+
+import javax.microedition.khronos.egl.EGL10;
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.egl.EGLContext;
+import javax.microedition.khronos.egl.EGLDisplay;
 
 public class GLPreview extends GLSurfaceView {
+    static final float DEFAULT_GPU_PRIORITY = 1f;
+    private static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098, PRIORITY = 0x3100, HIGH = 0x3101;
     MainRenderer mRenderer;
     private int mRatioWidth;
     private int mRatioHeight;
@@ -60,37 +68,54 @@ public class GLPreview extends GLSurfaceView {
         // which is why the log looked healthy. ES 3.0 is backwards compatible
         // with the existing ES 2.0 preview shaders.
         setEGLContextClientVersion(3);
-        // P90: the viewfinder's context at high GPU priority (EGL_IMG_context_priority), the processing contexts are low
-        // (GLContext, worker): the viewfinder's few-ms draws go ahead of the shot's passes. Without the extension: a plain context.
-        // P314 (owner, 2026-10-21, of the reference viewfinder: «обработку он никак не замедляет»): the default
-        // (medium) priority, as the reference viewfinder's context - the processing contexts stay low, so the viewfinder still
-        // goes ahead of them, and it no longer competes with the compositor; scam_dev.txt "vf_gpu_priority 1": high, as P90.
+        // The shot's GPU contexts now run at medium priority. Keep the short viewfinder draws ahead of them;
+        // unsupported or refused priority hints retain the ordinary ES 3 context (vf_gpu_priority 0 for comparison).
         setEGLContextFactory(new EGLContextFactory() {
-            private static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098, PRIORITY = 0x3100, HIGH = 0x3101;
-
             @Override
-            public javax.microedition.khronos.egl.EGLContext createContext(javax.microedition.khronos.egl.EGL10 egl,
-                    javax.microedition.khronos.egl.EGLDisplay display, javax.microedition.khronos.egl.EGLConfig config) {
-                String ext = egl.eglQueryString(display, javax.microedition.khronos.egl.EGL10.EGL_EXTENSIONS);
-                if (ext != null && ext.contains("EGL_IMG_context_priority")
-                        && com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevNumber("vf_gpu_priority", 0f) != 0f) {
-                    javax.microedition.khronos.egl.EGLContext c = egl.eglCreateContext(display, config,
-                            javax.microedition.khronos.egl.EGL10.EGL_NO_CONTEXT,
-                            new int[]{EGL_CONTEXT_CLIENT_VERSION, 3, PRIORITY, HIGH, javax.microedition.khronos.egl.EGL10.EGL_NONE});
-                    if (c != null && c != javax.microedition.khronos.egl.EGL10.EGL_NO_CONTEXT) return c;
-                }
-                return egl.eglCreateContext(display, config, javax.microedition.khronos.egl.EGL10.EGL_NO_CONTEXT,
-                        new int[]{EGL_CONTEXT_CLIENT_VERSION, 3, javax.microedition.khronos.egl.EGL10.EGL_NONE});
+            public EGLContext createContext(EGL10 egl, EGLDisplay display, EGLConfig config) {
+                return createViewfinderContext(egl, display, config,
+                        com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevNumber("vf_gpu_priority", DEFAULT_GPU_PRIORITY) != 0f);
             }
 
             @Override
-            public void destroyContext(javax.microedition.khronos.egl.EGL10 egl, javax.microedition.khronos.egl.EGLDisplay display,
-                                       javax.microedition.khronos.egl.EGLContext context) {
+            public void destroyContext(EGL10 egl, EGLDisplay display, EGLContext context) {
                 egl.eglDestroyContext(display, context);
             }
         });
         setRenderer(mRenderer);
         setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+    }
+
+    static EGLContext createViewfinderContext(EGL10 egl, EGLDisplay display, EGLConfig config, boolean high) {
+        final String extensions = egl.eglQueryString(display, EGL10.EGL_EXTENSIONS);
+        final boolean supported = extensions != null && java.util.Arrays.asList(extensions.trim().split("\\s+"))
+                .contains("EGL_IMG_context_priority");
+        EGLContext context = null;
+        if (high && supported) {
+            context = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT,
+                    new int[]{EGL_CONTEXT_CLIENT_VERSION, 3, PRIORITY, HIGH, EGL10.EGL_NONE});
+            if (context == null || context == EGL10.EGL_NO_CONTEXT) {
+                final int error = egl.eglGetError();
+                Log.w("GLPreview", "viewfinder GPU priority request rejected: 0x" + Integer.toHexString(error));
+            }
+        }
+        if (context == null || context == EGL10.EGL_NO_CONTEXT) {
+            context = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT,
+                    new int[]{EGL_CONTEXT_CLIENT_VERSION, 3, EGL10.EGL_NONE});
+        }
+        String granted = "unknown";
+        if (supported && context != null && context != EGL10.EGL_NO_CONTEXT) {
+            final int[] value = new int[1];
+            if (egl.eglQueryContext(display, context, PRIORITY, value)) {
+                granted = value[0] == HIGH ? "high" : value[0] == 0x3102 ? "medium"
+                        : value[0] == 0x3103 ? "low" : "0x" + Integer.toHexString(value[0]);
+            } else {
+                egl.eglGetError();
+            }
+        }
+        Log.i("GLPreview", "viewfinder GPU priority requested=" + (high ? "high" : "normal")
+                + " supported=" + supported + " granted=" + granted);
+        return context;
     }
 
     @Override

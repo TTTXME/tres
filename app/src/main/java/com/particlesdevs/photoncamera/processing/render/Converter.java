@@ -48,7 +48,7 @@ public class Converter {
     private static final float[] D50_XYZ = new float[]{0.9642f, 1, 0.8249f};
     private static final String TAG = "Converter";
     /**
-     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the per-step lines
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): the per-step lines
      * (5 per camera -> XYZ transform, ~35 per interpolation search: ~135 a shot) pushed OPPO's per-process log quota over and
      * dropped the first worker lines of the shot. The transform's result is logged by its caller (Parameters "sensorToXYZ"), the
      * interpolation search keeps one summary line ({@link #findDngInterpolationFactor}). True: every step as before. Only log

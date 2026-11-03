@@ -1060,16 +1060,16 @@ public final class LutTray {
         // P380: the film's camera diffusion and its grade
         out.add(diffusionChoice(c));
         out.add(diffusionStrength(c));
-        out.add(filmParam(c, "grain", Lang.t(c, "Зерно", "Grain"), com.particlesdevs.photoncamera.processing.color.FilmSim.GRAIN_KEY, 0, 200, 1, 100, " %", false));
-        out.add(filmParam(c, "halation", Lang.t(c, "Ореол", "Halation"), com.particlesdevs.photoncamera.processing.color.FilmSim.HALATION_KEY, 0, 400, 1, 100, " %", false));
-        out.add(filmParam(c, "softness", Lang.t(c, "Мягкость", "Softness"), com.particlesdevs.photoncamera.processing.color.FilmSim.SOFTNESS_KEY, 0, 300, 1, 100, " %", false));
+        out.add(filmParam(c, "grain", Lang.t(c, "Зерно", "Grain"), FilmSim.GRAIN_KEY, 0, 200, 1, FilmSim.defaultPercent(FilmSim.GRAIN_KEY), " %", false));
+        out.add(filmParam(c, "halation", Lang.t(c, "Ореол", "Halation"), FilmSim.HALATION_KEY, 0, 400, 1, FilmSim.defaultPercent(FilmSim.HALATION_KEY), " %", false));
+        out.add(filmParam(c, "softness", Lang.t(c, "Мягкость", "Softness"), FilmSim.SOFTNESS_KEY, 0, 300, 1, FilmSim.defaultPercent(FilmSim.SOFTNESS_KEY), " %", false));
         out.add(filmParam(c, "exposure", Lang.t(c, "Экспозиция", "Exposure"), com.particlesdevs.photoncamera.processing.color.FilmSim.EXPOSURE_KEY, -2, 2, .1f, 0, " EV", false));
         // only what acts on this stock: the curve's steepness on the measured (colour) stocks, the print on what is printed
         if (st == null || st.spectral != null)
             out.add(filmParam(c, "contrast", Lang.t(c, "Контраст", "Contrast"), com.particlesdevs.photoncamera.processing.color.FilmSim.TONE_KEY, -100, 100, 1, 0, "", false));
         // P380: the DIR couplers' amount, as on the page (the measured colour stocks)
         if (st == null || st.spectral != null)
-            out.add(filmParam(c, "dir", Lang.t(c, "Цветоразделение (DIR)", "Colour separation (DIR)"), FilmSim.DIR_KEY, 0, 100, 1, 100, " %", false));
+            out.add(filmParam(c, "dir", Lang.t(c, "Цветоразделение (DIR)", "Colour separation (DIR)"), FilmSim.DIR_KEY, 0, 100, 1, FilmSim.defaultPercent(FilmSim.DIR_KEY), " %", false));
         if (st == null || st.type != com.particlesdevs.photoncamera.processing.color.FilmSim.SLIDE && st.type != com.particlesdevs.photoncamera.processing.color.FilmSim.BW_REVERSAL)
             out.add(filmParam(c, "print", Lang.t(c, "Экспозиция печати", "Print exposure"), com.particlesdevs.photoncamera.processing.color.FilmSim.PRINT_EV_KEY, -1, 1, .05f, 0, " EV", false));
         return out;
@@ -1077,8 +1077,7 @@ public final class LutTray {
 
     /**
      * P381: the film page's «Печать» - the paper or print film the negative is printed on (FilmSim.PRINTS in the page's order),
-     * stored as the page stores it (its id in PRINT_KEY); none stored reads as the one the stock's maker pairs it with, which is
-     * the default.
+     * stored as the page stores it (its id in PRINT_KEY); an unset measured recipe reads as Supra Endura.
      */
     static TrayAdjust.Param printChoice(Context c, @Nullable FilmSim.Stock st) {
         final FilmSim.Print[] prints = FilmSim.PRINTS;

@@ -167,7 +167,7 @@ lanczos | bicubic | area | bilinear); те же чипы — в шторке б�
 вызывается из `DemosaicProxy.processRawBuffer`; `processPayloadHardwareBuffer` — заглушка `mov x0,x2; ret` без
 вызовов из Java. Снимки идут через финиш Google (libgcastartup) с патчами констант RamPatcher (`lib_*_key_pro`:
 таблицы Luma/Chroma Denoise, Bento, HDRrange, dehaze, резкость) и кривыми тона мода. Материалы:
-`research/lmc/arkcore/` (shader_map.md, native_logic.md, java_hook.md, x8u_settings.md, WHYCORE.md) и `research/lmc/arkcam/`.
+`research/lmc/arkcore/` (shader_map.md, native_logic.md, java_hook.md, x8u_settings.md, WHYCORE.md) и `research/lmc/whycam/`.
 
 ## Шумоподавление после склейки (настройки)
 

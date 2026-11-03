@@ -107,7 +107,36 @@ def opposed_gpu(textures, uniforms, w, h):
     buf.bind_to_storage_buffer(1)
     bind(cs, textures, uniforms)
     cs.run(gx, gy, 1)
-    v = np.frombuffer(buf.read(), np.uint32).reshape(gx * gy, 6)
+    full = buf.read()
+    if uniforms.get('clipFlagsU') == 1 and uniforms.get('cropOffset') == (0, 0):
+        flags = np.frombuffer(textures['ClipFlags'].read(), np.uint8).reshape(h, w)
+        cells = np.zeros((gy, gx), bool)
+        ys, xs = np.nonzero(((flags & 15) != 0) & ((flags & 48) == 0))
+        cells[ys // 16, xs // 16] = True
+        padded = np.pad(cells, 1)
+        occupied = np.zeros_like(cells)
+        for dy in range(3):
+            for dx in range(3):
+                occupied |= padded[dy:dy + gy, dx:dx + gx]
+        groups = np.flatnonzero(occupied).astype('u4')
+        sparse = ctx.compute_shader('#version 430\n' + src.replace('#define SPARSE 0', '#define SPARSE 1'))
+        jobs = ctx.buffer(groups.tobytes() if len(groups) else bytes(4))
+        zeroed = ctx.buffer(bytes(6 * gx * gy * 4))
+        try:
+            jobs.bind_to_storage_buffer(2)
+            zeroed.bind_to_storage_buffer(1)
+            bind(sparse, textures, uniforms)
+            sparse['occupiedCountU'].value = len(groups)
+            sparse['originalGroupsXU'].value = gx
+            if len(groups):
+                columns = min(65535, len(groups))
+                sparse.run(columns, (len(groups) + columns - 1) // columns, 1)
+            assert zeroed.read() == full, 'sparse opposed changed an original group sum/count'
+        finally:
+            zeroed.release()
+            jobs.release()
+            sparse.release()
+    v = np.frombuffer(full, np.uint32).reshape(gx * gy, 6)
     s = v[:, :3].copy().view(np.float32).astype(np.float64).sum(0)
     n = v[:, 3:].astype(np.float64).sum(0)
     return np.where(n > 0, s / np.maximum(n, 1), 0.0).astype(np.float32), n

@@ -13,6 +13,13 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
 python3 tools/check_gpu_readback.py
 python3 tools/check_film_tiling.py
+python3 tools/check_film_profile_dir.py
+python3 tools/check_film_profiles.py
+python3 tools/check_film_queue_policy.py
+g++ -std=c++17 -O2 tools/check_bayer_tile.cpp -o /tmp/scamera-bayer-tile-check
+/tmp/scamera-bayer-tile-check app/src/main/cpp/scam-hybrid.h /tmp/scamera-bayer-tile-shaders
+python3 tools/check_bayer_tile.py /tmp/scamera-bayer-tile-shaders
+python3 tools/check_bayer_quads.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_film_unpack.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_resolve_denoise.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_scam_hdr_gpu.py
@@ -25,7 +32,7 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_noise.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_sky.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_vibrance_hl.py
 # P419: the reference app's vibrance in one gain (every strength 0 bit for bit no vibrance; each term on its own colours)
-LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ark_vibrance.py
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_vibrance.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_agx_colour.py
 # P395: the saturated orange-yellows towards yellow (skin, oranges, pale colours, greens, blues bit for bit)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_yellow_hue.py

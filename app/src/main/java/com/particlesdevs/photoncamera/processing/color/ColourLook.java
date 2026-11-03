@@ -32,7 +32,7 @@ public final class ColourLook {
     public float warmth, tint, keepWarm, keepCool;
     // saturation (0..100 %, -100..100, 0..100 %; -1..1, -1..1)
     public float skinProtect, skinHue, skinEven, vibShadows, vibHighlights;
-    /** P419: true with scam_dev "ark_vibrance 0" - the skin protection also holds back the overall / sky / green vibrance here. */
+    /** P419: true with scam_dev "why_vibrance 0" - the skin protection also holds back the overall / sky / green vibrance here. */
     public boolean protectsVibrance;
     /** Mixer: band * 3 + {0 hue, 1 saturation, 2 lightness}, -100..100. */
     public final float[] mix = new float[24];

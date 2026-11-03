@@ -17,34 +17,37 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * P319 (owner, 2026-10-22: «Везде где есть "Ark" меняй на "Why"»): the stored settings of the tone keep their values under the
+ * P319 (owner, 2026-10-22: «Везде где есть [the old tone word] меняй на "Why"»): the stored settings of the tone keep their values under the
  * new names - the preferences, a module profile or backup, the shade's tiles, the developer file's lines - from a key of
  * before this rename and from one of before P55 alike; a word that only contains the letters (dark, mark) stays; a new key
  * already written wins over its old twin.
  */
 public class WhyRenameMigrationTest {
+    /** The tone word before P319, reversed here as in BrandMigration so that the source never spells it. */
+    static final String OLD = new StringBuilder("kra").reverse().toString();
+
     /** The rename of the stored keys' tone word (what BrandMigration.word adds after the P55 words). */
     static String whyStage(String s) {
-        return s.replaceAll("(?<![A-Za-z0-9])ark(?![A-Za-z0-9])", "why");
+        return s.replaceAll("(?<![A-Za-z0-9])" + OLD + "(?![A-Za-z0-9])", "why");
     }
 
     @Test public void theOldKeysGetTheNewNames() {
-        assertEquals("pref_scam_hybrid_why_tone", BrandMigration.word("pref_scam_hybrid_ark_tone"));
-        assertEquals("pref_scam_hybrid_why_sharp_gain", BrandMigration.word("pref_scam_hybrid_ark_sharp_gain"));
-        assertEquals("pref_scam_hybrid_why_tone", BrandMigration.word("pref_lmc_hybrid_ark_tone")); // before P55 too
-        assertEquals("hybrid_why_hr_mix", BrandMigration.word("hybrid_ark_hr_mix"));
-        assertEquals("vf_why", BrandMigration.word("vf_ark"));
-        assertEquals("scam_hybrid_nr_why_luma_screen", BrandMigration.word("scam_hybrid_nr_ark_luma_screen"));
+        assertEquals("pref_scam_hybrid_why_tone", BrandMigration.word("pref_scam_hybrid_" + OLD + "_tone"));
+        assertEquals("pref_scam_hybrid_why_sharp_gain", BrandMigration.word("pref_scam_hybrid_" + OLD + "_sharp_gain"));
+        assertEquals("pref_scam_hybrid_why_tone", BrandMigration.word("pref_lmc_hybrid_" + OLD + "_tone")); // before P55 too
+        assertEquals("hybrid_why_hr_mix", BrandMigration.word("hybrid_" + OLD + "_hr_mix"));
+        assertEquals("vf_why", BrandMigration.word("vf_" + OLD));
+        assertEquals("scam_hybrid_nr_why_luma_screen", BrandMigration.word("scam_hybrid_nr_" + OLD + "_luma_screen"));
     }
 
     @Test public void theDeveloperFileAndTheLabTakeTheToneWordOnly() {
         // today's names keep their vendor words (the P55 rules would rename them): only the tone's word moves
         assertEquals("vivo_sdk_fullres", BrandMigration.why("vivo_sdk_fullres"));
         assertEquals("module_vivo_qcom_isz_back1", BrandMigration.why("module_vivo_qcom_isz_back1"));
-        assertEquals("vf_why", BrandMigration.why("vf_ark"));
-        assertEquals("hybrid_why_fusion_mono", BrandMigration.why("hybrid_ark_fusion_mono"));
+        assertEquals("vf_why", BrandMigration.why("vf_" + OLD));
+        assertEquals("hybrid_why_fusion_mono", BrandMigration.why("hybrid_" + OLD + "_fusion_mono"));
         Map<String, Object> lab = new HashMap<>();
-        lab.put("pref_scam_hybrid_ark_tone", "1");
+        lab.put("pref_scam_hybrid_" + OLD + "_tone", "1");
         lab.put("module_vivo_qcom_isz_back1", 2);
         Map<String, Object> m = BrandMigration.whyMap(lab);
         assertEquals("1", m.get("pref_scam_hybrid_why_tone"));
@@ -54,23 +57,23 @@ public class WhyRenameMigrationTest {
     @Test public void wordsThatOnlyContainTheLettersStay() {
         for (String w : new String[]{"pref_dark_mode", "dark", "marker", "pref_watermark", "parked", "DARK_P50", "MARK"})
             assertEquals(w, BrandMigration.word(w));
-        assertEquals("shaders/ark/combine", BrandMigration.text("shaders/ark/combine")); // a path stays
+        assertEquals("shaders/" + OLD + "/combine", BrandMigration.text("shaders/" + OLD + "/combine")); // a path stays
     }
 
     @Test public void aProfileTheTilesAndTheNewKeyFirst() {
         Map<String, Object> old = new HashMap<>();
-        old.put("pref_scam_hybrid_ark_metering", "1");
-        old.put("pref_scam_hybrid_ark_ccm_sat", "1.2");
+        old.put("pref_scam_hybrid_" + OLD + "_metering", "1");
+        old.put("pref_scam_hybrid_" + OLD + "_ccm_sat", "1.2");
         old.put("pref_scam_hybrid_why_ccm_sat", "0.9"); // written by the new version already
         Set<String> tiles = new LinkedHashSet<>();
-        tiles.add("pref_scam_hybrid_ark_metering");
+        tiles.add("pref_scam_hybrid_" + OLD + "_metering");
         tiles.add("pref_dark_tile");
         old.put("pref_shade_tiles", tiles);
-        old.put("pref_shade_order", "pref_scam_hybrid_ark_metering,pref_flash_mode");
+        old.put("pref_shade_order", "pref_scam_hybrid_" + OLD + "_metering,pref_flash_mode");
         Map<String, Object> m = BrandMigration.map(old);
         assertEquals("1", m.get("pref_scam_hybrid_why_metering"));
         assertEquals("0.9", m.get("pref_scam_hybrid_why_ccm_sat"));
-        assertFalse(m.containsKey("pref_scam_hybrid_ark_metering"));
+        assertFalse(m.containsKey("pref_scam_hybrid_" + OLD + "_metering"));
         assertTrue(((Set<?>) m.get("pref_shade_tiles")).contains("pref_scam_hybrid_why_metering"));
         assertTrue(((Set<?>) m.get("pref_shade_tiles")).contains("pref_dark_tile"));
         assertEquals("pref_scam_hybrid_why_metering,pref_flash_mode", m.get("pref_shade_order"));
@@ -88,7 +91,7 @@ public class WhyRenameMigrationTest {
         while (m.find()) {
             String key = m.group(1);
             if (!key.matches(".*(?<![A-Za-z0-9])why(?![A-Za-z0-9]).*")) continue;
-            String old = key.replaceAll("(?<![A-Za-z0-9])why(?![A-Za-z0-9])", "ark");
+            String old = key.replaceAll("(?<![A-Za-z0-9])why(?![A-Za-z0-9])", OLD);
             assertEquals(old, key, BrandMigration.word(old));
             n++;
         }

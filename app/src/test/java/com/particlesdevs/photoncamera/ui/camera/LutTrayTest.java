@@ -201,7 +201,7 @@ public class LutTrayTest {
         assertEquals(100, seek.getProgress());
         box.findViewWithTag("lut_tray_film_adjust_param_grain").performClick();
         assertEquals(200, seek.getMax());
-        assertEquals(100, seek.getProgress());
+        assertEquals(0, seek.getProgress());
         seek.setProgress(150);
         shadowOf(seek).getOnSeekBarChangeListener().onProgressChanged(seek, 150, true);
         shadowOf(seek).getOnSeekBarChangeListener().onStopTrackingTouch(seek);
@@ -298,7 +298,7 @@ public class LutTrayTest {
         assertEquals("the strength's slider first", View.GONE, choices.getVisibility());
         final int sliderHeight = height(box);
         assertTrue(sliderHeight > 0);
-        // «Печать»: the page's papers and print films in its order, the stock maker's own (Portra Endura) chosen by default
+        // «Печать»: the page's papers and print films in its order, the reference recipe's Supra Endura by default
         TextView print = box.findViewWithTag("lut_tray_film_adjust_param_paper");
         assertEquals("Печать", print.getText().toString());
         assertEquals("the print's exposure has the page's name", "Экспозиция печати",
@@ -311,7 +311,7 @@ public class LutTrayTest {
         assertEquals(FilmSim.PRINTS.length, options.getChildCount());
         for (int i = 0; i < FilmSim.PRINTS.length; i++)
             assertEquals(FilmSim.PRINTS[i].name, ((TextView) options.getChildAt(i)).getText().toString());
-        final int endura = printIndex("kodak_portra_endura"), vision = printIndex("kodak_2383");
+        final int endura = printIndex("kodak_supra_endura"), vision = printIndex("kodak_2383");
         assertTrue(options.getChildAt(endura).isActivated());
         assertEquals("nothing stored until chosen", "", manager.getString(SettingsManager.SCOPE_GLOBAL, FilmSim.PRINT_KEY, ""));
         assertEquals("the tray is no taller with the print's choices", sliderHeight, height(box));
@@ -414,14 +414,14 @@ public class LutTrayTest {
         assertEquals("200", manager.getString(SettingsManager.SCOPE_GLOBAL, FilmSim.DIFFUSION_STRENGTH_KEY, ""));
         assertEquals(2f, FilmSim.current().diffusionGrade, 0f);
         assertEquals("the owner's pair's Pro-Mist 2.0", .7875, FilmSim.current().diffusionP(), 1e-6);
-        // «Цветоразделение (DIR)»: 0 .. 100 % (review: above it greys go off), 100 % by default
+        // «Цветоразделение (DIR)»: 0 .. 100 % (review: above it greys go off), disabled by default
         TextView couplers = box.findViewWithTag("lut_tray_film_adjust_param_dir");
         assertEquals("Цветоразделение (DIR)", couplers.getText().toString());
         couplers.performClick();
         settle();
         assertEquals(100, seek.getMax());
-        assertEquals(100, seek.getProgress());
-        assertEquals("100 %", value.getText().toString());
+        assertEquals(0, seek.getProgress());
+        assertEquals("0 %", value.getText().toString());
         assertNotNull(dir);
         dir.write.accept(0f);
         assertEquals("0", manager.getString(SettingsManager.SCOPE_GLOBAL, FilmSim.DIR_KEY, ""));

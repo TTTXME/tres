@@ -256,6 +256,7 @@ public class ScameraApp extends Application {
         android.util.Log.i("ScameraBuild", com.particlesdevs.photoncamera.util.BuildIdentity.line());
         Log.d("ScameraApp", "Initializing modules");
         initModules();
+        com.particlesdevs.photoncamera.util.ScameraDebugLog.init(this);
         super.onCreate();
         // Why the previous process ended (a native crash or a kill leaves no line of ours): into the log once
         com.particlesdevs.photoncamera.util.ExitReasons.logPrevious(this);

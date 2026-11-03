@@ -8,7 +8,7 @@ import androidx.annotation.Nullable;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 
 /**
- * P411 (owner, 2026-10-29: «Мерцание ламп ... возьми его работу из Арк камеры, у нас он работает неверно»): «Мерцание ламп» reaches
+ * P411 (owner, 2026-10-29: «Мерцание ламп ... возьми его работу из Why камеры, у нас он работает неверно»): «Мерцание ламп» reaches
  * the camera's AE as the reference app does (CameraManager.applyAntibandingToBuilder: CONTROL_AE_ANTIBANDING_MODE from its
  * setting on the preview and every capture request, the repeating request rebuilt on a change). Before, the camera got AUTO
  * whatever was chosen (the setting moved only our own long shutters). «Авто» AUTO, 50 Hz / 60 Hz the HAL's 50HZ / 60HZ, «Выкл.»

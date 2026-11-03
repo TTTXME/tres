@@ -26,7 +26,7 @@ public final class ScamDenoise {
     private ScamDenoise() {}
 
     /**
-     * P335 (owner, 2026-10-25: the grain «между арк и нашим»): the share of the luma noise the denoise removed on the finest scale
+     * P335 (owner, 2026-10-25: the grain «между Why и нашим»): the share of the luma noise the denoise removed on the finest scale
      * that comes back at the output (scam_dev hybrid_dn_luma_grain; 0 = the denoise as before).
      */
     static final float LUMA_GRAIN = 0.5f;
@@ -571,7 +571,7 @@ public final class ScamDenoise {
     /**
      * P443: the finish SNR of {@link #process} (Parameters.finishSnr: the WHY sharpening's low-light share, P135, and the detail gain
      * of WhyCombine, P340) and its sports policy (pipeline.sportsDenoise, which WhyMsDenoise reads) for a shot denoised by
-     * {@link ArkResolveDenoise}: the same single-frame model (DCG zones, lastNoiseFactor), the level-0 YUV at the sensor scale of
+     * {@link WhyResolveDenoise}: the same single-frame model (DCG zones, lastNoiseFactor), the level-0 YUV at the sensor scale of
      * {@code clean} (the despeckled input: on the 1x grid process()'s x0 exactly; on the 2x grid despeckled before its kD8 down
      * instead of after), the same level-0 block statistics, display gain, mu and ScamDenoiseTables.snr with dn_model_shot /
      * dn_model_read / dn_snr / dn_snr_scale, the lab's frozen brightness. Nothing of the denoise itself runs; the engines' sharpening

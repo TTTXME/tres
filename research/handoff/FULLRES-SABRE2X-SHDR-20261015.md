@@ -93,7 +93,7 @@ Native GPU merge уже полосовой: SSBO/readback-полосы умен�
 
 Ultra HDR имеет отдельную прежнюю границу: `PostPipeline.captureDemosaicLinear` хочет RGBA float32, 16 B/output pixel; на 201 Мп это 3 ГиБ, больше одного Java ByteBuffer. Он явно пропускает snapshot, последующий gain-map pass сохраняет SDR fallback. HDR gain-map **201 Мп не завершён** этой правкой. Не подменять это утверждением, что весь SHDR merge выключен: обычный SDR JPEG использует другой путь.
 
-Дальше проверить полный свежий APK с output `2x`: журналы native `HYBRID OUTPUT: Sabre 2x grid 16384x12288`, затем `pipeline runs at the merged size`, конечный JPEG/HEIC нужных размеров и ненулевые осмысленные пиксели. Не принимать сообщения `1x grid, resized`, `merged ... resized to ...`, `sensor grid` или `cpu-single` за исполнение этого требования. При OOM записать точную стадию. Последующие ARK-текстуры/конечный bitmap тоже требуют памяти; они не стали полосовыми от удаления порога 16 Мп.
+Дальше проверить полный свежий APK с output `2x`: журналы native `HYBRID OUTPUT: Sabre 2x grid 16384x12288`, затем `pipeline runs at the merged size`, конечный JPEG/HEIC нужных размеров и ненулевые осмысленные пиксели. Не принимать сообщения `1x grid, resized`, `merged ... resized to ...`, `sensor grid` или `cpu-single` за исполнение этого требования. При OOM записать точную стадию. Последующие WHY-текстуры/конечный bitmap тоже требуют памяти; они не стали полосовыми от удаления порога 16 Мп.
 
 Если требуется уменьшить пик памяти, следующий обоснованный шаг — писать завершённые native-полосы прямо в FP16/memfd после необходимых CA halo/нормировки и отдельно располосовать тяжёлые post-стадии. Перед таким переносом сравнивать небольшой grid2 с прежним результатом; сохранять фазу CFA, DNG mean по 2×2 под-позициям и геометрию. `kHybMergeMain1` не менять.
 
@@ -107,7 +107,7 @@ Ultra HDR имеет отдельную прежнюю границу: `PostPipe
 - MOTION/PHOTO/NIGHT допускаются как still; UI «Фото» может быть внутренним MOTION. Нельзя вернуть прежний guard только PHOTO, иначе кнопка останется ON с незаметным fallback12MP.
 - ISZ/DCG/FULLRES исключают друг друга через `SensorModeSwitches`/`ModuleRegistry.select`, без дополнительных restart внутри coordinator. `IszCapturePolicy` исключает FULLRES/DCG и распознаёт только реальные typed enabled Session/Integer presets/валидные маркеры.
 - Старые ветки stock AE/SCAM HDR в CaptureController ещё местами скомпилированы, но runtime отключён. Для следующего удаления сохранять нужный SHDR `ScamStockAe.Plan.nOnly` или сначала выделить этот минимальный тип. Восстанавливать SCAM HDR ради FULLRES не требуется.
-- Текущее sharpening — ArkLumaSharpen; RawTherapee удалён владельцем в P118. Эта задача sharpening не заменяла.
+- Текущее sharpening — WhyLumaSharpen; RawTherapee удалён владельцем в P118. Эта задача sharpening не заменяла.
 
 ## Новая локальная сборка: важная несовместимость старой подготовки
 

@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string-array name="scam_hybrid_processing_entries">
+        <item>Быстрый</item>
+        <item>Качество</item>
+    </string-array>
+    <string-array name="scam_hybrid_fringe_method_entries">
+        <item>Нейросеть</item>
+        <item>Классическое</item>
+    </string-array>
+    <string-array name="scam_hybrid_fringe_net_reach_entries">
+        <item>Узкая</item>
+        <item>Широкая</item>
+    </string-array>
     <string-array name="cfapat_entries">
         <item>Авто</item>
         <item>RGGB</item>

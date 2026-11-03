@@ -195,6 +195,106 @@
         "sha256": "52f90c724811f5fab80769f8548bf24d08a521eb09e65ab6e016893258d2a783"
       },
       {
+        "path": "Resources/data/profiles/archive/fujifilm_c200.json",
+        "bytes": 212941,
+        "sha256": "4085fd3952b7d979f4b744b0e93f4c60e862d214848011570cdf3d439b1d77e4"
+      },
+      {
+        "path": "Resources/data/profiles/archive/fujifilm_pro_400h.json",
+        "bytes": 213211,
+        "sha256": "7981b23ce0c1439ca502c1f2bf43514850ae9ffb7f7df6adf3239c2a99d586de"
+      },
+      {
+        "path": "Resources/data/profiles/archive/fujifilm_provia_100f.json",
+        "bytes": 215768,
+        "sha256": "5d674618b38821edd318223b3cf775aa7c5d8601cfc281705be987acb3c4eda9"
+      },
+      {
+        "path": "Resources/data/profiles/archive/fujifilm_velvia_100.json",
+        "bytes": 214496,
+        "sha256": "564319fd25dacb99eaa8d321a8adfe6ff5dd52216b144b0cea85d6dcea72a845"
+      },
+      {
+        "path": "Resources/data/profiles/archive/fujifilm_xtra_400.json",
+        "bytes": 213083,
+        "sha256": "bcf2f46b9fa914c299e98df47ee3f2ed9cd2c1c3b12b5c8093de05aa40ce0ba5"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_ektachrome_100.json",
+        "bytes": 215312,
+        "sha256": "b5d2a1f76de217de2401d83f2add3b1d77b464a43c2295bdec50b8b82d4f1200"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_ektar_100.json",
+        "bytes": 213320,
+        "sha256": "0fef954ef6d8d09707475a4cdfb35dfed93777c3864bf6b91ce694da74677ed6"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_gold_200.json",
+        "bytes": 213311,
+        "sha256": "a09dc6a571dd25b4ef851cd23b8cf7b629b1da4ee7f778ff3fe861f7a4539245"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_kodachrome_64.json",
+        "bytes": 215033,
+        "sha256": "89b09ecc03a5c9c5bd0f53551ea9a6b415035502b271487e2393db9aed630f92"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_portra_160.json",
+        "bytes": 213129,
+        "sha256": "43b6fb7ee9ca507ca7cd8901622edced9cc8281ed4d531fde6c4ec6d2f3f3493"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_portra_400.json",
+        "bytes": 213234,
+        "sha256": "ba57d02a0ee742c50585552cd9da0ef3093999d026284f066f6736da7fa19de6"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_portra_800.json",
+        "bytes": 213246,
+        "sha256": "1a722da32f4a6a5e05f88b8e0785e35a91fe2f09ae784f71340f87397319c59d"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_portra_800_push1.json",
+        "bytes": 213133,
+        "sha256": "16dc4ce4e9fc21dbcb1db92ba26f55abf973fb57486bc0fa45a5a61539f6173b"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_portra_800_push2.json",
+        "bytes": 213113,
+        "sha256": "40b987c3a84262e817436b0de603a204e1aa39a112904adaadd5c548cee2c56c"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_ultramax_400.json",
+        "bytes": 213166,
+        "sha256": "bbcfcf110e348308e30b1f2ff374bbfb3a89167d1bb5dece2a57ca5b58e541a2"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_verita_200d.json",
+        "bytes": 213343,
+        "sha256": "38110ea163e8140c884ab135e18c1765f01f23da92b38ee12919fce6df202db0"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_vision3_200t.json",
+        "bytes": 213273,
+        "sha256": "b5e16cc76567b5e6eb6cce0b437b244dd07853c880805c515b84daa84421c244"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_vision3_250d.json",
+        "bytes": 213952,
+        "sha256": "4309d56e00393059fbf6aef7fbcf596f24f867c4756b5f803d5c2d0648a0db57"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_vision3_500t.json",
+        "bytes": 211894,
+        "sha256": "159a29430d77073e3917fa46c097fc91a7f710d4f3be8b9211b7ae227e957b2d"
+      },
+      {
+        "path": "Resources/data/profiles/archive/kodak_vision3_50d.json",
+        "bytes": 213271,
+        "sha256": "f0c07d8820aeaaef828b6c21da8e679be0415b54dc7da5364b1a4df2ba915676"
+      },
+      {
         "path": "Resources/data/profiles/fujifilm_c200.json",
         "bytes": 204962,
         "sha256": "f9bf3fe298db189892fadbfbd18895d376922ba3b458dd6b6fe39406b2f89ed7"

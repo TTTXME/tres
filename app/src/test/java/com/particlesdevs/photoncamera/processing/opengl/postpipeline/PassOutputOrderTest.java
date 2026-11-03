@@ -54,9 +54,9 @@ public class PassOutputOrderTest {
 
     @Test
     public void hdrDenoiseOutputMadeBeforeItsSamplers() throws IOException {
-        final String run = WhyCombineUniformParityTest.method(read("ArkResolveDenoise.java"), "static GLTexture process(");
+        final String run = WhyCombineUniformParityTest.method(read("WhyResolveDenoise.java"), "static GLTexture process(");
         final int out = run.indexOf("final GLTexture out = pipeline.getMain();");
-        final int program = run.indexOf("glProg.useAssetProgram(\"scamdn/ark_resolve\"");
+        final int program = run.indexOf("glProg.useAssetProgram(\"scamdn/why_resolve\"");
         final int bind = run.indexOf("glProg.setTexture(\"InputBuffer\"", program);
         final int draw = run.indexOf("drawRegion(glProg, target, y, count)", bind);
         assertTrue(out >= 0 && program > out && bind > program && draw > bind);

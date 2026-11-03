@@ -17,6 +17,9 @@
          below; ignored from Android 11 on). Without it every save failed with ImageSavingError (Nubia NX563J, Android 10). -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
             android:maxSdkVersion="29" />
+    <!-- P475: «Доступ ко всем файлам» (Android 11+): scam_dev.txt and the other Download/SCAMERA files a PC, adb or an earlier
+         package made (AllFilesAccess asks once at the first launch) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" tools:ignore="HighSamplingRate" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -81,6 +84,7 @@
                 android:name="com.particlesdevs.photoncamera.gallery.ui.GalleryActivity"
                 android:label="@string/gallery_name"
                 android:taskAffinity=""
+                android:finishOnTaskLaunch="true"
                 android:theme="@style/Theme.Scamera.BaseApp"
                 android:icon="@mipmap/ic_gallery_launcher"
                 android:roundIcon="@mipmap/ic_gallery_launcher_round"

@@ -175,7 +175,7 @@ public final class RowFlicker {
     });
 
     /**
-     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): {@link #afterMerge} on
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): {@link #afterMerge} on
      * a thread of its own instead of the shot's (~12 ms between the merge's end and the post pipeline). The vote only sets the
      * anti-banding of later shots (MainsFlicker, read by capture, manual and settings code, never by processing), never this
      * photo; the shots' votes keep their order; the lines are copied first. Never throws; a rejected task votes here.

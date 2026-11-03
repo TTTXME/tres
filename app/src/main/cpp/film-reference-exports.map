@@ -1,0 +1,6 @@
+{
+    global:
+        JNI_OnUnload;
+        Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_*;
+    local: *;
+};

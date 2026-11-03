@@ -434,7 +434,7 @@ def strength_part(gpu: Gpu) -> None:
           % moved)
     check(moved <= 1e-6, 'the film alone moves with our tone (%.2e)' % moved)
     for gamma_type in (0, 1, 2):
-        defs = dict(FILM_SIM=1, COLOUR_LOOK=1, ARK_BASE=1, ARK_VIB=1, ARK_VIBRANCE=1, MACRO_TOE=1,
+        defs = dict(FILM_SIM=1, COLOUR_LOOK=1, WHY_BASE=1, WHY_VIB=1, WHY_VIBRANCE=1, MACRO_TOE=1,
                     LIGHT_CHROMA=1, AGX_INSET=1, HL_NEUTRAL=1, YELLOW_HUE=1, GAMMA_TYPE=gamma_type)
         current = gpu.render(full, fused=fused, defines=defs, uni=dict(uni, strength=1.0, **other), lut=lut)
         check(np.max(np.abs(current - film)) <= 1e-6,
@@ -493,8 +493,8 @@ VARIANTS = ((), ('P3_OUT',), ('COLOUR_LOOK',), ('TONE_OP',), ('HL_LANDING',), ('
             ('P3_OUT', 'COLOUR_LOOK', 'TONE_OP', 'HL_LANDING', 'HEADROOM_WIDE', 'SUN_BLOOM', 'HL_OPPOSED'), ('POINT_FUSED',),
             ('POINT_FUSED', 'P3_OUT', 'COLOUR_LOOK', 'TONE_OP'), ('POINT_FUSED', 'RAW_SOURCE'),
             ('POINT_FUSED', 'RAW_SOURCE', 'P3_OUT', 'COLOUR_LOOK', 'TONE_OP'),
-            ('ARK_BASE', 'ARK_VIBRANCE', 'MACRO_TOE', 'LIGHT_CHROMA', 'AGX_INSET', 'HL_NEUTRAL', 'YELLOW_HUE', 'GAMMA_TYPE'),
-            ('P3_OUT', 'TONE_OP', 'ARK_BASE', 'ARK_VIBRANCE', 'MACRO_TOE', 'AGX_INSET', 'GAMMA_TYPE'))
+            ('WHY_BASE', 'WHY_VIBRANCE', 'MACRO_TOE', 'LIGHT_CHROMA', 'AGX_INSET', 'HL_NEUTRAL', 'YELLOW_HUE', 'GAMMA_TYPE'),
+            ('P3_OUT', 'TONE_OP', 'WHY_BASE', 'WHY_VIBRANCE', 'MACRO_TOE', 'AGX_INSET', 'GAMMA_TYPE'))
 
 
 def compile_part(gpu, strict: bool) -> None:

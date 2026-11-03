@@ -907,11 +907,11 @@ public class PreferenceKeys {
     /** "key value" lines for the worker's hybrid_tuning.txt, from the pref_scam_hybrid_* preferences (scam_dev.txt "hybrid_<key>"). */
     public static String hybridTuningText() {
         StringBuilder out = new StringBuilder();
-        final boolean motion = isMotionMode();
+        final boolean motion = isMotionMode(), noHdr = noHdrFrames();
         for (String[] k : TUNING_KEYS) {
             Float dev = scamDevValue("hybrid_" + k[1]);
             // P86: in «Движение» the mode's own merge values (boost, motion threshold, Bento), as hybridValue gives them
-            String v = motion && ("bento".equals(k[1]) || "shasta".equals(k[1])) ? "0.0" : dev != null ? dev.toString()
+            String v = noHdr && ("bento".equals(k[1]) || "shasta".equals(k[1])) ? "0.0" : dev != null ? dev.toString()
                     : motion && MotionMode.replaces(k[1]) ? Float.toString(hybridValue(k[1], 0f)) : storedTuningValue(k[1]);
             // P68: a key with an app default (HYBRID_DEFAULTS) is written also when unset; any other keeps the worker default
             if ((v == null || v.isEmpty()) && HYBRID_DEFAULTS.containsKey(k[1])) v = HYBRID_DEFAULTS.get(k[1]).toString();
@@ -935,7 +935,7 @@ public class PreferenceKeys {
         // 377 ms; ~+1 s a 26-frame shot on the phone) and raised the merge's 2 px lattice 7-16 %; scam_dev "hybrid_s61_fine 2" = P332.
         final float s61Fine = hybridValue("s61_fine", 0f);
         if (s61Fine > 0f) out.append("s61Fine ").append(s61Fine).append('\n');
-        // P337 (owner, 2026-10-25: an ISO 12800 room next to ArkCam, «у нас заметно хуже мелкая деталь»): the 6.1 kernel x0.8 at
+        // P337 (owner, 2026-10-25: an ISO 12800 room next to WhyCam, «у нас заметно хуже мелкая деталь»): the 6.1 kernel x0.8 at
         // a key up to 8, back to x1 at 16 (worker s61NightScale; worker default 1 = replays unchanged). Phone replay of the owner's
         // burst: fine detail +11..16 %, text in the darks +31..48 %, flat noise +18 %. scam_dev.txt "hybrid_s61_night_scale 1" = before.
         final float nightScale = hybridValue("s61_night_scale", 0.8f);
@@ -944,14 +944,14 @@ public class PreferenceKeys {
         // max(1, value - accepted donors) where the donors were rejected (worker dezipper; 0 = off, the merge program as before)
         final float dezipper = hybridValue("dezipper", 4.5f);
         if (dezipper > 0f) out.append("dezipper ").append(Math.max(0.5f, Math.min(15f, dezipper))).append('\n');
-        // P335 (owner, 2026-10-25: Ark's rejections and anti-zipper «улучшить и добавить нам»): the rejection's soft motion prior
+        // P335 (owner, 2026-10-25: Why's rejections and anti-zipper «улучшить и добавить нам»): the rejection's soft motion prior
         // (worker rejPrior) and the Bayer base demosaic's false-colour damping by the Gr / Gb step above its noise (baseDemosaicAlias);
         // worker defaults = before (replays unchanged). Synthetic bursts with their truth (tools/replay_synth_burst.py): moving-area
         // colour error -3 % (day) with the damping, moving luma error -0.3 % (night) with the prior. The worker's plainChromaHand and
         // shastaSharpLo / Hi stay off (the hand-held chroma median share doubled the synthetic colour error; the long frames' sharpness
         // weight left the detail as it was). scam_dev.txt "hybrid_rej_prior 0", "hybrid_base_demosaic_alias 0" = as before.
         if (hybridValue("rej_prior", 1f) > 0f) out.append("rejPrior 1\n");
-        // P341 (owner, 2026-10-26: our rejection map next to ArkCam's, «займись картой реджектов»): the rejection distance from the
+        // P341 (owner, 2026-10-26: our rejection map next to WhyCam's, «займись картой реджектов»): the rejection distance from the
         // squared differences of the 3 x 3 cells (worker rejPool), not one cell's single noise draw. Phone replay of the owner's
         // bursts: a static night sky keeps 0.95 of each frame instead of 0.78 (the map clean instead of a noise cloud), the moving
         // sea stays rejected (0.44) with its ripples; replays with rejPool 0 bit-identical. scam_dev.txt "hybrid_rej_pool 0" = before.
@@ -987,7 +987,7 @@ public class PreferenceKeys {
         // worker defaults 0 (replays unchanged); scam_dev.txt "hybrid_clip_reject 0", "hybrid_rim_lift 0" = before.
         if (hybridValue("clip_reject", 1f) > 0f) out.append("clipReject 1\n");
         if (hybridValue("rim_lift", 1f) > 0f) out.append("rimLift 1\n");
-        // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне ArkCam»): the worker leaves the
+        // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне WhyCam»): the worker leaves the
         // ultrashort frames out when the base has no site at the clip next to another (worker usNeedClip): OPPO replays of the
         // owner's night / telephoto bursts 5.29 -> 3.15 s / 4.85 -> 3.00 s, the result the same. scam_dev "hybrid_us_need_clip 0".
         if (hybridValue("us_need_clip", 1f) > 0f) out.append("usNeedClip 1\n");
@@ -1058,6 +1058,8 @@ public class PreferenceKeys {
         if (hybridValue("us_edges", 1f) > 0f) out.append("bentoBlendUsBox 1\nbentoBlendFieldBilinear 1\nbentoBlendPixelMark 1\n");
         if (hybridValue("us_cache", 1f) > 0f) out.append("bentoUsCache 1\n");
         if (hybridValue("bayer_split", 1f) > 0f) out.append("bayerSplit 1\n");
+        out.append("bayerQuads ").append(hybridValue("bayer_quads", 1f) > 0f ? 1 : 0).append('\n');
+        out.append("texMaps ").append(Math.max(0, Math.min(31, Math.round(hybridValue("tex_maps", 19f))))).append('\n'); // P469
         // P392: a long frame whose moved share is above «Длинные кадры: отказ при движении» (up to 60 %) is kept and only its moved
         // blocks are left out (dilated, feathered) instead of the whole frame (the owner's burst: all three long frames dropped for a
         // moving hand, 20 % of the blocks). scam_dev.txt "hybrid_long_scope 0" = the whole frame dropped, as before.
@@ -1087,7 +1089,35 @@ public class PreferenceKeys {
         if (incoherent != com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.US_INCOHERENT)
             out.append("usIncoherent ").append(Math.max(0f, incoherent)).append('\n');
         if (MotionMode.sharpPriority()) out.append("widenBelow 0\nbaseDemosaicAniso 1\n");
+        // P488 (owner, 2026-11-03: the reference app's Sport merge, SPORT-COMPARISON §A3 / §A4, items 3 and 6): in «Спорт» the guarded
+        // rejection post-filter at its Sport threshold (worker rejPixDiff 0.35), the donor gate on the homography shift (donorShiftMax,
+        // 120 RAW px = its 15 thumbnail px at the fast merge's 1/8 scale) and in the fast merge its Sport overrides (fastMergeSport 3:
+        // boost 10, pixel difference 0.35, the 15 px / 0.75 donor gate). Photo writes none of them (scam_dev.txt "hybrid_rej_pix_diff",
+        // "hybrid_donor_shift_max", "hybrid_fast_merge_sport": 0 = off, a value = on in photo too).
+        // The post-filter stays off in «Спорт» too (replays on 5 bursts: detail +0.2..4.8 %, ghosting +0.1..3 % in the rejected area).
+        final boolean sport = isMotionMode();
+        final float pixDiff = hybridValue("rej_pix_diff", 0f), shiftMax = hybridValue("donor_shift_max", sport ? 120f : 0f);
+        final int fastSport = Math.round(hybridValue("fast_merge_sport", sport ? 3f : 0f));
+        if (pixDiff > 0f) out.append("rejPixDiff ").append(Math.min(1f, pixDiff)).append('\n');
+        if (shiftMax > 0f) out.append("donorShiftMax ").append(shiftMax).append('\n');
+        if (fastSport > 0 && fastProcessing()) out.append("fastMergeSport ").append(fastSport & 3).append('\n');
+        if (fastProcessing()) out.append(FAST_TUNING); // P474: last, over the lines above
         return out.toString();
+    }
+
+    /**
+     * P474 (owner, 2026-11-03: «Быстрый режим будет по умолчанию, а режим "качества" как второй вариант в настройках»): the merge
+     * without the P344 rejection options and with the F6 field on a 32 RAW px grid without its L0 iterations - OPPO PHY110 detail30
+     * worker 1829 -> 1300-1436 ms (warm); on motion a little more noise or a little less sharpness than «Качество». fastMerge 1: the
+     * per-frame fast merge route (scam-fast-merge.h; detail30 worker 1906 -> 980 ms in a replay); a burst it does not take keeps the
+     * lighter SCAM merge of the lines before it.
+     */
+    public static final String FAST_TUNING = "rejPool 0\nrejVarExact 0\nrejMatchBlur 0\nrejPerChannel 0\nrejRelFloor 0\nrejMeanDiff 0\n"
+            + "rejMeanFloor 0\nrejKneeLo 0\nrejKneeHi 0\nlaStride 16\nlaIters 0\nfastMerge 1\n";
+
+    /** P474: «Режим обработки» (pref_scam_hybrid_processing): "fast" (default) or "quality" (the full merge). */
+    public static boolean fastProcessing() {
+        return !"quality".equals(hybridString("processing", "fast"));
     }
     /**
      * P195 (owner, 2026-10-17: «добавь так же возможность отключать наш 2х2 и 4х4 ремозаик чтобы получать фото без него»):
@@ -1289,7 +1319,7 @@ public class PreferenceKeys {
     private static float clamp01(float v) { return Float.isNaN(v) ? 0f : Math.max(0f, Math.min(1f, v)); }
 
     public static float hybridValue(String key, float fallback) {
-        if (isMotionMode() && ("bento".equals(key) || "shasta".equals(key))) return 0f;
+        if (noHdrFrames() && ("bento".equals(key) || "shasta".equals(key))) return 0f;
         Float override = scamDevValue("hybrid_" + key);
         if (override != null) return override;
         // P86: in the «Движение» mode its own value of the key (pref_scam_hybrid_mm_<key>, the mode's default)
@@ -1298,7 +1328,7 @@ public class PreferenceKeys {
     }
     /** SCAM Hybrid switch pref_scam_hybrid_&lt;key&gt; (Boolean or "0"/"1"); scam_dev.txt "hybrid_&lt;key&gt; 0/1" overrides it. */
     public static boolean hybridSwitch(String key, boolean fallback) {
-        if (isMotionMode() && ("bento".equals(key) || "shasta".equals(key))) return false;
+        if (noHdrFrames() && ("bento".equals(key) || "shasta".equals(key))) return false;
         Float override = scamDevValue("hybrid_" + key);
         if (override != null) return override > 0f;
         if (MotionMode.replaces(key) && isMotionMode()) return hybridStoredSwitch(MotionMode.PREFIX + key, MotionMode.DEFAULTS.get(key) > 0f);
@@ -1316,6 +1346,23 @@ public class PreferenceKeys {
     }
 
     /** P86: the «Движение» photo mode (global switch beside the settings gear). */
+    /** P494 (owner, 2026-11-03: the shade's HDR tile «в положении выкл он должен полностью отключать длинные и сверхкороткие кадры»). */
+    public static final String HDR_FRAMES_KEY = "pref_hdr_frames";
+
+    /** P494: the shade's «HDR» (default on): off, no long (Shasta) and no ultrashort (Bento) frames are taken or merged. */
+    public static boolean hdrFrames() {
+        try {
+            return scamDevSwitch("hdr_frames", preferenceKeys == null || preferenceKeys.settingsManager.getBoolean("default_scope", HDR_FRAMES_KEY, true));
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** P494: no long and no ultrashort frames - «Спорт» or the HDR tile off. */
+    public static boolean noHdrFrames() {
+        return isMotionMode() || !hdrFrames();
+    }
+
     public static boolean isMotionMode() {
         Boolean shot = MotionMode.shotOn();
         if (shot != null) return shot;
@@ -1354,6 +1401,8 @@ public class PreferenceKeys {
     private static final Map<String, String[]> HYBRID_DEV_LISTS = new HashMap<>();
     static {
         HYBRID_DEV_LISTS.put("dn_strength_map", new String[]{"auto", "frames", "uniform"});
+        // P493: «Подавление аберраций» for an A/B: scam_dev.txt "hybrid_fringe_method 0" = the fringe net, "1" = P399
+        HYBRID_DEV_LISTS.put("fringe_method", new String[]{"neural", "classic"});
     }
     /** SCAM Hybrid text value pref_scam_hybrid_&lt;key&gt; (a ListPreference entry value), {@code fallback} when unset. */
     public static String hybridString(String key, String fallback) {

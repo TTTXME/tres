@@ -1,7 +1,7 @@
 package com.particlesdevs.photoncamera.processing.color;
 
 /**
- * P408 (owner, 2026-10-29: «Перенеси логику работы с CCM из арк»): the reference app's colour matrix profiles (its CameraCcmRegistry:
+ * P408 (owner, 2026-10-29: «Перенеси логику работы с CCM из Why»): the reference app's colour matrix profiles (its CameraCcmRegistry:
  * the LMC base matrices per sensor, white-balanced camera RGB -> linear sRGB) under their ids. Id 0 is the system matrix (the shot's
  * own colour route).
  */

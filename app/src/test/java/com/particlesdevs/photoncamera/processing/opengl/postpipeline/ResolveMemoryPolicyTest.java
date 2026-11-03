@@ -7,7 +7,7 @@ import static org.junit.Assert.*;
 public class ResolveMemoryPolicyTest {
     @Test public void fullResolutionNeverSilentlySkipsResolve() {
         for (int[] size : new int[][]{{4096,3072},{8192,6144},{16320,12288},{16320,12256}}) {
-            int rows = ArkResolveDenoise.stripRows(size[0], size[1]);
+            int rows = WhyResolveDenoise.stripRows(size[0], size[1]);
             assertTrue(rows > 0 && rows <= size[1]);
             long temporary = (long) size[0] * Math.min(size[1], rows + 14) * 16;
             assertTrue("Resolve temporary textures exceed budget", temporary <= (128L << 20));

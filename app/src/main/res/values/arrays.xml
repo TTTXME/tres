@@ -122,6 +122,30 @@
         <item>Area</item>
         <item>Bilinear</item>
     </string-array>
+    <string-array name="scam_hybrid_processing_entries">
+        <item>Fast</item>
+        <item>Quality</item>
+    </string-array>
+    <string-array name="scam_hybrid_processing_values" translatable="false">
+        <item>fast</item>
+        <item>quality</item>
+    </string-array>
+    <string-array name="scam_hybrid_fringe_method_entries">
+        <item>Neural</item>
+        <item>Classic</item>
+    </string-array>
+    <string-array name="scam_hybrid_fringe_method_values" translatable="false">
+        <item>neural</item>
+        <item>classic</item>
+    </string-array>
+    <string-array name="scam_hybrid_fringe_net_reach_entries">
+        <item>Narrow</item>
+        <item>Wide</item>
+    </string-array>
+    <string-array name="scam_hybrid_fringe_net_reach_values" translatable="false">
+        <item>6</item>
+        <item>12</item>
+    </string-array>
     <string-array name="scam_hybrid_downsampler_values" translatable="false">
         <item>lanczos</item>
         <item>bicubic</item>
@@ -651,7 +675,7 @@
         <item>97</item>
     </string-array>
     <string-array name="scam_hybrid_mosaic_wb_mode_values" translatable="false">
-        <item>ark</item>
+        <item>why</item>
         <item>own</item>
     </string-array>
     <string-array name="scam_hybrid_mosaic_wb_mode_entries">

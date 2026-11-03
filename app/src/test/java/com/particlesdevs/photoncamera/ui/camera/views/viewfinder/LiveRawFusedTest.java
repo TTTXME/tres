@@ -10,7 +10,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
+ * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
  * viewfinder's fused pass - the two RAW textures taken in turn, the lens-shading map uploaded on change, when the tone goes straight
  * to the screen (one pass) and how long the last RAW frame is held while a series is taken.
  */

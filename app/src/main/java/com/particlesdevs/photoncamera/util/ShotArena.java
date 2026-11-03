@@ -58,6 +58,13 @@ public final class ShotArena {
         return id > 0 ? new ShotArena(id, slot, frameBytes, slots) : null;
     }
 
+    public ByteBuffer allocate(int bytes) {
+        if (released || bytes <= 0 || bytes > frameBytes) return null;
+        final int slot = next.getAndIncrement();
+        if (slot >= slots) return null;
+        return Allocator.arenaView(id, slotOffset(slot), bytes);
+    }
+
     /** Copies {@code bytes} of {@code src} from {@code srcOffset} into the next slot; null: copy it elsewhere. */
     public ByteBuffer copy(ByteBuffer src, int srcOffset, int bytes) {
         if (released || bytes <= 0 || bytes > frameBytes) return null;

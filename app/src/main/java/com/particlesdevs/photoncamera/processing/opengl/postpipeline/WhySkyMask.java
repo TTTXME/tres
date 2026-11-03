@@ -4,7 +4,7 @@ import java.util.Arrays;
 import java.util.Locale;
 
 /**
- * P378 (owner, 2026-10-28: «исправить тонмапинг чтобы у нас небо было схожее с фото с Арк камеры. при этом чтобы в остальных
+ * P378 (owner, 2026-10-28: «исправить тонмапинг чтобы у нас небо было схожее с фото с Why камеры. при этом чтобы в остальных
  * сценариях ничего не сломалось»; «Нет, только небо»; «наш тонмапинг не должен затемнять небо в контровых сценах»): whether a
  * photo has a sky for the WHY tone's sky term, and where - decided once per photo on per-cell statistics of whyLow (why/skycells.glsl
  * on the GPU, {@link Cells#of} the same on the CPU; the viewfinder: {@link Cells#ofQuads} on LiveWhyMeter's quads). Pure Java (no

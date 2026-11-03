@@ -28,8 +28,20 @@ public final class WhyCombine extends Node {
 
     @Override public void Compile() {}
 
+    /** P479b: why/hlmask's gaussian weights (FAST), 160 floats (40 vec4), or null when off or the radius does not fit. */
+    static float[] hlWeights(float sigmaU) {
+        if (com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy() || !PreferenceKeys.scamDevSwitch("hlmask_fast", true)) return null;
+        final float sigma = Math.max(sigmaU, 0.5f);
+        final int radius = (int) Math.ceil(3.0 * sigma);
+        if (radius > 159) return null;
+        final float inv = -0.5f / (sigma * sigma);
+        final float[] w = new float[160];
+        for (int i = 0; i <= radius; i++) w[i] = (float) Math.exp((float) (i * i) * inv);
+        return w;
+    }
+
     /**
-     * P340 (owner, 2026-10-25: pairs against LMC 9.6, ArkCam and the stock camera): the detail delta of the full-size merge x this,
+     * P340 (owner, 2026-10-25: pairs against LMC 9.6, WhyCam and the stock camera): the detail delta of the full-size merge x this,
      * by the finish SNR: 1 up to SNR 20, log-linear to 1.7 at SNR 150 and above (the owner's sunsets at SNR 527 / 683: 1.7, the
      * ISO 2900 night at SNR 39: 1.22). Host replay of the sunset: the finest band of the display luma 0.0072 -> 0.0101 (LMC 9.6
      * 0.0106 .. 0.016 on the same water and deck, the stock camera 0.030 .. 0.036), the 1 - 3 px band +20 %; noise is the denoise's
@@ -164,6 +176,9 @@ public final class WhyCombine extends Node {
                 ? com.particlesdevs.photoncamera.processing.color.FilmChain.lut(com.particlesdevs.photoncamera.app.ScameraApp.getAppContext(), lutName) : null;
         int lutTexture = 0;
         GLTexture hlA = null, hlB = null, sunBloom = null, oppShare = null, skyWith = null, skyWithout = null;
+        com.particlesdevs.photoncamera.processing.opengl.GLBuffer rimTiles = null;
+        int[] rimBindings = null;
+        GLTexture sceneY = null;
         boolean sunBloomOn = false, oppOn = false;
         String skyLog = "";
         try {
@@ -184,6 +199,7 @@ public final class WhyCombine extends Node {
             if (detail == 0f && st.detailRef != null) { st.detailRef.close(); st.detailRef = null; }
             // P187: WhyLumaSharpen drew it already when it gave the full-size image back (above 100 MP)
             if (detail != 0f && st.detailRef == null) st.detailRef = detailRef(glProg, pipeline, input, gainMap, sharp ? st.sharpMul : r.ae);
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("why detailRef");
             // P154: the highlight landing and the upward path to white (HL_LANDING 0 = the shader before P154)
             final float hlSoft = hlSoft();
             final boolean realClip = ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f;
@@ -201,19 +217,34 @@ public final class WhyCombine extends Node {
                 glProg.setVar("invClipU", 1f / Math.max(Math.max(r.clip, r.hr), 1e-6f));
                 glProg.setVar("dirU", 0, 0);
                 glProg.drawBlocks(hlB);
-                glProg.useAssetProgram("why/hlmask", false);
-                glProg.setTexture("InputBuffer", hlB);
-                glProg.setVar("dirU", 1, 0);
-                glProg.setVar("sigmaU", sigma);
-                glProg.drawBlocks(hlA);
-                glProg.useAssetProgram("why/hlmask", false);
-                glProg.setTexture("InputBuffer", hlA);
-                glProg.setVar("dirU", 0, 1);
-                glProg.setVar("sigmaU", sigma);
-                glProg.drawBlocks(hlB);
+                // P479b (speed): the blur's weights once here (float exp, the shader's formula) and paired taps; scam_dev.txt
+                // "hlmask_fast 0", the old GL model or a radius over 159 taps: the shader's own exp per tap as before
+                final float[] hw = hlWeights(sigma);
+                for (int pass = 0; pass < 2; pass++) {
+                    if (hw != null) glProg.setDefine("FAST", 1);
+                    glProg.useAssetProgram("why/hlmask", false);
+                    glProg.setTexture("InputBuffer", pass == 0 ? hlB : hlA);
+                    glProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+                    glProg.setVar("sigmaU", sigma);
+                    if (hw != null) {
+                        glProg.setVarVec4s("weightsU", hw);
+                        glProg.setVar("radiusU", (int) Math.ceil(3.0 * Math.max(sigma, 0.5f)));
+                    }
+                    glProg.drawBlocks(pass == 0 ? hlA : hlB);
+                }
                 // P187: hlA is only the middle step of the blur
                 hlA.close();
                 hlA = null;
+            }
+            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly && sharp && st.factor > 1
+                    && detail != 0f && st.detailRef != null && PreferenceKeys.hybridSwitch("why_edge_luma_cache", true)) {
+                sceneY = SceneLumaCache.prepare(glProg, pipeline, input, gainMap);
+            }
+            if (WhyTone.rimSmooth() && st.factor > 1 && detail != 0f && st.detailRef != null
+                    && st.low.mSize.equals(st.detailRef.mSize)
+                    && PreferenceKeys.hybridSwitch("why_rim_support", true)) {
+                rimTiles = RimSupportGpu.prepare(glProg, st.low, r.ae, sharp,
+                        sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
             }
             if (hlB != null) glProg.setDefine("HL_LANDING", 1);
             // P378: the low-chroma glow round a light «Inpaint opposed» rebuilt (ScamRgb.opposedShare: none without a filled block)
@@ -256,13 +287,13 @@ public final class WhyCombine extends Node {
             if (lightChroma > 0f) glProg.setDefine("LIGHT_CHROMA", 1);
             if (WhyTone.yellowHue() > 0f) glProg.setDefine("YELLOW_HUE", 1);   // P395
             if (WhyTone.hlNeutral() > 0f) glProg.setDefine("HL_NEUTRAL", 1);   // P398
-            if (WhyTone.arkLayout()) glProg.setDefine("ARK_BASE", 1);   // P402: the reference fusion's base of the tone
+            if (WhyTone.whyLayout()) glProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
             if (WhyTone.insetStrength() < 0.999f) glProg.setDefine("AGX_INSET", 1);   // P402: the inset's strength
             if (WhyTone.gammaType() != 0) glProg.setDefine("GAMMA_TYPE", WhyTone.gammaType());   // P404: the display standard
-            final float[][] arkVib = WhyTone.arkVibrance();
-            if (arkVib != null) glProg.setDefine("ARK_VIB", 1);   // P404: saturated / mid / shadow vibrance, the skin's own mask
-            final boolean arkVibrance = WhyTone.arkVibranceOn();
-            if (arkVibrance) glProg.setDefine("ARK_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
+            final float[][] whyVib = WhyTone.whyVibrance();
+            if (whyVib != null) glProg.setDefine("WHY_VIB", 1);   // P404: saturated / mid / shadow vibrance, the skin's own mask
+            final boolean whyVibrance = WhyTone.whyVibranceOn();
+            if (whyVibrance) glProg.setDefine("WHY_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
             if (WhyTone.rimSmooth()) glProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
@@ -282,7 +313,28 @@ public final class WhyCombine extends Node {
             // a new texture binds itself on unit 1 + its name, which may be a sampler's unit (the pass then read its own output).
             if (st.inputReleased) android.opengl.GLES30.glFinish();
             WorkingTexture = pipeline.getMain();
-            glProg.useAssetProgram("why/combine", false);
+            if (rimTiles != null) glProg.setDefine("RIM_SUPPORT", 1);
+            if (sceneY != null) glProg.setDefine("EDGE_LUMA_CACHE", 1);
+            try {
+                glProg.useAssetProgram("why/combine", false);
+            } catch (RuntimeException error) {
+                if (rimTiles == null && sceneY == null) throw error;
+                if (rimTiles != null) rimTiles.close();
+                rimTiles = null;
+                if (sceneY != null) sceneY.close();
+                sceneY = null;
+                Log.w("SCAM_PIPELINE", "optional tone cache program failed: " + error + "; reference evaluation");
+                // A failed compile leaves the tone defines pending; override only the support gate.
+                glProg.setDefine("RIM_SUPPORT", 0);
+                glProg.setDefine("EDGE_LUMA_CACHE", 0);
+                glProg.useAssetProgram("why/combine", false);
+            }
+            if (rimTiles != null) {
+                rimBindings = new int[2];
+                android.opengl.GLES31.glGetIntegerv(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING, rimBindings, 0);
+                android.opengl.GLES31.glGetIntegeri_v(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING, 0, rimBindings, 1);
+                glProg.setBufferCompute("rimTiles", rimTiles);
+            }
             if (sunBloom != null) {
                 final int block = Math.max(1, pipeline.sunBloomBlock);
                 glProg.setTexture("SunBloom", sunBloom);
@@ -345,12 +397,12 @@ public final class WhyCombine extends Node {
             glProg.setVar("aeU", r.ae);
             glProg.setVar("clipU", r.clip);
             if (WhyTone.insetStrength() < 0.999f) glProg.setVar("insetU", WhyTone.insetStrength());   // P402
-            if (arkVib != null) {
-                glProg.setVar("arkVibU", arkVib[0]);
-                glProg.setVar("arkSkinU", arkVib[1]);
+            if (whyVib != null) {
+                glProg.setVar("whyVibU", whyVib[0]);
+                glProg.setVar("whySkinU", whyVib[1]);
             }
-            if (arkVibrance) {
-                glProg.setVar("vibArkU", WhyTone.vibranceArkUniform());
+            if (whyVibrance) {
+                glProg.setVar("vibWhyU", WhyTone.vibranceWhyUniform());
                 glProg.setVar("vibSkinU", WhyTone.vibranceSkinUniform());
             }
             // P216: real Bento headroom above the capped clip - WhyCam 1.58's shoulder, the landing on the real ceiling and the
@@ -414,7 +466,12 @@ public final class WhyCombine extends Node {
                 glProg.setVar("gradeAU", grade[0]);
                 glProg.setVar("gradeBU", grade[1]);
             }
+            if (sceneY != null) SceneLumaCache.bind(glProg, sceneY);
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("why combine prep");
             glProg.drawBlocks(WorkingTexture);
+            if (sceneY != null) Log.i("SCAM_PIPELINE", "WHY scene luma cache=" + sceneY.mSize.x + "x" + sceneY.mSize.y
+                    + " bytes=" + ((long) sceneY.mSize.x * sceneY.mSize.y * 4));
+            if (rimTiles != null) Log.i("SCAM_PIPELINE", "WHY rim support tiles=" + rimTiles.size);
             if (skyWith != null) {
                 try {
                     skyHdrRatio(pipeline, st, r, skyWith, skyWithout, lightChroma > 0f);
@@ -428,6 +485,12 @@ public final class WhyCombine extends Node {
             }
             glProg.closed = true;
         } finally {
+            if (sceneY != null) sceneY.close();
+            if (rimTiles != null) rimTiles.close();
+            if (rimBindings != null) {
+                android.opengl.GLES31.glBindBufferBase(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER, 0, rimBindings[1]);
+                android.opengl.GLES31.glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER, rimBindings[0]);
+            }
             if (skyWith != null) skyWith.close();
             if (skyWithout != null) skyWithout.close();
             st.closeTextures();

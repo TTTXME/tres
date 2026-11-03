@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="full_debug_summary">Пишет подробный журнал обработки в Download/SCAMERA для разбора ошибок.</string>
+    <string name="full_debug_summary">Журнал приложения, обработки и ошибок в Documents/SCAMERA/Logs. По умолчанию выключен. При включении показан фактический путь.</string>
 </resources>

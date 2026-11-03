@@ -43,12 +43,28 @@ public final class ScamHybridBurst implements ScamTransport {
      * some of a series out; 1 for the base frame alone).
      */
     public static volatile int lastNormals = 1;
+    /** P480: the base highlight mask of the last merge (HALF grid, IEEE halves row by row, native order) for WhyHlDezipper. */
+    public static final class HlMask {
+        public final java.nio.ByteBuffer halves;
+        public final int width, height;
+        HlMask(java.nio.ByteBuffer halves, int width, int height) { this.halves = halves; this.width = width; this.height = height; }
+    }
+    /** P480: set by ScamNeuralClient when the worker sent it (the fast merge with the highlight path on), else null. */
+    public static volatile HlMask lastHlMask;
     static final int ROLE_NORMAL = 1, ROLE_BRACKETED = 3, ROLE_ULTRASHORT = 5;
     private static final long BASE_WINDOW_NS = 205_000_000L; // SCAM: base candidates within 205 ms of the newest frame
     private static final int BASE_CANDIDATES = 4;
     /** P111 «Движение»: the base is the frame of the moment (the newest ring frame) or one of the two before it, 70 ms at most. */
     static final long MOTION_BASE_WINDOW_NS = 70_000_000L;
     static final int MOTION_BASE_CANDIDATES = 3;
+    /** P471: capture v2's base: the frame before the anchor (at most this much older) when it is MOMENT_SWITCH_RATIO x sharper. */
+    static final long MOMENT_SWITCH_WINDOW_NS = 40_000_000L;
+    static final double MOMENT_SWITCH_RATIO = 1.15;
+
+    /** P471: whether a candidate of sharpness {@code other} replaces the press anchor of sharpness {@code anchor}. */
+    static boolean momentSwitch(double anchor, double other) {
+        return other >= MOMENT_SWITCH_RATIO * Math.max(anchor, 0) && other > 0;
+    }
     // Frames one burst sends (the app's own cap: 41 N + 7 bracketed / ultrashort; the worker takes up to kHybridMaxFrames = 128,
     // scam-hybrid.h, and holds kHybridGpuFrames = 128 on the GPU).
     private static final int WORKER_MAX_FRAMES = 48;
@@ -331,15 +347,21 @@ public final class ScamHybridBurst implements ScamTransport {
         final int start = moment ? from : 0;
         final long anchor = normal.get(start).timestamp;
         ImageFrame best = normal.get(start); double bestScore = -1;
-        final int candidates = moment && com.particlesdevs.photoncamera.settings.MotionMode.captureV2() ? 1
-                : moment ? MOTION_BASE_CANDIDATES : BASE_CANDIDATES;
+        // P471: capture v2 keeps the press anchor unless the frame before it is clearly sharper (a hand-shaken anchor capped the
+        // moving subject's detail: the rejected areas show the base alone)
+        final boolean v2 = moment && com.particlesdevs.photoncamera.settings.MotionMode.captureV2();
+        final boolean v2Sharp = v2 && PreferenceKeys.scamDevSwitch("motion_base_sharp", true);
+        final int candidates = v2 ? (v2Sharp ? 2 : 1) : moment ? MOTION_BASE_CANDIDATES : BASE_CANDIDATES;
+        double anchorScore = -1;
         for (int i = start; i < Math.min(start + candidates, normal.size()); i++) {
             ImageFrame f = normal.get(i);
-            if (anchor - f.timestamp > (moment ? MOTION_BASE_WINDOW_NS : BASE_WINDOW_NS)) break;
+            if (anchor - f.timestamp > (v2 ? MOMENT_SWITCH_WINDOW_NS : moment ? MOTION_BASE_WINDOW_NS : BASE_WINDOW_NS)) break;
             if (Float.isNaN(f.sharpness)) f.computeSharpness();
             double s = Float.isNaN(f.sharpness) ? 0 : f.sharpness;
+            if (i == start) anchorScore = s;
             if (s > bestScore) { bestScore = s; best = f; }
         }
+        if (v2 && best != normal.get(start) && !momentSwitch(anchorScore, bestScore)) best = normal.get(start);
         base = best;
         // P366: the scene brightness of the merge's base frame (the ISO a DCG frame's noise model takes: its analog gain)
         sceneEv = sceneEv100(base.measuredExposure, Math.max(1, Math.round(base.measuredIso / dcgIsoScale)), p.aperture);
@@ -1036,7 +1058,8 @@ public final class ScamHybridBurst implements ScamTransport {
                 case "bento": return STEP_BENTO;
                 case "blend": return STEP_BLEND;
                 case "usCache": case "blendCache": return STEP_US_CACHE;
-                case "chromaSplit": case "bayerSplit": return STEP_BAYER_SPLIT;
+                case "chromaSplit": case "bayerSplit": case "chromaTile": case "nativeTile":
+                case "donorMerge": case "donorChroma": return STEP_BAYER_SPLIT;
                 // P377: one of the blend's stage programs (the blend itself stays, as one program)
                 case "blend0": case "blend1": case "blend2": case "blend3": case "blend4": return STEP_BLEND_STAGES;
                 case "mosaicUs": case "mosaicUsT": return STEP_US_FILL;
@@ -1483,6 +1506,7 @@ public final class ScamHybridBurst implements ScamTransport {
         lastMergeFrames = Double.NaN;
         ScamRgb.dropClipFlags();
         lastEffectiveFrames = null;
+        lastHlMask = null; // P480
         lastEffectiveMedian = Float.NaN;
         lastNormals = 1;
         lastMergedDng = null;

@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /**
  * Smart-HDR statistics and auto exposure of the WhyCam 1.23 / SCAM 9.6 photo tone: libfc_suppressor.so
- * run_unified_hdr_pipeline (0x724e0), ported line by line from research/hybrid5/ref/tone/ark_ae.py (that reference
+ * run_unified_hdr_pipeline (0x724e0), ported line by line from research/hybrid5/ref/tone/why_ae.py (that reference
  * matches the native code under emulation within 5e-5). Pure Java on a linear Rec.709 buffer (the G_CLEAN equivalent
  * "whyLow"), no GL and no Android, so it is unit-tested against the Python reference.
  */
@@ -57,7 +57,7 @@ public final class WhyAe {
         /** P216: where the highlight peak of a shot with real headroom lies between P159's (0) and the p99.9 level (1), in log. */
         public float hrMix = 0.5f;
         /**
-         * P402: the reference app's Smart-HDR strengths (with its classic fusion layout, WhyTone.arkLayout): effS without the
+         * P402: the reference app's Smart-HDR strengths (with its classic fusion layout, WhyTone.whyLayout): effS without the
          * night factor, effH from the peak's excess over 0.85 x bright_thresh with a soft start, x0.833 per EV, a bright-area gate
          * 0.2 .. 1 and x(1 + 0.35 ..) for a large bright area; false: ours (WhyCam 1.58's).
          */

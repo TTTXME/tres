@@ -3,7 +3,7 @@
 gamma standard and its contrast boost, the Sobel edge boost, edge thinning and RL damping). Checks:
 - off (the defaults): why/lpyr (every MODE, SKY, EDGE_BANDS, WINDOW), why/gf (every MODE) and why/msdn (every MODE) preprocess to the
   token streams before P404 (their SHA-256; GAMMA_TYPE 0, MOTION 0); why/combine's own pin is check_colour_output.py --shader;
-- on: why/combine with GAMMA_TYPE 1 / 2, ARK_VIB 1 and their mix with the tone operators, P3, the colour look and the sun glow,
+- on: why/combine with GAMMA_TYPE 1 / 2, WHY_VIB 1 and their mix with the tone operators, P3, the colour look and the sun glow,
   why/lpyr and why/gf with GAMMA_TYPE 1 / 2, why/msdn with MOTION 1, why/sharp_compose and why/sharp_rl compile (glslc, when found);
 - the gamma standards (combine's encG / decG, mirrored): sRGB and Rec.709 each other's inverse, continuous at the knee, 0 -> 0, 1 -> 1;
 - the motion boost (msdn MOTION, mirrored): full at 1 frame, none at 6 and more, monotone;
@@ -66,7 +66,7 @@ def compile_variants():
         print('  glslc not found: compile skipped')
         return
     jobs = [('why/combine', d) for d in ({'GAMMA_TYPE': '1'}, {'GAMMA_TYPE': '2', 'P3_OUT': '1'}, {'TONE_OP': '1', 'GAMMA_TYPE': '1'},
-                                         {'ARK_VIB': '1'}, {'ARK_VIB': '1', 'COLOUR_LOOK': '1', 'TONE_OP': '1', 'GAMMA_TYPE': '2',
+                                         {'WHY_VIB': '1'}, {'WHY_VIB': '1', 'COLOUR_LOOK': '1', 'TONE_OP': '1', 'GAMMA_TYPE': '2',
                                                             'SUN_BLOOM': '1', 'P3_OUT': '1'})]
     jobs += [('why/lpyr', {'GAMMA_TYPE': '1'}), ('why/lpyr', {'GAMMA_TYPE': '2', 'MODE': '3'}), ('why/gf', {'GAMMA_TYPE': '1', 'MODE': '3'}),
              ('why/gf', {'GAMMA_TYPE': '2'}), ('why/sharp_compose', {}), ('why/sharp_rl', {}), ('why/msdn', {'MODE': '3', 'MOTION': '1'}),
@@ -186,7 +186,7 @@ def main():
         got = stream(name, (SH / (name + '.glsl')).read_text(encoding='utf-8'))
         check(got == pin, '%s: the token streams before P404 by default (%s)' % (name, got[:12]))
     combine = (SH / 'why/combine.glsl').read_text(encoding='utf-8')
-    for k in ('GAMMA_TYPE', 'ARK_VIB'):
+    for k in ('GAMMA_TYPE', 'WHY_VIB'):
         check(('#define %s 0\n' % k) in combine, 'combine: %s 0 by default' % k)
     for t, knee in ((1, 0.0031308), (2, 0.018)):
         x = np.linspace(0, 1, 20001)

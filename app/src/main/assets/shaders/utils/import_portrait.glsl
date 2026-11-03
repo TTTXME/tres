@@ -3,16 +3,21 @@ uniform vec4 portraitFacesU[5];
 uniform vec4 portraitAdjustU[5];
 
 vec3 portraitSkin(vec3 rgb, vec2 uv) {
-    float turn = 0.0;
+    // P473: adjust.y = the scene-confirmed yellow-blue shift (OKLab b / L, PortraitSkin.shift); the strongest overlapping face wins
+    // as for the turn, a zero shift leaves the turn path bit-exact
+    float turn = 0.0, shift = 0.0;
     for (int i = 0; i < 5; i++) {
         if (i >= portraitCountU) break;
         vec4 box = portraitFacesU[i];
-        if (portraitAdjustU[i].x == 0.0 || box.z <= box.x || box.w <= box.y) continue;
+        if ((portraitAdjustU[i].x == 0.0 && portraitAdjustU[i].y == 0.0) || box.z <= box.x || box.w <= box.y) continue;
         vec2 p = (uv - 0.5 * (box.xy + box.zw)) / ((box.zw - box.xy) * vec2(0.46, 0.48));
-        float candidate = portraitAdjustU[i].x * (1.0 - smoothstep(0.65, 1.0, dot(p, p)));
+        float mask = 1.0 - smoothstep(0.65, 1.0, dot(p, p));
+        float candidate = portraitAdjustU[i].x * mask;
         if (abs(candidate) > abs(turn)) turn = candidate;
+        candidate = portraitAdjustU[i].y * mask;
+        if (abs(candidate) > abs(shift)) shift = candidate;
     }
-    if (turn == 0.0 || any(lessThanEqual(rgb, vec3(0.0001))) || any(greaterThanEqual(rgb, vec3(0.98)))
+    if ((turn == 0.0 && shift == 0.0) || any(lessThanEqual(rgb, vec3(0.0001))) || any(greaterThanEqual(rgb, vec3(0.98)))
             || any(isnan(rgb)) || any(isinf(rgb)) || dot(rgb, vec3(0.2126, 0.7152, 0.0722)) < 0.008) return rgb;
     vec3 lms = mat3(0.4122214708, 0.2119034982, 0.0883024619,
                     0.5363325363, 0.6806995451, 0.2817188376,
@@ -28,9 +33,11 @@ vec3 portraitSkin(vec3 rgb, vec2 uv) {
             * smoothstep(0.12, 0.20, lab.x);
     float need = turn < 0.0 ? min(radians(70.0 - hue), 0.0) : max(radians(25.0 - hue), 0.0);
     turn = sign(turn) * min(min(abs(turn), abs(need)), 0.1745329252) * skin;
-    if (turn == 0.0) return rgb;
+    shift *= skin;
+    if (turn == 0.0 && shift == 0.0) return rgb;
     float ct = cos(turn), st = sin(turn);
     lab.yz = mat2(ct, st, -st, ct) * lab.yz;
+    if (shift != 0.0) lab.z += shift * lab.x;
     vec3 root = mat3(1.0, 1.0, 1.0,
                     0.3963377774, -0.1055613458, -0.0894841775,
                     0.2158037573, -0.0638541728, -1.2914855480) * lab;

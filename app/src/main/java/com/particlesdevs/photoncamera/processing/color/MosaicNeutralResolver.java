@@ -44,14 +44,14 @@ public final class MosaicNeutralResolver {
      */
     public static final int ROUTE_NONE = 0, ROUTE_VIVO_NATIVE = 1, ROUTE_STILL_ONLY = 2, ROUTE_SENSOR_MODE = 3;
     /**
-     * P408 (owner, 2026-10-29: «логику работы баланса белого с Quad и Tetra перенеси так же с ARK»): the reference app's rule on
+     * P408 (owner, 2026-10-29: «логику работы баланса белого с Quad и Tetra перенеси так же с WHY»): the reference app's rule on
      * every Quad / Tetra shot - the white balance of the live stream's last result (CameraManager.lastWbGains: its
      * COLOR_CORRECTION_GAINS, from its SENSOR_NEUTRAL_COLOR_POINT when those are the identity), no AWB-state or curve gate; without
-     * a viewfinder result, the shot's own HAL neutral. «Баланс белого Quad / Tetra» (pref_scam_hybrid_mosaic_wb_mode) «ark».
+     * a viewfinder result, the shot's own HAL neutral. «Баланс белого Quad / Tetra» (pref_scam_hybrid_mosaic_wb_mode) «why».
      */
-    public static final int ROUTE_ARK = 4;
-    /** P408: «Баланс белого Quad / Tetra»: the reference app's rule (ROUTE_ARK, the default) or ours (P121 / P212g / P366). */
-    public static final String MODE_ARK = "ark", MODE_OWN = "own";
+    public static final int ROUTE_WHY = 4;
+    /** P408: «Баланс белого Quad / Tetra»: the reference app's rule (ROUTE_WHY, the default) or ours (P121 / P212g / P366). */
+    public static final String MODE_WHY = "why", MODE_OWN = "own";
     /** P315: a P121 estimate farther than this (ln) from every learned illuminant of the camera's curve is not taken as one. */
     public static final double OFF_LOCUS = 0.4;
     /** ln: how far from the camera's curve a HAL neutral may lie and still be kept. */
@@ -91,12 +91,12 @@ public final class MosaicNeutralResolver {
         }
 
         /** P408: the reference app's rule, {@code viewfinder} the live stream's last neutral (null: none). */
-        public static Press ark(@Nullable float[] viewfinder) {
-            return new Press(ROUTE_ARK, viewfinder, viewfinder == null ? 0 : 1, 0f);
+        public static Press why(@Nullable float[] viewfinder) {
+            return new Press(ROUTE_WHY, viewfinder, viewfinder == null ? 0 : 1, 0f);
         }
 
         @Override public String toString() {
-            if (route == ROUTE_ARK) return viewfinder == null ? "reference app's rule, no viewfinder result"
+            if (route == ROUTE_WHY) return viewfinder == null ? "reference app's rule, no viewfinder result"
                     : String.format(Locale.ROOT, "reference app's rule, the viewfinder's last result %.3f / %.3f", viewfinder[0], viewfinder[2]);
             return route == ROUTE_VIVO_NATIVE ? "vivo native" : route == ROUTE_SENSOR_MODE ? "sensor mode (OPPO family)" : route == ROUTE_STILL_ONLY ? viewfinder == null ? "still-only, no converged viewfinder result"
                     : String.format(Locale.ROOT, "still-only, viewfinder %.3f / %.3f of %d results (spread %.3f)", viewfinder[0], viewfinder[2],
@@ -138,33 +138,33 @@ public final class MosaicNeutralResolver {
                 return;
             }
             final float[] neutral = n == null || n.length < 3 ? null : new float[]{n[0].floatValue(), n[1].floatValue(), n[2].floatValue()};
-            final float[] ark = arkNeutral(g == null ? null : new float[]{g.getRed(), g.getGreenEven(), g.getGreenOdd(), g.getBlue()}, neutral);
+            final float[] why = whyNeutral(g == null ? null : new float[]{g.getRed(), g.getGreenEven(), g.getGreenOdd(), g.getBlue()}, neutral);
             final boolean own = neutral != null && neutral[1] > 0f;
             offer(cameraId, nowMs, own ? neutral[0] / neutral[1] : Float.NaN, own ? neutral[2] / neutral[1] : Float.NaN,
                     own && mode != null && mode == CaptureResult.CONTROL_AWB_MODE_AUTO && converged(state),
-                    ark == null ? Float.NaN : ark[0], ark == null ? Float.NaN : ark[2]);
+                    why == null ? Float.NaN : why[0], why == null ? Float.NaN : why[2]);
         }
 
         synchronized void offer(String cameraId, long nowMs, float rg, float bg, boolean awbConverged) {
             offer(cameraId, nowMs, rg, bg, awbConverged, Float.NaN, Float.NaN);
         }
 
-        synchronized void offer(String cameraId, long nowMs, float rg, float bg, boolean awbConverged, float arkR, float arkB) {
-            final boolean ark = usable(arkR) && usable(arkB);
-            if (!(usable(rg) && usable(bg)) && !ark) return;
+        synchronized void offer(String cameraId, long nowMs, float rg, float bg, boolean awbConverged, float whyR, float whyB) {
+            final boolean why = usable(whyR) && usable(whyB);
+            if (!(usable(rg) && usable(bg)) && !why) return;
             camera[next] = cameraId;
             ms[next] = nowMs;
             r[next] = usable(rg) && usable(bg) ? rg : Float.NaN;
             b[next] = usable(rg) && usable(bg) ? bg : Float.NaN;
             converged[next] = awbConverged && usable(rg) && usable(bg);
-            ar[next] = ark ? arkR : Float.NaN;
-            ab[next] = ark ? arkB : Float.NaN;
+            ar[next] = why ? whyR : Float.NaN;
+            ab[next] = why ? whyB : Float.NaN;
             next = (next + 1) % RING;
             size = Math.min(RING, size + 1);
         }
 
         /** P408: the reference app's press of {@code cameraId} at {@code pressMs}: its newest result of the last {@link #WINDOW_MS}. */
-        public synchronized Press ark(@Nullable String cameraId, long pressMs) {
+        public synchronized Press why(@Nullable String cameraId, long pressMs) {
             int best = -1;
             for (int i = 0; i < size; i++) {
                 if (cameraId == null || !cameraId.equals(camera[i]) || Float.isNaN(ar[i])) continue;
@@ -172,7 +172,7 @@ public final class MosaicNeutralResolver {
                 if (age < 0 || age > WINDOW_MS) continue;
                 if (best < 0 || ms[i] > ms[best]) best = i;
             }
-            return Press.ark(best < 0 ? null : new float[]{ar[best], 1f, ab[best]});
+            return Press.why(best < 0 ? null : new float[]{ar[best], 1f, ab[best]});
         }
 
         /** The still-only press of {@code cameraId} at elapsedRealtime {@code pressMs}: the median of its converged results then. */
@@ -214,7 +214,7 @@ public final class MosaicNeutralResolver {
     @Nullable
     public static Decision decide(@Nullable Press press, @Nullable float[] hal, @Nullable Integer awbState, float curveDistance) {
         if (press == null || press.route == ROUTE_NONE || !on()) return null;
-        if (press.route == ROUTE_ARK) {
+        if (press.route == ROUTE_WHY) {
             if (press.viewfinder != null) return new Decision(press.viewfinder.clone(), String.format(Locale.ROOT,
                     "reference app's rule: the viewfinder's last result %.3f / %.3f", press.viewfinder[0], press.viewfinder[2]));
             if (hal == null || hal.length < 3 || !(hal[1] > 0f) || !usable(hal[0] / hal[1]) || !usable(hal[2] / hal[1])) return null;
@@ -239,7 +239,7 @@ public final class MosaicNeutralResolver {
     public static String whyNot(@Nullable Press press, @Nullable float[] hal, @Nullable Integer awbState, float curveDistance) {
         if (press == null || press.route == ROUTE_NONE) return "";
         if (!on()) return "mosaic_awb_resolver 0";
-        if (press.route == ROUTE_ARK) return "reference app's rule: no viewfinder result and no HAL neutral";
+        if (press.route == ROUTE_WHY) return "reference app's rule: no viewfinder result and no HAL neutral";
         if (hal == null || hal.length < 3 || !(hal[1] > 0f) || !usable(hal[0] / hal[1]) || !usable(hal[2] / hal[1])) return "no HAL neutral";
         if (!converged(awbState)) return "the HAL's AWB not converged (state " + awbState + ")";
         if (Float.isNaN(curveDistance)) return "no curve of the camera to check the HAL's neutral against";
@@ -402,7 +402,7 @@ public final class MosaicNeutralResolver {
      * above 0.05 and r or b differs from g by more than 0.01; null when neither gives one.
      */
     @Nullable
-    public static float[] arkNeutral(@Nullable float[] gains, @Nullable float[] neutral) {
+    public static float[] whyNeutral(@Nullable float[] gains, @Nullable float[] neutral) {
         if (gains != null && gains.length >= 4) {
             boolean identity = true;
             for (int i = 0; i < 4; i++) identity &= Math.abs(gains[i] - 1f) < 0.01f;
@@ -421,8 +421,8 @@ public final class MosaicNeutralResolver {
     }
 
     /** P408: «Баланс белого Quad / Tetra» of now (pref_scam_hybrid_mosaic_wb_mode; the reference app's rule by default). */
-    public static boolean arkMode() {
-        return !MODE_OWN.equals(com.particlesdevs.photoncamera.settings.PreferenceKeys.hybridString("mosaic_wb_mode", MODE_ARK));
+    public static boolean whyMode() {
+        return !MODE_OWN.equals(com.particlesdevs.photoncamera.settings.PreferenceKeys.hybridString("mosaic_wb_mode", MODE_WHY));
     }
 
     static boolean converged(@Nullable Integer state) {

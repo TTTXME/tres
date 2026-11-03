@@ -73,7 +73,7 @@ public final class FilmEffects {
         }
         if (halo) {
             // three bounces G(sigma sqrt(k)) weighted 1, 1/2, 1/4, energy kept: (E + a H) / (1 + a)
-            final float sigma = set.stock.halationUm / um;
+            final float sigma = set.halationUm() / um; // P487: x «Halation size»
             final float[] hsum = new float[e.length];
             final float[] wts = {1f / 1.75f, .5f / 1.75f, .25f / 1.75f};
             for (int b = 0; b < 3; b++) {

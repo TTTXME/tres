@@ -43,7 +43,7 @@ public final class LiveRawFrame {
     /** P314: {@code ready} holds a frame acquire() has not taken yet. */
     private static boolean readyFresh;
     /**
-     * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
+     * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
      * vf_ring_ref): {@code ready} / {@code consumer} may be a pinned view of a ZSL ring slot ({@link #publishRef}) instead of a
      * buffer of this class; these hold the view to free (Allocator.free) then, null for an own buffer. A pinned {@code ready} is
      * always fresh (acquire frees the GL thread's last view instead of handing it back as {@code ready}), so the GL thread never
@@ -551,7 +551,7 @@ public final class LiveRawFrame {
     }
 
     /**
-     * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
+     * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
      * vf_ring_ref): the frame as its ZSL ring slot holds it - {@code view}, a pinned view of the slot (Allocator.arenaView), whose
      * ownership passes here. A plain 16-bit frame of whole rows is drawn from the slot itself: no copy of the viewfinder's own,
      * the slot stays pinned (ZslRing skips it) until the GL thread's next acquire after a newer frame. Any other frame - packed,

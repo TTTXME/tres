@@ -19,7 +19,19 @@ g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_native_cull
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-native-cull-gpu
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_us_cache_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-us-cache-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-us-cache-gpu
+
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_bayer_tile_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-bayer-tile-gpu
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-bayer-tile-gpu
+
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_donor_sums_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-donor-sums-gpu
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-donor-sums-gpu
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_resolve_grain_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-resolve-grain-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-resolve-grain-gpu
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_fullres_2x.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-fullres-2x
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-fullres-2x
+
+g++ -std=c++17 -O2 -fsanitize=address,undefined tools/check_bayer_quads_policy.cpp -o /tmp/check-bayer-quads-policy
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-bayer-quads-policy
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_bayer_quads_tuning.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-bayer-quads-tuning
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-bayer-quads-tuning
+python3 tools/check_bayer_quads_memory.py

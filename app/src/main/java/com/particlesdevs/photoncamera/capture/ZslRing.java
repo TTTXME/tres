@@ -196,7 +196,7 @@ public final class ZslRing {
     }
 
     /**
-     * {@link #store(Image)}; {@code unpack}: P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его
+     * {@link #store(Image)}; {@code unpack}: P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его
      * такимже по требованиям как там»; scam_dev zsl_ring_unpack) a packed RAW10 / RAW12 frame is unpacked into its slot as it
      * arrives (Allocator.arenaCopyUnpack, the decode of ImageFrame.materialize's after the press) and reported with RAW_SENSOR
      * geometry (rowStride w * 2), so the worker gets a zero-copy view of it (ImageFrame.viewable) and the viewfinder can draw

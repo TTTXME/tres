@@ -99,7 +99,7 @@ Later owner HEAD observed during handoff validation:
   main camera3 FULLRES50 under automatic AE ISO250 / 16666667ns. Three matched
   future NORMAL RAW timestamps were 293766248467779, 293766692538613, and
   293767103286113. Actual capture mode13 and RAW8192x6144 were recorded; the
-  ordinary-UID Hybrid PSL worker saved JPEG8192x6144 with ArkLumaSharpen.
+  ordinary-UID Hybrid PSL worker saved JPEG8192x6144 with WhyLumaSharpen.
   Evidence: reports/pd2454-sdk50-30802-capture-result-20261015.txt and
   reports/sdk50-live-20261015/SCA_20261015_000719.jpg. The worker log field
   root=10349 denotes its UID, not root privilege. JPEG SHA256:
@@ -111,7 +111,7 @@ Later owner HEAD observed during handoff validation:
   diagnostic APK, not the final GitHub Actions artifact. Both APK and JPEG
   hashes were independently checked on the host. Main3 is the only verified
   production SDK50 camera; this does not establish tele200 or RAW ZSL.
-- Existing PostPipeline uses ArkLumaSharpen. RawTherapee was removed by prior
+- Existing PostPipeline uses WhyLumaSharpen. RawTherapee was removed by prior
   P118 changes; earlier SDK integration reports claiming it was retained were
   inaccurate. Preserve the current pipeline and do not roll back the other AI.
 

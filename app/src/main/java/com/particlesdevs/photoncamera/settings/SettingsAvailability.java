@@ -136,6 +136,8 @@ public final class SettingsAvailability {
         if (!fullRes200 && key.equals("pref_scam_hybrid_fullres200_frames")) return true;
         // P128: the AgX saturation of the OPPO tuned matrix acts only on the phones that matrix renders (WhyTone.ccmSatComp)
         if (!oppoTunedColor && key.equals("pref_scam_hybrid_why_ccm_sat")) return true;
+        // P493: «Настройки нейросети» belongs to «Подавление аберраций: Нейросеть» (CaNetP.method; «Классическое» by default)
+        if (key.equals("fringe_net_screen")) return !text("pref_scam_hybrid_fringe_method", "classic").trim().equals("neural");
         String format = photoFormat();
         switch (key) {
             case "pref_heic_quality": case "pref_heic_10bit": return !format.equals("heic");
@@ -167,7 +169,7 @@ public final class SettingsAvailability {
                         "No effect with a film simulation at 100 %: the film sets the tone, colour and texture. Below 100 % its influence is reduced.");
         }
         // The denoise and watermark switches sit on a parent page of these rows (P6), so the rule replaces android:dependency.
-        if ((key.startsWith("pref_scam_hybrid_dn_") || key.startsWith("pref_scam_hybrid_ark_dn_")
+        if ((key.startsWith("pref_scam_hybrid_dn_") || key.startsWith("pref_scam_hybrid_why_dn_")
                 || key.startsWith("pref_scam_hybrid_why_ms_") || key.startsWith("pref_scam_hybrid_resolve_speckle_")
                 || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
                 && !on("pref_scam_hybrid_denoise", true)) return Lang.t("Включите «Все шумодавы» (Для опытных › SHDR › Шумоподавление: подробно).",
@@ -197,6 +199,9 @@ public final class SettingsAvailability {
         if (motion && any(key, "pref_scam_hybrid_motion_boost", "pref_scam_hybrid_boost_value", "pref_scam_hybrid_motion_threshold"))
             return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Для опытных › Другие тонкие настройки › Кадры склейки).",
                     "In “Sport” mode its own value applies (the “Sport” page: For experts › More fine settings › Merge frames).");
+        if (motion && key.equals("pref_scam_hybrid_why_dn_motion_revert")) // P471 (MotionMode.DEFAULTS)
+            return Lang.t("В режиме «Спорт» действует 0.5: половина резкости движущихся участков, без лишнего зерна.",
+                    "In “Sport” mode 0.5 applies: moving areas keep half their luma detail, without extra grain.");
         if (motion && key.equals("pref_scam_hybrid_widen_below"))
             return Lang.t("В режиме «Спорт» не действует: база там не расширяется.", "Not used in “Sport” mode: the base is never widened there.");
         // «Порог дисперсии для усиления» is not replaced by the mode: it acts with the boost switch in effect (the mode's own in the mode) and F6

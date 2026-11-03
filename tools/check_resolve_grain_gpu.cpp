@@ -4,7 +4,7 @@
 #include <cstdio>
 
 int main(int argc,char** argv) {
-    const char* path=argc>1?argv[1]:"app/src/main/assets/shaders/scamdn/ark_resolve.glsl";
+    const char* path=argc>1?argv[1]:"app/src/main/assets/shaders/scamdn/why_resolve.glsl";
     std::ifstream input(path);
     const std::string text((std::istreambuf_iterator<char>(input)),std::istreambuf_iterator<char>());
     const auto begin=text.find("float hash(highp ivec2 c) {");

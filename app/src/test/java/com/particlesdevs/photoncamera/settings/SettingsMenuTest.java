@@ -190,7 +190,7 @@ public class SettingsMenuTest {
 
     @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void portraitPageKeepsRequestedNameAndSearchesInBothLanguages(){
         PreferenceScreen root=inflate(),page=root.findPreference("portrait_screen");
-        assertEquals("Портерт",String.valueOf(page.getTitle()));
+        assertEquals("Портрет",String.valueOf(page.getTitle()));
         android.content.res.Configuration en=new android.content.res.Configuration(context.getResources().getConfiguration());
         en.setLocale(Locale.ENGLISH);
         assertEquals("Portrait",context.createConfigurationContext(en).getString(R.string.prefs_portrait_title));
@@ -199,7 +199,7 @@ public class SettingsMenuTest {
         for(String key:new String[]{"portrait_screen","pref_portrait_enabled","pref_portrait_skin_warmth"}){
             var entry=index.stream().filter(e->e.key.equals(key)).findFirst().orElseThrow();
             assertEquals("portrait_screen",entry.page);
-            assertTrue(entry.matches("портерт",words.get(key)));assertTrue(entry.matches("portrait",words.get(key)));
+            assertTrue(entry.matches("портрет",words.get(key)));assertTrue(entry.matches("portrait",words.get(key)));
             assertTrue(key,pagesAbove(root.findPreference(key))<=1);
         }
     }
@@ -781,7 +781,7 @@ public class SettingsMenuTest {
     @Test public void sliderThumbIsNeverClipped(){
         PreferenceScreen screen=inflate();
         int checked=0;
-        for(String key:new String[]{"pref_scam_hybrid_shasta_ev","pref_scam_hybrid_ark_dn_factor","pref_scam_hybrid_ark_dn_grain"}){
+        for(String key:new String[]{"pref_scam_hybrid_shasta_ev","pref_scam_hybrid_why_dn_factor","pref_scam_hybrid_why_dn_grain"}){
             Preference p=screen.findPreference(key);assertNotNull(key,p);
             android.view.View card=row(p);
             android.widget.SeekBar bar=card.findViewById(R.id.seekbar);
@@ -1410,7 +1410,7 @@ public class SettingsMenuTest {
         for(int i=0;i<noise.getPreferenceCount();i++)order.add(noise.getPreference(i).getKey());
         // P443: the switches, the engine and the Resolve rows (the SCAM 9.6 tuning left the menu; its strength is the everyday slider)
         assertEquals(Arrays.asList("pref_scam_hybrid_denoise",
-                "pref_scam_hybrid_ark_dn_luma_revert","pref_scam_hybrid_ark_dn_motion_revert","pref_scam_hybrid_ark_dn_grain"),order);
+                "pref_scam_hybrid_why_dn_luma_revert","pref_scam_hybrid_why_dn_motion_revert","pref_scam_hybrid_why_dn_grain"),order);
         // P403 / P406: the short frames' denoise with the highlight frames on «Настройки HDR», as the reference app
         assertEquals("scam_hybrid_capture_category",screen.findPreference("pref_scam_hybrid_why_bracket_denoise").getParent().getKey());
         for(String k:new String[]{"pref_scam_hybrid_diagnostics","pref_scam_hybrid_profile","pref_scam_hybrid_dev_note",
@@ -1536,14 +1536,17 @@ public class SettingsMenuTest {
         // P384 (owner, 2026-10-28: «Переместить эту группу настроек на главный экран»): «Модули камеры» after «Съёмка»; P390 (owner,
         // the same day: «Положи эти настройки в одну группу чтобы они все разом не были на главном экране настроек»): the module
         // cards, Camera IDs and sensors on one page «Камеры и модули», the first row of «Съёмка»
-        // P406 (owner, 2026-10-29: «Перегрупируй полностью всё меню настроек максимально схоже с Арк, не только группу SHDR»; this
+        // P406 (owner, 2026-10-29: «Перегрупируй полностью всё меню настроек максимально схоже с Why, не только группу SHDR»; this
         // order supersedes the 2026-10-27 one): the reference app's settings - the modules and lenses, saving and formats, the
         // general settings, then its image settings (style, the everyday sliders, the processing categories), the lab, the logs, about
-        String[] order={"root_lenses","root_photo","root_shoot","root_colour","root_lab","root_logs","root_about"};
+        // P490 (owner, 2026-11-03): the processing mode first, at the very top, as left-to-right segments
+        // P493 (owner, 2026-11-03): «Подавление аберраций» right under it, the same segments, and its net's page (shown with «Нейросеть»)
+        String[] order={"pref_scam_hybrid_processing","pref_scam_hybrid_fringe_method","fringe_net_screen","root_lenses","root_photo","root_shoot",
+                "root_colour","root_lab","root_logs","root_about"};
         assertEquals(order.length,screen.getPreferenceCount());
         for(int i=0;i<order.length;i++)assertEquals(order[i],screen.getPreference(i).getKey());
         // «Модули камеры и линзы»: the modules (P384: built in code, empty in the XML; P390: one page). P413 (owner, 2026-10-30:
-        // «Сделай настройки линз аналогично Арк, убедись что настройки нигде не дублируются»): each module's lens page (the reference
+        // «Сделай настройки линз аналогично Why, убедись что настройки нигде не дублируются»): each module's lens page (the reference
         // app's sections) holds its sensor, RAW, levels, colour matrix and noise model - the former «RAW и сенсор», «Цвет камеры»,
         // «Camera ID модулей» and «Сенсор по модулям» are gone (their rows live there or in the module's card)
         assertEquals(Arrays.asList("modules_screen","pref_xiaomi_smooth_zoom"),keys(screen.findPreference("root_lenses")));
@@ -1580,14 +1583,14 @@ public class SettingsMenuTest {
         assertEquals(ShadeCatalog.MIRROR,general.get(9));assertEquals(10,general.size());
         assertEquals(Arrays.asList("pref_show_roundedge_key","pref_show_grid_key","pref_horizon","pref_show_afdata_key","pref_live_viewfinder_raw_key"),
                 keys(screen.findPreference("viewfinder_screen")));
-        assertEquals(Arrays.asList("pref_motion_mode","pref_ettr","focus_screen"),keys(screen.findPreference("shooting_screen")));
+        assertEquals(Arrays.asList("pref_motion_mode","pref_hdr_frames","pref_ettr","focus_screen"),keys(screen.findPreference("shooting_screen")));
         assertEquals(Arrays.asList("pref_af_mode_key","pref_face_detect_mode","pref_tracking_af_mode","pref_split_af_ae","pref_peak_method_key"),
                 keys(screen.findPreference("focus_screen")));
         assertEquals(Arrays.asList("pref_theme_accent_key","shade_transparency_screen","settings_layout_editor"),keys(screen.findPreference("appearance_screen")));
         // «Настройки изображения»: the style page, the six everyday sliders, the processing categories in the reference app's order,
         // the profiles (its configs)
         assertEquals(Arrays.asList("photo_style_screen","pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast",
-                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor",
+                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor",
                 "scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen","portrait_screen","photo_processing_screen",
                 "scam_hybrid_why_sharp_screen","scam_hybrid_why_rl_screen","scam_hybrid_photo_screen","scam_hybrid_merge_screen",
                 "scam_hybrid_hdr_screen","scam_hybrid_artifacts_screen","backup_settings_screen"),keys(screen.findPreference("root_colour")));
@@ -1695,7 +1698,7 @@ public class SettingsMenuTest {
     @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void everydayRowsWithinTwoTaps(){
         PreferenceScreen screen=inflate();
         for(String key:new String[]{"pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat",
-                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor","photo_style","pref_film_lut",
+                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor","photo_style","pref_film_lut",
                 "pref_film_sim_stock","pref_lens_filter","pref_photo_format","photo_size_choice","pref_camera_sounds_all","pref_show_grid_key",
                 "pref_af_mode_key","pref_face_detect_mode","pref_scam_hybrid_colour_tint","pref_ettr","pref_reset_preferences_key"}){
             Preference p=screen.findPreference(key);assertNotNull(key,p);
@@ -1703,7 +1706,7 @@ public class SettingsMenuTest {
         }
         // the six sliders sit on the root page itself
         for(String key:new String[]{"pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat",
-                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor"})
+                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor"})
             assertEquals(key,0,pagesAbove(screen.findPreference(key)));
         List<String> found=new ArrayList<>();
         for(var e:com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.index(screen))if(e.matches("яркость"))found.add(e.key);
@@ -1712,7 +1715,7 @@ public class SettingsMenuTest {
         var index=com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.index(screen);
         var words=com.particlesdevs.photoncamera.ui.settings.SettingsSearchFragment.searchWords(context,index);
         String[][] former={{"базовая экспозиция","pref_scam_hybrid_why_ae_target"},{"macro contrast","pref_scam_hybrid_why_macro_contrast"},
-                {"сила детали резкости","pref_scam_hybrid_why_sharp_gain"},{"многомасштабный шумодав яркость","pref_scam_hybrid_ark_dn_factor"},
+                {"сила детали резкости","pref_scam_hybrid_why_sharp_gain"},{"многомасштабный шумодав яркость","pref_scam_hybrid_why_dn_factor"},
                 {"экспозиция вправо","pref_ettr"},{"звук таймера","pref_camera_sounds_all"}};
         for(String[] q:former){
             List<String> hits=new ArrayList<>();
@@ -1729,12 +1732,18 @@ public class SettingsMenuTest {
     @Test public void technicalRowsOnlyUnderExperts(){
         PreferenceScreen screen=inflate();
         Set<String> everyday=new HashSet<>(Arrays.asList("pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast",
-                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_ark_dn_factor",
-                "pref_scam_hybrid_colour_mono","pref_scam_hybrid_output"));
+                "pref_scam_hybrid_why_agx_sat","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor",
+                "pref_scam_hybrid_colour_mono","pref_scam_hybrid_output","pref_scam_hybrid_processing","pref_scam_hybrid_fringe_method"));
         List<String> stray=new ArrayList<>();
         int checked=0;
         for(int i=0;i<screen.getPreferenceCount();i++){
-            androidx.preference.PreferenceGroup g=(androidx.preference.PreferenceGroup)screen.getPreference(i);
+            Preference top=screen.getPreference(i);
+            if(top instanceof PreferenceScreen)continue; // P493: the fringe net's page at the root is a page of its own
+            if(!(top instanceof androidx.preference.PreferenceGroup)){ // P490: the processing mode at the root
+                if(top.getKey()!=null&&top.getKey().startsWith("pref_scam_hybrid_")){checked++;if(!everyday.contains(top.getKey()))stray.add(top.getKey());}
+                continue;
+            }
+            androidx.preference.PreferenceGroup g=(androidx.preference.PreferenceGroup)top;
             for(int j=0;j<g.getPreferenceCount();j++){
                 Preference p=g.getPreference(j);
                 if(p instanceof androidx.preference.PreferenceGroup||p.getKey()==null||!p.getKey().startsWith("pref_scam_hybrid_"))continue;
@@ -1742,7 +1751,7 @@ public class SettingsMenuTest {
                 if(!everyday.contains(p.getKey()))stray.add(p.getKey());
             }
         }
-        assertEquals("the six everyday sliders",6,checked);
+        assertEquals("the six everyday sliders, P474 «Режим обработки» and P493 «Подавление аберраций»",8,checked);
         assertTrue("technical rows on the main page: "+stray,stray.isEmpty());
         // the rows shown by the settings page itself (it hides the two sound switches behind «Звуки» and what the phone lacks);
         // P384: «Модули камеры» with three modules: three cards and the actions under them

@@ -28,7 +28,7 @@ public final class DeviceDefaults {
      * 2026-10-10 evening, shots with the P77 build): the Redmi Note 11 Pro takes RL 3 at 1.5. 6 (P301, owner, 2026-10-20: the
      * viewfinder must match the photo): a flagship SoC (Snapdragon 8 Gen 3 and newer, Dimensity 9300 and newer) starts with the
      * developed-RAW viewfinder (pref_live_viewfinder_raw_key) on every module, which shows the photo's WHY tone. 7 (P365, owner,
-     * 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the Find X7 Ultra streams
+     * 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the Find X7 Ultra streams
      * RAW10 as the reference app does there (4096x3072 RAW10: its main camera's white level is 1023, nothing is lost), unpacked
      * into the ZSL ring slot on arrival. 8 (P388, owner, 2026-10-28: «у оппо x8 ultra по дефолту на всех модулях должен быть Raw10
      * чтобы не было проблем с уровнем чёрного»): the Find X8 Ultra's RAW10 again, on every module (v2 reached the main settings and
@@ -109,7 +109,7 @@ public final class DeviceDefaults {
     }
 
     /**
-     * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
+     * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
      * reader depth of the memfd ZSL ring on this phone (every frame is copied on arrival), the default and the floor of scam_dev
      * zsl_reader; 0 = no rule (20, at least 16: the Galaxy S24 Ultra's RAW stream slowed below 16 buffers). The Find X7 Ultra:
      * 8, the reference app's reader there at 30 fps.

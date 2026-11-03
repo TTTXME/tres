@@ -63,47 +63,14 @@ public class BuildIdentityTest {
         return f;
     }
 
-    @Test public void everySessionOfTheDailyLogStartsWithTheBuildLine() throws Exception {
-        org.robolectric.shadows.ShadowBuild.setSystemOnChipModel("SM8650");
-        Log.setLogEnabled(true);
-        Log.setLogFolder(null);
-        Handler handler = (Handler) field("logHandler").get(null);
-        Method close = Log.class.getDeclaredMethod("closeWriter");
-        close.setAccessible(true);
-        File dir = tmp.newFolder("Log");
-        try {
-            handler.removeCallbacksAndMessages(null); // no periodic flush in between
-            ((AtomicInteger) field("pendingLines").get(null)).set(0);
-            ((AtomicInteger) field("droppedLines").get(null)).set(0);
-            // two sessions: what setLogFolder resets (P214b: the build line is due again), on a plain folder
-            for (int session = 0; session < 2; session++) {
-                field("logContext").set(null, null);
-                field("logDir").set(null, dir);
-                field("currentDate").set(null, null);
-                field("identityLogFileName").set(null, null);
-                field("retryAfterMs").set(null, 0L);
-                Log.d("CameraFragment", "fragment created " + session);
-                Log.d("CameraFragment", "second line " + session);
-                shadowOf(handler.getLooper()).idle();
-                close.invoke(null);
-            }
-            String day = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
-            String text = new String(Files.readAllBytes(new File(dir, "log-" + day + ".txt").toPath()), StandardCharsets.UTF_8);
-            String[] lines = text.split("\n");
-            assertEquals(text, 6, lines.length);
-            String build = "I/ScameraBuild: " + BuildIdentity.line();
-            assertTrue(lines[0], lines[0].endsWith(build));
-            assertTrue(lines[1], lines[1].endsWith("D/CameraFragment: fragment created 0"));
-            assertTrue(lines[2], lines[2].endsWith("D/CameraFragment: second line 0"));
-            assertTrue(lines[3], lines[3].endsWith(build));
-            assertTrue(lines[4], lines[4].endsWith("D/CameraFragment: fragment created 1"));
-        } finally {
-            close.invoke(null);
-            field("logDir").set(null, null);
-            field("logContext").set(null, null);
-            field("currentDate").set(null, null);
-            field("identityLogFileName").set(null, null);
-            field("currentLogFileName").set(null, null);
-        }
+    /**
+     * Every log session names its build right after its start line (P214b). P454 removed the permanent DCIM daily log this test
+     * used to read; the session log (ScameraFileLog) writes the header now.
+     */
+    @Test public void everyLogSessionStartsWithTheBuildLine() {
+        String[] lines = ScameraFileLog.sessionHeader(new Date(0)).split("\n");
+        assertTrue(lines[1], lines[1].startsWith("=== SCAMERA log session "));
+        assertEquals(BuildIdentity.line(), lines[2]);
+        assertTrue(lines[3], lines[3].startsWith("Device: "));
     }
 }

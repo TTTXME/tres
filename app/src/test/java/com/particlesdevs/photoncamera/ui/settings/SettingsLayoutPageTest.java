@@ -197,6 +197,12 @@ public class SettingsLayoutPageTest {
         }
     }
 
+    /** P490: the root's own choice rows (processing mode, fringe method) come before the first group: its first card of a kind. */
+    private static String first(SettingsLayoutFragment f, String kind) {
+        for (String c : f.cards()) if (c.startsWith(kind)) return c;
+        return null;
+    }
+
     @Test public void theEditorMovesAGroupAndARowAndSavesAtOnce() {
         try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class)) {
             controller.setup();
@@ -204,15 +210,15 @@ public class SettingsLayoutPageTest {
             List<String> before = listed(page(activity));
             SettingsLayoutFragment f = openEditor(activity);
             // «Группы»: the page's groups as cards
-            assertEquals("group:root_lenses", f.cards().get(0));
+            assertEquals("group:root_lenses", first(f, "group:"));
             assertFalse("P390: the modules are a row of their group", f.cards().contains("group:root_modules"));
             assertTrue(act(f, "group:root_shoot", "Move up"));
-            assertTrue(stored(), stored().startsWith("prefscreen=root_lenses,root_shoot,root_photo,root_colour,"));
+            assertTrue(stored(), stored().startsWith("prefscreen=") && stored().contains("root_lenses,root_shoot,root_photo,root_colour,")); // P490: the choice rows first
             // «Пункты»: a group's first row goes up into the group above (both share rows)
             text(f.requireView(), "Rows").performClick();
             idle();
             assertTrue(f.cards().toString(), f.cards().contains("header:root_photo"));
-            assertEquals("header:root_lenses", f.cards().get(0));
+            assertEquals("header:root_lenses", first(f, "header:"));
             // («Сохранение и форматы фото» starts with «Формат файла»; «Основные настройки» is above it now)
             assertTrue(act(f, "row:output_settings_screen", "Move up"));
             assertTrue(stored(), SettingsLayout.parse(stored()).get("root_shoot").contains("output_settings_screen"));
@@ -244,7 +250,7 @@ public class SettingsLayoutPageTest {
             controller.setup();
             SettingsActivity activity = controller.get();
             SettingsLayoutFragment f = openEditor(activity);
-            assertEquals("group:root_about", f.cards().get(0));
+            assertEquals("group:root_about", first(f, "group:"));
             find(f.requireView(), "settings_page_reset").performClick();
             idle();
             AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
@@ -252,7 +258,7 @@ public class SettingsLayoutPageTest {
             idle();
             // another page's line stays
             assertEquals("photo_style_screen=x", stored());
-            assertEquals("group:root_lenses", f.cards().get(0));
+            assertEquals("group:root_lenses", first(f, "group:"));
             back(activity);
             List<String> keys = listed(page(activity));
             assertTrue(keys.toString(), keys.indexOf("root_lenses") < keys.indexOf("root_colour"));

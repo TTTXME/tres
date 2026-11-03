@@ -156,6 +156,10 @@ public class ScamHybridBurstRolesTest {
         assertSame(frames.get(2), base(burst(new ArrayList<>(frames))));
         assertEquals(-1, ScamHybridBurst.baseFrom(java.util.Collections.singletonList(after), true));
         assertEquals(-1, ScamHybridBurst.baseFrom(frames, false));
+        // P471: the anchor stays unless the frame before it is at least 1.15x sharper (noise ties keep the moment)
+        org.junit.Assert.assertFalse(ScamHybridBurst.momentSwitch(1.0, 1.1));
+        org.junit.Assert.assertTrue(ScamHybridBurst.momentSwitch(1.0, 1.2));
+        org.junit.Assert.assertFalse(ScamHybridBurst.momentSwitch(0.0, 0.0));
     }
 
     @Test public void noNFrameMakesTheClosestFrameTheBase() throws Exception {

@@ -20,8 +20,10 @@
 #include "scam-superres-gpu.h"
 #include "scam-chroma-gpu.h" // P80 mosaicChromaMedian on the GPU
 #include "scam-la-gpu.h"     // P308 the F6 alignment on the GPU (laGpu)
+#include "scam-fast-gpu.h"    // the fast merge route's GPU side (tune fastMerge, scam-fast-merge.h at the end)
 #include "scam-crash.h"
 #include "scam-progress.h" // P220 the heartbeat counters (the app's watchdog and processing ring)
+#include "scam-bayer-quads.h"
 #include "scam-dcg-noise.h" // P320 the DCG two-zone noise fit (dcgNoiseFit)
 #include <atomic>
 #include <chrono>
@@ -180,7 +182,7 @@ struct HybridTuning {
     float boostEnable=1.f;       // 1: boost where the F6 local motion varies (v11 Z channel); 2: everywhere (SCAM without a
                                  // motion test, the old switch); 0: off. Without the local alignment 1 does nothing.
     float varianceThreshold=25.f;// motion_robustness_boost_variance_threshold
-    // P335 (owner, 2026-10-25: «посмотри как работают у Арк реджекты и подумай как их можно улучшить у нас»): 1 = the motion prior
+    // P335 (owner, 2026-10-25: «посмотри как работают у Why реджекты и подумай как их можно улучшить у нас»): 1 = the motion prior
     // of the rejection as a share (smoothstep 0.5 .. 1.5 x motionThreshold of the Z channel, bilinear between the tiles) instead of
     // a switch on the nearest tile, and half the difference noise forgiven inside it; 0 = the switch as before (replays unchanged;
     // the app sends 1).
@@ -189,10 +191,10 @@ struct HybridTuning {
     // clipped base cell by more than 3 sigma of the difference noise is rejected - the base's true value is at least the clip,
     // the donor's is clearly below it: the sparkle moved (sun glitter on water). The texture variance of the glitter (clipped spots next to dark water)
     // made the distance test tolerant enough to average the base's sparkles with the dark water of the other frames: dim, smeared
-    // sparkles. GCam / ArkCam reject every donor where the base's green clips (kForceRejectReferenceColor); a donor as bright
+    // sparkles. GCam / WhyCam reject every donor where the base's green clips (kForceRejectReferenceColor); a donor as bright
     // there (a lamp, a static highlight) stays here. 0 = off (replays unchanged); the app sends 1.
     float clipReject=0.f;
-    // P341 (owner, 2026-10-26: our rejection map next to ArkCam's, «вот так выглядит реджект у нас и у Арк камеры», then «займись
+    // P341 (owner, 2026-10-26: our rejection map next to WhyCam's, «вот так выглядит реджект у нас и у Why камеры», then «займись
     // картой реджектов»): the distance from the squared differences of the 3 x 3 cells around the cell instead of one cell. One
     // cell's difference is a single noise draw: with the noise model exact, 13 % of the cells of a static frame fell under 0.85
     // (mean 0.94), and DilateMask's 25-cell sum turned those tails into a rejection of the whole area - the owner's night sky kept
@@ -208,7 +210,7 @@ struct HybridTuning {
     // robust 0.974 -> 0.541: window grids, outlines and wires rejected).
     float rejPool=0.f;
     float rejPoolT=0.7f;
-    // P344 (owner, 2026-10-26: «займись картой реджектов», the rejection maps as clean as ArkCam's and still catching motion). Each
+    // P344 (owner, 2026-10-26: «займись картой реджектов», the rejection maps as clean as WhyCam's and still catching motion). Each
     // 0 / off = the merge exactly as before (replays bit-identical); the app sends none of them yet.
     // rejVarExact 1: the donor's interpolation noise is the true variance factor of its bilinear sample, ((1-fx)^2+fx^2)((1-fy)^2+fy^2)
     // (0.25 .. 1 with the frame's sub-cell offset), in place of the constant filterVariance 0.5: frames at whole-cell offsets (a
@@ -223,15 +225,15 @@ struct HybridTuning {
     // its 4 x 4 cells against the base's nine cells of the guide), the noise forgiven at the mean's (nv / 9; with rejVarExact the
     // exact factor of the nine-sample mean), tolerance max(2 min(texture) x rejMeanTex, that noise); dist = max(dist, w distMean):
     // it only adds rejection. The energy test (squares) keeps the ripples of moving water but hardly sees a smooth change near the
-    // noise: a 24 x 24-cell object 1.5 sigma off was merged at 0.19 (the mean test as Google's / ArkCam's: 0.001, model re/sim3-5.py).
+    // noise: a 24 x 24-cell object 1.5 sigma off was merged at 0.19 (the mean test as Google's / WhyCam's: 0.001, model re/sim3-5.py).
     float rejMeanDiff=0.f;
     float rejMeanTex=0.5f;
     // rejKneeLo / rejKneeHi (hi > lo >= 0): the weight 1 - smoothstep(lo, hi, dist x boost) instead of exp2(-dist x boost), a dead
-    // zone as Wronski's clamp / ArkCam's threshold: every noise draw lowered the exp2 weight (static cells 0.95 .. 0.99, only 20 %
+    // zone as Wronski's clamp / WhyCam's threshold: every noise draw lowered the exp2 weight (static cells 0.95 .. 0.99, only 20 %
     // exactly 1: the speckled map); research model lo / hi = 0.16 / 0.6: 98.8 % of the static cells exactly 1.
     float rejKneeLo=0.f,rejKneeHi=0.f;
     // rejBinLo / rejBinHi (hi > lo) in kHybDilate: the donor's map r = smoothstep(lo, hi, min(own, 1 - spread)) before its frame weight,
-    // ArkCam's near-binary map (s002 smoothstep(0.2, 0.8)): soft weights in moving areas are still acceptance (20 donors at 0.4
+    // WhyCam's near-binary map (s002 smoothstep(0.2, 0.8)): soft weights in moving areas are still acceptance (20 donors at 0.4
     // leave the base 11 %), and min(own, ..) passes each cell's noise tail into the merge.
     float rejBinLo=0.f,rejBinHi=0.f;
     // rejClipSym 1: the other half of P337's clipReject - a normal donor whose four bilinear cells are clipped where the base cell is
@@ -259,7 +261,7 @@ struct HybridTuning {
     // rejMeanFloor k: (k u)^2 added to the noise of rejMeanDiff's difference of the 3 x 3 means (a frame's global gain: flicker,
     // an AE ramp, is not motion; a low-contrast object below k is merged).
     float rejMeanFloor=0.f;
-    // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне ArkCam»): a plain burst whose base frame
+    // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне WhyCam»): a plain burst whose base frame
     // has no site at the clip leaves its ultrashort frames out before the row check (hybridPlainUsRows), Bento and the blend: they
     // have nothing to replace (Bento would fall back, their merge weight is 0) and cost ~0.7 s on the OPPO's night replay (row
     // check 454 ms, blend 254 ms, three more frames through every pass). The app's plan takes them on a preview estimate that
@@ -431,6 +433,10 @@ struct HybridTuning {
     int bentoBlendUsBox=0;
     int bentoUsCache=0;
     int bayerSplit=0;
+    int bayerQuads=1;
+    // P469: the QZ quad merge's per-donor maps in textures at the same precision (exact output; Adreno 750 detail30 worker
+    // -14 %): bits 1 donor cells, 2 robust + laCell, 4 6.1 precision, 8 guide / covariance, 16 rejection map; 0 = the SSBOs
+    int texMaps=19;
     // F10: the ultrashort frames registered sub-pixel against the base after the alignment (hybridUsRegister: translation + level
     // on the base's unclipped texture), before Bento's check, the F6 field and the merge read their transform. 1 = on, 2 = also an
     // ultrashort frame the corner tracker refused (CRE failed on its x8 noise) starts from the global translation instead of being
@@ -500,7 +506,7 @@ struct HybridTuning {
     // Daylight kernel: where the round-4 kernel merges a daylight burst on the sensor grid (6.1 SNR key above s61MaxKey; a static
     // burst, the handheld one takes the 6.1 kernel), every sigma x this, ramped in over key s61MaxKey..2 s61MaxKey. 0.5 on the still
     // ship scene (1x): fine detail 0.77 -> 0.96 of WhyCam (water 0.69 -> 0.95) at +6 % sky noise (= WhyCam);
-    // research/hybrid5/ark_sharpen_device.md. Not on the 2x grid: a static burst there has no sub-pixel diversity (not measured).
+    // research/hybrid5/why_sharpen_device.md. Not on the 2x grid: a static burst there has no sub-pixel diversity (not measured).
     float dayKernelScale=0.5f;
     // Shasta
     float shastaSharpness=0.35f; // bracketed_sharpness_threshold
@@ -586,9 +592,9 @@ struct HybridTuning {
     // noise x16/x4), grating response 4 % / 30 % contrast at 3 px: 0.22 / 0.37 -> 0.50 / 0.62 at 2, diagonal 3 px 0.29 -> 0.75;
     // flat noise x1.10 (8: x1.0 with 0.31 / 0.61 / 0.65). 0 = the quad tensor (replays unchanged); the app sends 2.
     float s61Fine=0.f;
-    // P337 (owner, 2026-10-25: an ISO 12800 room next to ArkCam, «у нас заметно хуже мелкая деталь»): every 6.1 kernel sigma times
+    // P337 (owner, 2026-10-25: an ISO 12800 room next to WhyCam, «у нас заметно хуже мелкая деталь»): every 6.1 kernel sigma times
     // s61NightScale at a key up to s61NightKeyLo, back to x1 at s61NightKeyHi (linear in the key). Phone replay of the owner's burst
-    // (OPPO, 26 frames): x0.8 - fine detail +11..16 %, text in the darks +31..48 %, flat noise +18 % (ArkCam's JPEG against ours:
+    // (OPPO, 26 frames): x0.8 - fine detail +11..16 %, text in the darks +31..48 %, flat noise +18 % (WhyCam's JPEG against ours:
     // detail +12..24 %, noise +19 %); the structure threshold (f2 / f3 x0.1..0.5) and the rejection changed nothing. 1 = off (replays
     // unchanged); the app sends 0.8.
     float s61NightScale=1.f,s61NightKeyLo=8.f,s61NightKeyHi=16.f;
@@ -597,6 +603,9 @@ struct HybridTuning {
     // the base frame weighs up to max(1, dezipper - accepted donors) instead of 1, so a moving edge is the base's own sample and not a
     // few partly accepted donors' interleaved with it (the zipper / staircase of a moving edge). 0 = off: the merge program as before
     // (its DEZIP code is compiled only with this on).
+    // P480 (owner, 2026-11-03: the dezipper «полностью идентично» the reference's): the whole motion fallback of its base self-merge
+    // (kHybDezip: weight_so_far bilinear from the donors' acceptance per cell, the base's covariance isotropised, the linear kernel
+    // mixed in, blend_eq from the min over the radius-2 neighbourhood, the green-phase chroma correction), not only the base weight
     float dezipper=0.f;
     // ... in daylight (key > s61MaxKey) instead: the emulated LUT leaves flat areas on the narrow "structure" kernel at ISO 100-200
     // (smooth-area noise x2.3 against the round-4 kernel); 16 / 4 keep the detail (-1 %) at x1.45 (f6_local_align.md)
@@ -617,7 +626,7 @@ struct HybridTuning {
     // P337 (owner, 2026-10-25: a backlit sea, «отражение на воде слилось в кашу»): the clip-border pass also lifts G to the mean of
     // ALL its samples, the clipped ones at their values (a lower bound: a clipped sample is at least that). The merge keeps a
     // colour's clipped samples out where real ones are left; on sun glitter - sparkles of 1-3 px, G clipped, R / B not - that left
-    // each sparkle's G to the dark water around it: dim grey-pink blobs instead of white points (ArkCam / GCam keep the base's
+    // each sparkle's G to the dark water around it: dim grey-pink blobs instead of white points (WhyCam / GCam keep the base's
     // clipped samples). R and B then follow from the real ratios as before. 0 = off (replays unchanged); the app sends 1.
     int rimLift=0;
     // F6 local alignment (research/hybrid5/f6_local_align.md): a per-tile residual offset of every donor on top of its homography,
@@ -761,7 +770,7 @@ struct HybridTuning {
     int seriesFrames=0;          // P190: a FULLRES series the app sized against the memory itself (an explicit frame count, a 200 MP
                                  // series above 4 frames): the mosaic frame pick keeps up to this many frames whatever its memory
                                  // budget and mosaicFrames say (the split: at most kHybridGpuFrames / b^2); 0 = the pick as before
-    // P29 native mosaic path (research/ark23/quad_report.md section 8, plan P29). mosaicPath 0 = the b^2 sub-frame split above
+    // P29 native mosaic path (research/why23/quad_report.md section 8, plan P29). mosaicPath 0 = the b^2 sub-frame split above
     // (hybridReconstructMosaic, unchanged); 1 = hybridReconstructMosaicNative: one GPU slot per FRAME (mosaicFrames frames, up to
     // kHybridGpuFrames), the binned burst for alignment / guide / rejection / F6 (one field per frame), and the WhyCam-style RBF
     // kHybMergeMosaic over the raw mosaic itself.
@@ -934,8 +943,8 @@ struct HybridTuning {
     // the ultrashort mean's noise from the frames' noise model (one sample at u over the number of frames: conservative). The pass
     // is compiled with NAT_US_TOL then; 0 = the program as before.
     float mosaicUsFillTol=0.f;
-    // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the worker's speed
-    // against ArkCam on the OPPO Find X7 Ultra; every switch below leaves the output byte for byte as it was (1 = on, 0 = as before):
+    // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): the worker's speed
+    // against WhyCam on the OPPO Find X7 Ultra; every switch below leaves the output byte for byte as it was (1 = on, 0 = as before):
     //   markSparse: the outlier sites marked in the RAW words of the frames through a list of the words that hold one
     //               (kHybMarkList / kHybMarkSparse) beside the clipped blocks, not over every word of every frame
     //               (SCAM_NO_MARK_SPARSE: the sparse programs not built)
@@ -947,6 +956,38 @@ struct HybridTuning {
     //   fastExit:   the GPU context's teardown and the merge's large buffers after the worker's completion line, then _exit
     //               (SCAM_NO_FAST_EXIT: freed before the line and a normal return, as before)
     int markSparse=1,creLazy=1,stripTrailers=1,fastExit=1;
+    // Owner, 2026-11-03: the app's default processing mode «Быстрый» merges exactly by the reference Sabre per-frame scheme (the fast
+    // merge, scam-fast-merge.h), the SCAM merge stays as «Качество». fastMerge 1: a plain Bayer burst on the sensor grid takes
+    // that route (its normal frames; ultrashort / bracketed frames stay out in stage 1); anything it cannot take, or any GPU
+    // failure of it, merges the same input with the SCAM merge. 0 = the SCAM merge (replays unchanged).
+    int fastMerge=0;
+    // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
+    // the base, every normal frame a donor
+    int fastMergeSelect=1;
+    // P489: 4x4 colour-block (Tetra) streams on the fast route (the reference's sh103); 0 = they stay on the SCAM merge (12 MP Tetra
+    // replays: no faster, softer, 4x more fine colour grain and a faint 4x4 grid than the SCAM merge)
+    int fastMergeTetra=0;
+    // P484 fast-merge speed keys (output within one level of the final 8-bit image; 0 = the previous behaviour):
+    // fmFilterGather 1: the rejection filter (sh089) reads its 7x7 window by textureGather (output identical).
+    // fmMergeBatch N (1..8, default 1 = off): the merges of N consecutive frames are drawn back to back after their front ends (the
+    // frames' Bayer, covariance, flow and rejection in N slots, ~44 MB of GPU memory per extra slot at 12 MP), so the accumulators stay
+    // in the GPU's tile memory between the draws; same draws in the same order (output identical). Replays: the merge stage's GPU time
+    // -33 % with 4, the total unchanged (the clocks follow the load), hence off; for an in-app A/B. Every frame still ends with a
+    // glFlush (the front end; the batch's merges after the batch's last frame). Row strips: 1.
+    int fmFilterGather=1;
+    int fmMergeBatch=1;
+    // P488 (owner, 2026-11-03: the reference's Sport merge in our «Спорт»): fastMergeSport bit 1 = the reference Sport's rejection
+    // overrides in the fast merge (extra_motion_robustness_boost 10 for 6, u_pixel_difference_threshold 0.35 for 0.5), bit 2 = its
+    // Sport frame selector's donor gate (translation <= 15 thumbnail px for 35, sharpness >= 0.75 x the base's for 0.6; the base
+    // stays the app's frames[0], the press moment, not the reference's sharpest frame); 0 = photo (replays unchanged)
+    int fastMergeSport=0;
+    // P488 rejPixDiff (> 0): the reference's guarded rejection post-filter in kHybDilate before the spread (its rejection_filter's
+    // u_pixel_difference_threshold: the reference's Sport 0.35, photo 0.5); 0 = off (the dilate program as before)
+    float rejPixDiff=0.f;
+    // P488 donorShiftMax (RAW px, > 0): a normal donor whose homography moves the frame centre farther from the base is left out
+    // before the merge (the reference Sport's donor gate, 15 of its photo 35 thumbnail px; 120 = 15 at the fast merge's 1/8
+    // thumbnails); 0 = off
+    float donorShiftMax=0.f;
 };
 
 // restoreSensorOrigin() of scam-capture.h for a grid scaled by `scale` (CFA phase shift in output pixels).
@@ -1103,7 +1144,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("bentoBlendGateMid",nullptr,&t.bentoBlendGateMid)||set("bentoBlendCellMode",nullptr,&t.bentoBlendCellMode)||set("bentoBlendSatWb",nullptr,&t.bentoBlendSatWb)
             ||set("wbR",&t.wbR)||set("wbB",&t.wbB)||set("bentoValidZ",&t.bentoValidZ)||set("bentoValidZFloor",&t.bentoValidZFloor)||set("bentoValidZRange",nullptr,&t.bentoValidZRange)
             ||set("bentoBlendValidOnce",nullptr,&t.bentoBlendValidOnce)||set("bentoBlendValidBilinear",nullptr,&t.bentoBlendValidBilinear)
-            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)||set("bentoUsCache",nullptr,&t.bentoUsCache)||set("bayerSplit",nullptr,&t.bayerSplit)
+            ||set("bentoBlendGainLevel",&t.bentoBlendGainLevel)||set("bentoRefuseScope",nullptr,&t.bentoRefuseScope)||set("bentoBlendScale",nullptr,&t.bentoBlendScale)||set("bentoBlendFieldBilinear",nullptr,&t.bentoBlendFieldBilinear)||set("bentoBlendUsSoftClip",&t.bentoBlendUsSoftClip)||set("bentoBlendPixelMark",nullptr,&t.bentoBlendPixelMark)||set("bentoBlendUsAa",&t.bentoBlendUsAa)||set("bentoBlendUsBox",nullptr,&t.bentoBlendUsBox)||set("bentoUsCache",nullptr,&t.bentoUsCache)||set("bayerSplit",nullptr,&t.bayerSplit)||set("bayerQuads",nullptr,&t.bayerQuads)||set("texMaps",nullptr,&t.texMaps)
             ||set("bentoBlendFillMean",nullptr,&t.bentoBlendFillMean)||set("bentoBlendChromaEdge",&t.bentoBlendChromaEdge)||set("mosaicUsFillTol",&t.mosaicUsFillTol)
             ||set("bentoUsRegister",nullptr,&t.bentoUsRegister)||set("bentoUsRegisterMax",&t.bentoUsRegisterMax)||set("bentoBlendGainMin",&t.bentoBlendGainMin)
             ||set("bentoPartial",nullptr,&t.bentoPartial)||set("bentoPartialZLo",&t.bentoPartialZLo)||set("bentoPartialZHi",&t.bentoPartialZHi) // P392
@@ -1146,7 +1187,10 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("auto2x",nullptr,&t.auto2x)||set("auto2xMaxGap",&t.auto2xMaxGap)||set("auto2xMinSnr",&t.auto2xMinSnr)
             ||set("mochi",nullptr,&t.mochi)
             ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
-            ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit);
+            ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit)
+            ||set("fastMerge",nullptr,&t.fastMerge)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
+            ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
+            ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax); // P488
         }
         if(report&&!applied.empty())report("HYBRID TUNING FILE "+path+":"+applied);
         break;
@@ -1687,7 +1731,7 @@ void main(){
     }
 }
 )";
-// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune markSparse): with the
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune markSparse): with the
 // outlier tests kHybMark above ran over every word of every frame of the strip (lamp2324 with the test on: ~245 ms of the merge's
 // ~2 s on the OPPO), yet only two kinds of words change: those of a clipped cell (the 32-row blocks of clipped samples and their
 // neighbours, dispatched as without the tests, mFlagsU.z the strip's mode: the clip test skips the outlier sites there as well) and
@@ -2196,7 +2240,7 @@ void main(){
         // filtered at all. On a thin wire, a window grid or an outline that difference is half the contrast at fx 0.5 although nothing
         // moved (static_day wires raw 0.82, robust 0.52), and it is what the texture tolerance and the boost had to absorb. The
         // base through the symmetric 3-tap [a, 1 - 2a, a], a = fx (1 - fx) / 2 per axis, has the same amplitude to first order
-        // (no shift): the comparison is symmetric as Google's / ArkCam's pre-filtered guides, without their 3 x 3 low pass (which
+        // (no shift): the comparison is symmetric as Google's / WhyCam's pre-filtered guides, without their 3 x 3 low pass (which
         // averages ripples away). Its noise factor ((1 - 2a)^2 + 2a^2) per axis replaces the base's 1.
         bool mb=RJ_MB;
         float ax=0.5*fx*(1.0-fx),ay=0.5*fy*(1.0-fy);
@@ -2328,10 +2372,37 @@ uniform vec2 db;          // P344 rejBinLo, rejBinHi: y > x = the map smoothstep
 // order, the strip's cell rows), y their count (0 = none)
 uniform ivec2 scopeU;
 #endif
+#ifdef REJ_PD
+// P488 rejPixDiff: the reference's guarded rejection post-filter (its rejection_filter) on every weight before the 5 x 5 spread:
+// where the smoothed rejection is below the cell's own, the own one stays when its pixel difference pd < pdU, else it moves toward
+// the smoothed one by pd (pd = the cell's own acceptance c: the reference's pixel difference equals its frame weight at its rejection
+// threshold 0, and there is no unblocker here). Isolated noise-like rejections fade, clear differences stay. The smoothing: a 3 x 3
+// Gaussian of sigma 1.5 (the reference's spatial weights) without its luma guide (radius 1: the strip's 3 reject rows hold the
+// filter and the spread).
+uniform float pdU;
+float rejPd(float c,float m){
+    float R=1.0-c,F=1.0-m;
+    if(F<R)R+=(c<pdU?0.0:c)*(F-R);
+    return 1.0-R;
+}
+#ifndef SHARED_TILES
+float rejPdAt(int f,int x0,int y0,float c){
+    int w2=size.x/2;float a=0.0;
+    for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
+        int y=clamp(y0+j,ry0,ry1-1),x=clamp(x0+i,0,w2-1);
+        a+=(i==0?1.0:0.8007374)*(j==0?1.0:0.8007374)*rawR[(f-1)*(ry1-ry0)*w2+(y-ry0)*w2+x];
+    }
+    return rejPd(c,a*(1.0/6.7676711));
+}
+#endif
+#endif
 #ifdef SHARED_TILES
 // P76 (Adreno: SHARED_TILES): the 12x12 rejection weights around the group's 8x8 cells, read once per group (25 reads a cell
 // before; Adreno 750 dilate 533 -> 234 ms, float rounding differs by <= 2.3e-6). Mali keeps the plain reads: its shared memory is
 // the same cache as the buffer, and the tile and barrier made the pass 20 % slower on the Mali-G57.
+#ifdef REJ_PD
+shared float dilP[196]; // P488: the 14 x 14 raw weights (+-3 cells) the 12 x 12 filtered ones come from
+#endif
 shared float dilR[144];
 // P364: the group's accepted weights (one donor per group: local size z = 1) summed in shared memory and added to Sums once per
 // group (before: a global atomicAdd per cell on the donor's word, 78 M on 25 words in a 26-frame 12 MP shot, serialised in the
@@ -2344,13 +2415,28 @@ void main(){
 #ifdef SHARED_TILES
     {
         int bx=int(gl_WorkGroupID.x)*8-2,by=cy0+chunkU+int(gl_WorkGroupID.y)*8-2,fr=clamp(f,1,max(frameCount-1,1));
+#ifdef REJ_PD
+        for(int k=int(gl_LocalInvocationIndex);k<196;k+=64){
+            int y=clamp(by-1+k/14,ry0,ry1-1),x=clamp(bx-1+k%14,0,w2-1);
+            dilP[k]=rawR[(fr-1)*(ry1-ry0)*w2+(y-ry0)*w2+x];
+        }
+#else
         for(int k=int(gl_LocalInvocationIndex);k<144;k+=64){
             int y=clamp(by+k/12,ry0,ry1-1),x=clamp(bx+k%12,0,w2-1);
             dilR[k]=rawR[(fr-1)*(ry1-ry0)*w2+(y-ry0)*w2+x];
         }
+#endif
         if(gl_LocalInvocationIndex==0u)dilSum=0u;
     }
     barrier();
+#ifdef REJ_PD
+    for(int k=int(gl_LocalInvocationIndex);k<144;k+=64){
+        int t=(k/12+1)*14+k%12+1;
+        float a=dilP[t]+0.8007374*(dilP[t-1]+dilP[t+1]+dilP[t-14]+dilP[t+14])+0.6411804*(dilP[t-15]+dilP[t-13]+dilP[t+13]+dilP[t+15]);
+        dilR[k]=rejPd(dilP[t],a*(1.0/6.7676711));
+    }
+    barrier();
+#endif
     // P364: no return before the group's sum (the barrier below): the invocations outside the strip skip the body
     if(cx<w2&&cy<cy1&&f<frameCount){
 #else
@@ -2365,6 +2451,9 @@ void main(){
 #else
         int y=clamp(cy+dj,ry0,ry1-1),x=clamp(cx+di,0,w2-1);
         float v=rawR[(f-1)*(ry1-ry0)*w2+(y-ry0)*w2+x];
+#ifdef REJ_PD
+        v=rejPdAt(f,x,y,v);
+#endif
 #endif
         s+=max(1.0-v-dl.w,0.0)/max(1.0-dl.w,1.0e-3);
         if(di==0&&dj==0)wc=v;
@@ -2372,7 +2461,7 @@ void main(){
     float rej=clamp((s-dl.x)/max(dl.y,1.0e-3),0.0,1.0);
 #ifdef REJ_OPTS
     float rb=min(wc,1.0-rej);
-    if(db.y>db.x)rb=smoothstep(db.x,db.y,rb); // P344 rejBin: ArkCam's near-binary map (its s002 smoothstep(0.2, 0.8))
+    if(db.y>db.x)rb=smoothstep(db.x,db.y,rb); // P344 rejBin: WhyCam's near-binary map (its s002 smoothstep(0.2, 0.8))
     float r=rb*fParam[f].y;
 #else
     float r=min(wc,1.0-rej)*fParam[f].y;
@@ -2661,7 +2750,7 @@ bool bayerDemosaic(vec2 O,out vec3 rgb,out float detail){
     if(nR<=1.0e-6||nB<=1.0e-6)return false;
     float dR=sR/nR,dB=sB/nB;
     if(bdAliasU>0.0){
-        // P335 (owner, 2026-10-25: Ark's anti-zipper «попробуй его улучшить и добавить нам»): luma detail near the Bayer Nyquist
+        // P335 (owner, 2026-10-25: Why's anti-zipper «попробуй его улучшить и добавить нам»): luma detail near the Bayer Nyquist
         // shows in one frame as a step between the two green phases and as false colour (the zipper / moire of a moving subject);
         // where the Gr / Gb step of the 5x5 core is large against the colour difference the colour is damped (Sabre's motion
         // fallback damping). Unlike that one the step is taken above its own noise (the two phase means' sigma x2) and is
@@ -2709,33 +2798,223 @@ void usWide(inout vec3 num,inout vec3 den,inout vec3 clipW,int f,vec2 O,float r,
 
 // Grid 1 (sensor grid): one evaluation per sensor pixel.
 // P402: the dezipper (HybridTuning::dezipper) - put into kHybMergeCommon's text by HybridGpu (hybridDezipSource) only when it is on,
-// so the merge program without it stays byte-identical (the same program cache entry): the donors' accepted weight of this output
-// pixel is summed as they come (main merges the base last); the base's weight rises where they were rejected.
+// so the merge program without it stays byte-identical (the same program cache entry).
+// P480: the reference base self-merge's motion fallback (its MERGE_A with frame_info.w == 0, kernel_blurring_params (4.5, 1.5, 0, 0))
+// on this kernel. Units: the reference's "covariance" C is a precision (exp2(-0.5 d'Cd), d in sensor px); ours P is exp(-0.5 d'Pd)
+// in the same px (kernelW): P = ln2 C, so its motion_cov 1 / max(0.25, 1.5) is (0.462098, 0.462098, 0) here. Its groups (corner,
+// up/down, left/right, centre of the 3 x 3 around the pixel the sample falls in) are this merge's four colour phases inside the 6.1
+// window (the same sites at every sub-position). weight_so_far = its accumulated_frame_weights (R16F LINEAR at HALF, the donors'
+// rejection weight; a long frame's times weight_A): dzCover = the donors' acceptance (r / A, a bracketed frame's r) per strip cell,
+// the Bento factor (1 - m) the dilate put on it taken off again (the reference applies the mask in the merge), written once per strip
+// by kHybDzCover (as the reference's precomputed texture) and read bilinearly at the output pixel's centre, clamped to the image and
+// to the strip (the strip seam is the one place it differs).
+// P480 phase 2 (speed): none of it runs in the merge (on Adreno 750 the base code in the merge program made it 4.6-14x slower, even
+// outside the donor loop): the merge only stores its per-colour weight sums (kHybDezipMerge, dzDen); kHybDzPass after it takes the
+// merge's own base share out of each colour and puts dzBase's in: (out den - base den + dz den) and the numerator alike, the same sums
+// as dzBase inside the merge up to float rounding.
+static const char* kHybDezipMerge=R"(
+layout(std430,binding=23) writeonly buffer DzDen{float dzDen[];};
+)";
 static const char* kHybDezip=R"(
-uniform vec2 dezipU; // x: the dezipper (frames), y: the donor frames merged
-float dzDonors=0.0;
-float dezip(int f,int role,float r,float cover){
-    if(f!=0){if(role!=5)dzDonors+=cover;return r;}
-    float hole=clamp((0.98-dzDonors/max(dezipU.y,1.0))/0.28,0.0,1.0);
-    float k=mix(1.0,max(1.0,dezipU.x-dzDonors),hole);
-    dzDonors=0.0;
-    return r*k;
+layout(std430,binding=22) readonly buffer DzCover{float dzCover[];};
+uniform vec2 dezipU;   // x: the dezipper (kernel_blurring_params.x, frames), y: expected donors (the donor frames merged)
+uniform vec3 dezipWbU; // P480: the white balance of the base (the reference merges white-balanced values; its chroma step is not WB-free)
+float dzAt(vec2 u){
+    int w2=size.x/2;
+    vec2 b=floor(u),t=u-b;
+    int x0=clamp(int(b.x),0,w2-1),x1=clamp(int(b.x)+1,0,w2-1);
+    int y0=(clamp(int(b.y),cy0,cy1-1)-cy0)*w2,y1=(clamp(int(b.y)+1,cy0,cy1-1)-cy0)*w2;
+    return mix(mix(dzCover[y0+x0],dzCover[y0+x1],t.x),mix(dzCover[y1+x0],dzCover[y1+x1],t.x),t.y);
+}
+float dzKernel(vec2 d,vec3 P,float lkm){
+    float w=kernelW(d,P);
+    return lkm>0.001?mix(w,max(1.0-0.45*length(d),0.0),lkm):w; // GetLinearKernelWeight mixed in (has_linear_mix)
+}
+float dzSite(int sx,int sy,bool flagged,inout bool ok){
+    uint fl=0u;
+    float v=flagged?rawSite(0,sx,sy,fl):sampleRaw(0,sx,sy);
+    if((fl&3u)!=0u||v>=clipLevel)ok=false;
+    return max(0.0,v*fParam[0].x*dezipWbU[phaseColor[((sy&1)<<1)|(sx&1)]]);
+}
+// The base at O (its weight r, cover): false where neither the hole fill nor blend_eq applies (the merge's base share stays). P = the
+// merge's own base kernel; fused: o gets that share too (frameSamples' sums of the same 3 x 3 sites: the merge's 6.1 window).
+bool dzBase(inout Acc a,inout Acc o,bool fused,vec2 O,float r,float cover,vec3 P,bool flagged){
+#ifdef DZ_OFF
+    return false;
+#endif
+    vec2 u=(O-0.5)*0.5;                                         // HALF texel coordinates of the pixel centre
+    float E=max(dezipU.y,1.0);
+    float wsf=dzAt(u);
+    float hole=clamp((0.98-wsf/E)/0.28,0.0,1.0);                // hole_fill_mix
+    float mn=wsf;                                               // (hole 1: blend_eq 1 whatever the minimum)
+    if(hole<1.0){ // (P480 phase 2: the 12 reads written out - an offset table or a 6 x 6 block of cells made the pass 1.4x slower)
+        mn=min(mn,dzAt(u+vec2(-1.0,0.0)));mn=min(mn,dzAt(u+vec2(1.0,0.0)));mn=min(mn,dzAt(u+vec2(0.0,-1.0)));mn=min(mn,dzAt(u+vec2(0.0,1.0)));
+        mn=min(mn,dzAt(u+vec2(-1.0,-1.0)));mn=min(mn,dzAt(u+vec2(1.0,-1.0)));mn=min(mn,dzAt(u+vec2(-1.0,1.0)));mn=min(mn,dzAt(u+vec2(1.0,1.0)));
+        mn=min(mn,dzAt(u+vec2(-2.0,0.0)));mn=min(mn,dzAt(u+vec2(2.0,0.0)));mn=min(mn,dzAt(u+vec2(0.0,-2.0)));mn=min(mn,dzAt(u+vec2(0.0,2.0)));
+    }
+    float be=clamp((0.98-mn/E)/0.28,0.0,1.0);                   // blend_eq
+    if(hole<=0.0&&be<=0.001)return false;
+    float r0=r,c0=cover;
+    r*=mix(1.0,max(1.0,dezipU.x-wsf),hole);                     // base_hole_weight
+    vec3 Pm=mix(P,vec3(0.462098,0.462098,0.0),hole);            // ln2 / max(0.25, 1.5): the isotropised covariance
+    float lkm=0.85*hole;                                        // linear_kernel_mix = hole_fill_mix clamp(1.5 / 1.5, 0, 1) 0.85
+    float g=fParam[0].x;
+    ivec2 N=ivec2(floor(O+0.5));
+    vec4 pn=vec4(0.0),pd=vec4(0.0);
+    for(int p=0;p<4;p++){
+        int px=p&1,py=p>>1,c=phaseColor[p];
+        int bx=int(floor((O.x-float(px))*0.5))*2+px,by=int(floor((O.y-float(py))*0.5))*2+py;
+        for(int dj=0;dj<=2;dj+=2)for(int di=0;di<=2;di+=2){
+            int sx=bx+di,sy=by+dj;
+            vec2 d=jsrSite(c,vec2(float(sx),float(sy)))-O;
+            if(max(abs(d.x),abs(d.y))>1.5)continue;            // the reference's 3 x 3 (the window, whatever the mode)
+            float kw=dzKernel(d,Pm,lkm);
+            uint fl=0u;
+            float v=flagged?rawSite(0,sx,sy,fl):sampleRaw(0,sx,sy);
+            if((fl&1u)!=0u)continue;                           // outlier site: no sample at all
+            if((fl&2u)!=0u||v>=clipLevel){
+                a.clipNum[c]+=r*kw*v*g;a.clipDen[c]+=r*kw;
+#ifdef RIM_STATS
+                if(v>=clipLevel)a.trueDen[c]+=r*kw;
+#endif
+                continue;
+            }
+            pn[p]+=kw*v*g;pd[p]+=kw;
+            if(c==1)a.cover+=cover*kw;
+            if(fused){float ko=kernelW(d,P);o.num[c]+=r0*ko*v*g;o.den[c]+=r0*ko;if(c==1)o.cover+=c0*ko;} // as frameSamples
+        }
+    }
+    if(be>0.001){ // every group weighed like the centre site (eq_weights = w_c), its kernel mean kept; a group without a sample stays out
+        float wc=max(dzKernel(vec2(N)-O,Pm,lkm),1.0e-5);
+        for(int p=0;p<4;p++)if(pd[p]>1.0e-7){pn[p]=mix(pn[p],pn[p]/max(pd[p],1.0e-5)*wc,be);pd[p]=mix(pd[p],wc,be);}
+    }
+    vec3 I=vec3(0.0),W=vec3(0.0);
+    for(int p=0;p<4;p++){I[phaseColor[p]]+=pn[p];W[phaseColor[p]]+=pd[p];}
+#ifndef DZ_NOCHROMA
+    if(lkm>0.001&&W.x>1.0e-5&&W.y>1.0e-5&&W.z>1.0e-5){
+        // the green-phase chroma correction and alias damping (t_lin = hole), white balanced; not at a flagged / clipped 3 x 3
+        bool ok=true;
+        float tl=dzSite(N.x-1,N.y-1,flagged,ok),top=dzSite(N.x,N.y-1,flagged,ok),tr=dzSite(N.x+1,N.y-1,flagged,ok);
+        float left=dzSite(N.x-1,N.y,flagged,ok),vc=dzSite(N.x,N.y,flagged,ok),right=dzSite(N.x+1,N.y,flagged,ok);
+        float bl=dzSite(N.x-1,N.y+1,flagged,ok),bot=dzSite(N.x,N.y+1,flagged,ok),br=dzSite(N.x+1,N.y+1,flagged,ok);
+        if(ok){
+            float vAvg=0.5*(top+bot),hAvg=0.5*(left+right),dAvg=0.25*(tl+tr+bl+br);
+            float dH=abs(left-right)+0.5*(abs(tl-tr)+abs(bl-br))+abs(vc-hAvg)+0.5*(abs(top-0.5*(tl+tr))+abs(bot-0.5*(bl+br)));
+            float dV=abs(top-bot)+0.5*(abs(tl-bl)+abs(tr-br))+abs(vc-vAvg)+0.5*(abs(left-0.5*(tl+bl))+abs(right-0.5*(tr+br)));
+            float eps=1.0e-4+0.02*vc;
+            float wRow=(dV+eps)/(dH+dV+2.0*eps),wCol=1.0-wRow,aniso=abs(wRow-wCol);
+            int cc=phaseColor[((N.y&1)<<1)|(N.x&1)];
+            bool green=cc==1;
+            float gC=green?vc:(wRow*hAvg+wCol*vAvg),gUd=green?(wRow*dAvg+wCol*vc):vAvg;
+            float gLr=green?(wRow*vc+wCol*dAvg):hAvg,gD=green?dAvg:(wRow*vAvg+wCol*hAvg);
+            float gR,gB; // swizzleForType: the green estimate at the R group and at the B group
+            if(cc==0){gR=gC;gB=gD;}else if(cc==2){gR=gD;gB=gC;}
+            else if(phaseColor[(((N.y+1)&1)<<1)|(N.x&1)]==0){gR=gUd;gB=gLr;}else{gR=gLr;gB=gUd;}
+            vec3 IW=I*dezipWbU,rbf=IW/W;
+            float dRG=rbf.x-gR,dBG=rbf.z-gB;
+            float grGb=(green?abs(vc-dAvg):abs(vAvg-hAvg))*(1.0-0.70*aniso);
+            float ar=1.4*grGb/(sqrt(dRG*dRG+dBG*dBG)+1.0e-6+0.02*vc);
+            float damp=1.0/(1.0+ar*ar);
+            float oRG=dRG*damp,oBG=dBG*damp;
+            float gE=0.5*(gR+gB),dg=gE*gE+0.01;
+            float wcR=1.0/(1.0+4.0*(dRG*dRG)/dg),wcB=1.0/(1.0+4.0*(dBG*dBG)/dg);
+            float eR=W.x*wcR,eB=W.z*wcB;
+            float baseG=((IW.x*wcR-oRG*eR)+IW.y+(IW.z*wcB-oBG*eB))/max(eR+W.y+eB,1.0e-6);
+            baseG=mix(baseG,gC,0.50);
+            vec3 fb=max(vec3(0.0),vec3(baseG+oRG,baseG,baseG+oBG));
+            vec3 mw=mix(W,vec3(max(W.x,max(W.y,W.z))),hole);
+            I=mix(rbf,fb,hole)/dezipWbU*mw;W=mw;
+        }
+    }
+#endif
+    a.num+=r*I;a.den+=r*W;
+    return true;
 }
 )";
-// kHybMergeCommon (or its DCG copy) with kHybDezip before frameSamples and its call at the top of frameSamples / frameSamplesPlain
-inline std::string hybridDezipSource(const std::string& common){
+// P480: the per-cell donor coverage of a strip for kHybDzPass (after the dilate, before the merge; one invocation per cell): plane 0
+// dzBase's weight_so_far, plane 1 the merge's own `frames` (its base widening; the same sum in the same order). Its robust read is
+// the merge's own expression (texDzCoverSrc turns it into the texture fetch of the texture maps' variant).
+static const char* kHybDzCover=R"(
+layout(std430,binding=8) readonly buffer Robust{float robust[];};
+layout(std430,binding=13) readonly buffer Mask{float bmask[];};
+layout(std430,binding=22) writeonly buffer DzCover{float dzCover[];};
+uniform int cy0;
+uniform int cy1;
+uniform int dzBentoU; // 1: the donors' robust carries the Bento factor (1 - m) (the dilate's bento active)
+void main(){
+    int w2=size.x/2;
+    int cx=int(gl_GlobalInvocationID.x),cy=cy0+chunkU+int(gl_GlobalInvocationID.y);
+    if(cx>=w2||cy>=cy1)return;
+    float s=0.0,frames=0.0;
+    for(int f=1;f<frameCount;f++){
+        int role=int(fParam[f].w);
+        if(role==5)continue;
+        float r=robust[(f-1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx];
+        if(r<0.004)continue;                                    // the 8-bit rejection weight of the reference: 0 below 1/255
+        float rw=r/max(fParam[f].y,1.0e-6);
+        s+=role==3?r:rw;
+        frames+=rw;
+    }
+    if(dzBentoU!=0)s/=max(1.0-bmask[(cy-cy0)*w2+cx],1.0e-3);
+    dzCover[(cy-cy0)*w2+cx]=s;
+    dzCover[(cy1-cy0)*w2+(cy-cy0)*w2+cx]=frames;
+}
+)";
+// P480: the dezipper's pass (one invocation per output pixel of the strip, after all sub-positions of the merge, before kHybChroma):
+// where dzBase applies, the merge's own base share of every colour (frameSamples with its kernel, as main) is replaced by dzBase's.
+// Built on "#define RIM_STATS 1" + kHybMergeCommon (outRgb read-write) + kHybDezip; 6.1 base widening only (mergeModeU.x & 4).
+static const char* kHybDzPass=R"(
+layout(std430,binding=4) buffer EffW{float effW[];};
+layout(std430,binding=23) readonly buffer DzDen{float dzDen[];};
+void main(){
+#ifdef DZ_PASS_OFF
+    return;
+#endif
+    int g=kG.x,ow=kG.y,w2=size.x/2;
+    int ox=int(gl_GlobalInvocationID.x),row=chunkU+int(gl_GlobalInvocationID.y);
+    if(ox>=ow||row>=2*(cy1-cy0)*g)return;
+    int x=ox/g,y=2*cy0+row/g,sx=ox-(ox/g)*g,sy=row-(row/g)*g;
+    int cx=x>>1,cy=y>>1;
+    float m=kD.w>0.5?bmask[(cy-cy0)*w2+cx]:0.0;
+    int mode=mergeModeU.x;
+    float wb=1.0-m;
+    if(kE.x>=0.0||mergeModeU.y!=0)wb=0.0;
+    if(wb<=0.0||(mode&4)==0)return;
+    vec2 pos=vec2(float(x),float(y))+(g>1?(vec2(float(sx),float(sy))+0.5)/float(g)-0.5:vec2(0.0));
+    float frames=dzCover[(cy1-cy0)*w2+(cy-cy0)*w2+cx];
+    vec3 P=cov[(cy-ry0)*w2+cx].xyz;
+    vec3 Pb=frames<kD.x?P/(kD.y*kD.y):P;                        // the merge's base kernel (6.1 widening)
+    Acc b;initAcc(b);Acc o;initAcc(o);
+    bool fused=(mode&2)!=0&&m<=0.0;                             // the merge's base window = dzBase's 3 x 3
+    if(!dzBase(b,o,fused,pos,wb,wb,Pb,markU!=0))return;
+    if(!fused)frameSamples(o,0,pos,wb,wb,Pb,false);             // the merge's own base share (no window)
+    int i=row*ow+ox;
+    for(int c=0;c<3;c++){
+        float D=dzDen[i*3+c];
+        if(D<=1.0e-7)continue;                                  // the merge's clipped / fill colour: as it is
+        float Dn=D-o.den[c]+b.den[c];
+        if(Dn<=1.0e-7)continue;
+        outRgb[i*3+c]=(outRgb[i*3+c]*D-o.num[c]+b.num[c])/Dn;
+    }
+    effW[i]+=b.cover-o.cover;
+}
+)";
+// kHybMergeCommon (or its DCG copy, or kHybQzQuadPlain) with the merge's dezipper declarations (kHybDezipMerge) before frameSamples
+inline std::string hybridDezipSource(const std::string& common,const char* insert=kHybDezipMerge){
     std::string s=common;
     const std::string head="void frameSamples(inout Acc a,int f,vec2 O,float r,float cover,vec3 P,bool win){\n";
     const size_t at=s.find(head);
     if(at==std::string::npos||s.find(head,at+1)!=std::string::npos)throw std::runtime_error("HYBRID GPU: dezipper: frameSamples not found once");
-    s.insert(at,kHybDezip);
-    const std::string role="    int role=int(fParam[f].w);\n";
-    for(const char* fn:{"void frameSamples(inout Acc a,","void frameSamplesPlain(inout Acc a,"}){
-        const size_t f=s.find(fn);
-        const size_t r=f==std::string::npos?f:s.find(role,f);
-        if(r==std::string::npos||r-f>200)throw std::runtime_error(std::string("HYBRID GPU: dezipper: no role line in ")+fn);
-        s.insert(r+role.size(),"    r=dezip(f,role,r,cover);\n");
-    }
+    s.insert(at,insert);
+    return s;
+}
+// P480: a merge main (kHybMergeMain1, kHybQzMain) that also stores its per-colour weight sums for kHybDzPass
+inline std::string hybridDezipMain(const char* main){
+    std::string s=main;
+    const std::string out="        outRgb[o]=col.x;outRgb[o+1]=col.y;outRgb[o+2]=col.z;\n";
+    const size_t at=s.find(out);
+    if(at==std::string::npos||s.find(out,at+1)!=std::string::npos)throw std::runtime_error("HYBRID GPU: dezipper: the output store not found once");
+    s.insert(at+out.size(),"#ifndef DZ_NODEN\n        dzDen[o]=a.den.x;dzDen[o+1]=a.den.y;dzDen[o+2]=a.den.z;\n#endif\n");
     return s;
 }
 static const char* kHybMergeMain1=R"(
@@ -4064,7 +4343,7 @@ void main(){
 )";
 
 // ---------------------------------------------------------------------------------------------
-// P29 native mosaic path (mosaicPath 1, hybridReconstructMosaicNative; research/ark23/quad_report.md section 8). New programs
+// P29 native mosaic path (mosaicPath 1, hybridReconstructMosaicNative; research/why23/quad_report.md section 8). New programs
 // only: the plain-Bayer programs above are not touched (kHybMergeMain1 in particular: on Adreno 750 any edit of it made the merge
 // ~15x slower). The Frames block holds the BINNED frames (one per frame, w x h = W/b x H/b): the guide, cells, rejection, dilation
 // and the rim / Bento / chroma passes run on them as on any plain burst. The raw mosaic of every frame goes to the NFrames block
@@ -4354,7 +4633,7 @@ void main(){
 // correct with sums of the binned base that this merge never added (P29 review: chroma on, Quad, one frame: edges -1.2 dB, flat
 // noise +8 %). hybridReconstructMosaicNative turns them off; native variants of them are not built.
 // Accumulation: WhyCam v23 Quad Sabre merge kernel (SampleNeighborhoodQuadRBF, source given to the SCAMERA owner by the WhyCam
-// author, research/ark23, its Quad Sabre merge kernel; its logic is ported here with the author's permission): every raw site of
+// author, research/why23, its Quad Sabre merge kernel; its logic is ported here with the author's permission): every raw site of
 // the window around the frame's sample position, at its native position, colour from its block, anisotropic RBF in native px.
 // Ours around it: the binned guide's covariance scaled to native px (natK.x = 1 / (b mosaicKernelScale)^2), bilinear between the
 // cell centres at the sample position (S0's sample_cov; the donors' own 6.1 covariance the same way), the binned rejection per frame,
@@ -4405,7 +4684,7 @@ vec3 natDcov(int f,vec2 Ob){
     return mix(p0,p1,t.y);
 }
 // S5 (mosaicChromaFill 1): WhyCam v23's colour-difference regularisation of SampleNeighborhoodQuadRBF (ported with the author's
-// permission, research/ark23, its Quad Sabre merge kernel): a colour whose kernel weight in this frame is below natK.w x the
+// permission, research/why23, its Quad Sabre merge kernel): a colour whose kernel weight in this frame is below natK.w x the
 // green weight gets the missing weight at G + (mean R (B) - mean G) of the 3x3 colour blocks around the sample, G = this frame's
 // kernel-weighted green; before the frame's weight is applied. Block means of the unflagged, unclipped sites, each >= 0 (WhyCam's
 // clamp); a colour with clipped samples in this frame keeps its clipped mean (a lower bound), no fill.
@@ -4605,7 +4884,7 @@ void main(){
 }
 )";
 
-// P34: the native Quad merge restructured for speed after WhyCam v23's Quad Sabre merge kernel (research/ark23): whole colour
+// P34: the native Quad merge restructured for speed after WhyCam v23's Quad Sabre merge kernel (research/why23): whole colour
 // blocks are loaded once per frame and output pixel (its q_cache of normalised 2x2 blocks), the loops have constant bounds, the
 // site normalisation runs once per site and strip instead of once per tap. kHybMergeMosaic read every site of the window with a
 // uniform-bound loop, one 16-bit load per tap behind the kernel test and the site-gain arithmetic per tap: ~4 ns per tap on
@@ -5309,7 +5588,12 @@ struct HybridRowsSink {
 // Any other event after the last one voids it. A caller of hybridReconstruct that changes such a result before it returns it must
 // send (null, 0, 0, 0, 0) first (today every caller returns it as it is). The hook must not throw.
 inline std::function<void(const float*,int,int,int,int)>& hybridFinalRowsHook(){static std::function<void(const float*,int,int,int,int)> f;return f;}
-// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune creLazy): the worker
+// The fast merge route (tune fastMerge): its result's rows already as half floats (the GPU packs them), straight into the worker's
+// output memfd (StreamOut::halves), set beside hybridFinalRowsHook: (halves of rows [y0, y1), w, h, y0, y1, result): rows in order
+// from 0; (nullptr, w, h, 0, 0, result) prepares the output beside the merge (optional); (nullptr, w, h, -1, -1, result) commits: result (the vector hybridReconstruct returns, its floats then NOT filled) is
+// what the halves stand for. false: not taken (the merge fills the floats instead; the worker then writes them as before).
+inline std::function<bool(const uint16_t*,int,int,int,int,const float*)>& hybridFinalHalvesHook(){static std::function<bool(const uint16_t*,int,int,int,int,const float*)> f;return f;}
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune creLazy): the worker
 // loads the CRE when a merge first needs the corner tracker (hybridAlignmentEnsure: true when it is there); empty = the worker
 // loaded it before the merge, as before. Every place that tests the alignment before using it tests this too.
 inline std::function<bool()>& hybridAlignmentEnsure(){static std::function<bool()> ensure;return ensure;}
@@ -5334,7 +5618,7 @@ inline void hybridEffectiveCodes(const float* src,uint8_t* dst,int n,float scale
 #endif
     for(;i<n;++i)dst[i]=uint8_t(std::clamp(std::lround(src[i]*scale),1L,255L));
 }
-// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune fastExit): what the
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune fastExit): what the
 // worker no longer frees before its completion line - the merge's large buffers (OPPO, lamp2324: the merge's return took ~50 ms,
 // most of it frees). The worker sets the hook (hybridLater) when it leaves with _exit right after the line; anywhere else (a STOP,
 // the checks) the holder frees them when it goes.
@@ -5669,7 +5953,8 @@ inline std::string hybridPartialSpec(const HybridTuning& t,bool native=false){
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsBox>0?"#define US_BOX 1\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoUsCache>0?"#define US_CACHE 1\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsAa>0.f?"#define US_AA "+std::to_string(std::clamp(t.bentoBlendUsAa,0.f,1.f))+"\n":"")
-        +(!native&&t.bentoBlend>0&&t.bentoBlendUsSoftClip>0.f?"#define US_SOFTCLIP "+std::to_string(std::clamp(t.bentoBlendUsSoftClip,0.5f,0.99f))+"\n":""); // P441
+        +(!native&&t.bentoBlend>0&&t.bentoBlendUsSoftClip>0.f?"#define US_SOFTCLIP "+std::to_string(std::clamp(t.bentoBlendUsSoftClip,0.5f,0.99f))+"\n":"") // P441
+        +(t.rejPixDiff>0.f?"#define REJ_PD 1\n":""); // P488: kHybDilate's guarded post-filter
 }
 struct HybridDcgSources { std::string helpers,mergeCommon,mosaicFast,guide; };
 inline std::string hybridDcgReplace(const std::string& text,const char* what,const char* from,const char* to){
@@ -5715,6 +6000,9 @@ inline const HybridDcgSources& hybridDcgSources(){
 struct HybridFill { int shift=0,w=0,h=0;std::vector<float> v;std::atomic<int> ready{0}; };
 #include "scam-us-cache.h"
 #include "scam-bayer-split.h"
+#include "scam-bayer-tile.h"
+#include "scam-native-tile.h"
+#include "scam-donor-sums.h"
 class HybridGpu {
     EGLDisplay display=EGL_NO_DISPLAY;
     EGLContext context=EGL_NO_CONTEXT;
@@ -5726,6 +6014,162 @@ class HybridGpu {
     size_t usCacheCapacity=0;
     bool usCacheFailed=false;
     bool bayerSplitFailed=false,bayerSplitAttempted=false;
+    GLuint chromaAlternateProgram=0;
+    GLuint donorMergeProgram=0,donorChromaProgram=0,donorSumsBuffer=0;
+    // P480: the dezipper's per-cell donor coverage (kHybDzCover, its texture maps' variant; binding 22, grown as the strips need)
+    GLuint dzCoverProgram=0,texDzCover=0,dzCoverBuffer=0;size_t dzCoverCapacity=0;std::string dzCoverBody;
+    GLuint dzPassProgram=0,texDzPass=0,dzDenBuffer=0;size_t dzDenCapacity=0;std::string dzPassBody; // kHybDzPass, the merge's sums (23)
+    size_t donorSumsCapacity=0;GLint ssboBindings=0;
+    bool donorSumsFailed=false,donorSumsAttempted=false;
+    GLuint qSitePrograms[1]{};bool qSiteFailed=false;
+    GLuint qzQuadTexture=0,qzQuadCells=0,qzQuadMerge=0;int qzQuadWidth=0,qzQuadHeight=0,qzQuadLayers=0;bool qzQuadFailed=false;
+    size_t qzQuadBytes=0;
+    void qzQuadRelease(){
+        if(qzQuadTexture){glBindImageTexture(0,0,0,GL_TRUE,0,GL_WRITE_ONLY,GL_RGBA16UI);glDeleteTextures(1,&qzQuadTexture);}
+        qzQuadTexture=0;qzQuadWidth=qzQuadHeight=qzQuadLayers=0;qzQuadBytes=0;
+    }
+    bool qzQuadPrepare(int width,int height,int layers){
+        GLint maxSize=0,maxLayers=0,units=0,images=0;
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE,&maxSize);glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS,&maxLayers);
+        glGetIntegerv(GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS,&units);glGetIntegerv(GL_MAX_COMPUTE_IMAGE_UNIFORMS,&images);
+        if(width<=0||height<=0||layers<=1||width>maxSize||height>maxSize||layers>maxLayers||units<=9||images<1)return false;
+        uint64_t bytes=0;
+        const bool reuse=qzQuadTexture&&qzQuadWidth==width&&qzQuadHeight>=height&&qzQuadLayers==layers;
+        if(!hybridBayerQuadStorage(width,height,layers,bytes)
+           ||!hybridBayerQuadMemory(bytes,qzQuadBytes,reuse,hybridMemAvailable())){
+            qzQuadRelease();return false;
+        }
+        GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE,&active);glActiveTexture(GL_TEXTURE9);
+        try{
+            if(!reuse){
+                qzQuadRelease();glGenTextures(1,&qzQuadTexture);glBindTexture(GL_TEXTURE_2D_ARRAY,qzQuadTexture);
+                glTexStorage3D(GL_TEXTURE_2D_ARRAY,1,GL_RGBA16UI,width,height,layers);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+                qzQuadWidth=width;qzQuadHeight=height;qzQuadLayers=layers;qzQuadBytes=size_t(bytes);
+            }else glBindTexture(GL_TEXTURE_2D_ARRAY,qzQuadTexture);
+            glBindImageTexture(0,qzQuadTexture,0,GL_TRUE,0,GL_WRITE_ONLY,GL_RGBA16UI);check("qzQuadPrepare");
+        }catch(...){glActiveTexture(GLenum(active));throw;}
+        glActiveTexture(GLenum(active));return true;
+    }
+    std::string mergeBody,qzBody,qzQuadBody;
+    // P469 texture maps (tune texMaps; SCAM_TEX_MAPS overrides): texture variants of the QZ quad path's programs
+    std::string texRejSrc,texDilSrc,texRimSrc,texGuideSrc;
+    GLuint texRej=0,texDil=0,texChroma=0,texRim=0,texCells=0,texMerge=0,texGuide=0;int texBuilt=-1;bool texChromaTile=false,texCellsFine=false;
+    GLuint texT[7]{};int texW[7]{},texH[7]{},texL[7]{};
+    bool texMapsAttempted=false,texMapsFailed=false;
+    static int texMapsEnv(){const char* e=std::getenv("SCAM_TEX_MAPS");return e?std::atoi(e):0;}
+    static void texRep(std::string& s,const std::string& a,const std::string& b){
+        size_t n=0;for(size_t at=0;(at=s.find(a,at))!=std::string::npos;at+=b.size()){s.replace(at,a.size(),b);++n;}
+        if(!n)throw std::runtime_error("TEX MAPS anchor missing: "+a.substr(0,60));
+    }
+    // readers of robust / laCell / dcov (qz quad merge, chroma, rim)
+    std::string texReaders(std::string s,int m) const {
+        std::string pre="\n";
+        if(m&2){
+            pre+="layout(binding=12) uniform highp sampler2DArray robTex;\n";
+            texRep(s,"robust[(f-1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx]","texelFetch(robTex,ivec3(cx,cy-cy0,f-1),0).x");
+            if(localAlign){
+                pre+="layout(binding=13) uniform highp usampler2DArray laTex;\n";
+                texRep(s,"unpackHalf2x16(laCell[uint(f1*(cy1-cy0)*w2+cy*w2+cx)])","unpackHalf2x16(texelFetch(laTex,ivec3(cx,cy,f1),0).x)");
+            }
+        }
+        if(m&8){
+            pre+="layout(binding=15) uniform highp sampler2DArray covTex;\n";
+            texRep(s,"cov[(cy-ry0)*w2+cx]","texelFetch(covTex,ivec3(cx,cy-ry0,0),0)");
+        }
+        if(m&4)pre+="layout(binding=11) uniform highp usampler2DArray dcovTex;\n"
+            "vec3 dcovAtT(int f,int i,int j){int w2=size.x/2;i=clamp(i,0,w2-1);j=clamp(j-fCells[f].x,0,fCells[f].y-1);"
+            "uvec4 t=texelFetch(dcovTex,ivec3(i,j,f),0);return vec3(unpackHalf2x16(t.x|(t.y<<16)),unpackHalf2x16(t.z).x);}\n"
+            "#define dcovAt(f,i,j) dcovAtT(f,i,j)\n";
+        return pre+s;
+    }
+    // P480: kHybDzCover reading the robust maps' texture (only that reader: texReaders also wants the F6 offsets' anchor)
+    std::string texDzCoverSrc() const {
+        std::string s=dzCoverBody;
+        texRep(s,"robust[(f-1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx]","texelFetch(robTex,ivec3(cx,cy-cy0,f-1),0).x");
+        return "\nlayout(binding=12) uniform highp sampler2DArray robTex;\n"+s;
+    }
+    // P480: kHybDzPass reading the base covariance's texture (texture maps bit 8)
+    std::string texDzPassSrc() const {
+        std::string s=dzPassBody;
+        texRep(s,"cov[(cy-ry0)*w2+cx]","texelFetch(covTex,ivec3(cx,cy-ry0,0),0)");
+        return "\nlayout(binding=15) uniform highp sampler2DArray covTex;\n"+s;
+    }
+    static std::string texReject(std::string s,int m){
+        std::string pre="\n";
+        if(m&1)pre+="layout(binding=10) uniform highp sampler2DArray cellTex;\n"
+            "vec4 cellAtT(int f,int i,int j){int w2=size.x/2;i=clamp(i,0,w2-1);j=clamp(j-fCells[f].x,0,fCells[f].y-1);return texelFetch(cellTex,ivec3(i,j,f),0);}\n"
+            "#define cellAt(f,i,j) cellAtT(f,i,j)\n";
+        if(m&8){
+            pre+="layout(binding=14) uniform highp sampler2DArray guideTex;\n";
+            texRep(s,"guide[(y-ry0)*w2+x]","texelFetch(guideTex,ivec3(x,y-ry0,0),0)");
+            texRep(s,"guide[(cy-ry0)*w2+cx]","texelFetch(guideTex,ivec3(cx,cy-ry0,0),0)");
+            texRep(s,"guide[(by-ry0)*w2+bx]","texelFetch(guideTex,ivec3(bx,by-ry0,0),0)");
+        }
+        if(m&16){
+            pre+="layout(r32f,binding=7) writeonly uniform highp image2DArray rawOut;\n";
+            texRep(s,"rawR[(f-1)*(ry1-ry0)*w2+(cy-ry0)*w2+cx]=1.0;","imageStore(rawOut,ivec3(cx,cy-ry0,f-1),vec4(1.0,0.0,0.0,0.0));");
+            texRep(s,"rawR[(f-1)*(ry1-ry0)*w2+(cy-ry0)*w2+cx]=w;","imageStore(rawOut,ivec3(cx,cy-ry0,f-1),vec4(w,0.0,0.0,0.0));");
+        }
+        return pre+s;
+    }
+    static std::string texGuideS(std::string s){
+        texRep(s,"guide[gi]=vec4(centre,s2tex);","imageStore(guideOut,ivec3(cx,cy-ry0,0),vec4(centre,s2tex));");
+        texRep(s,"cov[gi]=vec4(sabreCov61(0,cx,cy),centreClip?1.0:0.0);","imageStore(covOut,ivec3(cx,cy-ry0,0),vec4(sabreCov61(0,cx,cy),centreClip?1.0:0.0));");
+        texRep(s,"cov[gi]=vec4(e1.x*e1.x*ia+e2.x*e2.x*il,e1.y*e1.y*ia+e2.y*e2.y*il,e1.x*e1.y*ia+e2.x*e2.y*il,centreClip?1.0:0.0);",
+               "imageStore(covOut,ivec3(cx,cy-ry0,0),vec4(e1.x*e1.x*ia+e2.x*e2.x*il,e1.y*e1.y*ia+e2.y*e2.y*il,e1.x*e1.y*ia+e2.x*e2.y*il,centreClip?1.0:0.0));");
+        return "\nlayout(rgba32f,binding=5) writeonly uniform highp image2DArray guideOut;\nlayout(rgba32f,binding=6) writeonly uniform highp image2DArray covOut;\n"+s;
+    }
+    std::string texDilate(std::string s,int m) const {
+        std::string pre="\n";
+        if(m&16){
+            pre+="layout(binding=8) uniform highp sampler2DArray rawTex;\n";
+            texRep(s,"rawR[(fr-1)*(ry1-ry0)*w2+(y-ry0)*w2+x]","texelFetch(rawTex,ivec3(x,y-ry0,fr-1),0).x");
+            texRep(s,"rawR[(f-1)*(ry1-ry0)*w2+(y-ry0)*w2+x]","texelFetch(rawTex,ivec3(x,y-ry0,f-1),0).x");
+            texRep(s,"rawR[(j-1)*(ry1-ry0)*w2+(yy-ry0)*w2+cx]","texelFetch(rawTex,ivec3(cx,yy-ry0,j-1),0).x");
+        }
+        if(!(m&2))return pre+s;
+        pre+="layout(r32f,binding=3) writeonly uniform highp image2DArray robOut;\n";
+        texRep(s,"robust[(f-1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx]=r;","imageStore(robOut,ivec3(cx,cy-cy0,f-1),vec4(r,0.0,0.0,0.0));");
+        if(localAlign){
+            pre+="layout(r32ui,binding=4) writeonly uniform highp uimage2DArray laOut;\n";
+            texRep(s,"laCell[(f-1)*(cy1-cy0)*w2+(cy-cy0)*w2+cx]=packHalf2x16(laFlowAt(f,2*cx,2*cy));",
+                   "imageStore(laOut,ivec3(cx,cy-cy0,f-1),uvec4(packHalf2x16(laFlowAt(f,2*cx,2*cy)),0u,0u,0u));");
+        }
+        return pre+s;
+    }
+    static std::string texCellsSrc(std::string s,int m){
+        std::string pre="\n";
+        if(m&1){
+            pre+="layout(rgba32f,binding=1) writeonly uniform highp image2DArray cellOut;\n";
+            texRep(s,"cells[idx]=vec4(u,cl?1.0:0.0);","imageStore(cellOut,ivec3(cx,cy-fCells[fs].x,fs),vec4(u,cl?1.0:0.0));");
+        }
+        if(m&4){
+            pre+="layout(rgba16ui,binding=2) writeonly uniform highp uimage2DArray dcovOut;\n";
+            texRep(s,"dcov[idx]=uvec2(packHalf2x16(P.xy),packHalf2x16(vec2(P.z,0.0)));",
+                   "{uint d0=packHalf2x16(P.xy),d1=packHalf2x16(vec2(P.z,0.0));imageStore(dcovOut,ivec3(cx,cy-fCells[fs].x,fs),uvec4(d0&0xFFFFu,d0>>16,d1&0xFFFFu,0u));}");
+        }
+        return pre+s;
+    }
+    void texBind(int k,GLenum fmt,int w,int h,int l,int imageUnit,int texUnit){
+        GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE,&active);glActiveTexture(GLenum(GL_TEXTURE0+texUnit));
+        if(!texT[k]||texW[k]!=w||texH[k]<h||texL[k]!=l){
+            if(texT[k]){glDeleteTextures(1,&texT[k]);texT[k]=0;}
+            const int hh=(h+31)&~31;
+            glGenTextures(1,&texT[k]);glBindTexture(GL_TEXTURE_2D_ARRAY,texT[k]);
+            glTexStorage3D(GL_TEXTURE_2D_ARRAY,1,fmt,w,hh,l);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+            texW[k]=w;texH[k]=hh;texL[k]=l;
+        } else glBindTexture(GL_TEXTURE_2D_ARRAY,texT[k]);
+        glBindImageTexture(GLuint(imageUnit),texT[k],0,GL_TRUE,0,GL_WRITE_ONLY,fmt);
+        glActiveTexture(GLenum(active));
+        check("tex maps texture");
+    }
+    bool qzQuadCellsFine=false;
+    bool bayerTileOn=false,bayerTileFailed=false,bayerTileAttempted=false;
+    bool nativeTileWanted=false,nativeTileFailed=false,nativeTileAttempted=false;
     // P364: kHybUsBlend compiled per stage (BLEND_STAGE 0..4: the light stages without stage 1's registers; Adreno), blendProgram
     // = stage 1's then; all 0: blendProgram runs every stage (blendStageU)
     GLuint blendStages[5]{};
@@ -5753,6 +6197,7 @@ class HybridGpu {
     GLuint natNormProgram=0,natFast[2][9][2][2]{},natNormBuf=0,natFieldBuf=0;
     GLuint natFastFill[2][9][2]{}; // P204: the base-fill pass of a marked fast merge (block, half-width, R / B fill)
     GLuint natFastDem[2][9][2]{};  // P282: the base demosaic pass (block, half-width, R / B fill)
+    GLuint natFastDemTile[2][9][2]{};
     GLuint natFastUsPass[2][9][2][2]{}; // P313: the ultrashort pass of mosaicUsFill (block, half-width, marked, R / B fill)
     GLuint natFastUsTol[2][9][2][2]{};  // P350: the same with NAT_US_TOL (mosaicUsFillTol > 0)
     // P62 Mochi (compiled on first use): programs and buffers (0 base rows, 1 frame rows, 2 tiles, 3 tile info, 4 final, 5 out)
@@ -5769,7 +6214,7 @@ class HybridGpu {
         if(usPass){baseFill=false;demosaic=false;} // P313
         usTol=usTol&&usPass; // P350
         GLuint& p=usTol?natFastUsTol[tetra?1:0][r][marked?1:0][fill?1:0]:usPass?natFastUsPass[tetra?1:0][r][marked?1:0][fill?1:0]
-                 :demosaic?natFastDem[tetra?1:0][r][fill?1:0]:baseFill?natFastFill[tetra?1:0][r][fill?1:0]:natFast[tetra?1:0][r][marked?1:0][fill?1:0];
+                 :demosaic?(nativeTileWanted?natFastDemTile: natFastDem)[tetra?1:0][r][fill?1:0]:baseFill?natFastFill[tetra?1:0][r][fill?1:0]:natFast[tetra?1:0][r][marked?1:0][fill?1:0];
         if(!p){
             const auto t0=std::chrono::steady_clock::now();
             std::string body=std::string(usPass?"#define NAT_US_PASS 1\n":"")+(usTol?"#define NAT_US_TOL 1\n":"")+"#define NAT_B "+(tetra?"4":"2")+"\n#define NAT_R "+std::to_string(r)+"\n#define NAT_MARKED "+(marked?"1":"0")
@@ -5782,7 +6227,18 @@ class HybridGpu {
                 while((at=body.find(k))!=std::string::npos)body.replace(at,k.size(),k.substr(10)); // drops "writeonly "
             }
             compileName=usTol?(tetra?"mosaicUsTolT":"mosaicUsTol"):usPass?(tetra?"mosaicUsT":"mosaicUs"):demosaic?(tetra?"mosaicDemT":"mosaicDem"):baseFill?(tetra?"mosaicFillT":"mosaicFill"):tetra?"mosaicFastT":"mosaicFast"; // the crash report names the program
-            p=compile(body.c_str());
+            if(demosaic&&nativeTileWanted)try{
+                compileName="nativeTile";
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+                if(std::getenv("SCAM_NATIVE_TILE_FAIL_COMPILE"))throw std::runtime_error("injected native tile compile failure");
+#endif
+                p=compile(hybridNativeTileSource(body).c_str());
+            }catch(const std::exception& error){
+                nativeTileWanted=false;nativeTileFailed=true;
+                while(glGetError()!=GL_NO_ERROR){}
+                if(trace)trace(std::string("HYBRID NATIVE TILE: original shader after compile failure: ")+error.what());
+                return natFastProgram(block,r,marked,fill,baseFill,demosaic,usPass,usTol);
+            }else p=compile(body.c_str());
             compileMs+=std::string(usTol?" mosaicUsTol":usPass?" mosaicUs":demosaic?" mosaicDem":baseFill?" mosaicFill":" mosaicFast")+(tetra?"T":"")+std::to_string(r)+(marked?"m":"")+(fill?"f":"")+"="
                 +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()));
         }
@@ -5823,6 +6279,15 @@ class HybridGpu {
         if(display==EGL_NO_DISPLAY)return;
         if(context!=EGL_NO_CONTEXT&&eglMakeCurrent(display,surface,surface,context)){
             for(GLuint program:{meanProgram,flagsProgram,markProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram,rimProgram,bentoProgram,chromaProgram,bayerSplitA,bayerSplitB,blendProgram})if(program)glDeleteProgram(program);
+            for(GLuint p:qSitePrograms)if(p)glDeleteProgram(p);
+            if(qzQuadCells)glDeleteProgram(qzQuadCells);if(qzQuadMerge)glDeleteProgram(qzQuadMerge);if(qzQuadTexture)glDeleteTextures(1,&qzQuadTexture);
+            for(GLuint p:{texRej,texDil,texChroma,texRim,texCells,texMerge,texGuide})if(p)glDeleteProgram(p);for(GLuint t:texT)if(t)glDeleteTextures(1,&t); // TEX MAPS
+            if(chromaAlternateProgram)glDeleteProgram(chromaAlternateProgram);
+            if(donorMergeProgram)glDeleteProgram(donorMergeProgram);
+            if(donorChromaProgram)glDeleteProgram(donorChromaProgram);
+            if(donorSumsBuffer)glDeleteBuffers(1,&donorSumsBuffer);
+            for(GLuint p:{dzCoverProgram,texDzCover,dzPassProgram,texDzPass})if(p)glDeleteProgram(p); // P480
+            for(GLuint b:{dzCoverBuffer,dzDenBuffer})if(b)glDeleteBuffers(1,&b);
             for(GLuint program:blendStages)if(program&&program!=blendProgram)glDeleteProgram(program); // P364
             if(usCacheProgram)glDeleteProgram(usCacheProgram);
             if(blendCacheProgram)glDeleteProgram(blendCacheProgram);
@@ -5834,6 +6299,8 @@ class HybridGpu {
             if(cellsOther)glDeleteProgram(cellsOther); // P364
             for(auto& byBlock:natFast)for(auto& byR:byBlock)for(auto& byMark:byR)for(GLuint program:byMark)if(program)glDeleteProgram(program); // P34
             for(auto& byBlock:natFastFill)for(auto& byR:byBlock)for(GLuint program:byR)if(program)glDeleteProgram(program); // P204
+            for(auto& byBlock:natFastDem)for(auto& byR:byBlock)for(GLuint program:byR)if(program)glDeleteProgram(program);
+            for(auto& byBlock:natFastDemTile)for(auto& byR:byBlock)for(GLuint program:byR)if(program)glDeleteProgram(program);
             for(auto& byBlock:natFastUsPass)for(auto& byR:byBlock)for(auto& byMark:byR)for(GLuint program:byMark)if(program)glDeleteProgram(program); // P313
             for(auto& byBlock:natFastUsTol)for(auto& byR:byBlock)for(auto& byMark:byR)for(GLuint program:byMark)if(program)glDeleteProgram(program); // P350
             if(natTable[0]||natTable[1])glDeleteBuffers(2,natTable);
@@ -6104,6 +6571,7 @@ public:
         bool blend=false;                               // P310: mask = the ultrashort blend weight (kHybUsBlend), the merge without them
         float blendGain=1.f;                            // P310: strength of the ultrashort colour's gain against N (kHybUsBlend stage 2)
         std::array<float,3> blendWb{1.f,1.f,1.f};       // P350 bentoBlendSatWb: white balance gains of the blend's coloured test
+        std::array<float,3> dezipWb{1.f,1.f,1.f};       // P480: the dezipper's white balance (hybridBlendWb, as the fast merge's gains)
         float rampK=0.f; // P309: the ramp mask's K (share = m / (m + K (1 - m))); 0 = the previous mask
         std::vector<const std::vector<float>*> maskValid; // bentoValidate: per ultrashort frame in merge order, the validity factor per cell
         const HybridFill* fill=nullptr;                 // P392 bentoPartial: the fill of the N clip, 4 planes (R, G, B, confidence)
@@ -6124,6 +6592,7 @@ public:
         HybridLaStream* laStream=nullptr;
         // P33 W2.2: called on the merge thread after each strip's readback with the output rows [0, rows) of out complete
         std::function<void(std::vector<float>& out,int rows)> rowsDone;
+        std::function<void()> restartRows;
         // P29: the raw mosaic behind these (binned) frames; null = every other merge. nativeFrames: its frames in merge order.
         const HybridMosaicNative* native=nullptr;
         std::vector<const uint16_t*> nativeFrames;
@@ -6218,7 +6687,7 @@ public:
                 pruneProgram=timed("prune",kHybFlagPrune,true);
             } else if(early)early("HYBRID GPU: outlier tests off, mean / flags programs not compiled");
             markProgram=timed("mark",kHybMark,true);
-            GLint ssboBindings=0;glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS,&ssboBindings);
+            glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS,&ssboBindings);
             if(outlierPrograms&&ssboBindings>20&&!std::getenv("SCAM_NO_MARK_SPARSE")){ // P440: a driver that refuses them (or binding 20) leaves the full mark pass
                 try{markListProgram=timed("markList",kHybMarkList,true);markSparseProgram=timed("markSparse",hybridMarkSparseSource().c_str(),true);}
                 catch(const std::exception& e){
@@ -6229,6 +6698,7 @@ public:
                 }
             }
             guideProgram=timed("guide",dcg?hybridDcgSources().guide.c_str():kHybGuide); // P320: the zone's texture floor
+            texGuideSrc=dcg?hybridDcgSources().guide:std::string(kHybGuide); // P469
             // P377: kHybCells on every GPU (md5 as kHybCellsPlain); kHybCellsPlain after a compiler died on it (cellsPlain 1)
             if(hybridCellsPlain()){cellsSource=kHybCellsPlain;cellsName="cellsPlain";} else cellsSource=kHybCells;
             cellsProgram=timed(cellsName,cellsSource);
@@ -6236,8 +6706,10 @@ public:
             const std::string tiles=std::string(adreno&&!std::getenv("SCAM_HYB_NO_TILES")?"#define SHARED_TILES 1\n":"");
             const std::string rejDefs=tiles+(rejOpts?"#define REJ_OPTS 1\n":""); // P344
             rejectProgram=timed("reject",(rejDefs+rejSpec+kHybReject).c_str()); // P353: the switches of this tuning fixed
+            texRejSrc=rejDefs+rejSpec+kHybReject; // P469
             // P392: SHASTA_SCOPE into the dilate program (the source unchanged without it)
-            const std::string dilDefs=rejDefs+(partialSpec.find("SHASTA_SCOPE")!=std::string::npos?"#define SHASTA_SCOPE 1\n":"");
+            const std::string dilDefs=rejDefs+(partialSpec.find("SHASTA_SCOPE")!=std::string::npos?"#define SHASTA_SCOPE 1\n":"")
+                +(partialSpec.find("REJ_PD")!=std::string::npos?"#define REJ_PD 1\n":""); // P488
             if(sumsCarry){ // the same program with a carry word per frame (the source without it stays byte-identical: same cache entry)
                 std::string body=dilDefs+kHybDilate;
                 const std::string plain="atomicAdd(sums[f],uint(clamp(r,0.0,1.0)*255.0+0.5));";
@@ -6250,18 +6722,30 @@ public:
                 const size_t gat=body.find(group);
                 if(gat==std::string::npos)throw std::runtime_error("HYBRID GPU: dilate program without its group sum");
                 body.replace(gat,group.size(),"{uint v=dilSum;uint old=atomicAdd(sums[f],v);if(old>0xFFFFFFFFu-v)atomicAdd(sums[frameCount+3+f],1u);}");
-                dilateProgram=timed("dilate",body.c_str());
-            } else dilateProgram=timed("dilate",(dilDefs+kHybDilate).c_str());
+                dilateProgram=timed("dilate",body.c_str());texDilSrc=body;
+            } else {dilateProgram=timed("dilate",(dilDefs+kHybDilate).c_str());texDilSrc=dilDefs+kHybDilate;}
             { // debugging: SCAM_HYB_DEFS=A,B -> "#define A" / "#define B" before the merge body
                 std::string defs;const char* env=std::getenv("SCAM_HYB_DEFS");
                 if(env){std::stringstream s(env);std::string d;while(std::getline(s,d,','))if(!d.empty())defs+="#define "+d+"\n";}
                 // P402: the dezipper put into the common text only when it is on (hybridDezipSource)
-                const std::string common=partialSpec.find("DEZIP")!=std::string::npos?hybridDezipSource(mergeCommon()):std::string(mergeCommon());
-                const std::string body=defs+common+kHybMergeMain1;
-                mergeProgram=timed("merge",body.c_str());
+                // P480: the mains store their weight sums (hybridDezipMain) for kHybDzPass, which runs dzBase after the merge with the
+                // coverage of kHybDzCover; the quad merge's common text gets the same insertion (its own P402 copy gone). Bindings 22 / 23:
+                // without them the dezipper is left out
+                bool dz=partialSpec.find("DEZIP")!=std::string::npos;
+                if(dz&&ssboBindings<=23){dz=false;if(early)early("HYBRID GPU: dezipper off (storage buffer bindings "+std::to_string(ssboBindings)+" <= 23)");}
+                if(dz){
+                    dzCoverBody=defs+kHybDzCover;dzCoverProgram=timed("dzCover",dzCoverBody.c_str());
+                    dzPassBody=std::string("#define RIM_STATS 1\n")+defs+mergeCommon()+kHybDezip+kHybDzPass;dzPassProgram=timed("dzPass",dzPassBody.c_str());
+                }
+                const std::string common=dz?hybridDezipSource(mergeCommon()):std::string(mergeCommon());
+                const std::string main1=dz?hybridDezipMain(kHybMergeMain1):std::string(kHybMergeMain1),qzMain=dz?hybridDezipMain(kHybQzMain):std::string(kHybQzMain);
+                mergeBody=defs+common+main1;
+                qzBody=defs+common+qzMain;
+                qzQuadBody=defs+(dz?hybridDezipSource(kHybQzQuadPlain):std::string(kHybQzQuadPlain))+qzMain;
+                mergeProgram=timed("merge",mergeBody.c_str());
             }
             const char* blendDefs=blendOpts?"#define BLEND_OPTS 1\n":""; // P350
-            if(rimPass){const std::string body=std::string("#define RIM_STATS 1\n")+blendDefs+mergeCommon()+kHybRim;rimProgram=timed("rim",body.c_str());}
+            if(rimPass){const std::string body=std::string("#define RIM_STATS 1\n")+blendDefs+mergeCommon()+kHybRim;rimProgram=timed("rim",body.c_str());texRimSrc=body;}
             if(bentoPass){const std::string body=std::string("#define RIM_STATS 1\n#define BENTO_PASS 1\n")+mergeCommon()+kHybBento;bentoProgram=timed("bento",body.c_str());}
             if(blendPass){const std::string body=std::string("#define RIM_STATS 1\n#define BENTO_PASS 1\n")+blendDefs
                 +(partialSpec.find("BLEND_PARTIAL")!=std::string::npos?"#define BLEND_PARTIAL 1\n":"")
@@ -6442,6 +6926,46 @@ public:
     }
     // P35 / P33: the native mosaic merge programs merge() compiles on first use (prewarm on module open, hybridPrewarmGpu): the fast
     // merge plain and, when the strips may carry site flags, marked; or the generic merge where the fast one does not apply.
+    // P470: the programs a plain merge builds on demand (the first shot after an install compiled them: ~1.5 s of a 30-frame burst
+    // on the OPPO Find X7 Ultra) into the program cache: both cell tensor variants, the Bayer tile chroma, the QZ merge and quads
+    // and the texture maps (P469) of this tuning, with and without the tile chroma. The same sources the merge asks for (the
+    // cache keys); a failure leaves that program to the shot. progress(done, total) after each.
+    void prewarmLazy(const HybridTuning& tune,const std::function<void(int,int)>& progress){
+        std::vector<std::pair<std::string,bool>> jobs; // source, standalone
+        auto cells=[&](bool fine){return std::string(fine?"#define CELL_FINE 1\n":"")+cellsSource;};
+        jobs.push_back({cells(true),false});jobs.push_back({cells(false),false});
+        const std::string chromaBody=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon()+kHybChroma;
+        if(tune.bayerSplit>0&&chromaProgram)jobs.push_back({hybridBayerTileSource(chromaBody),false});
+        if(!qzBody.empty())jobs.push_back({qzBody,false});
+        if(tune.bayerQuads>0&&!qzQuadBody.empty()){
+            for(bool fine:{false,true})jobs.push_back({std::string(kHybCommon)+helpersPrefix+kHybHelpers+(fine?"#define CELL_FINE 1\n":"")+kHybQzQuadCells,true});
+            jobs.push_back({qzQuadBody,false});
+            const int m=(std::getenv("SCAM_TEX_MAPS")?texMapsEnv():tune.texMaps)&31;
+            if(m){
+                if(m&25)jobs.push_back({texReject(texRejSrc,m),false});
+                if(m&18)jobs.push_back({texDilate(texDilSrc,m),false});
+                if(m&8)jobs.push_back({texGuideS(texGuideSrc),false});
+                if(m&5)for(bool fine:{false,true})
+                    jobs.push_back({std::string(kHybCommon)+helpersPrefix+kHybHelpers+(fine?"#define CELL_FINE 1\n":"")+texCellsSrc(kHybQzQuadCells,m),true});
+                if(m&14){
+                    jobs.push_back({texReaders(qzQuadBody,m),false});
+                    if(chromaProgram){
+                        jobs.push_back({texReaders(chromaBody,m),false});
+                        if(tune.bayerSplit>0)jobs.push_back({texReaders(hybridBayerTileSource(chromaBody),m),false});
+                    }
+                    if(rimProgram)jobs.push_back({texReaders(texRimSrc,m),false});
+                }
+                if((m&2)&&!dzCoverBody.empty())jobs.push_back({texDzCoverSrc(),false}); // P480
+                if((m&8)&&!dzPassBody.empty())jobs.push_back({texDzPassSrc(),false});
+            }
+        }
+        int done=0;
+        for(const auto& job:jobs){
+            try{compileName="prewarmLazy";if(GLuint p=compile(job.first.c_str(),job.second))glDeleteProgram(p);}
+            catch(const std::exception&){while(glGetError()!=GL_NO_ERROR){}}
+            if(progress)progress(++done,int(jobs.size()));
+        }
+    }
     void prewarmNative(int block,int window,bool fill,bool fullWindow,bool generic,bool mayMark,bool demosaic=false){
         if(fullWindow&&window>=1&&window<=(block==4?8:3)&&!(fill&&window<2)&&!generic){
             natFastProgram(block,window,false,fill);
@@ -6464,13 +6988,33 @@ public:
     void merge(const Frames& in,const HybridTuning& tune,const SuperResTuning& kernel,bool bento,
                std::vector<float>& out,std::vector<float>& effective,std::vector<double>& robustShare,int grid=1,
                std::vector<uint8_t>* clipFlags=nullptr,bool wantEffective=true){
-        bayerSplitAttempted=false;
+        bayerSplitAttempted=false;bayerTileAttempted=false;nativeTileAttempted=false;donorSumsAttempted=false;texMapsAttempted=false;
         try{mergeImpl(in,tune,kernel,bento,out,effective,robustShare,grid,clipFlags,wantEffective);}
         catch(const std::exception& error){
-            if(!bayerSplitAttempted)throw;
+            if(texMapsAttempted&&!bayerSplitAttempted&&!bayerTileAttempted&&!nativeTileAttempted&&!donorSumsAttempted){
+                // P469: the texture maps alone failed: the SSBO merge, the same inputs
+                texMapsAttempted=false;texMapsFailed=true;while(glGetError()!=GL_NO_ERROR){}
+                if(trace)trace(std::string("HYBRID TEX MAPS: retry with the storage buffers: ")+error.what());
+                if(in.restartRows)in.restartRows();
+                mergeImpl(in,tune,kernel,bento,out,effective,robustShare,grid,clipFlags,wantEffective);
+                return;
+            }
+            if(texMapsAttempted)texMapsFailed=true;
+            if(!bayerSplitAttempted&&!bayerTileAttempted&&!nativeTileAttempted&&!donorSumsAttempted)throw;
             bayerSplitFailed=true;bayerSplitAttempted=false;
+            if(donorSumsAttempted){
+                donorSumsFailed=true;donorSumsAttempted=false;
+                if(donorSumsBuffer)glDeleteBuffers(1,&donorSumsBuffer);
+                donorSumsBuffer=0;donorSumsCapacity=0;
+            }
+            if(bayerTileAttempted){
+                bayerTileFailed=true;bayerTileAttempted=false;
+                if(bayerTileOn){std::swap(chromaProgram,chromaAlternateProgram);bayerTileOn=false;}
+            }
+            if(nativeTileAttempted){nativeTileFailed=true;nativeTileWanted=false;nativeTileAttempted=false;}
             if(trace)trace(std::string("HYBRID BAYER SPLIT: retry original with unchanged inputs: ")+error.what());
             HybridTuning original=tune;original.bayerSplit=0;
+            if(in.restartRows)in.restartRows();
             mergeImpl(in,original,kernel,bento,out,effective,robustShare,grid,clipFlags,wantEffective);
         }
     }
@@ -6482,6 +7026,7 @@ public:
         // grid 8: only the native Tetra merge on the Sabre 2x grid (P56)
         if(grid!=1&&grid!=2&&grid!=4&&!(grid==8&&in.native&&in.native->block==4))throw std::runtime_error("HYBRID GPU grid");
         const int g=grid,ow=w*g;
+        nativeTileWanted=tune.bayerSplit>0&&in.native&&g>=in.native->block&&!dcg&&!nativeTileFailed&&!std::getenv("SCAM_NO_NATIVE_SHARED");
         // The widest dispatch runs (ow + 7) / 8 work groups in x (the output passes; the site passes w).
         if(maxGroupsX>0&&(int64_t(std::max(ow,w))+7)/8>maxGroupsX)
             throw std::runtime_error("HYBRID GPU: output row "+std::to_string(std::max(ow,w))+" px > work-group limit "+std::to_string(maxGroupsX*8)+" px");
@@ -6540,6 +7085,24 @@ public:
             }
             std::swap(cellsProgram,cellsOther);cellsFine=!cellsFine;
         }
+        const bool wantBayerTile=tune.bayerSplit>0&&!in.native&&!dcg&&!bayerTileFailed&&chromaProgram
+            &&!std::getenv("SCAM_NO_BAYER_SHARED");
+        if(!wantBayerTile&&bayerTileOn){std::swap(chromaProgram,chromaAlternateProgram);bayerTileOn=false;}
+        if(wantBayerTile&&!bayerTileOn)try{
+            if(!chromaAlternateProgram){
+                const std::string body=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon()+kHybChroma;
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+                if(std::getenv("SCAM_BAYER_TILE_FAIL_COMPILE"))throw std::runtime_error("injected tile compile failure");
+#endif
+                compileName="chromaTile";chromaAlternateProgram=compile(hybridBayerTileSource(body).c_str());
+            }
+            std::swap(chromaProgram,chromaAlternateProgram);bayerTileOn=true;
+        }catch(const std::exception& error){
+            bayerTileFailed=true;
+            while(glGetError()!=GL_NO_ERROR){}
+            if(trace)trace(std::string("HYBRID BAYER TILE: original shader after compile failure: ")+error.what());
+        }
+        if(trace&&tune.bayerSplit>0)trace(std::string("HYBRID BAYER TILE: ")+(bayerTileOn?"enabled":"original"));
         bool splitBayer=chromaProgram&&!dcg&&!bayerSplitFailed&&hybridBayerSplitEligible(tune.bayerSplit,
             in.native!=nullptr,g,frames,in.mergeMode,tune.widenBelow,tune.baseDemosaic,tune.chromaDiff)&&!in.noBase;
         if(splitBayer&&!bayerSplitA)try{
@@ -6549,7 +7112,8 @@ public:
             const auto sources=hybridBayerSplitSources(kHybChroma);
             const std::string prefix=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon();
             compileName="chromaSplit";bayerSplitA=compile((prefix+sources[0]).c_str());
-            compileName="bayerSplit";bayerSplitB=compile((prefix+sources[1]).c_str());
+            const std::string bayerBody=prefix+sources[1];
+            compileName="bayerSplit";bayerSplitB=compile((bayerTileOn?hybridBayerTileSource(bayerBody):bayerBody).c_str());
         }catch(const std::exception& error){
             if(bayerSplitA)glDeleteProgram(bayerSplitA);
             if(bayerSplitB)glDeleteProgram(bayerSplitB);
@@ -6558,12 +7122,100 @@ public:
             if(trace)trace(std::string("HYBRID BAYER SPLIT: original shader after compile failure: ")+error.what());
         }
         if(trace&&tune.bayerSplit>0)trace(std::string("HYBRID BAYER SPLIT: ")+(splitBayer?"enabled":"original"));
-        std::vector<GLuint> programs={meanProgram,flagsProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram};
+        const bool normals=int(in.role.size())==frames&&std::all_of(in.role.begin(),in.role.end(),[](int role){return role==kRoleNormal;});
+        bool donorSums=hybridDonorSumsEligible(splitBayer,g,frames,normals,ssboBindings)&&!donorSumsFailed&&!std::getenv("SCAM_NO_DONOR_SUMS");
+        if(donorSums&&!donorMergeProgram)try{
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+            if(std::getenv("SCAM_DONOR_SUMS_FAIL_COMPILE"))throw std::runtime_error("injected donor sums compile failure");
+#endif
+            compileName="donorMerge";donorMergeProgram=compile(hybridDonorSumsMerge(mergeBody).c_str());
+            const auto sources=hybridBayerSplitSources(kHybChroma);
+            const std::string prefix=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon();
+            compileName="donorChroma";donorChromaProgram=compile((prefix+hybridDonorSumsChroma(sources[0])).c_str());
+        }catch(const std::exception& error){
+            if(donorMergeProgram)glDeleteProgram(donorMergeProgram);
+            if(donorChromaProgram)glDeleteProgram(donorChromaProgram);
+            donorMergeProgram=donorChromaProgram=0;donorSumsFailed=true;donorSums=false;
+            while(glGetError()!=GL_NO_ERROR){}
+            if(trace)trace(std::string("HYBRID DONOR SUMS: original shaders after compile failure: ")+error.what());
+        }
+        bool qSiteWanted=hybridBayerQzEligible(in.native,g,w,h,frames,normals,dcg,donorSums)&&!qSiteFailed;
+        if(qSiteWanted&&!qSitePrograms[0])try{
+            compileName="mergeQZ";qSitePrograms[0]=compile(qzBody.c_str());
+        }catch(const std::exception& error){
+            for(GLuint& p:qSitePrograms){if(p)glDeleteProgram(p);p=0;}
+            qSiteFailed=true;qSiteWanted=false;while(glGetError()!=GL_NO_ERROR){}
+            if(trace)trace(std::string("HYBRID MERGE QZ: original after compile failure: ")+error.what());
+        }
+        if(trace)trace(std::string("HYBRID MERGE QZ: enabled=")+(qSiteWanted?"1":"0"));
+        bool qzQuadWanted=hybridBayerQuadsEligible(tune.bayerQuads,qSiteWanted,cellsSource==kHybCells,qzQuadFailed);
+        if(qzQuadWanted&&(!qzQuadCells||!qzQuadMerge||qzQuadCellsFine!=cellsFine))try{
+#ifdef SCAM_BAYER_QUADS_FAULTS
+            const char* fault=std::getenv("SCAM_QZ_QUADS_FAULT");
+            if(fault&&std::strcmp(fault,"compile")==0)throw std::runtime_error("injected quad compile refusal");
+#endif
+            if(!qzQuadCells||qzQuadCellsFine!=cellsFine){
+                if(qzQuadCells)glDeleteProgram(qzQuadCells);qzQuadCells=0;
+                const std::string body=std::string(kHybCommon)+helpersPrefix+kHybHelpers+(cellsFine?"#define CELL_FINE 1\n":"")+kHybQzQuadCells;
+                compileName="qzQuadCells";qzQuadCells=compile(body.c_str(),true);qzQuadCellsFine=cellsFine;
+            }
+            if(!qzQuadMerge){compileName="qzQuadMerge";qzQuadMerge=compile(qzQuadBody.c_str());}
+        }catch(const std::exception& error){
+            if(qzQuadCells)glDeleteProgram(qzQuadCells);if(qzQuadMerge)glDeleteProgram(qzQuadMerge);qzQuadCells=qzQuadMerge=0;
+            qzQuadWanted=false;qzQuadFailed=true;while(glGetError()!=GL_NO_ERROR){}
+            if(trace)trace(std::string("HYBRID QZ QUADS: unchanged qz after compile failure: ")+error.what());
+        }
+        if(trace)trace(std::string("HYBRID QZ QUADS: requested=")+(tune.bayerQuads>0?"1":"0")+" enabled="+(qzQuadWanted?"1":"0"));
+        // P469: the texture variants in place of the programs for this merge (restored on return)
+        const int texM=(std::getenv("SCAM_TEX_MAPS")?texMapsEnv():tune.texMaps)&31;
+        const bool texOn=texM!=0&&!texMapsFailed&&qzQuadWanted&&frames>1&&!bento&&!in.native&&!dcg&&!splitBayer&&!donorSums&&hybridStageDir().empty();
+        struct TexSwap{std::vector<std::pair<GLuint*,GLuint>> s;~TexSwap(){for(auto it=s.rbegin();it!=s.rend();++it)*it->first=it->second;}} texSwap;
+        if(texOn){
+            GLint units=0;glGetIntegerv(GL_MAX_IMAGE_UNITS,&units);
+            if(units<8)throw std::runtime_error("TEX MAPS: image units "+std::to_string(units));
+            if(texBuilt!=texM||texChromaTile!=bayerTileOn||texCellsFine!=cellsFine){
+                for(GLuint* p:{&texRej,&texDil,&texChroma,&texRim,&texCells,&texMerge,&texGuide,&texDzCover,&texDzPass}){if(*p)glDeleteProgram(*p);*p=0;}
+                if(texM&25){compileName="texReject";texRej=compile(texReject(texRejSrc,texM).c_str());}
+                if(texM&18){compileName="texDilate";texDil=compile(texDilate(texDilSrc,texM).c_str());}
+                if(texM&8){compileName="texGuide";texGuide=compile(texGuideS(texGuideSrc).c_str());}
+                if(texM&5){
+                    const std::string body=std::string(kHybCommon)+helpersPrefix+kHybHelpers+(cellsFine?"#define CELL_FINE 1\n":"")+texCellsSrc(kHybQzQuadCells,texM);
+                    compileName="texCells";texCells=compile(body.c_str(),true);
+                }
+                if(texM&14){
+                    compileName="texMerge";texMerge=compile(texReaders(qzQuadBody,texM).c_str());
+                    if(chromaProgram){
+                        std::string body=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon()+kHybChroma;
+                        if(bayerTileOn)body=hybridBayerTileSource(body);
+                        compileName="texChroma";texChroma=compile(texReaders(body,texM).c_str());
+                    }
+                    if(rimProgram){compileName="texRim";texRim=compile(texReaders(texRimSrc,texM).c_str());}
+                }
+                if((texM&2)&&dzCoverProgram){compileName="texDzCover";texDzCover=compile(texDzCoverSrc().c_str());} // P480
+                if((texM&8)&&dzPassProgram){compileName="texDzPass";texDzPass=compile(texDzPassSrc().c_str());}
+                texBuilt=texM;texChromaTile=bayerTileOn;texCellsFine=cellsFine;
+            }
+            auto in_=[&](GLuint& slot,GLuint v){if(!v)return;texSwap.s.push_back({&slot,slot});slot=v;};
+            in_(rejectProgram,texRej);in_(dilateProgram,texDil);in_(qzQuadCells,texCells);in_(qzQuadMerge,texMerge);
+            in_(chromaProgram,texChroma);in_(rimProgram,texRim);in_(guideProgram,texGuide);in_(dzCoverProgram,texDzCover);in_(dzPassProgram,texDzPass);
+        }
+        texMapsAttempted=texOn;
+        if(trace)trace(std::string("HYBRID TEX MAPS: mask=")+std::to_string(texM)+" enabled="+(texOn?"1":"0"));
+        std::vector<GLuint> qzMergePrograms(qSitePrograms,qSitePrograms+1);if(qzQuadWanted)qzMergePrograms.push_back(qzQuadMerge);
+        const GLuint mergeMain=donorSums?donorMergeProgram:mergeProgram;
+        const GLuint colourMain=donorSums?donorChromaProgram:bayerSplitA;
+        if(trace&&splitBayer)trace(std::string("HYBRID DONOR SUMS: ")+(donorSums?"enabled":"original"));
+        std::vector<GLuint> programs={meanProgram,flagsProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeMain};
+        if(qSiteWanted)for(GLuint p:qSitePrograms)programs.push_back(p);
+        if(qzQuadWanted){programs.push_back(qzQuadCells);programs.push_back(qzQuadMerge);}
         if(!flagsProgram)programs.erase(programs.begin(),programs.begin()+2); // outlierPrograms false: not compiled
+        // P480: the dezipper's coverage pass and its pass after the merge (6.1 base widening only: the merge's base kernel known there)
+        const bool dzCoverPass=dzCoverProgram!=0&&dzPassProgram!=0&&!in.native&&tune.dezipper>0.f&&(in.mergeMode&4)!=0;
+        if(dzCoverPass){programs.push_back(dzCoverProgram);programs.push_back(dzPassProgram);}
         if(rimProgram)programs.push_back(rimProgram);
         if(bentoProgram)programs.push_back(bentoProgram);
         if(chromaProgram)programs.push_back(chromaProgram);
-        if(splitBayer){programs.push_back(bayerSplitA);programs.push_back(bayerSplitB);}
+        if(splitBayer){programs.push_back(colourMain);programs.push_back(bayerSplitB);}
         for(GLuint p:blendSet())programs.push_back(p); // P364: every stage's program (blendProgram alone without them)
         // P29 native mosaic (Frames::native): the frames above are the binned frames, the raw mosaic of each goes to slot 12
         const HybridMosaicNative* nat=in.native;
@@ -6691,7 +7343,14 @@ public:
         // gradient noise of the green tensor: diagonal difference of four samples (+-1/4) of variance slope/4 (u domain)
         glUniform4f(loc(guideProgram,"kC"),kernel.tensorNoise,tune.rawTensor,tune.rawNoise*in.baseSlope*tune.snrScale/16.f,0);
         glUseProgram(cellsProgram);
-        glUniform1i(loc(cellsProgram,"dcovU"),(in.mergeMode&1)?1:0); // DCov (slot 14) is sized for the cells only in this mode
+        glUniform1i(loc(cellsProgram,"dcovU"),(in.mergeMode&1)?1:0);
+        if(qzQuadWanted)try{
+#ifdef SCAM_BAYER_QUADS_FAULTS
+            const char* fault=std::getenv("SCAM_QZ_QUADS_FAULT");
+            if(fault&&std::strcmp(fault,"cov-init")==0)throw std::runtime_error("injected covariance setup refusal");
+#endif
+            glUseProgram(qzQuadCells);glUniform1i(loc(qzQuadCells,"dcovU"),(in.mergeMode&1)?1:0);check("quad covariance setup");
+        }catch(const std::exception& error){qzQuadWanted=false;qzQuadFailed=true;while(glGetError()!=GL_NO_ERROR){}if(trace)trace(std::string("HYBRID QZ QUADS: unchanged qz after covariance setup refusal: ")+error.what());} // DCov (slot 14) is sized for the cells only in this mode
         glUseProgram(rejectProgram);
         glUniform4f(loc(rejectProgram,"rj"),tune.cdm,tune.boost,tune.varianceThreshold,tune.filterVariance);
         // boost mode 1 needs the Z channel of the local alignment; without it only the forced mode 2 boosts
@@ -6715,24 +7374,38 @@ public:
         glUniform1f(loc(dilateProgram,"rampKU"),bentoMix?in.rampK:0.f); // P309
         {const bool bin=tune.rejBinHi>tune.rejBinLo; // P344: the near-binary map
          glUniform2f(loc(dilateProgram,"db"),bin?tune.rejBinLo:0.f,bin?tune.rejBinHi:0.f);}
-        glUseProgram(mergeProgram);
-        glUniform4f(loc(mergeProgram,"kD"),tune.widenBelow,tune.widenMul,tune.kernelFloor,bentoMix?1.f:0.f);
+        glUniform1f(loc(dilateProgram,"pdU"),std::clamp(tune.rejPixDiff,0.f,1.f)); // P488 (REJ_PD only)
+        glUseProgram(mergeMain);
+        glUniform4f(loc(mergeMain,"kD"),tune.widenBelow,tune.widenMul,tune.kernelFloor,bentoMix?1.f:0.f);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform4f(loc(site,"kD"),tune.widenBelow,tune.widenMul,tune.kernelFloor,bentoMix?1.f:0.f);}glUseProgram(mergeMain);}
         if(tune.dezipper>0.f){ // P402: the dezipper and the donor frames it counts against (normal and bracketed frames merged)
             int donors=0;
             for(size_t f=1;f<in.role.size()&&f<in.weight.size();++f)if(in.role[f]!=5&&in.weight[f]>0.f)donors++;
-            glUniform2f(loc(mergeProgram,"dezipU"),std::clamp(tune.dezipper,0.5f,15.f),float(std::max(donors,1)));
+            if(dzCoverPass){ // P480: kHybDzCover / kHybDzPass (the merge programs only store their sums)
+                const float us=std::max(0.3f,tune.bentoUsSigma);
+                glUseProgram(dzCoverProgram);glUniform1i(loc(dzCoverProgram,"dzBentoU"),bentoMix?1:0);
+                glUseProgram(dzPassProgram);
+                glUniform2f(loc(dzPassProgram,"dezipU"),std::clamp(tune.dezipper,0.5f,15.f),float(std::max(donors,1)));
+                glUniform3f(loc(dzPassProgram,"dezipWbU"),in.dezipWb[0],in.dezipWb[1],in.dezipWb[2]); // the green-phase correction's WB
+                glUniform4f(loc(dzPassProgram,"kD"),tune.widenBelow,tune.widenMul,tune.kernelFloor,bentoMix?1.f:0.f);
+                glUniform4f(loc(dzPassProgram,"kE"),float(tune.debugFrame),1.f/(us*us),0,0);
+                glUniform4i(loc(dzPassProgram,"kG"),g,ow,0,0);
+                glUniform4i(loc(dzPassProgram,"mergeModeU"),in.mergeMode,in.noBase?1:0,0,0);
+                glUseProgram(mergeMain);
+            }
         }
         {const float us=std::max(0.3f,tune.bentoUsSigma),cs=tune.bentoChromaSigma;
          // The merge program stays exactly as it was: on Adreno 750 even one more term in its clip-flag condition made the whole
          // merge ~15x slower (and changed its rounding). The Bento colour pass gets its own uniforms.
-         glUniform4f(loc(mergeProgram,"kE"),float(tune.debugFrame),1.f/(us*us),0,0);
+         glUniform4f(loc(mergeMain,"kE"),float(tune.debugFrame),1.f/(us*us),0,0);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform4f(loc(site,"kE"),float(tune.debugFrame),1.f/(us*us),0,0);}glUseProgram(mergeMain);}
          if(bentoMix&&bentoProgram!=0&&cs>0.f&&tune.bentoChroma>0.f){
              glUseProgram(bentoProgram);
              glUniform4f(loc(bentoProgram,"kE"),float(tune.debugFrame),1.f/(us*us),1.f/(cs*cs),std::clamp(tune.bentoChroma,0.f,16.f));
              glUniform4i(loc(bentoProgram,"kG"),g,ow,0,0);
              // y: no base; z: the merge wrote the clip flags (clip flags or the clip-border pass), else their bits are not read
              glUniform4i(loc(bentoProgram,"mergeModeU"),in.mergeMode,in.noBase?1:0,(clipFlags||(tune.rimRatio!=0&&rimProgram!=0))?1:0,0);
-             glUseProgram(mergeProgram);
+             glUseProgram(mergeMain);
          }
          // P364: for every stage's program (the loop's name hides the member: the lines below as they were)
          if(usBlend)for(const GLuint blendProgram:blendSet()){ // P310: kE.z / kE.w = the wide Bento colour kernel and its strength, for the frames' R/G, B/G
@@ -6781,10 +7454,12 @@ public:
              glUniform4f(loc(blendProgram,"blendOpt3U"),std::max(tune.bentoBlendChromaEdge,0.f),in.blendWb[0],in.blendWb[1],in.blendWb[2]);
              glUniform1i(loc(blendProgram,"blendStepU"),sc?std::max(1,g):1);
              }
-             glUseProgram(mergeProgram);
+             glUseProgram(mergeMain);
          }}
-        glUniform4i(loc(mergeProgram,"kG"),g,ow,0,0);
-        glUniform4i(loc(mergeProgram,"mergeModeU"),in.mergeMode,in.noBase?1:0,clipFlags?1:0,0);
+        glUniform4i(loc(mergeMain,"kG"),g,ow,0,0);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform4i(loc(site,"kG"),g,ow,0,0);}glUseProgram(mergeMain);}
+        glUniform4i(loc(mergeMain,"mergeModeU"),in.mergeMode,in.noBase?1:0,clipFlags?1:0,0);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform4i(loc(site,"mergeModeU"),in.mergeMode,in.noBase?1:0,clipFlags?1:0,0);}glUseProgram(mergeMain);}
         // Clip-border colour pass (kHybRim): the merge only marks its candidates in the clip flags (the ratio loops inside the merge
         // program made the whole merge ~18x slower on Adreno 750 even with the switch off, three more accumulators ~12 %).
         const bool rim=tune.rimRatio!=0&&rimProgram!=0;
@@ -6802,11 +7477,12 @@ public:
             glUniform4f(loc(chromaProgram,"bdU"),std::clamp(tune.baseDemosaic,0.f,1.f),std::clamp(tune.baseDemosaicAniso,0.f,2.f),
                         tune.baseDemosaicBayerLo,std::max(tune.baseDemosaicBayerHi,tune.baseDemosaicBayerLo+0.01f)); // P282
             glUniform1f(loc(chromaProgram,"bdAliasU"),std::clamp(tune.baseDemosaicAlias,0.f,1.f)); // P335
-            glUseProgram(mergeProgram);
+            glUseProgram(mergeMain);
         }
         {const float s=std::max(0.3f,tune.rimSigma);
          const float rimU[4]={rim?1.f:0.f,-0.7213475f/(s*s),tune.rimLo,std::max(tune.rimHi,tune.rimLo+1e-4f)};
-         glUniform4fv(loc(mergeProgram,"rimU"),1,rimU);
+         glUniform4fv(loc(mergeMain,"rimU"),1,rimU);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform4fv(loc(site,"rimU"),1,rimU);}glUseProgram(mergeMain);}
          if(rim){
          glUseProgram(rimProgram);
          glUniform4fv(loc(rimProgram,"rimU"),1,rimU);
@@ -6878,7 +7554,7 @@ public:
                             nb==4?1.f/2.6f:1.f/2.2f,nb==4?5.f:3.f);
                 glUniform2f(loc(mosaicProgram,"natDemD"),tune.baseDemosaicDetailLo,std::max(tune.baseDemosaicDetailHi,tune.baseDemosaicDetailLo+0.01f));
             }
-            glUseProgram(mergeProgram);
+            glUseProgram(mergeMain);
             check("native uniforms");
         }
         // P214k: the two cap blocks (plain sites, native sites; kHybridCapWords each) after the native counters; without the cap
@@ -7177,12 +7853,12 @@ public:
                 for(int b=row0[f]/kBlock;b<=(row0[f]+rows[f]-1)/kBlock&&b<blocks;++b)if(clipBlock[size_t(f)*blocks+b]){clipHere=true;break;}
             const int stripMode=hot?flagMode:(clipHere?flagMode:0); // marking needed: outlier tests or clipped samples
             for(GLuint program:programs){glUseProgram(program);glUniform1i(loc(program,"markU"),stripMode?1:0);}
-            reserve(10,size_t(ry1-ry0)*w2*16);reserve(11,size_t(ry1-ry0)*w2*16);
-            reserve(5,std::max<size_t>(cellTotal,1)*16);
-            reserve(14,(in.mergeMode&1)?std::max<size_t>(cellTotal,1)*8:16);
-            reserve(7,size_t(donors)*(ry1-ry0)*w2*4);
-            reserve(8,size_t(donors)*(cy1-cy0)*w2*4);
-            if(la)reserve(16,size_t(donors)*(cy1-cy0)*w2*4);
+            reserve(10,texOn&&(texM&8)?16:size_t(ry1-ry0)*w2*16);reserve(11,texOn&&(texM&8)?16:size_t(ry1-ry0)*w2*16);
+            reserve(5,texOn&&(texM&1)?16:std::max<size_t>(cellTotal,1)*16);
+            reserve(14,texOn&&(texM&4)?16:(in.mergeMode&1)?std::max<size_t>(cellTotal,1)*8:16);
+            reserve(7,texOn&&(texM&16)?16:size_t(donors)*(ry1-ry0)*w2*4);
+            reserve(8,texOn&&(texM&2)?16:size_t(donors)*(cy1-cy0)*w2*4);
+            if(la)reserve(16,texOn&&(texM&2)?16:size_t(donors)*(cy1-cy0)*w2*4);
             reserve(9,zeros.size()*4);
             reserve(2,size_t(ry1-ry0)*w*2*4);           // site flags of the strip rows
             reserve(1,(size_t(ry1-ry0)*2+4)*w*4*(capOn?2:1)); // fixed-pattern mean (rows +-2); P214k: then the sites' temporal variance
@@ -7386,13 +8062,35 @@ public:
                 dispatchRows(natNormProgram,nat->W/2,maxRows,frames,std::min(256,std::max(8,int(int64_t(256)*2048/std::max(nat->W/2,1))&~7)),7);
                 check("native norm");
             }
+            bool qzQuadOn=false;std::array<GLint,256> qzQuadRanges{};
+            if(qzQuadWanted)try{
+#ifdef SCAM_BAYER_QUADS_FAULTS
+                const char* fault=std::getenv("SCAM_QZ_QUADS_FAULT");
+                if(fault&&std::strcmp(fault,"alloc")==0)throw std::runtime_error("injected quad allocation refusal");
+#endif
+                int rows=1;for(int n:crows)rows=std::max(rows,n);
+                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
+                qzQuadOn=qzQuadPrepare(w2,rows,frames);
+            }
+            catch(const std::exception& error){qzQuadWanted=false;qzQuadFailed=true;while(glGetError()!=GL_NO_ERROR){}if(trace)trace(std::string("HYBRID QZ QUADS: unchanged qz after allocation refusal: ")+error.what());}
+            if(texOn){ // P469
+                if(!qzQuadOn)throw std::runtime_error("TEX MAPS: strip without the quad texture");
+                if(const char* fail=std::getenv("SCAM_TEX_MAPS_FAIL_STRIP"))if(stripIndex==std::atoi(fail))throw std::runtime_error("TEX MAPS: injected failure");
+                int rows=1;for(int n:crows)rows=std::max(rows,n);
+                if(texM&1)texBind(0,GL_RGBA32F,w2,rows,frames,1,10);
+                if(texM&4)texBind(1,GL_RGBA16UI,w2,rows,frames,2,11);
+                if(texM&2){texBind(2,GL_R32F,w2,cy1-cy0,donors,3,12);if(la)texBind(3,GL_R32UI,w2,cy1-cy0,donors,4,13);}
+                if(texM&8){texBind(4,GL_RGBA32F,w2,ry1-ry0,1,5,14);texBind(5,GL_RGBA32F,w2,ry1-ry0,1,6,15);}
+                if(texM&16)texBind(6,GL_R32F,w2,ry1-ry0,donors,7,8);
+            }
+            const GLuint activeCells=qzQuadOn?qzQuadCells:cellsProgram;
             glUseProgram(guideProgram);
             glUniform1i(loc(guideProgram,"ry0"),ry0);glUniform1i(loc(guideProgram,"ry1"),ry1);
             dispatchRows(guideProgram,w2,ry1-ry0,1,chunkOf(256),1);
             check("guide");
             if(frames>1){
-                glUseProgram(cellsProgram);
-                const GLint cellFrame=loc(cellsProgram,"cellFrameU"),cellRows=loc(cellsProgram,"cellRowsU");
+                glUseProgram(activeCells);
+                const GLint cellFrame=loc(activeCells,"cellFrameU"),cellRows=loc(activeCells,"cellRowsU");
                 if(in.mergeMode&1){ // 6.1 covariance (36 RAW sites a cell): one donor per dispatch keeps the reads of a frame together
                     // P364: only the donor cell rows this strip's passes read (the window's other rows are its RAW margins): kHybReject
                     // the colours of rows floor(o.y) - 1 .. + 2, o = originL(f, 2 cx, 2 cy) / 2, base cells [ry0, ry1); kHybMergeMain1 /
@@ -7424,15 +8122,19 @@ public:
                         if(!nat&&(!la||f<int(in.laMaxY.size()))){readRows(f,ry0,ry1,false,ra,rb);readRows(f,cy0,cy1,true,ma,mb);}
                         int a=ma<=mb?std::min(ra,ma):ra;const int b=ma<=mb?std::max(rb,mb):rb;
                         if(ma<=mb&&a<ma&&ma-8*((ma-a+7)/8)>=crow0[f])a=ma-8*((ma-a+7)/8); // the precision rows start a group: fewer tiles
+                        if(qzQuadOn){qzQuadRanges[2*f]=a;qzQuadRanges[2*f+1]=b+1;}
                         glUniform1i(cellFrame,f-1);glUniform4i(cellRows,a,b+1,ma,mb+1);
-                        dispatchRows(cellsProgram,w2,b+1-crow0[f],1,chunkOf(256),2,false,false,a-crow0[f]);
+                        dispatchRows(activeCells,w2,b+1-crow0[f],1,chunkOf(256),2,false,false,a-crow0[f]);
                     }
                     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                 } else {
                     int maxRows=1;for(int f=1;f<frames;++f)maxRows=std::max(maxRows,crows[f]);
+                    if(qzQuadOn)for(int f=1;f<frames;f++){qzQuadRanges[2*f]=crow0[f];qzQuadRanges[2*f+1]=crow0[f]+crows[f];}
                     glUniform1i(cellFrame,0);glUniform4i(cellRows,0,0,0,0); // P364: every row (a held context keeps the last values)
-                    dispatchRows(cellsProgram,w2,maxRows,frames-1,chunkOf(256),2);
+                    dispatchRows(activeCells,w2,maxRows,frames-1,chunkOf(256),2);
                 }
+                if(qzQuadOn){glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);glUseProgram(qzQuadMerge);glUniform2iv(loc(qzQuadMerge,"qzQuadRows"),frames,qzQuadRanges.data());}
+                if(trace&&qzQuadWanted)trace(std::string("HYBRID QZ QUADS STRIP: enabled=")+(qzQuadOn?"1":"0")+" bytes="+std::to_string(qzQuadOn?qzQuadBytes:0));
                 check("cells");
                 if(la&&in.laStream&&laUploaded<in.laNy){
                     // P33 W2.1: the field rows this strip reads (after the cells pass, which does not read them: the GPU runs it meanwhile): laFlowAt / laMotionAt at the cells [ry0, ry1) (tile rows i0, i0 + 1 of the
@@ -7457,7 +8159,25 @@ public:
                 glUniform1i(loc(dilateProgram,"ry0"),ry0);glUniform1i(loc(dilateProgram,"ry1"),ry1);
                 glUniform1i(loc(dilateProgram,"cy0"),cy0);glUniform1i(loc(dilateProgram,"cy1"),cy1);
                 glUniform2i(loc(dilateProgram,"scopeU"),int(scopeAt),int(scopeN)); // P392 (SHASTA_SCOPE only)
+                if(texOn&&(texM&18))glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
                 dispatchRows(dilateProgram,w2,cy1-cy0,frames-1,chunkOf(256),4);
+                if(texOn&&(texM&2))glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+                if(dzCoverPass){ // P480: the strip's per-cell donor coverage for dzBase (binding 22), once per strip
+                    if(!dzCoverBuffer)glGenBuffers(1,&dzCoverBuffer);
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER,dzCoverBuffer);
+                    const size_t bytes=size_t(cy1-cy0)*w2*sizeof(float);
+                    if(bytes>dzCoverCapacity){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(bytes),nullptr,GL_DYNAMIC_COPY);dzCoverCapacity=bytes;}
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,22,dzCoverBuffer);
+                    glUseProgram(dzCoverProgram);
+                    glUniform1i(loc(dzCoverProgram,"cy0"),cy0);glUniform1i(loc(dzCoverProgram,"cy1"),cy1);
+                    dispatchRows(dzCoverProgram,w2,cy1-cy0,1,chunkOf(256),4);
+                    if(!dzDenBuffer)glGenBuffers(1,&dzDenBuffer); // the merge's weight sums of the strip (written by the merge)
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER,dzDenBuffer);
+                    const size_t den=size_t(2*(cy1-cy0)*g)*ow*3*sizeof(float);
+                    if(den>dzDenCapacity){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(den),nullptr,GL_DYNAMIC_COPY);dzDenCapacity=den;}
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,23,dzDenBuffer);
+                    check("dezipper coverage");
+                }
                 check("rejection");
                 if(!stage.raw.empty()){ // lab stage view: the strip's maps before the merge reuses the buffers
                     const int nr=cy1-cy0,nry=ry1-ry0;
@@ -7532,6 +8252,15 @@ public:
                     dispatchRows(natMarkedFill,ow,rows2,1,std::clamp(natChunk*4,8,128),5,true,true);
                 }
                 if(natFastOn&&natDem){ // P282: after the merge and its base fill - the base's demosaic where the donors were rejected
+                    if(nativeTileWanted){
+                        nativeTileAttempted=true;
+                        worker_crash::mark("GPU merge (Bayer split) native tile");
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+                        if(std::getenv("SCAM_NATIVE_TILE_FAIL_RUN"))throw std::runtime_error("injected native tile dispatch failure");
+                        if(const char* after=std::getenv("SCAM_NATIVE_TILE_FAIL_AFTER"))
+                            if(stripIndex>=std::max(0,std::atoi(after)))throw std::runtime_error("injected late native tile failure");
+#endif
+                    }
                     glUseProgram(natDem);
                     glUniform1i(loc(natDem,"cy0"),cy0);glUniform1i(loc(natDem,"cy1"),cy1);glUniform1i(loc(natDem,"ry0"),ry0);
                     glUniform1i(loc(natDem,"natRy1"),ry1);
@@ -7548,14 +8277,52 @@ public:
                     dispatchRows(up,ow,rows2,1,std::clamp(natChunk*4,8,128),5,true,true);
                 }
             } else {
-            glUseProgram(mergeProgram);
-            glUniform1i(loc(mergeProgram,"cy0"),cy0);glUniform1i(loc(mergeProgram,"cy1"),cy1);glUniform1i(loc(mergeProgram,"ry0"),ry0);
+            if(donorSums){
+                donorSumsAttempted=true;worker_crash::mark("GPU merge (Bayer split) donor sums");
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+                if(std::getenv("SCAM_DONOR_SUMS_FAIL_RUN"))throw std::runtime_error("injected donor sums dispatch failure");
+                if(const char* after=std::getenv("SCAM_DONOR_SUMS_FAIL_AFTER"))
+                    if(stripIndex>=std::max(0,std::atoi(after)))throw std::runtime_error("injected late donor sums failure");
+#endif
+                if(!donorSumsBuffer)glGenBuffers(1,&donorSumsBuffer);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER,donorSumsBuffer);
+                const size_t bytes=size_t(ow)*rows2*5*sizeof(float);
+                const uint64_t available=hybridMemAvailable();
+                if((maxStorageBlock&&bytes>maxStorageBlock)||(available&&bytes>available/8))
+                    throw std::runtime_error("Donor sums exceed the available scratch budget");
+                if(bytes>donorSumsCapacity){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(bytes),nullptr,GL_DYNAMIC_COPY);donorSumsCapacity=bytes;}
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER,21,donorSumsBuffer);check("donor sums buffer");
+            }
+            glUseProgram(mergeMain);
+            glUniform1i(loc(mergeMain,"cy0"),cy0);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform1i(loc(site,"cy0"),cy0);}glUseProgram(mergeMain);}glUniform1i(loc(mergeMain,"cy1"),cy1);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform1i(loc(site,"cy1"),cy1);}glUseProgram(mergeMain);}glUniform1i(loc(mergeMain,"ry0"),ry0);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform1i(loc(site,"ry0"),ry0);}glUseProgram(mergeMain);}
             for(int sub=0;sub<g*g;++sub){ // grid 2 / 4: one dispatch per sub-position (same registers as 1x; g^2 passes)
-                glUniform4i(loc(mergeProgram,"kG"),g,ow,sub%g,sub/g);
-                dispatchRows(mergeProgram,w2,cy1-cy0,1,chunkOf(64),5);
+                glUniform4i(loc(mergeMain,"kG"),g,ow,sub%g,sub/g);
+            if(qSiteWanted){for(GLuint site:qzMergePrograms){glUseProgram(site);glUniform4i(loc(site,"kG"),g,ow,sub%g,sub/g);}glUseProgram(mergeMain);}
+                if(qSiteWanted){
+                    const GLuint site=qzQuadOn?qzQuadMerge:qSitePrograms[0];glUseProgram(site);
+                    dispatchRows(site,w2,cy1-cy0,4,chunkOf(64),5);
+                    glUseProgram(mergeMain);
+                }else dispatchRows(mergeMain,w2,cy1-cy0,1,chunkOf(64),5);
             }
             } // P29: end of the plain merge dispatch (else branch of the native one)
+            if(dzCoverPass){ // P480: after all sub-positions, before the colour passes: dzBase's base share in place of the merge's
+                glUseProgram(dzPassProgram);
+                glUniform1i(loc(dzPassProgram,"cy0"),cy0);glUniform1i(loc(dzPassProgram,"cy1"),cy1);glUniform1i(loc(dzPassProgram,"ry0"),ry0);
+                dispatchRows(dzPassProgram,ow,rows2,1,chunkOf(64),5);
+            }
             if(chromaPass){ // after all sub-positions: the base's colour where the merge widened its kernel
+                if(bayerTileOn){
+                    bayerTileAttempted=true;
+                    worker_crash::mark("GPU merge (Bayer split) tile");
+#ifdef SCAM_BAYER_SPLIT_FAULTS
+                    if(std::getenv("SCAM_BAYER_TILE_FAIL_RUN"))throw std::runtime_error("injected tile dispatch failure");
+                    if(const char* after=std::getenv("SCAM_BAYER_TILE_FAIL_AFTER"))
+                        if(stripIndex>=std::max(0,std::atoi(after)))throw std::runtime_error("injected late tile failure");
+#endif
+                }
                 glUseProgram(chromaProgram);
                 glUniform1i(loc(chromaProgram,"cy0"),cy0);glUniform1i(loc(chromaProgram,"cy1"),cy1);glUniform1i(loc(chromaProgram,"ry0"),ry0);
                 if(splitBayer){
@@ -7564,8 +8331,8 @@ public:
 #ifdef SCAM_BAYER_SPLIT_FAULTS
                     if(std::getenv("SCAM_BAYER_SPLIT_FAIL_RUN"))throw std::runtime_error("injected split dispatch failure");
 #endif
-                    hybridUsCopyUniforms(chromaProgram,bayerSplitA);
-                    dispatchRows(bayerSplitA,ow,rows2,1,chunkOf(64),5);
+                    hybridUsCopyUniforms(chromaProgram,colourMain);
+                    dispatchRows(colourMain,ow,rows2,1,chunkOf(64),5);
                     hybridUsCopyUniforms(chromaProgram,bayerSplitB);
                     dispatchRows(bayerSplitB,ow,rows2,1,chunkOf(64),5);
                     if(oy0+rows2>(h-8)*g){
@@ -7727,6 +8494,7 @@ inline void hybridPrewarmGpu(const HybridTuning& tune,int block,const std::funct
     const bool bentoPass=t.bento>0&&!blendPass&&t.bentoChromaSigma>0.f&&t.bentoChroma>0.f;
     const bool outlierPrograms=t.hotSigma>0||t.hotBaseSigma>0;
     HybridGpu gpu(rimPass,la,bentoPass,chromaPass,nullptr,false,native,outlierPrograms,blendPass,false,hybridRejSpec(t),hybridBlendOptions(t),hybridPartialSpec(t,native));
+    if(!native)gpu.prewarmLazy(t,[&report](int done,int total){report("HYBRID PREWARM PROGRESS "+std::to_string(done)+" "+std::to_string(total));});
     if(native){
         const bool t2=block==4&&tune.mosaicTetra!=1;
         const int mb=t2?2:block;
@@ -7737,6 +8505,10 @@ inline void hybridPrewarmGpu(const HybridTuning& tune,int block,const std::funct
     // P308: the GPU F6's programs as well (laGpu: «Где считать F6» = GPU), in their own context (the merge's made current again
     // by its own cleanup); a failure costs only their compile at the shot
     std::string laNote;
+    if(tune.fastMerge>0){ // the fast merge route's programs (scam-fast-merge.h)
+        try{FastMergeGpu ag(hybridProgramCacheDir());laNote=", fast merge "+ag.cacheNote();}
+        catch(const std::exception& e){laNote=std::string(", fast merge failed: ")+e.what();}
+    }
     if(tune.laGpu!=0&&tune.localAlign>0){
         try{LaGpu f6(hybridProgramCacheDir());f6.prepareHomography();laNote=", F6"+f6.cacheNote();} // P364: the GPU alignment's too
         catch(const std::exception& e){laNote=std::string(", F6 failed: ")+e.what();}
@@ -11126,7 +11898,7 @@ inline void hybridGaussPlaneRows(const std::vector<float>& src,std::vector<float
 // the base (one RGB per cell, the base's grey-world gains) and the merge (the same gains, the base's level), sRGB-like gamma.
 // Then 'bento' / 'blend' (the mask), 'accepted' (the mean robust of the normal donors, block means), P344 'cutoff' (frame -1,
 // role 0, one channel: the minimum over the merged normal donors of their block-mean robust / A, white = every frame merged, as
-// ArkCam's «ОТСЕЧЕНИЕ»; absent without such a donor), then per donor 'raw', 'robust' (both min-pooled over the step x step block
+// WhyCam's «ОТСЕЧЕНИЕ»; absent without such a donor), then per donor 'raw', 'robust' (both min-pooled over the step x step block
 // since P344) and 'flow'.
 inline void hybridWriteStages(const HybridGpu& gpu,const HybridGpu::Frames& in,const std::vector<int>& index,
                               const std::vector<float>& out,int outW,int outH,int grid,const std::function<void(const std::string&)>& report){
@@ -11193,7 +11965,7 @@ inline void hybridWriteStages(const HybridGpu& gpu,const HybridGpu::Frames& in,c
         std::vector<uint8_t> a(plane);for(size_t i=0;i<plane;++i)a[i]=uint8_t(acc[i]/normals*255.f+0.5f);
         record("accepted",-1,0,1,a.data());
     }
-    // P344 'cutoff' (ArkCam's «ПОСЛЕ · ОТСЕЧЕНИЕ»): the minimum over the merged normal donors of the block-mean robust / A: 255 =
+    // P344 'cutoff' (WhyCam's «ПОСЛЕ · ОТСЕЧЕНИЕ»): the minimum over the merged normal donors of the block-mean robust / A: 255 =
     // every frame merged there, 0 = at least one frame cut over the whole block. Review of P344: the minimum of block minima over
     // 19 - 27 donors drew static tripod scenes as speckle (q1x 58 % of the blocks under 0.85 with 'accepted' at 2.8 %), and the
     // long frames' clip exclusion (w 0 by design where they clip) drew a static window solid black - bracketed donors are left out.
@@ -11243,12 +12015,30 @@ inline void hybridWriteStages(const HybridGpu& gpu,const HybridGpu::Frames& in,c
 }
 
 inline bool chromaGpuPossible(int64_t resultPixels); // P353: the plain merge prewarms the chroma median (defined below)
+// the fast merge route (tune fastMerge, scam-fast-merge.h, included at the end of this file)
+inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,std::string& why);
+inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
+                                         std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags);
 inline std::vector<float> hybridReconstruct(const HybridInput& input,const HybridTuning& tune,
                                             const ScamAlignment& alignment,
                                             const std::function<void(const std::string&)>& report,
                                             std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,
                                             HybridStats* statsOut=nullptr,std::vector<uint8_t>* clipFlags=nullptr,
                                             const HybridPresetAlignment* preset=nullptr,const HybridMosaicNative* native=nullptr) {
+    // Owner, 2026-11-03 («Быстрый» = the reference scheme): the burst's own merge (no mosaic split / preset / native data) on the fast
+    // merge route first; a burst it does not take, or any failure of it, goes on below with the same input and fastMerge 0
+    // P320 / owner (never one noise curve over a DCG frame): a DCG burst takes the noise check below first (its zones measured, the
+    // lines the app's denoise reads), then comes back here with noiseMeasured -1 and the measured frames
+    const bool dcgCheckFirst=input.dcg&&tune.noiseMeasured>0&&input.mosaic==1&&input.subFrames<=1;
+    if(tune.fastMerge>0&&!preset&&!native&&!dcgCheckFirst){
+        std::string why;
+        if(hybridFastEligible(input,tune,report,why)){
+            try{return hybridFastMerge(input,tune,report,mergedDng,effMap,statsOut,clipFlags);}
+            catch(const std::exception& error){report(std::string("HYBRID FAST MERGE: failed (")+error.what()+"); the SCAM merge with the same input");}
+        } else report("HYBRID FAST MERGE: not taken ("+why+"); the SCAM merge");
+        HybridTuning t0=tune;t0.fastMerge=0;
+        return hybridReconstruct(input,t0,alignment,report,mergedDng,effMap,statsOut,clipFlags,preset,native);
+    }
     if(tune.noiseMeasured>0&&input.mosaic==1&&input.subFrames<=1&&!native&&!preset){
         // P71: plain Bayer only (one green phase = every other site; a Quad / Tetra stream mixes colours there), decided once.
         // Above x6 the model is kept: no HAL profile seen was that far off, a mismatch that large is a different header model
@@ -12288,6 +13078,20 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             else report("HYBRID ALIGN: frame "+std::to_string(f)+" refused by the alignment: merged at the identity ("
                 +std::to_string(alignedNormals)+" aligned normal donors)");
         }
+        // P488 donorShiftMax: the reference Sport's global-translation donor gate - an aligned normal donor whose homography moves the
+        // frame centre more than this (RAW px) from the base is left out before the merge (a pan's far frames: only rejection held them)
+        if(tune.donorShiftMax>0.f){
+            std::string gate;int gated=0;
+            for(int f=1;f<n;++f){
+                if(input.frames[f].role!=kRoleNormal||!aligned[f]||!keep[f])continue;
+                const DonorPoint pt=H[f].project(w/2,h/2);
+                const float d=std::hypot(pt.x/H[f].upRatio-float(w/2),pt.y/H[f].upRatio-float(h/2));
+                char line[64];std::snprintf(line,sizeof(line)," %d:%.1f",f,d);gate+=line;
+                if(d>tune.donorShiftMax){keep[f]=false;++gated;gate+="(out)";}
+            }
+            char head[120];std::snprintf(head,sizeof(head),"HYBRID DONOR SHIFT GATE (P488): limit %.0f RAW px, %d left out; centre shift",tune.donorShiftMax,gated);
+            report(head+gate);
+        }
     }
     std::vector<std::vector<uint8_t>> scopeWeights(static_cast<size_t>(n)); // P392 shastaMotionScope: a kept long frame's weight per cell (x 255)
     {
@@ -13152,6 +13956,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     }
     in.k61a=k61a;in.k61b=k61b;in.k61c=k61c;
     in.mergeMode=sabre61?(tune.s61Mode&7):0;
+    if(tune.dezipper>0.f)in.dezipWb=hybridBlendWb(input,tune); // P480: the gains the reference merges with (wbR / wbB, else grey world)
     HybridCa caModel;
     if(tune.caCorrect){ // P19 lateral CA of R / B, measured on the base frame, corrected on the merged RGB
         const auto caStarted=Clock::now();
@@ -13222,7 +14027,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     HybridRowsSink* const sink=native&&native->rowsSink&&!caModel.ok&&!(mergedDng&&input.mergedDng)&&up2x==1?native->rowsSink:plainSink.get();
     struct SinkStop {HybridRowsSink* sink;~SinkStop(){if(sink)sink->stop();}} sinkStop{sink};
     bool sunk=false;
-    // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune stripTrailers): the
+    // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune stripTrailers): the
     // clip flags (shifted to the RGGB origin, P309's Bento bit, the counts) and the effective map's samples of every strip's rows
     // once they are read back, on the merge thread while the GPU merges the next strip (they were whole-frame passes after the
     // merge: OPPO, lamp2324, ~50 + ~80 ms of the tail); the same values in the same vectors. The rows [0, rows) of flagsRaw and
@@ -13291,26 +14096,29 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     auto gpuMerge=[&](bool withLocalAlign){
         const auto gpuStarted=Clock::now();
         scam_progress::pass("gpu"); // P220: the context and its programs (each program a tick), then Mochi and the strips
-        if(stripTrailers)in.rowsDone=nullptr; // P440: (set below for this attempt)
-        if(sink){ // P213c: a new consumer for every attempt (begin stops the one of a failed attempt before the merge writes out again)
-            sink->begin(outW,outH,(input.cfa&1)*grid,(input.cfa>>1)*grid);
-            in.rowsDone=[sink](std::vector<float>& rgb,int rows){sink->rows(rgb.data(),rows);};
-        }
-        if(caModel.ok){ // P364: with a consumer (only the plain one here) it gets the rows the resample finished
-            caBands=std::make_unique<HybridCaBands>(w*grid,h*grid,grid,caModel);caBandsMs=0;
-            in.rowsDone=[&,sink](std::vector<float>& rgb,int rows){
-                const auto t0=Clock::now();caBands->advance(rgb,rows);caBandsMs+=millis(Clock::now()-t0);
-                if(sink&&caBands->done()>0)sink->rows(rgb.data(),caBands->done());
-            };
-        }
-        if(stripTrailers){ // P440: an attempt's trailer rows from row 0, made after the consumer got its rows
-            flagRowsDone=0;effSampled=0;flagHist.fill(0);
-            auto inner=in.rowsDone;
-            in.rowsDone=[&,inner](std::vector<float>& rgb,int rows){
-                if(inner)inner(rgb,rows);
-                stripFinish(rows);
-            };
-        }
+        auto restartRows=[&]{
+            if(stripTrailers)in.rowsDone=nullptr; // P440: (set below for this attempt)
+            if(sink){ // P213c: begin stops a failed attempt's consumer before the merge writes again
+                sink->begin(outW,outH,(input.cfa&1)*grid,(input.cfa>>1)*grid);
+                in.rowsDone=[sink](std::vector<float>& rgb,int rows){sink->rows(rgb.data(),rows);};
+            }
+            if(caModel.ok){ // P364: the consumer receives the resampled rows
+                caBands=std::make_unique<HybridCaBands>(w*grid,h*grid,grid,caModel);caBandsMs=0;
+                in.rowsDone=[&,sink](std::vector<float>& rgb,int rows){
+                    const auto t0=Clock::now();caBands->advance(rgb,rows);caBandsMs+=millis(Clock::now()-t0);
+                    if(sink&&caBands->done()>0)sink->rows(rgb.data(),caBands->done());
+                };
+            }
+            if(stripTrailers){ // P440: restart trailer rows after a failed partial merge
+                flagRowsDone=0;effSampled=0;flagHist.fill(0);
+                auto inner=in.rowsDone;
+                in.rowsDone=[&,inner](std::vector<float>& rgb,int rows){
+                    if(inner)inner(rgb,rows);
+                    stripFinish(rows);
+                };
+            }
+        };
+        in.restartRows=restartRows;restartRows();
         const bool blendPass=bento.active&&in.blend;
         const bool bentoPass=bento.active&&!in.blend&&tune.bentoChromaSigma>0.f&&tune.bentoChroma>0.f;
         laGpuRetired.reset(); // P371: the F6 context gone before this one is taken (one EGL display; Mesa does not count eglTerminate)
@@ -13399,6 +14207,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         if(movedH.size()>1) // P335: for the plain chroma median's share (any cellClip setting)
             stillSeen=hybridStillBurst(hybridMovedDonors(movedH,w,h,tune.staticShift>0.f?tune.staticShift:0.75f),int(movedH.size())-1)?1:0;
         gpu.merge(in,mergeTune,kernel,bento.active,out,effective,share,grid,clipFlags?&flagsRaw:nullptr,effMap!=nullptr);
+        in.restartRows=nullptr;
         if(in.maskReady)in.maskReady(1<<30); // P353: the blend weight complete (and reported) even where no strip blended
         hybridWriteStages(gpu,in,index,out,outW,outH,grid,report);
         if(gpu.profile){
@@ -15326,7 +16135,7 @@ inline std::vector<float> hybridReconstructMosaic(const HybridInput& input,int b
 }
 
 // ---------------------------------------------------------------------------------------------
-// P29 native mosaic path (mosaicPath 1; research/ark23/quad_report.md section 8, plan P29). Instead of the b^2 sub-frame split of
+// P29 native mosaic path (mosaicPath 1; research/why23/quad_report.md section 8, plan P29). Instead of the b^2 sub-frame split of
 // hybridReconstructMosaic, every frame keeps ONE GPU slot:
 //   M0  frame pick by frames (budget min(kHybridGpuFrames, mosaicFrames)), the split's rules otherwise;
 //   M1  site-class gains (hybridMosaicGains): into the binned frames as the split built its sub-frames, at read time in the merge;
@@ -15994,3 +16803,4 @@ inline HybridInput hybridFromScamBurst(const Burst& b) {
     return in;
 }
 } // namespace scam
+#include "scam-fast-merge.h" // the fast merge route (tune fastMerge)

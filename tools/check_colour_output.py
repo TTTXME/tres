@@ -45,8 +45,8 @@ SIGNED_HUE = int(os.environ.get('SIGNED_HUE', '0'))
 def why_names(src: str) -> str:
     """P319: the baseline commit's shader under the names of today (the tone's word renamed to Why: identifiers, samplers,
     comments), so its token stream and its renders compare with the current shader."""
-    for pat, new in ((r'ARKCORE', 'WHYCORE'), (r'(?<![A-Za-z])ARK(?![A-Za-z])', 'WHY'), (r'Ark', 'Why'),
-                     (r'(?<![A-Za-z])ark(?=cam|core|tone|[^a-z]|$)', 'why')):
+    for pat, new in ((r'WHYCORE', 'WHYCORE'), (r'(?<![A-Za-z])WHY(?![A-Za-z])', 'WHY'), (r'Why', 'Why'),
+                     (r'(?<![A-Za-z])why(?=cam|core|tone|[^a-z]|$)', 'why')):
         src = re.sub(pat, new, src)
     return src
 
@@ -349,7 +349,7 @@ def find_glslc() -> str | None:
                 return hits[0]
     return None
 
-# P349 (owner, 2026-10-26: the sun a flat disc in its glow, dark lines along every edge against it, next to ArkCam): the sun
+# P349 (owner, 2026-10-26: the sun a flat disc in its glow, dark lines along every edge against it, next to WhyCam): the sun
 # bloom (SUN_BLOOM, its uniforms and its block; SUN_BLOOM 0 = off) and a detail gain above 1 on the small deltas only. The
 # token comparison takes the bloom out and puts the plain gain back.
 P349_DEFINE = ('// P349 SUN_BLOOM 1: the glow round fully clipped cores (SunBloom); 0: the shader before P349, token for token.\n'
@@ -451,7 +451,7 @@ def shader_part(strict: bool) -> None:
           'vibrance / delta rule, the P349 sun bloom / gain, the P370 signed hue, the P310 AgX white gate as the scene gate): %s' % got)
     check(got == BASELINE_COMBINE_TOKENS, 'combine.glsl (P3_OUT 0) differs from the pre-P46 shader: %s' % got)
     try:
-        base = subprocess.run(['git', '-C', str(ROOT), 'show', BASELINE_COMMIT + ':app/src/main/assets/shaders/ark/combine.glsl'],
+        base = subprocess.run(['git', '-C', str(ROOT), 'show', BASELINE_COMMIT + ':app/src/main/assets/shaders/why/combine.glsl'],
                               capture_output=True, check=True).stdout.decode('utf-8')
         base = why_names(base)  # P319
         check(token_hash(without_guard(base)) == BASELINE_COMBINE_TOKENS,
@@ -570,7 +570,7 @@ def gl_part(strict: bool) -> None:
     print('GPU: signedHueU %d (P370; environment SIGNED_HUE=1: the shipped default)' % SIGNED_HUE)
     srgb, p3 = render('0'), render('1')
     try:
-        base = subprocess.run(['git', '-C', str(ROOT), 'show', BASELINE_COMMIT + ':app/src/main/assets/shaders/ark/combine.glsl'],
+        base = subprocess.run(['git', '-C', str(ROOT), 'show', BASELINE_COMMIT + ':app/src/main/assets/shaders/why/combine.glsl'],
                               capture_output=True, check=True).stdout.decode('utf-8')
         base = why_names(base)  # P319
         before = render('0', expand_imports(with_p310_white(without_guard(base))))

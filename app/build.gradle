@@ -45,6 +45,7 @@ android {
     // avoids AGP wrapping the 43 MB binary in a temporary single-entry JAR.
     androidResources {
         noCompress += ['bin', 'param', 'tflite']
+        ignoreAssetsPatterns.add('film-reference')
         // UI languages: English (default values/) and Russian (values-ru/); library translations for others are dropped.
         localeFilters += ['en', 'ru']
     }
@@ -217,29 +218,8 @@ def buildScamNeuralWorker = tasks.register('buildScamNeuralWorker', Exec) {
 }
 android.sourceSets.main.assets.srcDir(neuralAssets)
 
-def filmAssets = layout.buildDirectory.dir('generated/filmReferenceAssets')
-def compileFilmReferenceShaders = tasks.register('compileFilmReferenceShaders') {
-    def sources = fileTree('src/main/cpp/third_party/spektrafilm/shaders') { include '*.comp' }
-    inputs.files(sources)
-    inputs.property('ndkVersion', '27.2.12479018')
-    outputs.dir(filmAssets)
-    doLast {
-        def host = System.getProperty('os.name').toLowerCase()
-        def tag = host.contains('windows') ? 'windows-x86_64' : host.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
-        def compiler = new File(android.sdkDirectory, "ndk/27.2.12479018/shader-tools/${tag}/glslc${host.contains('windows') ? '.exe' : ''}")
-        def target = filmAssets.get().dir('film-reference/shaders').asFile
-        target.mkdirs()
-        sources.files.sort().each { shader ->
-            exec {
-                commandLine compiler.absolutePath, '-O', '--target-env=vulkan1.0', shader.absolutePath,
-                        '-o', new File(target, shader.name + '.spv').absolutePath
-            }
-        }
-    }
-}
-android.sourceSets.main.assets.srcDir(filmAssets)
 tasks.configureEach {
-    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(buildScamNeuralWorker, compileFilmReferenceShaders)
+    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(buildScamNeuralWorker)
 }
 
 dependencies {
@@ -280,6 +260,8 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.17'
+    // Robolectric delegates javax.* to the host loader; EGL context tests need these API classes there.
+    testRuntimeOnly 'org.khronos:opengl-api:gl1.1-android-2.1_r1'
     androidTestImplementation 'org.testng:testng:7.12.0'
     androidTestImplementation 'androidx.test:runner:1.6.2'
     androidTestImplementation 'androidx.test:core:1.7.0'

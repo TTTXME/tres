@@ -93,7 +93,7 @@ int main(int argc,char** argv) {
                 catch(const std::exception& error) { report(std::string("SCAM MOTION: SCAMERA tile alignment (")+error.what()+")"); }
                 return motion!=nullptr;
             };
-            // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune creLazy): with
+            // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune creLazy): with
             // the GPU alignment (the job's tuning: gpuAlign 1, laGpu on, localAlign) the corner tracker aligns only when the GPU fails;
             // the CRE (its dlopen, its warm-up thread, its converter's log lines) is loaded then, by the merge (hybridAlignmentEnsure).
             // Its results do not depend on the warm-up (StockMotion::warmUp). SCAM_CRE_EAGER: loaded here as before.
@@ -124,13 +124,18 @@ int main(int argc,char** argv) {
                 // (the program cache of the job, read here: the main thread sets hybridProgramCacheDir later)
                 std::string warmCache;
                 {std::ifstream c(std::string(argv[2])+"/gl-cache");if(!(c&&std::getline(c,warmCache))||warmCache.empty()){if(const char* e=std::getenv("SCAM_GL_CACHE"))warmCache=e;}}
-                try{eglWarm=std::thread([warmCache]{
+                const bool fastWarm=startTune.fastMerge>0&&!std::getenv("SCAM_NO_FAST_PREWARM");
+                if(fastWarm)scam::fastGpuPrewarmBegin();
+                try{eglWarm=std::thread([warmCache,fastWarm]{
                     worker_crash::Stage stage("EGL warm-up (driver load)");
                     EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
                     if(display!=EGL_NO_DISPLAY)eglInitialize(display,nullptr,nullptr); // loads the driver; the merge's own init is then a no-op
+                    // tune fastMerge (the fast merge route, «Быстрый»): its context and programs instead (the route takes them; a burst
+                    // the route does not take merges with the F6 context made then)
+                    if(fastWarm)scam::fastGpuPrewarmMake(warmCache);
                     // P364: the GPU F6 / alignment context and its programs as well (the hybrid merge takes it)
-                    if(!std::getenv("SCAM_NO_LA_PREWARM")&&!warmCache.empty())scam::laGpuPrewarmMake(warmCache);
-                });}catch(const std::exception&){}
+                    else if(!std::getenv("SCAM_NO_LA_PREWARM")&&!warmCache.empty())scam::laGpuPrewarmMake(warmCache);
+                });}catch(const std::exception&){if(fastWarm)scam::fastGpuPrewarmCancel();}
             }
             auto joinCreWarm=[&]{
                 if(!creWarm.joinable())return;
@@ -158,7 +163,7 @@ int main(int argc,char** argv) {
             std::unique_ptr<scam::MappedScamBurst> mapped;
             if(!hybridBurst.hybrid)mapped=std::make_unique<scam::MappedScamBurst>(argv[3]);
             // P188: the app's keep-burst marker names where (its own external files): the burst of this shot, for a replay.
-            // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне ArkCam»): written on a thread of its
+            // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне WhyCam»): written on a thread of its
             // own while the merge runs - the 1.6 GB of a 26-frame 12 MP burst took 3.3-3.8 s in front of the merge (every shot of the
             // owner's log of 31148: «mapped» 3343-3784 ms), now under it (the merge reads the same mapping, nothing is copied). The
             // writer is joined before the mapping goes (it is declared after it: destroyed first, on an exception as well).
@@ -221,6 +226,7 @@ int main(int argc,char** argv) {
             const double mappedMs=sinceStart();
             std::vector<uint16_t> mergedDng;
             std::vector<uint8_t> effMap,clipFlags;
+            std::vector<uint16_t> hlMask; // P480: the base highlight mask for the app's dezipper (fast merge with the highlight path)
             bool noEffMap=false; // P187: header flag 16 (or SCAM_NO_EFFMAP in an offline replay): no effective-frame map
             std::vector<float> result;
             // P440 (tune fastExit): the merge's large buffers, freed after the completion line (_exit: never)
@@ -228,7 +234,7 @@ int main(int argc,char** argv) {
             bool fastExit=false;
             // P371: the RGB halves into the app's memfd during the merge (scam-stream-out.h); the hook is cleared before it goes
             std::unique_ptr<scam::StreamOut> streamOut;
-            struct HookClear{~HookClear(){scam::hybridFinalRowsHook()=nullptr;scam::hybridAlignmentEnsure()=nullptr;scam::hybridLater()=nullptr;}} hookClear;
+            struct HookClear{~HookClear(){scam::hybridFinalRowsHook()=nullptr;scam::hybridFinalHalvesHook()=nullptr;scam::hybridAlignmentEnsure()=nullptr;scam::hybridLater()=nullptr;scam::hybridHighlightMaskOut()=nullptr;}} hookClear;
             std::unique_ptr<scam::Graph> graph;
             if(!hybrid) {
                 // P31: the HTP runtime sets ADSP_LIBRARY_PATH (setenv, which can move the environment array): the warm-up threads
@@ -272,14 +278,20 @@ int main(int argc,char** argv) {
                         streamOut=std::make_unique<scam::StreamOut>(dup);
                         scam::StreamOut* const s=streamOut.get();
                         scam::hybridFinalRowsHook()=[s](const float* rows,int w,int h,int y0,int y1){s->event(rows,w,h,y0,y1);};
+                        scam::hybridFinalHalvesHook()=[s](const uint16_t* hv,int w,int h,int y0,int y1,const float* id){return s->halves(hv,w,h,y0,y1,id);};
                     }
                 }
-                // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»; tune fastExit): the
+                // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune fastExit): the
                 // worker leaves with _exit right after its completion line; the merge's large buffers are freed with it
                 fastExit=tuning.fastExit>0&&!std::getenv("SCAM_NO_FAST_EXIT");
                 if(fastExit)scam::hybridLater()=&later;
+                // P480: the highlight mask trailer only on the app's request (job marker hl-mask; SCAM_HL_MASK in an offline replay):
+                // the app checks the result size exactly
+                if(access((std::string(argv[2])+"/hl-mask").c_str(),F_OK)==0||(std::getenv("SCAM_HL_MASK")&&std::getenv("SCAM_HYBRID")))
+                    scam::hybridHighlightMaskOut()=&hlMask;
                 result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
                 scam::hybridLater()=nullptr;
+                scam::hybridHighlightMaskOut()=nullptr;
             } else {
             const auto& input=mapped->burst;
             scam::ScamExecute forward;
@@ -353,6 +365,9 @@ int main(int argc,char** argv) {
             // P187: without the map (header flag 16) they follow the RGB / the merged RAW directly
             if(!clipFlags.empty()&&(noEffMap?clipFlags.size()*3==result.size():clipFlags.size()==effMap.size()))
                 parts.emplace_back(clipFlags.data(),clipFlags.size());
+            // P480: optional last trailer (job marker hl-mask, the fast merge with the highlight path only): the base highlight mask
+            // at HALF for the app's dezipper pass - 16 bytes of header ("SCHLMSK1", HALF width, height) and its halves row by row
+            if(hlMask.size()>8&&(hlMask.size()-8)*12==result.size())parts.emplace_back(hlMask.data(),hlMask.size()*sizeof(uint16_t));
             // P48 (research/speed/PLAIN_SHOT_SPEED.md): the output (the app's memfd, or a replay's file) reserved with fallocate,
             // mapped and filled on all cores: write() moved the 600 MB of the 2x grid on one core (~300 ms on the vivo X200 Ultra).
             // The same bytes in the same order; anything the mapping cannot take (a pipe, a sealed or non-empty file, no memory for
@@ -367,7 +382,7 @@ int main(int argc,char** argv) {
                 if(streamed&&statsInFill)addStats(s,m);
                 if(!streamed)report("SCAM OUTPUT STREAM: not used ("+(halfOut?streamOut->reason():std::string("no half output"))+", "
                     +std::to_string(streamOut->rows())+" rows came)");
-                scam::hybridFinalRowsHook()=nullptr;
+                scam::hybridFinalRowsHook()=nullptr;scam::hybridFinalHalvesHook()=nullptr;
                 streamOut.reset();
             }
             // P179 (200 MP: the app was killed for LOW_MEMORY around here): an output above 1 GiB is not reserved at once - the

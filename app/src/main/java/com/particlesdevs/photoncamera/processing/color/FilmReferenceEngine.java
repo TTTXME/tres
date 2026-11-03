@@ -2,10 +2,7 @@ package com.particlesdevs.photoncamera.processing.color;
 
 import android.content.Context;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
 
 public final class FilmReferenceEngine {
     private FilmReferenceEngine() {}
@@ -17,17 +14,46 @@ public final class FilmReferenceEngine {
         LOADED=loaded;
     }
     private static File resources;
-    private static volatile boolean capable;
+    static final int DEFAULT_QUEUE_POLICY=1;
+    // A probe may finish after another policy's probe; publish its key and result together.
+    private static volatile Capability capability;
+
+    private static final class Capability {
+        final int policy;
+        final boolean supported;
+        Capability(int policy,boolean supported){this.policy=policy;this.supported=supported;}
+    }
+
+    interface CapabilityProbe { boolean available(int policy) throws java.io.IOException; }
+
+    static boolean available(int policy,CapabilityProbe probe) throws java.io.IOException {
+        Capability cached=capability;
+        if(cached!=null&&cached.policy==policy&&cached.supported)return true;
+        boolean supported=probe.available(policy);
+        capability=new Capability(policy,supported);
+        return supported;
+    }
+
+    static void resetCapabilityForTests(){capability=null;}
+
+    static int queuePolicy(float value){return value==0f?0:DEFAULT_QUEUE_POLICY;}
+
+    private static int queuePolicy(){
+        try{return queuePolicy(com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevNumber("film_vk_queue_policy",DEFAULT_QUEUE_POLICY));}
+        catch(RuntimeException|LinkageError error){return DEFAULT_QUEUE_POLICY;}
+    }
 
     public static boolean available() {
         if(!LOADED)return false;
-        if(capable)return true;
+        final int policy=queuePolicy();
         try {
-            final long started=System.nanoTime();
-            capable=availableNative(resources(com.particlesdevs.photoncamera.app.ScameraApp.getAppContext()).getAbsolutePath());
-            com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","spectral film initialization available="+capable
-                    +" ms="+(System.nanoTime()-started)/1_000_000);
-            return capable;
+            return available(policy,selected->{
+                final long started=System.nanoTime();
+                boolean supported=availableWithQueueNative(resources(com.particlesdevs.photoncamera.app.ScameraApp.getAppContext()).getAbsolutePath(),selected);
+                com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","spectral film initialization available="+supported
+                        +" queuePolicy="+selected+" ms="+(System.nanoTime()-started)/1_000_000);
+                return supported;
+            });
         } catch(java.io.IOException|RuntimeException|LinkageError|OutOfMemoryError error) {
             return false;
         }
@@ -35,36 +61,25 @@ public final class FilmReferenceEngine {
 
     private static synchronized File resources(Context context) throws java.io.IOException {
         if(resources!=null)return resources;
-        File root=new File(context.getCodeCacheDir(),"film-86476afc-pool1");
-        copyAssets(context,"film-reference",root);
+        File root=new File(context.getCodeCacheDir(),"film-native-v1");
+        if(!root.isDirectory()&&!root.mkdirs())throw new java.io.IOException("Film cache directory");
         resources=root;
         return root;
-    }
-
-    private static void copyAssets(Context context,String asset,File target) throws java.io.IOException {
-        String[] names=context.getAssets().list(asset);
-        if(names!=null&&names.length>0){
-            if(!target.isDirectory()&&!target.mkdirs())throw new java.io.IOException("Film resource directory");
-            for(String name:names)copyAssets(context,asset+"/"+name,new File(target,name));
-        }else{
-            File temp=new File(target.getParentFile(),target.getName()+".tmp");
-            try(InputStream in=context.getAssets().open(asset);FileOutputStream out=new FileOutputStream(temp)){
-                byte[] buffer=new byte[32768];int n;
-                while((n=in.read(buffer))!=-1)out.write(buffer,0,n);
-            }
-            Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        }
     }
 
     public static String render(Context context,ByteBuffer input,ByteBuffer output,
                                 FilmReferenceParameters parameters,int width,int height,long budget,double time) {
         if(!LOADED)throw new IllegalStateException("Spectral film library unavailable");
         if(input==null||output==null||parameters==null)throw new IllegalArgumentException("Film buffers");
-        try{return renderNative(resources(context).getAbsolutePath(),input,output,parameters.buffer(),width,height,budget,time);}
+        final int policy=queuePolicy();
+        try{return renderWithQueueNative(resources(context).getAbsolutePath(),input,output,parameters.buffer(),width,height,budget,time,policy);}
         catch(java.io.IOException error){throw new IllegalStateException("Film resources unavailable",error);}
     }
 
     private static native String renderNative(String directory,ByteBuffer input,ByteBuffer output,
                                                ByteBuffer parameters,int width,int height,long budget,double time);
     private static native boolean availableNative(String directory);
+    private static native boolean availableWithQueueNative(String directory,int policy);
+    private static native String renderWithQueueNative(String directory,ByteBuffer input,ByteBuffer output,
+                                                       ByteBuffer parameters,int width,int height,long budget,double time,int policy);
 }

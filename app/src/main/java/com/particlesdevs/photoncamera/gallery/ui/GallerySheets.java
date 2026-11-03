@@ -276,6 +276,8 @@ public final class GallerySheets {
         @Nullable public String lens, device;
         public int width, height;
         public long bytes;
+        /** P492: the «Подробнее» rows (title, value), PhotoMore.rows. */
+        public java.util.List<String[]> more = new java.util.ArrayList<>();
     }
 
     /** SIMPLE_UI §5 (the concept's «Сведения»): when / with what / how big in one card, «Как снято», the merge in words. */
@@ -330,6 +332,31 @@ public final class GallerySheets {
             grid.addView(line, lp);
         }
         s.addView(grid);
+        if (!d.more.isEmpty()) { // P492: the rest of the file's EXIF, one row each
+            s.addView(GalleryUi.sectionLabel(c, Lang.t("Подробнее", "More")));
+            LinearLayout more = new LinearLayout(c);
+            more.setOrientation(LinearLayout.VERTICAL);
+            more.setBackground(GalleryUi.card(c, GalleryUi.CARD, 18));
+            more.setTag("details_more");
+            for (int i = 0; i < d.more.size(); i++) {
+                if (i > 0) more.addView(divider(c));
+                String[] row = d.more.get(i);
+                LinearLayout line = new LinearLayout(c);
+                line.setOrientation(LinearLayout.HORIZONTAL);
+                line.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 10), GalleryUi.dp(c, 14), GalleryUi.dp(c, 10));
+                TextView k = GalleryUi.text(c, row[0], 13, GalleryUi.MUTED);
+                TextView val = GalleryUi.text(c, row[1], 13.5f, GalleryUi.TEXT);
+                val.setGravity(android.view.Gravity.END);
+                val.setTextIsSelectable(true);
+                line.addView(k, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+                LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f);
+                vp.leftMargin = GalleryUi.dp(c, 10);
+                line.addView(val, vp);
+                line.setContentDescription(row[0] + " " + row[1]);
+                more.addView(line);
+            }
+            s.addView(more);
+        }
         if (d.route != null) {
             View note = com.particlesdevs.photoncamera.ui.settings.custompreferences.LutChangesPreference.noteView(c, Lang.t(
                     "Снимок склеен из нескольких кадров (" + d.route + "): меньше шума, светлые и тёмные места сохранены.",

@@ -550,7 +550,7 @@ vec3 processPipeline(vec3 color, float corner_gain) {
     return clamp(color, 0.0, 1.0);
 }
 
-// P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): a pixel
+// P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): a pixel
 // centre exactly on a quad's border (every 15th row and column at 1440 x 1920 of 3072 x 4096) takes the quad after it whatever
 // the rasteriser's last bits - the fused WHY pass (utils/import_vfraw.glsl VF_TIE, the same value) finds the same quad for it
 // from a neighbouring pixel; 1/300 px of shift otherwise

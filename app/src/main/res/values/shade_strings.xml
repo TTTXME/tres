@@ -39,7 +39,7 @@
     <string name="shade_t_metering">Tone metering</string>
     <string name="shade_t_output">Resolution</string>
     <string name="shade_t_downsampler">Downscale</string>
-    <string name="shade_t_ultrahdr">HDR photo</string>
+    <string name="shade_t_ultrahdr">UHDR</string>
     <string name="shade_t_watermark">Watermark</string>
     <string name="shade_t_bento">Highlights</string>
     <string name="shade_t_bento_frames">Highlight frame count</string>
@@ -219,4 +219,5 @@
         <item>Mirror</item>
         <item>As is</item>
     </string-array>
+    <string name="shade_t_hdr_frames">HDR</string>
 </resources>

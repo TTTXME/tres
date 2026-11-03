@@ -155,7 +155,7 @@ public final class RawCrop {
             for (ImageFrame f : frames) {
                 if (f == null || f.buffer == null || f.width != w || f.height != h || f.buffer.capacity() < (long) w * h * 2) continue;
                 final ByteBuffer old = f.buffer;
-                ByteBuffer out = arena == null ? null : arena.copy(old, 0, (int) bytes);   // its bytes are rewritten below
+                ByteBuffer out = arena == null ? null : arena.allocate((int) bytes);
                 if (out != null && out.isReadOnly()) out = null;
                 if (out == null) out = Allocator.allocate((int) bytes);
                 if (out == null) throw new IOException("RAW crop: out of memory");

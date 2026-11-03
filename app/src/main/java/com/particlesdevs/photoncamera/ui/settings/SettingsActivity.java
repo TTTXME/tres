@@ -343,7 +343,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 getPreferenceManager().setPreferenceComparisonCallback(new PreferenceManager.SimplePreferenceComparisonCallback());
             }
             // «Для разработчика»: the hidden scam_dev.txt lines (DevKeys), edited in the file itself
-            DeveloperPreferences.populate(getPreferenceScreen(), getPreferenceManager().getContext());
+            DeveloperPreferences.populate(getPreferenceScreen(), getPreferenceManager().getContext(), this::askScameraFolder);
             fullPreferenceScreen = getPreferenceScreen();
             if (rootKey != null) {
                 PreferenceScreen selected = findPreference(rootKey);
@@ -552,7 +552,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                         // the developer rows write scam_dev.txt, not the preferences
                         if (DeveloperPreferences.SCREEN.equals(screen.getKey()))
                             n += DeveloperPreferences.resetAll(fullPreferenceScreen != null ? fullPreferenceScreen : screen,
-                                    getPreferenceManager().getContext());
+                                    getPreferenceManager().getContext(), this::askScameraFolder);
                         android.widget.Toast.makeText(c, n == 0 ? Lang.t(c, "Всё уже по умолчанию", "Everything is at its default already")
                                 : Lang.t(c, "Сброшено параметров: " + n, "Settings reset: " + n), android.widget.Toast.LENGTH_SHORT).show();
                     })
@@ -705,6 +705,26 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 startActivity(new android.content.Intent(requireContext(), ScamActivity.class));
                 return true;
             });
+            Preference clear = findPreference("scamera_log_clear");
+            if (clear != null) {
+                clear.setSummary(getString(R.string.scamera_log_clear_summary, "0 B"));
+                updateLogSize(clear);
+                clear.setOnPreferenceClickListener(pref -> {
+                    com.particlesdevs.photoncamera.util.ScameraFileLog.clear(ok -> {
+                        if (!isAdded()) return;
+                        ScameraApp.showToast(getString(ok ? R.string.scamera_log_cleared : R.string.scamera_log_failed));
+                        updateLogSize(clear);
+                    });
+                    return true;
+                });
+            }
+            Preference share = findPreference("scamera_log_share");
+            if (share != null) share.setOnPreferenceClickListener(pref -> {
+                com.particlesdevs.photoncamera.util.ScameraFileLog.share(requireContext(), ok -> {
+                    if (!ok && isAdded()) ScameraApp.showToast(getString(R.string.scamera_log_failed));
+                });
+                return true;
+            });
             // P214f: the last 20 messages of the camera screen's message card (UiMessages), newest first
             Preference messages = findPreference("scam_recent_messages");
             if (messages != null) messages.setOnPreferenceClickListener(pref -> {
@@ -713,6 +733,13 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             });
         }
 
+
+        private void updateLogSize(Preference clear) {
+            com.particlesdevs.photoncamera.util.ScameraFileLog.size(bytes -> {
+                if (isAdded()) clear.setSummary(getString(R.string.scamera_log_clear_summary,
+                        android.text.format.Formatter.formatShortFileSize(requireContext(), bytes)));
+            });
+        }
 
         /**
          * ListPreference.SimpleSummaryProvider calls getEntry() while binding the row, and
@@ -1053,6 +1080,16 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
          * P143: keeps the folder the user opened (read and write, across restarts) and says what it reaches: Download/SCAMERA
          * (or Download) covers the configs and the curves; another folder covers neither.
          */
+        /**
+         * P475: a refused scam_dev.txt write: «Доступ ко всем файлам» (Android 11+, AllFilesAccess), else the folder picker at
+         * Download/SCAMERA (the grant writes it too).
+         */
+        void askScameraFolder() {
+            if (!com.particlesdevs.photoncamera.ui.camera.AllFilesAccess.granted()
+                    && com.particlesdevs.photoncamera.ui.camera.AllFilesAccess.openSettings(mContext)) return;
+            if (folderGrantLauncher != null) folderGrantLauncher.launch(com.particlesdevs.photoncamera.util.ScameraFolder.grantHint());
+        }
+
         void grantFolder(android.net.Uri tree) {
             try {
                 mContext.getContentResolver().takePersistableUriPermission(tree,

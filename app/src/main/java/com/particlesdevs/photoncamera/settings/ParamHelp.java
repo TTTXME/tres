@@ -41,14 +41,14 @@ public final class ParamHelp {
                 return Lang.t(c, "Сколько плёнки в снимке: 100 % — снимок целиком отпечатан плёнкой, ниже — смешивается с обычной обработкой камеры, 0 — без плёнки.",
                         "How much film is in the photo: at 100 % the film prints the whole photo, below it is mixed with the camera's own look, 0 is no film.");
             case FilmSim.GRAIN_KEY:
-                return Lang.t(c, "Сила зерна. Размер зерна задают сама плёнка (чем выше ISO, тем крупнее) и формат кадра (чем меньше кадр, тем крупнее). 100 % — как у этой плёнки, 0 — без зерна.",
-                        "The grain's strength. Its size comes from the stock (the higher its ISO, the coarser) and the frame format (the smaller the frame, the coarser). 100 % is this film's, 0 no grain.");
+                return Lang.t(c, "Сила зерна. Размер зерна задают сама плёнка (чем выше ISO, тем крупнее) и формат кадра (чем меньше кадр, тем крупнее). 100 % — как у этой плёнки, 0 — без зерна (по умолчанию).",
+                        "The grain's strength. Its size comes from the stock (the higher its ISO, the coarser) and the frame format (the smaller the frame, the coarser). 100 % is this film's, 0 no grain (the default).");
             case FilmSim.HALATION_KEY:
-                return Lang.t(c, "Красноватое свечение вокруг ярких источников: свет проходит плёнку, отражается от её основы и засвечивает слой ещё раз. 100 % — как у этой плёнки, 0 — без ореола.",
-                        "The reddish glow round bright lights: light passes through the film, reflects off its base and exposes the layer again. 100 % is this film's, 0 no halation.");
+                return Lang.t(c, "Красноватое свечение вокруг ярких источников: свет проходит плёнку, отражается от её основы и засвечивает слой ещё раз. 100 % — как у этой плёнки, 0 — без ореола (по умолчанию).",
+                        "The reddish glow round bright lights: light passes through the film, reflects off its base and exposes the layer again. 100 % is this film's, 0 no halation (the default).");
             case FilmSim.SOFTNESS_KEY:
-                return Lang.t(c, "Насколько плёнка размывает мелкие детали (её резкость, MTF). 100 % — как у этой плёнки, меньше — резче, 0 — без размытия плёнкой.",
-                        "How much the film blurs fine detail (its sharpness, MTF). 100 % is this film's, less is sharper, 0 no film blur.");
+                return Lang.t(c, "Насколько плёнка размывает мелкие детали (её резкость, MTF). 100 % — как у этой плёнки, меньше — резче, 0 — без размытия плёнкой (по умолчанию).",
+                        "How much the film blurs fine detail (its sharpness, MTF). 100 % is this film's, less is sharper, 0 no film blur (the default).");
             case FilmSim.EXPOSURE_KEY:
                 return Lang.t(c, "Экспозиция плёнки, отпечаток с прежним временем: плюс — плотнее негатив и светлее снимок, минус — тоньше негатив и темнее снимок, тени гуще. У слайда — просто светлее или темнее. 1 — одна ступень.",
                         "The film's exposure, printed with the same time: plus is a denser negative and a lighter photo, minus a thinner negative and a darker photo with denser shadows. On a slide simply lighter or darker. 1 is one stop.");
@@ -60,8 +60,8 @@ public final class ParamHelp {
                         "The steepness of the film's curve in development: plus is denser, darker and more saturated with more contrast in the highlights; minus lighter, softer and paler. 0 is this film's. No effect on black-and-white films.");
             // P381: the film page's «Печать» and «Формат» in the tray
             case FilmSim.PRINT_KEY:
-                return Lang.t(c, "На чём печатается негатив: фотобумага или кинопечатная плёнка — у каждой свои краски, контраст и белый. По умолчанию — та, с которой производитель сочетает эту плёнку. Слайды и обращаемые плёнки не печатают; у ч/б негатива от бумаги зависит только зерно.",
-                        "What the negative is printed on: a photo paper or a print film, each with its own dyes, contrast and white. By default the one the maker pairs this film with. Slides and reversal films are not printed; on a black-and-white negative the paper changes only the grain.");
+                return Lang.t(c, "На чём печатается негатив: фотобумага или кинопечатная плёнка — у каждой свои краски, контраст и белый. Для цветных плёнок по умолчанию — Supra Endura; выбранная бумага сохраняется при смене плёнки. Слайды и обращаемые плёнки не печатают; у ч/б негатива от бумаги зависит только зерно.",
+                        "What the negative is printed on: a photo paper or a print film, each with its own dyes, contrast and white. Colour films default to Supra Endura; the chosen paper is preserved when switching stocks. Slides and reversal films are not printed; on a black-and-white negative the paper changes only the grain.");
             case FilmSim.FORMAT_KEY:
                 return Lang.t(c, "Размер кадра плёнки: чем меньше кадр, тем крупнее зерно, шире ореол и диффузия и мягче картинка — всё считается в микрометрах плёнки. «Выкл.» — без зерна, ореола и мягкости плёнки. По умолчанию 35 мм.",
                         "The film's frame size: the smaller the frame, the coarser the grain, the wider the halation and the diffusion and the softer the picture, all in micrometres of film. «Off» has no grain, halation or film softness. 35 mm by default.");
@@ -73,8 +73,9 @@ public final class ParamHelp {
                 return Lang.t(c, "Плотность диффузионного фильтра, как у настоящих: 1/8, 1/4, 1/2, 1 и 2. Чем больше, тем больше света рассеивается: 0.5 — заметное свечение, 2 — сильная дымка. 0 — без диффузии.",
                         "The diffusion filter's grade, as real ones: 1/8, 1/4, 1/2, 1 and 2. The higher, the more light is scattered: 0.5 a visible glow, 2 a strong haze. 0 has no diffusion.");
             case FilmSim.DIR_KEY:
-                return Lang.t(c, "Межслойные эффекты проявки (DIR-компоненты): проявляясь, каждый слой плёнки тормозит соседние, и цвета разделяются сильнее. 100 % — как у этой плёнки (по умолчанию), 0 — без них: цвет мягче и бледнее. На серые тона почти не действует; на ч/б плёнки не действует.",
-                        "The interlayer effects of development (DIR couplers): as each layer develops it holds back its neighbours, separating the colours more. 100 % is this film's (the default), 0 none: softer, paler colour. Hardly acts on greys; no effect on black-and-white films.");
+                // P487 (owner: descriptions an ordinary user understands)
+                return Lang.t(c, "Делает цвета сочнее и чище, а края цветных деталей — чётче, как на настоящей плёнке. 100 % — как у плёнки, 0 — выключено (по умолчанию): цвета мягче и бледнее. На серые тона почти не действует, на ч/б плёнки не действует.",
+                        "Makes colours richer and cleaner and colour edges crisper, as on real film. 100 % is the film's own, 0 off (the default): softer, paler colours. Hardly changes greys; no effect on black-and-white films.");
             case FilmSim.PRINT_M_KEY:
                 return Lang.t(c, "Пурпурный фильтр увеличителя при печати, как в фотолаборатории: минус — пурпурнее, плюс — зеленее. Для слайдов не действует.",
                         "The enlarger's magenta filter, as in a darkroom: minus more magenta, plus greener. No effect on slides.");
@@ -82,7 +83,8 @@ public final class ParamHelp {
                 return Lang.t(c, "Жёлтый фильтр увеличителя при печати: минус — желтее, плюс — синее. Для слайдов не действует.",
                         "The enlarger's yellow filter when printing: minus yellower, plus bluer. No effect on slides.");
             default:
-                return null;
+                // P487: the film page's DIR / halation / development / spectral-model controls
+                return com.particlesdevs.photoncamera.processing.color.FilmAdvanced.help(c, key);
         }
     }
 

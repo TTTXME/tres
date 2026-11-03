@@ -145,6 +145,19 @@ public class UnspektraCameraAeTest {
         assertNotEquals(Integer.valueOf(200),b.get(CaptureRequest.SENSOR_SENSITIVITY));
     }
 
+    @Test public void everyOwnFrameStepsWhileTheLastRequestIsInFlight() {
+        // P476: the loop moves on each frame of one of its own requests (smooth), not only once the HAL shows the newest one
+        selected(true); ae.observe(frame(400,10000000L,false),0,ae.revision());
+        assertTrue(ae.observe(frame(400,10000000L,true),2,ae.revision()));
+        CaptureRequest.Builder b1 = builder(); ae.apply(b1);
+        double e1 = (double)b1.get(CaptureRequest.SENSOR_SENSITIVITY) * b1.get(CaptureRequest.SENSOR_EXPOSURE_TIME);
+        assertTrue(ae.observe(frame(400,10000000L,true),2,ae.revision()));
+        CaptureRequest.Builder b2 = builder(); ae.apply(b2);
+        double e2 = (double)b2.get(CaptureRequest.SENSOR_SENSITIVITY) * b2.get(CaptureRequest.SENSOR_EXPOSURE_TIME);
+        assertTrue(e1 + " -> " + e2, e2 > e1);
+        assertTrue("one frame's step stays small", Math.log(e2 / e1) / Math.log(2) <= .21);
+    }
+
     @Test public void aSustainedExternalOverrideReleasesTheLoop() {
         selected(true); ae.observe(frame(400,10000000L,false),0,ae.revision());
         for (int n=0;n<65;n++) ae.observe(frame(200,20000000L,true),2,ae.revision());

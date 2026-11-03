@@ -1,7 +1,7 @@
 precision highp float;
 precision highp sampler2D;
 // WHY luma sharpening (WhyLumaSharpen): luma_compose of WhyCam 1.23 [fc_cl_source.cl:303-503; why_sharpen.md 3.2,
-// reference research/hybrid5/ref/sharpen/ark_sharpen_ref.py luma_compose]: USM (with noise threshold), bilateral
+// reference research/hybrid5/ref/sharpen/why_sharpen_ref.py luma_compose]: USM (with noise threshold), bilateral
 // high-boost and guided-filter local contrast summed, damped on strong 3x3 contrast, clamped to the local min/max
 // (halo control), faded towards white (protect highlights) and black (protect shadows), optional luma grain.
 // P404: the reference app's Sobel edge boost and edge thinning (shock filter) from the reference's luma_compose_usm (sobelU / thinU,

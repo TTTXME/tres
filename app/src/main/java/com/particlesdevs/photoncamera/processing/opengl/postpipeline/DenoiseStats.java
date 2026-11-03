@@ -203,6 +203,131 @@ final class DenoiseStats {
         android.opengl.GLES30.glFlush();
     }
 
+    /**
+     * P473: levelNoise of the finish level 0 (block 16) straight from the linear RGB {@code rgb}: scamdn/stats_cs, one work group a
+     * block, the YUV and its half-float rounding made there, the sums of scamdn/stats in their order. Null when a GL call fails.
+     */
+    private static float[] finishNoiseCs(GLProg glProg, List<GLTexture> owned, GLTexture rgb, float sY, float rY, float[][] rawOut) {
+        final int bw = Math.max(1, rgb.mSize.x / 16), bh = Math.max(1, rgb.mSize.y / 16);
+        for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {
+            // drain: only the pass below decides
+        }
+        GLTexture atlas = null;
+        try {
+            atlas = tex(owned, new Point(bw, bh), GLFormat.DataType.UNSIGNED_32, 4, GL_NEAREST);
+            glProg.setLayout(16, 16, 1);
+            glProg.useAssetProgram("scamdn/stats_cs", true);
+            glProg.setTexture("InputBuffer", rgb);
+            glProg.setVar("modelU", sY, rY);
+            glProg.setTextureCompute("outStats", atlas, true);
+            glProg.computeManual(bw, bh, 1);
+            final int[] texels = readInts(atlas);
+            final int error = android.opengl.GLES30.glGetError();
+            if (error != android.opengl.GLES30.GL_NO_ERROR) {
+                Log.w("SCAM_PIPELINE", "finish noise compute pass: GL error 0x" + Integer.toHexString(error) + ", the two passes");
+                return null;
+            }
+            final float[] raw = statsOf(texels, bw, 0, 0, bw, bh);
+            rawOut[0] = raw;
+            return NoiseMath.reduce(raw, bw * bh, 0.8f);
+        } catch (RuntimeException e) {
+            Log.w("SCAM_PIPELINE", "finish noise compute pass: " + e + ", the two passes");
+            return null;
+        } finally {
+            release(owned, atlas);
+        }
+    }
+
+    /**
+     * P479: {@link #finishNoiseCs}'s pass with its read-back into a pixel-pack buffer (GL_STREAM_READ; nothing waits here), for
+     * {@link #finishNoiseCsRead}. False (no buffer left) when a GL call fails: the caller takes the synchronous paths.
+     */
+    private static boolean finishNoiseCsBegin(PendingSnr st, List<GLTexture> owned) {
+        final GLTexture rgb = st.clean;
+        final int bw = Math.max(1, rgb.mSize.x / 16), bh = Math.max(1, rgb.mSize.y / 16);
+        for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {
+            // drain: only the pass below decides
+        }
+        GLTexture atlas = null;
+        final int[] pbo = new int[1], oldRead = new int[1], framebuffer = new int[1];
+        boolean ok = false;
+        try {
+            atlas = tex(owned, new Point(bw, bh), GLFormat.DataType.UNSIGNED_32, 4, GL_NEAREST);
+            st.glProg.setLayout(16, 16, 1);
+            st.glProg.useAssetProgram("scamdn/stats_cs", true);
+            st.glProg.setTexture("InputBuffer", rgb);
+            st.glProg.setVar("modelU", st.sY, st.rY);
+            st.glProg.setTextureCompute("outStats", atlas, true);
+            st.glProg.computeManualAsync(bw, bh, 1);
+            android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
+            android.opengl.GLES30.glGenBuffers(1, pbo, 0);
+            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
+            android.opengl.GLES30.glBufferData(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, bw * bh * 16, null, android.opengl.GLES30.GL_STREAM_READ);
+            android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
+            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
+            android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
+                    android.opengl.GLES30.GL_TEXTURE_2D, atlas.mTextureID, 0);
+            android.opengl.GLES30.glReadPixels(0, 0, bw, bh, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, 0);
+            final int error = android.opengl.GLES30.glGetError();
+            if (error != android.opengl.GLES30.GL_NO_ERROR) {
+                Log.w("SCAM_PIPELINE", "finish noise compute pass (async): GL error 0x" + Integer.toHexString(error) + ", read at once");
+                return false;
+            }
+            st.pbo = pbo[0];
+            st.bw = bw;
+            st.bh = bh;
+            ok = true;
+            return true;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_PIPELINE", "finish noise compute pass (async): " + e + ", read at once");
+            return false;
+        } finally {
+            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, 0);
+            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, oldRead[0]);
+            if (framebuffer[0] != 0) android.opengl.GLES30.glDeleteFramebuffers(1, framebuffer, 0);
+            if (!ok && pbo[0] != 0) android.opengl.GLES30.glDeleteBuffers(1, pbo, 0);
+            release(owned, atlas); // the queued copy keeps its storage until done
+        }
+    }
+
+    /** P479: a pending read-back's buffer deleted (finishSnrEnd not reached); nothing when it was. */
+    static void dropPending(PendingSnr st) {
+        if (st.pbo == 0) return;
+        final int[] pbo = {st.pbo};
+        st.pbo = 0;
+        android.opengl.GLES30.glDeleteBuffers(1, pbo, 0);
+    }
+
+    /** P479: the texels {@link #finishNoiseCsBegin} read back (the map waits for that copy); null on a GL failure. Deletes the buffer. */
+    private static int[] finishNoiseCsRead(PendingSnr st) {
+        final int[] pbo = {st.pbo};
+        st.pbo = 0;
+        final int bytes = st.bw * st.bh * 16;
+        try {
+            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
+            final java.nio.Buffer view = android.opengl.GLES30.glMapBufferRange(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, 0, bytes,
+                    android.opengl.GLES30.GL_MAP_READ_BIT);
+            if (!(view instanceof ByteBuffer) || view.capacity() < bytes) {
+                if (view != null) android.opengl.GLES30.glUnmapBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER);
+                Log.w("SCAM_PIPELINE", "finish noise read-back: the pixel-pack buffer did not map, the two passes");
+                return null;
+            }
+            final int[] out = new int[st.bw * st.bh * 4];
+            ((ByteBuffer) view).order(ByteOrder.nativeOrder()).asIntBuffer().get(out);
+            if (!android.opengl.GLES30.glUnmapBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER)) {
+                Log.w("SCAM_PIPELINE", "finish noise read-back: the pixel-pack buffer was lost while mapped, the two passes");
+                return null;
+            }
+            return out;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_PIPELINE", "finish noise read-back: " + e + ", the two passes");
+            return null;
+        } finally {
+            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, 0);
+            android.opengl.GLES30.glDeleteBuffers(1, pbo, 0);
+        }
+    }
+
     private static int[] readInts(GLTexture t) {
         int w = t.mSize.x, h = t.mSize.y;
         int[] oldRead = new int[1], framebuffer = new int[1];
@@ -289,22 +414,54 @@ final class DenoiseStats {
         return Float.isFinite(ratio) ? new float[]{ratio, kneeY} : null;
     }
 
+    /**
+     * P479 (speed): {@link #finishSnr} in two halves. {@link #finishSnrBegin} issues level 0's statistics and, on the compute path
+     * with {@code async}, reads them into a pixel-pack buffer without waiting; {@link #finishSnrEnd} maps it (it waits for that
+     * copy only) and does the CPU part. WhyResolveDenoise issues its passes in between (they do not use the SNR, WhyLumaSharpen
+     * and WhyCombine do), so the GPU is not drained here and the CPU part runs while those passes do: the same texels, the same
+     * arithmetic, the same SNR.
+     */
+    static final class PendingSnr {
+        Parameters par;
+        PostPipeline pipeline;
+        GLProg glProg;
+        GLTexture clean;
+        float sY, rY, sG, rG, rGhi, kneeY, rhoS, rhoR, snrFixed, snrScale;
+        float[] zones, dcgPass, g0;
+        final float[][] raw0 = new float[1][];
+        int s;
+        Point size0;
+        /** The compute pass's statistics still in this pixel-pack buffer (0: none), its atlas bw x bh. */
+        int pbo, bw, bh;
+    }
+
     static float finishSnr(GLProg glProg, PostPipeline pipeline, GLTexture clean, StringBuilder log) {
+        return finishSnrEnd(finishSnrBegin(glProg, pipeline, clean, false), log);
+    }
+
+    static PendingSnr finishSnrBegin(GLProg glProg, PostPipeline pipeline, GLTexture clean, boolean async) {
+        final PendingSnr st = new PendingSnr();
         final Parameters par = pipeline.mParameters;
+        st.par = par;
+        st.pipeline = pipeline;
+        st.glProg = glProg;
+        st.clean = clean;
         final Point full = clean.mSize;
         final Point shotSize = par.labWholeSize != null ? par.labWholeSize : full;
         final int s = ScamHdrDenoise.huge(shotSize.x, shotSize.y) ? 2 : Math.max(1, Math.min(2, Math.round(par.outputScale)));
-        final Point size0 = new Point((full.x + s - 1) / s, (full.y + s - 1) / s);
-        final float rhoS = clamp(PreferenceKeys.hybridValue("dn_model_shot", 1.2f), 0.25f, 4f);
-        final float rhoR = clamp(PreferenceKeys.hybridValue("dn_model_read", 2f), 0.25f, 16f);
-        final float snrFixed = clamp(PreferenceKeys.hybridValue("dn_snr", 0f), 0f, 200f);
-        final float snrScale = clamp(PreferenceKeys.hybridValue("dn_snr_scale", 1f), 0.25f, 8f);
+        st.s = s;
+        st.size0 = new Point((full.x + s - 1) / s, (full.y + s - 1) / s);
+        st.rhoS = clamp(PreferenceKeys.hybridValue("dn_model_shot", 1.2f), 0.25f, 4f);
+        st.rhoR = clamp(PreferenceKeys.hybridValue("dn_model_read", 2f), 0.25f, 16f);
+        st.snrFixed = clamp(PreferenceKeys.hybridValue("dn_snr", 0f), 0f, 200f);
+        st.snrScale = clamp(PreferenceKeys.hybridValue("dn_snr_scale", 1f), 0.25f, 8f);
         final List<GLTexture> owned = new ArrayList<>();
         try {
             final float[] wY = {0.2126f, 0.7152f, 0.0721996f};
             float[] S = {2e-4f, 2e-4f, 2e-4f}, O = {2e-6f, 2e-6f, 2e-6f};
             boolean camera = false;
             final float[] zones = dcgZones(par);
+            st.zones = zones;
             if (par.noiseModeler != null && par.noiseModeler.baseModel != null && par.noiseModeler.baseModel[0] != null) {
                 for (int c = 0; c < 3; c++) {
                     S[c] = (float) Math.max(1e-9, par.noiseModeler.baseModel[c].first);
@@ -329,60 +486,101 @@ final class DenoiseStats {
                 sY = t[0]; rY = t[1]; sG = t[3]; rG = t[4]; rGhi = t[5]; kneeY = t[6];
                 dcgPass = dcgShaderPass(rY, t[2], kneeY);
             }
-            GLTexture base = clean;
-            if (s == 2) {
-                base = tex(owned, size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
-                glProg.useAssetProgram("scamdn/down2x", false);
-                glProg.setTexture("InputBuffer", clean);
-                glProg.drawBlocks(base);
-            }
-            final GLTexture x0 = tex(owned, size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
-            glProg.useAssetProgram("scamdn/yuv", false);
-            glProg.setTexture("InputBuffer", base);
-            glProg.drawBlocks(x0);
-            if (base != clean) release(owned, base);
-            final float[][] raw0 = new float[1][];
-            final float[] g0 = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()
-                    ? levelNoise(glProg, owned, x0, 16, sY, rY, dcgPass, raw0)
-                    : levelNoiseBatch(glProg, owned, new GLTexture[]{x0}, 16, sY, rY, dcgPass, raw0, new Laps(), null)[0];
-            final float gy00 = g0 != null ? g0[0] : NoiseMath.whiteGain(0, false) / 4f;
-            float p50 = 0f, p90 = 0f;
-            if (raw0[0] != null) {
-                final float[] raw = raw0[0];
-                final int n = raw.length / 8;
-                int m = 0;
-                final float[] ys = new float[n];
-                for (int i = 0; i < n; i++) if (raw[8 * i] >= 0f && Float.isFinite(raw[8 * i])) ys[m++] = raw[8 * i];
-                if (m > 0) {
-                    p50 = NoiseMath.selectFloat(ys, m, Math.min(m - 1, m / 2));
-                    p90 = NoiseMath.selectFloat(ys, m, Math.min(m - 1, (int) (m * 0.9f)));
-                }
-            }
-            if (pipeline.frozen != null && pipeline.frozen.p50 > 0f) {
-                p50 = pipeline.frozen.p50;
-                p90 = pipeline.frozen.p90;
-            }
-            if (pipeline.record != null) {
-                pipeline.record.p50 = p50;
-                pipeline.record.p90 = p90;
-            }
-            final float rawScale = par.scamHdrMode ? Math.max(1e-6f, par.scamHdrRawScale) : 1f;
-            float mu = 0.18f, gain = 1f;
-            if (p50 > 0f) {
-                gain = displayGain(p50 / rawScale, p90 / rawScale, PreferenceKeys.isScamNetSoc());
-                mu = 0.18f * rawScale / gain;
-            }
-            final float rGmu = zones != null ? NoiseModeler.zoneOffset(mu, rG, rGhi, kneeY) : rG;
-            final float snrMeasured = NoiseMath.snr(mu, gy00, sG, rGmu, rhoS, rhoR);
-            final float snr = snrFixed > 0f ? snrFixed : snrMeasured * snrScale;
-            par.finishSnr = snr;
-            if (log != null) log.append(" finishSnr=").append(round(snr)).append(snrFixed > 0f ? "(fixed)" : "").append(" mu=").append(mu)
-                    .append(" gain=").append(round(gain)).append(" g00=").append(round3(gy00));
-            return snr;
+            st.sY = sY; st.rY = rY; st.sG = sG; st.rG = rG; st.rGhi = rGhi; st.kneeY = kneeY; st.dcgPass = dcgPass;
+            final boolean legacy = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy();
+            // P473 (speed): level 0's statistics in one compute pass from the RGB (the YUV level and the fragment statistics took
+            // ~50 ms of GPU on the OPPO PHY110); scam_dev.txt "snr_cs 0", a 2x grid, DCG zones or a failure: the two passes.
+            // P479: with async the compute pass's read-back goes into a pixel-pack buffer, finished by finishSnrEnd
+            final boolean cs = s == 1 && dcgPass == null && !legacy && PreferenceKeys.scamDevSwitch("snr_cs", true);
+            if (cs && async && finishNoiseCsBegin(st, owned)) return st;
+            st.g0 = cs ? finishNoiseCs(glProg, owned, clean, sY, rY, st.raw0) : null;
+            if (st.g0 == null) twoPassLevel0(st, owned);
+            return st;
         } finally {
             for (GLTexture t : owned) if (t != null) t.close();
             owned.clear();
         }
+    }
+
+    /** Level 0's statistics by the YUV level and the fragment statistics (the path before P473, and its fallback). */
+    private static void twoPassLevel0(PendingSnr st, List<GLTexture> owned) {
+        final GLProg glProg = st.glProg;
+        final GLTexture clean = st.clean;
+        final boolean legacy = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy();
+        st.raw0[0] = null;
+        GLTexture base = clean;
+        if (st.s == 2) {
+            base = tex(owned, st.size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
+            glProg.useAssetProgram("scamdn/down2x", false);
+            glProg.setTexture("InputBuffer", clean);
+            glProg.drawBlocks(base);
+        }
+        final GLTexture x0 = tex(owned, st.size0, GLFormat.DataType.FLOAT_16, 4, GL_LINEAR);
+        glProg.useAssetProgram("scamdn/yuv", false);
+        glProg.setTexture("InputBuffer", base);
+        glProg.drawBlocks(x0);
+        if (base != clean) release(owned, base);
+        st.g0 = legacy
+                ? levelNoise(glProg, owned, x0, 16, st.sY, st.rY, st.dcgPass, st.raw0)
+                : levelNoiseBatch(glProg, owned, new GLTexture[]{x0}, 16, st.sY, st.rY, st.dcgPass, st.raw0, new Laps(), null)[0];
+    }
+
+    static float finishSnrEnd(PendingSnr st, StringBuilder log) {
+        final Parameters par = st.par;
+        final PostPipeline pipeline = st.pipeline;
+        if (st.pbo != 0) {
+            final int[] texels = finishNoiseCsRead(st);
+            if (texels != null) {
+                final float[] raw = statsOf(texels, st.bw, 0, 0, st.bw, st.bh);
+                st.raw0[0] = raw;
+                st.g0 = NoiseMath.reduce(raw, st.bw * st.bh, 0.8f);
+            } else {
+                final List<GLTexture> owned = new ArrayList<>();
+                try {
+                    twoPassLevel0(st, owned);
+                } finally {
+                    for (GLTexture t : owned) if (t != null) t.close();
+                }
+            }
+        }
+        final float[] g0 = st.g0;
+        final float[][] raw0 = st.raw0;
+        final float rG = st.rG;
+        final float[] zones = st.zones;
+        final float gy00 = g0 != null ? g0[0] : NoiseMath.whiteGain(0, false) / 4f;
+        float p50 = 0f, p90 = 0f;
+        if (raw0[0] != null) {
+            final float[] raw = raw0[0];
+            final int n = raw.length / 8;
+            int m = 0;
+            final float[] ys = new float[n];
+            for (int i = 0; i < n; i++) if (raw[8 * i] >= 0f && Float.isFinite(raw[8 * i])) ys[m++] = raw[8 * i];
+            if (m > 0) {
+                p50 = NoiseMath.selectFloat(ys, m, Math.min(m - 1, m / 2));
+                p90 = NoiseMath.selectFloat(ys, m, Math.min(m - 1, (int) (m * 0.9f)));
+            }
+        }
+        if (pipeline.frozen != null && pipeline.frozen.p50 > 0f) {
+            p50 = pipeline.frozen.p50;
+            p90 = pipeline.frozen.p90;
+        }
+        if (pipeline.record != null) {
+            pipeline.record.p50 = p50;
+            pipeline.record.p90 = p90;
+        }
+        final float rawScale = par.scamHdrMode ? Math.max(1e-6f, par.scamHdrRawScale) : 1f;
+        float mu = 0.18f, gain = 1f;
+        if (p50 > 0f) {
+            gain = displayGain(p50 / rawScale, p90 / rawScale, PreferenceKeys.isScamNetSoc());
+            mu = 0.18f * rawScale / gain;
+        }
+        final float rGmu = zones != null ? NoiseModeler.zoneOffset(mu, rG, st.rGhi, st.kneeY) : rG;
+        final float snrMeasured = NoiseMath.snr(mu, gy00, st.sG, rGmu, st.rhoS, st.rhoR);
+        final float snr = st.snrFixed > 0f ? st.snrFixed : snrMeasured * st.snrScale;
+        par.finishSnr = snr;
+        if (log != null) log.append(" finishSnr=").append(round(snr)).append(st.snrFixed > 0f ? "(fixed)" : "").append(" mu=").append(mu)
+                .append(" gain=").append(round(gain)).append(" g00=").append(round3(gy00));
+        return snr;
     }
 
     private static float round(float v) { return Math.round(v * 100f) / 100f; }

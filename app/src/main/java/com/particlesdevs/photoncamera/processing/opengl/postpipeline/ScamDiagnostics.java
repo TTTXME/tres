@@ -361,11 +361,11 @@ public final class ScamDiagnostics {
             OutputStream stream;
             if(Build.VERSION.SDK_INT>=29) {
                 ContentValues v=new ContentValues();v.put(MediaStore.Downloads.DISPLAY_NAME,j.name+".zip");
-                v.put(MediaStore.Downloads.MIME_TYPE,"application/zip");v.put(MediaStore.Downloads.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/SCAMERA");v.put(MediaStore.Downloads.IS_PENDING,1);
-                uri=j.context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,v);
+                v.put(MediaStore.Downloads.MIME_TYPE,"application/zip");v.put(MediaStore.Downloads.RELATIVE_PATH,Environment.DIRECTORY_DOCUMENTS+"/SCAMERA/Dumps");v.put(MediaStore.Downloads.IS_PENDING,1);
+                uri=j.context.getContentResolver().insert(MediaStore.Files.getContentUri("external_primary"),v);
                 if(uri==null)throw new IOException("Cannot create diagnostic ZIP");stream=j.context.getContentResolver().openOutputStream(uri);
             } else {
-                File dir=new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"SCAMERA");dir.mkdirs();stream=new FileOutputStream(new File(dir,j.name+".zip"));
+                File dir=new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),"SCAMERA/Dumps");dir.mkdirs();stream=new FileOutputStream(new File(dir,j.name+".zip"));
             }
             if(stream==null)throw new IOException("Cannot open diagnostic ZIP");
             try(ZipOutputStream zip=new ZipOutputStream(stream)) {
@@ -373,7 +373,7 @@ public final class ScamDiagnostics {
                 File[] files=j.dir.listFiles();if(files!=null)for(File f:files){zip.putNextEntry(new ZipEntry(f.getName()));Files.copy(f.toPath(),zip);zip.closeEntry();}
             }
             if(uri!=null){ContentValues v=new ContentValues();v.put(MediaStore.Downloads.IS_PENDING,0);j.context.getContentResolver().update(uri,v,null,null);}
-            Log.i("SCAM_DIAG","Saved Download/SCAMERA/"+j.name+".zip");
+            Log.i("SCAM_DIAG","Saved Documents/SCAMERA/Dumps/"+j.name+".zip");
         }catch(Exception e){if(uri!=null)try{j.context.getContentResolver().delete(uri,null,null);}catch(Exception cleanup){Log.e("SCAM_DIAG","Partial ZIP cleanup failed",cleanup);}Log.e("SCAM_DIAG","Export failed; cache retained: "+j.dir,e);return;}
         File[] files=j.dir.listFiles();if(files!=null)for(File f:files)f.delete();j.dir.delete();
     }

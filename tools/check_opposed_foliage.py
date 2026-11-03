@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P393 (owner, 2026-10-29: sunlit yellow birches pale peach beside ArkCam): ScamRgb's «Inpaint opposed» branch (scamhdr/scamrgb
+"""P393 (owner, 2026-10-29: sunlit yellow birches pale peach beside WhyCam): ScamRgb's «Inpaint opposed» branch (scamhdr/scamrgb
 oppU 1, the pixels without ultrashort content: a single frame, «Движение», a refused Bento) on textured sunlit foliage, with and
 without oppLocalU (a clipped channel also takes the local light's colour, hlrecovery/chanprep + reduce x2 as ScamRgb runs them).
 

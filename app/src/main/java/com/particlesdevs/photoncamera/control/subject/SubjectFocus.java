@@ -686,7 +686,8 @@ public final class SubjectFocus implements SubjectFrames.Sink {
         return null;
     }
 
-    private void releaseBuffer(byte[] buffer) {
+    @Override
+    public void releaseBuffer(byte[] buffer) {
         synchronized (poolLock) {
             for (int i = 0; i < pool.length; i++) if (pool[i] == buffer) busy[i] = false;
         }

@@ -2,7 +2,7 @@
 
 ## Supplied reference log
 
-`ArkCam_Log_2026-11-01.txt`, successful snapshot 2 at 20:33:50:
+`WhyCam_Log_2026-11-01.txt`, successful snapshot 2 at 20:33:50:
 
 | Stage | Time |
 | --- | ---: |

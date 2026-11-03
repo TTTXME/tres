@@ -15,6 +15,7 @@ precision highp sampler2D;
 // the real values): clip flag bits 4 and 5 clear, or no ultrashort level at all without flags.
 // Compute, 16 x 16 invocations a group, one pixel each, the tile with a 3-pixel halo in shared memory. Each group writes
 // (sum r, g, b, count r, g, b) as float bits to oppSums[6 * group]; the CPU adds them (ScamRgb.opposedChroma).
+#define SPARSE 0
 #define LAYOUT //
 LAYOUT
 
@@ -31,6 +32,11 @@ uniform int clipFlagsU;
 uniform sampler2D ClipFlags;
 
 layout(std430, binding = 1) buffer oppSums { uint sums[]; };
+#if SPARSE == 1
+layout(std430, binding = 2) readonly buffer oppWorkGroups { uint workGroups[]; };
+uniform int occupiedCountU;
+uniform int originalGroupsXU;
+#endif
 
 const int G = 16, HALO = 3, T = G + 2 * HALO, TT = T * T;
 // ~9.7 kB: within the 16 kB every GL ES 3.1 device has. After the pixels' part both arrays hold the group's reduction:
@@ -98,7 +104,16 @@ void load(int k, ivec2 origin) {
 }
 
 void main() {
+#if SPARSE == 1
+    uint workIndex = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (originalGroupsXU != (sizeU.x + G - 1) / G || occupiedCountU <= 0
+            || workIndex >= uint(occupiedCountU) || workIndex >= uint(workGroups.length())) return;
+    uint originalGroup = workGroups[workIndex];
+    if (originalGroup >= uint(originalGroupsXU) * uint((sizeU.y + G - 1) / G)) return;
+    ivec2 origin = ivec2(originalGroup % uint(originalGroupsXU), originalGroup / uint(originalGroupsXU)) * G;
+#else
     ivec2 origin = ivec2(gl_WorkGroupID.xy) * G;
+#endif
     int li = int(gl_LocalInvocationIndex);
     if (li == 0) sAny = 0u;
     memoryBarrierShared(); barrier();
@@ -148,7 +163,11 @@ void main() {
         memoryBarrierShared(); barrier();
     }
     if (li == 0) {
+#if SPARSE == 1
+        uint g = originalGroup * 6u;
+#else
         uint g = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 6u;
+#endif
         uint n = sBits[0];
         sums[g] = floatBitsToUint(sC[0].r);
         sums[g + 1u] = floatBitsToUint(sC[0].g);

@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
 /**
- * P395 (owner, 2026-10-29: the yellow «Лента» facade orange-ochre beside ArkCam's yellow): why/combine yellowHueU - the saturated
+ * P395 (owner, 2026-10-29: the yellow «Лента» facade orange-ochre beside WhyCam's yellow): why/combine yellowHueU - the saturated
  * orange-yellow scene hues turned up to 8 deg towards yellow - on by default on vivo (WhyTone.yellowHue 1, scam_dev hybrid_why_yellow_hue),
  * set by the photo (WhyCombine) and the RAW viewfinder (LiveWhyTone) alike. The pixels: tools/check_yellow_hue.py.
  */

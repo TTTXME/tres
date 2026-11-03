@@ -92,7 +92,7 @@ public final class WhyTone {
      * the one bright layer 1.0 (the closest to the old set's shadows and mid-tones of the curves on a grid of strengths).
      */
     static float[] layerWeights() {
-        if (arkLayout()) return new float[]{value("classic_weight_ext_hl", 1f), value("classic_weight_mid", 1f), value("classic_weight_hl", 1f),
+        if (whyLayout()) return new float[]{value("classic_weight_ext_hl", 1f), value("classic_weight_mid", 1f), value("classic_weight_hl", 1f),
                 value("classic_weight_shadow", 1.5f)};
         return new float[]{value("weight_hl", LAYER_WEIGHTS[0]), value("weight_mid", LAYER_WEIGHTS[1]),
                 value("weight_dark2", LAYER_WEIGHTS[2]), value("weight_bright", LAYER_WEIGHTS[3])};
@@ -105,13 +105,13 @@ public final class WhyTone {
      * (classic_weight_center 0.5) -, no headroom weights (P291 / P310), no darkest-exposure cap (P340), no window term (P401). 0 (the
      * default): ours.
      */
-    static boolean arkLayout() {
+    static boolean whyLayout() {
         return value("fusion_layout", 1f) >= 0.5f;
     }
 
     /** The fusion's well-exposed centre without headroom: weight_center (0.6), the reference layout's classic_weight_center (0.5). */
     static float fusionCenter() {
-        return arkLayout() ? value("classic_weight_center", 1f) : value("weight_center", 0.6f);
+        return whyLayout() ? value("classic_weight_center", 1f) : value("weight_center", 0.6f);
     }
 
     /** AE / Smart-HDR / AgX settings (defaults: WhyCam 2.85 X8U effective values, tone_port.md section 3). */
@@ -158,7 +158,7 @@ public final class WhyTone {
         // P216: the Bento ultrashort frames merged - data above the native ceiling of 4 is the shot's real highlight range
         s.bentoHeadroom = ScamHybridBurst.lastBentoApplied;
         s.hrMix = Math.max(0f, Math.min(1f, value("hr_mix", 0.5f)));
-        s.v207 = arkLayout();   // P402: the classic layout's Smart-HDR strengths
+        s.v207 = whyLayout();   // P402: the classic layout's Smart-HDR strengths
         return s;
     }
 
@@ -432,10 +432,10 @@ public final class WhyTone {
     }
 
     /**
-     * P395 (owner, 2026-10-29: the yellow «Лента» facade and sunlit birches orange-ochre beside ArkCam's yellow): why/combine
+     * P395 (owner, 2026-10-29: the yellow «Лента» facade and sunlit birches orange-ochre beside WhyCam's yellow): why/combine
      * yellowHueU - the saturated orange-yellow scene hues (OKLab 74 .. 88 deg, fading out at 64 / 100; C / L from 0.10) turned up to
      * 8 deg towards yellow, the photo and the RAW viewfinder alike. scam_dev hybrid_why_yellow_hue 0..1 (0 = off, as before).
-     * P407 (owner, 2026-10-29, OPPO Find X8 Ultra beside ArkCam: the yellow speakers lemon, the reference's ochre): a fault of vivo's
+     * P407 (owner, 2026-10-29, OPPO Find X8 Ultra beside WhyCam: the yellow speakers lemon, the reference's ochre): a fault of vivo's
      * matrix - the OPPO ISP matrix renders the speaker at CIELAB hue 83 against the reference's 82, the turn took it to 89 with its
      * blue clipped. On by default on vivo only.
      */
@@ -461,18 +461,18 @@ public final class WhyTone {
     static final float VIBRANCE_HL_STR = 0.25f;
 
     /**
-     * P419 (owner, 2026-10-30: «Исправь настройку вайбранса, можешь взять её из Арк камеры»): the reference app's vibrance in one gain
-     * (why/combine ARK_VIBRANCE). Ours was four stacked forms - the overall / sky / green gain tapered by (1 - 2 chroma), P404's
+     * P419 (owner, 2026-10-30: «Исправь настройку вайбранса, можешь взять её из Why камеры»): the reference app's vibrance in one gain
+     * (why/combine WHY_VIBRANCE). Ours was four stacked forms - the overall / sky / green gain tapered by (1 - 2 chroma), P404's
      * saturated / mid / shadow terms with a skin protection of their own, P341's light tones behind a hidden factor and «Цвет»'s
      * shadow / light vibrance with a second skin protection (0 by default: the sky and green gains reached faces). scam_dev.txt
-     * "ark_vibrance 0" = the forms before.
+     * "why_vibrance 0" = the forms before.
      */
-    public static boolean arkVibranceOn() {
-        return PreferenceKeys.scamDevSwitch("ark_vibrance", true);
+    public static boolean whyVibranceOn() {
+        return PreferenceKeys.scamDevSwitch("why_vibrance", true);
     }
 
-    /** P419: why/combine vibArkU - saturated, light tones (the reference's strength), mid-tones, shadows. */
-    static float[] vibranceArkUniform() {
+    /** P419: why/combine vibWhyU - saturated, light tones (the reference's strength), mid-tones, shadows. */
+    static float[] vibranceWhyUniform() {
         return new float[]{value("vibrance_saturated", 0f), VIBRANCE_HL_STR * vibranceHl(), value("vibrance_mid", 0f),
                 value("vibrance_shadows", 0f)};
     }
@@ -498,7 +498,7 @@ public final class WhyTone {
      * (a near-white's cast not raised; the gate about as steep as P341's: chroma noise on a white wall x1.12 of P341's, not x1.41):
      * the owner's bedroom walls b* 11.2 / 7.5 / 16.0 -> 6.6 / 3.2 / 11.0, the reference app's 6.2 / 3.6 / 10.2. A colour from
      * chroma 0.020 .. 0.035 up (skin, yellow leaves, facades) and the sky keep P341's / P378's.
-     * P396 (owner, the same bedroom again: the wallpaper's golden pattern by the window still yellow beside ArkCam): the pale ramp
+     * P396 (owner, the same bedroom again: the wallpaper's golden pattern by the window still yellow beside WhyCam): the pale ramp
      * 0.57 .. 0.89 - the pattern (chroma ~0.02 at L 0.65 - 0.70) took x1.6 over the tone with 0.50 .. 0.85, now x0.82 of that.
      */
     static final float[] VIBRANCE_HL_SHAPE = {0.57f, 0.89f, 0.010f, 0.025f};
@@ -538,7 +538,7 @@ public final class WhyTone {
     }
 
     /**
-     * P393 (owner, 2026-10-29: sunlit yellow birches pale peach-white beside ArkCam's saturated yellow): why/combine LIGHT_CHROMA - the
+     * P393 (owner, 2026-10-29: sunlit yellow birches pale peach-white beside WhyCam's saturated yellow): why/combine LIGHT_CHROMA - the
      * share of its mid-tone chroma a saturated orange-yellow keeps in the light tones under the AgX white, its hue turned towards the AgX
      * rendition's only as far as the locked hue cannot hold that chroma (AgX only; skin, greens and blues as before). 0 = off, the AgX
      * shoulder's chroma and the hue lock as before (scam_dev hybrid_why_light_chroma 0).
@@ -678,12 +678,12 @@ public final class WhyTone {
     }
 
     /**
-     * P404: the reference app's vibrance terms (why/combine ARK_VIB): {saturated, mid-tones, shadows, skin protection 0..1} and {the
+     * P404: the reference app's vibrance terms (why/combine WHY_VIB): {saturated, mid-tones, shadows, skin protection 0..1} and {the
      * skin hue centre in radians (deg 41.2), its lower OKLab L (0.16), its saturation shift}; null when the three terms and the shift
      * are 0 (no define).
      */
-    static float[][] arkVibrance() {
-        if (arkVibranceOn()) return null;   // P419: inside ARK_VIBRANCE
+    static float[][] whyVibrance() {
+        if (whyVibranceOn()) return null;   // P419: inside WHY_VIBRANCE
         final float sat = value("vibrance_saturated", 0f), mid = value("vibrance_mid", 0f), sh = value("vibrance_shadows", 0f),
                 skinSat = value("skin_sat_shift", 0f);
         if (Math.abs(sat) < 1e-4f && Math.abs(mid) < 1e-4f && Math.abs(sh) < 1e-4f && Math.abs(skinSat) < 1e-4f) return null;
@@ -754,11 +754,11 @@ public final class WhyTone {
         c.keepWarm = PreferenceKeys.hybridValue("colour_keep_warm", 0f);
         c.keepCool = PreferenceKeys.hybridValue("colour_keep_cool", 0f);
         // P419: the one skin protection (0..1 -> the look's 0..100); the look's shadow / light vibrance went into the vibrance (its
-        // rows are gone: "ark_vibrance 0" has their defaults, 0)
-        c.skinProtect = arkVibranceOn() ? 100f * skinProtect() : 0f;
+        // rows are gone: "why_vibrance 0" has their defaults, 0)
+        c.skinProtect = whyVibranceOn() ? 100f * skinProtect() : 0f;
         c.skinHue = PreferenceKeys.hybridValue("colour_skin_hue", 0f);
         c.skinEven = PreferenceKeys.hybridValue("colour_skin_even", 0f);
-        c.protectsVibrance = !arkVibranceOn();
+        c.protectsVibrance = !whyVibranceOn();
         final String[] parts = {"hue", "sat", "light"};
         for (int b = 0; b < ColourLook.BANDS.length; b++)
             for (int k = 0; k < 3; k++) c.mix[b * 3 + k] = PreferenceKeys.hybridValue("colour_mix_" + ColourLook.BANDS[b] + "_" + parts[k], 0f);

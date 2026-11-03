@@ -35,7 +35,7 @@ Local directory: `SCAMERA-PC/evidence/p441-speed-integration-20261101/`, includi
 ## Rollbacks
 
 `scam_dev`: `hybrid_why_sharp_lattice_cap 0`, `hybrid_why_rim_smooth 0`, `hybrid_us_edges 0`, `hybrid_why_night_ev_hi 0`, `hybrid_denoise_engine 1`, `jpeg_aq 1`, `hybrid_why_night_detail 1`.
-Extra shadow guide only: `hybrid_ark_dn_dark_chroma 0`. Worker culling reference: `SCAM_NO_NAT_CULL=1` environment.
+Extra shadow guide only: `hybrid_why_dn_dark_chroma 0`. Worker culling reference: `SCAM_NO_NAT_CULL=1` environment.
 
 ## Boundaries
 

@@ -104,7 +104,7 @@ public final class WhyMsDenoise extends Node {
         if (fromRender == null) throw new IllegalStateException("Singular denoise colour matrix");
         final float[] wp = pipeline.mParameters.whitePoint;
         final long started = System.nanoTime();
-        final float[] so = ArkResolveDenoise.shotNoise(pipeline.mParameters);
+        final float[] so = WhyResolveDenoise.shotNoise(pipeline.mParameters);
         final float model = modelFactor(so[0], so[1], WhyTone.value("ms_model_scale", 1.5f));
         final float[][] th = thresholds(model);
         final float shadow = Math.max(0f, WhyTone.value("ms_shadow", 1.5f));
@@ -114,6 +114,18 @@ public final class WhyMsDenoise extends Node {
         final int requested = Math.max(0, Math.round(PreferenceKeys.hybridValue("resolve_strip_rows", 0f)));
         final int rows = stripRows(whole.x, whole.y, requested);
         tiled = rows < whole.y;
+        // P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): one frame (not tiled) with the pyramid - level 0's rebuild and
+        // rgb fused into finish (FUSED, scam_dev.txt "ms_fuse"), resolvedn/lab fused into optics (OUT_LAB, "ms_fuse_lab"): fewer
+        // full-size passes, but both OFF by default - on the complete30 replay the photo moved by 1 level on 22 % of the pixels and
+        // two isolated bright pixels by 10 - 11 levels (the lab fusion: 22 pixels by 3 - 11), over the tolerance; packHalf2x16 in
+        // finish did not reproduce the targets' rounding on the Adreno 750 (the same difference). Off or the old GL model: every pass
+        final boolean plain = pyramid && !tiled && !com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy();
+        final boolean fuse = plain && PreferenceKeys.scamDevSwitch("ms_fuse", false);
+        final boolean fuseLab = plain && PreferenceKeys.scamDevSwitch("ms_fuse_lab", false);
+        // P477 (memory): level 0's Oklab plane has no reader after level 0's detail pass - its texture takes level 0's rebuild (the
+        // same size and format, every pixel drawn) instead of a new one, and the frame weights go then too: the shot's texture peak
+        // was here (three full-size RGBA16F planes next to the two mains: 564 MB at 12 MP). scam_dev.txt "ms_reuse 0" or the old GL model: a new texture as before
+        final boolean reuse = !com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("ms_reuse", true);
         final GLTexture out = pipeline.getMain();
         GLTexture codes = null;
         final java.nio.ByteBuffer eff = ScamHybridBurst.lastEffectiveFrames;
@@ -128,6 +140,7 @@ public final class WhyMsDenoise extends Node {
                 grids.clear();
                 grids.put(input, new Grid(whole, 0));
                 final List<GLTexture> owned = new ArrayList<>();
+                GLTexture fusedDetail = null, fusedCoarse = null; // P479b: in owned, closed with it
                 try {
                     GLTexture prepared = tex(owned, 0, 4);
                     glProg.useAssetProgram("resolvedn/prepare", false);
@@ -139,6 +152,7 @@ public final class WhyMsDenoise extends Node {
                     glProg.drawBlocks(prepared);
 
                     GLTexture filtered = tex(owned, 0, 4);
+                    if (fuseLab) glProg.setDefine("OUT_LAB", 1);
                     program("optics", filtered);
                     bind("u_tex_rgb", prepared);
                     final boolean speckle = PreferenceKeys.hybridSwitch("resolve_speckle_enable", false);
@@ -156,17 +170,24 @@ public final class WhyMsDenoise extends Node {
                             glProg.useAssetProgram("resolvedn/frames", false);
                             glProg.setTexture("EffMap", codes);
                             glProg.setVar("effScaleU", scale);
-                            glProg.setVar("framesU", ArkResolveDenoise.defaultFrames(ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals));
+                            glProg.setVar("framesU", WhyResolveDenoise.defaultFrames(ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals));
                             glProg.setVar("totalU", (float) Math.max(1, ScamHybridBurst.lastNormals));
                             glProg.setVar("originDstU", origin);
                             glProg.drawBlocks(weights);
+                            // P477: one frame - the merge's codes have no other reader (a tiled frame reads them per strip)
+                            if (reuse && !tiled) { codes.close(); codes = null; }
                         }
                         final GLTexture[] lab = new GLTexture[4];
-                        lab[0] = tex(owned, 0, 4);
-                        program("lab", lab[0]);
-                        bind("u_tex_rgb", filtered);
-                        glProg.drawBlocks(lab[0]);
-                        release(owned, filtered);
+                        if (fuseLab) {
+                            lab[0] = filtered; // P479b: optics wrote Oklab
+                        } else {
+                            lab[0] = tex(owned, 0, 4);
+                            program("lab", lab[0]);
+                            bind("u_tex_rgb", filtered);
+                            glProg.drawBlocks(lab[0]);
+                            release(owned, filtered);
+                        }
+                        filtered = null;
                         for (int l = 1; l <= 3; l++) {
                             lab[l] = tex(owned, l, 4);
                             program("down", lab[l]);
@@ -186,7 +207,6 @@ public final class WhyMsDenoise extends Node {
                         glProg.drawBlocks(rebuilt);
                         for (int l = 2; l >= 0; l--) {
                             final GLTexture detail = tex(owned, l, 4);
-                            final GLTexture next = tex(owned, l, 4);
                             program("detail", detail);
                             bind("u_tex_fine", lab[l]);
                             bind("u_tex_coarse", lab[l + 1]);
@@ -197,6 +217,21 @@ public final class WhyMsDenoise extends Node {
                             glProg.setVar("u_chroma_thresh", th[l][1]);
                             glProg.setVar("u_shadow_boost", shadow);
                             glProg.drawBlocks(detail);
+                            if (fuse && l == 0) {
+                                // P479b: level 0's sum and its RGB are finish's (fusedDetail + fusedCoarse)
+                                fusedDetail = detail;
+                                fusedCoarse = rebuilt;
+                                release(owned, lab[1]);
+                                break;
+                            }
+                            final GLTexture next;
+                            if (reuse && l == 0) {
+                                // P477: level 0's plane is read by its detail pass only (fine, and the weights' stand-in without
+                                // weights); a coarser level's is the next level's coarse input, so only level 0's is free here
+                                next = lab[l];
+                                lab[l] = null;
+                            } else next = tex(owned, l, 4);
+                            if (reuse && l == 0) release(owned, weights); // P477: its last reader was level 0's detail pass
                             program("rebuild", next);
                             bind("u_tex_coarse_recon", rebuilt);
                             bind("u_tex_laplace_filt", detail);
@@ -208,15 +243,23 @@ public final class WhyMsDenoise extends Node {
                         }
                         release(owned, lab[0]);
                         release(owned, weights);
-                        filtered = tex(owned, 0, 4);
-                        program("rgb", filtered);
-                        bind("u_tex_oklab", rebuilt);
-                        glProg.drawBlocks(filtered);
-                        release(owned, rebuilt);
+                        if (!fuse) {
+                            filtered = tex(owned, 0, 4);
+                            program("rgb", filtered);
+                            bind("u_tex_oklab", rebuilt);
+                            glProg.drawBlocks(filtered);
+                            release(owned, rebuilt);
+                        }
                     }
+                    if (fusedDetail != null) glProg.setDefine("FUSED", 1);
                     glProg.useAssetProgram("resolvedn/finish", false);
                     glProg.setTexture("InputBuffer", input);
-                    glProg.setTexture("Filtered", filtered);
+                    if (fusedDetail != null) {
+                        glProg.setTexture("u_tex_coarse_recon", fusedCoarse);
+                        glProg.setTexture("u_tex_laplace_filt", fusedDetail);
+                        glProg.setVar("u_width", whole.x);
+                        glProg.setVar("u_height", whole.y);
+                    } else glProg.setTexture("Filtered", filtered);
                     glProg.setTexture("GainMap", pipeline.GainMap);
                     glProg.setVar("fromRenderU", fromRender);
                     glProg.setVar("neutralU", wp[0], wp[1], wp[2]);

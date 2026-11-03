@@ -43,6 +43,7 @@ public class HybridPlanTest {
         pinned.put("shasta_frames", 5f);
         prefs.when(() -> PreferenceKeys.hybridValue(anyString(), anyFloat())).thenAnswer(i -> pinned.getOrDefault(i.<String>getArgument(0), i.getArgument(1)));
         prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(0);
+        prefs.when(PreferenceKeys::hdrFrames).thenReturn(true); // P494: the shade's HDR on (its default)
     }
     @After public void cleanup() { prefs.close(); appStatic.close(); }
 

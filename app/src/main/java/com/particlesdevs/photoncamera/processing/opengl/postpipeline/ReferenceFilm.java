@@ -91,6 +91,42 @@ final class ReferenceFilm extends Node {
         }
     }
 
+    /**
+     * P487 (owner, 2026-11-03: «исправь экспозицию при использовании симуляции плёнки, у нас она занижена»): the film replaces the
+     * tone and with it the WHY AE (ae ~2 on a daylight shot: the capture is exposed low for its highlights), so the film was fed the
+     * capture's exposure. It gets the shot's own: inScale x ae of WhyStats' metering of the same scene (aeSettings, the same reduced
+     * grid and GPU statistics), in EV over the film's exposure setting. NaN without the GPU statistics (old GL model, diagnostics).
+     */
+    private float whyAeEv(PostPipeline p){
+        if(com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()||ScamDiagnostics.active())return Float.NaN;
+        final float inScale=(float)Math.pow(2.0,WhyTone.value("input_ev",0f));
+        GLTexture low=null,fallback=null;
+        try{
+            GLTexture gainMap=p.GainMap;
+            if(gainMap==null){
+                fallback=new GLTexture(new android.graphics.Point(1,1),new GLFormat(GLFormat.DataType.FLOAT_16,4),
+                        com.particlesdevs.photoncamera.util.BufferUtils.getFrom(new float[]{1f,1f,1f,1f}),GL_LINEAR,GL_CLAMP_TO_EDGE);
+                gainMap=fallback;
+            }
+            final int factor=WhyTone.lowFactor(p.mParameters);
+            low=new GLTexture(WhyTone.reduced(WorkingTexture.mSize,factor),new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            glProg.useAssetProgram("why/low",false);
+            glProg.setTexture("InputBuffer",WorkingTexture);
+            WhyTone.setColour(glProg,p,gainMap,inScale);
+            glProg.setVar("factorU",factor);
+            glProg.drawBlocks(low);
+            glProg.closed=true;
+            WhyAe.Settings settings=WhyStats.aeSettings(p,WorkingTexture.mSize.x,WorkingTexture.mSize.y,inScale,new String[1]);
+            WhyAe.Stats stats=WhyAeGpu.stats(glProg,low,settings.metering);
+            glProg.closed=true;
+            if(stats==null)return Float.NaN;
+            float gain=inScale*WhyAe.finish(stats,settings,p.mParameters.iso,WhyStats.maxAnalogIso(p.mParameters)).ae;
+            return gain>0f&&Float.isFinite(gain)?(float)(Math.log(gain)/Math.log(2.0)):Float.NaN;
+        }finally{
+            if(low!=null)low.close();if(fallback!=null)fallback.close();
+        }
+    }
+
     @Override public void Run(){
         PostPipeline p=(PostPipeline)basePipeline;
         WorkingTexture=previousNode.WorkingTexture;glProg.closed=true;
@@ -108,6 +144,10 @@ final class ReferenceFilm extends Node {
             if(Float.isFinite(forced)&&forced>=32f)budget=Math.min(budget,(long)(Math.min(forced,3072f)*(1L<<20)));
             input=Allocator.allocate((int)bytes);output=Allocator.allocate((int)bytes);
             if(input==null||output==null)throw new OutOfMemoryError("Film image buffers");
+            // P487: the shot's own exposure (whyAeEv); without the GPU statistics the film's centre-weighted auto exposure;
+            // scam_dev film_why_ae 0: the capture's exposure as before
+            final boolean shotAe=PreferenceKeys.scamDevSwitch("film_why_ae",true);
+            final float aeEv=shotAe?whyAeEv(p):Float.NaN;
             com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.Result skin=null;
             if(p.mParameters.portraitEnabled&&p.mParameters.portraitFaceDetected&&p.mParameters.portraitSkinWarmth)
                 skin=PortraitGpu.measureScene(glProg,p,WorkingTexture,p.mParameters.portraitFaces);
@@ -128,6 +168,8 @@ final class ReferenceFilm extends Node {
             FilmLut user=p.filmUserStrength>0&&!p.filmUserLut.isEmpty()?FilmLut.chosen(context,p.filmUserLut):null;
             boolean nativeP3=p.p3Output&&user==null;
             FilmReferenceParameters settings=FilmReferenceParameters.from(p.film,nativeP3,1);
+            if(Float.isFinite(aeEv))settings.real(84,p.film.exposure+aeEv);
+            else if(shotAe)settings.integer(88,1);
             String report=FilmReferenceEngine.render(context,input,output,settings,WorkingTexture.mSize.x,WorkingTexture.mSize.y,budget,0);
             dump(context,input,output,settings,WorkingTexture.mSize.x,WorkingTexture.mSize.y);
             result=new GLTexture(WorkingTexture.mSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
@@ -142,7 +184,13 @@ final class ReferenceFilm extends Node {
             p.referenceFilmApplied=true;
             if(p.film.strength>=1)WorkingTexture=p.referenceFilmTexture;
             else p.film=null;
-            Log.i("SCAM_PIPELINE","spectral film "+report+" full="+(p.referenceFilmSettings.strength>=1));
+            Log.i("SCAM_PIPELINE","spectral film "+report+" full="+(p.referenceFilmSettings.strength>=1)
+                    +" stock="+p.referenceFilmSettings.stock.id+" paper="+p.referenceFilmSettings.print.id
+                    +" strength="+p.referenceFilmSettings.strength+" filmEV="+p.referenceFilmSettings.exposure
+                    +" shotAE="+(Float.isFinite(aeEv)?String.format(java.util.Locale.ROOT,"%+.2fEV",aeEv):shotAe?"film auto":"off")
+                    +" printEV="+p.referenceFilmSettings.printEv+" DIR="+p.referenceFilmSettings.couplers
+                    +" format="+p.referenceFilmSettings.format.id+" grain="+p.referenceFilmSettings.grain
+                    +" halo="+p.referenceFilmSettings.halation+" softness="+p.referenceFilmSettings.softness);
         }catch(RuntimeException|LinkageError|OutOfMemoryError error){
             Log.w("SCAM_PIPELINE","spectral film unavailable; retained legacy film: "+error);
         }finally{

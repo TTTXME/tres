@@ -37,11 +37,26 @@ public class MotionModeTest {
     }
 
     @Test
+    public void aFastRingWithAnEmptyQueueTakesUpToTwelveFramesOfItsWindow() {
+        // P488: 60 fps (16.7 ms a frame), no shot waiting: up to 12 of the frames inside the window; 30 fps, a queue or a lowered
+        // setting keep the count
+        assertEquals(12, MotionMode.ringFrames(8, 0, 15, 16_666_667L));
+        assertEquals(10, MotionMode.ringFrames(8, 0, 10, 16_666_667L));
+        assertEquals(8, MotionMode.ringFrames(8, 0, 6, 16_666_667L)); // never fewer than wanted
+        assertEquals(8, MotionMode.ringFrames(8, 0, 15, 33_333_333L));
+        assertEquals(8, MotionMode.ringFrames(8, 1, 15, 16_666_667L));
+        assertEquals(4, MotionMode.ringFrames(4, 0, 15, 16_666_667L));
+        assertEquals(20, MotionMode.ringFrames(20, 0, 15, 16_666_667L));
+        assertEquals(8, MotionMode.ringFrames(8, 0, 15, 0L));
+    }
+
+    @Test
     public void replacesOnlyTheMergeKeysOfTheMode() {
         assertTrue(MotionMode.replaces("zsl_frames"));
         assertTrue(MotionMode.replaces("shasta"));
         assertEquals(8f, MotionMode.DEFAULTS.get("zsl_frames"), 0f);
         assertEquals(0f, MotionMode.DEFAULTS.get("shasta"), 0f);
+        assertEquals(0.5f, MotionMode.DEFAULTS.get("why_dn_motion_revert"), 0f); // P471 revisited: the photo's 0.5 (owner's A/B)
         assertTrue(!MotionMode.replaces("why_sharp_rl3_amount"));
     }
 

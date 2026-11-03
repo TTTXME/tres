@@ -42,6 +42,11 @@ public final class FilmChain {
                 + "|" + String.format(java.util.Locale.ROOT, "%.2f", lut.isEmpty() ? 0f : lutStrength), 1f);
     }
 
+    /** P487: how many of a chain key's leading fields are FilmSim.Settings.lutKey's - 9 with an advanced token (FilmAdvanced), else 8. */
+    static int lutFields(String[] parts) {
+        return parts.length >= 12 && FilmAdvanced.isToken(parts[8]) ? 9 : 8;
+    }
+
     private static String cachedKey;
     private static FilmLut cached;
 
@@ -58,9 +63,11 @@ public final class FilmChain {
         if (key.equals(cachedKey)) return cached;
         final String body = key.substring(PREFIX.length());
         final String[] parts = body.split("\\|", -1);
-        // lutKey's eight fields (P380: the couplers' amount the 8th), the simulation's strength, the chosen LUT and its strength
-        final FilmSim.Settings sim = parts.length >= 11
-                ? FilmSim.Settings.forLut(String.join("|", java.util.Arrays.copyOf(parts, 8)), FilmSim.number(parts[8], 1f)) : null;
+        // lutKey's eight fields (P380: the couplers' amount the 8th; P487: the advanced token a 9th), the simulation's strength, the
+        // chosen LUT and its strength
+        final int fields = lutFields(parts);
+        final FilmSim.Settings sim = parts.length >= fields + 3
+                ? FilmSim.Settings.forLut(String.join("|", java.util.Arrays.copyOf(parts, fields)), FilmSim.number(parts[fields], 1f)) : null;
         FilmLut out = null;
         if (sim != null) {
             final FilmLut film = FilmSim.lut(sim, FilmLooks.SIZE);
@@ -74,6 +81,41 @@ public final class FilmChain {
         return out;
     }
 
+    /** Two-phase preview load: the selected stock's legacy colour while its reference table is being built. */
+    public static void loadLut(android.content.Context context, String key, java.util.function.BooleanSupplier current,
+                               java.util.function.Consumer<FilmLut> ready) {
+        if (!current.getAsBoolean()) return;
+        FilmSim.Settings sim = null;
+        String user = "";
+        float userStrength = 0;
+        if (key != null && key.startsWith(PREFIX)) {
+            String[] parts = key.substring(PREFIX.length()).split("\\|", -1);
+            final int fields = lutFields(parts);
+            if (parts.length >= fields + 3) {
+                sim = FilmSim.Settings.forLut(String.join("|", java.util.Arrays.copyOf(parts, fields)), FilmSim.number(parts[fields], 1));
+                user = parts[parts.length - 2];
+                userStrength = user.isEmpty() ? 0 : FilmSim.number(parts[parts.length - 1], 0);
+            }
+        }
+        if (sim == null || !FilmPreviewLut.supported(sim)) {
+            FilmLut legacy = lut(context, key);
+            if (current.getAsBoolean()) ready.accept(legacy);
+            return;
+        }
+        final FilmSim.Settings selected = sim;
+        final FilmLut userLut = user.isEmpty() ? null : FilmLut.chosen(context, user);
+        final float amount = userStrength;
+        FilmLut cached = FilmPreviewLut.cached(selected, FilmLooks.SIZE, FilmPreviewLut.Domain.DISPLAY);
+        if (cached != null) {
+            if (current.getAsBoolean()) ready.accept(previewDisplay(cached, selected.strength, userLut, amount));
+            return;
+        }
+        FilmLut legacy = lut(context, key);
+        if (current.getAsBoolean()) ready.accept(legacy);
+        FilmPreviewLut.load(context, selected, FilmLooks.SIZE, FilmPreviewLut.Domain.DISPLAY, current,
+                reference -> ready.accept(previewDisplay(reference, selected.strength, userLut, amount)));
+    }
+
     // ───── P369: the scene-referred table of the photo and the RAW viewfinder (why/combine FILM_SIM 1)
 
     /** The scene table to apply: the table (FilmSim.lutScene, then the chosen LUT), the shader's film strength and its key. */
@@ -81,11 +123,17 @@ public final class FilmChain {
         public final FilmLut lut;
         public final float strength;
         public final String key;
+        public final boolean reference;
 
         Scene(FilmLut lut, float strength, String key) {
+            this(lut, strength, key, false);
+        }
+
+        Scene(FilmLut lut, float strength, String key, boolean reference) {
             this.lut = lut;
             this.strength = strength;
             this.key = key;
+            this.reference = reference;
         }
     }
 
@@ -143,6 +191,30 @@ public final class FilmChain {
         return sceneCached == null ? null : new Scene(sceneCached, sim.strength, key);
     }
 
+    public static void loadScene(android.content.Context context, FilmSim.Settings sim, String user, float userStrength,
+                                 java.util.function.BooleanSupplier current, java.util.function.Consumer<Scene> ready) {
+        if (!current.getAsBoolean()) return;
+        if (!FilmPreviewLut.supported(sim)) {
+            Scene legacy = scene(context, sim, user, userStrength);
+            if (current.getAsBoolean()) ready.accept(legacy);
+            return;
+        }
+        final String key = sceneKey(sim, user, userStrength);
+        final FilmLut userLut = user.isEmpty() || userStrength <= 0 ? null : FilmLut.chosen(context, user);
+        FilmLut cached = FilmPreviewLut.cached(sim, FilmSim.SCENE_SIZE, FilmPreviewLut.Domain.SCENE);
+        if (cached != null) {
+            FilmLut table = userLut == null ? cached : compose(cached, 1, userLut, userStrength);
+            if (current.getAsBoolean()) ready.accept(new Scene(table, sim.strength, key, true));
+            return;
+        }
+        Scene legacy = scene(context, sim, user, userStrength);
+        if (current.getAsBoolean()) ready.accept(legacy);
+        FilmPreviewLut.load(context, sim, FilmSim.SCENE_SIZE, FilmPreviewLut.Domain.SCENE, current, reference -> {
+            FilmLut table = userLut == null ? reference : compose(reference, 1, userLut, userStrength);
+            ready.accept(new Scene(table, sim.strength, key, true));
+        });
+    }
+
     /**
      * x -> mix(x, film(x), filmStrength) -> mix(y, user(y), userStrength), sampled on the film LUT's grid (the user LUT's domain
      * and trilinear interpolation as the shader's).
@@ -163,6 +235,11 @@ public final class FilmChain {
             k += 3;
         }
         return FilmLut.of(n, v, film.title + (user != null && userStrength > 0f ? " + " + user.title : ""));
+    }
+
+    static FilmLut previewDisplay(FilmLut film, float filmStrength, @Nullable FilmLut user, float userStrength) {
+        FilmLut printed = user != null && userStrength > 0 ? compose(film, 1, user, userStrength) : film;
+        return filmStrength == 1 ? printed : compose(printed, filmStrength, null, 0);
     }
 
     /** A LUT at a colour (its domain, trilinear). */

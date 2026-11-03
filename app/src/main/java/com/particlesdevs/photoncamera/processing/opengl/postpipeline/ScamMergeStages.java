@@ -24,7 +24,7 @@ public final class ScamMergeStages {
     public static final String BASE = "base", RAW = "raw", ROBUST = "robust", CUTOFF = "cutoff", FLOW = "flow", BENTO = "bento",
             BLEND = "blend", ACCEPTED = "accepted", MERGED = "merged";
     /**
-     * P344 «Отсечение» (owner, 2026-10-26: our «Реджект» next to ArkCam's «после · отсечение», «займись картой реджектов»): the
+     * P344 «Отсечение» (owner, 2026-10-26: our «Реджект» next to WhyCam's «после · отсечение», «займись картой реджектов»): the
      * worker's "cutoff" record (frame -1) is per cell the smallest block-mean final merge weight over the normal donors (the
      * bracket's long frames, cut where they clip by design, left out), 255 = every frame merged, 0 = at least one frame cut. It
      * follows the frame weights it is the minimum of; an older worker writes none and the view
@@ -135,7 +135,7 @@ public final class ScamMergeStages {
 
     /** A one-channel map's byte (0..255) as a colour, by the map's kind. */
     static int pixel(String kind, int v) {
-        if (CUTOFF.equals(kind)) return 0xFF000000 | v << 16 | v << 8 | v; // ArkCam's «после · отсечение»: white kept, black cut
+        if (CUTOFF.equals(kind)) return 0xFF000000 | v << 16 | v << 8 | v; // WhyCam's «после · отсечение»: white kept, black cut
         if (RAW.equals(kind) || ROBUST.equals(kind) || ACCEPTED.equals(kind)) return weight(v);
         return ScamLabRun.colour(v / 255f);
     }

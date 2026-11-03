@@ -1,5 +1,10 @@
 #include "SpektraVulkanRenderer.h"
+
+#if defined(SCAMERA_EMBEDDED_FILM)
+#include "film-reference-resources.h"
+#endif
 #include "SpektraProfileCurves.h"
+#include "ScameraQueuePolicy.h"
 
 #include <vulkan/vulkan.h>
 
@@ -215,6 +220,40 @@ std::vector<float> readFloatResourceFile(
     return {};
   }
   return data;
+}
+
+std::vector<uint32_t> readShaderResource(const char* name, std::string& error) {
+#if defined(SCAMERA_EMBEDDED_FILM)
+  const FilmResource resource = embeddedFilmResource(name);
+  if (!resource.data || !resource.bytes || resource.bytes % sizeof(uint32_t)) {
+    error = "Embedded Vulkan shader is unavailable or invalid.";
+    return {};
+  }
+  std::vector<uint32_t> data(resource.bytes / sizeof(uint32_t));
+  std::memcpy(data.data(), resource.data, resource.bytes);
+  return data;
+#else
+  const auto path = findResourcePath(name);
+  if (path.empty()) { error = "Unable to locate Vulkan shader resource."; return {}; }
+  return readSpirvFile(path, error);
+#endif
+}
+
+std::vector<float> readFloatResource(const char* name, uint32_t count, std::string& error) {
+#if defined(SCAMERA_EMBEDDED_FILM)
+  const FilmResource resource = embeddedFilmResource(name);
+  if (!resource.data || !count || resource.bytes != uint64_t(count) * sizeof(float)) {
+    error = "Embedded Vulkan float resource is unavailable or invalid.";
+    return {};
+  }
+  std::vector<float> data(count);
+  std::memcpy(data.data(), resource.data, resource.bytes);
+  return data;
+#else
+  const auto path = findResourcePath(name);
+  if (path.empty()) { error = "Unable to locate Vulkan float resource."; return {}; }
+  return readFloatResourceFile(path, count, error);
+#endif
 }
 
 bool isSupportedRgba(const ImageView &source, const MutableImageView &destination) {
@@ -1463,6 +1502,8 @@ struct VulkanSharedBackend {
   };
 
   uint32_t generation = 0;
+  QueuePolicy queuePolicy;
+  std::string queueDescription;
   std::string lastError;
   bool available = false;
   std::atomic<bool> poisoned{false};
@@ -1501,7 +1542,8 @@ struct VulkanSharedBackend {
   VkPipeline grainPipeline = VK_NULL_HANDLE;
   uint64_t transientBudgetBytes = 0;
 
-  explicit VulkanSharedBackend(uint32_t backendGeneration) : generation(backendGeneration) {
+  VulkanSharedBackend(uint32_t backendGeneration, QueuePolicy policy)
+      : generation(backendGeneration), queuePolicy(policy) {
     initialize();
   }
 
@@ -1692,16 +1734,36 @@ private:
     queueInfo.queueCount = queueCount;
     queueInfo.pQueuePriorities = priorities.data();
 
-    VkDeviceCreateInfo deviceInfo{};
-    deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    deviceInfo.queueCreateInfoCount = 1;
-    deviceInfo.pQueueCreateInfos = &queueInfo;
-
-    VkResult result = vkCreateDevice(physicalDevice, &deviceInfo, nullptr, &device);
-    if (result != VK_SUCCESS) {
-      lastError = vkError("vkCreateDevice", result);
+    bool khr = false, ext = false;
+    if (queuePolicy == QueuePolicy::Interactive && physicalDeviceProperties.vendorID == 0x5143) {
+      uint32_t extensionCount = 0;
+      if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr) == VK_SUCCESS
+          && extensionCount > 0) {
+        std::vector<VkExtensionProperties> extensions(extensionCount);
+        if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data()) == VK_SUCCESS
+            && extensionCount <= extensions.size()) {
+          for (uint32_t i = 0; i < extensionCount; ++i) {
+            khr |= std::strcmp(extensions[i].extensionName, VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME) == 0;
+            ext |= std::strcmp(extensions[i].extensionName, VK_EXT_GLOBAL_PRIORITY_EXTENSION_NAME) == 0;
+          }
+        }
+      }
+    }
+    const auto created = queue_policy::create(physicalDevice, queueInfo, queueFamilies.data(),
+        queueFamilyCount, physicalDeviceProperties.vendorID, VK_API_VERSION_1_1,
+        queuePolicy, khr, ext, vkCreateDevice);
+    device = created.device;
+    queueDescription = "queuePolicy=" + std::to_string(static_cast<int>(queuePolicy))
+        + " queueFamily=" + std::to_string(created.family)
+        + " queueFlags=" + std::to_string(queueFamilies[created.family].queueFlags)
+        + " globalPriority=" + (created.accepted ? "low" : "default")
+        + " lowResult=" + std::to_string(created.lowResult)
+        + " queueExtension=" + (created.extension ? created.extension : "none");
+    if (created.result != VK_SUCCESS) {
+      lastError = vkError("vkCreateDevice", created.result);
       return false;
     }
+    computeQueueFamily = created.family;
 
     queueSlots.reserve(queueCount);
     for (uint32_t queueIndex = 0; queueIndex < queueCount; ++queueIndex) {
@@ -1713,14 +1775,8 @@ private:
   }
 
   bool loadShaderModule(const char *relativePath, VkShaderModule &shaderModule) {
-    const std::filesystem::path shaderPath = findResourcePath(relativePath);
-    if (shaderPath.empty()) {
-      lastError = std::string("Unable to locate Vulkan shader resource ") + relativePath + ".";
-      return false;
-    }
-
     std::string spirvError;
-    const std::vector<uint32_t> spirv = readSpirvFile(shaderPath, spirvError);
+    const std::vector<uint32_t> spirv = readShaderResource(relativePath, spirvError);
     if (spirv.empty()) {
       lastError = spirvError;
       return false;
@@ -2000,16 +2056,16 @@ std::mutex gVulkanSharedBackendMutex;
 std::weak_ptr<VulkanSharedBackend> gVulkanSharedBackend;
 std::atomic<uint32_t> gVulkanSharedBackendGeneration{0};
 
-std::shared_ptr<VulkanSharedBackend> acquireVulkanSharedBackend(std::string &error) {
+std::shared_ptr<VulkanSharedBackend> acquireVulkanSharedBackend(std::string &error, QueuePolicy policy) {
   std::lock_guard<std::mutex> lock(gVulkanSharedBackendMutex);
   if (std::shared_ptr<VulkanSharedBackend> existing = gVulkanSharedBackend.lock()) {
-    if (existing->isAvailable()) {
+    if (existing->isAvailable() && existing->queuePolicy == policy) {
       return existing;
     }
     gVulkanSharedBackend.reset();
   }
 
-  auto backend = std::make_shared<VulkanSharedBackend>(gVulkanSharedBackendGeneration.fetch_add(1u) + 1u);
+  auto backend = std::make_shared<VulkanSharedBackend>(gVulkanSharedBackendGeneration.fetch_add(1u) + 1u, policy);
   if (!backend->isAvailable()) {
     error = backend->lastError.empty() ? "Unable to initialize shared Vulkan backend." : backend->lastError;
     return nullptr;
@@ -2811,6 +2867,8 @@ struct VulkanRenderer::Impl {
   std::string lastError;
   std::vector<float> outputGamutCompressionData;
   bool available = false;
+  QueuePolicy queuePolicy;
+  std::string queueDescription;
   bool preferPrivateScratch = true;
   bool grainBlurRecurrence = true;
   uint32_t diffusionGroupSize = 2u;
@@ -2883,7 +2941,7 @@ struct VulkanRenderer::Impl {
   static std::vector<Impl *> transientRegistry;
   static uint64_t transientUseClock;
 
-  Impl() {
+  explicit Impl(QueuePolicy policy) : queuePolicy(policy) {
     preferPrivateScratch = envStringAny(
       {"SPEKTRAFILM_VULKAN_SCRATCH_STORAGE", "SPEKTRAFILM_SCRATCH_STORAGE"},
       "private"
@@ -3305,7 +3363,7 @@ void VulkanRenderer::Impl::clearBackendAliases() {
 }
 
 bool VulkanRenderer::Impl::attachBackend() {
-  backend = acquireVulkanSharedBackend(lastError);
+  backend = acquireVulkanSharedBackend(lastError, queuePolicy);
   if (!backend) {
     return false;
   }
@@ -3317,6 +3375,7 @@ bool VulkanRenderer::Impl::attachBackend() {
   device = backend->device;
   computeQueue = backend->queueForIndex(queueIndex);
   computeQueueFamily = backend->computeQueueFamily;
+  queueDescription = backend->queueDescription;
   copyShaderModule = backend->copyShaderModule;
   formatConvertShaderModule = backend->formatConvertShaderModule;
   copyDescriptorSetLayout = backend->copyDescriptorSetLayout;
@@ -3961,14 +4020,8 @@ bool VulkanRenderer::Impl::loadHanatosSpectraData() {
     return true;
   }
 
-  const std::filesystem::path lutPath = findResourcePath("SpektraHanatos2025Spectra.f32");
-  if (lutPath.empty()) {
-    lastError = "Unable to locate SpektraHanatos2025Spectra.f32 for Vulkan Hanatos RGB-to-raw.";
-    return false;
-  }
-
   std::string resourceError;
-  std::vector<float> data = readFloatResourceFile(lutPath, hanatos.elementCount, resourceError);
+  std::vector<float> data = readFloatResource("SpektraHanatos2025Spectra.f32", hanatos.elementCount, resourceError);
   if (data.empty()) {
     lastError = resourceError;
     return false;
@@ -3982,18 +4035,9 @@ bool VulkanRenderer::Impl::loadOutputGamutCompressionData() {
     return true;
   }
 
-  const std::filesystem::path dataPath = findResourcePath("SpektraOutputGamutCompression.f32");
-  if (dataPath.empty()) {
-    lastError = "Unable to locate SpektraOutputGamutCompression.f32 for Vulkan output gamut compression.";
-    return false;
-  }
-
   std::string resourceError;
-  std::vector<float> data = readFloatResourceFile(
-    dataPath,
-    kSpektraOutputGamutCompressionElementCount,
-    resourceError
-  );
+  std::vector<float> data = readFloatResource(
+    "SpektraOutputGamutCompression.f32", kSpektraOutputGamutCompressionElementCount, resourceError);
   if (data.empty()) {
     lastError = resourceError;
     return false;
@@ -7938,12 +7982,17 @@ bool VulkanRenderer::Impl::renderStagedBootstrap(const ImageView& source,const M
   total.tiledRendering=true;total.stagedRendering=true;diagnostics=total;return true;
 }
 
-VulkanRenderer::VulkanRenderer() : impl_(std::make_unique<Impl>()) {}
+VulkanRenderer::VulkanRenderer(QueuePolicy policy) : impl_(std::make_unique<Impl>(policy)) {}
 
 VulkanRenderer::~VulkanRenderer() = default;
 
 bool VulkanRenderer::isAvailable() const {
   return impl_ && impl_->available;
+}
+
+const std::string &VulkanRenderer::queueDescription() const {
+  static const std::string empty;
+  return impl_ ? impl_->queueDescription : empty;
 }
 
 const VulkanRenderDiagnostics &VulkanRenderer::lastDiagnostics() const {
@@ -8024,12 +8073,13 @@ bool VulkanRenderer::render(
   }
   lastRenderError_ = impl_ ? impl_->lastError : std::string();
   if (isDeviceLostError(lastRenderError_)) {
+    const QueuePolicy policy = impl_ ? impl_->queuePolicy : QueuePolicy::Legacy;
     if (impl_) {
       impl_->markBackendLost();
     }
     lastRenderError_ += " Recreated the shared Vulkan backend for the next render.";
     impl_.reset();
-    impl_ = std::make_unique<Impl>();
+    impl_ = std::make_unique<Impl>(policy);
     if (!impl_ || !impl_->available) {
       lastRenderError_ += " Vulkan device recreation failed.";
       if (impl_ && !impl_->lastError.empty()) {

@@ -1,7 +1,7 @@
 precision highp float;
 precision highp sampler2D;
 // WHY luma sharpening (WhyLumaSharpen), step 1: the guide that WhyCam's process_luma_fp16 sharpens [libfc_suppressor
-// 0x7c5c4; research/hybrid5/ark_sharpen.md 1, 6.2]: Ya = clamp(mulU * Y709(sceneLinear), 0, 1) on the output grid.
+// 0x7c5c4; research/hybrid5/why_sharpen.md 1, 6.2]: Ya = clamp(mulU * Y709(sceneLinear), 0, 1) on the output grid.
 // mulU 1 = the G_CLEAN scale of Google's guide a3 (why_sharp_domain 1), mulU ae = the domain of the detail delta
 // (why_sharp_domain 0). Keep sceneLinear() identical to why/low.glsl and why/combine.glsl.
 #import interpolation

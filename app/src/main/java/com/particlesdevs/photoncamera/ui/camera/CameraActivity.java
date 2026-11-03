@@ -249,9 +249,6 @@ public class CameraActivity extends BaseActivity {
         // P302: photos and RAW files of Download/SCAMERA/DCIM back to DCIM, once (in the background)
         com.particlesdevs.photoncamera.util.DcimMoveBack.runOnce(getApplicationContext());
         Log.setLogFolder(getApplicationContext());
-        // Reads the "Full debug" switch and, when on, opens Download/SCAMERA/SCAMERA-debug.txt
-        // and writes the build/device/camera header for this session.
-        com.particlesdevs.photoncamera.util.ScameraDebugLog.init(getApplicationContext());
         if (getSupportFragmentManager().findFragmentById(R.id.container) == null) {
             getSupportFragmentManager().beginTransaction()
                     .replace(R.id.container, CameraFragment.newInstance())
@@ -283,6 +280,8 @@ public class CameraActivity extends BaseActivity {
             return;
         }
         appliedThemeSignature=signature;
+        // P470: the first launch of this install / system build compiles the GPU programs behind a progress dialog
+        if(checkSelfPermission(android.Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED&&!AllFilesAccess.maybeAsk(this))FirstRunCompile.maybeRun(this);
         // P156: the settings may have shown another module's profile for editing: the camera's module again
         com.particlesdevs.photoncamera.settings.ModuleRegistry.syncProfile();
         // Apply hideSystemUI in onResume to prevent flickering when returning to the camera

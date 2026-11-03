@@ -28,7 +28,7 @@ PATCHES = [('grey', .85, 0., 83.), ('cast', .85, .003, 83.), ('wall', .85, .02, 
 class Bench(cvh.Bench):
     def prog(self, name, defines=()):
         if name == 'why/combine':
-            defines = tuple(defines) + (('ARK_VIBRANCE', '1'), ('LIGHT_CHROMA', '1'), ('AGX_INSET', '1'), ('ARK_BASE', '1'))
+            defines = tuple(defines) + (('WHY_VIBRANCE', '1'), ('LIGHT_CHROMA', '1'), ('AGX_INSET', '1'), ('WHY_BASE', '1'))
         return super().prog(name, defines)
 
 
@@ -49,7 +49,7 @@ def measured(img):
 def uniforms():
     return {'agxAU': (2.45, 1.35, 2., 1.), 'agxBU': (-8.5, 3.5, 0., 4.), 'insetU': .5,
             'macroU': 1., 'detailGainU': 0., 'filmToeU': 0., 'headroomU': 0, 'hlWhiteU': .15,
-            'vibU': (0., 0., 0.), 'vibArkU': (0., 0., 0., 0.),
+            'vibU': (0., 0., 0.), 'vibWhyU': (0., 0., 0., 0.),
             'vibSkinU': (1., float(np.radians(41.2)), .16, 0.), 'vibHlU': 0., 'lightChromaU': 1.}
 
 
@@ -65,7 +65,7 @@ def saturation_controls(src, check, baseline=None):
     stats = []
     try:
         for p3, gamma, head in itertools.product((0, 1), (0, 1, 2), (0, 1)):
-            defs = dict(ARK_VIBRANCE=1, LIGHT_CHROMA=1, AGX_INSET=1, ARK_BASE=1, P3_OUT=p3,
+            defs = dict(WHY_VIBRANCE=1, LIGHT_CHROMA=1, AGX_INSET=1, WHY_BASE=1, P3_OUT=p3,
                         GAMMA_TYPE=gamma, HL_LANDING=1, SUN_BLOOM=1)
             uni = dict(uniforms(), headroomU=head, hlSoftU=.7, sunBloomU=.4, sunGridU=(1., 1.),
                        gammaInvU=1 / 2.2, macroU=1., filmToeU=.1)
@@ -95,7 +95,7 @@ def saturation_controls(src, check, baseline=None):
             stats.append(dict(p3=p3, gamma=gamma, headroom=head, zero_rgb_spread=spread, min_chroma_delta=drop,
                               max_lightness_delta=lightness))
         skin = np.broadcast_to(cvh.from_oklab(.65, .05 * np.cos(np.radians(52)), .05 * np.sin(np.radians(52))), (16, 16, 3)).copy()
-        defs = dict(ARK_VIBRANCE=1, LIGHT_CHROMA=1, AGX_INSET=1, ARK_BASE=1, COLOUR_LOOK=1)
+        defs = dict(WHY_VIBRANCE=1, LIGHT_CHROMA=1, AGX_INSET=1, WHY_BASE=1, COLOUR_LOOK=1)
         uni = dict(uniforms(), skinU=(0., 0., 0.), hueLockU=2, gamutU=0., gammaInvU=1 / 2.2, macroU=1.)
         reference = gpu.render(skin, defines=defs, uni=uni, src=src)
         for amount in (.5, 1.5):
@@ -131,12 +131,12 @@ def main():
 
     b = Bench()
     base = uniforms()
-    default = dict(base, vibU=(0., .25, .05), vibHlU=1., vibArkU=(0., .25, 0., 0.))
+    default = dict(base, vibU=(0., .25, .05), vibHlU=1., vibWhyU=(0., .25, 0., 0.))
     try:
         runs = [('off', src, 0, base), ('default', src, 0, default)]
         for strength in (0., .25, .5, .75, 1., 1.5):
             for protection in (0., 1.):
-                u = dict(base, vibHlU=strength / .25, vibArkU=(0., strength, 0., 0.),
+                u = dict(base, vibHlU=strength / .25, vibWhyU=(0., strength, 0., 0.),
                          vibSkinU=(protection, float(np.radians(41.2)), .16, 0.))
                 runs.append((f'hl-{strength}-{protection}', src, 0, u))
         r = b.render(image(), runs)
@@ -194,7 +194,7 @@ def main():
         bad, count = [], 0
         families = ('TONE_OP', 'SKY', 'LIGHT_CHROMA', 'COLOUR_LOOK', 'P3_OUT', 'FILM_SIM')
         for values in itertools.product((0, 1), repeat=len(families)):
-            defines = dict(zip(families, values), ARK_VIBRANCE=0, ARK_BASE=1, AGX_INSET=1)
+            defines = dict(zip(families, values), WHY_VIBRANCE=0, WHY_BASE=1, AGX_INSET=1)
             for route in ({}, {'POINT_FUSED': 1}, {'POINT_FUSED': 1, 'RAW_SOURCE': 1}):
                 old, new = baseline, src
                 for k, v in dict(defines, **route).items():
@@ -202,7 +202,7 @@ def main():
                 count += 1
                 if token_hash(old) != token_hash(new):
                     bad.append(dict(defines, **route))
-        check(not bad, 'ARK_VIBRANCE0 legacy token identity %d/%d define sets' % (count-len(bad), count))
+        check(not bad, 'WHY_VIBRANCE0 legacy token identity %d/%d define sets' % (count-len(bad), count))
         report['legacy_identity'] = {'count': count, 'mismatches': bad}
 
         import moderngl
@@ -212,8 +212,8 @@ def main():
             lut = cfs.identity_u(17)
             worst = 0.
             for tone, p3, sat in itertools.product((0, 1), (0, 1), (0., 1., 2.)):
-                defs = dict(FILM_SIM=1, ARK_VIBRANCE=1, LIGHT_CHROMA=1, COLOUR_LOOK=1, AGX_INSET=1,
-                            ARK_BASE=1, TONE_OP=tone, P3_OUT=p3)
+                defs = dict(FILM_SIM=1, WHY_VIBRANCE=1, LIGHT_CHROMA=1, COLOUR_LOOK=1, AGX_INSET=1,
+                            WHY_BASE=1, TONE_OP=tone, P3_OUT=p3)
                 uni = dict(default, filmExpU=1., strength=1., toneOpU=1, acesU=(1., 2.51, .59, .05), agxAU=(2.45, 1.35, 2., sat))
                 old = gpu.render(full, defines=defs, uni=uni, lut=lut, src=baseline)
                 new = gpu.render(full, defines=defs, uni=uni, lut=lut, src=src)

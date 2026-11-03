@@ -43,6 +43,9 @@ public final class ViewerChrome {
     public final View back;
     public final TextView metaTitle, metaSub;
     public final TextView hdrPill;
+    /** P492: the histogram switch (a round icon button beside the HDR pill) and its icon. */
+    public final View histButton;
+    private final ImageView histIcon;
     public final RecyclerView strip;
     public final Filmstrip filmstrip;
     public final LinearLayout buttons;
@@ -62,6 +65,9 @@ public final class ViewerChrome {
         void delete();
 
         void hdr();
+
+        /** P492: the histogram overlay on / off. */
+        default void histogram() {}
 
         void openPosition(int position);
     }
@@ -106,6 +112,15 @@ public final class ViewerChrome {
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hp.leftMargin = GalleryUi.dp(c, 8);
         row.addView(hdrPill, hp);
+        // P492 (owner, 2026-11-03: «добавь кнопку вывода гистограммы, при активации гистограмма должна отображаться постоянно пока ты не
+        // деактивируешь»): a pill beside the HDR one; on, the histogram stays over every photo until it is switched off
+        histButton = disc(c, R.drawable.gallery_ic_histogram, Lang.t("Гистограмма", "Histogram"), v -> a.histogram());
+        histButton.setTag("viewer_histogram");
+        histIcon = (ImageView) ((FrameLayout) histButton).getChildAt(0);
+        histIcon.setColorFilter(GalleryUi.MUTED);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
+        gp.leftMargin = GalleryUi.dp(c, 8);
+        row.addView(histButton, gp);
         top.addView(row);
 
         bottom = new LinearLayout(c);
@@ -178,6 +193,12 @@ public final class ViewerChrome {
     public void bindMeta(String title, String sub, @Nullable String route, GalleryFormat format, boolean ultraHdr) {
         metaTitle.setText(title);
         metaSub.setText(sub);
+    }
+
+    /** P492: the histogram switch's state (accent when the overlay is on). */
+    public void setHistogram(boolean on) {
+        histIcon.setColorFilter(on ? GalleryUi.accent(histIcon.getContext()) : GalleryUi.MUTED);
+        androidx.core.view.ViewCompat.setStateDescription(histButton, on ? Lang.t("включено", "on") : Lang.t("выключено", "off"));
     }
 
     /** «HDR: вкл. / выкл.» pill at the top right for an Ultra HDR photo; hidden otherwise. */

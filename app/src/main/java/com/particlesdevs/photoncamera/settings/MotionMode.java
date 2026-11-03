@@ -77,6 +77,11 @@ public final class MotionMode {
         // P111: no widened base kernel where donors were rejected (the moving subject): its detail stays, the denoise (stronger
         // there through the effective-frame map) takes the noise
         d.put("widen_below", 0f);
+        // P471: the moving subject's luma keeps all its detail in the resolve denoise (rejected / moving areas revert it fully,
+        // photo 0.5; the reference app's sport mode does the same); its chroma and the later coverage-aware denoise stay
+        // P471 revisited (owner, 2026-11-03, A/B on the moving burst 172902: «0.5 выглядит лучше»): 1.0 only added grain on the
+        // motion-blurred subject (no real detail there), so «Спорт» keeps the photo's 0.5
+        d.put("why_dn_motion_revert", 0.5f);
         DEFAULTS = Collections.unmodifiableMap(d);
     }
     private MotionMode() {}
@@ -110,6 +115,21 @@ public final class MotionMode {
         if (pending >= 4) return Math.max(1, Math.min(wanted, 2));
         if (pending >= 2) return Math.max(1, Math.min(wanted, 4));
         return wanted;
+    }
+
+    /** P488: ring frames a fast ring may give one shot (SPORT-COMPARISON item 5: 60 fps holds ~15 frames in the 250 ms window). */
+    static final int FAST_RING_FRAMES = 12;
+    /** P488: the longest median frame gap of a «fast» ring (60 fps: 16.7 ms; 30 fps rings keep the mode's count). */
+    static final long FAST_RING_GAP_NS = 20_000_000L;
+
+    /**
+     * P488: the ring frames of a capture v2 shot after its donor window: at a fast ring ({@code medianGapNs} at most FAST_RING_GAP_NS)
+     * with no earlier shot waiting for its merge, up to FAST_RING_FRAMES of the {@code inWindow} frames inside the window instead of
+     * {@code wanted}; a smaller count set for the mode (below its default) or any queue keeps {@code wanted} (framesForQueue's cut).
+     */
+    public static int ringFrames(int wanted, int pending, int inWindow, long medianGapNs) {
+        if (pending > 0 || medianGapNs <= 0 || medianGapNs > FAST_RING_GAP_NS || wanted < Math.round(DEFAULTS.get("zsl_frames"))) return wanted;
+        return Math.max(wanted, Math.min(FAST_RING_FRAMES, inWindow));
     }
 
     /** Whether the mode replaces this hybrid key (after pref_scam_hybrid_). */

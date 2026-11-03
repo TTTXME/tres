@@ -44,17 +44,34 @@ public final class FilmSim {
      * P380 (owner, 2026-10-28: «Займись симуляцией плёнки, она у нас не работает как должна» - the pair with Unspektrawesome's
      * SPEKTRA, its recipe a Pro-Mist 2.0 on IMAX 70 with the DIR couplers at 0): the film's own camera diffusion (""
      * none, else a LensFilters.IDS family: Glimmerglass, Black Pro-Mist, Pro-Mist, CineBloom), its grade x 100 (0 .. 200, 50 =
-     * spektrafilm's 0.5) and the DIR couplers' amount in % (0 .. 100, 100 = spektrafilm's default, today's colours; review: above it
+     * spektrafilm's 0.5) and the DIR couplers' amount in % (0 .. 100; review: above 100
      * the exposure before the couplers stops rising in some layer from ~148 % on 14 of the 20 colour stocks - greys go blue / orange
      * and tones invert - so the range ends at the stocks' own amount).
      */
     public static final String DIFFUSION_KEY = "pref_film_sim_diffusion", DIFFUSION_STRENGTH_KEY = "pref_film_sim_diffusion_strength",
             DIR_KEY = "pref_film_sim_dir";
     /** Every stored key (the lab, the backups, the pages' and the tray's resets). */
-    public static final String[] KEYS = {STOCK_KEY, PRINT_KEY, FORMAT_KEY, GRAIN_KEY, HALATION_KEY, SOFTNESS_KEY, EXPOSURE_KEY,
-            PRINT_EV_KEY, TONE_KEY, PRINT_M_KEY, PRINT_Y_KEY, STRENGTH_KEY, DIFFUSION_KEY, DIFFUSION_STRENGTH_KEY, DIR_KEY};
+    public static final String[] KEYS = concat(new String[]{STOCK_KEY, PRINT_KEY, FORMAT_KEY, GRAIN_KEY, HALATION_KEY, SOFTNESS_KEY,
+            EXPOSURE_KEY, PRINT_EV_KEY, TONE_KEY, PRINT_M_KEY, PRINT_Y_KEY, STRENGTH_KEY, DIFFUSION_KEY, DIFFUSION_STRENGTH_KEY, DIR_KEY},
+            FilmAdvanced.KEYS); // P487: the DIR / halation / development / spectral-model keys after them
+
+    private static String[] concat(String[] a, String[] b) {
+        final String[] out = java.util.Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
+    }
     /** P380: the diffusion's default grade (spektrafilm's DiffusionFilterParams.strength 0.5) and the couplers' default amount. */
-    public static final float DIFFUSION_DEFAULT = .5f, DIR_DEFAULT = 1f;
+    public static final float DIFFUSION_DEFAULT = .5f, DIR_DEFAULT = 0f;
+    public static final String DEFAULT_PRINT = "kodak_supra_endura";
+    private static final float LEGACY_DIR_DEFAULT = 1f;
+
+    public static int defaultPercent(String key) {
+        switch (key) {
+            case GRAIN_KEY: case HALATION_KEY: case SOFTNESS_KEY: return 0;
+            case DIR_KEY: return Math.round(100 * DIR_DEFAULT);
+            default: throw new IllegalArgumentException("Not a film effect percentage");
+        }
+    }
     /** P380: the film's diffusions offered, in spektrafilm's order ("" none; Pro-Mist is stored as LensFilters.PEARLESCENT). */
     public static final String[] DIFFUSIONS = {LensFilters.NONE, LensFilters.GLIMMERGLASS, LensFilters.BLACK_PRO_MIST,
             LensFilters.PEARLESCENT, LensFilters.CINEBLOOM};
@@ -94,7 +111,7 @@ public final class FilmSim {
         public final float halationUm;
         /** P286: the stock's measured data (FilmSpectral, the reference model); null: our own model (black and white). */
         @Nullable public final String spectral;
-        /** P286: the paper the stock's maker pairs it with (the default print). */
+        /** P286: the measured profile's suggested print. */
         @Nullable final String targetPrint;
 
         /** P286: a stock of the reference model (its curves, dyes and sensitivities from the data; grain and halation ours). */
@@ -313,8 +330,9 @@ public final class FilmSim {
         return PRINTS[0];
     }
 
-    /** The print a stock is printed on: the chosen one, or (none chosen) the one its maker pairs it with. */
+    /** An explicit paper is preserved; an unset measured recipe starts with the reference app's common paper. */
     public static Print print(@Nullable String id, @Nullable Stock stock) {
+        if ((id == null || id.isEmpty()) && stock != null && stock.spectral != null) return print(DEFAULT_PRINT);
         if ((id == null || id.isEmpty()) && stock != null && stock.targetPrint != null) return print(stock.targetPrint);
         return print(id);
     }
@@ -380,6 +398,8 @@ public final class FilmSim {
          */
         public final String diffusion;
         public final float diffusionGrade, couplers;
+        /** P487: the page's DIR / halation / development / spectral-model controls (FilmAdvanced; DEFAULT = upstream's). */
+        public final FilmAdvanced advanced;
 
         public Settings(Stock stock, Print print, Format format, float grain, float halation, float softness, float exposure,
                         float printEv, float tone, float strength) {
@@ -389,13 +409,22 @@ public final class FilmSim {
         public Settings(Stock stock, Print print, Format format, float grain, float halation, float softness, float exposure,
                         float printEv, float tone, float printM, float printY, float strength) {
             this(stock, print, format, grain, halation, softness, exposure, printEv, tone, printM, printY, strength, "", DIFFUSION_DEFAULT,
-                    DIR_DEFAULT);
+                    LEGACY_DIR_DEFAULT);
         }
 
         /** P380: with the film's diffusion ({@code diffusion} "" none, its grade) and the DIR couplers' amount. */
         public Settings(Stock stock, Print print, Format format, float grain, float halation, float softness, float exposure,
                         float printEv, float tone, float printM, float printY, float strength, @Nullable String diffusion,
                         float diffusionGrade, float couplers) {
+            this(stock, print, format, grain, halation, softness, exposure, printEv, tone, printM, printY, strength, diffusion,
+                    diffusionGrade, couplers, FilmAdvanced.DEFAULT);
+        }
+
+        /** P487: with the page's advanced controls ({@code advanced} null = upstream's defaults). */
+        public Settings(Stock stock, Print print, Format format, float grain, float halation, float softness, float exposure,
+                        float printEv, float tone, float printM, float printY, float strength, @Nullable String diffusion,
+                        float diffusionGrade, float couplers, @Nullable FilmAdvanced advanced) {
+            this.advanced = advanced == null ? FilmAdvanced.DEFAULT : advanced;
             this.diffusion = diffusion == null || LensFilters.index(diffusion) <= 0 ? "" : diffusion;
             this.diffusionGrade = diffusionGrade;
             this.couplers = couplers;
@@ -415,8 +444,10 @@ public final class FilmSim {
 
         /** What the LUT depends on (the effects do not change it); P380: the couplers' amount its 8th field. */
         public String lutKey() {
+            // P487: the advanced colour controls the 9th field, only when one is moved (an untouched recipe's key as before)
+            final String advancedToken = advanced.lutToken();
             return stock.id + "|" + (stock.reversal() ? "-" : print.id) + "|" + fmt(exposure) + "|" + fmt(printEv) + "|" + fmt(tone)
-                    + "|" + fmt(printM) + "|" + fmt(printY) + "|" + fmt(couplers);
+                    + "|" + fmt(printM) + "|" + fmt(printY) + "|" + fmt(couplers) + (advancedToken.isEmpty() ? "" : "|" + advancedToken);
         }
 
         /**
@@ -448,7 +479,8 @@ public final class FilmSim {
                     format.longMm <= 0 ? "off" : format.name.replace('×', 'x'),
                     diffusion.isEmpty() ? "none" : LensFilters.name(null, diffusion) + String.format(Locale.ROOT, " %.2f", diffusionGrade),
                     Math.round(grain * 100), Math.round(halation * 100), Math.round(softness * 100), Math.round(couplers * 100),
-                    exposure, printEv, Math.round(tone * 100), Math.round(printM), Math.round(printY), Math.round(strength * 100));
+                    exposure, printEv, Math.round(tone * 100), Math.round(printM), Math.round(printY), Math.round(strength * 100))
+                    + advanced.describe();
         }
 
         /**
@@ -457,8 +489,13 @@ public final class FilmSim {
          */
         public float[] halationAmounts() {
             final float[] a = new float[3];
-            for (int c = 0; c < 3; c++) a[c] = stock.halation[c] * halation * strength;
+            for (int c = 0; c < 3; c++) a[c] = stock.halation[c] * halation * advanced.get(FilmAdvanced.HALO) * strength;
             return a;
+        }
+
+        /** P487: the stock's halation radius (um) x the page's «Halation size» (the preview's and the legacy route's halation). */
+        public float halationUm() {
+            return stock.halationUm * advanced.get(FilmAdvanced.HALO_SIZE);
         }
 
         /** «Мягкость плёнки» x the strength: the scale of the in-emulsion scatter and of a classic stock's sharpness blur. */
@@ -489,9 +526,12 @@ public final class FilmSim {
             final Stock stock = stock(p[0]);
             if (stock == null) return null;
             // P380: the couplers' amount the 8th field; a key of seven (before it) is at the default amount
-            final float couplers = p.length >= 8 ? clamp(number(p[7], DIR_DEFAULT), 0f, 1f) : DIR_DEFAULT;
+            final float couplers = p.length >= 8 ? clamp(number(p[7], LEGACY_DIR_DEFAULT), 0f, 1f) : LEGACY_DIR_DEFAULT;
+            // P487: the advanced colour controls of a 9th field (FilmAdvanced.lutToken)
+            final FilmAdvanced advanced = p.length >= 9 ? FilmAdvanced.fromToken(p[8]) : FilmAdvanced.DEFAULT;
             return new Settings(stock, print(p[1].equals("-") ? "" : p[1], stock), FORMATS[0], 0f, 0f, 0f, number(p[2], 0f),
-                    number(p[3], 0f), number(p[4], 0f), number(p[5], 0f), number(p[6], 0f), strength, "", DIFFUSION_DEFAULT, couplers);
+                    number(p[3], 0f), number(p[4], 0f), number(p[5], 0f), number(p[6], 0f), strength, "", DIFFUSION_DEFAULT, couplers,
+                    advanced);
         }
     }
 
@@ -511,16 +551,16 @@ public final class FilmSim {
             final float strength = clamp(number(m.getString(scope, STRENGTH_KEY, "100"), 100f) / 100f, 0f, 1f);
             if (strength <= 0f) return null;
             return new Settings(stock, print(m.getString(scope, PRINT_KEY, ""), stock), format(m.getString(scope, FORMAT_KEY, DEFAULT_FORMAT)),
-                    clamp(number(m.getString(scope, GRAIN_KEY, "100"), 100f) / 100f, 0f, 2f),
-                    clamp(number(m.getString(scope, HALATION_KEY, "100"), 100f) / 100f, 0f, 4f),
-                    clamp(number(m.getString(scope, SOFTNESS_KEY, "100"), 100f) / 100f, 0f, 3f),
+                    effect(GRAIN_KEY, m.getString(scope, GRAIN_KEY, ""), 2f),
+                    effect(HALATION_KEY, m.getString(scope, HALATION_KEY, ""), 4f),
+                    effect(SOFTNESS_KEY, m.getString(scope, SOFTNESS_KEY, ""), 3f),
                     clamp(number(m.getString(scope, EXPOSURE_KEY, "0"), 0f), -3f, 3f),
                     clamp(number(m.getString(scope, PRINT_EV_KEY, "0"), 0f), -2f, 2f),
                     clamp(number(m.getString(scope, TONE_KEY, "0"), 0f) / 100f, -1f, 1f),
                     clamp(number(m.getString(scope, PRINT_M_KEY, "0"), 0f), -50f, 50f),
                     clamp(number(m.getString(scope, PRINT_Y_KEY, "0"), 0f), -50f, 50f), strength,
                     m.getString(scope, DIFFUSION_KEY, ""), diffusionGrade(m.getString(scope, DIFFUSION_STRENGTH_KEY, "50")),
-                    couplers(m.getString(scope, DIR_KEY, "100")));
+                    couplers(m.getString(scope, DIR_KEY, "")), FilmAdvanced.read((k, d) -> m.getString(scope, k, d)));
         } catch (RuntimeException e) {
             return null;
         }
@@ -531,9 +571,13 @@ public final class FilmSim {
         return clamp(number(stored, DIFFUSION_DEFAULT * 100f) / 100f, 0f, 2f);
     }
 
-    /** P380: the stored couplers' amount (%, 0 .. 100; 100 by default) as 0 .. 1. */
+    private static float effect(String key, @Nullable String stored, float max) {
+        return clamp(number(stored, defaultPercent(key)) / 100f, 0f, max);
+    }
+
+    /** The stored couplers' amount (%, 0 .. 100; disabled by default) as 0 .. 1. */
     public static float couplers(@Nullable String stored) {
-        return clamp(number(stored, DIR_DEFAULT * 100f) / 100f, 0f, 1f);
+        return effect(DIR_KEY, stored, 1f);
     }
 
     static float number(@Nullable String v, float fallback) {

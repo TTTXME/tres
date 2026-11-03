@@ -40,10 +40,19 @@ final class HalfRgbUpload {
         GLTexture tex = null;
         try {
             tex = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+            // P482 (ahb_transport): the worker's halves in the app's hardware buffer - the pass reads them there (no upload); refused
+            // (no extension, a GL error): the bands uploaded from the CPU view below, the same bytes
+            final int imported = imported(rgb);
+            if (imported != 0 && runImported(prog, tex, size.x, size.y, rgb, imported)) return tex;
+            final boolean fromView = isAhbView(rgb);
             if (!run(prog, tex, size.x, size.y, rgb)) {
+                if (fromView) GLES31.glFinish();
                 tex.close();
                 return null;
             }
+            // P482: the driver may still read the uploaded bands from the view's mapping on the GPU (a hardware buffer's pages
+            // are not pinned like the memfd's): done before the view may be released
+            if (fromView) GLES31.glFinish();
             return tex;
         } catch (RuntimeException e) {
             Log.w("SCAM_PIPELINE", "half RGB GPU upload failed: " + e + ", CPU repack");
@@ -98,6 +107,80 @@ final class HalfRgbUpload {
             GLES31.glBindBuffer(GLES31.GL_SHADER_STORAGE_BUFFER, 0);
             GLES31.glDeleteBuffers(2, buffers, 0);
         }
+    }
+
+    private static boolean isAhbView(ByteBuffer rgb) {
+        try {
+            return com.particlesdevs.photoncamera.util.HardwareRgb.isView(rgb);
+        } catch (LinkageError e) {
+            return false;
+        }
+    }
+
+    /** P482: the GL buffer of {@code rgb} when it is a view of the app's hardware buffer (HardwareRgb), else 0. */
+    private static int imported(ByteBuffer rgb) {
+        try {
+            if (!com.particlesdevs.photoncamera.util.HardwareRgb.isView(rgb)) return 0;
+            final int name = com.particlesdevs.photoncamera.util.HardwareRgb.importGl(rgb);
+            if (name == 0) Log.w("SCAM_PIPELINE", "half RGB hardware buffer: not imported, uploaded from its CPU view");
+            return name;
+        } catch (LinkageError e) {
+            return 0;
+        }
+    }
+
+    /**
+     * P482: the bands of the imported buffer {@code buffer} (w * h * 3 halves; deleted here) through scamhdr/halfrgba into
+     * {@code tex}, each band a range of it at the storage buffer offset alignment; then a fence the view's free waits for. False
+     * on a GL error.
+     */
+    static boolean runImported(GLProg prog, GLTexture tex, int w, int h, ByteBuffer view, int buffer) {
+        while (GLES31.glGetError() != GLES31.GL_NO_ERROR) {
+            // drain: only the calls below decide
+        }
+        final int rowBytes = w * 6;
+        final int[] align = new int[1];
+        GLES31.glGetIntegerv(GLES31.GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, align, 0);
+        final int a = Math.max(4, align[0]);
+        final int step = a / gcd(rowBytes, a); // rows per aligned band offset
+        final int band = Math.max(step, Math.max(1, Math.min(h, BAND_BYTES / rowBytes)) / step * step);
+        try {
+            prog.setLayout(16, 16, 1);
+            prog.useAssetProgram("scamhdr/halfrgba", true);
+            GLES31.glBindImageTexture(0, tex.mTextureID, 0, false, 0, GLES31.GL_WRITE_ONLY, GLES31.GL_RGBA16F);
+            for (int y0 = 0; y0 < h; y0 += band) {
+                final int rows = Math.min(band, h - y0);
+                GLES31.glBindBufferRange(GLES31.GL_SHADER_STORAGE_BUFFER, 1, buffer, y0 * rowBytes, rows * rowBytes);
+                prog.setVar("bandU", w, y0);
+                prog.setVar("rowsU", rows);
+                GLES31.glDispatchCompute((w + 15) / 16, (rows + 15) / 16, 1);
+            }
+            GLES31.glMemoryBarrier(GLES31.GL_TEXTURE_FETCH_BARRIER_BIT | GLES31.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+                    | GLES31.GL_FRAMEBUFFER_BARRIER_BIT | GLES31.GL_PIXEL_BUFFER_BARRIER_BIT);
+            GLES31.glBindImageTexture(0, 0, 0, false, 0, GLES31.GL_WRITE_ONLY, GLES31.GL_RGBA16F);
+            prog.closed = true;
+            final int error = GLES31.glGetError();
+            if (error != GLES31.GL_NO_ERROR) {
+                Log.w("SCAM_PIPELINE", "half RGB hardware buffer: GL error 0x" + Integer.toHexString(error) + ", uploaded instead");
+                GLES31.glFinish(); // (the view may go once the fallback is done: nothing of this pass reads it then)
+                return false;
+            }
+            if (!com.particlesdevs.photoncamera.util.HardwareRgb.fence(view)) GLES31.glFinish();
+            return true;
+        } finally {
+            GLES31.glBindBufferBase(GLES31.GL_SHADER_STORAGE_BUFFER, 1, 0);
+            GLES31.glBindBuffer(GLES31.GL_SHADER_STORAGE_BUFFER, 0);
+            GLES31.glDeleteBuffers(1, new int[]{buffer}, 0);
+        }
+    }
+
+    private static int gcd(int a, int b) {
+        while (b != 0) {
+            final int t = a % b;
+            a = b;
+            b = t;
+        }
+        return a;
     }
 
     /** Whether the pass keeps every half on this driver (checked once per process, logged). */

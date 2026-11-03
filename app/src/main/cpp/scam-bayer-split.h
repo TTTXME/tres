@@ -5,7 +5,7 @@
 
 inline bool hybridBayerSplitEligible(int enabled,bool native,int grid,int frames,int mode,
                                      float widen,float base,float chroma) {
-    return enabled>0&&!native&&grid==1&&frames>=2&&frames<=4&&(mode&4)!=0
+    return enabled>0&&!native&&(grid==1||grid==2)&&frames>=2&&frames<=4&&(mode&4)!=0
         &&widen>0.f&&base>0.f&&chroma>0.f;
 }
 

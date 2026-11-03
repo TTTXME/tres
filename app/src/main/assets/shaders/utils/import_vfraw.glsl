@@ -1,4 +1,4 @@
-// P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
+// P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
 // frame's linear colour for why/combine.glsl RAW_SOURCE 1 - the RAW viewfinder's one fused pass (LiveWhyTone.drawFused: the
 // photo's WHY tone straight from the RAW texture, no RGBA16F linear frame and no second pass). The uniforms are
 // preview/rawdevelop_fs.glsl's (LiveRawRenderer.bindFrame sets them as for rawdevelop; the RAW on unit 9, the lens-shading map

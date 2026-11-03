@@ -13,6 +13,9 @@ precision highp sampler2D;
 // P317: memoryBarrierShared() before every barrier(): in ESSL 3.10 (8.14) barrier() alone does not order the accesses to
 // shared variables (only 3.20 says it does); the rare small weight mismatches on Adreno 830 may come from it (unproven).
 #define PASS 1
+// P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): PASS 2 with 1 = the clip from PASS 1's maximum here (WhyAe.clip /
+// fromGpu's decoding in float) instead of invClipU from a read-back between the passes (WhyAeGpu.begin)
+#define GPU_CLIP 0
 #define LAYOUT //
 LAYOUT
 
@@ -58,6 +61,16 @@ layout(std430, binding = 2) buffer aeHistY { uint histY[]; };
 layout(std430, binding = 3) buffer aeHistM { uint histM[]; };
 layout(std430, binding = 4) buffer aeSums { float sums[]; };
 layout(std430, binding = 5) buffer aeTail { uint tail[]; };
+#if GPU_CLIP == 1
+layout(std430, binding = 1) readonly buffer aeMax { uint maxKey[]; };
+float invClipOf() {
+    uint k = maxKey[0];
+    float gmax = -1000.0;
+    if (k != 0u) gmax = max(uintBitsToFloat((k & 0x80000000u) != 0u ? (k & 0x7fffffffu) : ~k), -1000.0);
+    float clip = gmax > 1.05 ? min(gmax, 4.0) : 1.0;
+    return 1.0 / clip;
+}
+#endif
 shared uint bins[4096];
 shared uint tailBins[48];
 
@@ -69,6 +82,11 @@ void main() {
     ivec2 origin = ivec2(gl_WorkGroupID.xy) * TILE + ivec2(gl_LocalInvocationID.xy);
     float halfW = float(sizeU.x) * 0.5, halfH = float(sizeU.y) * 0.5;
     float sumY = 0.0, sumLog = 0.0;
+#if GPU_CLIP == 1
+    float invClip = invClipOf();
+#else
+    float invClip = invClipU;
+#endif
     for (int j = 0; j < TILE / GROUP; j++) {
         for (int i = 0; i < TILE / GROUP; i++) {
             ivec2 p = origin + ivec2(i * GROUP, j * GROUP);
@@ -86,12 +104,12 @@ void main() {
                 if (modeU == 2) w = d2 < 0.04 ? 10u : d2 < 0.16 ? 2u : 0u;
                 else if (modeU == 1) w = d2 < 0.25 ? 4u : d2 < 0.5625 ? 2u : 1u;
             }
-            int iy = int(clamp(yv * invClipU, 0.0, 1.0) * 4095.99);
-            int im = int(clamp(mv * invClipU, 0.0, 1.0) * 4095.99);
+            int iy = int(clamp(yv * invClip, 0.0, 1.0) * 4095.99);
+            int im = int(clamp(mv * invClip, 0.0, 1.0) * 4095.99);
             if (w != 0u) {
                 atomicAdd(bins[iy], w);
                 atomicAdd(bins[im], w << 16);
-                if (mv * invClipU > 1.0) atomicAdd(tailBins[min(47, max(0, int(log2(mv * invClipU) * 12.0)))], w);
+                if (mv * invClip > 1.0) atomicAdd(tailBins[min(47, max(0, int(log2(mv * invClip) * 12.0)))], w);
                 sumY += yv * float(w);
                 sumLog += log(max(yv, 1e-4)) * float(w);
             }

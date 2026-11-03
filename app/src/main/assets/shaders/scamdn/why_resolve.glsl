@@ -53,7 +53,7 @@ vec3 SampleTexture(ivec2 p) {
     return c;
 }
 
-// Ark's frame_border mirror of the -1 / +1 taps at texel centres: -i - 1 below 0, 2 size - 1 - i above the last texel
+// Why's frame_border mirror of the -1 / +1 taps at texel centres: -i - 1 below 0, 2 size - 1 - i above the last texel
 int mirror(int i, int size) {
     if (i < 0) i = -i - 1;
     if (i >= size) i = 2 * size - 1 - i;

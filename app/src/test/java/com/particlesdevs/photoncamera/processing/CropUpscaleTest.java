@@ -20,8 +20,8 @@ public class CropUpscaleTest {
 
     @Test public void theSwitchBringsTheCropToThePhotoSize() throws Exception {
         String s = src("src/main/java/com/particlesdevs/photoncamera/processing/processor/ScamProcessor.java");
-        int target = s.indexOf("final Point cropTarget = zoomCrop > 1.005f && PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;");
-        int resize = s.indexOf("if (cropTarget == null && hybridFinal != null");
+        int target = s.indexOf("final Point cropTarget = img != null && zoomCrop > 1.005f && PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;");
+        int resize = s.indexOf("if (img != null && cropTarget == null && hybridFinal != null");
         int crop = s.indexOf("img = com.particlesdevs.photoncamera.control.ZoomController.crop(img, zoomCrop);");
         int scale = s.indexOf("ScamPostDownscale.scaleTo(img, cropTarget.x, cropTarget.y)");
         assertTrue("the target before the resize, the resize skipped when it is set, the crop, then the scale to the photo size",

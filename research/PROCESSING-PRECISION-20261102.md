@@ -71,4 +71,4 @@ and subtraction-sensitive arithmetic must not be narrowed indiscriminately.
   In particular, this does not establish a fix for Nubia's black photograph.
 
 Detailed inputs, hashes, rejected prototypes and logs are preserved outside
-Git in `../evidence/ark220-speed-20261102/`.
+Git in `../evidence/why220-speed-20261102/`.

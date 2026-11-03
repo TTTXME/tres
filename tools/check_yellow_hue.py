@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""P395 (owner, 2026-10-29, vivo X200 Ultra: the yellow «Лента» facade and the sunlit birches orange-ochre beside ArkCam's yellow;
-the burst 10:27:53 through the host chain: the facade's scene hue after the camera matrix OKLab 82, the tone keeps it, ArkCam ~90):
+"""P395 (owner, 2026-10-29, vivo X200 Ultra: the yellow «Лента» facade and the sunlit birches orange-ochre beside WhyCam's yellow;
+the burst 10:27:53 through the host chain: the facade's scene hue after the camera matrix OKLab 82, the tone keeps it, WhyCam ~90):
 why/combine.glsl yellowHueU on the GPU (moderngl), the shipped shader as WhyCombine / LiveWhyTone draw it (the uniforms of
 check_light_chroma's Renderer, LIGHT_CHROMA 1 as the photo). Checks:
 - the facade's colour (linear sRGB 1 : 0.597 : 0.134, the burst) turns towards yellow: CIELAB hue +4 .. +7 deg at every exposure from

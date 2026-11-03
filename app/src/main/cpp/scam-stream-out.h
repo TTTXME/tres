@@ -70,6 +70,48 @@ public:
             done=y1;
         }catch(...){fail("an exception");}
     }
+    // The fast merge route (hybridFinalHalvesHook): rows [y0, y1) already as halves (src: the GPU's mapped buffer), copied on all
+    // cores with their sum / max; y0 == 0 starts the stream; src null with y0 < 0 commits identity as the result. false: not taken.
+    bool halves(const uint16_t* src,int width,int height,int y0,int y1,const float* identity) noexcept {
+        std::lock_guard<std::mutex> guard(lock);
+        try{
+            if(!src&&y0==0&&y1==0){ // prepare (a thread beside the merge): the reservation and its mapping with every page in place
+                reset(width,height);data=identity;
+                if(!failed&&!map)open(true);
+                return !failed;
+            }
+            if(!src){committed=!failed&&y0<0&&identity==data&&done==h&&h>0&&width==w&&height==h;return committed;}
+            if(y0==0&&!(map&&data==identity&&done==0&&width==w&&height==h)){reset(width,height);data=identity;}
+            committed=false;
+            if(failed)return false;
+            if(identity!=data||width!=w||height!=h||y0!=done||y1<y0||y1>h){fail("half rows out of order");return false;}
+            if(!map&&!open())return false;
+            const size_t row=size_t(w)*3;
+            uint16_t* dst=map+size_t(y0)*row;
+            std::mutex statsLock;double s=0;float m=0;
+            scam::mergeRowBands(y1-y0,[&](int r0,int r1){
+                const size_t a=size_t(r0)*row,e=size_t(r1)*row;
+                std::memcpy(dst+a,src+a,(e-a)*2);
+                double ls=0;float lm=0;
+#if defined(__aarch64__)
+                const __fp16* hs=reinterpret_cast<const __fp16*>(dst);
+                size_t i=a;float32x4_t vm=vdupq_n_f32(0.f),va=vdupq_n_f32(0.f);
+                for(;i+8<=e;i+=8){
+                    if(((i-a)&4095)==0){ls+=double(vaddvq_f32(va));va=vdupq_n_f32(0.f);} // float partial sums, flushed every 4 K values
+                    const float16x8_t v=vld1q_f16(reinterpret_cast<const float16_t*>(hs+i));
+                    const float32x4_t x0=vcvt_f32_f16(vget_low_f16(v)),x1=vcvt_f32_f16(vget_high_f16(v));
+                    va=vaddq_f32(va,vaddq_f32(x0,x1));vm=vmaxnmq_f32(vm,vmaxnmq_f32(x0,x1));
+                }
+                ls+=double(vaddvq_f32(va));lm=vmaxnmvq_f32(vm);
+                for(;i<e;++i){const float v=float(hs[i]);ls+=v;lm=std::max(lm,v);}
+#endif
+                std::lock_guard<std::mutex> l(statsLock);s+=ls;m=std::max(m,lm);
+            });
+            sum+=s;maximum=std::max(maximum,m);
+            done=y1;
+            return true;
+        }catch(...){fail("an exception");return false;}
+    }
     // true: the memfd holds result's halves (its first result.size() * 2 bytes, the file that long), sum / max of its floats
     bool take(const std::vector<float>& result,double& s,float& m){
         std::lock_guard<std::mutex> guard(lock);
@@ -91,12 +133,12 @@ private:
         w=width;h=height;bytes=want;data=nullptr;done=0;sum=0;maximum=0;committed=false;failed=false;why.clear();
         if(want==0||want>kMaxBytes)fail(want?"the RGB above 160 MB":"no size");
     }
-    bool open(){
+    bool open(bool populate=false){
         struct stat st{};
         if(fd<0||fstat(fd,&st)!=0||!S_ISREG(st.st_mode)||st.st_size!=0||lseek(fd,0,SEEK_CUR)!=0){fail("the output is not an empty memfd");return false;}
         sized=true; // (empty until now: a failed reservation leaves it empty)
         if(fallocate(fd,0,0,off_t(bytes))!=0){fail("no reservation");dropLocked();return false;}
-        void* p=mmap(nullptr,bytes,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);
+        void* p=mmap(nullptr,bytes,PROT_READ|PROT_WRITE,MAP_SHARED|(populate?MAP_POPULATE:0),fd,0);
         if(p==MAP_FAILED){fail("no mapping");dropLocked();return false;}
         map=static_cast<uint16_t*>(p);
         return true;

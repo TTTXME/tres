@@ -52,6 +52,8 @@ public class ScamProcessor extends ProcessorBase {
     private Parameters scamOutputParameters;
     /** P187: the clip flags and the frame map this shot's merge returned (dropped at its end, not by the next shot's merge). */
     private ByteBuffer shotClipFlags, shotEffectiveFrames;
+    /** P480: this shot's base highlight mask (WhyHlDezipper), dropped at its end as the frame map. */
+    private com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.HlMask shotHlMask;
     private boolean scamCapture;
     /** This shot is merged by the SCAM Hybrid (its own settings profile), not by SCAM HDR (SCAM). */
     private boolean hybridShot;
@@ -242,7 +244,10 @@ public class ScamProcessor extends ProcessorBase {
             com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgb.dropClipFlags(shotClipFlags);
             if (com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastEffectiveFrames == shotEffectiveFrames)
                 com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastEffectiveFrames = null;
+            if (com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask == shotHlMask)
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask = null; // P480
             shotClipFlags = shotEffectiveFrames = null;
+            shotHlMask = null;
           } finally {
             com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.LOCK.unlock();
           }
@@ -618,7 +623,7 @@ public class ScamProcessor extends ProcessorBase {
         }
         Log.d(TAG, frameLog.toString());
 
-        // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): of the last burst
+        // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): of the last burst
         // callback's metadata only the levels are read before the reference frame's pass below - the darkest frame's black floor is
         // measured at them and that pass reuses the measurement. Its whole FillDynamicParameters (lens shading, noise model, colour,
         // ~70 log lines), the normal frames' exposure time set after it and the EXIF sync made here were all replaced by that pass
@@ -715,6 +720,7 @@ public class ScamProcessor extends ProcessorBase {
                 scamOutputParameters=processingParameters;
                 shotClipFlags=com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamRgb.lastClipFlags;
                 shotEffectiveFrames=com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastEffectiveFrames;
+                shotHlMask=com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask; // P480
                 stage(0.55f); // P158: merged
                 processingParameters.scamRgb=scamOwnedOutput;
                 processingParameters.scamRgbOwned=true;
@@ -936,6 +942,32 @@ public class ScamProcessor extends ProcessorBase {
         pipeline.deferTeardown = PostPipeline.canDeferTeardown(processingParameters, pipeline.film);
         if (pipeline.deferTeardown) { deferredPipeline = pipeline; openPipeline = null; }
         final boolean postAb = com.particlesdevs.photoncamera.processing.opengl.postpipeline.PostAb.wanted(processingParameters, pipeline.film);
+        // P483 (speed): a shot whose JPEG needs no bitmap-only step is encoded from the final readback (no bitmap, no copy into one)
+        // and saved as the bytes ImageSaver writes for the same pixels (jpegStreamRoute; scam_dev.txt "jpeg_stream 0": the bitmap)
+        final Point streamHybridFinal = hybridOut != null ? com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastFinalSize : null;
+        final boolean jpegStream = jpegStreamRoute(PreferenceKeys.scamDevSwitch("jpeg_stream", true), postAb, pipeline.tenBitOutput,
+                pipeline.p3Output, PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film),
+                ScameraApp.getSettings().hdrOutput, PreferenceKeys.getPhotoFormat(), PreferenceKeys.getJpegFastEncoder(),
+                pipeline.record != null, com.particlesdevs.photoncamera.processing.MergeStamp.on(), zoomCrop,
+                hybridResizeNeeded(streamHybridFinal, processingParameters.hybridFinalSize, processingParameters.rawSize),
+                pipeline.debugData.isEmpty(), com.particlesdevs.photoncamera.processing.JpegliEncoder.available());
+        final boolean[] exifInStream = {false};
+        if (jpegStream) {
+            final boolean isz = iszAspect4x3;
+            final com.particlesdevs.photoncamera.api.ParseExif.ExifData streamExif = exifData;
+            pipeline.streamJpeg(PreferenceKeys.getJpegQuality(), new PostPipeline.JpegPlan() {
+                @Override public android.graphics.Rect crop(int width, int height) {
+                    return isz ? com.particlesdevs.photoncamera.processing.IszAspectCrop.bounds(width, height) : null;
+                }
+                @Override public java.io.OutputStream wrap(java.io.OutputStream out, int width, int height) {
+                    // ImageSaver.saveBitmapAsJPG's stream: the EXIF APP1 of the photo's size after SOI (no ICC: sRGB only here)
+                    streamExif.COMPRESSION = com.particlesdevs.photoncamera.api.ParseExif.COMPRESSION_JPEG;
+                    final byte[] app1 = com.particlesdevs.photoncamera.processing.ExifBlock.app1Segment(streamExif, width, height);
+                    exifInStream[0] = app1 != null;
+                    return app1 == null ? out : com.particlesdevs.photoncamera.processing.color.IccEmbed.jpegInserting(out, app1, null);
+                }
+            });
+        }
         final int priorityBefore = raisePostPriority();
         Bitmap img;
         try {
@@ -946,7 +978,9 @@ public class ScamProcessor extends ProcessorBase {
         }
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("post_done");
         com.particlesdevs.photoncamera.util.ThermalPolicy.processing(false); // P353: the GPU work of the shot is done (the encoders are CPU)
-        com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.preview(img, pipeline.record); // P277: the lab shot's photo (before the zoom / ISZ crops)
+        final byte[] streamedJpeg = img == null ? pipeline.streamedJpeg : null; // P483: the photo as its file (no bitmap)
+        if (img == null && streamedJpeg == null) throw new IllegalStateException("post pipeline: no image and no streamed JPEG");
+        if (img != null) com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.preview(img, pipeline.record); // P277: the lab shot's photo (before the zoom / ISZ crops)
         stage(0.85f); // P158: processed
         // Ultra HDR (settings.ultraHdr is on only when the shot writes a JPEG) and the HDR HEIC / AVIF (P46, settings.hdrOutput)
         // take the same gain map (settings.gainMapPass). Ultra HDR: the gain-map pass runs on the bitmap exactly
@@ -957,7 +991,7 @@ public class ScamProcessor extends ProcessorBase {
         PostPipeline.GainMapRaw gm = null;
         // P369 (outputs-1): no gain map with a film - the photo is saved in SDR
         if (ScameraApp.getSettings().gainMapPass() && pipeline.film != null) Log.i(TAG, "HDR off: film simulation " + pipeline.film.stock.id);
-        if (PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film)) {
+        if (img != null && PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film)) {
             processingStage = "Ultra HDR gain map";
             try {
                 gm = pipeline.RunHDRGainMap(jpegInput, processingParameters, img,
@@ -974,8 +1008,8 @@ public class ScamProcessor extends ProcessorBase {
         // after the resize to the photo size and never brought back - the switch changed nothing. On, the crop comes first
         // (on the merge's full image, the 2x grid's detail kept) and the cropped image goes to the photo size, up if need be.
         // P369: zoomCrop is the shot's, read before the pipeline
-        final Point cropTarget = zoomCrop > 1.005f && PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;
-        if (cropTarget == null && hybridFinal != null && (long) hybridFinal.x * hybridFinal.y < (long) img.getWidth() * img.getHeight()) {
+        final Point cropTarget = img != null && zoomCrop > 1.005f && PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;
+        if (img != null && cropTarget == null && hybridFinal != null && (long) hybridFinal.x * hybridFinal.y < (long) img.getWidth() * img.getHeight()) {
             final double s = Math.sqrt((double) hybridFinal.x * hybridFinal.y / ((double) img.getWidth() * img.getHeight()));
             final int tw = Math.max(2, (int) Math.round(img.getWidth() * s)) & ~1, th = Math.max(2, (int) Math.round(img.getHeight() * s)) & ~1;
             processingStage = "SCAM HDR: resize " + img.getWidth() + "x" + img.getHeight() + " -> " + tw + "x" + th;
@@ -995,7 +1029,7 @@ public class ScamProcessor extends ProcessorBase {
                 }
             }
         }
-        if (zoomCrop > 1.005f) {
+        if (img != null && zoomCrop > 1.005f) {
             processingStage = "digital zoom crop";
             img = com.particlesdevs.photoncamera.control.ZoomController.crop(img, zoomCrop);
             if (gm != null) gm = gm.croppedBy(zoomCrop);
@@ -1011,7 +1045,7 @@ public class ScamProcessor extends ProcessorBase {
                 Log.e(TAG, "crop upscale failed; keeping the cropped image", scaleError);
             }
         }
-        if (iszAspect4x3) {
+        if (img != null && iszAspect4x3) { // P483: a streamed JPEG took the same crop of the readback
             processingStage = "ISZ 4:3 crop";
             final int baseWidth = img.getWidth(), baseHeight = img.getHeight();
             android.graphics.Rect crop = com.particlesdevs.photoncamera.processing.IszAspectCrop.bounds(baseWidth, baseHeight);
@@ -1047,7 +1081,7 @@ public class ScamProcessor extends ProcessorBase {
         }
         final long tailOverlay = System.nanoTime();
 
-        final Bitmap withDebug = overlay(img, pipeline.debugData.toArray(new Bitmap[0]));
+        final Bitmap withDebug = img == null ? null : overlay(img, pipeline.debugData.toArray(new Bitmap[0]));
         if (withDebug != img) { img.recycle(); img = withDebug; }
         // «Отметка ES / L на фото»: whether the ultrashort and long frames went into this photo, or a short code why not
         final String[] stamp = com.particlesdevs.photoncamera.processing.MergeStamp.lines(planNote,
@@ -1057,7 +1091,7 @@ public class ScamProcessor extends ProcessorBase {
                 com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastLongSent,
                 com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastReport);
         Log.i("SCAM_PIPELINE", "merge stamp: " + stamp[0] + " | " + stamp[1]);
-        if (com.particlesdevs.photoncamera.processing.MergeStamp.on()) {
+        if (img != null && com.particlesdevs.photoncamera.processing.MergeStamp.on()) {
             final Bitmap stamped = com.particlesdevs.photoncamera.processing.MergeStamp.draw(img, stamp);
             if (stamped != img) { img.recycle(); img = stamped; }
         }
@@ -1097,7 +1131,9 @@ public class ScamProcessor extends ProcessorBase {
         // P46: the gain map makes the JPEG an Ultra HDR JPEG only with Ultra HDR in effect, and the HEIC / AVIF HDR only with
         // «HDR в HEIC / AVIF» in effect; without either option this is the call as before (sRGB, the map for the JPEG).
         final boolean hdrOutput = ScameraApp.getSettings().hdrOutput;
-        final com.particlesdevs.photoncamera.processing.PhotoOutput.Result saved = hdrOutput || pipeline.p3Output
+        final com.particlesdevs.photoncamera.processing.PhotoOutput.Result saved = streamedJpeg != null
+                ? com.particlesdevs.photoncamera.processing.PhotoOutput.saveStreamedJpeg(imageFile, streamedJpeg, exifData, exifInStream[0])
+                : hdrOutput || pipeline.p3Output
                 ? com.particlesdevs.photoncamera.processing.PhotoOutput.save(imageFile, img, exifData,
                         ScameraApp.getSettings().ultraHdr ? gain : null, hdrOutput ? gain : null, colourSpace)
                 : com.particlesdevs.photoncamera.processing.PhotoOutput.save(imageFile, img, exifData, gain);
@@ -1118,6 +1154,31 @@ public class ScamProcessor extends ProcessorBase {
 
         Allocator.getMemoryCount();
         callback.onFinished();
+    }
+
+    /**
+     * P483: whether the shot's JPEG is encoded from the final readback without a bitmap - only when nothing after the pipeline needs
+     * one: the switch on and jpegli loaded; one pipeline run (no post_ab), 8-bit sRGB; no gain map (Ultra HDR / HDR HEIC / AVIF) and
+     * no HDR output; JPEG chosen (HEIC / WebP / AVIF encode a bitmap) through jpegli (not «Быстрый JPEG»: Android's encoder); not a
+     * lab shot (its preview); no merge stamp, no debug overlay; no digital zoom crop (it is scaled back to the photo size) and no
+     * hybrid resize on the CPU. The ISZ 4:3 crop is a sub-rectangle of the readback (PostPipeline.JpegPlan), so it may stream.
+     */
+    static boolean jpegStreamRoute(boolean switchOn, boolean postAb, boolean tenBit, boolean p3, boolean gainMap, boolean hdrOutput,
+                                   com.particlesdevs.photoncamera.processing.PhotoFormat format, boolean fastEncoder, boolean labRecord,
+                                   boolean stamp, float zoomCrop, boolean hybridResize, boolean noDebugOverlay, boolean jpegli) {
+        return switchOn && jpegli && !postAb && !tenBit && !p3 && !gainMap && !hdrOutput
+                && format == com.particlesdevs.photoncamera.processing.PhotoFormat.JPEG && !fastEncoder && !labRecord && !stamp
+                && !(zoomCrop > 1.005f) && !hybridResize && noDebugOverlay;
+    }
+
+    /**
+     * P483: whether the hybrid's final size is below the pipeline's output (the CPU resize after it): the output is the hybrid
+     * final size when that is smaller than the raw size in both directions (PostPipeline.Run), else the raw size.
+     */
+    static boolean hybridResizeNeeded(@androidx.annotation.Nullable Point hybridFinal, @androidx.annotation.Nullable Point pipelineFinal, Point rawSize) {
+        if (hybridFinal == null) return false;
+        final Point out = pipelineFinal != null && pipelineFinal.x < rawSize.x && pipelineFinal.y < rawSize.y ? pipelineFinal : rawSize;
+        return (long) hybridFinal.x * hybridFinal.y < (long) out.x * out.y;
     }
 
     /**
@@ -1194,7 +1255,7 @@ public class ScamProcessor extends ProcessorBase {
         com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.Press press = p.mosaicWbAtPress;
         // P408: the reference app's rule reads the live stream's white balance - not where the ISP runs no 3A (P366's frozen gains):
         // that burst takes the teacher / P121 below
-        if (press != null && press.route == com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.ROUTE_ARK) {
+        if (press != null && press.route == com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.ROUTE_WHY) {
             final String idle = com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.ispIdle(frameResults(frames));
             if (idle != null) {
                 Log.i("SCAM_HDR", "mosaic white balance: the reference app's rule not used (" + idle + ")");

@@ -61,6 +61,20 @@ public class FilmReferenceParametersTest {
         assertEquals(652, parameters.buffer().remaining());
     }
 
+    @Test public void slideCouplersUseTheirProfileInsteadOfNegativeFilmCoefficients() {
+        String[] stocks={"kodak_ektachrome_100","kodak_kodachrome_64","fujifilm_velvia_100","fujifilm_provia_100f"};
+        float[] scale={1f,1f,.9f,1.3f};
+        float[] gamma={.12f,.08f,.06f,.12f,.06f,.08f,.06f,.06f,.06f};
+        for(int stock=0;stock<stocks.length;stock++){
+            ByteBuffer p=FilmReferenceParameters.from(settings(stocks[stock],"super35","",1),false,1).buffer();
+            for(int i=0;i<gamma.length;i++)assertEquals(stocks[stock],gamma[i]*scale[stock],p.getFloat(220+4*i),1e-7f);
+            assertEquals(.8f,p.getFloat(196),0f);
+        }
+        ByteBuffer negative=FilmReferenceParameters.from(settings("kodak_portra_160","super35","",1),false,1).buffer();
+        assertEquals(.336f,negative.getFloat(220),0f);
+        assertEquals(.353f,negative.getFloat(232),0f);
+    }
+
     @Test public void nonfiniteAndMisalignedPacketsAreRejected() {
         try { new FilmReferenceParameters().real(84, Float.NaN); fail(); }
         catch (IllegalArgumentException expected) { }

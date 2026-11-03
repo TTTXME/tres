@@ -62,12 +62,29 @@ public final class ScameraFiles {
     public static boolean exists(@Nullable Context context, String name) {
         if (file(name).exists()) return true;
         if (context == null) return false;
-        // the grant's listing at most every 2 s per name (markers are asked for on every shot)
+        // the grant's listing at most every 2 s per name (markers are asked for on every shot); P472: an older answer is returned
+        // at once and the listing refreshed off the caller's thread (it took 120-176 ms on the shot's path on the OPPO), so a
+        // marker put there is seen from the next shot on
         long now = System.nanoTime();
+        long[] seen;
         synchronized (GRANTED) {
-            long[] seen = GRANTED.get(name);
-            if (seen != null && now - seen[0] < 2_000_000_000L) return seen[1] != 0;
+            seen = GRANTED.get(name);
+            if (seen != null) {
+                if (now - seen[0] < 2_000_000_000L) return seen[1] != 0;
+                seen[0] = now; // one refresh at a time
+            }
         }
+        if (seen == null) return granted(context, name, now);
+        final Context app = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+        try {
+            new Thread(() -> granted(app, name, System.nanoTime()), "scamera-files-marker").start();
+        } catch (RuntimeException | OutOfMemoryError e) {
+            Log.w(TAG, "marker refresh not started: " + e);
+        }
+        return seen[1] != 0;
+    }
+
+    private static boolean granted(Context context, String name, long now) {
         boolean found;
         try {
             found = ScameraFolder.ROOT.grantedDocument(context, name) != null;

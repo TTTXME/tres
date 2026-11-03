@@ -53,6 +53,7 @@ public class FullResZslTest {
         prefs.when(() -> PreferenceKeys.hybridValue(anyString(), anyFloat())).thenAnswer(i -> i.getArgument(1));
         prefs.when(() -> PreferenceKeys.scamDevSwitch(anyString(), anyBoolean())).thenAnswer(i -> i.getArgument(1));
         prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(0);
+        prefs.when(PreferenceKeys::hdrFrames).thenReturn(true); // P494: the shade's HDR tile on
     }
 
     @After public void cleanup() { prefs.close(); }

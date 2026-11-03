@@ -280,8 +280,16 @@ public class HybridSettingsTest {
         // P344: «Движение» catches motion first - the hard knee and cdm 0.3 last (the worker keeps a key's last value)
         assertTrue(tuning,tuning.contains("rejKneeLo 0.1\nrejKneeHi 0.6\ncdm 0.3\n")&&tuning.lastIndexOf("cdm ")==tuning.lastIndexOf("cdm 0.3\n"));
         assertFalse(tuning,tuning.contains("dilateFloor 0.35\n"));
+        // P488: the reference Sport's merge - the guarded post-filter, the donor shift gate and (fast processing) its fast merge overrides
+        assertTrue(tuning,!tuning.contains("rejPixDiff")&&tuning.contains("donorShiftMax 120.0\n")); // the post-filter stays off
+        assertEquals(tuning,PreferenceKeys.fastProcessing(),tuning.contains("fastMergeSport 3\n"));
+        manager.set("default_scope","pref_scam_hybrid_processing","quality");
+        assertFalse(PreferenceKeys.hybridTuningText().contains("fastMergeSport"));
+        manager.set("default_scope","pref_scam_hybrid_processing","fast");
+        assertTrue(PreferenceKeys.hybridTuningText().contains("fastMergeSport 3\n"));
         PreferenceKeys.setMotionMode(false);
         tuning=PreferenceKeys.hybridTuningText();
+        for(String k:new String[]{"rejPixDiff","donorShiftMax","fastMergeSport"})assertFalse(tuning,tuning.contains(k)); // P488: photo unchanged
         assertTrue(tuning,tuning.contains("boost 6.0\n"));assertTrue(tuning,tuning.contains("motionThreshold 1.5\n"));
         assertTrue(tuning,tuning.contains("bento 2.0\n"));
     }
@@ -1457,5 +1465,19 @@ public class HybridSettingsTest {
         assertNull(rules.reason("pref_scam_hybrid_mosaic_window"));
         values.put("pref_scam_hybrid_mosaic_remosaic",true);
         assertNull(new SettingsAvailability(values).mosaicStreams(true).reason("pref_scam_hybrid_mosaic_path"));
+    }
+    @Test public void fastProcessingIsTheDefaultAndQualityDropsItsLines() {
+        // P474: «Быстрый» by default - its lines last, over the rejection and F6 lines above; «Качество» = the full merge
+        String tuning=PreferenceKeys.hybridTuningText();
+        assertTrue(PreferenceKeys.fastProcessing());
+        assertTrue(tuning,tuning.endsWith(PreferenceKeys.FAST_TUNING));
+        manager.set("default_scope","pref_scam_hybrid_processing","quality");
+        assertFalse(PreferenceKeys.fastProcessing());
+        tuning=PreferenceKeys.hybridTuningText();
+        assertFalse(tuning,tuning.contains("laStride "));
+        assertFalse(tuning,tuning.contains("fastMerge "));
+        assertFalse(tuning,tuning.contains("rejPool 0\n"));
+        manager.set("default_scope","pref_scam_hybrid_processing","fast");
+        assertTrue(PreferenceKeys.hybridTuningText().endsWith(PreferenceKeys.FAST_TUNING));
     }
 }

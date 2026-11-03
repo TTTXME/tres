@@ -54,6 +54,54 @@ def main():
     src = set_define(src_off, 'HL_LANDING', '1')
     src_opp = set_define(src, 'HL_OPPOSED', '1')
     mask_src = expand_imports((SH / 'why/hlmask.glsl').read_text(encoding='utf-8'))
+    # Empty opposed maps now stay on the GPU: exercise every coarse pass and the actual half-float stores.
+    coarse_src = expand_imports((SH / 'scamhdr/suncore.glsl').read_text(encoding='utf-8'))
+    coarse_vs = '#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.-1.,0,1);}'
+    coarse_programs = {mode: ctx.program(vertex_shader=coarse_vs,
+                                         fragment_shader='#version 300 es\n' + set_define(coarse_src, 'MODE', str(mode)))
+                       for mode in (1, 3)}
+    rng_coarse = np.random.default_rng(46577)
+    for h, w in ((1, 1), (3, 5), (17, 31)):
+        for radius in (0.1, 1.0, 6.336):
+            for nonfinite in (False, True):
+                cells = rng_coarse.uniform(-1, 2, (h, w, 4)).astype('f4')
+                cells[..., 0] = 0
+                if nonfinite:
+                    cells[..., 2] = np.nan
+                    cells[..., 3] = np.where(np.indices((h, w)).sum(0) % 2, np.inf, -np.inf)
+                incoming = ctx.texture((w, h), 4, cells.tobytes(), dtype='f4')
+                resources = [incoming]
+                try:
+                    for mode, axis, final, channels, dtype in ((3, (1, 0), 0, 4, 'f4'), (3, (0, 1), 1, 2, 'f2'),
+                                                               (1, (1, 0), 0, 2, 'f2'), (1, (0, 1), 0, 2, 'f2')):
+                        target = ctx.texture((w, h), channels, dtype=dtype)
+                        resources.append(target)
+                        fb = ctx.framebuffer([target])
+                        vao = ctx.vertex_array(coarse_programs[mode], [])
+                        try:
+                            fb.use()
+                            ctx.viewport = (0, 0, w, h)
+                            incoming.use(0)
+                            prog = coarse_programs[mode]
+                            for key, value in {'InputBuffer': 0, 'dirU': axis, 'radiusU': radius,
+                                               'finalU': final, 'glowFullU': 25.6}.items():
+                                if key in prog:
+                                    prog[key].value = value
+                            vao.render(vertices=3)
+                        finally:
+                            vao.release()
+                            fb.release()
+                        target.filter = (moderngl.NEAREST, moderngl.NEAREST)
+                        incoming = target
+                    got = np.frombuffer(incoming.read(), np.uint16)
+                    check(np.all(got == 0), 'empty opposed coarse chain is not finite positive-zero RG16F '
+                          '(%dx%d, radius %g, nonfinite glow %s)' % (w, h, radius, nonfinite))
+                finally:
+                    for resource in resources:
+                        resource.release()
+    for prog in coarse_programs.values():
+        prog.release()
+    print('  empty opposed coarse chain: 18 real-shader RGBA32F/RG16F cases')
     clip = 2.5
     soft = 0.7
     k = np.geomspace(0.02, 1.0, 96)                      # fraction of the ceiling

@@ -34,11 +34,13 @@ public final class ScamRgb extends Node {
         GLTexture share=null,half=null,out=null;
         try{
             share=new GLTexture(coarse,one,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",0);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",flags);
-            glProg.setVar("blockU",block);
-            glProg.drawBlocks(share);
+            if(!blockSums(0,flags,null,null,null,coarse,block,share)){
+                glProg.setDefine("MODE",0);
+                glProg.useAssetProgram("scamhdr/suncore",false);
+                glProg.setTexture("InputBuffer",flags);
+                glProg.setVar("blockU",block);
+                glProg.drawBlocks(share);
+            }
             final float radius=set[1]*shorter/block;
             half=new GLTexture(coarse,one,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
             glProg.setDefine("MODE",1);
@@ -59,6 +61,54 @@ public final class ScamRgb extends Node {
             if(share!=null)share.close();
             if(half!=null)half.close();
             if(out!=null)out.close();
+        }
+    }
+
+    /**
+     * P479 (speed): suncore MODE 0 / 2's per-block sums (the sun bloom's share, the opposed landing's weights) by the compute pass
+     * scamhdr/suncore_cs - an invocation per pixel, the block's sums on one invocation in suncore's order - and suncore MODE 4 / 5
+     * (MODE 0 / 2's last lines) into {@code target}: the same values as one fragment per block looping over its pixels (51 ms
+     * of GPU at 12 MP, latency-bound), in a few ms. False (nothing drawn) for the old GL model, scam_dev.txt "suncore_cs 0" or a
+     * GL failure: the caller draws the fragment pass.
+     */
+    private boolean blockSums(int mode,GLTexture source,GLTexture flags,ChannelClip cc,PostPipeline p,Point coarse,int block,GLTexture target){
+        if(com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()||!PreferenceKeys.scamDevSwitch("suncore_cs",true))return false;
+        GLTexture sums=null;
+        try{
+            while(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR){
+                // drain: only the pass below decides
+            }
+            sums=new GLTexture(coarse,new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            glProg.setDefine("MODE",mode);
+            glProg.setLayout(16,16,1);
+            glProg.useAssetProgram("scamhdr/suncore_cs",true);
+            glProg.setTexture("InputBuffer",source);
+            glProg.setVar("blockU",block);
+            if(mode==2){
+                if(flags!=null)glProg.setTexture("ClipFlags",flags);
+                glProg.setVar("clipFlagsU",flags!=null?1:0);
+                glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
+                glProg.setVar("toRenderU",toRender(p));
+            }
+            glProg.setTextureCompute("outCells",sums,true);
+            android.opengl.GLES31.glDispatchCompute(coarse.x,coarse.y,1);
+            android.opengl.GLES31.glMemoryBarrier(android.opengl.GLES31.GL_TEXTURE_FETCH_BARRIER_BIT|android.opengl.GLES31.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            final int error=android.opengl.GLES31.glGetError();
+            if(error!=android.opengl.GLES31.GL_NO_ERROR){
+                com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","suncore compute MODE "+mode+": GL error 0x"+Integer.toHexString(error)+", the fragment pass");
+                return false;
+            }
+            glProg.setDefine("MODE",mode==0?4:5);
+            glProg.useAssetProgram("scamhdr/suncore",false);
+            glProg.setTexture("InputBuffer",sums);
+            glProg.drawBlocks(target);
+            glProg.closed=true;
+            return true;
+        }catch(RuntimeException failure){
+            com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","suncore compute MODE "+mode+": "+failure+", the fragment pass");
+            return false;
+        }finally{
+            if(sums!=null)sums.close();
         }
     }
 
@@ -87,8 +137,8 @@ public final class ScamRgb extends Node {
      * opposed» rebuilds, with the clip flags or without them (cpu-single; scamhdr/suncore.glsl MODE 2) - per block, a block's
      * weight 1 from 15 % of it rebuilt (a light a block wide or more, wherever it sits on the grid; a few clipped dots none),
      * spread by a max-gaussian of {@link #OPPOSED_RADIUS} (MODE 1) for the landing (HL_OPPOSED: a low-saturation glow there
-     * lands on white). Null - no pass, no define - when the landing is not drawn (WhyCombine.landingDrawn) or no block has a
-     * weight (glints, LED dots: one small read-back of the blocks says so). A few hundred kB; WhyCombine closes it.
+     * lands on white). Null when the landing is not drawn (WhyCombine.landingDrawn). With file logging off, the map stays on
+     * the GPU even when empty; logging or the rollback flag reads block statistics and skips an empty map. WhyCombine closes it.
      * P378 review: every channel blown (a G-clipped sky is no light), and per light whether its glow goes white (MODE 2 measures
      * the glow's saturation in the render's colour, MODE 3 gates each block's light, MODE 1 carries the nearest light's gate in
      * .g): a pale sun's aureole white, an orange lamp or a red rim keeps its colour over its whole glow - no contour where a
@@ -102,29 +152,36 @@ public final class ScamRgb extends Node {
         GLTexture weights=null,sums=null,gates=null,half=null,out=null;
         try{
             weights=new GLTexture(coarse,cells,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",2);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",input);
-            if(flags!=null)glProg.setTexture("ClipFlags",flags);
-            glProg.setVar("clipFlagsU",flags!=null?1:0);
-            glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-            glProg.setVar("toRenderU",toRender(p));
-            glProg.setVar("blockU",block);
-            glProg.drawBlocks(weights);
-            glProg.closed=true;
-            final java.nio.ByteBuffer b=java.nio.ByteBuffer.allocateDirect(coarse.x*coarse.y*16).order(java.nio.ByteOrder.nativeOrder());
-            weights.textureBuffer(cells,b);
-            b.rewind();
-            final java.nio.FloatBuffer v=b.asFloatBuffer();
-            int filled=0;
-            double glowW=0,glowS=0;
-            for(int i=0;i<coarse.x*coarse.y;i++){
-                if(v.get(4*i)>0f)filled++;
-                glowW+=v.get(4*i+3);glowS+=v.get(4*i+3)*v.get(4*i+2);
+            if(!blockSums(2,input,flags,cc,p,coarse,block,weights)){
+                glProg.setDefine("MODE",2);
+                glProg.useAssetProgram("scamhdr/suncore",false);
+                glProg.setTexture("InputBuffer",input);
+                if(flags!=null)glProg.setTexture("ClipFlags",flags);
+                glProg.setVar("clipFlagsU",flags!=null?1:0);
+                glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
+                glProg.setVar("toRenderU",toRender(p));
+                glProg.setVar("blockU",block);
+                glProg.drawBlocks(weights);
             }
-            if(filled==0){
-                com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: no block of "+coarse.x+"x"+coarse.y+"@"+block+" filled");
-                return null;
+            glProg.closed=true;
+            final boolean readStats=!PreferenceKeys.hybridSwitch("highlight_landing_async",true)
+                    ||com.particlesdevs.photoncamera.util.ScameraDebugLog.isEnabled();
+            int filled=-1;
+            double glowW=0,glowS=0;
+            if(readStats){
+                filled=0;
+                final java.nio.ByteBuffer b=java.nio.ByteBuffer.allocateDirect(coarse.x*coarse.y*16).order(java.nio.ByteOrder.nativeOrder());
+                weights.textureBuffer(cells,b);
+                b.rewind();
+                final java.nio.FloatBuffer v=b.asFloatBuffer();
+                for(int i=0;i<coarse.x*coarse.y;i++){
+                    if(v.get(4*i)>0f)filled++;
+                    glowW+=v.get(4*i+3);glowS+=v.get(4*i+3)*v.get(4*i+2);
+                }
+                if(filled==0){
+                    com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: no block of "+coarse.x+"x"+coarse.y+"@"+block+" filled");
+                    return null;
+                }
             }
             final float radius=OPPOSED_RADIUS*shorter/block;
             // each block's light by its nearest glow: along x, then along y with the gate
@@ -153,9 +210,10 @@ public final class ScamRgb extends Node {
             glProg.setVar("dirU",0,1);glProg.setVar("radiusU",radius);
             glProg.drawBlocks(out);
             glProg.closed=true;
-            com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: "+filled+" of "+coarse.x+"x"+coarse.y+"@"+block
+            if(readStats)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: "+filled+" of "+coarse.x+"x"+coarse.y+"@"+block
                     +" blocks filled, radius "+radius+(flags!=null?"":" (no clip flags)")+", glow saturation "
                     +(glowW>0?String.format(java.util.Locale.ROOT,"%.3f over %.0f px",glowS/glowW,glowW):"none"));
+            else com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: GPU only "+coarse.x+"x"+coarse.y+"@"+block+", radius "+radius);
             final GLTexture done=out;out=null;
             return done;
         }finally{
@@ -330,6 +388,70 @@ public final class ScamRgb extends Node {
         return (float) (m / bestSum);
     }
 
+    /** P482: the bin of every half value as {@link #histogram} files it (-1 none, -2 NaN: the GPU walk then gives up). */
+    static int[] binTable() {
+        final int[] t = new int[65536];
+        for (int bits = 0; bits < 65536; bits++) {
+            final float v = HalfFloat.TABLE[bits];
+            if (Float.isNaN(v)) { t[bits] = -2; continue; }
+            if (v < HIST_T0) { t[bits] = -1; continue; }
+            final int b = (int) Math.floor((v - HIST_T0) / HIST_BIN);
+            t[bits] = b >= 0 && b < HIST_BINS ? b : -1;
+        }
+        return t;
+    }
+
+    private static int[] binTable;
+
+    /**
+     * P482 (speed, owner 2026-11-03): {@link #channelClip} on the uploaded half RGB (hlrecovery/clipstats_cs), exactly: the same
+     * samples, the CPU's own bins (binTable), the per-bin sums as integers of 2^-11 (every half in [0.8, 1.1) is one, the CPU's
+     * double sums of them are exact too). Only without the Bento ultrashort levels (their v / k is not on the half grid), up to
+     * 16 MP (a bin's integer sum stays below 2^32); null on NaN samples or a GL failure: the CPU walk.
+     */
+    ChannelClip channelClipGpu(GLTexture input, Point size, boolean bento, float k, float usClipped, boolean flags) {
+        if (bento && k > 1f || (long) size.x * size.y > 16_000_000L) return null;
+        final long samples = ((long) size.x * size.y + 16L) / 17L;
+        if (binTable == null) binTable = binTable();
+        while (android.opengl.GLES31.glGetError() != android.opengl.GLES31.GL_NO_ERROR) {
+            // drain: only the pass below decides
+        }
+        try (com.particlesdevs.photoncamera.processing.opengl.GLBuffer lut = new com.particlesdevs.photoncamera.processing.opengl.GLBuffer(65536,
+                new GLFormat(GLFormat.DataType.UNSIGNED_32));
+             com.particlesdevs.photoncamera.processing.opengl.GLBuffer out = new com.particlesdevs.photoncamera.processing.opengl.GLBuffer(904,
+                new GLFormat(GLFormat.DataType.UNSIGNED_32))) {
+            lut.byteBuffer.asIntBuffer().put(binTable);
+            lut.Bind();lut.Buffering();
+            glProg.setLayout(256, 1, 1);
+            glProg.useAssetProgram("hlrecovery/clipstats_cs", true);
+            glProg.setTexture("InputBuffer", input);
+            glProg.setBufferCompute("binLut", lut);
+            glProg.setBufferCompute("clipStats", out);
+            glProg.setVar("widthU", size.x);
+            glProg.setVar("samplesU", (int) samples);
+            glProg.computeManual((int) ((samples + 255) / 256), 1, 1);
+            glProg.closed = true;
+            final int[] v = out.readBufferIntegers(false);
+            if (android.opengl.GLES31.glGetError() != android.opengl.GLES31.GL_NO_ERROR || v == null || v.length < 904 || v[903] != 0) return null;
+            final ChannelClip cc = new ChannelClip();
+            final int[][] hLo = new int[3][HIST_BINS], hHi = new int[3][HIST_BINS];
+            final double[][] sLo = new double[3][HIST_BINS], sHi = new double[3][HIST_BINS];
+            for (int c = 0; c < 3; c++) {
+                cc.max[c] = Float.intBitsToFloat(v[900 + c]);
+                for (int b = 0; b < HIST_BINS; b++) {
+                    hLo[c][b] = v[c * HIST_BINS + b];
+                    sLo[c][b] = (v[450 + c * HIST_BINS + b] & 0xffffffffL) / 2048.0;
+                }
+            }
+            final ChannelClip out2 = clipFrom(cc, hLo, sLo, hHi, sHi, samples, bento, k, usClipped, flags);
+            out2.log += " (gpu)";
+            return out2;
+        } catch (RuntimeException e) {
+            com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE", "highlight statistics on the GPU: " + e + ", CPU walk");
+            return null;
+        }
+    }
+
     private static void histogram(int[] h, double[] sum, float t) {
         // P364: a sample below the first bin (most of them) leaves at once: for every t < 0.8 the bin below is negative (t - 0.8 is
         // negative and never rounds to 0), so nothing is counted, as before; a NaN still takes the old path (bin 0)
@@ -401,6 +523,12 @@ public final class ScamRgb extends Node {
                     hHi[c][b] += p.hHi[c][b]; sHi[c][b] += p.sHi[c][b];
                 }
             }
+        return clipFrom(cc, hLo, sLo, hHi, sHi, samples, bento, k, usClipped, flags);
+    }
+
+    /** The levels of {@link #channelClip} from its histograms and maxima (cc.max set): the CPU walk and the GPU one (P482). */
+    static ChannelClip clipFrom(ChannelClip cc, int[][] hLo, double[][] sLo, int[][] hHi, double[][] sHi, long samples, boolean bento,
+                                float k, float usClipped, boolean flags) {
         final boolean useLo = !bento || flags;
         final boolean useHi = bento && k > 1f;
         StringBuilder logLo = new StringBuilder(), logHi = new StringBuilder();
@@ -664,6 +792,7 @@ public final class ScamRgb extends Node {
         float[] clip;
         /** P362: pixels with a clipped channel and no ultrashort content (clip flags), -1: no flags. */
         long oppPixels = -1;
+        int[] oppGroups;
         java.nio.ByteBuffer decimated;
         long statMs, decimateMs;
     }
@@ -698,15 +827,40 @@ public final class ScamRgb extends Node {
      * opposed reference over the unclipped pixels around the clips of that channel. Null when the compute pass fails (the
      * caller uses 0). One 16 x 16 group per tile writes its sums and counts, added here.
      */
-    private float[] opposedChroma(GLTexture input,GLTexture gainMap,GLTexture flagsTex,float[] whitePoint,ChannelClip cc,Point size,int ox,int oy){
+    private float[] opposedChroma(GLTexture input,GLTexture gainMap,GLTexture flagsTex,float[] whitePoint,ChannelClip cc,Point size,int ox,int oy,int[] groups){
+        if(groups!=null&&flagsTex!=null&&ox==0&&oy==0&&input.mSize.equals(size)&&flagsTex.mSize.equals(size)){
+            try{
+                final float[] chroma=opposedChromaPass(input,gainMap,flagsTex,whitePoint,cc,size,ox,oy,groups);
+                if(chroma!=null)return chroma;
+            }catch(OutOfMemoryError failure){
+                com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","highlight opposed sparse: "+failure);
+            }
+            com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","highlight opposed sparse: retry full grid");
+        }
+        return opposedChromaPass(input,gainMap,flagsTex,whitePoint,cc,size,ox,oy,null);
+    }
+
+    private float[] opposedChromaPass(GLTexture input,GLTexture gainMap,GLTexture flagsTex,float[] whitePoint,ChannelClip cc,Point size,int ox,int oy,int[] groups){
         final long t0=System.currentTimeMillis();
         final int gx=(size.x+15)/16,gy=(size.y+15)/16;
         while(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR){
             // drain: only the pass below decides
         }
         try(com.particlesdevs.photoncamera.processing.opengl.GLBuffer sums=new com.particlesdevs.photoncamera.processing.opengl.GLBuffer(6*gx*gy,
-                new GLFormat(GLFormat.DataType.UNSIGNED_32))){
+                new GLFormat(GLFormat.DataType.UNSIGNED_32));
+            com.particlesdevs.photoncamera.processing.opengl.GLBuffer work=groups!=null?new com.particlesdevs.photoncamera.processing.opengl.GLBuffer(groups.length,
+                    new GLFormat(GLFormat.DataType.UNSIGNED_32)):null){
+            if(work!=null){
+                work.byteBuffer.asIntBuffer().put(groups);
+                android.opengl.GLES31.glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,work.mBufferID);
+                android.opengl.GLES31.glBufferSubData(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,0,work.byteSize,work.byteBuffer);
+                final int[] bytes=new int[1];
+                android.opengl.GLES31.glGetBufferParameteriv(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,android.opengl.GLES31.GL_BUFFER_SIZE,bytes,0);
+                if(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR||bytes[0]!=work.byteSize)
+                    throw new IllegalStateException("opposed worklist upload failed");
+            }
             glProg.setLayout(16,16,1);
+            glProg.setDefine("SPARSE",groups!=null?1:0);
             glProg.useAssetProgram("hlrecovery/opposed",true);
             glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",gainMap);
             if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
@@ -718,7 +872,12 @@ public final class ScamRgb extends Node {
             glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
             glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
             glProg.setBufferCompute("oppSums",sums);
-            glProg.computeManual(gx,gy,1);
+            if(work!=null){
+                glProg.setBufferCompute("oppWorkGroups",work);
+                glProg.setVar("occupiedCountU",groups.length);glProg.setVar("originalGroupsXU",gx);
+                final int columns=Math.min(groups.length,65535);
+                glProg.computeManual(columns,(groups.length+columns-1)/columns,1);
+            } else glProg.computeManual(gx,gy,1);
             final int[] v=sums.readBufferIntegers(false);
             final int error=android.opengl.GLES31.glGetError();
             if(error!=android.opengl.GLES31.GL_NO_ERROR||v==null||v.length<6*gx*gy){
@@ -727,7 +886,7 @@ public final class ScamRgb extends Node {
             }
             final float[] chroma=opposedMeans(v,gx*gy);
             com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed (RawTherapee inpaint opposed): chrominance "
-                    +java.util.Arrays.toString(chroma)+" ms="+(System.currentTimeMillis()-t0));
+                    +java.util.Arrays.toString(chroma)+(groups!=null?" sparse "+groups.length+"/"+(gx*gy):"")+" ms="+(System.currentTimeMillis()-t0));
             return chroma;
         }catch(RuntimeException e){
             com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","highlight opposed: "+e+", chrominance 0");
@@ -735,30 +894,71 @@ public final class ScamRgb extends Node {
         }
     }
 
+    /**
+     * P479b: {@link #opposedChromaPass}'s full grid with its sums added on the GPU (hlrecovery/opposed_mean) into a 1 x 1 rgba32f
+     * texture for scamrgb (OPP_GPU); nothing waits for the GPU. Null when a GL call fails: the caller reads back as before.
+     */
+    private GLTexture opposedChromaGpu(GLTexture input,GLTexture gainMap,GLTexture flagsTex,float[] whitePoint,ChannelClip cc,Point size,int ox,int oy){
+        final long t0=System.currentTimeMillis();
+        final int gx=(size.x+15)/16,gy=(size.y+15)/16;
+        while(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR){
+            // drain: only the passes below decide
+        }
+        GLTexture mean=null;
+        try(com.particlesdevs.photoncamera.processing.opengl.GLBuffer sums=new com.particlesdevs.photoncamera.processing.opengl.GLBuffer(6*gx*gy,
+                new GLFormat(GLFormat.DataType.UNSIGNED_32))){
+            mean=new GLTexture(new Point(1,1),new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            glProg.setLayout(16,16,1);
+            glProg.setDefine("SPARSE",0);
+            glProg.useAssetProgram("hlrecovery/opposed",true);
+            glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",gainMap);
+            if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
+            glProg.setVar("whitePoint",whitePoint);
+            glProg.setVar("inverseSize",1f/size.x,1f/size.y);
+            glProg.setVar("cropOffset",ox,oy);
+            glProg.setVar("sizeU",size.x,size.y);
+            glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
+            glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+            glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
+            glProg.setBufferCompute("oppSums",sums);
+            glProg.computeManualAsync(gx,gy,1);
+            glProg.setLayout(256,1,1);
+            glProg.useAssetProgram("hlrecovery/opposed_mean",true);
+            glProg.setBufferCompute("oppSums",sums);
+            glProg.setVar("groupsU",gx*gy);
+            glProg.setTextureCompute("outMean",mean,true);
+            glProg.computeManualAsync(1,1,1);
+            glProg.closed=true;
+            final int error=android.opengl.GLES31.glGetError();
+            if(error!=android.opengl.GLES31.GL_NO_ERROR){
+                com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","highlight opposed (GPU mean): GL error 0x"+Integer.toHexString(error)+", read back");
+                mean.close();
+                return null;
+            }
+            com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed (RawTherapee inpaint opposed): chrominance on the GPU (no read-back) ms="
+                    +(System.currentTimeMillis()-t0));
+            final GLTexture done=mean;mean=null;
+            return done;
+        }catch(RuntimeException e){
+            com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","highlight opposed (GPU mean): "+e+", read back");
+            if(mean!=null)mean.close();
+            return null;
+        }
+    }
+
     /** P362: the pixels «Inpaint opposed» reconstructs: a clipped-mean channel (flag bits 0-2) and no ultrashort content (4, 5). */
     static long opposedPixels(java.nio.ByteBuffer flags){
+        return opposedPixels(flags,null);
+    }
+
+    private static long opposedPixels(java.nio.ByteBuffer flags,OpposedWorkList work){
         final java.nio.ByteBuffer f=flags.duplicate();
         final int n=f.capacity();
-        // P364: eight flags a read (one long; per byte: bits 0-2 not all clear and bits 4-5 clear, both as the high bit of the byte
-        // - no carry leaves a byte - counted by Long.bitCount: the same count), and four parts a thread (the little cores held the
-        // last of equal parts)
         final long[] counts=new long[Math.max(1,4*ParallelWork.threads())];
         final int parts=counts.length,step=((n+parts-1)/parts+7)&~7;
         ParallelWork.forEach(parts,k->{
-            long c=0;
             final int s=(int)Math.min(n,(long)k*step),e=(int)Math.min(n,(long)s+step);
-            int i=s;
-            for(;i+8<=e;i+=8){
-                final long x=f.getLong(i);
-                final long low=((x&0x0707070707070707L)+0x7F7F7F7F7F7F7F7FL)&0x8080808080808080L;
-                final long us=~((x&0x3030303030303030L)+0x7F7F7F7F7F7F7F7FL)&0x8080808080808080L;
-                c+=Long.bitCount(low&us);
-            }
-            for(;i<e;i++){
-                final int v=f.get(i)&0xFF;
-                if((v&7)!=0&&(v&48)==0)c++;
-            }
-            counts[k]=c;
+            counts[k]=OpposedWorkList.countPart(f,s,e,work!=null?work.groupsX*16:0,work,k);
         });
         long t=0;for(long c:counts)t+=c;
         return t;
@@ -809,24 +1009,55 @@ public final class ScamRgb extends Node {
         // P80: the worker's half-float RGB (6 B a pixel); its size confirms it
         final boolean half=big!=null&&halfInput(hybrid,ScamHybridBurst.lastRgbHalf,size.x,size.y,big.limit());
         if(hybrid)strength=Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_recovery",100f)/100f));
+        final boolean sparseOpposed=PreferenceKeys.hybridSwitch("highlight_opposed_sparse",false);
+        // P479 (speed): up to 16 MP the decimated copy and the release of the big buffer follow the statistics on the helper
+        // thread (the release once this thread's upload is done with it, as before), so this thread goes on with the GL work as
+        // soon as the statistics are in instead of waiting for the copy and spending the release (9 - 36 ms of munmap on the
+        // OPPO) itself; the copy becomes the pipeline's scamRgb at the end of this node, before any later node asks for it.
+        // The buffer goes back no later than before. Above 16 MP, scam_dev.txt "scamrgb_tail 0" or the old GL model: as before
+        final boolean tail=owned&&big!=null&&(long)size.x*size.y<=16_000_000L
+                &&!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("scamrgb_tail",true);
+        final java.util.concurrent.CountDownLatch uploaded=new java.util.concurrent.CountDownLatch(1);
+        final boolean[] uploadOk={false}; // written before uploaded.countDown(), read after its await
+        final java.util.concurrent.FutureTask<java.nio.ByteBuffer> rest=!tail?null:new java.util.concurrent.FutureTask<>(()->{
+            final java.nio.ByteBuffer d=decimate(big,61,half);
+            boolean interrupted=false;
+            for(;;){
+                try{uploaded.await();break;}catch(InterruptedException e){interrupted=true;} // never under the upload
+            }
+            if(interrupted)Thread.currentThread().interrupt();
+            if(uploadOk[0])com.particlesdevs.photoncamera.util.Allocator.free(big); // else the caller keeps it (a failed upload)
+            return d;
+        });
+        // P482 (speed): the hybrid's clip statistics on the GPU from the uploaded half RGB (channelClipGpu, exact) instead of this
+        // helper's walk, which the GL thread waited for; scam_dev.txt "hl_stats_gpu 0", the old GL model, Bento levels or > 16 MP:
+        // the helper as before (and whenever the GPU walk gives up)
+        final boolean statsGpu=hybrid&&half&&!(bento&&bentoK>1f)&&(long)size.x*size.y<=16_000_000L
+                &&!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("hl_stats_gpu",false);
         final java.util.concurrent.FutureTask<InputStats> side=new java.util.concurrent.FutureTask<>(()->{
             InputStats s=new InputStats();
             final long t0=System.currentTimeMillis();
-            if(hybrid)s.cc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half); else s.clip=clipLevels(big);
-            if(hybrid&&flagsIn!=null)s.oppPixels=opposedPixels(flagsIn);
+            if(hybrid){if(!statsGpu)s.cc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half);} else s.clip=clipLevels(big);
+            if(hybrid&&flagsIn!=null){
+                final OpposedWorkList work=sparseOpposed
+                        ?OpposedWorkList.create(size.x,size.y,flagsIn.capacity(),Math.max(1,4*ParallelWork.threads())):null;
+                s.oppPixels=opposedPixels(flagsIn,work);
+                if(work!=null)s.oppGroups=work.sparseGroups();
+            }
             final long t1=System.currentTimeMillis();
             // P187: the later nodes only ask whether the worker RGB is there (ScamDenoise.enabledFor; above 100 MP not even
             // that): one sample stands for the 40 MB copy there
-            if(owned)s.decimated=decimate(big,(long)size.x*size.y>100_000_000L?size.x*size.y:61,half);
+            if(owned&&!tail)s.decimated=decimate(big,(long)size.x*size.y>100_000_000L?size.x*size.y:61,half);
             s.statMs=t1-t0;s.decimateMs=System.currentTimeMillis()-t1;
             return s;
         });
-        final Thread sideThread=new Thread(side,"SCAMERA-scamrgb-stats");
+        final Thread sideThread=new Thread(rest==null?side:()->{side.run();rest.run();},"SCAMERA-scamrgb-stats");
         sideThread.setDaemon(true);
         sideThread.start();
         final long uploadStart=System.nanoTime();
         GLTexture input=null;
         boolean rgbaBands=false,gpuRepack=false;
+        ChannelClip gpuCc=null; // P482: the GPU walk's levels (statsGpu)
         try{
             if(half){
                 // P145: the 3 -> 4 halves repack as a compute pass (HalfRgbUpload); the CPU repack on drivers that would not keep
@@ -835,18 +1066,56 @@ public final class ScamRgb extends Node {
                 if(input==null)input=uploadHalfRgba(size,big);
                 rgbaBands=input!=null;
                 if(input==null)throw new IllegalStateException("no staging memory for the half-float RGB upload");
+                // P482: on the uploaded halves, before the helper may release the buffer (a GPU walk that gives up reads it here)
+                if(statsGpu){
+                    gpuCc=channelClipGpu(input,size,bento,bentoK,bentoUs,withFlags);
+                    if(gpuCc==null)gpuCc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half);
+                }
             } else {
             if(rgbaUploadWanted(glGetString(GL_RENDERER))){input=uploadRgba(size,big);rgbaBands=input!=null;}
             if(input==null)input=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_32,3),big,GL_NEAREST,GL_CLAMP_TO_EDGE);
             }
         }finally{
-            if(input==null)awaitQuietly(side); // never release the buffer under the helper thread (an exception on its way out)
+            if(input!=null)uploadOk[0]=true;
+            uploaded.countDown(); // P479: the helper may release the big buffer now (after a successful upload only)
+            if(input==null){awaitQuietly(side);if(rest!=null)awaitQuietly(rest);} // never release the buffer under the helper thread (an exception on its way out)
         }
         final long uploadDone=System.nanoTime();
-        final InputStats stats=await(side);
+        com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("scamrgb upload");
+        // P479 (speed): the lens shading map and the clip flags (when the recovery can use them) go up while the helper still
+        // counts: neither depends on the statistics (the flags are dropped below when the recovery turns out off); the flags'
+        // native copy is freed only after the helper, which reads it. Not on the large 2x grid (its memory order, P187)
+        GLTexture earlyFlags=null;
+        final boolean earlyMaps=tail&&!largeTwoX;
+        if(earlyMaps){
+            try{
+                p.GainMap=new GLTexture(p.mParameters.mapSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),
+                        BufferUtils.getFrom(p.mParameters.gainMap),GL_LINEAR,GL_CLAMP_TO_EDGE);
+                if(hybrid&&strength>0f&&flags!=null){
+                    flags.rewind();
+                    android.opengl.GLES30.glPixelStorei(android.opengl.GLES30.GL_UNPACK_ALIGNMENT,1);
+                    earlyFlags=new GLTexture(size,new GLFormat(GLFormat.DataType.SIMPLE_8,1),flags,GL_NEAREST,GL_CLAMP_TO_EDGE);
+                }
+            }catch(RuntimeException|Error failure){
+                awaitQuietly(side);if(rest!=null)awaitQuietly(rest);
+                p.mParameters.scamRgb=null;p.mParameters.scamRgbOwned=false; // released by the helper (the upload was done)
+                if(earlyFlags!=null)earlyFlags.close();
+                if(p.GainMap!=null){p.GainMap.close();p.GainMap=null;}
+                input.close();
+                throw failure;
+            }
+        }
+        final InputStats stats;
+        try{
+            stats=await(side);
+        }catch(RuntimeException|Error failure){
+            if(rest!=null){awaitQuietly(rest);p.mParameters.scamRgb=null;p.mParameters.scamRgbOwned=false;} // released by the helper
+            if(earlyFlags!=null)earlyFlags.close();
+            throw failure;
+        }
         final long sideDone=System.nanoTime();
         if(hybrid){
-            cc=stats.cc;
+            cc=statsGpu?gpuCc:stats.cc;
             // P277: a lab fragment takes the whole frame's clip levels (when the merges agree on Bento), a lab shot records them
             final LabFrame fz=p.frozen;
             if(fz!=null&&fz.ccLo!=null&&fz.ccBento==bento){
@@ -873,7 +1142,11 @@ public final class ScamRgb extends Node {
             lastRealClip=clip[1]<1e29f;
         }
         final boolean perChannel=cc!=null&&strength>0f&&cc.enabled();
-        if(owned){
+        if(owned&&tail){
+            // P479: the helper releases it; the decimated copy takes its place at the end of this node (nothing reads it before)
+            p.mParameters.scamRgb=null;
+            p.mParameters.scamRgbOwned=false;
+        } else if(owned){
             p.mParameters.scamRgb=stats.decimated;
             p.mParameters.scamRgbOwned=false;
             com.particlesdevs.photoncamera.util.Allocator.free(big);
@@ -881,9 +1154,9 @@ public final class ScamRgb extends Node {
         // P33 W2.4 / P48: where the time between the worker result and the lens shading goes (stats and decimate on the helper
         // thread, alongside the upload; wait = what the upload left of them)
         com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","scamrgb input ms: upload="+(uploadDone-uploadStart)/1000000
-                +(gpuRepack?" (half rgb, gpu repack)":half?" (rgba16f bands)":rgbaBands?" (rgba bands)":" (rgb)")+" stats="+stats.statMs+" decimate="+stats.decimateMs
+                +(gpuRepack?" (half rgb, gpu repack)":half?" (rgba16f bands)":rgbaBands?" (rgba bands)":" (rgb)")+" stats="+stats.statMs+" decimate="+(tail?"(helper, after the statistics)":String.valueOf(stats.decimateMs))
                 +" wait="+(sideDone-uploadDone)/1000000+" free="+(System.nanoTime()-sideDone)/1000000);
-        GLTexture flagsTex=null,chromaNear=null,chromaWide=null,chromaHuge=null;
+        GLTexture flagsTex=null,chromaNear=null,chromaWide=null,chromaHuge=null,purpleBound=null,oppGpu=null;
         try {
             if(largeTwoX)requireTextureStorage(input);
             float[] gm=p.mParameters.gainMap;
@@ -894,9 +1167,12 @@ public final class ScamRgb extends Node {
                 com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","lens shading map "+mw+"x"+mh+": centre="+g.apply(mw/2,mh/2)
                         +" corner="+g.apply(0,0)+" edge-mid="+g.apply(mw/2,0)+" mean="+mean);
             }
-            p.GainMap=new GLTexture(p.mParameters.mapSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),
+            if(!earlyMaps)p.GainMap=new GLTexture(p.mParameters.mapSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),
                     BufferUtils.getFrom(p.mParameters.gainMap),GL_LINEAR,GL_CLAMP_TO_EDGE);
-            if(perChannel&&flags!=null){
+            if(perChannel&&flags!=null&&earlyFlags!=null){
+                flagsTex=earlyFlags;earlyFlags=null;
+                freeClipFlags(flags); // P479: uploaded before the helper was done with them
+            } else if(perChannel&&flags!=null){
                 flags.rewind();
                 android.opengl.GLES30.glPixelStorei(android.opengl.GLES30.GL_UNPACK_ALIGNMENT,1);
                 // Normalised R8 (SIMPLE_8): the shaders read it through a float sampler2D (code = r * 255). UNSIGNED_8
@@ -907,6 +1183,8 @@ public final class ScamRgb extends Node {
                 // before the 1.6 GB of main1 come
                 freeClipFlags(flags);
             }
+            if(earlyFlags!=null){earlyFlags.close();earlyFlags=null;} // P479: the recovery is off after all
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("scamrgb gainmap+flags");
             p.main1=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WorkDim),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
             // P179: no main3 (nothing swaps it in any more: swap3 has no caller; 1.6 GB at 200 MP), and above 100 MP main2 is made
             // on its first use, after the input texture is gone, instead of next to it
@@ -919,6 +1197,7 @@ public final class ScamRgb extends Node {
                 p.main2=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WorkDim),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
             }
             if(largeTwoX){requireTextureStorage(p.main1);requireTextureStorage(p.main2);}
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("scamrgb mains");
             int ox=0,oy=0; // «16:9»: the frames arrive cropped (Wide169, P118)
             // Sabre 2x grid: the local chroma blocks keep their SENSOR size (8 x 8), sampled one sensor pixel apart.
             final int s=Math.max(1,Math.round(p.mParameters.outputScale));
@@ -937,18 +1216,34 @@ public final class ScamRgb extends Node {
                     Point wide=new Point((near.x+3)/4,(near.y+3)/4);
                     chromaWide=new GLTexture(wide,rgba,null,GL_LINEAR,GL_CLAMP_TO_EDGE);
                     chromaHuge=new GLTexture(new Point((wide.x+3)/4,(wide.y+3)/4),rgba,null,GL_LINEAR,GL_CLAMP_TO_EDGE);
-                    glProg.useAssetProgram("hlrecovery/chanprep",false);
-                    glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",p.GainMap);
-                    if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
-                    glProg.setVar("whitePoint",p.mParameters.whitePoint);
-                    glProg.setVar("inverseSize",1f/size.x,1f/size.y);
-                    glProg.setVar("cropOffset",ox,oy);
-                    glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-                    glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-                    glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
-                    glProg.setVar("blockU",block);glProg.setVar("pxStepU",s);
-                    glProg.setVar("usWhiteU",usWhite);
-                    glProg.drawBlocks(chromaNear);
+                    // P473 (speed): the compute version (one invocation per sample, the same sums in the same order) for 8 x 8 samples
+                    // a block; scam_dev.txt "hl_chanprep_cs 0", another block or a GL failure: the fragment pass as before
+                    final boolean cs=(block+s-1)/s==8&&!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()
+                            &&PreferenceKeys.scamDevSwitch("hl_chanprep_cs",true);
+                    boolean drawn=false;
+                    for(int attempt=cs?0:1;attempt<2&&!drawn;attempt++){
+                        if(attempt==0){glProg.setLayout(8,8,1);while(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR){}}
+                        glProg.useAssetProgram(attempt==0?"hlrecovery/chanprep_cs":"hlrecovery/chanprep",attempt==0);
+                        glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",p.GainMap);
+                        if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
+                        glProg.setVar("whitePoint",p.mParameters.whitePoint);
+                        glProg.setVar("inverseSize",1f/size.x,1f/size.y);
+                        glProg.setVar("cropOffset",ox,oy);
+                        glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
+                        glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                        glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
+                        glProg.setVar("blockU",block);glProg.setVar("pxStepU",s);
+                        glProg.setVar("usWhiteU",usWhite);
+                        if(attempt==1){glProg.drawBlocks(chromaNear);drawn=true;continue;}
+                        try{
+                            glProg.setTextureCompute("outChroma",chromaNear,true);
+                            android.opengl.GLES31.glDispatchCompute(near.x,near.y,1); // (no glFinish: the reduce passes sample it next)
+                            android.opengl.GLES31.glMemoryBarrier(android.opengl.GLES31.GL_TEXTURE_FETCH_BARRIER_BIT|android.opengl.GLES31.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                            drawn=android.opengl.GLES31.glGetError()==android.opengl.GLES31.GL_NO_ERROR;
+                        }catch(RuntimeException failure){
+                            com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","highlight chanprep compute: "+failure+", the fragment pass");
+                        }
+                    }
                     // 32- and 128-blocks: the inside of a large clipped area still finds the colour of its light
                     glProg.useAssetProgram("hlrecovery/reduce",false);
                     glProg.setTexture("InputBuffer",chromaNear);
@@ -962,6 +1257,7 @@ public final class ScamRgb extends Node {
             // «Inpaint opposed» on the pixels without ultrashort content; its chrominance correction measured on the GPU
             // (hlrecovery/opposed), a lab fragment taking the whole frame's. scam_dev.txt "hybrid_highlight_opposed 0" = the
             // SCAM recovery there as before.
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("scamrgb chanprep");
             float[] oppChroma=null;
             // without clip flags every pixel of a Bento shot holds ultrashort content: nothing for it to do
             // with flags: only when some pixel has a clipped channel and no ultrashort content (the side thread counted them)
@@ -970,10 +1266,49 @@ public final class ScamRgb extends Node {
             if(opposed){
                 final LabFrame fz=p.frozen;
                 if(fz!=null&&fz.oppChroma!=null)oppChroma=fz.oppChroma.clone();
-                else oppChroma=opposedChroma(input,p.GainMap,flagsTex,p.mParameters.whitePoint,cc,size,ox,oy);
+                else{
+                    // P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): the per-group sums added on the GPU (float pairwise,
+                    // not the CPU's double) and handed to scamrgb as a texture: no read-back, no wait for the upload, chanprep and
+                    // the pass itself here. Not for a lab shot (it records the values), the sparse work list, the old GL model or
+                    // scam_dev.txt "opposed_gpu_mean 0": the read-back as before
+                    if(p.record==null&&stats.oppGroups==null&&!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()
+                            &&PreferenceKeys.scamDevSwitch("opposed_gpu_mean",true))
+                        oppGpu=opposedChromaGpu(input,p.GainMap,flagsTex,p.mParameters.whitePoint,cc,size,ox,oy);
+                    if(oppGpu==null)oppChroma=opposedChroma(input,p.GainMap,flagsTex,p.mParameters.whitePoint,cc,size,ox,oy,stats.oppGroups);
+                }
                 if(p.record!=null&&oppChroma!=null)p.record.oppChroma=oppChroma.clone();
             }
+            com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("scamrgb opposed");
+            // P479 (speed): the purple fringe's bound per 8 x 8 input block (scamhdr/purplebound; ~3 MB at 12 MP): scamrgb skips the
+            // 32 taps where they cannot reach a light (their weight is exactly 0 there). scam_dev.txt "purple_bound 0", the old GL
+            // model, a failure, or no purple pass: the taps everywhere as before
+            final float purple=perChannel?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_purple",1f))):0f;
+            // P493: «Подавление аберраций» - the fringe net (CaNetP, after this pass and the clip band) or P399 here, never both; the
+            // net's programs are built now, so a GPU that cannot build one (or bad weights, or a frame above 64 MP) gets P399
+            final CaNetP.Settings fringeNet=CaNetP.Settings.read();
+            final String fringeMethod=CaNetP.method();
+            final long fringePixels=(long)size.x*size.y;
+            final CaNetP.Route fringe=CaNetP.route(purple,fringeMethod,fringePixels,purple>0f&&CaNetP.NEURAL.equals(fringeMethod)
+                    &&fringePixels<=CaNetP.MAX_PIXELS&&CaNetP.prepare(glProg,fringeNet));
+            final float p399=fringe==CaNetP.Route.CLASSIC?purple:0f;
+            if(p399>0f&&!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("purple_bound",true)){
+                try{
+                    purpleBound=new GLTexture(new Point((input.mSize.x+7)/8,(input.mSize.y+7)/8),new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+                    glProg.useAssetProgram("scamhdr/purplebound",false);
+                    glProg.setTexture("InputBuffer",input);
+                    glProg.setVar("whitePoint",p.mParameters.whitePoint);
+                    glProg.drawBlocks(purpleBound);glProg.closed=true;
+                }catch(RuntimeException failure){
+                    com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","purple fringe bound: "+failure+", the taps everywhere");
+                    if(purpleBound!=null)purpleBound.close();
+                    purpleBound=null;
+                }
+            }
+            if(purpleBound!=null)glProg.setDefine("PURPLE_BOUND",1);
+            if(oppGpu!=null)glProg.setDefine("OPP_GPU",1);
             glProg.useAssetProgram("scamhdr/scamrgb");glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",p.GainMap);
+            if(purpleBound!=null)glProg.setTexture("PurpleBound",purpleBound);
+            if(oppGpu!=null)glProg.setTexture("OppChroma",oppGpu);
             glProg.setVar("whitePoint",p.mParameters.whitePoint);
             final boolean signed=signedInput(hybrid);
             glProg.setVar("signedU",signed?1:0);
@@ -992,7 +1327,8 @@ public final class ScamRgb extends Node {
                 float defringe=PreferenceKeys.hybridValue("highlight_defringe",0.85f);
                 glProg.setVar("defringeU",defringe>0f?defringe:-1f);
                 // P399: the lens's purple fringe against a bright light goes neutral; scam_dev.txt "hybrid_highlight_purple 0" = as before
-                glProg.setVar("purpleU",Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_purple",1f))));
+                // P493: 0 when the fringe net runs instead (P399 is inside it)
+                glProg.setVar("purpleU",p399);
                 glProg.setVar("oppU",opposed?1:0);
                 // P393: a clipped channel of a coloured surface (sunlit leaves) also takes the local light's colour (Chroma8 / 32 / 128);
                 // scam_dev.txt "hybrid_highlight_opposed_local 0" = RawTherapee's reference alone, as before
@@ -1011,6 +1347,8 @@ public final class ScamRgb extends Node {
             glProg.setVar("inverseSize",1f/size.x,1f/size.y);
             // Keep the ping-pong cursor in sync for every following postprocessing pass.
             WorkingTexture=p.getMain();glProg.drawBlocks(WorkingTexture);glProg.closed=true;
+            if(purpleBound!=null){purpleBound.close();purpleBound=null;}
+            if(oppGpu!=null){oppGpu.close();oppGpu=null;}
             final int shorter=wholeShorter(p.frozen,WhyTone.lowFactor(p.mParameters),size);
             if(hybrid&&flagsTex!=null){
                 p.sunBloom=sunBloom(flagsTex,size,shorter);p.sunBloomSize=p.sunBloom!=null?new Point(size):null;p.sunBloomBlock=shareBlock(shorter);
@@ -1035,14 +1373,36 @@ public final class ScamRgb extends Node {
             }
             GLTexture unbanded=null;
             if(band>0f){
+                // P479 (speed): the band's two flag windows as a vertical pass (scamhdr/clipmask, R8) and clipband's horizontal
+                // taps - the same pixels; one R8 texture of the frame for the pass (none above 100 MP, scam_dev.txt "clipband_mask
+                // 0", the old GL model or a GL failure: the 2-D taps as before)
+                GLTexture bandMask=null;
+                if(!ScamHdrDenoise.huge(size.x,size.y)&&flagsTex.mSize.equals(WorkingTexture.mSize)
+                        &&!com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("clipband_mask",true)){
+                    try{
+                        bandMask=new GLTexture(flagsTex.mSize,new GLFormat(GLFormat.DataType.SIMPLE_8,1),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+                        glProg.useAssetProgram("scamhdr/clipmask",false);
+                        glProg.setTexture("ClipFlags",flagsTex);
+                        glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
+                        glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                        glProg.drawBlocks(bandMask);glProg.closed=true;
+                    }catch(RuntimeException failure){
+                        com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","clip band mask: "+failure+", the 2-D taps");
+                        if(bandMask!=null)bandMask.close();
+                        bandMask=null;
+                    }
+                }
                 GLTexture banded=p.getMain();
+                if(bandMask!=null)glProg.setDefine("BAND_MASK",1);
                 glProg.useAssetProgram("scamhdr/clipband",false);
+                if(bandMask!=null)glProg.setTexture("BandMask",bandMask);
                 glProg.setTexture("InputBuffer",WorkingTexture);
                 glProg.setTexture("ClipFlags",flagsTex);
                 glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
                 glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
                 glProg.setVar("strengthU",band);
                 glProg.drawBlocks(banded);glProg.closed=true;
+                if(bandMask!=null)bandMask.close();
                 unbanded=WorkingTexture;
                 WorkingTexture=banded;
             }
@@ -1058,6 +1418,20 @@ public final class ScamRgb extends Node {
                 if(chromaWide!=null){chromaWide.close();chromaWide=null;}
                 if(chromaHuge!=null){chromaHuge.close();chromaHuge=null;}
                 if(unbanded!=null&&!largeTwoX)p.releaseMain(unbanded);
+            }
+            // P493: the fringe net on scamrgb's output (after the clip band: its dashes are gone before the net looks) into the next
+            // main. A GPU failure here leaves the frame as it is (purpleU was 0) and the ping-pong cursor where it was.
+            if(fringe==CaNetP.Route.NEURAL){
+                final GLTexture fringeIn=WorkingTexture,fringeOut=p.getMain();
+                try{
+                    CaNetP.run(glProg,fringeIn,fringeOut,p,cc.lo,fringeNet,purple);
+                    WorkingTexture=fringeOut;
+                    if(early&&!largeTwoX){android.opengl.GLES30.glFinish();p.releaseMain(fringeIn);}
+                }catch(RuntimeException failure){
+                    com.particlesdevs.photoncamera.util.Log.e("SCAM_PIPELINE","fringe net (P493) failed, the frame without fringe suppression: "+failure);
+                    p.texnum=p.texnum==1?2:1;
+                    glProg.closed=true;
+                }
             }
             if(hybrid)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","scamrgb input "+(signed?"signed (clamped after the noise reduction or the WHY colour averages)":"clamped per pixel (post_ab_clamp)"));
             if(perChannel)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight recovery per channel: chroma="
@@ -1078,6 +1452,11 @@ public final class ScamRgb extends Node {
             if(chromaNear!=null)chromaNear.close();
             if(chromaWide!=null)chromaWide.close();
             if(chromaHuge!=null)chromaHuge.close();
+            if(purpleBound!=null)purpleBound.close();
+            if(oppGpu!=null)oppGpu.close();
+            if(earlyFlags!=null)earlyFlags.close();
+            // P479: the helper's decimated copy (it has released the big buffer by now or does so before this returns)
+            if(rest!=null)p.mParameters.scamRgb=await(rest);
         }
     }
 }

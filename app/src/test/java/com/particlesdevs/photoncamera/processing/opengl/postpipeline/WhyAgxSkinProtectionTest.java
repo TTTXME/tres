@@ -30,7 +30,7 @@ import static org.mockito.Mockito.mockStatic;
 public class WhyAgxSkinProtectionTest {
     private final Map<String, Float> values = new HashMap<>();
     private MockedStatic<PreferenceKeys> preferences;
-    private boolean ark = true;
+    private boolean why = true;
 
     @Before public void setUp() {
         preferences = mockStatic(PreferenceKeys.class, call -> {
@@ -38,7 +38,7 @@ public class WhyAgxSkinProtectionTest {
             if (name.equals("hybridValue")) return values.getOrDefault(call.getArgument(0), call.getArgument(1));
             if (name.equals("hybridString")) return call.getArgument(1);
             if (name.equals("scamDevSwitch"))
-                return "ark_vibrance".equals(call.getArgument(0)) ? ark : call.getArgument(1);
+                return "why_vibrance".equals(call.getArgument(0)) ? why : call.getArgument(1);
             return Mockito.RETURNS_DEFAULTS.answer(call);
         });
     }
@@ -70,7 +70,7 @@ public class WhyAgxSkinProtectionTest {
         assertFalse(WhyTone.colourLookOn(look, ToneCurve.AGX, 1f));
         values.put("colour_skin_hue", 10f);
         assertTrue(WhyTone.colourLookOn(WhyTone.colourLook(), ToneCurve.AGX, .5f));
-        ark = false;
+        why = false;
         values.clear();
         assertTrue(WhyTone.colourLook().protectsVibrance);
         assertFalse(WhyTone.colourLookOn(WhyTone.colourLook(), ToneCurve.AGX, 1.5f));

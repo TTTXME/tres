@@ -27,6 +27,11 @@ uniform float defringeU;          // clip-border colour suppression 0..1 (0 = un
 // P362: «Inpaint opposed» (RawTherapee / darktable, hlrecovery/opposed) where the pixel holds no ultrashort content.
 uniform int oppU;                 // 1: on
 uniform vec3 oppChromaU;          // the global chrominance correction per channel (white-balanced)
+// P479b: 1 = that correction from the GPU (hlrecovery/opposed_mean's 1 x 1 rgba32f), not the uniform (ScamRgb "opposed_gpu_mean")
+#define OPP_GPU 0
+#if OPP_GPU == 1
+uniform sampler2D OppChroma;
+#endif
 // P393: 1 = a clipped channel of a coloured surface also takes the local light's colour (Chroma8 / 32 / 128) fitted to the pixel's
 // bounds (below, in the opposed branch); 0 (unset) = RawTherapee's reference alone, as before
 uniform int oppLocalU;
@@ -42,6 +47,10 @@ uniform float usWhiteU;
 // P399 (owner, 2026-10-29, a ship's bridge: «артефакты на краях окна и на приспособлении посреди окна»): the lens's purple fringe on
 // the dark side of an edge against a bright light, 0..1 (0 = unset: off)
 uniform float purpleU;
+#define PURPLE_BOUND 0
+#if PURPLE_BOUND == 1
+uniform sampler2D PurpleBound;    // P479: scamhdr/purplebound, per 8 x 8 input block the brightest tap value (rgba32f .r)
+#endif
 out vec3 Output;
 
 // Clip level of every channel at this pixel (raw units); vec3(-1) = no channel can be clipped here.
@@ -196,6 +205,20 @@ vec3 purpleFringe(vec3 c) {
     ivec2 p = clamp(ivec2(gl_FragCoord.xy) + cropOffset, ivec2(0), textureSize(InputBuffer, 0) - 1);
     ivec2 last = textureSize(InputBuffer, 0) - ivec2(1);
     vec3 wp = max(whitePoint, vec3(1.0e-6));
+#if PURPLE_BOUND == 1
+    {
+        // P479 (speed): the taps' blocks (scamhdr/purplebound) all under 0.59 of the base white: w below is exactly 0 (its
+        // smoothstep(0.6, 0.95, yb / white)), the pixel stays as it is without the 32 taps
+        vec3 lw0 = clipLoU.g > 0.0 ? clipLoU / wp : vec3(1.0);
+        float white0 = max(min(min(lw0.r, lw0.g), lw0.b), 1.0e-6);
+        ivec2 b0 = clamp(p - ivec2(6), ivec2(0), last) / 8, b1 = clamp(p + ivec2(6), ivec2(0), last) / 8;
+        float bound = 0.0;
+        for (int by = b0.y; by <= b1.y; by++)
+            for (int bx = b0.x; bx <= b1.x; bx++)
+                bound = max(bound, texelFetch(PurpleBound, ivec2(bx, by), 0).r);
+        if (bound < 0.59 * white0) return c;
+    }
+#endif
     float yb = 0.0;
     vec3 src = vec3(0.0);
     const ivec2 DIR[8] = ivec2[8](ivec2(1, 0), ivec2(1, 1), ivec2(0, 1), ivec2(-1, 1), ivec2(-1, 0), ivec2(-1, -1), ivec2(0, -1), ivec2(1, -1));
@@ -305,9 +328,13 @@ vec3 recoverPixel(){
                             m += max(v, vec3(0.0)) * gains / max(whitePoint, vec3(1.0e-6));
                         }
                     m = pow(max(m / 9.0, vec3(0.0)), vec3(1.0 / 3.0));
+#if OPP_GPU == 1
+                    vec3 ref = pow(0.5 * vec3(m.g + m.b, m.r + m.b, m.r + m.g), vec3(3.0)) + texelFetch(OppChroma, ivec2(0), 0).rgb;
+#else
                     vec3 ref = pow(0.5 * vec3(m.g + m.b, m.r + m.b, m.r + m.g), vec3(3.0)) + oppChromaU;
+#endif
                     vec3 r = mix(c, max(c, ref), vec3(clipped));
-                    // P393 (owner, 2026-10-29: sunlit yellow birches pale peach beside ArkCam): RT's reference takes a clipped channel
+                    // P393 (owner, 2026-10-29: sunlit yellow birches pale peach beside WhyCam): RT's reference takes a clipped channel
                     // from the other two with ONE additive chrominance for the whole frame, measured where the channel is just under
                     // its clip; textured foliage (dark gaps in every 3 x 3) measured it at -0.12 .. -0.99 for G (tools/check_opposed_
                     // foliage.py), so on yellow leaves a clipped G stayed at its clip while R rose - orange, then salmon / pink once R

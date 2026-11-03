@@ -33,7 +33,7 @@ public class SettingHelpTest {
                 "pref_scam_hybrid_colour_warmth", "pref_scam_hybrid_colour_tint", "backup_settings_screen",
                 // 2026-10-27: the rows the simple groups took over from the expert pages, and the focus page
                 "pref_scam_hybrid_why_ae_target", "pref_scam_hybrid_why_macro_contrast", "pref_scam_hybrid_why_agx_sat",
-                "pref_scam_hybrid_why_sharp_gain", "pref_scam_hybrid_ark_dn_factor", "pref_ettr", "focus_screen",
+                "pref_scam_hybrid_why_sharp_gain", "pref_scam_hybrid_why_dn_factor", "pref_ettr", "focus_screen",
                 "pref_af_mode_key", "pref_show_afdata_key"})
             assertNotEquals(key, 0, SettingHelp.helpRes(key));
         assertEquals(R.string.help_colour_mixer, SettingHelp.helpRes("pref_scam_hybrid_colour_mix_aqua_sat"));

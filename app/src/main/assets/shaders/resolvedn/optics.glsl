@@ -6,6 +6,9 @@ uniform int u_width; uniform int u_height;
 uniform float u_quad_speckle_strength; uniform float u_quad_speckle_threshold;
 out vec4 o_clean_rgb;
 #define TILED 0
+// P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): 1 = resolvedn/lab fused in - the cleaned RGB goes to Oklab here,
+// without its RGBA16F rounding in between (the same arithmetic as lab.glsl otherwise; WhyMsDenoise "ms_fuse")
+#define OUT_LAB 0
 #if TILED == 1
 uniform int originDstU;
 #endif
@@ -140,5 +143,21 @@ void main() {
 
         rgb = oklab_to_rgb(L, a_val, b_val);
     }
+#if OUT_LAB == 1
+    {
+        // resolvedn/lab's main on this pixel's result (its max(0) and conversion)
+        vec3 c = max(rgb, 0.0);
+        float l_ok = max(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b, 0.0);
+        float m_ok = max(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b, 0.0);
+        float s_ok = max(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b, 0.0);
+        float l_ = safe_cbrt(l_ok);
+        float m_ = safe_cbrt(m_ok);
+        float s_ = safe_cbrt(s_ok);
+        o_clean_rgb = vec4(0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+                           1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+                           0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_, 1.0);
+    }
+#else
     o_clean_rgb = vec4(rgb, 1.0);
+#endif
 }

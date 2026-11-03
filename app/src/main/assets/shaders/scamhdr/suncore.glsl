@@ -1,8 +1,8 @@
 precision highp float;
 precision highp sampler2D;
-// P349 (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Арк камерой»): the glow of a light
+// P349 (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Why камерой»): the glow of a light
 // whose core has no data at all - R, G and B clipped in every frame, the ultrashort too (clip flags bits 0-2) - for WhyCombine's
-// sun bloom. ArkCam clips everything above white, so a setting sun is a soft warm-white area with no edge; our Bento headroom
+// sun bloom. WhyCam clips everything above white, so a setting sun is a soft warm-white area with no edge; our Bento headroom
 // keeps the glow round the core (2 - 3 x white) orange and the clipped core stands in it as a flat white disc with a hard rim.
 //   MODE 0: the share of fully clipped pixels in each blockU x blockU block of the flags (whole frame ~192 blocks high)
 //           P366 (owner, 2026-10-27, X200U ISZ at sea: «вот такие фото получаю с исз, исправь» - a milky haze and white blobs
@@ -104,6 +104,17 @@ void main() {
     }
     float share = n > 0 ? float(c) / float(n) : 0.0;
     Output = vec4(smoothstep(0.05, 0.15, share), share, gw > 0.0 ? gs / gw : 0.0, gw);
+#elif MODE == 4 || MODE == 5
+    // P479 (speed): MODE 0 (4) / MODE 2 (5)'s output from scamhdr/suncore_cs's sums (n, c, gs, gw), the same lines as there
+    vec4 e = texelFetch(InputBuffer, xy, 0);
+    int n = int(e.x), c = int(e.y);
+    float gs = e.z, gw = e.w;
+#if MODE == 4
+    Output = vec4(n > 0 ? float(c) / float(n) : 0.0, 0.0, 0.0, 1.0);
+#else
+    float share = n > 0 ? float(c) / float(n) : 0.0;
+    Output = vec4(smoothstep(0.05, 0.15, share), share, gw > 0.0 ? gs / gw : 0.0, gw);
+#endif
 #elif MODE == 3
     int r = int(ceil(2.5 * radiusU));
     float m = 0.0, sat = 0.0;

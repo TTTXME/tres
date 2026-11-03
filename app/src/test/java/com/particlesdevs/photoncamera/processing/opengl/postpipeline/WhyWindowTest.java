@@ -50,7 +50,7 @@ public class WhyWindowTest {
     }
 
     @Test public void build31091sFusion() {
-        // ArkAe.exposures / ArkFusion of build 31091: 2^(-1.5 effH), 1, 2^effS <= 8, 2^(2 effS) <= 16; centre 0.6, (0.8, 1, 0.7, 0.5)
+        // WhyAe.exposures / WhyFusion of build 31091: 2^(-1.5 effH), 1, 2^effS <= 8, 2^(2 effS) <= 16; centre 0.6, (0.8, 1, 0.7, 0.5)
         final WhyAe.Result r = shot(20.36f, 0.04395f);
         r.effH = 2.5916f;
         r.effS = 0.9994f;

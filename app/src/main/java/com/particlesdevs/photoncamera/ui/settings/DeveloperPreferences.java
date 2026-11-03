@@ -27,6 +27,16 @@ final class DeveloperPreferences {
     private DeveloperPreferences() {}
 
     static void populate(PreferenceScreen root, Context context) {
+        populate(root, context, null);
+    }
+
+    /**
+     * P475 (owner, 2026-11-03: «в дев настройках у нас невозможно поменять ни один параметр»): a scam_dev.txt the app did not create
+     * (a PC, adb or the package before com.scamera.app made it: on Android 11+ the app can neither replace nor delete it) is only
+     * written through the folder grant, and without one every row silently stayed as it was. A refused write now says so and
+     * {@code askGrant} opens the folder picker (Download/SCAMERA); null: the message only.
+     */
+    static void populate(PreferenceScreen root, Context context, Runnable askGrant) {
         PreferenceScreen screen = root == null ? null : root.findPreference(SCREEN);
         if (screen == null || context == null) return;
         screen.removeAll();
@@ -49,8 +59,8 @@ final class DeveloperPreferences {
         reset.setTitle(Lang.t(context, "Сбросить всё по умолчанию", "Reset everything to default"));
         reset.setSummary(Lang.t(context, "Удаляет из scam_dev.txt строки этой страницы", "Removes this page's lines from scam_dev.txt"));
         reset.setOnPreferenceClickListener(p -> {
-            ScamDevFile.removeAll(app, DevKeys.keys());
-            populate(root, context);
+            if (!ScamDevFile.removeAll(app, DevKeys.keys())) refused(context, askGrant);
+            populate(root, context, askGrant);
             return true;
         });
         screen.addPreference(reset);
@@ -67,8 +77,8 @@ final class DeveloperPreferences {
                 screen.addPreference(group);
                 groups.put(k.group, group);
             }
-            group.addPreference(k.kind == DevKeys.Kind.SWITCH ? switchRow(context, app, k, values.get(k.key))
-                    : numberRow(context, app, k, values.get(k.key)));
+            group.addPreference(k.kind == DevKeys.Kind.SWITCH ? switchRow(context, app, k, values.get(k.key), askGrant)
+                    : numberRow(context, app, k, values.get(k.key), askGrant));
         }
     }
 
@@ -77,17 +87,33 @@ final class DeveloperPreferences {
      * this page out of scam_dev.txt, as its own «Сбросить всё по умолчанию» row does, and the rows rebuilt; the lines removed.
      */
     static int resetAll(PreferenceScreen root, Context context) {
+        return resetAll(root, context, null);
+    }
+
+    static int resetAll(PreferenceScreen root, Context context, Runnable askGrant) {
         if (root == null || context == null) return 0;
         final Context app = context.getApplicationContext();
         final Map<String, String> values = ScamDevFile.snapshot(app);
         int set = 0;
         for (String key : DevKeys.keys()) if (values.containsKey(key)) set++;
-        if (set > 0 && !ScamDevFile.removeAll(app, DevKeys.keys())) set = 0;
-        populate(root, context);
+        if (set > 0 && !ScamDevFile.removeAll(app, DevKeys.keys())) {
+            set = 0;
+            refused(context, askGrant);
+        }
+        populate(root, context, askGrant);
         return set;
     }
 
-    private static Preference switchRow(Context context, Context app, DevKeys.Key k, String cur) {
+    /** P475: the write was refused (see populate): the message and the folder picker. */
+    private static void refused(Context context, Runnable askGrant) {
+        android.widget.Toast.makeText(context, Lang.t(context,
+                "Нет доступа к " + ScamDevFile.SHOWN + ": файл создан не приложением (ПК, adb или прежняя установка). Разрешите «Доступ ко всем файлам»",
+                "No access to " + ScamDevFile.SHOWN + ": the file was not made by the app (a PC, adb or an earlier install). Allow “All files access”"),
+                android.widget.Toast.LENGTH_LONG).show();
+        if (askGrant != null) askGrant.run();
+    }
+
+    private static Preference switchRow(Context context, Context app, DevKeys.Key k, String cur, Runnable askGrant) {
         SwitchPreferenceCompat p = new SwitchPreferenceCompat(context);
         p.setKey("dev_" + k.key);
         p.setPersistent(false);
@@ -99,12 +125,13 @@ final class DeveloperPreferences {
             String v = Boolean.TRUE.equals(value) ? "1" : "0";
             boolean ok = ScamDevFile.set(app, k.key, v);
             if (ok) pref.setSummary(summary(context, k, v));
+            else refused(context, askGrant);
             return ok;
         });
         return p;
     }
 
-    private static Preference numberRow(Context context, Context app, DevKeys.Key k, String cur) {
+    private static Preference numberRow(Context context, Context app, DevKeys.Key k, String cur, Runnable askGrant) {
         EditTextPreference p = new EditTextPreference(context);
         p.setKey("dev_" + k.key);
         p.setPersistent(false);
@@ -131,7 +158,7 @@ final class DeveloperPreferences {
             if (ok) {
                 ((EditTextPreference) pref).setText(v == null ? "" : v);
                 pref.setSummary(summary(context, k, v));
-            }
+            } else refused(context, askGrant);
             return false; // the text is set above (not stored as a preference)
         });
         return p;

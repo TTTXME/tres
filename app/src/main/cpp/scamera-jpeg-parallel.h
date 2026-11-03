@@ -3,7 +3,8 @@
 // at 50 MP on one core of the X200 Ultra. The image is cut into strips of whole MCU rows; every strip is encoded on its own
 // thread as a baseline JPEG and the strips' entropy-coded data are joined with restart markers into one standard baseline
 // JPEG (DRI = the MCUs of a strip; each strip starts with fresh DC predictors, exactly what a restart interval means).
-//  - Pass 1 (parallel): each strip with optimised Huffman tables; only its code lengths are kept.
+//  - Optional bounded route: one full DCT per strip; retain tokens, count every symbol, then encode shared tables.
+//  - Fallback pass 1: sampled full strips with optimised Huffman tables; only their code lengths are kept.
 //  - The code lengths of all strips merge into shared optimal tables (every valid symbol keeps a code, so no strip can
 //    meet a symbol without one).
 //  - Pass 2 (parallel): each strip with the shared tables; DQT / DHT / SOS of every strip must equal strip 0's (else the
@@ -12,6 +13,8 @@
 // quantisation looks only inside a strip, so the blocks at a strip's edge may differ in the last bits); the file is a
 // little larger than the progressive one-thread JPEG (no progressive scans).
 #include <algorithm>
+#include <array>
+#include <cstdio>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -23,13 +26,23 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <climits>
+#include <memory>
+#include "lib/jpegli/bitstream.h"
 
 #include "lib/jpegli/common.h"
 #include "lib/jpegli/encode.h"
+#include "lib/jpegli/encode_internal.h"
+#include "lib/jpegli/entropy_coding.h"
 #include "scamera-jpeg-core.h"   // P443: adaptiveQuantisation()
 
 namespace scamera_jpeg {
 namespace parallel {
+
+inline std::atomic<bool>& fastHuffmanTables() {
+    static std::atomic<bool> enabled{true};
+    return enabled;
+}
 
 struct Table {
     uint8_t bits[17] = {};   // bits[1..16]: codes of each length
@@ -182,9 +195,11 @@ inline Table optimal(const std::vector<int64_t>& counts) {
 }
 
 /** Encodes rows [y0, y0 + h) as a baseline JPEG into memory; {@code tables}: null = optimised, else [dc0, ac0, dc1, ac1]. */
-inline std::vector<uint8_t> encodeStrip(const uint8_t* pixels, int width, int h, size_t stride, int quality, const Table* tables) {
+inline std::vector<uint8_t> encodeStrip(const uint8_t* pixels, int width, int h, size_t stride, int quality, const Table* tables, bool aq,
+                                         std::array<Table,6>* statistics = nullptr) {
+    if (statistics && tables) throw std::runtime_error("JPEG statistics require optimized coding");
     std::vector<uint8_t> out;
-    out.reserve(size_t(width) * size_t(h));
+    if (!statistics) out.reserve(size_t(width) * size_t(h));
     struct Dest {
         jpeg_destination_mgr pub{};
         std::vector<uint8_t>* out = nullptr;
@@ -224,7 +239,7 @@ inline std::vector<uint8_t> encodeStrip(const uint8_t* pixels, int width, int h,
         cinfo.in_color_space = JCS_EXT_RGBA;
         jpegli_set_defaults(&cinfo);
         jpegli_set_quality(&cinfo, quality < 1 ? 1 : quality > 100 ? 100 : quality, TRUE);
-        jpegli_enable_adaptive_quantization(&cinfo, adaptiveQuantisation().load() ? TRUE : FALSE);   // P443 (scamera-jpeg-core.h)
+        jpegli_enable_adaptive_quantization(&cinfo, aq ? TRUE : FALSE);   // P443 (scamera-jpeg-core.h)
         jpegli_set_progressive_level(&cinfo, 0);   // one sequential scan
         for (int c = 0; c < cinfo.num_components; ++c) {
             cinfo.comp_info[c].h_samp_factor = 1;
@@ -257,7 +272,25 @@ inline std::vector<uint8_t> encodeStrip(const uint8_t* pixels, int width, int h,
             for (int i = 0; i < n; ++i) rows[i] = const_cast<JSAMPROW>(pixels + size_t(cinfo.next_scanline + JDIMENSION(i)) * stride);
             jpegli_write_scanlines(&cinfo, rows, JDIMENSION(n));
         }
-        jpegli_finish_compress(&cinfo);
+        if (statistics) {
+            // Bundled jpegli has all sequential tokens after the last input row; no discarded entropy stream is needed.
+            jpeg_comp_master* master = cinfo.master;
+            if (master->next_iMCU_row != cinfo.total_iMCU_rows || master->coeff_buffers || cinfo.num_scans != 1 || master->num_contexts < 7)
+                throw std::runtime_error("Unexpected jpegli statistics state");
+            jpegli::OptimizeHuffmanCodes(&cinfo);
+            for (int component = 0; component < 3; ++component) for (int cls = 0; cls < 2; ++cls) {
+                const size_t context = cls ? master->ac_ctx_offset[0] + component : component;
+                const size_t index = master->context_map[context];
+                if (index >= master->num_huffman_tables) throw std::runtime_error("Invalid jpegli statistics table");
+                const JHUFF_TBL& table = master->huffman_tables[index];
+                Table& out = (*statistics)[2 * component + cls];
+                std::memcpy(out.bits, table.bits, 17);
+                std::memcpy(out.vals, table.huffval, 256);
+                for (int l = 1; l <= 16; ++l) out.count += out.bits[l];
+            }
+        } else {
+            jpegli_finish_compress(&cinfo);
+        }
     } catch (...) {
         jpegli_destroy_compress(&cinfo);
         throw;
@@ -265,6 +298,118 @@ inline std::vector<uint8_t> encodeStrip(const uint8_t* pixels, int width, int h,
     jpegli_destroy_compress(&cinfo);
     return out;
 }
+
+using Counts = std::array<std::array<int64_t, 256>, 4>;
+struct RetainedStrip {
+    struct Dest {
+        jpeg_destination_mgr pub{};
+        std::vector<uint8_t> out;
+        std::vector<JOCTET> buffer = std::vector<JOCTET>(1 << 18);
+    } dest;
+    jpeg_compress_struct cinfo{};
+    jpeg_error_mgr error{};
+    Counts counts{};
+    size_t tokenCount = 0;
+    RetainedStrip() {
+        cinfo.err = jpegli_std_error(&error);
+        error.error_exit = [](j_common_ptr c) {
+            char message[JMSG_LENGTH_MAX]{};
+            (*c->err->format_message)(c, message);
+            throw std::runtime_error(std::string("jpegli retained: ") + message);
+        };
+        dest.pub.init_destination = [](j_compress_ptr c) {
+            auto* d = reinterpret_cast<Dest*>(c->dest);
+            d->pub.next_output_byte = d->buffer.data();
+            d->pub.free_in_buffer = d->buffer.size();
+        };
+        dest.pub.empty_output_buffer = [](j_compress_ptr c) -> boolean {
+            auto* d = reinterpret_cast<Dest*>(c->dest);
+            d->out.insert(d->out.end(), d->buffer.begin(), d->buffer.end());
+            d->pub.next_output_byte = d->buffer.data();
+            d->pub.free_in_buffer = d->buffer.size();
+            return TRUE;
+        };
+        dest.pub.term_destination = [](j_compress_ptr c) {
+            auto* d = reinterpret_cast<Dest*>(c->dest);
+            d->out.insert(d->out.end(), d->buffer.begin(), d->buffer.begin() +
+                std::ptrdiff_t(d->buffer.size() - d->pub.free_in_buffer));
+        };
+    }
+    RetainedStrip(const RetainedStrip&) = delete;
+    RetainedStrip& operator=(const RetainedStrip&) = delete;
+    ~RetainedStrip() { jpegli_destroy_compress(&cinfo); }
+    void feed(const uint8_t* pixels, int width, int height, size_t stride,
+              int quality, bool aq, size_t memoryCap) {
+        jpegli_create_compress(&cinfo);
+        if (!memoryCap || memoryCap > size_t(LONG_MAX)) throw std::runtime_error("JPEG retained memory cap");
+        cinfo.mem->max_memory_to_use = long(memoryCap);
+        cinfo.dest = &dest.pub;
+        cinfo.image_width = JDIMENSION(width);
+        cinfo.image_height = JDIMENSION(height);
+        cinfo.input_components = 4;
+        cinfo.in_color_space = JCS_EXT_RGBA;
+        jpegli_set_defaults(&cinfo);
+        jpegli_set_quality(&cinfo, std::max(1, std::min(100, quality)), TRUE);
+        jpegli_enable_adaptive_quantization(&cinfo, aq ? TRUE : FALSE);
+        jpegli_set_progressive_level(&cinfo, 0);
+        for (int c = 0; c < cinfo.num_components; ++c) {
+            cinfo.comp_info[c].h_samp_factor = cinfo.comp_info[c].v_samp_factor = 1;
+            cinfo.comp_info[c].dc_tbl_no = cinfo.comp_info[c].ac_tbl_no = c == 0 ? 0 : 1;
+        }
+        cinfo.optimize_coding = TRUE;
+        jpegli_start_compress(&cinfo, TRUE);
+        JSAMPROW rows[16];
+        while (cinfo.next_scanline < cinfo.image_height) {
+            const int n = int(std::min<JDIMENSION>(16, cinfo.image_height - cinfo.next_scanline));
+            for (int i = 0; i < n; ++i)
+                rows[i] = const_cast<JSAMPROW>(pixels + size_t(cinfo.next_scanline + JDIMENSION(i)) * stride);
+            if (jpegli_write_scanlines(&cinfo, rows, JDIMENSION(n)) != JDIMENSION(n))
+                throw std::runtime_error("JPEG retained suspended input");
+        }
+        const auto* m = cinfo.master;
+        if (m->next_iMCU_row != cinfo.total_iMCU_rows || m->coeff_buffers ||
+            cinfo.num_scans != 1 || m->num_contexts != 7 || cinfo.progressive_mode ||
+            cinfo.restart_interval || cinfo.restart_in_rows || m->psnr_target != 0 ||
+            !m->ac_ctx_offset || !m->scan_token_info || !m->token_arrays || m->ac_ctx_offset[0] != 4)
+            throw std::runtime_error("Unexpected JPEG retained state");
+        for (size_t a = 0; a <= m->cur_token_array; ++a) {
+            const auto& ta = m->token_arrays[a];
+            tokenCount += ta.num_tokens;
+            for (size_t i = 0; i < ta.num_tokens; ++i) {
+                const auto t = ta.tokens[i];
+                const int c = t.context < 3 ? t.context : t.context >= 4 && t.context < 7 ? t.context - 4 : -1;
+                if (c < 0) throw std::runtime_error("JPEG retained token context");
+                const int cls = t.context >= 4;
+                if (!validSymbol(cls != 0, t.symbol)) throw std::runtime_error("JPEG retained token symbol");
+                ++counts[size_t(2 * (c == 0 ? 0 : 1) + cls)][t.symbol];
+            }
+        }
+        if (tokenCount != m->scan_token_info[0].num_tokens)
+            throw std::runtime_error("JPEG retained token count");
+    }
+    std::vector<uint8_t> finish(const Table* tables) {
+        for (int t = 0; t < 2; ++t) {
+            auto* dc = cinfo.dc_huff_tbl_ptrs[t];
+            if (!dc) dc = cinfo.dc_huff_tbl_ptrs[t] = jpegli_alloc_huff_table(reinterpret_cast<j_common_ptr>(&cinfo));
+            auto* ac = cinfo.ac_huff_tbl_ptrs[t];
+            if (!ac) ac = cinfo.ac_huff_tbl_ptrs[t] = jpegli_alloc_huff_table(reinterpret_cast<j_common_ptr>(&cinfo));
+            std::memcpy(dc->bits, tables[2*t].bits, 17);
+            std::memcpy(dc->huffval, tables[2*t].vals, 256);
+            std::memcpy(ac->bits, tables[2*t+1].bits, 17);
+            std::memcpy(ac->huffval, tables[2*t+1].vals, 256);
+            dc->sent_table = ac->sent_table = FALSE;
+        }
+        jpegli::CopyHuffmanTables(&cinfo);
+        jpegli::InitEntropyCoder(&cinfo);
+        jpegli::WriteFrameHeader(&cinfo);
+        jpegli::WriteScanHeader(&cinfo, 0);
+        jpegli::WriteScanData(&cinfo, 0);
+        jpegli::WriteOutput(&cinfo, {0xFF, 0xD9});
+        (*cinfo.dest->term_destination)(&cinfo);
+        jpegli_abort_compress(&cinfo);
+        return std::move(dest.out);
+    }
+};
 
 /** Runs job(i) for i in [0, n) on {@code threads} threads; the first exception is rethrown. */
 inline void forEach(int n, int threads, const std::function<void(int)>& job) {
@@ -285,7 +430,12 @@ inline void forEach(int n, int threads, const std::function<void(int)>& job) {
     };
     std::vector<std::thread> pool;
     const int t = std::max(1, std::min(threads, n));
-    for (int k = 1; k < t; ++k) pool.emplace_back(worker);
+    try {
+        pool.reserve(size_t(t - 1));
+        for (int k = 1; k < t; ++k) pool.emplace_back(worker);
+    } catch (const std::exception&) {
+        // Fewer helpers still complete the queue; every started thread must be joined.
+    }
     worker();
     for (auto& th : pool) th.join();
     if (failure) std::rethrow_exception(failure);
@@ -300,13 +450,74 @@ inline int stripRows(int width, int height, int threads, int wanted) {
     return std::max(8, rows / 8 * 8);
 }
 
+
+inline bool retainedGeometryFits(int width, int height, int rows, size_t cap = 384u << 20) {
+    if (width <= 0 || height <= 0 || rows <= 0 || width > 65535 || height > 65535 || rows > 65535) return false;
+    const uint64_t paddedWidth = ((uint64_t(width) + 7) / 8) * 8;
+    const uint64_t mcuRows = (uint64_t(rows) + 7) / 8;
+    const uint64_t strips = (uint64_t(height) + rows - 1) / rows;
+    // A closed token array wastes < one maximum MCU row; there are at most mcuRows arrays.
+    const uint64_t tokens = 2 * 3 * 64 * (paddedWidth / 8) * mcuRows * sizeof(jpegli::Token);
+    // Pinned 4:4:4 jpegli: four 24-row float input planes, AQ rows, bit-writer buffer, tables and aligned allocator slack.
+    const uint64_t workspace = (2ull << 20) + paddedWidth * 1024;
+    return strips >= 2 && tokens + workspace <= uint64_t(cap) / strips;
+}
+
+inline size_t retainedMemoryBudget(int width, int height, int rows) {
+    constexpr size_t cap = 384u << 20;
+    if (!retainedGeometryFits(width, height, rows, cap)) return 0;
+    FILE* file = std::fopen("/proc/meminfo", "r");
+    if (!file) return 0;
+    unsigned long long availableKiB = 0;
+    char line[256];
+    while (std::fgets(line, sizeof(line), file))
+        if (std::sscanf(line, "MemAvailable: %llu kB", &availableKiB) == 1) break;
+    std::fclose(file);
+    const uint64_t required = 2 * uint64_t(cap) + (256ull << 20);
+    if (availableKiB > UINT64_MAX / 1024 || availableKiB < (required + 1023) / 1024) return 0;
+    return cap;
+}
+
+inline std::vector<Parts> prepareRetained(const uint8_t* pixels, int width, int height,
+        size_t stride, int quality, int threads, int rows, bool aq, size_t memoryCap) {
+    const int strips = (height + rows - 1) / rows;
+    if (memoryCap < (8u << 20) || !retainedGeometryFits(width, height, rows, memoryCap)) throw std::runtime_error("JPEG retained memory budget");
+    std::vector<std::unique_ptr<RetainedStrip>> retained(static_cast<size_t>(strips));
+    forEach(strips, threads, [&](int i) {
+        const int y0 = i * rows, h = std::min(rows, height - y0);
+        auto item = std::make_unique<RetainedStrip>();
+        item->feed(pixels + size_t(y0) * stride, width, h, stride, quality, aq,
+                   memoryCap / size_t(strips));
+        retained[size_t(i)] = std::move(item);
+    });
+    std::vector<std::vector<int64_t>> counts(4, std::vector<int64_t>(256, 0));
+    for (const auto& item : retained)
+        for (size_t t = 0; t < 4; ++t)
+            for (size_t s = 0; s < 256; ++s) counts[t][s] += item->counts[t][s];
+    Table shared[4];
+    for (int t = 0; t < 4; ++t) {
+        for (int s = 0; s < 256; ++s) {
+            if (!validSymbol((t & 1) != 0, s)) counts[size_t(t)][size_t(s)] = 0;
+            else if (!counts[size_t(t)][size_t(s)]) counts[size_t(t)][size_t(s)] = 1;
+        }
+        shared[t] = optimal(counts[size_t(t)]);
+    }
+    std::vector<Parts> parts(static_cast<size_t>(strips));
+    forEach(strips, threads, [&](int i) {
+        parts[size_t(i)] = parse(retained[size_t(i)]->finish(shared));
+        retained[size_t(i)].reset();
+    });
+    return parts;
+}
+
 /**
  * Encodes RGBA rows as one baseline JPEG on {@code threads} threads (see the file comment). Throws std::runtime_error when the
  * strips cannot be joined; the caller then encodes on one thread. {@code wantedRows}: the strip height (0 = automatic, a
  * multiple of 8 otherwise; the check of HalfJpeg uses short strips on a small image).
  */
 inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stride, int quality, int threads, int wantedRows,
-                       const std::function<bool(const uint8_t*, size_t)>& writer, int sampleEvery = 0) {
+                       const std::function<bool(const uint8_t*, size_t)>& writer, int sampleEvery = 0,
+                       bool fastTables = fastHuffmanTables().load(), bool aq = adaptiveQuantisation().load()) {
     if (pixels == nullptr || width <= 0 || height <= 0 || stride < size_t(width) * 4) throw std::runtime_error("JPEG: bad image geometry");
     const int rows = stripRows(width, height, threads, wantedRows);
     const int strips = (height + rows - 1) / rows;
@@ -318,61 +529,87 @@ inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stri
         y0 = i * rows;
         h = std::min(rows, height - y0);
     };
-    // pass 1: the code lengths of the optimised tables of every k-th strip (the statistics of a photo hardly change from
-    // strip to strip; every valid symbol keeps a code anyway) -> merged counts per (luma / chroma, dc / ac)
-    const int k = sampleEvery > 0 ? sampleEvery : std::max(1, strips / std::max(1, threads));
-    const int sampled = (strips + k - 1) / k;
-    std::vector<std::vector<int64_t>> counts(4, std::vector<int64_t>(256, 0));
-    std::vector<std::vector<std::vector<int64_t>>> perStrip(size_t(sampled), counts);
-    forEach(sampled, threads, [&](int j) {
-        const int i = j * k;
-        int y0, h;
-        stripOf(i, y0, h);
-        Parts p = parse(encodeStrip(pixels + size_t(y0) * stride, width, h, stride, quality, nullptr));
-        Table t[2][4];
-        bool present[2][4];
-        tablesOf(p, t, present);
-        int dc[3], ac[3];
-        scanTables(p, dc, ac);
-        const int64_t blocks = int64_t(mcusPerRow) * ((h + 7) / 8);
-        auto& mine = perStrip[size_t(j)];
-        for (int c = 0; c < 3; ++c) {
-            const int slot = c == 0 ? 0 : 1;
-            for (int cls = 0; cls < 2; ++cls) {
-                const int id = cls == 0 ? dc[c] : ac[c];
-                if (!present[cls][id]) throw std::runtime_error("strip: table missing");
-                const Table& tb = t[cls][id];
-                int k = 0;
-                for (int l = 1; l <= 16; ++l) {
-                    for (int n = 0; n < tb.bits[l]; ++n, ++k) {
-                        // a code of length l stands for about 2^-l of the table's symbols
-                        mine[size_t(2 * slot + cls)][tb.vals[k]] += std::max<int64_t>(1, (blocks << 16) >> l);
+    std::vector<Parts> parts;
+    if (fastTables) {
+        const size_t memoryCap = retainedMemoryBudget(width, height, rows);
+        if (memoryCap) {
+            try {
+                parts = prepareRetained(pixels, width, height, stride, quality, threads, rows, aq, memoryCap);
+            } catch (const std::exception&) {
+                // No destination bytes have been published; all retained states are already released.
+            }
+        }
+    }
+    if (parts.empty()) {
+        parts.resize(size_t(strips));
+        // pass 1: the code lengths of the optimised tables of every k-th strip (the statistics of a photo hardly change from
+        // strip to strip; every valid symbol keeps a code anyway) -> merged counts per (luma / chroma, dc / ac)
+        const int k = sampleEvery > 0 ? sampleEvery : std::max(1, strips / std::max(1, threads));
+        const int sampled = (strips + k - 1) / k;
+        std::vector<std::vector<int64_t>> counts(4, std::vector<int64_t>(256, 0));
+        std::vector<std::vector<std::vector<int64_t>>> perStrip(size_t(sampled), counts);
+        forEach(sampled, threads, [&](int j) {
+            const int i = j * k;
+            int y0, h;
+            stripOf(i, y0, h);
+            std::array<Table,6> channelTables;
+            bool collected = false;
+            try {
+                encodeStrip(pixels + size_t(y0) * stride, width, h, stride, quality, nullptr, aq, &channelTables);
+                collected = true;
+            } catch (const std::exception&) {
+                // Keep the same sample and tables if the bundled statistics shortcut cannot run.
+            }
+            if (!collected) {
+                Parts p = parse(encodeStrip(pixels + size_t(y0) * stride, width, h, stride, quality, nullptr, aq));
+                Table t[2][4];
+                bool present[2][4];
+                tablesOf(p, t, present);
+                int dc[3], ac[3];
+                scanTables(p, dc, ac);
+                for (int c = 0; c < 3; ++c) for (int cls = 0; cls < 2; ++cls) {
+                    const int id = cls == 0 ? dc[c] : ac[c];
+                    if (!present[cls][id]) throw std::runtime_error("strip: table missing");
+                    channelTables[2 * c + cls] = t[cls][id];
+                }
+            }
+            const int64_t blocks = int64_t(mcusPerRow) * ((h + 7) / 8);
+            auto& mine = perStrip[size_t(j)];
+            for (int c = 0; c < 3; ++c) {
+                const int slot = c == 0 ? 0 : 1;
+                for (int cls = 0; cls < 2; ++cls) {
+                    const Table& tb = channelTables[2 * c + cls];
+                    int k = 0;
+                    for (int l = 1; l <= 16; ++l) {
+                        for (int n = 0; n < tb.bits[l]; ++n, ++k) {
+                            // a code of length l stands for about 2^-l of the table's symbols
+                            mine[size_t(2 * slot + cls)][tb.vals[k]] += std::max<int64_t>(1, (blocks << 16) >> l);
+                        }
                     }
                 }
             }
+        });
+        for (const auto& m : perStrip)
+            for (size_t t = 0; t < 4; ++t)
+                for (size_t s = 0; s < 256; ++s) counts[t][s] += m[t][s];
+        Table shared[4];   // dc0, ac0, dc1, ac1
+        for (int t = 0; t < 4; ++t) {
+            const bool isAc = (t & 1) != 0;
+            std::vector<int64_t> c = counts[size_t(t)];
+            for (int s = 0; s < 256; ++s) {
+                if (!validSymbol(isAc, s)) { c[size_t(s)] = 0; continue; }
+                if (c[size_t(s)] == 0) c[size_t(s)] = 1;   // every valid symbol keeps a (long) code
+            }
+            shared[t] = optimal(c);
         }
-    });
-    for (const auto& m : perStrip)
-        for (size_t t = 0; t < 4; ++t)
-            for (size_t s = 0; s < 256; ++s) counts[t][s] += m[t][s];
-    Table shared[4];   // dc0, ac0, dc1, ac1
-    for (int t = 0; t < 4; ++t) {
-        const bool isAc = (t & 1) != 0;
-        std::vector<int64_t> c = counts[size_t(t)];
-        for (int s = 0; s < 256; ++s) {
-            if (!validSymbol(isAc, s)) { c[size_t(s)] = 0; continue; }
-            if (c[size_t(s)] == 0) c[size_t(s)] = 1;   // every valid symbol keeps a (long) code
-        }
-        shared[t] = optimal(c);
+        const Table order[4] = {shared[0], shared[1], shared[2], shared[3]};
+        // pass 2: the strips with the shared tables
+        forEach(strips, threads, [&](int i) {
+            int y0, h;
+            stripOf(i, y0, h);
+            parts[size_t(i)] = parse(encodeStrip(pixels + size_t(y0) * stride, width, h, stride, quality, order, aq));
+        });
     }
-    const Table order[4] = {shared[0], shared[1], shared[2], shared[3]};
-    // pass 2: the strips with the shared tables
-    std::vector<Parts> parts(static_cast<size_t>(strips));
-    forEach(strips, threads, [&](int i) {
-        int y0, h;
-        stripOf(i, y0, h);
-        parts[size_t(i)] = parse(encodeStrip(pixels + size_t(y0) * stride, width, h, stride, quality, order));
-    });
     // every strip must carry the same tables and scan header as strip 0
     const Parts& first = parts[0];
     auto same = [](const Parts& a, std::pair<size_t, size_t> x, const Parts& b, std::pair<size_t, size_t> y) {

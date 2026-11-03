@@ -127,7 +127,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
      */
     private int mVfRawPasses, mFusedLogged;
     /**
-     * P365 step 7 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
+     * P365 step 7 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
      * scam_dev vf_series_hold): while the shot's series is taken (CaptureController.seriesInFlight: the RAW frames stop from the
      * press until its frames are in, 0.38-0.40 s on the OPPO) the ISP frames are only latched for up to this long after the last
      * RAW draw - the screen keeps the last RAW frame instead of the ISP look appearing after RAW_SHOWN_NS and going again (a draw
@@ -224,7 +224,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         // P314: the tone at the frame's colour resolution (LiveRawRenderer.toneSize), the filter / peaking pass scales it up
         final boolean whyOn = rawReady && hProgram2d != 0
                 && com.particlesdevs.photoncamera.processing.opengl.postpipeline.LiveWhyTone.wanted() && !mWhyTone.failed();
-        // P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
+        // P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
         // vf_fused): vf_why 1 in one fused pass from the RAW texture - straight to the screen when the tone is the viewport's size
         // and nothing reads it afterwards (no lens filter, no peaking: one pass, no target of its own), else into the tone target
         // and the filter / peaking pass (two). Failing, it is off for the context and P314's passes draw once their programs are
@@ -523,13 +523,14 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
     private int[] toneSizeNow() {
         GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, mViewport, 0);
         final com.particlesdevs.photoncamera.processing.LiveWhyMeter.View v = mRawRenderer.lastView();
-        if (v == null) return new int[]{Math.max(1, mViewport[2]), Math.max(1, mViewport[3])};
+        final boolean busy = com.particlesdevs.photoncamera.util.ThermalPolicy.reducedRawViewfinder();
+        if (v == null) return RawPreviewBudget.size(mViewport[2], mViewport[3], busy);
         // the crop fitted to the screen, not the one drawn last: that one was fitted to the previous target's rounded aspect, and
         // the two could flip each other every frame (review: 139 of ~84k viewport / frame / zoom cases in a 2-cycle)
         final boolean quarterTurn = Math.abs(mTexRotateMatrix[1]) > Math.abs(mTexRotateMatrix[0]);
         final int[] crop = LiveRawRenderer.visibleCrop(v.frame, mViewport[2], mViewport[3], quarterTurn);
         final int[] size = LiveRawRenderer.toneSize(mViewport[2], mViewport[3], crop[2], crop[3], v.frame.cfaBlock, quarterTurn);
-        return new int[]{Math.max(1, size[0]), Math.max(1, size[1])};
+        return RawPreviewBudget.size(size[0], size[1], busy);
     }
 
     /** P365: the off-screen target goes while the fused tone is drawn straight to the screen (11 MB at 1440 x 1920). */

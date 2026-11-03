@@ -115,7 +115,24 @@ public final class MotionShutter {
                 level--;
                 changedAtNs = nowNs;
             }
-            return Math.max(Math.min(settingNs, MIN_CAP_NS), Math.round(settingNs / Math.pow(2, level / 2.0)));
+            final long cap = Math.max(Math.min(settingNs, MIN_CAP_NS), Math.round(settingNs / Math.pow(2, level / 2.0)));
+            // P471: a fresh measurement of a slow scene (BLUR_PX of smear take longer than 1/150 s) lets the default ceiling
+            // (1/250 s or a slower setting) grow to 1/150 s, the reference app's sport shutter: ~0.7 EV more light; any faster
+            // measurement takes the levels above at once
+            if (level == 0 && settingNs >= SLOW_SETTING_NS && nowNs - sampleAtNs <= FRESH_NS && pxPerS >= 0
+                    && BLUR_PX / pxPerS * 1e9 > SLOW_CAP_NS && slowCeiling()) return Math.max(cap, SLOW_CAP_NS);
+            return cap;
+        }
+
+        static final long SLOW_CAP_NS = 6_666_667L, SLOW_SETTING_NS = 4_000_000L, FRESH_NS = 250_000_000L;
+
+        /** P471: scam_dev motion_slow_ceiling 0 = the setting's ceiling for slow scenes too (as before). */
+        static boolean slowCeiling() {
+            try {
+                return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("motion_slow_ceiling", true);
+            } catch (RuntimeException | LinkageError e) {
+                return true;
+            }
         }
     }
 

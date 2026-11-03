@@ -14,11 +14,11 @@
 
 ### Display P3 в конвейере
 
-Цвет конвейера: `ark/combine.glsl` (ArkCombine) — `intermediateToSRGB * sensorToIntermediate` даёт линейный sRGB, дальше
+Цвет конвейера: `why/combine.glsl` (WhyCombine) — `intermediateToSRGB * sensorToIntermediate` даёт линейный sRGB, дальше
 OKLab-грейдинг, AgX, гамма-ограничение по sRGB и степень 1/2.2. Простая замена матрицы на P3 меняла бы вид (AgX в
 координатах P3: в среднем ΔE 0,7, до 8,6 — проверял моделью), поэтому сделано так:
 
-- define `P3_OUT` (ArkCombine ставит `P3_OUT 1` только при `PostPipeline.p3Output`): рабочие координаты остаются линейным
+- define `P3_OUT` (WhyCombine ставит `P3_OUT 1` только при `PostPipeline.p3Output`): рабочие координаты остаются линейным
   sRGB, но **ни одно отсечение не режет по sRGB**: отсечения нуля — по координатам P3 (`clampP3`: выборки цвета, возврат из
   OKLab), на вход AgX цвет подаётся со сниженной OKLab-хромой (L и тон те же) до неотрицательных sRGB, а потерянная хрома
   возвращается после тона (× C_вход / C_сниж), гамма-ограничение — по P3 (`fromOklabInGamutP3`), на выходе — P3 в кодировке
@@ -73,7 +73,7 @@ NATIVE graphics) читает наши JPEG / WebP / Ultra HDR как `ColorSpac
 
 1. **Шейдер**: при `P3_OUT 0` все блоки `#if P3_OUT == 1` выпадают препроцессором, ветки `#else` — старые строки. Поток
    токенов после препроцессора совпадает с a3e94db (SHA-256 `ef87351c…`, проверка `check_colour_output.py --shader`, и через
-   `git show a3e94db`); на GPU (moderngl) рендер `P3_OUT 0` совпадает со старым шейдером **бит в бит** на 940 цветах. ArkCombine
+   `git show a3e94db`); на GPU (moderngl) рендер `P3_OUT 0` совпадает со старым шейдером **бит в бит** на 940 цветах. WhyCombine
    ставит define только при P3 (без define — тот же ключ программы, что раньше).
 2. **Java**: четырёхаргументный `PhotoOutput.save` (его вызывает HdrxProcessor, когда P3 и HDR выключены) идёт по старым
    вызовам: `saveJpeg` без ICC → тот же `UltraHdrEncoder.encodeToFile` / `ImageSaver.Util.saveBitmapAsJPG` с потоком файла
@@ -108,7 +108,7 @@ NATIVE graphics) читает наши JPEG / WebP / Ultra HDR как `ColorSpac
 - `check_settings_model.py` PASS (новые правила в `SettingsModelCheck`), `check_ui_language.py` PASS.
 - `:app:assembleDebug` (Windows, CMake 4.4.3, NDK 27.2) — собран: `SCAMERA-0.98-27075-debug.apk`, `libscameraAvif.so`
   пересобран с новым JNI (не ставился; для выдачи — только APK из CI). `app/version.properties` восстановлен,
-  `local.properties` не создавался. `check_ultrahdr.py --self-test`, `check_ark_highlights.py`, `check_signed_rgb.py`,
+  `local.properties` не создавался. `check_ultrahdr.py --self-test`, `check_why_highlights.py`, `check_signed_rgb.py`,
   `check_dark_fade.py`, `check_highlight_neutral.py` — PASS.
 
 ## Поддержка просмотрщиков (ожидания, проверить)
@@ -128,11 +128,11 @@ NATIVE graphics) читает наши JPEG / WebP / Ultra HDR как `ColorSpac
 1. Настройки → Конфиг: «Цветовое пространство» видно при любом формате; «HDR в HEIC / AVIF» — только HEIC/AVIF, неактивна
    с причиной при HEIC без «HEIC 10 бит» и при AVIF 8 бит; на Android 13+ активна.
 2. **По умолчанию** (sRGB, HDR выкл.): снимок в JPEG, HEIC 8 и 10 бит, WebP, AVIF. В PhotonLog нет `output=DisplayP3`
-   (строка `ARK combine`), нет `Display P3` / `HDR` в строках `PhotoOutput: … saved`. Файлы: JPEG без APP2 ICC_PROFILE
+   (строка `WHY combine`), нет `Display P3` / `HDR` в строках `PhotoOutput: … saved`. Файлы: JPEG без APP2 ICC_PROFILE
    (`python -c "from PIL import Image; print(Image.open('X.jpg').info.get('icc_profile'))"` → None), HEIC 10 бит —
    `python tools/check_heic10.py X.heic` → `nclx 1/13/1`, AVIF — nclx 1/13/1 без ICC.
 3. **Display P3**: сцена с насыщенными цветами (красные/оранжевые цветы, неон, закат, зелень) — снимок в каждом формате и
-   для сравнения тот же кадр в sRGB. Журнал: `ARK combine … output=DisplayP3`, `PhotoOutput: JPEG Display P3 saved`,
+   для сравнения тот же кадр в sRGB. Журнал: `WHY combine … output=DisplayP3`, `PhotoOutput: JPEG Display P3 saved`,
    `HEIC 8-bit Display P3 ICC saved` (или `HEIC 10-bit Display P3`), `WEBP Display P3`, `AVIF … Display P3`. Файлы: Pillow
    `info['icc_profile']` (JPEG/WebP/AVIF) и pillow-heif `info['icc_profile']` (HEIC) — профиль «Display P3»;
    `check_heic10.py` для 10 бит → `nclx 12/13/1`. Если строка `HEIC: Display P3 profile not added` — прислать ошибку
@@ -152,7 +152,7 @@ NATIVE graphics) читает наши JPEG / WebP / Ultra HDR как `ColorSpac
 - VUI 10-битного P3 HEIC — BT.709 (в MediaFormat нет P3); P3 сообщают nclx и ICC контейнера.
 - 8-битный P3 HEIC: только ICC (матрица YCbCr кодировщика не меняется); если файл HeifWriter устроен неожиданно (moov за
   растущим meta), профиль не добавляется — в журнале ошибка, файл читается как sRGB.
-- P3-режим делает насыщеннее и те цвета, которые sRGB-рендер отсекал внутри конвейера (см. выше); узлы после ArkCombine
+- P3-режим делает насыщеннее и те цвета, которые sRGB-рендер отсекал внутри конвейера (см. выше); узлы после WhyCombine
   (резкость, LMC-кривые, локальный контраст, ресайз) работают с P3-значениями как раньше с sRGB (веса яркости sRGB — разница
   пренебрежима). Проход гейн-мапы Ultra HDR считает яркость базы весами sRGB и при P3-базе (малое отличие).
 - HDR — только HLG (PQ не делал); запас 2,3 ступени (HLG 1000 кд/м²), всё выше — мягким коленом; HDR-картинка — база × карта

@@ -46,7 +46,7 @@ import java.util.concurrent.Executors;
  * display luma at effS 1.5-2, host model of a 2x ISZ merge). P333: the photo's fusion is a Laplacian pyramid now (WhyFusion); vf_why 2
  * keeps the guided filter (the photo's fusion before it): equal to the photo on flat areas, not at edges.
  *
- * <p>P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; the reference
+ * <p>P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; the reference
  * viewfinder draws its look in one pass from the RAW texture): {@link #drawFused} - vf_why 1 in one pass, why/combine with
  * POINT_FUSED 1 and RAW_SOURCE 1 reading the RAW frame itself (utils/import_vfraw.glsl: rawdevelop_fs's linear values, the 3 x 3
  * colour neighbourhood from the same filtered quads), the same AE, curve and uniforms as {@link #draw}. No RGBA16F linear frame,
@@ -235,16 +235,16 @@ public final class LiveWhyTone {
     private float yellowHue;
     /** P398: a pale light tone towards white (hlNeutralU), as WhyCombine sets it. */
     private float hlNeutral;
-    /** P402: the reference fusion layout's base of the tone (ARK_BASE), as WhyCombine sets it. */
-    private boolean arkBase;
+    /** P402: the reference fusion layout's base of the tone (WHY_BASE), as WhyCombine sets it. */
+    private boolean whyBase;
     /** P402: the AgX inset's strength (AGX_INSET below 1), as WhyCombine sets it. */
     private float inset = 1f;
     /** P404: the display standard (GAMMA_TYPE), as WhyCombine sets it. */
     private int gammaType;
-    /** P404: the reference app's vibrance terms (ARK_VIB), as WhyCombine sets them; null: none. */
-    private float[][] arkVib;
-    /** P419: the reference app's vibrance (ARK_VIBRANCE), as WhyCombine sets it; null: off. */
-    private float[] vibArk, vibSkin;
+    /** P404: the reference app's vibrance terms (WHY_VIB), as WhyCombine sets them; null: none. */
+    private float[][] whyVib;
+    /** P419: the reference app's vibrance (WHY_VIBRANCE), as WhyCombine sets it; null: off. */
+    private float[] vibWhy, vibSkin;
     private float[] vib = new float[3];
     /** P393: the light-tone vibrance's shape for pale colour, as WhyCombine sets it. */
     private float[] vibHlShape = WhyTone.VIBRANCE_HL_SHAPE.clone();
@@ -256,11 +256,17 @@ public final class LiveWhyTone {
         final String key;
         final FilmLut lut;
         final boolean scene;
+        final boolean reference;
 
         Loaded(String key, FilmLut lut, boolean scene) {
+            this(key, lut, scene, false);
+        }
+
+        Loaded(String key, FilmLut lut, boolean scene, boolean reference) {
             this.key = key;
             this.lut = lut;
             this.scene = scene;
+            this.reference = reference;
         }
     }
 
@@ -269,6 +275,7 @@ public final class LiveWhyTone {
     private FilmLut lutShown;
     /** P369: the table shown is the film's scene table (FILM_SIM 1), not the chosen LUT's (FILM_LUT 1). */
     private boolean lutShownScene;
+    private boolean lutShownReference;
     private float lutStrength;
     /** P369: the film simulation of the settings now (null: none) and its strength (the shader's mix). */
     private com.particlesdevs.photoncamera.processing.color.FilmSim.Settings filmNow;
@@ -562,12 +569,12 @@ public final class LiveWhyTone {
         lightChroma = WhyTone.lightChroma();
         yellowHue = WhyTone.yellowHue();
         hlNeutral = WhyTone.hlNeutral();
-        arkBase = WhyTone.arkLayout();
+        whyBase = WhyTone.whyLayout();
         inset = WhyTone.insetStrength();
         gammaType = WhyTone.gammaType();
-        arkVib = WhyTone.arkVibrance();
-        vibArk = WhyTone.arkVibranceOn() ? WhyTone.vibranceArkUniform() : null;
-        vibSkin = vibArk != null ? WhyTone.vibranceSkinUniform() : null;
+        whyVib = WhyTone.whyVibrance();
+        vibWhy = WhyTone.whyVibranceOn() ? WhyTone.vibranceWhyUniform() : null;
+        vibSkin = vibWhy != null ? WhyTone.vibranceSkinUniform() : null;
         FusedCurve.GAMMA_TYPE[0] = gammaType;
         // P378 review: the lens' f-number (the sky's absolute EV), as Parameters reads it
         float[] apertures = camera != null ? camera.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) : null;
@@ -588,9 +595,11 @@ public final class LiveWhyTone {
                     lutLoaded = null;
                     LUT_LOADER.execute(() -> {
                         if (!key.equals(lutWanted)) return; // settings moved on while queued: no table nobody waits for
-                        final com.particlesdevs.photoncamera.processing.color.FilmChain.Scene scene =
-                                com.particlesdevs.photoncamera.processing.color.FilmChain.scene(ScameraApp.getAppContext(), sim, user, userStrength);
-                        if (key.equals(lutWanted)) lutLoaded = new Loaded(key, scene != null ? scene.lut : null, true);
+                        com.particlesdevs.photoncamera.processing.color.FilmChain.loadScene(ScameraApp.getAppContext(), sim, user,
+                                userStrength, () -> key.equals(lutWanted), scene -> {
+                                    if (key.equals(lutWanted)) lutLoaded = new Loaded(key, scene != null ? scene.lut : null,
+                                            true, scene != null && scene.reference);
+                                });
                     });
                 }
                 return;
@@ -1017,7 +1026,13 @@ public final class LiveWhyTone {
             lutShown = lut;
         }
         lutShownScene = lut != null && l.scene;
+        lutShownReference = lut != null && l.reference;
         return lut;
+    }
+
+    static float filmExposure(boolean reference, float ae, float inputScale, float legacyOverAe) {
+        return reference ? 1f / (Math.max(ae, 1e-6f) * Math.max(inputScale, 1e-6f))
+                : legacyOverAe * com.particlesdevs.photoncamera.processing.color.FilmSim.METER_TO_FILM;
     }
 
     /** why/combine's uniforms but its image inputs (units 0 - 5): the LUT (6), the gain map (7), the fusion's curve (8), the tone. */
@@ -1084,12 +1099,12 @@ public final class LiveWhyTone {
         set(p, "yellowHueU", yellowHue);   // P395, as the photo (no location without the define)
         set(p, "hlNeutralU", hlNeutral);   // P398, as the photo
         if (inset < 0.999f) set(p, "insetU", inset);   // P402, as the photo
-        if (arkVib != null) {
-            GLES20.glUniform4f(loc(p, "arkVibU"), arkVib[0][0], arkVib[0][1], arkVib[0][2], arkVib[0][3]);
-            GLES20.glUniform3f(loc(p, "arkSkinU"), arkVib[1][0], arkVib[1][1], arkVib[1][2]);
+        if (whyVib != null) {
+            GLES20.glUniform4f(loc(p, "whyVibU"), whyVib[0][0], whyVib[0][1], whyVib[0][2], whyVib[0][3]);
+            GLES20.glUniform3f(loc(p, "whySkinU"), whyVib[1][0], whyVib[1][1], whyVib[1][2]);
         }
-        if (vibArk != null) {   // P419, as the photo
-            GLES20.glUniform4f(loc(p, "vibArkU"), vibArk[0], vibArk[1], vibArk[2], vibArk[3]);
+        if (vibWhy != null) {   // P419, as the photo
+            GLES20.glUniform4f(loc(p, "vibWhyU"), vibWhy[0], vibWhy[1], vibWhy[2], vibWhy[3]);
             GLES20.glUniform4f(loc(p, "vibSkinU"), vibSkin[0], vibSkin[1], vibSkin[2], vibSkin[3]);
         }
         if (skyOnDraw) {
@@ -1119,7 +1134,7 @@ public final class LiveWhyTone {
             // P369: the photo's film feed (WhyCombine): the film's strength, its exposure over the shown ae (the meter before the
             // highlight overflow's cut, eased as the shown ae, at the film's mid grey) and the log grid
             GLES20.glUniform2f(loc(p, "lutU"), filmStrength, (float) lut.size);
-            set(p, "filmExpU", shown.filmOverAe() * com.particlesdevs.photoncamera.processing.color.FilmSim.METER_TO_FILM);
+            set(p, "filmExpU", filmExposure(lutShownReference, aeNow, inScale, shown.filmOverAe()));
             GLES20.glUniform2f(loc(p, "filmLogU"), com.particlesdevs.photoncamera.processing.color.FilmSim.LOG_LO,
                     com.particlesdevs.photoncamera.processing.color.FilmSim.LOG_SPAN);
         } else if (lutOn) {
@@ -1200,11 +1215,11 @@ public final class LiveWhyTone {
         if (toneOp == ToneCurve.AGX && lightChroma > 0f) defs.add(new String[]{"LIGHT_CHROMA", "1"});
         if (yellowHue > 0f) defs.add(new String[]{"YELLOW_HUE", "1"});   // P395, as the photo
         if (hlNeutral > 0f) defs.add(new String[]{"HL_NEUTRAL", "1"});   // P398, as the photo
-        if (arkBase) defs.add(new String[]{"ARK_BASE", "1"});   // P402, as the photo
+        if (whyBase) defs.add(new String[]{"WHY_BASE", "1"});   // P402, as the photo
         if (inset < 0.999f) defs.add(new String[]{"AGX_INSET", "1"});   // P402, as the photo
         if (gammaType != 0) defs.add(new String[]{"GAMMA_TYPE", String.valueOf(gammaType)});   // P404, as the photo
-        if (arkVib != null) defs.add(new String[]{"ARK_VIB", "1"});   // P404, as the photo
-        if (vibArk != null) defs.add(new String[]{"ARK_VIBRANCE", "1"});   // P419, as the photo
+        if (whyVib != null) defs.add(new String[]{"WHY_VIB", "1"});   // P404, as the photo
+        if (vibWhy != null) defs.add(new String[]{"WHY_VIBRANCE", "1"});   // P419, as the photo
         // P369: a film's scene table (FILM_SIM) or the chosen LUT (FILM_LUT), never both
         if (lutOn) defs.add(new String[]{scene ? "FILM_SIM" : "FILM_LUT", "1"});
         // P378 review: the sky term (the photo's SKY, its cells from LiveSky)

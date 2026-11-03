@@ -16,7 +16,7 @@ import java.nio.file.Files;
 /**
  * P402 (owner, 2026-10-29: «Перенеси то чего нам не хватает», «dezipper нам также перенеси», the ported rows «не в дев настройках»):
  * the reference app's settings in ours - the classic fusion layout's exposures, the matrix saturation, the pyramid denoise's
- * noise factor and its matrix inverse, the wiring of the tone's AGX_INSET / ARK_BASE / hrEaseU and of the dezipper, and none of
+ * noise factor and its matrix inverse, the wiring of the tone's AGX_INSET / WHY_BASE / hrEaseU and of the dezipper, and none of
  * them in the developer page. The pixels: tools/check_why_v207.py, check_ms_denoise.py, check_hybrid_dezipper.py.
  */
 public class WhyV207PortTest {
@@ -74,12 +74,12 @@ public class WhyV207PortTest {
     @Test public void wiredInThePhotoAndTheViewfinder() throws IOException {
         final String src = "src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/";
         final String shader = read("src/main/assets/shaders/why/combine.glsl");
-        assertTrue(shader.contains("#define ARK_BASE 0\n") && shader.contains("#define AGX_INSET 0\n"));
+        assertTrue(shader.contains("#define WHY_BASE 0\n") && shader.contains("#define AGX_INSET 0\n"));
         final String why = read(src + "WhyCombine.java"), live = read(src + "LiveWhyTone.java");
-        assertTrue(why.contains("if (WhyTone.arkLayout()) glProg.setDefine(\"ARK_BASE\", 1);"));
+        assertTrue(why.contains("if (WhyTone.whyLayout()) glProg.setDefine(\"WHY_BASE\", 1);"));
         assertTrue(why.contains("if (WhyTone.insetStrength() < 0.999f) glProg.setDefine(\"AGX_INSET\", 1);"));
         assertTrue(why.contains("glProg.setVar(\"hrEaseU\", 1f - WhyTone.shoulderStrength());"));
-        assertTrue(live.contains("if (arkBase) defs.add(new String[]{\"ARK_BASE\", \"1\"});"));
+        assertTrue(live.contains("if (whyBase) defs.add(new String[]{\"WHY_BASE\", \"1\"});"));
         assertTrue(live.contains("if (inset < 0.999f) defs.add(new String[]{\"AGX_INSET\", \"1\"});"));
         assertTrue(live.contains("WhyFusion.liveExposures(r)"));
         assertTrue("the pyramid denoise only when on", read(src + "PostPipeline.java").contains("if (PreferenceKeys.isHybridDenoiseEnabled()) add(new WhyMsDenoise());"));
@@ -126,10 +126,10 @@ public class WhyV207PortTest {
     @Test public void p404Wiring() throws IOException {
         final String src = "src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/";
         final String shader = read("src/main/assets/shaders/why/combine.glsl");
-        assertTrue(shader.contains("#define GAMMA_TYPE 0\n") && shader.contains("#define ARK_VIB 0\n"));
+        assertTrue(shader.contains("#define GAMMA_TYPE 0\n") && shader.contains("#define WHY_VIB 0\n"));
         assertTrue(read("src/main/assets/shaders/why/msdn.glsl").contains("#define MOTION 0\n"));
         final String why = read(src + "WhyCombine.java"), live = read(src + "LiveWhyTone.java");
-        for (String s : new String[]{"\"GAMMA_TYPE\"", "\"ARK_VIB\"", "\"arkVibU\"", "\"arkSkinU\"", "WhyTone.curveBoost(r.contrastC)"}) {
+        for (String s : new String[]{"\"GAMMA_TYPE\"", "\"WHY_VIB\"", "\"whyVibU\"", "\"whySkinU\"", "WhyTone.curveBoost(r.contrastC)"}) {
             assertTrue("the photo: " + s, why.contains(s));
             assertTrue("the viewfinder: " + s, live.contains(s));
         }

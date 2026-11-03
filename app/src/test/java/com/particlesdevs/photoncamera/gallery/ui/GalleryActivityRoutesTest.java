@@ -78,14 +78,14 @@ public class GalleryActivityRoutesTest {
     }
 
     @Test
-    public void leavingKeepsAnEditorWithUnsavedWork() {
-        // P299: the gallery opened from the camera closes when the user leaves it ...
-        assertTrue(GalleryActivity.finishOnLeave(false, false, false, false));
-        // ... but not under unsaved edits or a running «Сохранить копию» (they were dropped without a word)
-        assertFalse(GalleryActivity.finishOnLeave(false, false, false, true));
-        // another app's gallery, the gallery's own child screens and a finishing gallery as before
-        assertFalse(GalleryActivity.finishOnLeave(true, false, false, false));
-        assertFalse(GalleryActivity.finishOnLeave(false, true, false, false));
-        assertFalse(GalleryActivity.finishOnLeave(false, false, true, false));
+    public void theLauncherIconClosesTheGalleryTheRecentsKeepIt() {
+        // P491: finishOnTaskLaunch - a task launch (the camera icon) closes the gallery, resuming the task (recents) keeps it
+        android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
+        try {
+            android.content.pm.ActivityInfo info = c.getPackageManager().getActivityInfo(new android.content.ComponentName(c, GalleryActivity.class), 0);
+            assertTrue((info.flags & android.content.pm.ActivityInfo.FLAG_FINISH_ON_TASK_LAUNCH) != 0);
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            throw new AssertionError(e);
+        }
     }
 }

@@ -32,11 +32,38 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/deps)
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 set(FILM_DIR ${SRC_DIR}/third_party/spektrafilm)
-add_library(scameraFilm SHARED film-reference-jni.cpp
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(FILM_GENERATED ${CMAKE_CURRENT_BINARY_DIR}/embedded-film)
+if(CMAKE_HOST_WIN32)
+    set(FILM_SHADER_HOST windows-x86_64)
+    set(FILM_SHADER_EXE .exe)
+elseif(CMAKE_HOST_APPLE)
+    set(FILM_SHADER_HOST darwin-x86_64)
+else()
+    set(FILM_SHADER_HOST linux-x86_64)
+endif()
+set(FILM_SHADER_COMPILER ${CMAKE_ANDROID_NDK}/shader-tools/${FILM_SHADER_HOST}/glslc${FILM_SHADER_EXE})
+file(GLOB FILM_SHADER_SOURCES CONFIGURE_DEPENDS ${FILM_DIR}/shaders/*.comp)
+set(FILM_GENERATOR ${SRC_DIR}/../../../../tools/embed_film_reference.py)
+set(FILM_FLOATS ${SRC_DIR}/../assets/film-reference)
+add_custom_command(
+    OUTPUT ${FILM_GENERATED}/embedded_film_data.cpp ${FILM_GENERATED}/embedded_film_index.h
+           ${FILM_GENERATED}/embedded_film_data.bin ${FILM_GENERATED}/embedded_film_manifest.json
+    COMMAND ${Python3_EXECUTABLE} ${FILM_GENERATOR} --compiler ${FILM_SHADER_COMPILER}
+            --shaders ${FILM_DIR}/shaders --floats ${FILM_FLOATS} --output ${FILM_GENERATED}
+    DEPENDS ${FILM_GENERATOR} ${FILM_SHADER_SOURCES}
+            ${FILM_FLOATS}/SpektraHanatos2025Spectra.f32 ${FILM_FLOATS}/SpektraOutputGamutCompression.f32
+    VERBATIM)
+add_library(scameraFilm SHARED film-reference-jni.cpp film-reference-resources.cpp
+    ${FILM_GENERATED}/embedded_film_data.cpp
     ${FILM_DIR}/SpektraVulkanRenderer.cpp ${FILM_DIR}/SpektraGeneratedProfileCurves.cpp)
 target_compile_features(scameraFilm PRIVATE cxx_std_17)
-target_include_directories(scameraFilm PRIVATE ${FILM_DIR})
-target_compile_options(scameraFilm PRIVATE -O2 -fvisibility=hidden)
+target_include_directories(scameraFilm PRIVATE ${FILM_DIR} ${SRC_DIR} ${FILM_GENERATED})
+target_compile_definitions(scameraFilm PRIVATE SCAMERA_EMBEDDED_FILM=1)
+target_compile_options(scameraFilm PRIVATE -O2 -fvisibility=hidden -fvisibility-inlines-hidden)
+target_link_options(scameraFilm PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections
+    -Wl,--version-script=${SRC_DIR}/film-reference-exports.map)
+set_property(TARGET scameraFilm APPEND PROPERTY LINK_DEPENDS ${SRC_DIR}/film-reference-exports.map)
 target_link_libraries(scameraFilm PRIVATE vulkan dl log)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
@@ -45,6 +72,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 add_library(allocator SHARED
     ${SRC_DIR}/allocator.cpp
     ${SRC_DIR}/worker-spawn.cpp
+    ${SRC_DIR}/scam-ahb.cpp # P482: the merge RGB in the app's hardware buffer (HardwareRgb)
 )
 add_library(
         camera2native SHARED ${SRC_DIR}/native-engine.cpp
@@ -63,6 +91,9 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
 target_link_libraries(allocator PRIVATE
         log
         dl
+        android
+        EGL
+        GLESv3
 )
 
 target_link_libraries(

@@ -23,3 +23,7 @@ scheduling; the source, license and profile provenance are distributed in
 app/src/main/cpp/third_party/spektrafilm. Unspektrawesome 1.2.7 by
 JohnTheFarm3r is the Android comparison reference; its native library is not
 included. Existing monochrome profiles use SCAMERA's separate model.
+
+P487 (2026-11-03): the renderer's Hanatos 2025 spectral model uses the per-film bandpass of the same commit's
+Resources/data/profiles/archive/*.json (20 colour films), generated unchanged by its tools/generate_profile_curves.py;
+the files and their sha256 are listed in app/src/main/cpp/third_party/spektrafilm/SOURCE.json.

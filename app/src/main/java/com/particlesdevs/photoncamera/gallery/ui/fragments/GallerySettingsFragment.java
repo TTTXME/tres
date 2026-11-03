@@ -38,11 +38,11 @@ public class GallerySettingsFragment extends PreferenceFragmentCompat {
         if (foldersList != null) {
             ArrayList<GalleryFileOperations.ImagesFolder> folders = GalleryFileOperations.FindAllFoldersWithImages(getActivity().getContentResolver());
             CharSequence[] folderNames = folders.stream().map(GalleryFileOperations.ImagesFolder::getFolderName).collect(Collectors.toList()).toArray(new String[]{});
-            CharSequence[] folderIds = folders.stream().map(imagesFolder -> String.valueOf(imagesFolder.getFolderId())).collect(Collectors.toList()).toArray(new String[]{});
+            CharSequence[] folderIds = folderNames; // P491: stored by name (a merged folder's id changes with its newest photo)
             foldersList.setEntries(folderNames);
             foldersList.setEntryValues(folderIds);
             HashMap<String, String> entrymap = new HashMap<>();
-            folders.forEach(f -> entrymap.put(String.valueOf(f.getFolderId()), f.getFolderName()));
+            folders.forEach(f -> entrymap.put(f.getFolderName(), f.getFolderName()));
 
             foldersList.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
                 @Override

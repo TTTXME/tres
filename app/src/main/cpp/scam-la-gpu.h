@@ -362,7 +362,7 @@ void main(){
 }
 )";
 
-// P364 GPU homography (tune gpuAlign; ArkCam 2.01's HomographyEngine shape: corners on a 24 x 24 grid, a pyramidal KLT per corner,
+// P364 GPU homography (tune gpuAlign; WhyCam 2.01's HomographyEngine shape: corners on a 24 x 24 grid, a pyramidal KLT per corner,
 // RANSAC on the tracks), on the gray pyramid of the F6 above (sqrt of the gained quads, -1 at a clip):
 // the base's corners: per grid cell the strongest Shi-Tomasi minimum eigenvalue (5 x 5 central differences, x255 scale as an 8-bit
 // guide) among every 2nd pixel, a 9 x 9 patch around it free of clipped quads

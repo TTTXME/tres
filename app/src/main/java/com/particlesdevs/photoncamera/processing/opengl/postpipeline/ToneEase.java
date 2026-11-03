@@ -1,10 +1,10 @@
 package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
 
 /**
- * P383 (owner, 2026-10-28, a screen recording of the X200 Ultra's RAW viewfinder after ArkCam's: «экспозиция меняется не плавно, а
+ * P383 (owner, 2026-10-28, a screen recording of the X200 Ultra's RAW viewfinder after WhyCam's: «экспозиция меняется не плавно, а
  * ступенчато»): the tone the viewfinder shows between two of its AE runs. Before, LiveWhyTone moved its shown exposure once per AE
  * run (every AE_EVERY = 4 drawn frames, by 0.35 of the gap) and the fused curve and the AgX / clip values jumped to each run's
- * result: on the recording steps of 0.12, 0.11, 0.11, 0.08, 0.05, 0.04 EV every fourth frame and nothing between (ArkCam: 0.02 -
+ * result: on the recording steps of 0.12, 0.11, 0.11, 0.08, 0.05, 0.04 EV every fourth frame and nothing between (WhyCam: 0.02 -
  * 0.09 EV every frame). Now every drawn frame moves all of it towards the last result, by time: a critically damped pair of lags
  * ({@link #TAU_S} each, the exact solution over the frame's dt, so 10 and 30 frames a second ease alike) - it starts gently (6 % of
  * a gap in the first frame at 30 a second), moves at most ~10 % of it a frame and is 90 % there after ~0.47 s (the old law: 35 %

@@ -463,7 +463,7 @@ public class Parameters {
             }
         }
         iso = sensivity;
-        noiseModeler = new NoiseModeler(result.get(CaptureResult.SENSOR_NOISE_PROFILE), analogIso, sensivity, cfaPattern);
+        noiseModeler = new NoiseModeler(NoiseModeler.sanitizedOffsets(result.get(CaptureResult.SENSOR_NOISE_PROFILE), whiteLevel), analogIso, sensivity, cfaPattern);
         Long exposure = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
         if (exposure == null) {
             exposure = request.get(CaptureRequest.SENSOR_EXPOSURE_TIME);
@@ -565,7 +565,7 @@ public class Parameters {
     }
 
     /**
-     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the RAW levels of one
+     * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): the RAW levels of one
      * frame alone - black, white, their bit depth and source, the declared white, the binned scale - exactly as
      * {@link #FillDynamicParameters} sets them for {@code result}, nothing else and without its log lines. ScamProcessor's first
      * metadata pass (the last burst callback) ran the whole FillDynamicParameters (lens shading, noise model, colour: ReCalcColor

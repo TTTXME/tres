@@ -65,11 +65,11 @@ float satShare(vec3 rgb) {
     float mx = max(max(c.r, c.g), c.b);
     float sat = (mx - min(min(c.r, c.g), c.b)) / max(mx, 0.000001);
     float level = satLevelU.y > 0.0 ? smoothstep(satLevelU.x, satLevelU.y, mx * (aeU > 0.0 ? aeU : 1.0)) : 1.0;
-    // P348 (owner, 2026-10-26, the sunset with the ladder: «очень жёсткий переход оранжевого, сделай ближе к Арк камере»): the
+    // P348 (owner, 2026-10-26, the sunset with the ladder: «очень жёсткий переход оранжевого, сделай ближе к Why камере»): the
     // glow round a setting sun is as saturated as an LED (0.85 - 0.9) and falls 10 x within ~15 whyLow px, so the level gate
-    // switched it from the pyramid to the per-pixel fusion there: a dark orange ring round a white disc, where ArkCam (no share)
+    // switched it from the pyramid to the per-pixel fusion there: a dark orange ring round a white disc, where WhyCam (no share)
     // has a bright, soft glow. Its hue is orange ((g - b) / (r - b) 0.30 - 0.58 on the owner's burst), the LEDs of P310 violet,
-    // pink and blue; red (g ~ b) keeps the share. Natural warm light takes the pyramid, as ArkCam's.
+    // pink and blue; red (g ~ b) keeps the share. Natural warm light takes the pyramid, as WhyCam's.
     if (warmU.y > warmU.x && c.r >= c.g && c.g >= c.b && mx > c.b) {
         float t = (c.g - c.b) / (mx - c.b);
         level *= 1.0 - smoothstep(warmU.x, warmU.y, t) * (1.0 - smoothstep(0.85, 1.0, t));

@@ -95,6 +95,7 @@ public class GLBasePipeline implements AutoCloseable {
     }
 
     public void startTimeMeasure() {
+        PostGlMode.lapStart();
         timeStart = System.currentTimeMillis();
     }
 
@@ -196,7 +197,9 @@ public class GLBasePipeline implements AutoCloseable {
 
     public GLImage runAll() {
         runNodes();
+        GLGpuTimer.node("final output");
         glint.glProcessing.drawBlocksToOutput();
+        GLGpuTimer.report("post");
         finishRun();
         return glint.glProcessing.mOut;
     }
@@ -211,7 +214,13 @@ public class GLBasePipeline implements AutoCloseable {
         runNodes();
         // P440 (step 0c): the final pass's draws and readback start here (post_final .. post_readback: they and finishRun)
         if (!PostGlMode.legacy()) com.particlesdevs.photoncamera.processing.ShotTimeline.markIfShot("post_final");
+        GLGpuTimer.node("final output");
+        // P477: no node makes a texture any more: what the pool keeps goes now (the mains' close after the readback deletes them)
+        GLTexturePool.node("final output");
+        GLTexturePool.end();
         Bitmap bitmap = glint.glProcessing.drawBlocksToBitmap();
+        GLGpuTimer.report("post");
+        GLTexturePool.report("post");
         finishRun();
         return bitmap;
     }
@@ -222,6 +231,7 @@ public class GLBasePipeline implements AutoCloseable {
     private void runNodes() {
         lastI();
         final boolean syncNodes = PostGlMode.syncNodes();
+        GLGpuTimer.begin(); // P479: post_sync only (profiling)
         for (int i = 0; i < Nodes.size(); i++) {
             Node node = Nodes.get(i);
             if (skipNode(node)) {
@@ -236,6 +246,8 @@ public class GLBasePipeline implements AutoCloseable {
                 throw nodeFailure(node, "prepare", error);
             }
             startTimeMeasure();
+            GLGpuTimer.node(node.Name);
+            GLTexturePool.node(node.Name); // P477: the inventory's node
             try {
                 node.Run();
             } catch (RuntimeException error) {

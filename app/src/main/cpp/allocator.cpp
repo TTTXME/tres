@@ -118,17 +118,16 @@ void copyBytes(uint8_t* dst, const uint8_t* src, size_t n) {
     constexpr size_t kParallel = size_t(32) << 20;
     if (n < kParallel) { memcpy(dst, src, n); return; }
     constexpr int kThreads = 4;
-    const size_t part = ((n / kThreads) + 4095) & ~size_t(4095);
+    const size_t part = ((n / kThreads + (n % kThreads != 0)) + 4095) & ~size_t(4095);
     std::thread pool[kThreads - 1];
-    int started = 0;
     for (int t = 1; t < kThreads; ++t) {
         const size_t lo = std::min(n, part * t), hi = std::min(n, part * (t + 1));
         if (hi <= lo) break;
-        try { pool[t - 1] = std::thread([=] { memcpy(dst + lo, src + lo, hi - lo); }); ++started; }
+        try { pool[t - 1] = std::thread([=] { memcpy(dst + lo, src + lo, hi - lo); }); }
         catch (...) { memcpy(dst + lo, src + lo, hi - lo); }
     }
     memcpy(dst, src, std::min(n, part));
-    for (int t = 0; t < started; ++t) pool[t].join();
+    for (auto& helper : pool) if (helper.joinable()) helper.join();
 }
 void unmapLocked(size_t index, ArenaWork& work) {
     work.maps.emplace_back(arenas[index].base, arenas[index].size);
@@ -784,6 +783,8 @@ Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopyBinning(JNIEnv
 
 #pragma clang diagnostic pop
 
+bool scamAhbFreeView(const void* ptr); // P482: scam-ahb.cpp (the merge RGB in the app's hardware buffer)
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_particlesdevs_photoncamera_util_Allocator_free(JNIEnv *env, jclass clazz,
@@ -800,6 +801,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_free(JNIEnv *env, jclass claz
         LOGD("Failed to get direct buffer address");
         return;
     }
+    if (scamAhbFreeView(ptr)) return; // P482: a view of the locked hardware buffer: unlocked and released
 
     {   // an arena view: one reference less (P30)
         ArenaWork work;

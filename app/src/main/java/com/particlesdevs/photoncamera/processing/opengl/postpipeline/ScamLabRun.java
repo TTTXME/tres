@@ -509,6 +509,7 @@ public final class ScamLabRun {
             if (rgb != null && (p == null || p.scamRgb == rgb)) Allocator.free(rgb);
             ScamRgb.dropClipFlags();
             ScamHybridBurst.lastEffectiveFrames = null;
+            ScamHybridBurst.lastHlMask = null; // P480
             ScamHybridBurst.lastMergedDng = null;
             ScamNeuralClient.lastStages = null;
         }

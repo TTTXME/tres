@@ -7,6 +7,11 @@ kHybMergeCommon by hybridDezipSource only when it is on). Checks on app/src/main
   compiles as the merge program with kHybMergeMain1 on the host GPU (moderngl, GLSL 4.30);
 - the base frame's weight (kHybDezip's dezip, mirrored): 1 with every donor accepted, the dezipper with every donor rejected,
   max(1, dezipper - accepted) at 70 % or less of the donors, a smooth ramp between (98 % .. 70 %), never below 1.
+P480 (owner, 2026-11-03: the dezipper «полностью идентично» the reference's): kHybDezip is the reference base self-merge's whole
+motion fallback (dzBase: the isotropised covariance, the linear kernel, blend_eq, the green-phase chroma correction), run by its own
+pass after the merge (kHybDzPass, with the per-cell coverage of kHybDzCover); the merge program only stores its weight sums
+(hybridDezipSource: kHybDezipMerge, hybridDezipMain: the store). The reference constants are checked in its text, the three
+programs compiled.
 Usage: check_hybrid_dezipper.py
 """
 from pathlib import Path
@@ -22,7 +27,8 @@ H = ROOT / 'app/src/main/cpp/scam-hybrid.h'
 SRC = H.read_text(encoding='utf-8')
 JAVA = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/settings/PreferenceKeys.java').read_text(encoding='utf-8')
 FAIL = []
-MERGE_SOURCES = 'c656cf0ed3db51c663ac95b895a53a2b66bfd2d588e8c228705a6b40cdcc49d0'
+# P478 (2026-11-03): one comment of kHybMergeCommon renamed the reference app (P335's line) - the code is unchanged
+MERGE_SOURCES = '7b467ebd634f91722dc84bd8a1115c9351c66aac25edb13b20243f18eb64e8e5'
 
 
 def check(cond, msg):
@@ -38,17 +44,17 @@ def body(src, name):
 
 
 def dezip_source(common):
-    """hybridDezipSource."""
+    """hybridDezipSource (P480: the merge's declarations, kHybDezipMerge, before frameSamples)."""
     head = "void frameSamples(inout Acc a,int f,vec2 O,float r,float cover,vec3 P,bool win){\n"
     assert common.count(head) == 1
-    common = common.replace(head, body(SRC, 'kHybDezip') + head)
-    role = "    int role=int(fParam[f].w);\n"
-    for fn in ("void frameSamples(inout Acc a,", "void frameSamplesPlain(inout Acc a,"):
-        f = common.find(fn)
-        r = common.find(role, f)
-        assert 0 <= r - f < 200, fn
-        common = common[:r + len(role)] + "    r=dezip(f,role,r,cover);\n" + common[r + len(role):]
-    return common
+    return common.replace(head, body(SRC, 'kHybDezipMerge') + head)
+
+
+def dezip_main(main):
+    """hybridDezipMain (P480: the merge also stores its per-colour weight sums for kHybDzPass)."""
+    out = "        outRgb[o]=col.x;outRgb[o+1]=col.y;outRgb[o+2]=col.z;\n"
+    assert main.count(out) == 1
+    return main.replace(out, out + "#ifndef DZ_NODEN\n        dzDen[o]=a.den.x;dzDen[o+1]=a.den.y;dzDen[o+2]=a.den.z;\n#endif\n")
 
 
 def dezip(donors, expected, t):
@@ -76,14 +82,25 @@ def main():
         ctx = moderngl.create_standalone_context(backend='egl', require=430)
     except Exception:
         ctx = moderngl.create_standalone_context(require=430)
-    text = body(SRC, 'kHybCommon') + body(SRC, 'kHybHelpers') + dezip_source(body(SRC, 'kHybMergeCommon')) + body(SRC, 'kHybMergeMain1')
-    try:
-        ctx.compute_shader(text.replace('#version 310 es', '#version 430', 1))
-        ok = True
-    except Exception as e:
-        print(str(e)[:2000])
-        ok = False
-    check(ok, 'the merge program with the dezipper compiles')
+    text = body(SRC, 'kHybCommon') + body(SRC, 'kHybHelpers') + dezip_source(body(SRC, 'kHybMergeCommon')) + dezip_main(body(SRC, 'kHybMergeMain1'))
+    dz = body(SRC, 'kHybDezip')
+    for item in ('float hole=clamp((0.98-wsf/E)/0.28,0.0,1.0);', 'float be=clamp((0.98-mn/E)/0.28,0.0,1.0);',
+                 'r*=mix(1.0,max(1.0,dezipU.x-wsf),hole);', 'vec3(0.462098,0.462098,0.0)', 'float lkm=0.85*hole;',
+                 'max(1.0-0.45*length(d),0.0)', 'baseG=mix(baseG,gC,0.50);', 'readonly buffer DzCover'):
+        check(item in dz, 'P480 kHybDezip: ' + item)
+    check('dzBase' not in text, 'P480: no dezipper code in the merge program itself (its weight sums only)')
+    check(abs(0.693147 / 1.5 - 0.462098) < 1e-6, 'P480: motion_cov 1 / 1.5 as our precision (x ln 2)')
+    prefix = body(SRC, 'kHybCommon') + body(SRC, 'kHybHelpers')
+    passes = [('the merge program with the dezipper', text), ('kHybDzCover', prefix + body(SRC, 'kHybDzCover')),
+              ('kHybDzPass', prefix + '#define RIM_STATS 1\n' + body(SRC, 'kHybMergeCommon') + dz + body(SRC, 'kHybDzPass'))]
+    for name, src in passes:
+        try:
+            ctx.compute_shader(src.replace('#version 310 es', '#version 430', 1))
+            ok = True
+        except Exception as e:
+            print(str(e)[:2000])
+            ok = False
+        check(ok, name + ' compiles')
     t, n = 4.5, 9
     check(dezip(9.0, n, t) == 1.0 and dezip(8.9, n, t) == 1.0, 'every donor accepted: the base weighs 1')
     check(abs(dezip(0.0, n, t) - 4.5) < 1e-12, 'every donor rejected: the dezipper (%.2f)' % dezip(0.0, n, t))

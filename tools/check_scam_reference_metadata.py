@@ -47,6 +47,16 @@ public class CaptureResult {
  public <T> void put(Key<T> key,T value){values.put(key,value);}
  @SuppressWarnings("unchecked") public <T> T get(Key<T> key){return (T)values.get(key);}
 }''',
+# P473: ImageFrame's HAL noise offset in sensor units (NoiseModeler.halOffset by the camera's declared white level)
+'android/hardware/camera2/CameraCharacteristics.java': '''package android.hardware.camera2;
+public class CameraCharacteristics {public static class Key<T> {} public static final Key<Integer> SENSOR_INFO_WHITE_LEVEL=new Key<>();
+ public <T> T get(Key<T> key){return null;}}''',
+BASE+'capture/CaptureController.java': '''package com.particlesdevs.photoncamera.capture;
+public class CaptureController {public static android.hardware.camera2.CameraCharacteristics mCameraCharacteristics;}''',
+BASE+'processing/render/NoiseModeler.java': '''package com.particlesdevs.photoncamera.processing.render;
+public class NoiseModeler {public static double halOffset(double offset,int white){
+ if(white<=1||!(offset>0.01)||Double.isInfinite(offset))return offset;
+ return offset>1.0?offset/((double)white*white):offset/white;}}''',
 BASE+'util/Log.java': '''package com.particlesdevs.photoncamera.util;
 public class Log {public static void d(String a,String b){}}''',
 # UI language (i18n): the Russian text, so the checks' Russian message assertions keep holding

@@ -111,6 +111,11 @@ public class GLProg implements AutoCloseable {
      * is there or nothing was kept yet. {@code idle}: asked before each program - false stops (a shot started). Never throws.
      */
     public static void warmUp(java.util.function.BooleanSupplier idle) {
+        warmUp(idle, null);
+    }
+
+    /** P470: {@link #warmUp(java.util.function.BooleanSupplier)} reporting (done, total) after each program it looked at. */
+    public static void warmUp(java.util.function.BooleanSupplier idle, java.util.function.BiConsumer<Integer, Integer> progress) {
         if (!WARMED.compareAndSet(false, true)) return;
         final GLProgramDiskCache cache = disk();
         if (cache == null) return;
@@ -131,7 +136,9 @@ public class GLProg implements AutoCloseable {
                 }
             }
             keys.addAll(cache.missingSources(id, WARM_UP_LIMIT));
+            int looked = 0;
             for (String key : keys) {
+                if (progress != null) progress.accept(looked++, keys.size());
                 if (id != null && cache.has(id, key)) continue; // its binary is there (the shot loads it)
                 wanted++;
                 if (idle != null && !idle.getAsBoolean()) break;
@@ -639,6 +646,7 @@ public class GLProg implements AutoCloseable {
         }
         mTextureBinds.clear();
         mNewTextureId = 0;
+        GLGpuTimer.mark(recipeId != null ? recipeId : "source"); // P479: post_sync only (profiling)
     }
 
     /**
@@ -736,6 +744,16 @@ public class GLProg implements AutoCloseable {
         glMemoryBarrier(GL_ALL_SHADER_BITS);
         glFinish();
     }
+    /** P479: {@link #computeManual} without its glFinish (the same barriers), for a pass whose result is read back later. */
+    public void computeManualAsync(int x, int y, int z) {
+        if(!isCompute) {
+            new Exception("Program must be compute!").printStackTrace();
+            return;
+        }
+        glDispatchCompute(x, y, z);
+        glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+        glMemoryBarrier(GL_ALL_SHADER_BITS);
+    }
     public void computeManual(int x,int y, int z) {
         if(!isCompute) {
             new Exception("Program must be compute!").printStackTrace();
@@ -759,12 +777,16 @@ public class GLProg implements AutoCloseable {
         }
     }
 
+    private static final int[] COLOUR0 = {GL_COLOR_ATTACHMENT0};
+
     public void drawBlocks(GLTexture glTexture,Point drawsize) {
         glTexture.BufferLoad();
         drawBlocks(drawsize.x, drawsize.y);
     }
     public void drawBlocks(GLTexture glTexture) {
         glTexture.BufferLoad();
+        // P479: every pixel of the target is drawn below (no post shader discards): its old contents need not be loaded
+        if (PostGlMode.invalidate()) glInvalidateFramebuffer(GL_FRAMEBUFFER, 1, COLOUR0, 0);
         drawBlocks(glTexture.mSize.x, glTexture.mSize.y);
         // W1.1: no glFinish after every pass (it also ran at the end of every node): the GPU idled while the CPU set up the
         // next pass. Read-backs are the sync points; post_sync 1 puts a glFinish at each node end for the node timers.

@@ -215,7 +215,7 @@ public class FilmSimTest {
         assertEquals("clamped", 2f, FilmSim.diffusionGrade("350"), 0f);
         assertEquals(0f, FilmSim.diffusionGrade("-5"), 0f);
         assertEquals(.5f, FilmSim.diffusionGrade("abc"), 0f);
-        assertEquals("the couplers at 100 % by default", 1f, FilmSim.couplers(null), 0f);
+        assertEquals("the reference recipe disables couplers by default", 0f, FilmSim.couplers(null), 0f);
         assertEquals(0f, FilmSim.couplers("0"), 0f);
         assertEquals(.5f, FilmSim.couplers("50"), 0f);
         assertEquals("clamped at the stocks' own amount (review: greys go off above it)", 1f, FilmSim.couplers("260"), 0f);

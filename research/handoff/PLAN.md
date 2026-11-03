@@ -1,15 +1,50 @@
 # SCAMERA: settings cleanup, route reduction and portable configs — work plan
 
+### P462/P465 - full processing and saving redesign (owner, 2026-11-02, supersedes earlier implementation limits)
+- Compact integer RAW quad research passes113 physical semantic points: detail30 worker2537->2145ms, Moving8 neutral; own-map Android final output differs at most2 byte levels from the corrected sampling reference. Bracket/failure/format regressions and production integration remain pending. New signed-guide rejection looks better on fingers to the owner; evaluate actual cloth/small-object crops rather than treating lower high-pass noise as automatically worse detail.
+- Logging replacement VERIFIED LOCALLY: default-OFF single opt-in Documents/SCAMERA/Logs backend, bounded batched writes, current-log clear/size/share and independent Documents/SCAMERA/Dumps ZIP. Legacy files preserved; startup FLUSH-fence race fixed. Prior106-test coverage plus final24-focused regression tests/build pass. Actual OPPO/API36 backend, Java/JNI/relay capture, UID exclusion, scoped Documents, rotation, rapid toggle and share/clear PASS with exact owner-state restoration. No manual settings-tap, real full-capture ZIP, older-device or speed claim. See LOGGING-20261102.md. Screenshot OPPO-unlock item remains excluded.
+- Complete30 Android control now covers actual ShotArena transport, ordinary stage-export-free processing, original calibration, explicit authentic reference1024 tone curve and closed JPEG98/444. SCAMERA4211/3750/3606ms versus reference1042/1025/1026ms in separate sessions; all repeats stable in output, named post controls analogous rather than certified identical. Gate remains unmet. Cooperative KLT preserves all physical buffers/real outputs/failure fallbacks but is slower and stays outside production; asynchronous GPU timing fails workload-sensitivity validation. See LARGE-BURST-SPEED-20261102.md.
+- Research-only merge semantic gate: the original Adreno marked-site shader loses clipped-channel contributions in captured fixtures. A uniform-site/four-dispatch candidate passes89 independent bounded points plus3 observable exposure-role controls; original, constant-site and clip/else variants fail. Five exact-window points and14 rim quantization ties remain explicit limits; legacy strict identity failures are retained. No candidate integration or speed claim yet. See GPU-MERGE-SEMANTICS-20261102.md.
+- Validation priority (owner, latest): finish the12MP processing/quality comparisons first, including the complete30-frame and motion bursts. Native50MP without hardware remosaic is Quad2x2 and requires its own later validation. Sabre2x output50MP from12MP Bayer RAW is a different path and does not prove nativeQuad performance.
+- Final pre-push phase (owner, latest): make the film engine harder to extract/reuse from the APK, while keeping local source, build tools, symbols/mappings and handoff readable for the owner's other coding agents. Keep third-party notices/credits and identical profile output. Validate protection startup/processing/memory; no degradation of the speed gate. Do not describe this protection in CHANGELOG. APK hardening is resistance, not a promise of unextractable code.
+- Local implementation: the13 original SPIR-V/float resources are embedded in the native library; loose APK resources and non-JNI exports are removed, readable owner sources/manifests retained. Actual NDK/CMake build and static QA APK resource/credit/symbol checks pass. OPPO complete12MP film output is byte-identical on two half-strength scenes and three full-strength profiles (including Kodachrome and spatial effects). A subsequent24-call ABBA comparison preserves exact pixels and records neutral cold/warm timing plus in-process RSS/native/Java heap and lifetime HWM; separate GPU/per-shot peaks remain unmeasured. Final CI artifact verification is still required. See FILM_PACKAGING.md.
+- Accepted local defaults: rim-support certificate plus FP32 scene-luma cache pass13 complete physical post cases with exact final RGBA/HDR maps (12MP99-201ms,50MP396-488ms faster). Full-DCT JPEG token retention passes actual CMake JNI and strict pixel/coefficient/size/failure matrices;12MP eligible,50MP early memory/geometry decline. See TONE-CACHE-SUPPORT-20261102.md and JPEG-TOKENS-20261102.md. These do not complete the main speed gate.
+
+- HARD DELIVERY GATE (owner, latest): processing must be no more than 500 ms slower than WhyCam at the same actual accepted frame count, output resolution and comparable mode/settings/conditions; the aim is equal or faster. Acquisition is measured separately. CPU-to-GPU redesign, simpler rejection and compact accumulation are explicitly authorized when complete-path performance and real-burst quality/stability pass. No Git push before this gate.
+- Detailed GCam 6.1 and WhyCam APK/library/algorithm investigation is authorized again, together with the supplied GPU optimization report. Architectural, numerical, CPU/GPU/NPU, memory, buffer and threading changes are allowed when measured final quality, functionality and stability are retained or improved. Routine decisions are autonomous.
+- Record acquisition, preparation, alignment/merge, postprocessing and saving separately. Compare processing plus saving at matched output dimensions, modes, frame counts and conditions; no hidden frame/quality reductions. Deliver a tested APK and measured report; do not claim an unmatched native snapshot as saved-photo parity.
+- Baseline is immutable official CI31204 / `5f990c7d`. The complete current local source snapshot and SHA inventory are retained at `D:/burst/processing-redesign-20261102/`; `../evidence/vf-processing-20261102/redesign-baseline.json` identifies it. Other active worktrees and unrelated edits are preserved.
+- Current research directions: compact integer RAW quads, conservative fast/full rejection worklists, cheaper coarse alignment with the original search as fallback, and removal of avoidable post readback fences. Earlier compact accumulation, origin-cache and post-fusion candidates have no accepted whole-path gain and are excluded from production. Preserve their failed proofs rather than repeating them as new optimizations.
+- Accepted post defaults remain the rim-support certificate and FP32 scene-luma cache above. Exact shader microchecks or isolated pass gains do not establish a complete processing-speed gain.
+
+### P462/P465 delivery order and gate (owner, 2026-11-02, latest)
+- Current owner direction permits the supplied report, GCam6.1 and reference APK/library investigation. This supersedes the earlier pause on APK research. Check each proposal against actual data ranges and architecture; the report's zero-loss claims are not our validation.
+- Complete remaining viewfinder validation and optimize full processing plus saving, excluding capture time. Use the current reference+500ms delivery gate above; isolated worker or short-burst results do not satisfy it.
+- Deep architectural and numerical changes are authorized. Final images may differ; require real-burst detail, noise, motion, highlight and colour evidence that quality is retained or improved. A different hash alone is not a rejection criterion.
+- Do not push until repeated complete processing measurements are no slower than the reference, retaining the requested frame counts and output resolution. Small-burst, kernel-only and unmatched-post timings cannot satisfy this gate. Do not ask the absent owner for routine implementation decisions.
+
+### P464-P465 - film profile parity and processing-time viewfinder (owner, 2026-11-02)
+- P464 LOCAL FIX VERIFIED: all20 measured colour profiles and eight papers mapped individually; original1.2.7/current native60-case grid,20-case real scene and final default/DISPLAY33/SCENE41 matrices differ by at most0.00048828125. Native-derived asynchronous preview colour, RAW exposure agreement, stale-result rejection, settings-preview snapshot and partial-strength/custom-LUT ordering implemented. Only unset paper/effect defaults follow reference; explicit choices/legacy recipes preserved. Four legacy B&W models, ISP inversion and spatial preview remain distinct boundaries. See FILM-PROFILES-PREVIEW-20261102.md.
+- P465 ACTIVE: nonblocking subject PBO readback and verified high EGL context priority implemented/tested. Production Qualcomm general+LOW film queue now sustains about30fps/47-56ms film-period gaps versus16.8-17.2fps/443-460ms legacy, with approximately4s native processing. Per-call queue policy/cache/fallback, five exact complete12MP JNI outputs,24 host cases and121 focused JVM tests pass. No-film OPPO ISP gaps around138-143ms and X200 Ultra RAW busy pacing remain under review. Batching/weight-cache/workgroup candidates have no accepted throughput gain. See VIEWFINDER-GPU-QUEUE-20261102.md; no push or full P465 completion yet.
+- These tasks join the combined P462/P463 delivery gate. No new commit or push yet; do not infer X200 Ultra/Mali responsiveness from OPPO tests.
+
+### P462-P463 - next processing delivery (owner, 2026-11-02)
+- P462 ACTIVE: approach reference version 220 processing latency for full-size large bursts, including the 30-frame target, while retaining frame counts, resolution and image quality. Measure alignment, merge, postprocessing and output separately; exclude capture time. Improvements restricted to 2-4 frames do not complete this task or satisfy its push gate. Require repeated large-burst and Bayer/Quad/Tetra detail/motion validation before the combined delivery. P458-P461 were delivered as 5f990c7d; CI 41355231219 and official APK31204 verification passed.
+- P462 LARGE-BURST BASELINE: identical 30 normal RAW planes on OPPO/Adreno750: current worker 2518-2613ms (three repeats, exact complete outputs); reference native snapshot/process 809-846ms (two repeats, all30 retained). The worker excludes app post/JPEG, the reference excludes JPEG encoding, and reference post settings/calibration still differ. These are stage-cost observations, not an equal-quality end-to-end comparison. No accepted large-burst acceleration in this continuation. See LARGE-BURST-SPEED-20261102.md.
+- P463 REQUIRED BEFORE PUSH: fix Kodachrome 64 spectral-film output reported with the two attached 2026-11-02 logs and cyan/blue posterized JPEG. Reproduce the selected profile and parameters, find the faulty stage, and compare positive/reversal and negative profiles with the reference on identical inputs. Do not treat the previous negative-film regression matrix as coverage of Kodachrome 64.
+- P463 LOCAL FIX VERIFIED: select each slide's nine DIR coefficients instead of retaining the negative-film defaults. Kodachrome real-scene crop matches original 1.2.7 exactly; four slides pass full12MP Android post/JPEG repeats and image review. Packet units and all36 native coefficient comparisons pass. See KODACHROME-PROFILE-20261102.md. Await the combined P462 delivery.
+- P462 LOCAL ACCELERATION VERIFIED: shared FP32 RAW/flag tiles for Bayer/Quad/Tetra and the split Bayer pass on Sabre2x. Real detail4N12MP ~3s->1s, detail4N50MP ~18s->3s; eligible four-N2x donor-sum reuse further reduces the latter to ~2.6-2.9s. Complete outputs and frame decisions exact. Eighteen native oracles, short/long/Moving matrices and late-strip recovery pass. See SHARED-RAW-TILES-20261102.md. Resident GPU CA/chroma and interprocess GPU buffers remain research-only; no subsequent commit/push yet.
+
 ### P458-P461 - current processing work (owner, 2026-11-02)
 - Delivery validation: P458 native build, eleven exact reference film cases with APK-pinned resources, full 12MP Android film/ordinary/movement post/JPEG repeats, 2304 planner cases and all half encodings pass. P460 accumulator investigation rejected both candidates (no speed gain, highlight errors); production merge precision is unchanged. P461 focus/face tile-overlap regression fixed; four real Moving series replayed, no-ROI results unchanged. See PROCESSING-PRECISION-20261102.md and SPORTS-REFERENCE-REVIEW.md. Current delivery CI and final APK verification are still required.
 - P458: fix spectral-film latency. Energy-saving OFF X200U31202 reports ReferenceFilm27917ms,3010passes35tiles,budget2675813376. The earlier173s shot used energy saving. Keep all effects, frame size and quality. Pixel calculations must run on GPU; eliminate redundant legacy LUT building and CPU image reduction. Validate actual full-image outputs, phase/border cases, budgets and warm/cold costs.
-- P459: ArkCam220 analysis is explicitly suspended by the owner. Preserve already extracted local evidence; do not continue APK decompilation/disassembly. Existing same-device log has20frames, native1367ms; it is not a matched-input quality benchmark.
+- P459: WhyCam220 analysis is explicitly suspended by the owner. Preserve already extracted local evidence; do not continue APK decompilation/disassembly. Existing same-device log has20frames, native1367ms; it is not a matched-input quality benchmark.
 - P460: investigate FP16 Sabre accumulators and other unnecessarily wide data. Do not reduce frame counts/resolution or assume mediump guarantees hardware throughput. Keep a reference and test Bayer/Quad/Tetra, highlights, fine detail and motion on identical real bursts before enabling anything.
 - Execution order: P458 film GPU/latency, P460 precision and processing speed, then P461 Sports as the final implementation task before complete validation and the single push. Owner explicitly moved Sports to the end on 2026-11-02.
 - P461 (last, before push): compare Sports with the reference application and improve our implementation using real motion bursts. Cover shutter versus flicker, short-series blur rejection, pre-press base timing, donor age and low-light denoise; retain maximum-sharpness priority. Prior implementation/review is not completion. General APK speed investigation remains paused; the specifically requested Sports comparison belongs to this final task.
 - Nubia31202 still saves BLACK photos (owner confirmed). Ordinary logs show nonblack worker and metering but no intermediate WHY pixels. Await the requested diagnostic ZIP; no physical Nubia/12X access is available. Do not claim this fixed from OPPO success.
 - All this batch remains local until validation is complete. Worktree wt-gcam61-deep-20261101 atop b92a60ab; no other worktree or foreign changes may be overwritten.
-- P462 (after this delivery, owner 2026-11-02): resume focused ArkCam220 analysis and accelerate SCAMERA using measured stage costs and identical real-burst quality comparisons. This resumes the APK investigation only after the current batch is pushed and verified; it is a separate subsequent delivery.
+- P462 (after this delivery, owner 2026-11-02): resume focused WhyCam220 analysis and accelerate SCAMERA using measured stage costs and identical real-burst quality comparisons. This resumes the APK investigation only after the current batch is pushed and verified; it is a separate subsequent delivery.
 
 ### P457 - overlap CI checks and Android compilation
 - Latest serial CI31202 took 3008 seconds. The build/check step took 2670 seconds, including 593 seconds of Gradle and approximately ten minutes in the full strip-trailer sweep.
@@ -115,9 +150,9 @@ If a target screen is missing, the generator throws inside a `try`, and all late
 | `scamera_quad_bayer_screen` | Yes: `pref_raw_lsc_mode`, `pref_raw_black_from_data` (`Parameters` ~406/462), `pref_raw_stream_format`, `pref_cfa_key`, Quad compatibility (`VendorTagUtils` ~214). Demosaic choice and `expert_raw_screen`: no, because NICE outputs RGB. |
 | `noise_model_screen` | Only the profile, import and export, and only when `pref_lmc_hybrid_noise_source` or `pref_vivo_nice_noise_source` = `settings`. Dynamic ISO, ISO curve, digital gain and the slider: no. |
 | `rt_denoise_screen` (RT512, ESD3D, AI Bayer) | No. |
-| `sharp_settings_screen` | `pref_sharp_*` via `RTSharpening` only in the `rt` sharpen modes: hybrid `sharp_mode` = rt, or ark + `ark_post_sharp`; SCAM HDR with soft tone 0. `pref_sensor_sharpening_enabled`, LLF, MFSR and Mosaic SR: no. |
+| `sharp_settings_screen` | `pref_sharp_*` via `RTSharpening` only in the `rt` sharpen modes: hybrid `sharp_mode` = rt, or why + `why_post_sharp`; SCAM HDR with soft tone 0. `pref_sensor_sharpening_enabled`, LLF, MFSR and Mosaic SR: no. |
 | `processing_group_screen` | DCP yes (`Parameters` ~724). Tone pipeline selector: no. LMC curves: yes. ACES, Capture One, darktable, optical correction, contrast, saturation, shadows, compressor and `expert_tone`: no. |
-| `agx_screen` | SCAM HDR: `pref_nice_ae_*` and `pref_vivo_nice_fusion_*`, soft tone, tone key, sharp amount, texture. With soft tone = 0, also the shared AgX curve and `pref_vivo_hdr_*` tone. Hybrid with ARK off: the shared AgX curve + `pref_lmc_hybrid_*`. `pref_expocompensation_seekbar_key`: no NICE route reads it (`IsoExpoSelector` ~360). |
+| `agx_screen` | SCAM HDR: `pref_nice_ae_*` and `pref_vivo_nice_fusion_*`, soft tone, tone key, sharp amount, texture. With soft tone = 0, also the shared AgX curve and `pref_vivo_hdr_*` tone. Hybrid with WHY off: the shared AgX curve + `pref_lmc_hybrid_*`. `pref_expocompensation_seekbar_key`: no NICE route reads it (`IsoExpoSelector` ~360). |
 | `gcam_finish_screen` | No (PP ~665; `scene_ae` is off for NICE, CC ~2559). |
 | `vivo_hdr_screen` | `pref_vivo_hdr_luma`, `pref_vivo_hdr_chroma` and `pref_vivo_hdr_sharpen` only on "autonomous HDR without NICE", which is removed. The rest is SCAM HDR. |
 | `vivo_remosaic_screen` | In SCAM HDR mosaic mode: block, profile, steered, clamp, flatfield, phase, `pref_tetra_response_key`, `hexquad_*`, `quad2x2_*`. Not used there: `hexquad_exposure_ev`, `pref_hexquad_frames`, `pref_quad_frames`, `hexquad_full_resolution` (x2 is forbidden there), `*_post_denoise`. |
@@ -134,7 +169,7 @@ If a target screen is missing, the generator throws inside a `try`, and all late
 - **Worker and client:** `ScamNeuralClient` / `ScamNeuralWorker` and the one native worker `app/src/main/cpp/scam-neural-worker.cpp`. That worker hosts NICE, the hybrid, HexQuad/Quad and the CRE runtime — and VSR, which goes.
 - **Post path:**
   - `ScamRgb`, `HighlightRecovery`, `ScamHdrDenoise`, `ScamDenoise`;
-  - Ark* (`ArkStats`, `ArkFusion`, `ArkLumaSharpen`, `ArkCombine`, `ArkSharpenGuard`);
+  - Why* (`WhyStats`, `WhyFusion`, `WhyLumaSharpen`, `WhyCombine`, `WhySharpenGuard`);
   - `LinearExposure`, `NiceExposureFusion`, `VivoHdrTone` (a subclass of `HeadroomRender` — keep `HeadroomRender`), `AgxTone`;
   - `ScamCurves`, `ScamLocalContrast`, `ScamSharpen`, `RTSharpening`, `HybridFinalResize`, `RotateWatermark`.
 - **Ultra HDR:** `ultrahdr/*` and `PP.RunHDRGainMap`.
@@ -288,7 +323,7 @@ If a target screen is missing, the generator throws inside a `try`, and all late
 **Keep:**
 - DCP, LMC curves;
 - `pref_sharp_*` (RT sharpening for the `rt` modes);
-- the shared AgX curve, look and colour keys (SCAM HDR with soft tone 0, hybrid with ARK off);
+- the shared AgX curve, look and colour keys (SCAM HDR with soft tone 0, hybrid with WHY off);
 - all SCAM HDR tone keys, `pref_nice_ae_*`.
 
 **CI:** replace the aapt2 assertions on `rt_denoise_screen` / `rt512_*` (`build-test-apk.yml` ~251-257) with assertions on screens that exist now (e.g. `lmc_hybrid_screen`, the SCAM HDR screen, `output_settings_screen`).
@@ -308,7 +343,7 @@ Only move XML rows. Do not rename keys, so no migration is needed for moves.
 │   ├ Модель шума нейросети
 │   ├ Тон и светотень: яркость (AE), Exposure Fusion, света, тени и уровни, сброс   (from agx_screen)
 │   └ Мозаика ISZ и нейроремозаик: pref_vivo_nice_mosaic, GPU remosaic tuning, HP9 / Quad 2×2 NN tuning
-├ Цвет и резкость ▸ DCP, кривые Hybrid, общая кривая AgX (ARK off / soft tone 0), резкость RawTherapee (rt modes)
+├ Цвет и резкость ▸ DCP, кривые Hybrid, общая кривая AgX (WHY off / soft tone 0), резкость RawTherapee (rt modes)
 ├ Захват и RAW ▸ буфер ZSL, антибандинг, LSC, чёрный по кадру, формат RAW-потока, CFA, Quad-совместимость,
 │                 профиль модели шума (импорт / экспорт), RAW-метаданные (expert_sensor_screen)
 ├ Видоискатель и интерфейс ▸ (tweaks_screen content, Кнопки видоискателя)
@@ -337,7 +372,7 @@ Replacements:
 | "LMC-гибрид", "гибрид" (any case or form) | "Hybrid" (Latin, always capitalised) |
 | "Тоновая и гамма-кривые (LMC)" / "Кривые LMC" | "Кривые Hybrid" |
 | "Sabre 6.1 × LMC 9.6" | "Sabre 6.1" |
-| "GCam / LMC 9.6 (ArkCam)" | "GCam / Hybrid (ArkCam)" |
+| "GCam / LMC 9.6 (WhyCam)" | "GCam / Hybrid (WhyCam)" |
 | "Отбраковка движения (rejection LMC 9.6)" | "Отбраковка движения" |
 | "1 кадр (как LMC)" | "1 кадр" |
 | "Bento: проверки отказа как в LMC 9.6" | "Bento: строгие проверки отказа" |
@@ -441,8 +476,8 @@ Check: grep every `res/values*/*.xml`, `preferences.xml`, and the string literal
   - **Tree (concept order, keys unchanged):** root = route card + Hybrid / SCAM HDR / Цвет и резкость / Захват и RAW /
     Видоискатель и интерфейс / Конфиг / Камеры и сенсоры / Система (the two root categories are gone). Hybrid: Разрешение,
     Даунсемплер, Кадры и захват, Модель шума, Склейка (Отбраковка, Ядро Sabre, Bento и Shasta, Света), Шумоподавление
-    (SNR, Множители, Отличия от ArkCam, таблицы), Обработка ArkCore, Диагностика. SCAM HDR: N, удлинение L, этапы, Брекет и
-    выравнивание, Шумоподавление, Модель шума нейросети (key vivo_nice_internal_screen), a link to the shared ArkCore page,
+    (SNR, Множители, Отличия от WhyCam, таблицы), Обработка WhyCore, Диагностика. SCAM HDR: N, удлинение L, этапы, Брекет и
+    выравнивание, Шумоподавление, Модель шума нейросети (key vivo_nice_internal_screen), a link to the shared WhyCore page,
     Мозаика ISZ. Settings newer than the concept (F6, неоднородное движение, Xiaomi zoom, звуки, дубликаты модулей, P11 path
     to white, …) stay in their sections. Rows whose master switch moved to a parent page (denoise tables, watermark text)
     lost android:dependency; SettingsAvailability disables them instead.
@@ -553,7 +588,7 @@ Check: grep every `res/values*/*.xml`, `preferences.xml`, and the string literal
   native code): every Quad / Tetra frame splits into b² plain-Bayer sub-frames with composed site offsets, the unchanged
   Bayer merge accumulates them on the 2× / 4× grid, then chroma median and false-colour suppression. Checked on synthetic
   bursts and on the X7 Ultra (1× / 5.9× Quad).
-- **Goal:** more fine detail from the mosaic stream inside the normal Hybrid shot (same capture, Bento / Shasta, ARK finish),
+- **Goal:** more fine detail from the mosaic stream inside the normal Hybrid shot (same capture, Bento / Shasta, WHY finish),
   so a module without remosaic is worth shooting.
 - **Input:** the owner's handheld shot (one frame with the burst dump). Replay it on the worker and measure before / after:
   - detail: MTF50 / high-band energy on edges and texture crops; lattice amplitude at period 2 / 4 px (`tools/quad/lattice.py`);
@@ -712,7 +747,7 @@ The settings live in different places now; the curated groups use these keys.
 |---|---|---|---|
 | flash | `pref_ae_mode_key` | no tree row; 0 torch / 1 off | virtual entry; write via CameraUIController FLASH; there is no «авто» |
 | timer | `pref_countdown_timer_key` | no tree row; off / 3 s / 10 s | virtual; top-bar TimerButton follows |
-| замер | `pref_ae_metering_std_mode_key` (Camera2, no tree row) or `pref_lmc_hybrid_ark_metering` (ARK slider, Hybrid › Обработка ArkCore › Тонмап) | | question 6 |
+| замер | `pref_ae_metering_std_mode_key` (Camera2, no tree row) or `pref_lmc_hybrid_why_metering` (WHY slider, Hybrid › Обработка WhyCore › Тонмап) | | question 6 |
 | склейка | `pref_merge_route` | root, hybrid / scamhdr | show the effective `mergeRoute()` (MediaTek lock, nice_dev) |
 | RAW | `pref_save_raw_key` | no tree row; JPEG / R+J / RAW | virtual; new icons |
 | разрешение Hybrid | `pref_lmc_hybrid_output` | Hybrid, list | effective value via the nice_dev override; dimmed on SCAM HDR |
@@ -722,15 +757,15 @@ The settings live in different places now; the curated groups use these keys.
 | Shasta | `pref_lmc_hybrid_shasta` | Hybrid, switch, on by default | |
 | N-кадров (Hybrid) | `pref_lmc_hybrid_zsl_frames` | Hybrid, slider 4-44 | same title as the SCAM HDR row: shortTitle «N-кадров Hybrid» |
 | Luma, Chroma | `pref_lmc_hybrid_post_luma` / `_post_chroma` (NLM only) or `pref_lmc_hybrid_dn_luma_mult` / `_dn_chroma_mult` (gcam engine, the default) | Hybrid › Шумоподавление | duplicate titles; question 8 |
-| резкость | `pref_lmc_hybrid_sharp_mode` | Hybrid › Обработка ArkCore › Резкость, ark / rt / scam / off | moved |
-| тон ARK | `pref_lmc_hybrid_ark_tone` | **removed** (P10, ARK always on) | drop or replace (question 8) |
+| резкость | `pref_lmc_hybrid_sharp_mode` | Hybrid › Обработка WhyCore › Резкость, why / rt / scam / off | moved |
+| тон WHY | `pref_lmc_hybrid_why_tone` | **removed** (P10, WHY always on) | drop or replace (question 8) |
 | отбраковка | `pref_lmc_hybrid_cdm` | Hybrid › Склейка › Отбраковка движения, slider | moved |
 | N-кадров (SCAM HDR) | `pref_vivo_nice_zsl_frames` | SCAM HDR, slider 4-50 | dimmed on Hybrid; hidden on MediaTek |
 | удлинение L | `pref_vivo_nice_long_boost_ev` | EditTextPreference | not pinnable by the spec's rule; question 8 |
 | мозаика ISZ | `pref_vivo_nice_mosaic` | SCAM HDR › Мозаика ISZ, 7 values | «Нейро + Sabre» > 8 characters; 7 segments don't fit at 360dp |
 | Exposure Fusion | `pref_vivo_nice_fusion_*` | **removed** (P10) | drop or replace (question 8) |
 | кривая Hybrid | `pref_lmc_tone_curve` | Цвет и резкость › Кривые Hybrid, 77 entries | opens the list sheet instead of cycling |
-| USM | `pref_sharp_usm_enabled_key` | Цвет и резкость › Резкость RawTherapee | a no-op with sharp_mode = ark; `SettingsModelCheck.java:47,62` asserts it stays active |
+| USM | `pref_sharp_usm_enabled_key` | Цвет и резкость › Резкость RawTherapee | a no-op with sharp_mode = why; `SettingsModelCheck.java:47,62` asserts it stays active |
 | сетка | `pref_show_grid_key` | Видоискатель, 0-4 | short Выкл / 3×3 / 4×4 / Φ / Диаг |
 | пик фокуса | `pref_peak_method_key` | Видоискатель, Off / On / Auto | needs Russian short labels |
 | живой RAW | `pref_live_viewfinder_raw_key` | Видоискатель, switch | read at session build: restart or «после перезапуска» |
@@ -822,10 +857,10 @@ The settings live in different places now; the curated groups use these keys.
 5. **Tiles:** highlight = differs from the default (lists, sliders and toggles alike); toggle tiles show «Вкл./Выкл.»; flash
    keeps its 2 values; accent = the camera accent (`AccentPalette.camera`); hardware-unavailable tiles are dimmed, a tap shows
    the reason.
-6. **«Замер»** in Съёмка = the ARK slider `pref_lmc_hybrid_ark_metering` (slider tile); Camera2 metering
+6. **«Замер»** in Съёмка = the WHY slider `pref_lmc_hybrid_why_metering` (slider tile); Camera2 metering
    `pref_ae_metering_std_mode_key` stays a virtual catalog entry.
 7. **Session-time tiles** (живой RAW, 16:9): restart the camera at once through the existing `restartCamera`.
-8. **Curated rows:** «тон ARK» and «Exposure Fusion» dropped; «удлинение L» as a 0-2 slider from SettingsNumericRules;
+8. **Curated rows:** «тон WHY» and «Exposure Fusion» dropped; «удлинение L» as a 0-2 slider from SettingsNumericRules;
    Luma / Chroma = `pref_lmc_hybrid_dn_luma_mult` / `pref_lmc_hybrid_dn_chroma_mult`; USM stays the RT switch.
 9. **☆ favourites:** removed; its keys migrate into the shade list (max 12), its settings row and fragment go.
 10. **Storage:** `ui_shade_tiles`; first value = the user's old pins, then the 8 defaults (max 12).
@@ -863,15 +898,15 @@ The settings live in different places now; the curated groups use these keys.
    - flash has only 2 values (torch / off): adding «авто» would change AE;
    - the accent: settings (lavender) or camera (yellow)?
    - hide or dim tiles that are blocked by hardware (no flash on a lens)?
-6. **«замер»:** Camera2 metering or the ARK slider? If ARK, Camera2 metering stays as a virtual catalog entry (its only UI).
+6. **«замер»:** Camera2 metering or the WHY slider? If WHY, Camera2 metering stays as a virtual catalog entry (its only UI).
 7. **Session-time tiles** (живой RAW, 16:9): restart the camera via the existing `restartCamera` (still UI-only?) or show
    «применится после перезапуска»?
 8. **Curated rows:**
-   - replacements for the removed «тон ARK» and «Exposure Fusion» (e.g. `pref_lmc_hybrid_ark_detail_gain`,
+   - replacements for the removed «тон WHY» and «Exposure Fusion» (e.g. `pref_lmc_hybrid_why_detail_gain`,
      `pref_nice_zsl_long`) or drop them;
    - «удлинение L» (EditText): exclude it or show a 0-2 slider;
    - Luma / Chroma: `post_*` (NLM) or `dn_*_mult` (gcam engine, the default);
-   - USM stays the RT switch (a no-op with ARK sharpening).
+   - USM stays the RT switch (a no-op with WHY sharpening).
 9. **☆ favourites:** remove (migrating its keys into the shade list) or keep both?
 10. **Storage key:** `ui_shade_tiles` instead of `pref_shade_tiles` (otherwise per-lens). Precedence when old pins exist: the
     user's ≤ 4 pins only / pins then the 8 defaults / the 8 defaults.
@@ -1217,10 +1252,10 @@ The settings live in different places now; the curated groups use these keys.
     variants are selectable in settings (owner's request).
   - **Next idea:** RT's per-tile shifts with a reliability-weighted median, or P19's radial fit on them.
 
-### P29 — Sabre Quad remosaic from ArkCam v23, combined with our GCam 11 remosaic (owner's request, 2026-10-06; built, measured, default off)
+### P29 — Sabre Quad remosaic from WhyCam v23, combined with our GCam 11 remosaic (owner's request, 2026-10-06; built, measured, default off)
 
 - **Result (2026-10-07):** S0 numpy reference (research/p29/S0_results.md) and the native mosaic path in the worker (branch p29:
-  S1 parity, S2 kernel per colour, S3 site gains, S5 Ark R/B fill, T2 Tetra; settings «Hybrid → Склейка → Мозаика без
+  S1 parity, S2 kernel per colour, S3 site gains, S5 Why R/B fill, T2 Tetra; settings «Hybrid → Склейка → Мозаика без
   ремозаика», bilingual). Device check on the OPPO (research/p29/DEVICE_CHECK.md §8): byte-identical with the key off; synthetic
   Quad +1..+3 dB and -55 % false colour; on hand.nch (a TRIPOD burst, owner's correction: not handheld) no visible gain, best
   es 0.6 +49 % detail at matched noise with +12 % false colour; the merge is x6-8 slower (44-57 s against 7 s). The native merge
@@ -1229,14 +1264,14 @@ The settings live in different places now; the curated groups use these keys.
 
 - **Owner:** «К разбору ARC Camera добавь ещё Sabre квад ремозаик», then «Я хочу совместить этот ремозаик с нашим который мы
   взяли с 11 гкама».
-- **ArkCam v23 (libopenhdr_engine.so) has its own Quad Bayer path:** `uCfaSensorType` 0 = Bayer / 1 = Quad, a
+- **WhyCam v23 (libopenhdr_engine.so) has its own Quad Bayer path:** `uCfaSensorType` 0 = Bayer / 1 = Quad, a
   `k_fs_gcam_sabre_merge_quad` program, `k_cs_sabre_superResLinearRaw / superResDetailMerge / superResDetailResolve`, a 5x5
   binomial for the 4x4 CFA, the OpenCL `quad_speckle_filter` (`pref_quad_speckle_radius_key`), a "quad CA killer" and a
   "standard binned mode". On the Java side: Quad needs 16 ring frames (5 for Bayer), and the -3 EV burst is skipped on Quad.
 - **Ours (P14 / P15 / P22):** GCam 11 QuadBayerRgbMerge design. b² plain-Bayer sub-frames go through the unchanged merge on
   the 2x / 4x grid, followed by a chroma median and false-colour suppression; plus `mosaicEdgeScale` and `mosaicShare`.
-- **Study done (2026-10-06, `research/ark23/quad_report.md`, disassembly listings in `research/ark23/quad_disasm/`):**
-  - **No remosaic.** ArkCam's Quad path merges every frame's raw sites straight from the mosaic into native-resolution RGB:
+- **Study done (2026-10-06, `research/why23/quad_report.md`, disassembly listings in `research/why23/quad_disasm/`):**
+  - **No remosaic.** WhyCam's Quad path merges every frame's raw sites straight from the mosaic into native-resolution RGB:
     - `merge_quad`: a 5x5 native-pixel Sabre RBF; R / B kernel 1.18x wider than G (scales 1.0 / 0.85, constants in `main()`);
     - R / B fill from G + the local (R−G) / (B−G) of the 3x3 block means when their weight < 0.25 × G's weight;
     - the base frame is merged last, with a cone kernel where coverage is below 4.5 frames;
@@ -1247,10 +1282,10 @@ The settings live in different places now; the curated groups use these keys.
   - **Keep ours:** block detector, site gains, binned alignment, F6, robustness, Bento / Shasta, chroma median + false-colour
     suppression.
   - **Per frame:** guide / rejection / F6 once per frame on the binned burst (not per sub-frame).
-  - **New pass `kHybMergeMosaic`:** ArkCam's RBF over the raw mosaic with our gains instead of the b² sub-frame split
+  - **New pass `kHybMergeMosaic`:** WhyCam's RBF over the raw mosaic with our gains instead of the b² sub-frame split
     (`kHybMergeMain1` untouched, plain Bayer md5-identical).
-  - **R / B fill:** ArkCam's fill before our median, later GCam 11's directional colour-difference fill.
-  - **Low coverage:** GCam 11's edge-directed Quad demosaic of the base instead of ArkCam's cone kernel.
+  - **R / B fill:** WhyCam's fill before our median, later GCam 11's directional colour-difference fill.
+  - **Low coverage:** GCam 11's edge-directed Quad demosaic of the base instead of WhyCam's cone kernel.
   - **Tetra:** 2x2 binning into a true Quad at W/2 by default, native 7x7 as an option.
   - **Keys:** `mosaicPath` (0 = today), `mosaicWindow`, `mosaicKernelG` / `RB`, `mosaicChromaFill`, `mosaicFillSupport`,
     `mosaicFallback`, `mosaicTetra`.
@@ -1261,19 +1296,19 @@ The settings live in different places now; the curated groups use these keys.
     - S2: kernel split;
     - S3: site gains;
     - S4: sweep / default;
-    - S5: Ark fill;
+    - S5: Why fill;
     - S6: GCam fallback;
     - S7: directional fill;
     - S8: Tetra.
     Each step gated on lattice 2 / 4 px, zone-plate false colour, maze (`eval_zipper.py`), 2-4 px band energy at equal noise,
     time and the Bayer md5.
-  - **Not to port:** ArkCam's hot-pixel filter (compares different colours on Quad), the cone fallback, the super-res shaders.
+  - **Not to port:** WhyCam's hot-pixel filter (compares different colours on Quad), the cone fallback, the super-res shaders.
 - **Checks (owner's rule for every remosaic change):**
   - no lattice at period 2 / 4 px (`tools/quad/lattice.py`), no maze, no false colour;
   - detail band energy, time;
   - synthetic bursts (`gen_mosaic_burst.py` / `eval_mosaic_burst.py`), then a replay of `hand.nch` on the OPPO.
 
-### P30 — Hybrid speed: what ArkCam v23 does faster (study 2026-10-06; done locally 7c6c56e, a057380, bc005ee)
+### P30 — Hybrid speed: what WhyCam v23 does faster (study 2026-10-06; done locally 7c6c56e, a057380, bc005ee)
 
 - **Study:** `libopenhdr_engine.so` (openhdr_engine 3.0.3) is a GLSL port of Sabre. Everything runs on the GPU in the app process,
   in one EGL context that is created and compiled once at app start:
@@ -1292,7 +1327,7 @@ The settings live in different places now; the curated groups use these keys.
   - GPU passes 1.77 s;
   - PostPipeline 1.56 s;
   - jpegli 0.23 s.
-- **ArkCam:** not measured; estimated 1.3-2.3 s from the code.
+- **WhyCam:** not measured; estimated 1.3-2.3 s from the code.
 - **Speed-ups with the same image (target 8.0 → ~4.5-5.5 s), in order:**
   1. glProgramBinary cache of the worker programs (−0.55-0.75 s);
   2. global alignment in parallel over frames, bit-exact (−0.6 s);
@@ -1311,7 +1346,7 @@ The settings live in different places now; the curated groups use these keys.
   - TurboJPEG instead of jpegli;
   - the FrameSelector culling.
 - **To measure:** both apps on one phone, same scene, 1x, diagnostics and `nice_keep` off. Full list in the session
-  scratchpad `ark_all.txt`, to copy to `research/ark23/`.
+  scratchpad `why_all.txt`, to copy to `research/why23/`.
 
 - **Done (2026-10-06, owner: «Делай все 8 пунктов ускорения»), every worker change bit-identical on burst replays (md5 of
   daylight 1x / 2x, lamp, handheld Quad):**
@@ -1332,18 +1367,18 @@ The settings live in different places now; the curated groups use these keys.
   1x (Quad stream, 27 frames → 96 sub-frames): press → JPEG ~11.1 → ~10.9 s; the rest is the 96-sub-frame GPU merge
   (4.2 s, P29's target), F6 0.85 s, binned CRE alignment 0.7 s, PostPipeline 2.2 s (ScamHdrDenoise 1 s).
 - **Note:** the OPPO's hybrid diagnostics switch (1x · ID 2) was on from the P22 work (+8 s per shot): turned off.
-- **2026-10-07, against ArkCam v40 on the OPPO** (same scene, 3 shots each, press → saved JPEG, 4096x3072 both):
+- **2026-10-07, against WhyCam v40 on the OPPO** (same scene, 3 shots each, press → saved JPEG, 4096x3072 both):
   SCAMERA 1x normal (Hybrid diagnostics off) 7.6-7.9 s: capture 0.57, wait 0.32, worker 4.7-4.8 (CRE global align 0.9,
-  local align 1.0, mask 0.28, merge 2.1, I/O 0.3), PostPipeline 1.5-1.7, JPEG 0.47. ArkCam v40 12 MP 3.1-3.3 s: 30+4
+  local align 1.0, mask 0.28, merge 2.1, I/O 0.3), PostPipeline 1.5-1.7, JPEG 0.47. WhyCam v40 12 MP 3.1-3.3 s: 30+4
   frames ready 0.36, whole Sabre stage with GPU alignment 2.2-2.4, resolve+LSC 0.06, post 0.2-0.25, TurboJPEG 0.15.
   Gaps: CPU alignment ~1.9 s, post ~1.4 s, merge ~0.5 s, JPEG ~0.3 s, waits/worker I/O ~0.6 s. Hybrid diagnostics on:
-  13.1-14.1 s (NICE_DIAG thumbnails ~1.3 s each). 2x ISZ Quad 11-12 s vs ArkCam 50 MP super-res 6.2 s.
+  13.1-14.1 s (NICE_DIAG thumbnails ~1.3 s each). 2x ISZ Quad 11-12 s vs WhyCam 50 MP super-res 6.2 s.
 
-### P31 — Permissions asked like ArkCam (owner's request, 2026-10-07; done, pushed 0bb832c)
+### P31 — Permissions asked like WhyCam (owner's request, 2026-10-07; done, pushed 0bb832c)
 
 - Owner: «сделай так чтобы наше приложение просило разрешения также, а не как это сделано у нас».
-- ArkCam v40 has no dialog of its own (its APK has no such text). It asks for every runtime permission in one
-  RequestMultiplePermissions call, and ColorOS shows one combined system sheet («"ArkCam" требуются следующие разрешения»:
+- WhyCam v40 has no dialog of its own (its APK has no such text). It asks for every runtime permission in one
+  RequestMultiplePermissions call, and ColorOS shows one combined system sheet («"WhyCam" требуются следующие разрешения»:
   permission, purpose, grant scope, OK / Отмена).
 - Ours today: our own AlertDialog before every step, then camera + mic, then media read, then the SAF DCIM picker, one at a time.
 - To do: one batched request (camera, microphone, media read per SDK) with no pre-dialogs. Re-ask while the system still
@@ -1356,10 +1391,10 @@ The settings live in different places now; the curated groups use these keys.
 - **10 % higher:** raise the module buttons by 10 % together with all the other bottom controls (shutter, gallery, switch).
 - **Shade:** the shade's black area covers the bottom of the viewfinder. Lower it so the viewfinder is not covered.
 
-### P33 — Shot speed close to ArkCam (owner's request, 2026-10-07; analysis running)
+### P33 — Shot speed close to WhyCam (owner's request, 2026-10-07; analysis running)
 
-- Owner: «Нам нужно ускорить съемку чтобы скорость была не сильно дольше ArkCam».
-- Now (1x normal, OPPO): press → saved JPEG 7.6-7.9 s against ArkCam v40 12 MP 3.1-3.3 s (numbers under P30). Target ~3.5-4 s.
+- Owner: «Нам нужно ускорить съемку чтобы скорость была не сильно дольше WhyCam».
+- Now (1x normal, OPPO): press → saved JPEG 7.6-7.9 s against WhyCam v40 12 MP 3.1-3.3 s (numbers under P30). Target ~3.5-4 s.
 - Budget to win: CPU alignment ~1.9 s, PostPipeline ~1.4 s, merge ~0.5 s, JPEG ~0.3 s, waits/worker I/O ~0.6 s.
 - Plan: analysis workflow (post + JPEG, alignment + worker start, merge + capture) → waves: bit-exact first, measured on the
   phone after each wave (press → ImageSaved, 3 shots, worker replays with md5); output-changing options only with owner's OK.
@@ -1373,21 +1408,21 @@ The settings live in different places now; the curated groups use these keys.
   a clean press → saved A/B (old 0bb832c vs new) is still to do — the quad agent's replays shared the GPU and the phone ran at
   ~73 °C. Also to do: the same in 1x normal (owner switches the module), then wave 2 (W2.1, F6 alongside the merge, GPU moves).
 
-### P34 — Quad detail like ArkCam: its quad-sensor Sabre merge (owner, 2026-10-07; in progress)
+### P34 — Quad detail like WhyCam: its quad-sensor Sabre merge (owner, 2026-10-07; in progress)
 
-- Owner: ArkCam has much better fine detail in sensor mode 29 (Quad 4096x3072, no remosaic; both apps get the same RAW);
-  «У арк используется Sabre сделанный для квад сенсоров». Evidence: research/p29/device_out/isz2_signs.png (JPEGs),
-  isz_merge_vs_arkcam_dng.png (merge vs ArkCam's linear DNG).
-- Merge against merge (isz2 burst vs ArkCam DNG): our split detail 0.78 at noise 0.78; P29 native 0.86 / 0.82 (54 s); split
-  kernelScale 0.7 / 0.5 / 0.35 → 0.82 / 0.88 / 0.94 at noise 1.03 / 1.44 / 2.10. ArkCam holds ~15-20 % more detail at equal
+- Owner: WhyCam has much better fine detail in sensor mode 29 (Quad 4096x3072, no remosaic; both apps get the same RAW);
+  «У Why используется Sabre сделанный для квад сенсоров». Evidence: research/p29/device_out/isz2_signs.png (JPEGs),
+  isz_merge_vs_whycam_dng.png (merge vs WhyCam's linear DNG).
+- Merge against merge (isz2 burst vs WhyCam DNG): our split detail 0.78 at noise 0.78; P29 native 0.86 / 0.82 (54 s); split
+  kernelScale 0.7 / 0.5 / 0.35 → 0.82 / 0.88 / 0.94 at noise 1.03 / 1.44 / 2.10. WhyCam holds ~15-20 % more detail at equal
   noise; the rest of the JPEG difference is its post (sharpening, local contrast).
 - Owner's correction: «Я просил тебя совместить сабре квад арка и нашу реализацию. И код сабре квад ремозаика я тебе кидал».
-  So the work is the P29 COMBINATION (ArkCam's quad Sabre shader research/ark23/k_fs_gcam_sabre_merge_quad.glsl + our block
+  So the work is the P29 COMBINATION (WhyCam's quad Sabre shader research/why23/k_fs_gcam_sabre_merge_quad.glsl + our block
   detector, site gains, alignment, F6, robustness, Bento/Shasta, chroma median, GCam 11 fill/fallback) = mosaicPath 1, not a
-  new path. Steps: line-by-line diff against the shader, speed restructuring first, ablations against the ArkCam DNG to find
+  new path. Steps: line-by-line diff against the shader, speed restructuring first, ablations against the WhyCam DNG to find
   where the combination loses ~15 % detail, fixes; default for Quad streams once it beats the split at equal noise and time.
 - Post-processing (2026-10-07, scratchpad isz3/post_gain.py: band energy JPEG / tone-matched merge on textured tiles):
-  poster scene (SNR 167): ArkCam's post adds x1.24 on low-contrast finest detail (0.6-1.2 px) and x1.07-1.12 on strong edges;
+  poster scene (SNR 167): WhyCam's post adds x1.24 on low-contrast finest detail (0.6-1.2 px) and x1.07-1.12 on strong edges;
   ours x0.98 (erases weak fine texture: the "watercolour" floor) and x1.19-1.41 on strong edges (over-sharpens). On a brighter
   scene (SNR ~830) ours gives x1.17 / x1.16-1.19 and hybrid_dn_luma_mult 1 / 0.5 / 0.25 changes nothing, so the loss is a
   low-SNR denoise effect: A/B it on the dark poster scene (after P34), and soften the strong-edge sharpening.
@@ -1525,11 +1560,11 @@ The settings live in different places now; the curated groups use these keys.
 - Owner bugs fixed: «Показать градиентный фон» / theme change crash ("Error onSurfaceTextureAvailable"), front camera upside down with «Живой видоискатель».
 - Waiting on owner logs with this CI build: X300U STAB_TRACE, X200 Pro worker crash + stripe, vivo lamp, CA location, 17U zoom.
 
-### P42 — ArkCamera v50: face detection modes and tracking autofocus (owner, 2026-10-08; queued)
+### P42 — WhyCamera v50: face detection modes and tracking autofocus (owner, 2026-10-08; queued)
 
-- Source: Desktop/arkcamv50.apk (new ArkCamera build from the owner).
+- Source: Desktop/arkcamv50.apk (new WhyCamera build from the owner).
 - Owner: «Возьми из неё режимы распознавания лиц и следящий автофокус».
-- To do: decompile (apktool / jadx as for the earlier ArkCam studies), map how it detects faces (Camera2 STATISTICS_FACE_DETECT_MODE
+- To do: decompile (apktool / jadx as for the earlier WhyCam studies), map how it detects faces (Camera2 STATISTICS_FACE_DETECT_MODE
   SIMPLE/FULL vs. an ML detector, which modes it offers, how faces drive AE/AF regions and the UI boxes) and how its tracking AF
   works (object tracking between frames, AF regions following the subject, CONTROL_AF_TRIGGER / continuous AF use, tap-to-track).
 - Bring both into SCAMERA in our style (settings in the LMC layout, strings ru+en, card UI), combined with our capture path; no
@@ -1595,20 +1630,20 @@ The settings live in different places now; the curated groups use these keys.
   VP8L; no 10-bit WebP exists); lossless WebP is its maximum and is already offered. Possible extras: Display P3 (P46),
   progressive / optimised JPEG (smaller file, same pixels).
 
-### P48 — Plain (non-remosaic) shots as fast as ArkCam (owner, 2026-10-08; queued)
+### P48 — Plain (non-remosaic) shots as fast as WhyCam (owner, 2026-10-08; queued)
 
-- Owner: «скорость обработки с сабре ремозаиком по сути такая же как у арк камеры, но при обычной съёмке мы дольше, ускорь
+- Owner: «скорость обработки с сабре ремозаиком по сути такая же как у Why камеры, но при обычной съёмке мы дольше, ускорь
   обычную съёмку тоже».
 - Do: measure press -> saved for a plain Bayer shot (no remosaic / mosaic path) on the OPPO X7U and the vivo with the SHOT TIMELINE
-  and HDRX tail lines, next to ArkCam on the same scene; split worker (merge, F6, Bento/Shasta) vs Java/GL post vs encode; port the
+  and HDRX tail lines, next to WhyCam on the same scene; split worker (merge, F6, Bento/Shasta) vs Java/GL post vs encode; port the
   remaining P30/P33 ideas to the plain path (what the Sabre remosaic path already does faster: prewarm, banded overlap, fewer
   passes, GPU vs CPU split); every change bit-exact on the replay bursts or explicitly approved; the plain-Bayer worker md5 changes
   only where intended.
 
 ### P49 — Find X7 Ultra colour and spoof defaults (owner, 2026-10-08; done locally e192250, device check pending)
 
-- Owner's pair (7u.zip): our photos had half of ArkCam 9.6 (X7U config) chroma. The CC14 matrix is right (plain render matches);
-  the ARK tone compensation ccm_sat 0.6 (tuned vs ArkCam 2.85 X8U config) removed it. Now 1.1 (numpy reference of the tone;
+- Owner's pair (7u.zip): our photos had half of WhyCam 9.6 (X7U config) chroma. The CC14 matrix is right (plain render matches);
+  the WHY tone compensation ccm_sat 0.6 (tuned vs WhyCam 2.85 X8U config) removed it. Now 1.1 (numpy reference of the tone;
   reproduces our JPEG at 0.6). Device defaults v3 on PHY110: package spoof com.ss.android.ugc.aweme on all three methods (5 cameras
   instead of 3) + ccm_sat 1.1. Check on the X7U when it is free.
 
@@ -1699,15 +1734,15 @@ The settings live in different places now; the curated groups use these keys.
   eis=5, no HAL flush on the shot", "HAL queue not flushed: camera N holds the forced stabilisation". scam_dev: force_stab 0/1,
   force_stab_eis 0, force_stab_noflush 0. Cost: the series starts ~0.1-0.2 s later (no flush). Owner: X300U shot + STAB_TRACE log;
   if still lost, A/B force_stab_eis 0 and force_stab_noflush 0 to tell which part matters.
-- P54c (owner 2026-10-09: ArkCam v73 keeps the X300U stabilisation after shots; «fix it without changing the merge and the
-  result»). ArkCam v73 study (jadx, com/arkcam/CameraManager): preview = TEMPLATE_PREVIEW + RAW (ZSL), AE / AF / AWB auto,
+- P54c (owner 2026-10-09: WhyCam v73 keeps the X300U stabilisation after shots; «fix it without changing the merge and the
+  result»). WhyCam v73 study (jadx, com/whycam/CameraManager): preview = TEMPLATE_PREVIEW + RAW (ZSL), AE / AF / AWB auto,
   OIS 1, no vivo / EIS keys at all, session op mode 0; the shot is taken from the ZSL ring, no stopRepeating / abortCaptures /
   flush; an optional 2-frame STILL_CAPTURE burst (AE OFF, OIS 1) goes to the RAW stream ONLY while the preview keeps running,
   the repeating request is re-set in onCaptureSequenceCompleted. Ours on the X300U (log 09:50): series already RAW only
   (unchanged), flush gone since P54b, but the AE restore frame behind the series is an AE OFF request ON THE VIEWFINDER
   stream. Done (X300U / force_stab only): the AE restore frame goes to the RAW stream only (same exposure / ISO / RAW, so the
   AE hand-back and the next shot's ZSL ring are unchanged; the viewfinder misses one frame); the vivo EIS key of P54b is
-  opt-in (scam_dev force_stab_eis 1), as ArkCam sends none - session / series requests are back to the pre-P54b keys.
+  opt-in (scam_dev force_stab_eis 1), as WhyCam sends none - session / series requests are back to the pre-P54b keys.
   Merge, series and output untouched. scam_dev force_stab_rawonly 0 = old frame. Log: "AE restore frame queued ... (RAW
   stream only, P54c)". Owner: X300U shot + STAB_TRACE log.
 - P54d (owner 2026-10-09: «На Vivo X200FE вообще не работает стабилизация ни на одной камере, исправь»):
@@ -1864,7 +1899,7 @@ The settings live in different places now; the curated groups use these keys.
 - Owner (screenshot of the settings category «Кривые Hybrid»): «удалить пункты полностью».
 - The category `scam_curves_screen` in `res/xml/preferences.xml` (~line 476): the note `scam_curves_note`, `pref_scam_tone_curve`
   (17-point tone curve) + `pref_scam_tone_curve_strength`, `pref_scam_gamma_curve` (33-point per-channel gamma curve) +
-  `pref_scam_gamma_curve_strength`. Not the separate `scam_hybrid_ark_curves_category` (ARK) unless the owner says so.
+  `pref_scam_gamma_curve_strength`. Not the separate `scam_hybrid_why_curves_category` (WHY) unless the owner says so.
 - Do: remove the preferences, their strings (`values/` + `values-ru/`, incl. `scam_curves.xml` arrays), the keys in
   `PreferenceKeys`, the processing (`postpipeline/ScamCurves.java` and its call in `PostPipeline`, plus any use in
   `ToneCurveBuilder` / `PreviewLook` / `MainRenderer` that only serves these keys), settings search / availability / migration
@@ -1941,7 +1976,7 @@ The settings live in different places now; the curated groups use these keys.
 - Owner's log 2026-10-10 (Desktop/log-2026-10-10 11 pro.txt, APK before P67): shot 29.7 s; worker 19.4 s of which merge 16.7 s
   (19 frames, Sabre 6.1, F6 7.1 s on the CPU alongside, strips waited 0 ms); post pipeline 5.7 s of which 2954 ms compiling 32
   programs (in-process binary cache empty on the first shot after start); viewfinder 4-5 fps while the GPU merges.
-- DeviceDefaults v4 (owner): 12 N frames, 2 Shasta frames, ARK RL 3 amount 1.2 (main preferences and module profiles).
+- DeviceDefaults v4 (owner): 12 N frames, 2 Shasta frames, WHY RL 3 amount 1.2 (main preferences and module profiles).
 - GLProgramDiskCache: post-pipeline program binaries on disk (driver + source key), loaded on the first shot after a start.
 - Open: per-pass GPU times on Mali (scam_dev.txt "hybrid_profile 1") to speed the merge itself; viewfinder starvation.
 
@@ -1997,7 +2032,7 @@ The settings live in different places now; the curated groups use these keys.
   Bayer 62.5), lattice 3.3 -> 4.8. 0.25 gave a little more detail at more lattice (8.5) and noise (67.2 dB).
 - Replays: syn_b1 / syn_b2 / hand / x7u_1x / isz2 unchanged, v10_1 / v10_2 (real night Tetra) unchanged, syn_b4 changed
   (daylight Tetra, intended): new reference e7177fe4.
-- Quad left at 0.7 (tuned in P34 on real bursts against ArkCam); on the synthetic natural scene 0.5 gave +1.1 dB. Tetra 2x grid
+- Quad left at 0.7 (tuned in P34 on real bursts against WhyCam); on the synthetic natural scene 0.5 gave +1.1 dB. Tetra 2x grid
   (P56) by day uses the new scale too (not measured separately).
 - Open: a real daylight Tetra burst (vivo 10x ISZ outdoors) to confirm noise / lattice on the phone.
 
@@ -2226,7 +2261,7 @@ The settings live in different places now; the curated groups use these keys.
 ### P90 — Viewfinder freeze at the shot and during processing (owner, 2026-10-11; built, device check pending)
 - Measured (X200 Ultra, PREVIEW_GAP / VF_DRAW): 718-822 ms viewfinder gap at every shot (preview->series ~300 ms, series
   ~200 ms, series->preview ~250 ms); during processing single draws up to 167 ms.
-- ArkCam 1.05 / GCam keep the viewfinder in the requests; ours sent a RAW-only series. Now the Hybrid / SCAM series also
+- WhyCam 1.05 / GCam keep the viewfinder in the requests; ours sent a RAW-only series. Now the Hybrid / SCAM series also
   targets the viewfinder surface (scam_dev "series_viewfinder", default 1) and MainRenderer scales each series frame back to
   the viewfinder's exposure (ViewfinderGain: sensor timestamp -> ISO x shutter recorded at onCaptureStarted, main_fs.glsl
   uGain in linear light), so the Bento / Shasta frames do not flash. With P84c (the series takes the viewfinder's
@@ -2234,9 +2269,9 @@ The settings live in different places now; the curated groups use these keys.
 - SurfaceTexture frame callbacks on their own HandlerThread (VfFrames, display priority) instead of the main looper; the
   viewfinder's EGL context at high priority (EGL_IMG_context_priority, scam_dev "vf_gpu_priority"; processing contexts are low).
 
-### P91 — ZSL ring: hybrid of ours, MotionCam, ArkCam 1.05 and LMC (owner, 2026-10-11; built, device check pending)
+### P91 — ZSL ring: hybrid of ours, MotionCam, WhyCam 1.05 and LMC (owner, 2026-10-11; built, device check pending)
 - Studied: MotionCam Pro 5.0.9 (every RAW copied into its own GPU buffers on arrival, depth by a memory budget,
-  consumeBuffersForCapture without a copy); ArkCam 1.05 (com.arkcam, decompiled: RAW reader min(max(2 x frames, 8), 48),
+  consumeBuffersForCapture without a copy); WhyCam 1.05 (com.whycam, decompiled: RAW reader min(max(2 x frames, 8), 48),
   acquireLatestImage, each frame pushed into a native ring of max(30, 2 x frames) / 40 and its Image closed at once, live view
   from RAW, post-shutter only 2 ultrashort frames without flush); LMC 9.6 remod (GCam: 25 ZSL + a few post-shutter frames,
   ImageReader of 50); ours (ring of up to 50 HAL Images, reader ring + 3 = 53 HAL buffers, copy after the press into a
@@ -2687,7 +2722,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   every 150 ms on the camera thread). The YUV reader stayed 1920x1440 (not part of that session's outputs): harmless.
 - Processing error (processing error.zip): the merge and the photo completed; SCAM_DIAG's stage dump read the half-float RGB
   (P80) as float32 -> IndexOutOfBounds. Fixed (ScamDiagnostics.buffer half). The photo itself (tele 4, night, ISO 1056,
-  Sabre 2x grid) is grainy with bright speckles vs the stock one: scam-denoise left L2 / L3 luma at 0 with ARK gain 39 —
+  Sabre 2x grid) is grainy with bright speckles vs the stock one: scam-denoise left L2 / L3 luma at 0 with WHY gain 39 —
   tuning item, open.
 - App restarts 2-14 s after module switches (0-5 -> 0-2, 0-4, 0-6): no Java exception, no crash file. ExitReasons now logs the
   previous process's ApplicationExitInfo (reason, PSS / RSS, tombstone text for a native crash) at the next start. Suspects:
@@ -2889,7 +2924,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   DCIM/SCAMERA and DCIM/Camera); EXIF copyright, DNG Software, XMP toolkit, gyro CSV -> SCAMERA; the watermark logo is a SCAMERA
   camera glyph drawn in code (RotateWatermark.drawLogo), and nothing is drawn when logo and both lines are off (was the full
   «SHOT ON PHOTON CAMERA» banner); the themed launcher icon scamera_launch_mono (was the Photon ring); the live RAW viewfinder
-  renders the ArkCore path of rawdevelop_fs (the libvf_demosaic port: exposure fusion metered by LiveRawMeter, ACES, OKLab
+  renders the WhyCore path of rawdevelop_fs (the libvf_demosaic port: exposure fusion metered by LiveRawMeter, ACES, OKLab
   vibrance, gamma 2.2 + film toe; its uniforms were already set) instead of the Photon gamma / tone curve (PreviewPhotoLook +
   AutoExposureCurve every frame); the retired ISP-viewfinder tone curve (PreviewLook / ToneCurveBuilder, always off) is gone,
   LiveSceneMeter only measures SceneLuma for the manual priorities. CI runs tools/checks/preview_gl.py (photo_look_gl.py gone).
@@ -2949,8 +2984,8 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   - «Показать градиентный фон»: its theme set the camera background to the colour it already had.
   - «Опыты JSR» (phase kernel, CA inside the merge, polynomial field). The JSR_LCA stub in kHybMergeCommon stays untouched
     (never defined now; the merge GLSL is not edited, see the Adreno 750 note).
-  - ArkCore «Приоритет лица» and «Компромисс защиты светов»: read by nothing (faces never reach processing; the trade-off is a
-    fixed 0.33 in ArkAe).
+  - WhyCore «Приоритет лица» and «Компромисс защиты светов»: read by nothing (faces never reach processing; the trade-off is a
+    fixed 0.33 in WhyAe).
 - «Sabre 2× только когда есть смысл» (was «Опыты JSR» → jsrAuto2x, off): its own row under «Разрешение», on by default, live on
   the 2x grid only. The worker (auto2x, off in replays) keeps the 2x grid only when the burst samples finer than the sensor (green
   fill distance <= 0.5 px, as before) AND the light allows detail at 2x: SNR of a 2x cell = base noise model at 0.1 of white x
@@ -2986,7 +3021,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   check_ui_language, check_settings_model PASS; the worker and dngCreator.cpp compile (NDK clang -fsyntax-only).
   Not tested on a phone.
 
-### P119 - «Название фото»: SCA instead of IMG, a template like ArkCam's (owner, 2026-10-13: «у фото подписать вместо IMG сделать SCA», «Дай возможность настраивать как это сделано в ArcCam»)
+### P119 - «Название фото»: SCA instead of IMG, a template like WhyCam's (owner, 2026-10-13: «у фото подписать вместо IMG сделать SCA», «Дай возможность настраивать как это сделано в ArcCam»)
 - Output settings → «Название фото»: the template (date / time variables yyyy yy MM dd HH mm ss SSS, any other text kept as it
   is), the name it gives now, tap-to-insert variables, ready templates, «Сбросить» / «Отмена» / «Сохранить» (ui/settings/
   FileNameDialog, processing/FileNamePattern). Default SCA_yyyyMMdd_HHmmss; characters a file name cannot hold are dropped.
@@ -3010,7 +3045,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   on the camera's own illuminant curve: the neutral points the same physical camera reported in plain-Bayer viewfinder sessions with
   the AWB settled (ParamController.learnNeutral, every 16th result, kept per camera in SharedPreferences «mosaic_awb_curve»).
   Without a curve yet the measured neutral is used. The ISP colour transform (vivo) is skipped for such a neutral (picked at the
-  camera's wrong one). DNG AsShotNeutral, ArkTone and the neural route follow. Log: «mosaic white balance: colour block b, camera
+  camera's wrong one). DNG AsShotNeutral, WhyTone and the neural route follow. Log: «mosaic white balance: colour block b, camera
   r / b -> measured ..., on the curve of camera N ...». scam_dev.txt "mosaic_awb 0": the camera's neutral as before.
 - Tests: MosaicNeutralTest (Quad / Tetra BGGR mosaics with ±4 % site gains: R/G and B/G within 3 %; clipped / tiny frames give
   nothing; the projection on the curve). To check on phones: one scene with the ISZ module and its plain module, daylight and
@@ -3032,16 +3067,16 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   WebP / AVIF photos, swap many times, share; WebP / AVIF / HEIC / DNG pages show.
 
 ### P118 (continued)
-- Sharpening: only ARK stays (owner, 2026-10-13: «Оставляем только резкость Ark, всё остальное вырезаем»). Gone: the mode list,
+- Sharpening: only WHY stays (owner, 2026-10-13: «Оставляем только резкость Why, всё остальное вырезаем»). Gone: the mode list,
   RawTherapee (USM, RL deconvolution, microcontrast; RTSharpening and its shaders, every pref_sharp_* row), SCAM «без ореолов»
   (ScamSharpen, scamsharp shaders), «Выключено», «Доп. резкость после тона», the shadow guard of the post-tone sharpening
-  (ArkSharpenGuard, ark/guard.glsl; it acted only on that sharpening), the RawTherapee strength, «Деталь Sabre» (acted only
-  without the ARK sharpening). ArkLumaSharpen always runs; its own rows stay. Defaults give the same picture as before.
+  (WhySharpenGuard, why/guard.glsl; it acted only on that sharpening), the RawTherapee strength, «Деталь Sabre» (acted only
+  without the WHY sharpening). WhyLumaSharpen always runs; its own rows stay. Defaults give the same picture as before.
 - Rows that act only with another setting off its default are greyed with the reason: Sabre 6.1 «Авто» rows, the round-4 kernel
   rows (snr scale, tensor noise), Shasta sharpness / max ratio (Shasta «Авто»), Bento trigger (Bento «Авто», also Motion mode's),
   motion boost (needs F6), the AgX curve sliders (look «Custom»). «Карта силы»: «Карта эффективных кадров» removed (it did
   exactly what «Авто» does; stored ones become «Авто»).
-- Tests 825, only DevKeysCoverageTest fails (another agent's uncommitted vivo_qcom keys). tools/check_ark_tone.py: the two
+- Tests 825, only DevKeysCoverageTest fails (another agent's uncommitted vivo_qcom keys). tools/check_why_tone.py: the two
   synthetic cases fail with the same numbers on the previous commit 478913e too (not from this round).
 
 ### P120 (continued) - findings of the two reports; fixed what needs no phone and no sensor-mode change
@@ -3124,19 +3159,19 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 
 ### P135 - low light: very strong grain made stronger by sharpening, on every phone (owner, 2026-10-15: «часто при плохом освещении ловлю вот такие отвалы обработки с непонятным очень сильным зерном и выделяющим его нереально сильным шарпингом на абсолютно разных телефонах. Исправь чтобы такого никогда не было. Добавил парную с гкама для сравнения.»)
 - Done locally (owner, then: «Мне не нужно устранять зерно полностью, мне нужно устранить аномальное его количество»). Inputs:
-  SCAM-20261015-024212-860 diagnostics, SCA_20261015_024212.heic + log-2026-10-15, the ArkCam pair ARK_20261015_024247781.jpg.
+  SCAM-20261015-024212-860 diagnostics, SCA_20261015_024212.heic + log-2026-10-15, the WhyCam pair WHY_20261015_024247781.jpg.
   The shot: «Движение» with a hand-set 0.8 s, ISO 12800 asked, 6400 delivered, 4 N + 3 ES frames, finish SNR 3.04.
-  Causes: (1) the denoise's night tier (SNR <= 5, ArkCam's SabreLow) was {1, 3, 0, 0, 0} with revert {9, 9, ..}: the fine levels
+  Causes: (1) the denoise's night tier (SNR <= 5, WhyCam's SabreLow) was {1, 3, 0, 0, 0} with revert {9, 9, ..}: the fine levels
   put the removed noise back amplified (out = d + rf (recon - d), rf' = 9/2 at 4 effective frames), the coarse ones were not
-  denoised at all - every shot below SNR 10 got some of it (interpolated with the SNR-10 tier); (2) the ARK sharpening (USM,
+  denoised at all - every shot below SNR 10 got some of it (interpolated with the SNR-10 tier); (2) the WHY sharpening (USM,
   bilateral boost, local contrast, two Richardson-Lucy stages x3) ran at full strength whatever the noise; (3) the automatic
   ISO of a hand-set long shutter ignored the ISO the HAL honours for AE-off frames (P110).
   Fixes: night tier = GCam's stock SabreLow strengths (all levels, the coarse blotches and colour mottle cleaned) with 60 / 50 %
   of the fine grain put back (revert 0.6 / 0.5 < the SNR-10 tier's 0.75 / 0.7: a darker shot is never grainier), revert limit
   dn_revert_max 9 -> 1 (never more grain than the shot had), migration of the stored former defaults (LOW_LIGHT_DN_REV);
-  ArkLumaSharpen.lowLightFactor: share of every sharpening amount by the finish SNR (0.3 at <= 4, 0.66 at 10, 0.84 at 16, all
+  WhyLumaSharpen.lowLightFactor: share of every sharpening amount by the finish SNR (0.3 at <= 4, 0.66 at 10, 0.84 at 16, all
   from 24; daylight shots unchanged); ParamController.pslIso capped by honouredIsoCap. Tests: ScamDenoiseTablesTest (now in the
-  CI list), ArkSharpenLowLightTest, HybridSettingsTest.lowLightDenoiseDefaultsMoveOnce. Not phone-checked.
+  CI list), WhySharpenLowLightTest, HybridSettingsTest.lowLightDenoiseDefaultsMoveOnce. Not phone-checked.
 
 ### P136 - settings icons in the style of the new launcher icon (owner, 2026-10-15, on the P131b preview: «Переделай стиль иконок настроек под подобный стиль»)
 - OPEN, after the current P129 step. Every settings icon (res/drawable/settings_ic_*, the module page glyphs of ModuleConceptFragment,
@@ -3240,7 +3275,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   reachable through scam_dev.txt "hybrid_<key>") are on «Для разработчика» now: the series planner (fast_capture,
   planner_adaptive, planner_l/s/es_ev, long_boost_ev), the merge (clip_flags, mosaic_gain), the processing (isp_ccm,
   dn_dark_chroma_hi/lo/noise, grain_level/min, texture_g0..g3, texture_core0/1, texture_bmax), with the code's defaults.
-  DevKeysCoverageTest now also scans hybridValue / hybridSwitch / hybridString / routeInternalValue / ArkTone.value literal
+  DevKeysCoverageTest now also scans hybridValue / hybridSwitch / hybridString / routeInternalValue / WhyTone.value literal
   keys without a row (it failed with these 21 on the old list). The group is «vivo» (it holds X200 / X300 Ultra keys).
   getScamLuma / getScamChroma / getScamMerge (SCAM HDR network strengths, no caller since P129) removed.
 
@@ -3248,13 +3283,13 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 - OPEN, after P128. Remove the SCAM HDR merge route (NPU 4N + L/S/ES graph, its settings and UI) but keep the neural remosaic
   (Quad / Tetra / HP9 HexQuad models and their assets). Settings of the SCAM HDR route that the Hybrid does not use go
   (SettingsMigration drops the stale keys). The Hybrid stays as the only merge and is called SHDR in the UI and logs.
-- No «LMC» / «AGC» left in the app (UI, logs, settings, code names). ARK stays (owner, 2026-10-15: «ARK можешь оставить»).
+- No «LMC» / «AGC» left in the app (UI, logs, settings, code names). WHY stays (owner, 2026-10-15: «WHY можешь оставить»).
   Code names Sabre, Bento, Shasta, Mochi and the like get
   our own descriptive names (UI, settings, log tags, class / method names where cheap); keys renamed with a migration so owners'
   settings survive. Vendor names (vivo.*, libvivo*, model files) stay as they are (P55 rule).
 - Step 1 done locally (2026-10-15): PreferenceKeys.mergeRoute() is always SHDR (a stored route ignored; pref_merge_route
   stays as the migrations' hidden marker, no row); the route row, its chip, the dimmed route sections, the route tile and the
-  SCAM HDR shade group, the SCAM HDR screen (66 rows), its launch check (scam_probe) and the SCAM HDR -> ArkCore link are gone;
+  SCAM HDR shade group, the SCAM HDR screen (66 rows), its launch check (scam_probe) and the SCAM HDR -> WhyCore link are gone;
   pref_scamhdr_* / pref_scamold_* are obsolete (migrateScamHybrid runs first everywhere). The neural remosaic stays and is
   SHDR's now: «Нейроремозаик (NPU)» (pref_scam_hybrid_neural_remosaic, off by default as SCAM HDR's mosaic mode was; a stored
   SCAM HDR «neural*» mode with the SCAM HDR route turns it on once) on the mosaic page with the HexQuad / Quad 2x2 / GPU remosaic
@@ -3266,7 +3301,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 - Step 2 done locally (2026-10-15), the visible names: Hybrid -> SHDR, Bento -> «Кадры светов» / "Highlight frames",
   Shasta -> «Кадры теней» / "Shadow frames", Sabre -> «Ядро склейки» / "Merge kernel" (Sabre 6.1 -> «Новое ядро склейки»,
   the round-4 core -> «прежнее ядро», Sabre 2x -> «Суперразрешение 2×», the Sabre Low / Med / High denoise points -> dark / dim
-  / bright), Mochi -> «Фотометрическая склейка», the GCam denoiser -> «Многомасштабный шумодав», ArkCore -> ARK, «(AGC)»
+  / bright), Mochi -> «Фотометрическая склейка», the GCam denoiser -> «Многомасштабный шумодав», WhyCore -> WHY, «(AGC)»
   dropped, «Фотонный шум» -> «Дробовой шум»; the literal XML titles (Bento, Shasta, Sabre Luma Denoise, Luma Denoise GID14,
   Revert, Guided filter) became translated strings. 835 unreferenced string / array entries removed (most of them SCAM HDR's
   and the 26790 recovery's). The gallery shows an old Route=Hybrid shot as SHDR (old SCAM HDR shots keep their name). The
@@ -3320,7 +3355,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 - Core done locally (2026-10-15, with P129 step 1): root = «Режим «Движение»», «Фото» (formats, resolution / downsampler /
   2x from SHDR, DNG compression, file name, watermark), «Съёмка» (new: frames in the merge, ZSL buffer, lamp flicker, sounds,
   Xiaomi zoom, «Движение» page), «Видоискатель», «Цвет» (DCP, colour method, vibrance), «SHDR» (noise reduction, sharpening,
-  ARK tone first; frames, merge, noise expert pages after; the «Обработка ArkCore» container dissolved), «Камеры и сенсоры»
+  WHY tone first; frames, merge, noise expert pages after; the «Обработка WhyCore» container dissolved), «Камеры и сенсоры»
   (Java page: rear / front / hidden modules, module profiles, «Для опытных» -> «RAW и сенсор» = the former «Захват и RAW» with
   SHDR's noise source next to the noise-model profile), «Интерфейс» (new: theme, accent, gallery icon), «Система» (root, spoof,
   new «Резервная копия» page, diagnostics with the full log, developer, about). Keys unchanged; tests updated
@@ -3346,10 +3381,10 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 ### P134 - colour settings from Lightcraft and RawTherapee, all in «Цвет» (owner, 2026-10-15: «Изучи https://github.com/storytold/lightcraft https://github.com/RawTherapee/RawTherapee И добавь нам настройки цвета которые логически должны подойти нашему приложению, не дублируй одни и те же параметры, так же можешь сделать свои варианты настроек которых нет в данных примерах. Все настройки собирай в группе "Цвет"»)
 - OPEN, after P132 (the settings regrouping makes the «Цвет» group; P129 names apply). Study the colour tools of both
   projects (RawTherapee: white balance, colour toning, channel mixer, HSV equalizer, colour appearance CIECAM, vibrance,
-  Lab adjustments, film simulation; Lightcraft: its colour / look controls; ArkCam - the standalone app, not the LMC mod
-  (owner, 2026-10-15: «можешь так же изучить и ArkCam(не мод LMC, а отдельное приложение)»; that app is research/ark50,
-  com.arkcam v1.0.50 - research/hybrid5 describes ArkCam 1.23 / LMC 9.6, the wrong one) and our existing colour rows (WB, saturation, hue
-  look, ARK tone, DCP / ISP CCM, output colour space). Add the ones that fit a phone camera's processed photo, each a real
+  Lab adjustments, film simulation; Lightcraft: its colour / look controls; WhyCam - the standalone app, not the LMC mod
+  (owner, 2026-10-15: «можешь так же изучить и WhyCam(не мод LMC, а отдельное приложение)»; that app is research/why50,
+  com.whycam v1.0.50 - research/hybrid5 describes WhyCam 1.23 / LMC 9.6, the wrong one) and our existing colour rows (WB, saturation, hue
+  look, WHY tone, DCP / ISP CCM, output colour space). Add the ones that fit a phone camera's processed photo, each a real
   stage of our pipeline (GPU shader / post-pipeline node) that changes the output, no duplicate of an existing control; own
   variants where useful. Every colour setting (new and existing) moves into one «Цвет» / «Colour» group. Licences: RawTherapee
   is GPL-3 - reimplement from the published maths, copy no code; Lightcraft's licence checked before reading code.
@@ -3360,16 +3395,16 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   (Монохром: neutral or a yellow / orange / red / green / blue filter), «Для опытных» (Сжатие охвата, Удержание оттенка:
   full / blues only / off, Насыщенность при матрице OPPO and Путь к белому, both moved). Keys pref_scam_hybrid_colour_*
   (per module like the other SHDR rows), moved rows keep their keys; the colour space stays in «Фото» (a file property).
-  How: processing/color/ColourLook - warmth / tint / scene light as one CAT16 3x3 on linear sRGB folded into ArkTone's colour
+  How: processing/color/ColourLook - warmth / tint / scene light as one CAT16 3x3 on linear sRGB folded into WhyTone's colour
   chain once per shot (AE statistics and photo agree, no GPU cost; the scene light uses Parameters.sceneCct, unused since P10;
-  white keeps its luminance); everything else in ark/combine.glsl under COLOUR_LOOK 1, which ArkCombine sets only when a
+  white keeps its luminance); everything else in why/combine.glsl under COLOUR_LOOK 1, which WhyCombine sets only when a
   colour row is off its default - COLOUR_LOOK 0 is the shader before P134 token for token (check_colour_output.py's pinned
   hash still matches, so default photos are bit-identical). Scene-OKLab stage before the hue direction is saved (mono filter,
   skin protection of positive gains, vibrance by brightness, 8-band raised-cosine mixer after Lightcraft, skin hue /
   evenness), ACES RGC gamut compression of the linear colour, the hue-lock mode, and the grading in display OKLab after the
   hue lock. The grading hue is a colour-wheel (HSV) angle mapped to OKLab. Availability: a grading hue waits for its strength,
   the AgX saturation acts only with the «Custom» AgX look. Licences: Lightcraft (MIT / Apache-2.0) formulas noted in
-  THIRD_PARTY_NOTICES.md; RawTherapee and ArkCam v50's SkinSat (GPL-derived) not used - the skin mask is our own (OKLab
+  THIRD_PARTY_NOTICES.md; RawTherapee and WhyCam v50's SkinSat (GPL-derived) not used - the skin mask is our own (OKLab
   hue ~50°, C/L 0.03..0.32). Checks: ColourLookTest (matrix identity at defaults, warmth / tint / scene-light directions,
   white luminance, wheel -> OKLab), tools/check_colour_look.py on the GPU (defaults bit-exact in sRGB and P3; mono, filters,
   skin protection, band-limited mixer, grading zones, hue-lock modes, gamut compression near the boundary only, skin hue),
@@ -3380,24 +3415,24 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   rows (ColourLookTest.primariesCalibrationKeepsWhite).
 - DONE 2026-10-16: «Плёночный LUT» (Цвет › Стиль): a .cube (LUT_3D_SIZE 2..65, DOMAIN_MIN / MAX, LUT_3D_INPUT_RANGE;
   FilmLut.parse refuses 1D, wrong row counts, non-numbers) from Download/SCAMERA/LUT (ScameraFolder.LUTS; «Импортировать
-  .cube…» copies a picked file there after checking it, «Открыть папку» grants the folder), applied by ArkCombine (FILM_LUT 1:
+  .cube…» copies a picked file there after checking it, «Открыть папку» grants the folder), applied by WhyCombine (FILM_LUT 1:
   a 3D RGB16F texture, trilinear, on the display-encoded output before the dither) and mixed by «Сила LUT» (0..100, 100).
   GLProg.setTexture3D. FilmLutTest (3), SettingsMenuTest.filmLutRowPicksAFileOrNone, tools/check_film_lut.py (GPU: identity
   unchanged, a warm look = numpy trilinear, strength 0.5 = half, the input range; within the 8-bit sub-texel weights of the
   filtering, < 4e-4) and glslc for FILM_LUT 0/1 x P3_OUT 0/1; in CI. Hald PNG not added (.cube covers the usual looks).
 - Still not done: the skin protection of the AgX saturation above 1, and the live RAW viewfinder's preview of the look (it
-  renders with its own ArkCore defaults). Not seen on a phone.
+  renders with its own WhyCore defaults). Not seen on a phone.
 - DONE 2026-10-16, both:
   (1) «Защита кожи» also holds back the AgX saturation above 1 («Custom» look): on skin it acts with (1 - protection), as
   vibrance does; below 1 untouched; under COLOUR_LOOK 1 only (the default shader token for token, check_colour_output's pin).
   check_colour_look: skin under saturation 1.5 x1.525 -> x1.036 with full protection, colours far from skin unchanged.
   The row's text names it.
-  (2) The live RAW viewfinder shows the look: LiveRawRenderer reads ArkTone.colourLook() twice a second and folds the white
+  (2) The live RAW viewfinder shows the look: LiveRawRenderer reads WhyTone.colourLook() twice a second and folds the white
   matrix (warmth / tint / primaries calibration; no scene light, the viewfinder has no scene CCT) after the camera transform,
   and rawdevelop_fs.glsl runs the same stages as COLOUR_LOOK 1 behind u_look_on (monochrome before OKLab, skin protection /
   vibrance by brightness / mixer / skin hue after its vibrance, the grading on the display value before the gamma) and the
   film LUT in its existing LUT slot with the file's domain (parsed off the GL thread, uploaded once per file). The tone and
-  hue lock stay the viewfinder's own (ArkCore). tools/check_viewfinder_look.py (GPU: look off = the shader before P134 bit
+  hue lock stay the viewfinder's own (WhyCore). tools/check_viewfinder_look.py (GPU: look off = the shader before P134 bit
   for bit, a neutral look = off, mono grey, shadow grading only in the shadows, skin protection of the mixer, identity LUT
   and its domain; in CI), LiveRawLookTest (matrix order; in CI). Not seen on a phone.
 
@@ -3417,7 +3452,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   tools/make_ui_icons.py); SettingsMenuTest.rootPagesHaveTheirOwnIcons.
 - Option sheets scroll in landscape (P137 fix, f68ec29 / 0554978).
 
-### P140c - X300 Ultra DCG white level; AgX / ACES curve on top of «Тон ARK» (owner, 2026-10-15: «На Vivo X300 Ultra мы не исправили уровень белого, займись этим. Причём появляется проблема например в этой сцене если тапнуть по темному участку»; «Пункт "Кривая AgX и ACES" перенеси в самый верх группы Тон ARK»)
+### P140c - X300 Ultra DCG white level; AgX / ACES curve on top of «Тон WHY» (owner, 2026-10-15: «На Vivo X300 Ultra мы не исправили уровень белого, займись этим. Причём появляется проблема например в этой сцене если тапнуть по темному участку»; «Пункт "Кривая AgX и ACES" перенеси в самый верх группы Тон WHY»)
 - Log + photo (pink window behind the curtain): the pink shots are the DCG 14-bit ones (forceSensorMode 17). RawLevels took the
   scaled white 16383 (14 bit, black 1022 dynamic), but the merge's highlight statistics show every channel clipped at 0.4995
   of it (12:10:43 R/G/B 0.4995; 12:17:24 G 0.4990 B 0.4988): the stream clips at ~8694 = 1022 + 8 x (1023 - 64). A blown area
@@ -3429,7 +3464,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
   plateau and resolve() takes it as the white of a wider stream when it lies under the scaled one ("white = measured clip").
   Shots, viewfinder and meters use it (forFrame / current). A DCG scene without a blown area keeps 16383 (nothing to measure).
   Tests RawLevelsTest.measuredClipIsTheWhiteOfAWiderStream / clipPlateauOfTheSamples. Not seen on the X300 Ultra yet.
-- «Кривая AgX и ACES» is the first row of «Тон ARK» (SettingsMenuTest.curvesOpenTheArkTonePage).
+- «Кривая AgX и ACES» is the first row of «Тон WHY» (SettingsMenuTest.curvesOpenTheArkTonePage).
 
 ### P143 - the config button in the shade (owner, 2026-10-15, screenshot of the shade header: «Сделай так чтобы в этой области отображалось название действующего конфига в рамке. Убедись что длинные названия не выходят за рамки и масштабируются внутри. Также сделай её как рабочую кнопку с всплывающим меню менеджмента конфигов через которое можно сохранять и импортировать конфиги. Все это должно быть в стиле нашей камеры и с красивыми плавными анимациями»; «Помимо сохранения и применения конфига также должна быть кнопка сброса настроек»)
 - «ЗАКРЕПЛЕНО» gives its place to ConfigChip: the config icon, the active config's name and a chevron in an accent frame; a
@@ -3464,18 +3499,18 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
     files). «Открыть папку конфигов» in the config menu (SettingsActivity.ACTION_OPEN_FOLDER) and «Открыть папку» in
     «Загрузить кривую» until the grant exists.
 
-### P144 - ACES, Uchimura and an own curve in «Кривая AgX и ACES» (owner, 2026-10-15, ArkCam 1.42 APK: «Добавь алгоритмы тоноотображения как в arkcam "ACES" "Uchimura" Включение каждой из них сделай в отдельной группе. Также дай возможность вводить свою кривую с наглядной визуализацией, также на визуализации дай возможность менять кривую пальцем. Мы должны иметь возможность добавлять сколько хотим точек у кривой»; «Для "ACES" "Uchimura" в отдельных группах настроек где они включаются должны быть только настройки касающиеся их»; «Дай также возможность ползунками двигать добавленные точки и ползунками, либо вписывать вручную значения»)
-- ArkCam v142 tonemap_final: eval_acescg x(ax+b)/(x(2.43x+d)+e) with b = max(toe*0.75, 0.005), e = max(0.14-(toe-0.04)*0.8,
+### P144 - ACES, Uchimura and an own curve in «Кривая AgX и ACES» (owner, 2026-10-15, WhyCam 1.42 APK: «Добавь алгоритмы тоноотображения как в whycam "ACES" "Uchimura" Включение каждой из них сделай в отдельной группе. Также дай возможность вводить свою кривую с наглядной визуализацией, также на визуализации дай возможность менять кривую пальцем. Мы должны иметь возможность добавлять сколько хотим точек у кривой»; «Для "ACES" "Uchimura" в отдельных группах настроек где они включаются должны быть только настройки касающиеся их»; «Дай также возможность ползунками двигать добавленные точки и ползунками, либо вписывать вручную значения»)
+- WhyCam v142 tonemap_final: eval_acescg x(ax+b)/(x(2.43x+d)+e) with b = max(toe*0.75, 0.005), e = max(0.14-(toe-0.04)*0.8,
   0.03) after a pre-gain; uchimura_curve (GT: P, a, m, l, c, b) between a pre- and a post-gain; the own curve as a 256-entry LUT
-  over x = 0.5 + EV/10 (±5 EV around 0.18) -> display -> ^2.4. Ours: the same, in place of the AgX sigmoid inside ark/combine.glsl
+  over x = 0.5 + EV/10 (±5 EV around 0.18) -> display -> ^2.4. Ours: the same, in place of the AgX sigmoid inside why/combine.glsl
   (AgX inset and outset kept; ACES / Uchimura clamp 0..1 before the outset). `#define TONE_OP 0` keeps the old token stream
-  (check_colour_output pins it); ArkCombine sets TONE_OP 1 only when one of them is on (ArkTone.toneOperator: curve > Uchimura >
+  (check_colour_output pins it); WhyCombine sets TONE_OP 1 only when one of them is on (WhyTone.toneOperator: curve > Uchimura >
   ACES > AgX) and drops the AgX look then. Uniforms toneOpU, acesU, uchiAU, uchiBU, curveU[64] (GLProg.setVarVec4s).
 - Settings: the curves page holds AgX, then the groups ACES, Uchimura, «Своя кривая»; each starts with its «… вместо AgX»
   switch and holds only its own rows (they depend on it; ACES Toe stays live - it also shapes the ACES inversion). One at a time:
   switching one on turns the other two off (SettingsActivity.TONE_OPERATORS, the store first). AgX's rows say which one works
-  instead. Bounds as ArkCam (SettingsNumericRules).
-- The own curve (processing.color.ToneCurve, "x:y,..." in pref_scam_hybrid_ark_curve_points, default ArkCam's S): a
+  instead. Bounds as WhyCam (SettingsNumericRules).
+- The own curve (processing.color.ToneCurve, "x:y,..." in pref_scam_hybrid_why_curve_points, default WhyCam's S): a
   Fritsch-Carlson monotone cubic, as many points as wanted (0.01 apart), the ends keep x. ToneCurvePreference / ToneCurveView:
   a graph with a grid, the straight line dashed, −5 EV / 0 (grey) / +5 EV; tap = a point, drag = move, hold = delete; «S-кривая»
   and «Прямая». The touched point stays selected: ‹ ›, «Удалить», sliders «Экспозиция» (EV) and «Яркость» (%), each value taps
@@ -3483,7 +3518,7 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 - Curve files (owner: «Дай также возможность сохранять и импортировать тоновые кривые, папку можешь сделать для них в
   Download/SCAMERA»; «для тоновых кривых сделай отдельную папку»): Download/SCAMERA/ToneCurves, apart from the configs' XML
   (util/ScameraFolder: one MediaStore / File API folder class, ConfigFolder now delegates to ScameraFolder.CONFIGS). A file
-  is a header comment and the "x:y,..." points (.txt); reading takes every "x:y" pair of any text (ArkCam's string, hand-typed
+  is a header comment and the "x:y,..." points (.txt); reading takes every "x:y" pair of any text (WhyCam's string, hand-typed
   lists; 0..255 scaled), refuses fewer than two points. «Сохранить» (a free «Кривая_N» offered), «Загрузить» (the saved
   curves with a preview, a tap loads, the bin asks once more and deletes; «Из файла…» = the system picker, opened by
   SettingsFragment.curveImportLauncher in that folder).
@@ -3491,14 +3526,14 @@ Newest report per phone (15 phones). Already known items (P93-P102) are not repe
 ### P145 - processing from the CPU to the GPU (owner, 2026-10-16: «Какие из процессов обработки у нас всё ещё идут на ЦПУ?», then «Переноси всё что можно из этого списка на гпу»)
 The CPU audit (three readers over capture, worker and post pipeline) found on every default shot: CRE + tile LK alignment,
 RAW CA correction, the Bento mask and the effective-map / output passes in the worker; the frame copies (ZSL ring, arena,
-worker result); the ScamRgb half -> RGBA16F upload repack; ArkAe statistics (arkLow read back, 2 single-threaded passes);
+worker result); the ScamRgb half -> RGBA16F upload repack; WhyAe statistics (whyLow read back, 2 single-threaded passes);
 the single-threaded jpegli encode and the ExifInterface rewrite. By option: HEIC 10-bit RGB -> P010 in Java, AVIF (libaom),
 Ultra HDR GainMapComputer (2 Java passes), live-RAW viewfinder copies and Quad 2x2 binning, gallery DNG render.
 Each step moves with a check that the GPU gives the CPU's result; the CPU path stays as the fallback.
-- a. DONE: ArkAe statistics -> compute ark/aestats (ArkAeGpu): max key, two 4096-bin histograms (luma / max in one shared uint
+- a. DONE: WhyAe statistics -> compute why/aestats (WhyAeGpu): max key, two 4096-bin histograms (luma / max in one shared uint
   per bin), per-group sums; 33 KB back instead of 25 MB; self-check of the total weight, else the old read-back.
-  ArkAe split into stats / finish (same code for both). tools/check_ark_ae_gpu.py (GPU vs a float32 copy of the Java loops:
-  max exact, <= 0.0015 % of the weight in a neighbour bin from fused multiply-adds), ArkAeTest.gpuStatisticsGiveTheSameExposure.
+  WhyAe split into stats / finish (same code for both). tools/check_why_ae_gpu.py (GPU vs a float32 copy of the Java loops:
+  max exact, <= 0.0015 % of the weight in a neighbour bin from fused multiply-adds), WhyAeTest.gpuStatisticsGiveTheSameExposure.
 - b. DONE: ScamRgb's half RGB -> RGBA16F repack -> compute scamhdr/halfrgba (HalfRgbUpload): bands copied unchanged into an
   SSBO (two, alternating), widened by unpackHalf2x16 and stored with imageStore. Used only where a once-per-process probe
   of all 65536 halves comes back bit for bit (GLES may flush 16-bit denormals); the CPU repack otherwise, for post_ab and
@@ -3557,7 +3592,7 @@ Each step moves with a check that the GPU gives the CPU's result; the CPU path s
   fallback (it exists for a GPU that failed).
 - Checks: ToneCurveTest 5, SettingsMenuTest (groups, one at a time, graph + sliders + typed values, a render to
   build/reports/tone-curve), tools/check_tone_ops.py (GPU vs numpy: ACES, Uchimura, the straight and the S curve, max 1e-4);
-  glslc for every TONE_OP variant. Not seen on a phone yet; the look vs ArkCam not compared on photos.
+  glslc for every TONE_OP variant. Not seen on a phone yet; the look vs WhyCam not compared on photos.
 
 ### P147 - faster saving and processing without the OPPO (owner, 2026-10-16: «Сделай полностью всё что можешь по ускорению без оппо»)
 From the X200 Ultra log of 2026-10-15: JPEG save 0.6-1.0 s at 20 MP and 3.8-4.8 s at 50 MP (jpegli on one thread), and the
@@ -3576,7 +3611,7 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
   libjpeg-turbo not added: jpegli in strips is already ~0.15 s for 20 MP; another library (a download, a new dependency) would
   save ~0.1 s more at a slightly lower quality per byte.
 - c. DONE: Ultra HDR's linear snapshot read back and uploaded again as the halves the texture holds (8 B a pixel instead of
-  16; only where ArkStats' probe finds the driver's half read-back exact - the same texels): LinearExposure took 1.2 s at
+  16; only where WhyStats' probe finds the driver's half read-back exact - the same texels): LinearExposure took 1.2 s at
   50 MP. ScamRgb's decimated copy (every 61st pixel, 140 ms on one thread at 50 MP - the slowest input step once the repack
   went to the GPU) on the worker threads.
 
@@ -3616,7 +3651,7 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
 
 ### P146 - FULLRES as its own settings group (owner, 2026-10-16: «Так же сделай отдельные настройки для 50мп как для отдельного модуля, сделай отдельную группу "FULLRES" где я смогу полностью всё так же настраивать как для остальных. Пункт пускай будет доступен только на смартфонах где у нас будет рабочий фулрез»)
 - A FULLRES profile beside the module profiles (ModuleProfiles / module_profile_v2_<slot>): every per-module setting
-  (capture, SHDR / Hybrid, ARK tone and curves, denoise, sharpening, output) stored for the 50 MP FULLRES shot of a lens and
+  (capture, SHDR / Hybrid, WHY tone and curves, denoise, sharpening, output) stored for the 50 MP FULLRES shot of a lens and
   applied when the shot runs FULLRES (VivoSdkFullRes route), the normal module profile otherwise.
 - Settings: a «FULLRES» group in the module settings, built like a module page (the same rows, copy from / to a module);
   shown only where FULLRES works on this phone (the VivoSdkFullRes support check of the lens: today the X200 Ultra main
@@ -3689,8 +3724,8 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
   path to white goes up to white, not down to grey. (3) Fully clipped (no channel left) = white. Check on host (the combine
   shader on ramps and a clipped plateau: white = 1.0, C1 at the landing, hue kept below the clip) and on the owner's
   shots: no grey whites, no new halos, mid-tones unchanged.
-- DONE 2026-10-16 (ArkCombine HL_LANDING 1, «Мягкость засветов» pref_scam_hybrid_ark_hl_soft 0..0.9, default 0.5, 0 = the
-  shader before): only with clipped data in the frame (headroomU; the ARK clip is the frame's maximum, so a frame without a
+- DONE 2026-10-16 (WhyCombine HL_LANDING 1, «Мягкость засветов» pref_scam_hybrid_why_hl_soft 0..0.9, default 0.5, 0 = the
+  shader before): only with clipped data in the frame (headroomU; the WHY clip is the frame's maximum, so a frame without a
   real clip keeps its tone - a white paper in shade is not pushed to white), the display value lands on the white point by
   smoothstep(1 - soft, 1, max3(colour source) / ceiling): the pixel's own colour at full brightness (max channel 1), a
   near-neutral one (saturation < ~0.1) pure white; the path to white goes to the white of the brightest channel, not the
@@ -3702,9 +3737,9 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
   saturated light below the clip is as before.
 - v2 2026-10-16 after the owner's look at the v1 preview («Тут очень резкие переходы с уходом в серый»): the per-pixel
   smoothstep doubled the edge gradient of the curtain folds between the white blobs (p95 of |grad| 0.0066 -> 0.0122 on the
-  DCG window), the folds read as grey stripes. Now the landing follows the BLURRED share of the ceiling: ark/hlmask.glsl on
-  the arkLow grid (max channel / ceiling, then a gaussian of 1.2 % of the width along x and y; three passes into R16F
-  textures, only with a real clip and hl_soft > 0), sampled bilinearly by combine.glsl (ArkHl); the curve is a shoulder
+  DCG window), the folds read as grey stripes. Now the landing follows the BLURRED share of the ceiling: why/hlmask.glsl on
+  the whyLow grid (max channel / ceiling, then a gaussian of 1.2 % of the width along x and y; three passes into R16F
+  textures, only with a real clip and hl_soft > 0), sampled bilinearly by combine.glsl (WhyHl); the curve is a shoulder
   1 - (1 - t)^2 from 1 - hl_soft of the ceiling (steepest at its start, zero slope at white), gated by the pixel's own
   brightness (smoothstep 0.15 - 0.45 of the ceiling: dark objects in front of a light get no glow). Default 0.7. On the DCG
   window (numpy of the same chain): p95 0.0071, the folds at 0.93 instead of grey stripes, the blown area 1.0.
@@ -3800,7 +3835,7 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
     LensButtonTest (discs and capsule), BottomChromeTest, ViewfinderUiTest and AuxButtonsOverflowTest follow the new sizes.
     Not seen on a phone.
 
-### P158 - processing progress around the gallery thumbnail, as in ArkCam (owner, 2026-10-16: «сделай процесс обработки фото как в ArkCam, прогресс постепенно должен идти вокруг иконки галереи»)
+### P158 - processing progress around the gallery thumbnail, as in WhyCam (owner, 2026-10-16: «сделай процесс обработки фото как в WhyCam, прогресс постепенно должен идти вокруг иконки галереи»)
 - DONE 2026-10-16: ui/camera/views/ProcessingRing replaces the indeterminate spinner over the gallery card: a line in the
   accent runs clockwise round the card's edge from the top centre over a faint track. It moves on by time (an ease-out over
   the last shot's processing time, 3.5 s before the first; at most 0.94 of the ring) and never lags the pipeline's
@@ -3812,7 +3847,7 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
   around a white cone (bottom left), coloured fringes on white shirts; the whole screen washed towards white.
 - Log (12:12:57): X300 Ultra main, 10 bit (DCG off), N 10.4 ms x ISO 1422 + 3 L + 3 ES (x0.125); Bento applied, 5.8 % of the
   cells clipped in N, the ES frames not clipped (usClipped 0); clip flags: Bento 1.06 M px, border 0.83 M px; highlight
-  recovery per channel max R 1.82 / G 4.55 / B 3.68, clipWhite 2.20, nearClip; ARK clip 4.0, gmax 10.8, headroom on,
+  recovery per channel max R 1.82 / G 4.55 / B 3.68, clipWhite 2.20, nearClip; WHY clip 4.0, gmax 10.8, headroom on,
   hlWhite 0.15, hlSoft 0.7 (P154 v2 in this build).
 - Working hypothesis: the screen is far brighter than the scene, so its colours reach the tone's shoulder: the path to white
   (hlWhite) and the AgX shoulder (and the P154 landing on its own colour / white) desaturate PER PIXEL by brightness - a cone's
@@ -3822,38 +3857,38 @@ EXIF rewrite after it 56-654 ms (ExifInterface reads and writes the whole file a
   limited somewhere (white balance gain x clip, the per-channel recovery's ceiling).
 - Next: get the shot's stages (Diagnostics ZIP or the merged DNG) or replay the burst; split by switches (hl_white 0, hl_soft 0,
   Bento off, highlight recovery off) and measure the chroma across one cone (inside vs edge) at each stage: merge output,
-  after recovery, after ARK. Fix ideas, chosen by what the split shows: desaturation driven by a blurred brightness (as the
+  after recovery, after WHY. Fix ideas, chosen by what the split shows: desaturation driven by a blurred brightness (as the
   P154 mask) so an object's edge and inside go together; a hue- and chroma-keeping shoulder for saturated light (OKLab chroma
   scaled with the luminance compression instead of mixing to white); the Bento / rim colour taken from the same ratio source.
 - Measured in the JPEG (a cone of the screen): outside 252 grey (OKLab L 0.99), the rim (253, 216, 217) L 0.93, the inside
   (255, 243, 243) L 0.97: the rim is DARKER than both sides and more saturated (C/L 0.04 vs 0.016) - an undershoot ring, and
-  the shoulder bleaches the brighter inside more than the darker rim. On the host (ark/combine.glsl, a profile «screen ground
+  the shoulder bleaches the brighter inside more than the darker rim. On the host (why/combine.glsl, a profile «screen ground
   -> orange cone -> ground» above the clip, as with Bento) the tone alone bleaches the cone to (255, 230, 208) and the
   P154 landing made it paler still (it landed on the toned, bleached colour).
-- DONE 2026-10-16 (ark/combine.glsl, both under HL_LANDING: only with real clipped data and «Мягкость засветов» on):
+- DONE 2026-10-16 (why/combine.glsl, both under HL_LANDING: only with real clipped data and «Мягкость засветов» on):
   (1) the landing takes a coloured light to ITS scene colour at full brightness (the linear colour before the tone,
   display-encoded; near-neutral below ~0.1 linear saturation still to pure white): the host cone comes out orange
   (255, 197, 149) inside, its chroma highest inside, no outline; the P154 owner request «восстановление цвета в областях
   засветов» now holds for blown colour as well. check_highlight_landing: the orange at the ceiling = its scene colour, never
   more bleached than the tone left it; nothing without clipped data. (A second rule of 214e63e3 - no negative detail on
-  near-white pixels - was taken out again: in ARK a pixel's base is the reduced colour source, so thin dark text on a white
+  near-white pixels - was taken out again: in WHY a pixel's base is the reduced colour source, so thin dark text on a white
   card exists only as that negative detail and would have gone.)
 - Second example, with stages (owner, 2026-10-16, «screen artifacts.zip»: SCA_20261016_122610 + its Diagnostics ZIP + the
   stock camera's auto JPEG and its SRAW developed): the slide «Единый день профилактики» - dark blue text on a white card -
   came out as pale blue hollow letters with dark outlines, the small white text below unreadable; the stock SRAW develop
   shows solid dark blue letters. Stages (white card of the screen, 1020x766 thumbnails): letters / background Y 0.21 in
-  after-ivst, ScamRgb and ArkLow (the data is right: letters Y ~1.1, background ~5.2), 0.89 after ArkCombine. Cause: the
-  ARK statistics (smart_hdr, ported from ArkCam's native code) cap the data ceiling at 4.0, while the Bento frames (x1/8)
+  after-ivst, ScamRgb and WhyLow (the data is right: letters Y ~1.1, background ~5.2), 0.89 after WhyCombine. Cause: the
+  WHY statistics (smart_hdr, ported from WhyCam's native code) cap the data ceiling at 4.0, while the Bento frames (x1/8)
   give data up to ~16: the screen (7.2 % of the frame) all lay at the ceiling (log: p98 = p995 = 3.999, gmax 16.5), the
   highlight peak was read as ae x 4 = 2.96, the fusion's highlight strength came out effH 1.26 (its setting allows 2): the
   low layer pulled the screen only to x0.27 and background and letters both stayed in the tone's shoulder (letters 0.88).
-- DONE 2026-10-16 (second part): ArkAe counts the max channel above the ceiling in 48 log2 bins (12 an octave, up to 16x;
-  CPU stats and the compute shader ark/aestats, binding 5), p98x / p995x read it, and only the highlight strength
+- DONE 2026-10-16 (second part): WhyAe counts the max channel above the ceiling in 48 log2 bins (12 an octave, up to 16x;
+  CPU stats and the compute shader why/aestats, binding 5), p98x / p995x read it, and only the highlight strength
   (realPeak -> effH) uses them; the exposure, the ceiling and the histograms stay the native ones. This shot: realPeak
   2.96 -> 12.2, effH 1.26 -> 2.0, the screen's low layer x0.27 -> x0.125 (background ~0.93, letters ~0.2 in it). SMART_HDR_STAT
-  logs p98x / p995x. ArkAeTest: theHighlightStrengthReadsTheBrightAreaBeyondTheCeiling (same exposure, effH near its
+  logs p98x / p995x. WhyAeTest: theHighlightStrengthReadsTheBrightAreaBeyondTheCeiling (same exposure, effH near its
   setting, nothing without data above the ceiling), the reference case «bento» now effH 2 (was 1.314: the 7x corner at the
-  ceiling), the GPU path with its tail; tools/check_ark_ae_gpu.py compares the tail (2 boundary pixels of 6856 may move).
+  ceiling), the GPU path with its tail; tools/check_why_ae_gpu.py compares the tail (2 boundary pixels of 6856 may move).
   Not seen on a phone: the same scene again; the log should show p98x above 4 and effH near 2.
 
 ### P160 - the gallery thumbnail slid over the card's right edge (owner, 2026-10-16, screenshot of 30866: «Исправь галерею»)
@@ -3916,11 +3951,11 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
   log-2026-10-16.txt, SCAMERA-debug.log.txt. X300 Ultra (PD2547), camera 5 (tele, CROPPED_RAW), a build with P159 (the log
   shows p98x).
 - Seen: the same concert hall, the blue LED screen with white text: the letters come out bleached white with a blue halo
-  round them, the screen's blue washed, the white curtain blown. Log: ARK clip 4, gmax 11.8 / 16.9 / 21.0, p98x 7.1 / 10.1 /
+  round them, the screen's blue washed, the white curtain blown. Log: WHY clip 4, gmax 11.8 / 16.9 / 21.0, p98x 7.1 / 10.1 /
   6.0, p995x 9.0 / 12.7 / 13.5, effH 2.0 (the P159 tail works, at the setting's cap), hlWhite 0.15, hlSoft 0.7, Bento k ~8,
   highlight recovery max R 4.2-5.5 / G 5.3-8.0 / B 6.0-8.0, clipWhite 15.7-17.5.
-- Next: the stages of the Diagnostics ZIPs across the screen (letters / background at merge, after recovery, ScamRgb, ArkLow,
-  ArkCombine) as in P159; whether effH capped at 2 is still too weak for a screen 3-5x above the ceiling (the low layer
+- Next: the stages of the Diagnostics ZIPs across the screen (letters / background at merge, after recovery, ScamRgb, WhyLow,
+  WhyCombine) as in P159; whether effH capped at 2 is still too weak for a screen 3-5x above the ceiling (the low layer
   x0.125), whether the halo is the detail delta or the hl mask, and the blue's chroma at each stage.
 - Second input (owner, 2026-10-16 15:20 «Вот ещё с 300у», then «Это фото с DCG, узнай почему с ним не работают ультракороткие»
   and its Diagnostics ZIP; kept in SCAMERA-PC/evidence/p163/Desktop-2026-10-16-1520.zip and dcg-144900/): SCA_20261016_144900,
@@ -3940,12 +3975,12 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
   (saturation 0.24, above its 0.08-0.30 white ramp). Defect: white specks in the letters (3 % of their pixels, the brightest
   diodes clipped even in the ultrashort frames, neutral after the highlight recovery: saturation 0.05 against 0.25 around
   them) landed on white amid lavender neighbours - the P159 landing took its colour per pixel.
-- DONE 2026-10-16 (ark/combine.glsl, HL_LANDING only): landingColour - the light's colour from the colour source at the pixel
+- DONE 2026-10-16 (why/combine.glsl, HL_LANDING only): landingColour - the light's colour from the colour source at the pixel
   (a quarter weight) and on a ring of eight taps ~12 output px around it, each weighted by how near the ceiling it is (a dark
   or saturated ground beside the light does not tint it). check_highlight_landing: each tint now a band of its own (the ramp
   along x) and a new LED case (a lavender letter at the ceiling on a blue ground with neutral 3x3 dots): the dots differ from
   the letter by 0.020 (0.096 with the former shader: white specks), the letter keeps its tint; orange still lands on its own
-  colour, every other case as before; glslc 33 variants, check_colour_output / look / ark_highlights / tone_ops / film_lut /
+  colour, every other case as before; glslc 33 variants, check_colour_output / look / why_highlights / tone_ops / film_lut /
   viewfinder_look PASS. Not seen on a phone.
 - Seen, not changed: the magenta rim of the podium and the red ribbon is the defocused blend of the blue screen with the
   orange podium (camera RGB 0.62 / 0.62 / 0.82, not clipped, magenta after the warm WB), no landing or recovery in it.
@@ -3959,10 +3994,10 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
 шумодава кроме склейки и также чтобы ультракороткие и длинные кадры были частью склейки у рав файлов», «Шумодава в раве просто
 не должно быть, вне зависимости от того что выставлено в этом переключателе»)
 - Checked: «Шумоподавление» (pref_scam_hybrid_denoise) gated every denoise of the photo - ScamHdrDenoise (the GCam-style finish
-  and its despeckle, the NLM route) and the ARK tone's bracket_denoise / chroma_denoise (ArkFusion, ArkCombine) - but only on a
+  and its despeckle, the NLM route) and the WHY tone's bracket_denoise / chroma_denoise (WhyFusion, WhyCombine) - but only on a
   shot processed under the hybrid's profile (isHybridShot); every shot is one since P129, the gate now does not ask.
-  ArkLumaSharpen only sharpens (its USM noise threshold limits the boost, smooths nothing); ScamRgb's highlight recovery and
-  the ARK colour from the half-size ArkLow are no denoise. Inside the merge (the worker) there is no denoise pass: the Sabre
+  WhyLumaSharpen only sharpens (its USM noise threshold limits the boost, smooths nothing); ScamRgb's highlight recovery and
+  the WHY colour from the half-size WhyLow are no denoise. Inside the merge (the worker) there is no denoise pass: the Sabre
   kernel's widening at low SNR, the chroma difference where few frames are accepted and the Bento chroma sigma are the merge.
 - The DNG is the worker's merged Bayer (when saved: saveRAW >= 1), written straight from the merged RGB after the merge and
   the RAW CA shift: no denoise at all, whatever the switch. The N, the bracketed (Shasta) and the ultrashort (Bento) frames are
@@ -3972,7 +4007,7 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
   at most 16): hybridWriteMergedDng in all three merge paths, «HYBRID DNG: ... headroom=H ..., no denoise»; ScamProcessor
   writes white 65535 and BaselineExposure log2(H) (DngCreator.setBaselineExposure -> dngCreator -> tinydngwriter tag 50730,
   SRATIONAL), so a raw converter shows the DNG as bright as before with the highlights kept. Without Bento the DNG is as
-  before, at 16 bit. ScamHdrDenoise / ArkFusion: the master switch alone. ScamNoiseFactorReportTest.mergedDngHeadroomIsRead;
+  before, at 16 bit. ScamHdrDenoise / WhyFusion: the master switch alone. ScamNoiseFactorReportTest.mergedDngHeadroomIsRead;
   the worker builds (NDK), dngCreator compiles. Not seen on a phone: a Bento shot's DNG should open in a raw converter with
   the window's highlights, the log says «DNG: merged burst RAW (N, bracketed and ultrashort frames), 16-bit, headroom x...».
 
@@ -3998,7 +4033,7 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
 
 ### P169 - the own tone curve in the shade (owner, 2026-10-16: «дай возможность добавлять кастомную кривую в шторку чтобы там
 её регулировать»; done)
-- The curve (pref_scam_hybrid_ark_curve_points, ToneCurvePreference / ToneCurveView) as a pinnable shade entry whose tile
+- The curve (pref_scam_hybrid_why_curve_points, ToneCurvePreference / ToneCurveView) as a pinnable shade entry whose tile
   opens the curve editor in the shade's card (as the slider card), the switch «Своя кривая вместо AgX» next to it.
 - DONE 2026-10-16: ShadeCatalog kind CURVE (the points as text, default the S); its tile says «5 точек», its row in the
   full list and the tile's card hold the same graph (ToneCurveView: drag, add, hold to delete), the chips «S-кривая» /
@@ -4014,7 +4049,7 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
   «Тёплая 400» (portrait negative: soft S, lifted warm blacks, olive greens), «Прохладная 160» (pastel, cyan-green
   shadows), «Слайд 100» (reversal: deep blacks, contrast, dense blues), «Кино 500» (print: teal shadows, warm highlights),
   «Ч/Б 400» (panchromatic mix, firm S); a film S per channel, luma-keeping split toning, hue bands, saturation. Stored as
-  «scam:<id>» in pref_film_lut (no .cube has that name); FilmLut.chosen builds them, so the photo (ArkCombine) and the
+  «scam:<id>» in pref_film_lut (no .cube has that name); FilmLut.chosen builds them, so the photo (WhyCombine) and the
   viewfinder (LiveRawRenderer) take them as any LUT, the strength slider applies. The settings row lists them after «Нет»,
   before the folder's files. The shade: pref_film_lut is a pinnable list (ShadeCatalog LIST, the list sheet; its values
   read again from Download/SCAMERA/LUT whenever it opens), search «лут» / «плёнка». FilmLooksTest (new, in the CI list:
@@ -4081,7 +4116,7 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
 добавь возможность визуализации кривых AGX/ACES и тд для сравнения чтобы можно было на графике по ним ориентироваться. Ну и
 дай возможность их подгружать чтобы потом редактировать»; done)
 - DONE 2026-10-16: the own curve's domain (x = 0.5 + EV / 10 around the 0.18 grey, y = display value) gets each operator
-  with today's settings (ArkTone.reference: AgX through ToneCurve.agxAt = combine.glsl agxTonescale over its log range,
+  with today's settings (WhyTone.reference: AgX through ToneCurve.agxAt = combine.glsl agxTonescale over its log range,
   ACES / Uchimura linear output to the power 1 / 2.4). ToneCurveCompare: the chips «Сравнить: AgX / ACES / Uchimura» draw
   each one dashed in its colour with its name (remembered for both editors, a per-viewer UI file, not a setting); the
   templates (S-кривая, Прямая, AgX, ACES, Uchimura) - «Шаблоны…» at the top of the settings page's load sheet and «Ещё…» in
@@ -4163,7 +4198,7 @@ Pro Mini with black stripes on its left and bottom: «сделай автома�
   - Owner: «хотя бы 3 кадра и один из них был ультракороткий», «Сделай 4 кадра» (169f24e0): 3 N (AE) + 1 ultrashort (manual,
     the preview's exposure / bento_factor, same ISO, EXTRA_SHORT) whatever the frame setting; app and worker merge all four
     (30840: «0N 1N 2N 3U», merged=4, bento=1).
-  - 30839 was killed for low memory in the ARK luma sharpening (its guided filter's full-grid RG32F stack, 4.4 GB with the
+  - 30839 was killed for low memory in the WHY luma sharpening (its guided filter's full-grid RG32F stack, 4.4 GB with the
     image); above 100 MP it now runs on the 2x2 means (6f99c9f2): 30840 sharpening 678 ms (6.2 s before), MemAvailable min
     1.8 GB, worker peakRss 5286 MB, shutter -> saved 38.4 s (63 s at the start). Memory timeline:
     reports/pd2454-30840-memory-timeline-20261016.txt.
@@ -4278,9 +4313,9 @@ in code, waits for the phone)
 - Only changes that keep every output byte: what nothing reads any more is freed earlier, what nothing reads is not made.
 - Pipeline (above 100 MP; scam_dev early_release 1 does it at any size for a post_ab A/B; never in post_ab's old GL model):
   ScamRgb's input texture becomes main2 for the clip-band pass (no new 1.6 GB main2), then the unbanded output, the flags
-  and the chroma blocks go back (glFinish first); ArkLumaSharpen draws ArkCombine's detail reference right after its own
-  read of the image and gives the image back (ArkCombine binds the same-size lumaS to the InputBuffer it never reads with
-  sharpU 1); hlA closes after the blur; glFinish before ArkCombine's output and before the 0.8 GB bitmap. GPU set: about
+  and the chroma blocks go back (glFinish first); WhyLumaSharpen draws WhyCombine's detail reference right after its own
+  read of the image and gives the image back (WhyCombine binds the same-size lumaS to the InputBuffer it never reads with
+  sharpU 1); hlA closes after the blur; glFinish before WhyCombine's output and before the 0.8 GB bitmap. GPU set: about
   5.2 GB -> 3.4 GB at the worst node.
 - App: clip flags in native memory, freed right after their upload (they waited for a GC); the 40 MB decimated copy is one
   sample above 100 MP (only null-checked); the shot's clip flags and frame map are dropped at its end (they stayed until the
@@ -4297,7 +4332,7 @@ in code, waits for the phone)
   flag 16 (SCAM_NO_EFFMAP) on 5 bursts the RGB and the clip trailer are the same bytes, only the map is gone (v10_1 12.5 MP:
   peakRss 1300 -> 1250 MB; at 200 MP about 1 GB less at the merge's peak by the map). Not on a phone yet: the pipeline part
   (post_ab 1 + early_release 1 in scam_dev.txt on a <= 16 MP shot gives EQUAL / DIFFERENT for it), a 200 MP shot's memory.
-- Not done (checked, not worth it or not exact): ArkCombine straight to RGBA8 (1 LSB on 1-3 % of values), R16F planes,
+- Not done (checked, not worth it or not exact): WhyCombine straight to RGBA8 (1 LSB on 1-3 % of values), R16F planes,
   progressive punching of the arena during the merge (loses the conservative retry), streaming the merge into the output
   memfd (days of work, worker phase only), the RAW-less plain session under a merge (sensor mode / framing risk, untested
   on the vivo).
@@ -4440,7 +4475,7 @@ Evidence, tests and continuation prompt: SNAPDRAGON-CLIENT-HANDOFF-20261013.md.
 - Native-mosaic ISZ, DCG RAW, tele200, SDK50 RAW repeating and stock7-frame NICE ZSL remain unfinished.
   The8N/future0 tele shot is not a4N+S+ES+L equivalence claim; no stock image-quality equivalence was tested.
   No push/Actions run for this transfer. Final APK requires the owner's separate push command, Actions artifact,
-  and byte-for-byte SHA256SUMS verification. Current sharpening is ArkLuma, not the retired RawTherapee stage.
+  and byte-for-byte SHA256SUMS verification. Current sharpening is WhyLuma, not the retired RawTherapee stage.
 
 ### P109q - SHDR-only local handoff, unrestricted Sabre2x input and native DCG boundary (2026-10-15)
 - Owner supersedes the old stock NICE/ZSL bracket and Actions delivery requirements: no push/Actions;
@@ -4521,7 +4556,7 @@ working there too, not only on the X200 Ultra; done in code, not verified on the
 - The synthesized shutter tone is gone (CameraSounds). A native FULLRES row that delivers HAL-remosaicked Bayer is a failed row.
 - scam_dev keep_burst: the worker keeps the shot's burst (P191 moved it to Download/SCAMERA).
 - Replays on the OPPO: plain bursts byte-identical. The owner's JPEGs still showed lattice peaks (period 2 / 4); kernel width and
-  ArkCam's R/B fill do not change the lattice amplitude in replays (0.14-0.27 %), see P191 for the frame-count cause.
+  WhyCam's R/B fill do not change the lattice amplitude in replays (0.14-0.27 %), see P191 for the frame-count cause.
 
 ### P191 - 50 MP viewfinder speed, the frame count of 50 MP merges, files out of Android/data (owner, 2026-10-17: «фпс всё ещё очень низкий», «Сетка не исчезла, посмотри на буквы на 50мп», «переноси всё туда чтобы в data ничего не хранилось», «Добавь настройку с сохранением рав серии в группу настроек "Диагностика"»)
 - Viewfinder: the camera gave 30 fps, the screen ~11 (the per-site ShortBuffer bin took 22-45 ms, the wait was twice that). Rows
@@ -4743,10 +4778,10 @@ ratios», Bento forced with that one ultrashort (2.08 ms at 1/60 N); 12 MP: thre
   owner's own flickering 50 MP burst (only its log was available); the plain 12 MP path is unchanged by design (an inconsistent
   plain ultrashort would still paint).
 
-### Research 2026-10-17 - what removes the lattice in ArkCam (owner: «выясни что на ark убирает решётку»)
-- No mechanism of its own: ArkCam 1.56 does not sharpen by default (JNI setUSMParams / setRLParams are empty stubs at 0x7fdbc;
-  native defaults of every sharpening radius / strength 0), while ArkLumaSharpen multiplies our diagonal Quad lattice x2.5-2.9
-  and the 2 px one x1.2-1.5. ArkCam's merge itself leaves as much lattice (its own linear DNG vs ours) - per-site merge_quad, no
+### Research 2026-10-17 - what removes the lattice in WhyCam (owner: «выясни что на why убирает решётку»)
+- No mechanism of its own: WhyCam 1.56 does not sharpen by default (JNI setUSMParams / setRLParams are empty stubs at 0x7fdbc;
+  native defaults of every sharpening radius / strength 0), while WhyLumaSharpen multiplies our diagonal Quad lattice x2.5-2.9
+  and the 2 px one x1.2-1.5. WhyCam's merge itself leaves as much lattice (its own linear DNG vs ours) - per-site merge_quad, no
   texel-grid upscale (super-res off above 4200 px), quad speckle p066 off, its kernel ~0.5 in our units, no site gains.
 - Measured on the owner's 50 MP burst (diagonal, % of the level): k0.7 + our sharpening 0.173 / 0.185, k1.0 + our sharpening
   0.084 / 0.093 (P191 default), k1.0 + sharpening on a 3x3-smoothed luma (R1) 0.045 / 0.049. R1 changes the sharpening: not done
@@ -4888,29 +4923,29 @@ ratios», Bento forced with that one ultrashort (2.08 ms at 1/60 N); 12 MP: thre
 - Open: AsShotNeutral / ForwardMatrix root cause (next X200U log); a 16-bit float DNG option if the shadows still band.
 
 ### P216 - Bento highlights above 4 x white: the window of the x8 ultrashort (owner, 2026-10-18, SCA_20261018_091910 on 30949)
-- Owner: the bridge window came out white with an orange smear where stock, ArkCam and ARK show the sea and a crane; «исправь
-  ... даже если я поставлю ультракороткий кадр 16х»; then «результат между ArkCam и стоком ... света более мягкие» and «чтобы не
+- Owner: the bridge window came out white with an orange smear where stock, WhyCam and WHY show the sea and a crane; «исправь
+  ... даже если я поставлю ультракороткий кадр 16х»; then «результат между WhyCam и стоком ... света более мягкие» and «чтобы не
   было резких белых пятен».
 - Kept burst replayed on the OPPO (worker 6be17f97): the merge holds the window (sky 3.7, sea 2.4, crane 12-17 x white, the
-  crane's top lines clipped even in the ultrashort: G 8). Lost in the ARK tone (production shaders on the desktop GPU with the
-  log's AE): ArkAe.clip = min(gmax, 4) is the native histogram cap, yet (1) the P154 landing measured the window against 4 and
+  crane's top lines clipped even in the ultrashort: G 8). Lost in the WHY tone (production shaders on the desktop GPU with the
+  log's AE): WhyAe.clip = min(gmax, 4) is the native histogram cap, yet (1) the P154 landing measured the window against 4 and
   painted it white with the colour of its 12 px ring (the orange smear: the crane's warm rim), (2) the 1.23 kernel's shoulders
   (everything above 1 into <= 1.35, then a roll-off from 0.5) put 1.5 .. 8 x white on one grey (crane 0.93, sky 0.91), (3) the
   bounded detail reference min(ae Y, 1) gives no detail above white, (4) effH (P159: p98x / p995x) left the window in the
   saturated part of the fusion.
-- Fix, only with real headroom (ArkAe.Result.hr: Bento merged and gmax above the cap; the maximum, at most 16 x the clip):
-  the landing on hr; ArkCam 1.58's max-channel Reinhard shoulder on the tonemapper top (libopenhdr_engine: knee 0.6, room
+- Fix, only with real headroom (WhyAe.Result.hr: Bento merged and gmax above the cap; the maximum, at most 16 x the clip):
+  the landing on hr; WhyCam 1.58's max-channel Reinhard shoulder on the tonemapper top (libopenhdr_engine: knee 0.6, room
   0.35 - here 0.5 / 0.4: the knee keeps a crane's clipped lines off 255, the limit a little above white lets a sun climb
-  steadily into its white core); the highlight peak half way (log, ark_hr_mix
+  steadily into its white core); the highlight peak half way (log, why_hr_mix
   0.5) from P159's to p99.9 when an AREA lies beyond the ceiling (0.3 .. 0.8 % of the frame; the window 1.4 %), the strength
   capped by log2(hr ae / bt) / 1.5 instead of 2; a full-size highlight detail term
-  (ark_hr_detail 0.35 of the log contrast against the 2 x 2 grid, -0.03 .. +0.12 L, fading towards white). Without Bento or
+  (why_hr_detail 0.35 of the log contrast against the 2 x 2 grid, -0.03 .. +0.12 L, fading towards white). Without Bento or
   without data above 4 every value and pixel is as before (hrU 0 render byte-identical on the whole shot).
-- Checked: harness (scratchpad tools/arkwin.py: ScamRgb recovery + ark/low, bracket_dn, gf, box, ab, hlmask, combine on the
-  replayed RGB): window glass p50 0.984 -> 0.939 (ArkCam 0.982, stock 0.872), no pixel at 254, crane / horizon / sea back,
-  rest of the frame unchanged; a x16-like stretch of the same data (gmax 34) gives the same look (p50 0.942). ArkAeTest 5/5
-  (new case), tools/check_ark_headroom.py (new, CI), check_ark_highlights, check_highlight_landing, tone_ops, colour_look,
-  film_lut, ark_ae_gpu, viewfinder_look, dark_fade PASS; glslc on the combine variants. check_ark_tone fails its two synthetic
+- Checked: harness (scratchpad tools/arkwin.py: ScamRgb recovery + why/low, bracket_dn, gf, box, ab, hlmask, combine on the
+  replayed RGB): window glass p50 0.984 -> 0.939 (WhyCam 0.982, stock 0.872), no pixel at 254, crane / horizon / sea back,
+  rest of the frame unchanged; a x16-like stretch of the same data (gmax 34) gives the same look (p50 0.942). WhyAeTest 5/5
+  (new case), tools/check_why_headroom.py (new, CI), check_why_highlights, check_highlight_landing, tone_ops, colour_look,
+  film_lut, why_ae_gpu, viewfinder_look, dark_fade PASS; glslc on the combine variants. check_why_tone fails its two synthetic
   cases identically on main (not in CI).
 - Owner's sun scene (scam_burst-20261018-101655, ultrawide, x4.3 Bento: the ultrashort is at the 0.036 ms minimum, the sun
   clipped in it, 0.12 % of the frame beyond 4): «В такой сцене небо не должно темнить» - the p99.9 pull (the sun's glow)
@@ -4919,7 +4954,7 @@ ratios», Bento forced with that one ultrashort (2.08 ms at 1/60 N); 12 MP: thre
   with room 0.3 the rim stood on a 251 plateau with the clipped core (recovered at the white bound, 2.4 x the rim) as a
   254 dot, and the highlight detail dug a 1 - 2 code trench beside it; now room 0.4 and no darker detail where the
   neighbourhood is much brighter (ratio < 0.55 .. 0.85: the rim of a light, not texture).
-  «Небо тёмное у обоих вариантов ... не затемненное и мягкое»: the darkening came from ArkAe pulling the bright scene to the
+  «Небо тёмное у обоих вариантов ... не затемненное и мягкое»: the darkening came from WhyAe pulling the bright scene to the
   target grey (ae 0.861: geo 0.174 > 0.15). With real headroom the meter no longer takes ae below 1 (the captured exposure;
   the highlight-overflow limit may still lower it): ae 1.0, sky / sea / deck +5 .. +9 codes, 0.04 % of the pixels darker
   (the rim of the sun's disc). Harness with the shot's vivo ISP matrix (170 -37 -5 / -19 179 -32 / 3 -90 215) / 128. The window-up scene (101853, gmax 3.2 < 4) renders byte-identical.
@@ -5187,7 +5222,7 @@ on a phone)
   2. On Qualcomm Spectra (CamX) AE / AWB / AF / LSC statistics come from the IFE on the Bayer data (BG stats, Bayer histogram,
      BF / PDAF, the 17 x 13 LSC grid), independent of a YUV preview stream; the hardware face detector runs on an internal IFE
      downscale whenever STATISTICS_FACE_DETECT_MODE != OFF and writes STATISTICS_FACES into each RAW frame's TotalCaptureResult.
-  3. So a session can run on the RAW stream alone (the viewfinder drawn from the RAW ring, as ArkCam's ViewfinderBridge does),
+  3. So a session can run on the RAW stream alone (the viewfinder drawn from the RAW ring, as WhyCam's ViewfinderBridge does),
      the RAW repeating request driving the pipeline at 24 - 30 fps with 3A and faces in the results.
 - Where it matters: P223 (switch off the ISP preview for FULLRES / ISZ), the OPPO native FULLRES readers (P192), vivo native
   sessions. Check on the OPPO (Oplus CamX) and the vivo phones: reader usage flags (dumpsys media.camera), stream acceptance of
@@ -5218,9 +5253,9 @@ on a phone)
   on the sensor grid and keeps its pixels («hybrid output: a crop shot without upscale (P226)» in the log). Test:
   SettingsMenuTest.cropUpscaleSwitchSitsOnThePhotoSizePage.
 
-### P227 - study and fix: the OPPO sensor-mode route against the ArkCam implementation note (owner, 2026-10-18: «добавь в план
+### P227 - study and fix: the OPPO sensor-mode route against the WhyCam implementation note (owner, 2026-10-18: «добавь в план
 изучть и исправить у нас», the note oppo_sensor_mode_implementation.md)
-- The note (ArkCam, not yet verified on our phones):
+- The note (WhyCam, not yet verified on our phones):
   1. Table: org.quic.camera2.sensormode.info.SensorModeTable (count, then rows of stride 10: width, height, fps, ...) per camera id;
      the mode in effect comes back as org.quic.camera.sensorbps.SensorModeIndex (we read com.qti.sensorbps.mode_index).
   2. Select: com.oplus.engineercamera.agingtest.mode.select = (byte) mode, set on the request builder that goes BOTH into
@@ -5273,7 +5308,7 @@ pro mist, glimmer glass и других подобных фильтров у н�
     Cinebloom / halation (red-orange film halation fringe) - as further presets if the model covers them.
 - Model to build and check: highlight extraction above a knee in linear light, a multi-scale PSF (Gaussian pyramid sum with a
   long tail; streak kernel for Glimmerglass), energy conservation, colour of the glow (neutral vs warm halation), depending on the
-  focal length / crop so the look matches between lenses; GPU pass in PostPipeline (after the merge, before ARK tone), the same
+  focal length / crop so the look matches between lenses; GPU pass in PostPipeline (after the merge, before WHY tone), the same
   pass on the viewfinder (GL preview, downscaled) so the effect is visible live.
 - UI per SIMPLE_UI: a «Фильтр» group next to the LUT - in the LUT tray (a second row of filter cards: «Нет», Black Pro-Mist,
   Glimmerglass, ... with live thumbnails) and on the settings LUT page (a «Фильтр на объектив» section: the chosen filter, its
@@ -5301,7 +5336,7 @@ pro mist, glimmer glass и других подобных фильтров у н�
 - Checks: off = byte-identical output (md5 of the reference replays), energy test on a synthetic point source, no banding at
   12 / 50 / 200 MP, time budget per size.
 - DONE (2026-10-18, wt-int):
-  - Model: processing/color/LensFilters - the 12 filters on the linear RGB after ScamHdrDenoise, before the ARK tone (the
+  - Model: processing/color/LensFilters - the 12 filters on the linear RGB after ScamHdrDenoise, before the WHY tone (the
     highlights keep their headroom). Diffusion family: the light above a knee, a 6-level Gaussian pyramid PSF (weights sum to
     1, the spread light taken from the source - energy kept, LensFiltersTest), glow colour, veil from the image's levels 4-6,
     lift; Glimmerglass a short X star, Streak a horizontal streak (length = its parameter); GND (transition = parameter),
@@ -5459,33 +5494,33 @@ pro mist, glimmer glass и других подобных фильтров у н�
     lines; one shot (DNG). Then the same on the ultra-wide (camera 4). Useful too: adb shell dumpsys media.camera during the
     session (Client Package, session parameters, operation mode). No other X200U route looked like it should work.
 
-### P231 - import of JSON tone curves ({"name", "points": [{"x", "y"}]}) (owner, 2026-10-18: a file ark_art_drama_faces.json, «добавь в план: добавить поддержку импорта такого формата кривых»)
-- The sample (945 bytes): `{"name": "ark_art_drama_faces", "points": [{"x": 0.0, "y": 0.0}, {"x": 0.0961, "y": 0.011}, ...
+### P231 - import of JSON tone curves ({"name", "points": [{"x", "y"}]}) (owner, 2026-10-18: a file why_art_drama_faces.json, «добавь в план: добавить поддержку импорта такого формата кривых»)
+- The sample (945 bytes): `{"name": "why_art_drama_faces", "points": [{"x": 0.0, "y": 0.0}, {"x": 0.0961, "y": 0.011}, ...
   {"x": 1.0, "y": 1.0}]}` - 19 points in the unit square, x ascending, both ends pinned; a strong S (deep shadows, bright
-  highlights), the name says ArkCam's «art / drama / faces» looks.
+  highlights), the name says WhyCam's «art / drama / faces» looks.
 - Today «Кривая AgX и ACES» → own curve → «Загрузить» → «Из файла…» (ToneCurvePreference.readCurve →
   ToneCurve.fromFileText) reads only "x:y" pairs; in this JSON the numbers follow `"x":` / `"y":` keys, so the file gives
   no pairs and is refused («нет кривой»).
 - Do:
   - ToneCurve.fromFileText: when the text parses as JSON with a `points` array (objects with numeric x / y, or [x, y]
     arrays), take those points (the same 0..1 / 0..255 scaling, clamping, sorting, MIN_GAP and the pinned ends as the
-    "x:y" route); otherwise the old pair scan, so our .txt files and ArkCam's "x:y,..." string keep working.
+    "x:y" route); otherwise the old pair scan, so our .txt files and WhyCam's "x:y,..." string keep working.
   - The `name` field: the suggested name when the imported curve is saved into Download/SCAMERA/ToneCurves (sanitised as
     the other file names); the in-folder list of ToneCurvePreference shows .json files next to .txt (ScameraFolder.CURVES
     lists one extension today).
-  - Check the meaning of x against ArkCam (ToneCurveHelper / u_tex_custom_curve in ArkCam 1.42, research/hybrid5): our x
-    is the normalised log exposure (0.5 + EV / 10) and y the display value. If ArkCam's exported JSON uses another domain
-    (e.g. display-in → display-out), convert on import so the curve looks the same as in ArkCam; note the finding here.
-  - Export: «Сохранить» may also write this JSON (the same shape) so the curves go back to ArkCam - only if ArkCam reads it.
+  - Check the meaning of x against WhyCam (ToneCurveHelper / u_tex_custom_curve in WhyCam 1.42, research/hybrid5): our x
+    is the normalised log exposure (0.5 + EV / 10) and y the display value. If WhyCam's exported JSON uses another domain
+    (e.g. display-in → display-out), convert on import so the curve looks the same as in WhyCam; note the finding here.
+  - Export: «Сохранить» may also write this JSON (the same shape) so the curves go back to WhyCam - only if WhyCam reads it.
 - Tests: ToneCurveTest - this sample file (19 points, ends 0:0 and 1:1, monotone), [x, y] arrays, a broken JSON falls back
   to the pair scan / refusal, the 0..255 scale; ToneCurvePreference listing with a .json file.
-- DONE 2026-10-18: ArkCam 1.58 (com.arkcam.ui.ToneCurveFileManager, decompiled) writes exactly this file - {"name", "points":
-  [{"x", "y"}]} at 4 decimals into Documents/ArkCam/Curves - from the same points as its pref_custom_tone_curve_points "x:y"
+- DONE 2026-10-18: WhyCam 1.58 (com.whycam.ui.ToneCurveFileManager, decompiled) writes exactly this file - {"name", "points":
+  [{"x", "y"}]} at 4 decimals into Documents/WhyCam/Curves - from the same points as its pref_custom_tone_curve_points "x:y"
   string, which P144 ported (x the normalised log exposure, y the display value): no domain conversion. Its reader also takes a
   bare array and [x, y] pairs and clamps to 0..1. ToneCurve.jsonPoints / jsonName / fromFileText do the same (no 8-bit scaling in
-  JSON); the import (SettingsActivity.importToneCurve) also saves an ArkCam file into Download/SCAMERA/ToneCurves under its
-  «name» (our .txt); the folder lists .txt, .json and .curve files (ScameraFolder.CURVES). Export stays our .txt: ArkCam's reader
-  falls back to its "x:y" parser for other text. Test: ToneCurveTest.arkCamJsonCurveFiles (the owner's 19-point sample).
+  JSON); the import (SettingsActivity.importToneCurve) also saves an WhyCam file into Download/SCAMERA/ToneCurves under its
+  «name» (our .txt); the folder lists .txt, .json and .curve files (ScameraFolder.CURVES). Export stays our .txt: WhyCam's reader
+  falls back to its "x:y" parser for other text. Test: ToneCurveTest.whyCamJsonCurveFiles (the owner's 19-point sample).
 
 ### P232 - FULLRES 50 MP ZSL: the memory budget before the N after the shutter, the ring frames kept (roadmap speed-ux A2)
 - Evidence: owner's X7U log 2026-10-17 20:20:35.714 «50 MP ZSL: 5 ring frames + 7 N after the shutter» then «frames=14 (ZSL: N 1
@@ -5693,7 +5728,7 @@ pro mist, glimmer glass и других подобных фильтров у н�
     the owner's photos with replays and new reference md5s; not implemented here (left as a plan item: build them behind a default-off
     tuning key, replay the syn_b* / x7u / hand / isz2 series, compare photos, then decide the default).
 - Now (processing/color/DngColour): the JPEG's linear render of a camera value c is intermediateToSRGB · sensorToProPhoto · c
-  (ark/low.glsl, combine.glsl); with the render's own XYZ -> sRGB (Converter.sXYZtoSRGB, D50-adapted) the DNG's tags are
+  (why/low.glsl, combine.glsl); with the render's own XYZ -> sRGB (Converter.sXYZtoSRGB, D50-adapted) the DNG's tags are
   ForwardMatrix1 = sRGB->XYZ · intermediateToSRGB · sensorToProPhoto · diag(n), scaled to Y(FM · 1) = 1, and ColorMatrix1 =
   diag(n) · FM^-1 · Bradford(scene light (Parameters.sceneCct, CIE daylight / Planckian locus) -> FM · 1), one illuminant (label 21
   written for both CalibrationIlluminant tags), no ColorMatrix2 / ForwardMatrix2 / CameraCalibration: a raw converter has nothing to
@@ -5919,7 +5954,7 @@ pro mist, glimmer glass и других подобных фильтров у н�
   mock kept null names, and every later test of the JVM failed («scope is null») - ShadeTilesTest failed alone even at
   d16a480c. They now stub getStringStatic with the real resources.
 
-### P262 - importing a curve restarts the app, the curve lost (owner, 2026-10-19: ToneCurve_imx06A.txt, ark_art_drama_faces.json: «оно просто перезапускается, а кривая не переносится»)
+### P262 - importing a curve restarts the app, the curve lost (owner, 2026-10-19: ToneCurve_imx06A.txt, why_art_drama_faces.json: «оно просто перезапускается, а кривая не переносится»)
 - Both files parse (P231 / P244 tests). The system file picker in front, Android may stop the camera's process; it comes back
   with the settings recreated, CameraActivity never run in that process: the defaults and the profile listener (PreferenceKeys
   .setDefaults) were set only by CameraActivity and the settings shortcut (P140).
@@ -6057,11 +6092,11 @@ pro mist, glimmer glass и других подобных фильтров у н�
   scam_burst-20261019-114017.bin): kHybBento returns when its wide window holds any clipped ultrashort G; rebuild the colour from
   the unclipped real-site ratios there (as kHybRim does), and look at the mask edge (bentoNearClip, dilate, smooth) for steps.
 
-- Owner: «Посмотри как работает маска бенто в арк кам и посмотри как можно улучшить нашу». Comparison (agent, from
-  research/lmc/audit/part2_bento.md + errata v4.1, research/ark12, ark23/quad_report.md; notes in the session scratchpad
-  bento_research/notes.md): LMC 9.6 / ArkCam v1.23 = replacement (rej *= 1 - mask for every frame but the ultrashort, the
+- Owner: «Посмотри как работает маска бенто в Why кам и посмотри как можно улучшить нашу». Comparison (agent, from
+  research/lmc/audit/part2_bento.md + errata v4.1, research/why12, why23/quad_report.md; notes in the session scratchpad
+  bento_research/notes.md): LMC 9.6 / WhyCam v1.23 = replacement (rej *= 1 - mask for every frame but the ultrashort, the
   ultrashort's map = the mask), mask from a ramp 0.98..1 on the base RGB max, binary dilation r 4, Gaussian sigma 1, the ultrashort
-  rendered ALIGNED (biquadratic) before the error test, the mask read bilinearly in the merge; the standalone ArkCam app: a soft
+  rendered ALIGNED (biquadratic) before the error test, the mask read bilinearly in the merge; the standalone WhyCam app: a soft
   mask from 0.88 (smoothstep 0.88..0.98, max-dilation, a soft near-clip product 0.70..0.88), the short frames on a wider kernel
   (G 1.26 / RB 1.50 px) and a highlight chroma dezipper (3x3 bilateral of R-G, B-G inside the mask).
 - Done (local): bentoSubpixel 1 - the ultrashort check reads the aligned position bilinearly (LMC) instead of the nearest cell:
@@ -6110,12 +6145,12 @@ A new package installs next to the CTS one: settings move by «Резервна�
 To check on the phone: «4.8×» / «9.6×» on the X300 Ultra (log: «ISZ camera 5: vivo SDK lease taken», «raw crop ... x2.0 (in-sensor
 zoom)», «RAW stream colour block 2»); X200 Ultra 2× / 4× native modules and FULLRES 50 / 200 MP with the new package.
 
-### P276 - a module's sensor mode from the camera's SensorModeTable, as the new ArkCam (owner, 2026-10-19, video_20261019_153550: «вот так это реализовано в новой Арк камере, мы сможем сделать схоже?», «я в видео имел ввиду работу с сенсормодами», «учитывай всю новую информацию которую я кидал тебе по оппо и виво»): done, local commit, not device-tested.
-ArkCam's lens page (the video): RAW10 / 12 / 16, the RAW stream's size (max / binning / own), «Sensor Mode (SensorModeTable)» with
+### P276 - a module's sensor mode from the camera's SensorModeTable, as the new WhyCam (owner, 2026-10-19, video_20261019_153550: «вот так это реализовано в новой Why камере, мы сможем сделать схоже?», «я в видео имел ввиду работу с сенсормодами», «учитывай всю новую информацию которую я кидал тебе по оппо и виво»): done, local commit, not device-tested.
+WhyCam's lens page (the video): RAW10 / 12 / 16, the RAW stream's size (max / binning / own), «Sensor Mode (SensorModeTable)» with
 every row "Mode #N: W x H @ fps", the preview stream on / fake off / real off, the RAW buffer pool, the CFA pattern, black / white.
 Ours: «Режим сенсора (SensorModeTable)» on the module's sensor page (Auto + the rows of
 org.quic.camera2.sensormode.info.SensorModeTable, pref_sensorconfig_<slot>_sensormoderow) - capture/SensorModePick. A picked row:
-the RAW reader at the row's size (usage 0: sizes outside StreamConfigurationMap, as the native FULLRES readers and the ArkCam
+the RAW reader at the row's size (usage 0: sizes outside StreamConfigurationMap, as the native FULLRES readers and the WhyCam
 note), the brand's mode key on the session parameters and on every request (builderSessionApply): vivo forceSensorMode int[]
 with an Integer fallback, OPPO / OnePlus / realme agingtest.mode.select byte -> int32 (OppoNativeFullRes.setMode), other
 Qualcomm current_mode; «Поток ISP» Auto drops the ISP stream (RAW viewfinder); vivo opens under the SDK lease (33 = 2, 40 = 1);
@@ -6159,8 +6194,8 @@ To check on the phone: switch on, an SHDR shot -> Lab/<date_time> with three fil
 the sensor frame: code N»); the lab page lists it; a merge setting (e.g. a rejection strength) and a processing one (sharpening)
 on the 1/9 fragment; the frame map; the fragment lies where it is on the photo.
 P277 round 2 (owner, 2026-10-19, screenshots + video): (1) «при любом кропе экспозиция и тон считались по всему кадру» -
-LabFrame: the shot's pipeline records the whole frame's statistics (ArkAe stats of every metering mode, the gain clamp's noise
-scale, arkLow width, ScamRgb clip levels, the denoise's p50 / p90, the lens-shading term, the lens filter's level and size) in
+LabFrame: the shot's pipeline records the whole frame's statistics (WhyAe stats of every metering mode, the gain clamp's noise
+scale, whyLow width, ScamRgb clip levels, the denoise's p50 / p90, the lens-shading term, the lens filter's level and size) in
 frame.json; a fragment run uses them (PostPipeline.frozen) and still decides exposure / tone with each side's settings; a shot
 without frame.json gets one whole-frame run first. (2) both A and B have their own control on the comparison page (switch,
 list, slider; «как снято»), only the changed side renders again, the last result stays on screen while it does. (3) the border
@@ -6213,7 +6248,7 @@ paper white as white, a grey balance over the neutral scale; slides and B&W reve
 Provia 100F, Kodachrome 64, Tri-X 400, T-Max 100, HP5, Tri-X 7266), 7 prints (Endura Premier, Ultra Endura, Ektacolor Edge,
 Portra Endura, Crystal Archive, Vision 2383 / 2393), 9 formats (off, 8 mm 4.8, Super 8 5.79, 16 mm 10.26, Super 16 12.52, Super
 35 24.89, 35 mm 36, 645 56, 6x7 70). A 33^3 LUT in ~65 ms (PC); FilmChain bakes the simulation then the chosen LUT into the one
-table ArkCombine (FILM_LUT) and both viewfinders apply. Effects on the GPU in micrometres of film / frame pixel size:
+table WhyCombine (FILM_LUT) and both viewfinders apply. Effects on the GPU in micrometres of film / frame pixel size:
 FilmHalation (linear light before the tone: the image's gaussdown pyramid around 65 um still / 50 um cine, three bounces, energy
 kept, R > G > B by the antihalation), FilmGrain (after the final resize: film MTF blur, grain by Selwyn's law from the stock's RMS
 at the larger of the pixel and the grain, through the print's contrast, tonal weight, layers partly shared, blue coarser).
@@ -6223,11 +6258,11 @@ pill names the stock; the lab compares every film setting. Tests FilmSimTest (ev
 mid grey, hues kept, B&W grey, LUT time, the chain, grain vs format). Not on the phone yet: the look, the grain size, the
 halation; the viewfinder shows the colour and tone only.
 
-### P282 - single-frame remosaic where the donors were rejected (owner, 2026-10-19: «улучшить ремозаик для однокадра sabre чтобы улучшить движение в случае реджекта для quad и quad quad, заодно и для bayer»; ArkCam 1.70 / 1.71 shown as the example): Quad and Tetra pushed in 52adf573; Bayer done locally.
+### P282 - single-frame remosaic where the donors were rejected (owner, 2026-10-19: «улучшить ремозаик для однокадра sabre чтобы улучшить движение в случае реджекта для quad и quad quad, заодно и для bayer»; WhyCam 1.70 / 1.71 shown as the example): Quad and Tetra pushed in 52adf573; Bayer done locally.
 A pass after the native fast merge (NAT_DEMOSAIC program of kHybMergeMosaicFast; kHybMergeMain1 untouched): where the donors'
 accepted frames F are below the widening's K the output takes t = baseDemosaic (1 - smoothstep(0, K, F)) of the base frame's
 own demosaic at the site position (skipped inside the Bento mask, at clipped or flagged sites, with the ultrashort frame).
-The demosaic (our own, after ArkCam 1.71's idea of a green-equivalent subpixel luma): cells of 2x2 sites (3x3 Quad, 5x5 Tetra
+The demosaic (our own, after WhyCam 1.71's idea of a green-equivalent subpixel luma): cells of 2x2 sites (3x3 Quad, 5x5 Tetra
 around the site); direction from the intra-cell gradients, same-colour cells and - only where one pairing finds no colour -
 the row / column cross-phase disagreement (a saturated flat colour gave a false direction); colour differences R - G, B - G per
 red / blue cell against its own row's and column's nearest greens, cells weighted by distance (narrowed across the edge) and by
@@ -6354,7 +6389,7 @@ reference: grain 0..200 %, halation 0..400 %. Viewfinder tray (owner: «сдел
 (LUT with «Все LUT ›» and the strength, lens filter, film) with the current choice after each title, rounded chips with the
 chosen one filled in the accent; a tap on the empty viewfinder closes the tray without focusing (Swipe.onSingleTapUp).
 
-### P290 - stepped contours on a lamp-lit sheet, echo sounder (owner, 2026-10-20, X200 Ultra bursts scam_burst-20261019-231619 / 231640; then «переходы плавные и мягкие, как на Арк, но больше информации»): merge fixed (replay), tone open, not device-tested.
+### P290 - stepped contours on a lamp-lit sheet, echo sounder (owner, 2026-10-20, X200 Ultra bursts scam_burst-20261019-231619 / 231640; then «переходы плавные и мягкие, как на Why, но больше информации»): merge fixed (replay), tone open, not device-tested.
 Cause (replay on the OPPO, clip-flag trailer): inside the base's clipped highlight the result comes from the ultrashort frames alone
 (Bento), scaled by one ratio for the frame (GAIN CHECK 0.1399, MAD 9.6 %: consistent; row profile: 15 of 48 bands agreeing, none).
 The 2.8 ms frames caught the desk lamp on another flicker phase than the ceiling lamps: under the desk lamp the per-colour ratio
@@ -6368,27 +6403,27 @@ contours gone (smooth gradient), ceiling lamp unchanged in look; static referenc
 for bit with the previous worker; t100526 / t100546 (flickering scenes) changed <1 % on average in the most changed area.
 check_hybrid_us_rows: lamp case (ring error 19.9 % -> 1.8 %, under the clip 27.7 % -> 9.2 %; native vs binned 1 DN).
 Echo sounder: the red top line's blue segments are on the screen itself (the reference camera's shot shows them the same); the
-screen is not clipped in the merge, nothing of Bento there. Open: the tone of the sheet («мягко, как у Арк, но больше
-информации») - post pipeline (ArkCombine highlight roll-off), needs a shot of the new build / lab A/B.
+screen is not clipped in the merge, nothing of Bento there. Open: the tone of the sheet («мягко, как у Why, но больше
+информации») - post pipeline (WhyCombine highlight roll-off), needs a shot of the new build / lab A/B.
 
-### P291 - soft light on the lamp-lit sheet, «максимально похоже на Арк, но с чуть большим количеством информации» (owner, 2026-10-20): done on the host, not device-tested.
-After P290 the sheet still had a dark ring round the white core. Host stand (session scratchpad art289/ark_host.py: the app's
-ark/low, bracket_dn, gf/box/ab fusion, hlmask, combine on the PC GPU with the shot's AE values from the phone log; it reproduces
+### P291 - soft light on the lamp-lit sheet, «максимально похоже на Why, но с чуть большим количеством информации» (owner, 2026-10-20): done on the host, not device-tested.
+After P290 the sheet still had a dark ring round the white core. Host stand (session scratchpad art289/why_host.py: the app's
+why/low, bracket_dn, gf/box/ab fusion, hlmask, combine on the PC GPU with the shot's AE values from the phone log; it reproduces
 the phone JPEG of 231619 incl. the steps; colours calibrated to the JPEG by a 3x3 fit): the exposure fusion itself is not
 monotonic with Bento headroom - em = (0.029, 1, 1.5, 2.25): past the base layer's saturation the weights move to the 5 EV darker
 layer and the fused luma falls (0.81 at I 0.55 -> 0.72 at I 2.3) before it climbs to white. Shoulder / landing / guide /
-radius / eps changed nothing of it. Fix (ark/gf.glsl MODE 3, monoU, key hybrid_ark_fusion_mono, default 0.04): the fusion's
+radius / eps changed nothing of it. Fix (why/gf.glsl MODE 3, monoU, key hybrid_why_fusion_mono, default 0.04): the fusion's
 own neutral curve F(I) lifted to its envelope max over I' <= I with F(I') >= 0.5 of F(I') + monoU ln(I / I'), the difference
 added to the guided result; a curve that never falls (usual layers, em.x >= 0.15) is unchanged. 231619 profile from the core:
 254 .. 223 203 166 160 163 171 179 .. (ring) -> 254 .. 234 229 218 212 209 203 199 193 (monotonic); 231640: 11 % of the
-pixels change (lamp-lit areas). check_ark_tone: vivo cases pass; its two synthetic cases fail the same on HEAD (not this change).
+pixels change (lamp-lit areas). check_why_tone: vivo cases pass; its two synthetic cases fail the same on HEAD (not this change).
 Owner's idea (2 ultrashort + 1 short frame between them and the normal ones): answered in chat, not built.
-P291 round 2 (owner: «сделай ещё ближе к Арк камере», «белый никогда не уходил в серый»): the lit paper was grey because with
-Bento headroom the fusion's highlight layer is ~2 EV darker than ArkCam's (em.x 0.038 at hr 22 against ~0.125 on clipped data)
-and the kernel's weights (centre 0.6, highlight layer 0.8) take it. With headroom (r.hr > 0) ArkFusion now uses centre 0.75 and
-highlight-layer weight 0.4 (keys hybrid_ark_weight_center_hr / _weight_hl_hr); without headroom as before. Host replay, sheet
-points 255 255 254 249 227 210 / shaded part 132 against ArkCam 246 248 249 249 234 199 / 130 (before 208 .. 147 / 95);
-231619 from the core 255 .. 254 251 248 243 238 231 227 217 209 205, monotonic. Left as is: ArkCam's frame is ~1.3 EV brighter
+P291 round 2 (owner: «сделай ещё ближе к Why камере», «белый никогда не уходил в серый»): the lit paper was grey because with
+Bento headroom the fusion's highlight layer is ~2 EV darker than WhyCam's (em.x 0.038 at hr 22 against ~0.125 on clipped data)
+and the kernel's weights (centre 0.6, highlight layer 0.8) take it. With headroom (r.hr > 0) WhyFusion now uses centre 0.75 and
+highlight-layer weight 0.4 (keys hybrid_why_weight_center_hr / _weight_hl_hr); without headroom as before. Host replay, sheet
+points 255 255 254 249 227 210 / shaded part 132 against WhyCam 246 248 249 249 234 199 / 130 (before 208 .. 147 / 95);
+231619 from the core 255 .. 254 251 248 243 238 231 227 217 209 205, monotonic. Left as is: WhyCam's frame is ~1.3 EV brighter
 in the mid-tones and lifts the shadows (median luma 77 against 28) - a global AE / shadow change, not this scene's highlights.
 
 ### P292 - purple line at the lamp shade's shadow edge (owner, 2026-10-20, on a P291 host render): done on the host, not device-tested.
@@ -6397,7 +6432,7 @@ scamhdr/scamrgb, clipband with the shot's lo/hi from the log) it is faint, as on
 new chain 2008 px in the sheet crop). Its source: at the ultrashort clip edge G reaches its ceiling first, partly clipped G
 carries no flag (0.96 of the ceiling, R/G 2.3 after WB). scamrgb: a channel at 0.80 .. 0.95 of its ceiling while another
 white-balanced channel is brighter is censored as well (satR), so the recovery raises it. check_highlight_recovery / _neutral /
-_one_channel_off / _landing and check_ark_highlights PASS; glslc OK.
+_one_channel_off / _landing and check_why_highlights PASS; glslc OK.
 
 ### P293 - LUT pill under the HUD; quick sheet over the LUT tray (owner, 2026-10-20, screenshots): done, not device-tested.
 The HUD (shutter, ISO, focus, WB, OIS) was drawn at 12dp from the viewfinder's top, where the LUT pill sits (8dp, 28dp high): it
@@ -6457,15 +6492,15 @@ the same bytes already there: the old one goes; another file of the name: "_1"; 
 the next start; media scan of both places; empty old folders removed; done once nothing is left. DcimMoveBackTest (CI).
 
 ### P301 - the viewfinder shows the photo's tone (owner, 2026-10-20: «тонмапинг ... в живом видоискателе? Результат должен совпадать с итоговым фото», «Делай»; «нужно, чтобы RAW-видоискатель можно было включить не только для ISZ и фулреза»): done, not device-tested.
-Before: the ISP viewfinder shows the ISP's own tone (our LUT / film / filter on top); the RAW viewfinder ArkCore at its library
-defaults (ACES, per-pixel fusion, its own meter) - neither the photo's ARK tone. Now the developed-RAW viewfinder runs the photo's
+Before: the ISP viewfinder shows the ISP's own tone (our LUT / film / filter on top); the RAW viewfinder WhyCore at its library
+defaults (ACES, per-pixel fusion, its own meter) - neither the photo's WHY tone. Now the developed-RAW viewfinder runs the photo's
 own shaders (LiveArkTone, the viewfinder's GL thread): rawdevelop_fs u_linear_out gives the frame's linear sRGB (WB, lens
-shading, color_transform; no tone), then ark/low, ArkAe on a factor-8 arkLow read back every 4 frames (smoothed), ark/gf + box +
-ab (the guided-filter fusion with the photo's weights and P291 envelope), ark/combine with the photo's settings (tone operator,
+shading, color_transform; no tone), then why/low, WhyAe on a factor-8 whyLow read back every 4 frames (smoothed), why/gf + box +
+ab (the guided-filter fusion with the photo's weights and P291 envelope), why/combine with the photo's settings (tone operator,
 colour look, film simulation / LUT), into the off-screen target; the 2D filter pass (P300) puts it on screen with the lens filter
 and the focus peaking. Differences left: the merge's noise and detail (detail off), no Bento headroom (one frame), the AE's noise
 clamp from the frame's noise over 0.55 x the burst's frames, the AE's statistics at factor 8. Any GL failure switches it off for
-the context (the RAW viewfinder's own look). scam_dev.txt "vf_ark 0": as before. The RAW viewfinder on any module: «Живой
+the context (the RAW viewfinder's own look). scam_dev.txt "vf_why 0": as before. The RAW viewfinder on any module: «Живой
 видоискатель» (settings and the sheet's «Для опытных»), or the module's «Поток ISP: Выкл»; DeviceDefaults v6 turns it on once on
 flagship SoCs (SM8650 / SM8750 / SM8850, MT6989 / MT699x). Open: frame rate and look on a phone.
 
@@ -6484,12 +6519,12 @@ see). Now a direct open that fails falls back to the grant; without one the mess
 ### P305 - 50 MP: stripes on a distant ship in the frame's centre (owner, 2026-10-20): done, not device-tested.
 «На 50мп по центру на судне в далеке есть полосы, нужно исправить»; «Полосы — это не фактура корпуса судна». Inputs:
 C:/Users/MECHREVO/Desktop/т/p7/SCAMERA.zip, scam_burst-20261020-115603.bin, scam_burst-20261020-115634.bin. The merge, the finish
-denoise (nearly transparent at this SNR) and the ARK sharpening are smooth on the hull; the stripes came from the dither of
-ark/combine.glsl: its ints were mediump, fp16 on Adreno, so float(xy) and the dither phase made plates 1-4 px wide and 11-43 rows
+denoise (nearly transparent at this SNR) and the WHY sharpening are smooth on the hull; the stripes came from the dither of
+why/combine.glsl: its ints were mediump, fp16 on Adreno, so float(xy) and the dither phase made plates 1-4 px wide and 11-43 rows
 tall instead of +-0.5 LSB noise, and jpegli's quantisation kept them as vertical streaks on smooth dark areas (the hull, the sky;
 at 200 MP the merge's noise hid them). combine.glsl declares precision highp int (host replay with the fp16 emulation reproduces
 the phone's streaks, without it they are gone; desktop GL runs mediump as fp32). check_colour_output.py checks the line. Same
-class, not fixed (off by default or negligible): the grain of ark/sharp_compose, the watermark, the lens-shading lookups.
+class, not fixed (off by default or negligible): the grain of why/sharp_compose, the watermark, the lens-shading lookups.
 
 ### P306 - 200 MP: every artifact - stair steps, purple outlines and the rest; detail better than 50 MP or at least not worse (owner, 2026-10-20): done, not device-tested.
 «На 200мп же нужно исправить все артефакты, лесенки, фиолетовые обводки и так далее. Нам нужно постараться получить деталь лучше
@@ -6535,7 +6570,7 @@ mosaic merge; ChromaMedianGpu below that size), the oscillation map of the base 
 binning of the native mosaic frames, the shift to the RGGB origin, the outlier statistics, the row profiles of the ultrashort
 frames; app side: the Java steps around the merge. Each one on the GPU with the same results (bit-exact where the CPU path
 promised it, else float rounding), memory at 200 MP in strips, timings before / after on the X200 Ultra and the OPPO.
-Owner, same day: «сделай гпу выравнивание и дай возможность выбора»; «один в один выравнивание как Арк Кам не делаем, если возможно
+Owner, same day: «сделай гпу выравнивание и дай возможность выбора»; «один в один выравнивание как Why Кам не делаем, если возможно
 переводим наше на гпу»; «постарайся ускорить гпу выравнивание когда закончишь перенос»; «на качество ускорение не должно влиять».
 - F6 on the GPU: DONE, not device-tested in the app. `scam-la-gpu.h` (LaGpu): our laGray / laDown / laBaseLevel / laTilePass / laLK /
   laMedian3 / laMotionExtent / laFrameField as GLES 3.1 compute, 16 invocations per tile (4 tiles a workgroup, shared-memory
@@ -6632,13 +6667,13 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   ultrashort frames' wide kernel 2-4 px onto it), dark pixels changed > 20 %: 11 k (was 40 k); x7u_1x 0-4 px ring +1.7 %; clipped areas 8 px in: float rounding only (< 1 %,
   l7u / x7u / main511). Tried and dropped: counting the ultrashort frames
   at their noise in the effective-frames map (the coarse grain sits on pyramid levels the denoise barely touches: no change).
-### P310 - LED backlight without artifacts: the ultrashort frames blended after the merge by region, their gain against N, coloured light in the ARK tone; settings cleanup (owner, 2026-10-21: «Нам нужно исправить подсветку ... у нас куча артефактов на подсветке ... получить результат по артефактам и дд как минимум не хуже арк камеры»; «У нас скорее всего проблема с маской бенто, именно поэтому я тебя просил исправлять переходы»; «тут вижу артефакт, плюс вся лента зубчатая, сделай ещё лучше»; «учитывай другие сцены чтобы там нам всё не испортить»; «Проверяй на разных бурстах ... в сцене с ПК у нас всё тоже должно быть нормально»; «Когда закончишь исправлять проверь наше меню настроек и убедись что у нас нет дублирующихся бесполезных настроек»): DONE, not device-tested in the app.
+### P310 - LED backlight without artifacts: the ultrashort frames blended after the merge by region, their gain against N, coloured light in the WHY tone; settings cleanup (owner, 2026-10-21: «Нам нужно исправить подсветку ... у нас куча артефактов на подсветке ... получить результат по артефактам и дд как минимум не хуже Why камеры»; «У нас скорее всего проблема с маской бенто, именно поэтому я тебя просил исправлять переходы»; «тут вижу артефакт, плюс вся лента зубчатая, сделай ещё лучше»; «учитывай другие сцены чтобы там нам всё не испортить»; «Проверяй на разных бурстах ... в сцене с ПК у нас всё тоже должно быть нормально»; «Когда закончишь исправлять проверь наше меню настроек и убедись что у нас нет дублирующихся бесполезных настроек»): DONE, not device-tested in the app.
 - Cause (the owner's burst Desktop/т/p7/scam_burst-20261020-193420.bin = OPPO /data/local/tmp/p310/led.nch, X8U main camera, plain
   Bayer 4096x3072, 20 N frames 10 ms ISO 579 + 3 ultrashort 7.24 ms ISO 100 = x0.125): the ultrashort frames went into the merge site by
   site and colour by colour (a clipped N sample left out of its colour only), so a ring's edge got isolated bright 2x2 cells, a G/B
   checker and pink blocks wherever the ultrashort frames saw the light in another colour; their ring sits ~2 px off the N frames'; the
   LEDs are PWM / ARGB driven: during the 7 ms the glow has G x0.55, B x0.67 of the N frames' (after the P290 tile correction). In the
-  post the bar went flat white and the rings lost their colour (ARK fusion weights and the path to white on saturated light).
+  post the bar went flat white and the rings lost their colour (WHY fusion weights and the path to white on saturated light).
 - Worker (scam-hybrid.h; kHybMergeMain1 untouched), HybridTuning::bentoBlend (worker default 0 = replays unchanged, plain Bayer only;
   the native colour-block merge keeps the P309 ramp): the merge runs on the N frames and the base alone, then kHybUsBlend after each
   strip's merge in four stages: 0 the N marks (clip / bright, clip flags bits 16-31); 1 the weight BY REGION - the N clip spread with
@@ -6659,7 +6694,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   (the LED shot 1.6 -> 2.0 s).
 - App: bento_blend always written (bentoBlend 1, dev switch hybrid_bento_blend), bentoBlendSigma = «Кадры светов: мягкий переход» / 4
   (at least 0.25: 0 now the sharpest; before, 0 fell back to the default softness); HybridSettingsTest p310.
-- Post (ARK, ArkFusion / gf.glsl, combine.glsl): saturated light keeps the kernel's centre and highlight weight in the fusion (satLightU,
+- Post (WHY, WhyFusion / gf.glsl, combine.glsl): saturated light keeps the kernel's centre and highlight weight in the fusion (satLightU,
   saturation 0.35..0.7 of the pixel; neutral light keeps the P291 headroom weights), the AgX tone's path to white runs from 0.8 to
   0.995 of the AgX white (was 0.6 .. 2.4 of the linear level: no white bar or rings below the white).
 - Measured (OPPO X7 Ultra replays of the owner's bursts, host emulation of the post): LED rings smooth (no 2x2 cells, checker, dots or
@@ -6675,12 +6710,12 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   «Авто»); the merge's noise multipliers were multiplied into the denoise next to its own ρs / ρr (merge only now, titled so);
   «Кадры светов: вес» acted on nothing with the blend (dev key hybrid_bento_weight); greyed out although acting: «Мерцание ламп» (the
   native FULLRES AE), «Граница ночь / день (ключ SNR)» (was «Новое ядро, «авто»: предел ключа SNR»); now greyed: «Сохранять RAW-серию»
-  under the lab's copy, «Цветовой метод» with a DCP, the ARK denoise rows with «Шумоподавление» off; truer texts: «Root-доступ», «Кадров
+  under the lab's copy, «Цветовой метод» with a DCP, the WHY denoise rows with «Шумоподавление» off; truer texts: «Root-доступ», «Кадров
   в склейке мозаики: не больше». The two removed rows are OBSOLETE_KEYS. Unused code: SettingsAvailability.stockAeDevice,
   PreferenceKeys.mosaicIspPreview / getScamNoiseSource / isScamPlannerAdaptive / getScamLongBoostEv. Kept (design or owner naming):
   «Разрешение» next to «Размер фото», the two grains, the luma / contrast / saturation rows on several pages.
 - Pre-push review (all fixed, the replays above rerun with the final worker): tone - the saturated-light share only for BRIGHT light
-  (satLevelU: 0.25..0.6 of the brightest channel x the AE, dev keys hybrid_ark_sat_light_level_lo / _hi; without it skin, foliage and
+  (satLevelU: 0.25..0.6 of the brightest channel x the AE, dev keys hybrid_why_sat_light_level_lo / _hi; without it skin, foliage and
   coloured walls in a lamp shot's shadows took the kernel's weights and haloed), saturated light keeps the P291 envelope's plateau
   (never a fall: no dark ring) and only drops its rise, the AgX white counts a negative EV (0.18 x 2^(maxEv + max(-EV, 0))); worker -
   the blend program is compiled only when the blend runs (HybridGpu blendPass; bentoBlend 0 builds exactly the P309 programs) and the
@@ -6693,15 +6728,15 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   compares the a3e94db baseline with the same AgX white edit applied (as P118's guard): everything else of P3_OUT 0 stays bit-exact.
 - Checks: CI unit list (266 classes, 1586 tests), check_settings_model (new rules), check_ui_language, make_ui_icons --check, the 14
   C++ checks and --transport-check on the OPPO, glslc of the blend program (plain / LOCAL_ALIGN), gf.glsl MODE 0-3 and combine.glsl
-  TONE_OP 0/1, the CI GL checks on the host (moderngl: check_colour_output --shader / --gl, check_ark_highlights / _headroom,
-  check_highlight_*, check_tone_ops, check_colour_look, check_scam_hdr_gpu ...); check_ark_tone fails its two synthetic cases exactly
+  TONE_OP 0/1, the CI GL checks on the host (moderngl: check_colour_output --shader / --gl, check_why_highlights / _headroom,
+  check_highlight_*, check_tone_ops, check_colour_look, check_scam_hdr_gpu ...); check_why_tone fails its two synthetic cases exactly
   as on 4f6d8ace (not in CI). Final worker: the 5 blend replays (o12, x7u_1x, d1655, d1853, the LED shot) no strip-border step, the
   references and 3 no-blend bursts bit-identical.
 - Open: the OPPO X8U pink RGB bulb with a white halo ring (owner's screenshot, no burst); the app on a phone.
 
-### P311 - LED rings without lines in the ARK tone: the AgX path to white over 1.3 EV, the detail delta at the rim of a clipped light (owner, 2026-10-21, OPPO X8U photo of the PC on f9489748: a pink fan ring with a white core, a hard edge on its outer side and a crimson line along its inner side; «сделай ещё лучше»): DONE, not device-tested in the app.
+### P311 - LED rings without lines in the WHY tone: the AgX path to white over 1.3 EV, the detail delta at the rim of a clipped light (owner, 2026-10-21, OPPO X8U photo of the PC on f9489748: a pink fan ring with a white core, a hard edge on its outer side and a crimson line along its inner side; «сделай ещё лучше»): DONE, not device-tested in the app.
 - The linear merge is clean at the rings (the LED burst replayed on the OPPO with the final P310 worker); both lines come from the
-  ARK tone (host chain SCR p310/led_host.py, phone sharpening; harness SCR p311/ref: render.py, score.py = dips / cliffs / colour
+  WHY tone (host chain SCR p310/led_host.py, phone sharpening; harness SCR p311/ref: render.py, score.py = dips / cliffs / colour
   bands at six ring and bar locations, regress.py = seven scenes, changes outside the light edges, speck.py = roughness along the
   rings; a synthetic merge with lines, holes, rims and LED rows).
 - Outer side: my own P310 gate of the AgX path to white, smoothstep(0.8, 0.995 x the AgX white): 0.3 EV, inside one pixel of a ring's
@@ -6709,10 +6744,10 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   ring R 180 -> 96 in 2 px; pink: the white core breaking off into the saturated glow). Now 0.8 .. 2.0 x the white: pixels below 0.8 x
   unchanged, from 2 x up the former core; nothing else in the tone moves (check_colour_output: the baseline with the same edit).
 - Inner side (and with that fix the outer side too): the bounded detail delta of combine.glsl dug a lobe 2-6 px wide beside a
-  clipped light - its reference (the B-spline of the arkLow box means of min(m Y, 1)) holds the light's spill, the cube root of
-  that linear mix lifts it far more than the base (the fusion mixes in the display domain), plus ArkLumaSharpen's undershoot at
-  that edge. Rule (lightShare / lightRimDelta): the light share of the arkLow taps (max channel 2 .. 4 x the reference's bound, or
-  the geometric mean of max channel and luminance 1.4 .. 2.4 x), its mass / first / second moment in a disc of 4 arkLow px, side =
+  clipped light - its reference (the B-spline of the whyLow box means of min(m Y, 1)) holds the light's spill, the cube root of
+  that linear mix lifts it far more than the base (the fusion mixes in the display domain), plus WhyLumaSharpen's undershoot at
+  that edge. Rule (lightShare / lightRimDelta): the light share of the whyLow taps (max channel 2 .. 4 x the reference's bound, or
+  the geometric mean of max channel and luminance 1.4 .. 2.4 x), its mass / first / second moment in a disc of 4 whyLow px, side =
   |M|^4 / (H M'SM) (1 = the light on one side: a rim, 0 = around the pixel: a dark line or hole in front of a light), the reference
   of the far side (the footprint taps behind the pixel, away from the light), and at a rim the negative delta against that far
   side, never deeper than the plain delta; blended by side 0.3 .. 0.7 and the disc's light mass 0 .. 2. Every input smooth in the
@@ -6729,13 +6764,13 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   core (now visible instead of the dark line: the core-colour / path-to-white question), lights below ~2 x white keep part of the
   lobe, dark objects ~8-10 px wide in front of a light keep their lobe rails.
 - Checks: check_colour_output --shader / --gl (the a3e94db baseline with the P310 + P311 edits, everything else bit-exact),
-  check_ark_highlights / _headroom, check_highlight_*, check_tone_ops, check_colour_look, check_film_lut, check_viewfinder_look,
+  check_why_highlights / _headroom, check_highlight_*, check_tone_ops, check_colour_look, check_film_lut, check_viewfinder_look,
   glslc of every define combination (reviewers: 64).
 
 ### P312 - the camera's start without a frozen viewfinder: the developed-RAW viewfinder's programs from driver binaries (owner, 2026-10-21, a video of three starts on the vivo X200 Ultra: «вот такие лаги ловлю при запуске»): DONE, not device-tested.
 - Cause (the video against the log): the viewfinder stood still 0.4 s at every start (2.1 - 2.5 s cold) right after its first
-  frames - the gap between the last ISP frame drawn and «the photo's ARK tone on». At the first RAW frame the viewfinder's GL thread
-  compiled from source rawdevelop (650 lines) and the ten programs of the photo's ARK tone (combine 815 lines); no ISP frame could
+  frames - the gap between the last ISP frame drawn and «the photo's WHY tone on». At the first RAW frame the viewfinder's GL thread
+  compiled from source rawdevelop (650 lines) and the ten programs of the photo's WHY tone (combine 815 lines); no ISP frame could
   be drawn meanwhile (the camera kept 30 fps: STAB_TRACE maxGap 66 ms). The post pipeline's program binaries (P30 / P69) never
   covered the viewfinder.
 - GLProg: viewfinder keys ("V\n" + attributes + vertex + U+0001 + fragment) in the same driver-binary cache (process + disk;
@@ -6744,10 +6779,10 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   programs through it, prepare() before the first draw (pending first, then the binary; a refused or missing binary goes to the
   background once, else compiled in place); MainRenderer's own four programs too. ViewfinderPrograms: the keys without a binary
   compiled on a background thread in a context of its own (display priority). MainRenderer: the ISP frame stays until the programs
-  are linked (no load while the background links: a driver's compiler lock), then straight to the ARK tone; a RAW-only session
-  (ISZ / FULLRES) shows the plain RAW look as soon as rawdevelop is there; the ARK set asked again when it becomes wanted; 8 s
+  are linked (no load while the background links: a driver's compiler lock), then straight to the WHY tone; a RAW-only session
+  (ISZ / FULLRES) shows the plain RAW look as soon as rawdevelop is there; the WHY set asked again when it becomes wanted; 8 s
   deadline, then as before; the GL state put back after the set-up.
-- Expected: a start with binaries links them in a few ms (the first RAW frame keeps ~40-120 ms: the 24 MB upload, the ARK targets,
+- Expected: a start with binaries links them in a few ms (the first RAW frame keeps ~40-120 ms: the 24 MB upload, the WHY targets,
   the first AE readback); the first start after an install compiles in the background while the ISP viewfinder runs.
 - Checks: GLProgramDiskCacheTest (keys round trip, kept for the warm-up, not counted), two code reviews (fixed: the pending/cache
   race, per-frame key building, stats leak, stale errors, no deadline, RAW-only sessions). Open: the phone (VF_DRAW at a cold start).
@@ -6793,7 +6828,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   - one sensor site - at or below s61MaxKey; never Tetra, which P306 shoots by day only): up to 3 bracketed frames take slots of
   their own as well ('3 bracketed in slots of their own (night: key K)'); by day one keeps its N slot as in P219. On the bursts at
   hand the budget covers the whole burst (t100526, key 9.9: 26 frames, 34 slots), so the rule changes nothing there (md5 the same).
-- Slow processing: not the merge - on the vivo the ARK RAW viewfinder of P301 (P266 RAW-only session: ~20 passes per frame at
+- Slow processing: not the merge - on the vivo the WHY RAW viewfinder of P301 (P266 RAW-only session: ~20 passes per frame at
   display priority) left the low-priority worker ~1/10 of the GPU: 46-51 rows/s while it ran, >= 410 rows/s once it stopped; the
   same 2x ISZ merged in 5.5 s on 10-19 with the old one-pass RAW viewfinder. Fixed in P314 (the viewfinder like the reference app's).
 - Checks (worker_p313f, after the review): P306 refs (x7u_1x c2f295fa, hh_1 63519568) and the jref set (x7u_1x f51cddf6, hh_1,
@@ -6802,11 +6837,11 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   reruns PASS); the night rule against the day ISZ burst (e6dd6c43, unchanged) and t100526 / v10_1 / v10_2 / isz2 (unchanged);
   HybridPlanTest (p313AtMostThreeShastaFrames) / HybridSettingsTest / ScamHybridBurstCrashTest / DevKeysCoverageTest.
 
-### P314 - the RAW viewfinder as light as ArkCam's: one pass of the photo's tone at the frame's colour grid, the AE on the CPU, a frame dropped when the viewfinder is busy, the GPU at normal priority (owner, 2026-10-21: «Исправь живой видоискатель, в ArkCam он тоже есть, но при этом обработку он никак не замедляет» + «Посмотри как работает живой видоискатель в Арк камере, нам нужно сделать схожим образом»): DONE, not device-tested.
-- Cause (P313's slow 2x ISZ shot): the P301 ARK RAW viewfinder drew ~20 passes a frame at the viewport (the guided-filter fusion,
+### P314 - the RAW viewfinder as light as WhyCam's: one pass of the photo's tone at the frame's colour grid, the AE on the CPU, a frame dropped when the viewfinder is busy, the GPU at normal priority (owner, 2026-10-21: «Исправь живой видоискатель, в WhyCam он тоже есть, но при этом обработку он никак не замедляет» + «Посмотри как работает живой видоискатель в Why камере, нам нужно сделать схожим образом»): DONE, not device-tested.
+- Cause (P313's slow 2x ISZ shot): the P301 WHY RAW viewfinder drew ~20 passes a frame at the viewport (the guided-filter fusion,
   its pyramid), copied (24 MB) and uploaded the whole frame, read the picture back for the AE every 4th frame, in a HIGH-priority
   context (P90): the worker's LOW context got ~1/10 of the GPU (46-51 rows/s while it ran, >= 410 rows/s without it).
-- ArkCam v174 (jadx + the engine's disassembly; notes SCR arkvf/NOTES.md): ONE full-screen pass on the packed RAW (per pixel:
+- WhyCam v174 (jadx + the engine's disassembly; notes SCR arkvf/NOTES.md): ONE full-screen pass on the packed RAW (per pixel:
   WB, lens shading, CCM, the CPU's exposure, a GLOBAL exposure-fusion curve on the pixel's own luma - no neighbourhood -, the
   look, tone map, LUT); the producer (the camera thread) drops a frame while the render thread is busy (no copy), the AE from
   <= 64 x 64 RAW samples on the CPU, no glReadPixels, no fences, no EGL priority.
@@ -6816,15 +6851,15 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   within 100 ms is replaced; CaptureController neither reads nor copies a skipped one), Quad / Tetra frames under 30 MP published
   as their cell means (drawn with cfa_mode 0: lossless against the mosaic up to 1/2 DN; the >= 30 MP bins of P108 / P179 / P181 /
   P194 unchanged); the bins on threads of their own (ParallelWork.Own: in the shared pool a shot's CPU pass held the camera thread
-  for its whole length on every frame - review, desktop: 4 -> 381 ms behind a 400 ms pass); (5) the ARK tone drawn at the visible
+  for its whole length on every frame - review, desktop: 4 -> 381 ms behind a 400 ms pass); (5) the WHY tone drawn at the visible
   crop's colour grid (LiveRawRenderer.toneSize, 1/16 steps of the viewport, sized from the crop fitted to the screen - the crop of
   the previous target made 2-cycles in 139 of ~84k cases: review): 2x ISZ 810 x 1080 instead of 1440 x 1920, Tetra 450 x 600,
   1x Bayer and FULLRES the viewport; the filter / peaking pass scales it to the screen; (6) combine.glsl POINT_FUSED: the photo's
-  fusion as a per-pixel curve (FusedCurve: gf fusedAt + the P291 envelope, 353 entries, unit 8), LiveArkTone vf_ark 1 (default;
+  fusion as a per-pixel curve (FusedCurve: gf fusedAt + the P291 envelope, 353 entries, unit 8), LiveArkTone vf_why 1 (default;
   2 = the guided-filter chain, now at the tone size with its box radius scaled; 0 = off), the AE by LiveArkMeter (128 x 96 cells
-  of 2 x 2 colour quads of the RAW frame -> ArkAe.smartHdr, ~1 ms on the GL thread) instead of the readback. A 2x ISZ frame:
+  of 2 x 2 colour quads of the RAW frame -> WhyAe.smartHdr, ~1 ms on the GL thread) instead of the readback. A 2x ISZ frame:
   ~20 passes, 24 MB copy + upload, a readback, HIGH -> 3 passes at 810 x 1080, a 6 MB upload, no readback, MEDIUM. Fallbacks as
-  before (ARK failure -> the plain RAW look -> the ISP viewfinder).
+  before (WHY failure -> the plain RAW look -> the ISP viewfinder).
 - Host checks: LiveArkMeter vs the photo's per-quad statistics within 1 % (ae, p50, p98, p995, effS / effH) on clean frames (the
   old factor-8 readback smeared small lights: p995 0.69 vs the photo's 0.375); POINT_FUSED vs the exact per-pixel fusedAt +
   envelope <= 0.66 codes (5 cases, TONE_OP 1 included); combine with POINT_FUSED 0 unchanged (check_colour_output --shader / --gl).
@@ -6841,12 +6876,12 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   does not lift it as the guided filter did), against the photo's mid-tones -3.9 -> -10.7 codes.
 - Open: the phone (VF_DRAW draw=, HYBRID STAGES merge= and HYBRID PROGRESS rows/s on the vivo 2x ISZ with the viewfinder open;
   no P90 stutter at MEDIUM - scam_dev vf_gpu_priority 1 brings HIGH back); the darker night viewfinder
-  (above; vf_ark 2 or a noise-filtered meter if the owner objects); night AE (one frame's noise raises the cells' p98 / p995:
+  (above; vf_why 2 or a noise-filtered meter if the owner objects); night AE (one frame's noise raises the cells' p98 / p995:
   +37 / +74 % against the clean photo, the exposure at the noise clamp either way); flatter shadows than the photo's local fusion
-  in strongly fused scenes (vf_ark 2 for an A/B); 1x sessions with an ISP stream still re-tone the same RAW frame on ISP frame
+  in strongly fused scenes (vf_why 2 for an A/B); 1x sessions with an ISP stream still re-tone the same RAW frame on ISP frame
   callbacks (since P301); LiveRawRenderer.lastView keeps the frame buffer after a session (since P301, up to 25 MB).
 - Checks: LiveRawFrameTest (13), LiveArkMeterTest, FusedCurveTest, LiveRawGeometryTest, ParallelWorkOwnTest (new, CI list),
-  LiveRawQuadBinTest, ArkAeTest, GLProgramDiskCacheTest; glslc of rawdevelop_fs / main_fs (2D form) and the 32 combine variants;
+  LiveRawQuadBinTest, WhyAeTest, GLProgramDiskCacheTest; glslc of rawdevelop_fs / main_fs (2D form) and the 32 combine variants;
   check_colour_output --shader / --gl --strict, check_viewfinder_look, check_settings_model, check_ui_language; two reviews
   (correctness: the bin pool and the tone-size 2-cycle fixed, the draw-request comment corrected; pre-push: LiveRawFrameTest holds
   its frames by LiveRawFrame.pendingNs instead of racing the 100 ms; measurement: the colour fringes
@@ -6869,7 +6904,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   1. mRepeatingIsp: the series frames (P90 series_viewfinder) and the AE restore frame (P54c) touch the ISP stream only when the
      repeating preview does (the X8U's series were the first requests ever on its never-started ISP stream).
   2. SensorModePick.seriesAllowed: a picked mode on an OPPO / OnePlus / realme camera shoots from the ring alone (HybridPlan.zslOnly
-     with the reason; no flush, nothing after the shutter - as ArkCam's ring snapshot); scam_dev sensor_mode_series 1 sends the
+     with the reason; no flush, nothing after the shutter - as WhyCam's ring snapshot); scam_dev sensor_mode_series 1 sends the
      series again to test a phone.
   3. onError: a picked mode is blamed (back to Auto) only when its session never delivered a frame; else the quiet P263 reopen.
   4. FlushLossStats: a series the rescue completed (sequenceId -1: watchdog, error, closed session) does not vote (the dead HAL had
@@ -6904,7 +6939,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   key carries the picked mode (mode 1 and 8 shared «2|4096x3072||0» for ~100 ms after each switch) and plainColour / plainTeacher
   skip picked-mode results.
 - LED backlight (the 13:18 pair and the owner's crops: two parallel bright lines along the fan rings' cores, dotted highlights):
-  ark/combine.glsl fix A - no positive detail delta inside a light's footprint (lightW): the guide is clamped flat at 1 across a
+  why/combine.glsl fix A - no positive detail delta inside a light's footprint (lightW): the guide is clamped flat at 1 across a
   light's core while the reference takes in the dark beside it, so the positive delta ridged just inside both rims; bit for bit
   the same where no tap is a light. Host regression (SCR p311/ref/regress.py, 7 scenes, the HEAD shaders as base): outside the
   light-edge mask 0 px > 2 codes (max 1 code), d1655 / d1853 bit-identical; LED scores jb 28.6 -> 24.0, pink 27.5 -> 23.3,
@@ -6912,17 +6947,17 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - Rejected by the independent verifiers (each topic 3 rounds of patch + verification; the owner stopped the 4th, 2026-10-22:
   «почему у нас идёт 4ый раунд?» - «останавливай»). The common root: in the merged data a clipped LED and a clipped bright
   coloured surface look alike, and every «this is a light» rule touched other scenes.
-  - The ARK tone: a white-core floor, a ceiling, the L1 landing (round 1-2: whites towards grey or new steps); the ultrashort
+  - The WHY tone: a white-core floor, a ceiling, the L1 landing (round 1-2: whites towards grey or new steps); the ultrashort
     blend's hue clamp (round 1).
-  - The sharpening light gate (ark/sharp_light: fade the compose / RL sharpening in a light's own glow; SCR
+  - The sharpening light gate (why/sharp_light: fade the compose / RL sharpening in a light's own glow; SCR
     p315/r3-sharpen/p315_sharpen_light_r3.diff): r1 dotted dark lines along the rims; r2 the seed fired below the clip (the
     art289 x3 display text and strokes on a blue wall erased beyond sharpening-off); r3 (seed only at >= 0.995 of the raw clip,
     the glow envelope, the guide unsmoothed: the rings' rails and dashed junction lines at the sharpening-off level, P311 means
     jb 24.0 -> 23.1, pink 23.3 -> 22.7) softens detail on clipped EXTENDED saturated surfaces (sky, signs, screens, the
-    7-segment digits) to the sharpening-off level. Next idea, not built: a thinness test in the seed (an erosion of ~4 arkLow px
+    7-segment digits) to the sharpening-off level. Next idea, not built: a thinness test in the seed (an erosion of ~4 whyLow px
     keeps skies / signs / screens out).
   - The ISZ coloured-light highlight rule (scamrgb: a native-mosaic shot without highlight frames keeps a coloured LED's clipped
-    R / B; SCR p315/r3-isz/p315_isz_r3.diff): r1 / r2 tinted blown whites under a white-balance cast and moved the ARK clip; r3
+    R / B; SCR p315/r3-isz/p315_isz_r3.diff): r1 / r2 tinted blown whites under a white-balance cast and moved the WHY clip; r3
     (trust from the RAW levels only: R or B at its clip and >= 1.15..1.35 x raw G, a white-light guard; the cast sweep and the
     vivo merges unchanged) puts grey beads into thin ring cores at LED levels 0.8 / 1.15 / 1.3 x (the guard zeroes the trust
     around every G-clipped spot) and harder blotches on the bars in the as-shot colour path. Next idea, not built: guard only a
@@ -6972,16 +7007,16 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   (labDevOverlay, hybridTuningSuffix / TUNING_KEYS); a side with another «Масштаб входа, EV» measures the frame at its own gain
   (LabFrame.scaled); Shot.prefs() parsed once.
 - Settings that did nothing or less than their row: «Смещение центра экспозиции» / «Вес слоя светов» now move the Bento-headroom
-  fusion too (ArkTone.headroomCenter / headroomHlWeight: 0.75 / 0.4 at the defaults - pixels unchanged); «Насыщенность при
-  матрице OPPO» acts with every AgX look preset (ArkAe ccmSat after the preset; Custom as before); the NLM chroma strength below
+  fusion too (WhyTone.headroomCenter / headroomHlWeight: 0.75 / 0.4 at the defaults - pixels unchanged); «Насыщенность при
+  матрице OPPO» acts with every AgX look preset (WhyAe ccmSat after the preset; Custom as before); the NLM chroma strength below
   1 blends (chromadn/apply chromaAmount; 1 bit for bit); «Сила симуляции» scales the film's grain, halation and softness as the
   colour (FilmSim.grainApplied / halationAmounts / softnessApplied, the viewfinder too); «Быстрый JPEG» also takes Android's
   encoder for the Ultra HDR photo; the Bento frame count as set (Mochi no longer forces 3 - the worker merged only the set
-  count); the ISO night threshold of ArkTone set explicitly (1, as it acted since P63). Greying rules and their texts
+  count); the ISO night threshold of WhyTone set explicitly (1, as it acted since P63). Greying rules and their texts
   (SettingsAvailability, values / values-ru), numeric ranges (SettingsNumericRules), migrations (mosaic_window max 4,
   bento_chroma_sigma min 0.5).
 - Defaults: the default photo unchanged (bento_frames 3, post_chroma 1, look 4 = Custom, the menu weights 0.6 / 0.8).
-- Checks: ScamLabFragmentTest (8), ArkHeadroomWeightsTest, ScamLabRunTest (new, CI list), SettingsMenu, HybridSettings, MotionMode,
+- Checks: ScamLabFragmentTest (8), WhyHeadroomWeightsTest, ScamLabRunTest (new, CI list), SettingsMenu, HybridSettings, MotionMode,
   DevKeysCoverage, ScamLabParams / Burst, ShadeCatalog, SettingsAuditFix, FilmEffectsTest; the whole CI list (274 classes);
   check_settings_model, check_ui_language.
 - Open: the lab on the phone (every page against a shot of each kind).
@@ -6991,8 +7026,8 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   ...) divided a 16-bit-wrapped int by 65536 in fp16: +inf, the grain added infinity, the photo white. Adreno's mediump int is 32 bit
   (no change there). GLInterface.readProgram now inserts `precision highp int` into every program without its own #version (after
   its #extension lines, with a #line fix); the film shaders declare it too; film/grain_sf.glsl guards NaN / Inf.
-- ARK AE «histogram weight 0 / 0 ... CPU statistics» on every Mali shot: GLInterface.getLayouts keyed a one-line SSBO block
-  ("buffer aeHistY { uint histY[]; };", ark/aestats, ultrahdr/gainmax, halfrgba) by "}", setBufferCompute bound nothing, and the
+- WHY AE «histogram weight 0 / 0 ... CPU statistics» on every Mali shot: GLInterface.getLayouts keyed a one-line SSBO block
+  ("buffer aeHistY { uint histY[]; };", why/aestats, ultrahdr/gainmax, halfrgba) by "}", setBufferCompute bound nothing, and the
   shader saw what sat at its binding - GLBuffer's own glBindBufferBase(SSBO, name, name), right on Adreno (names 1..n) by luck,
   nothing on Mali. The parser takes the word before '{'; GLBuffer no longer binds at its name (every user binds through
   setBufferCompute); setBufferCompute / setTextureCompute throw (logged) for an unknown block instead of a stack trace to logcat;
@@ -7002,7 +7037,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - Checks: GLInterfaceLayoutsTest (new, CI list: every asset shader's layouts), tools/check_shader_fp16.py (new, CI: no mediump
   operation with a constant outside the fp16 range), every asset shader through glslc as readProgram builds it (68 OK), the film
   shaders bit-exact on the host with highp (film_bitexact), FilmEffectsTest, check_colour_output --gl.
-- Open: a Mali phone (X300 Pro / X200 Pro / Pixel 7): the film photo, «ARK AE GPU: stats=gpu» in the log.
+- Open: a Mali phone (X300 Pro / X200 Pro / Pixel 7): the film photo, «WHY AE GPU: stats=gpu» in the log.
 
 ### P318 - Quad (2x2) and Tetra (4x4) for every colour filter arrangement (owner, 2026-10-21: «у нас 2x2 4x4 оптимизированы под все цветовые фильтры? Займись оптимизацией/исправлением без агентов, самостоятельно»): DONE (the lead, no agents); the merge and the DNG writer checked on the OPPO X7U, the app not device-tested.
 - Question: the native mosaic merge (scam-hybrid.h: canonical coordinates with cfaShift, kHybNatAccess, kHybMergeMosaicFast, the
@@ -7049,7 +7084,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - Open: a phone DNG of each kind (merged mosaic, reference frame, plain Bayer) in Lightroom and Scam Remosaic; whether the
   owner's X200 Ultra / X100 Ultra DNGs carry AsShotNeutral / ForwardMatrix1 again (P215).
 
-### P319 - a user's report: Back, the size pill, the settings, the RAW viewfinder, «Ark» -> «Why»; the LUT swipe; the merge on Android 10 (owner, 2026-10-22, forwarding a user's nine points: «изучи и подумай что и как можно исправить и улучшить. Везде где есть "Ark" меняй на "Why"» + «постарайся побольше пунктов сделать сам» + «у нас по свайпу по экрану переключаются луты, сделай для этого анимацию» + a crash / debug zip of a nubia NX563J): DONE in code, not device-tested.
+### P319 - a user's report: Back, the size pill, the settings, the RAW viewfinder, «Why» -> «Why»; the LUT swipe; the merge on Android 10 (owner, 2026-10-22, forwarding a user's nine points: «изучи и подумай что и как можно исправить и улучшить. Везде где есть "Why" меняй на "Why"» + «постарайся побольше пунктов сделать сам» + «у нас по свайпу по экрану переключаются луты, сделай для этого анимацию» + a crash / debug zip of a nubia NX563J): DONE in code, not device-tested.
 - Study (one workflow: rename, viewfinder, size label, settings, Back - each read by a second agent; notes and tools in SCR
   fb319/), then done by the lead.
 - Back (item 8): CameraFragment.onBackPressed returned true on every path since 48554ac9, so Back never left the camera.
@@ -7097,18 +7132,18 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - LUT swipe (owner): LutWipeView - the old picture copied (PixelCopy of the preview surface), the LUT changed under it, the old
   picture cut away from the side the finger came from with a bright edge (320 ms); every swipe steps once; no copy - no
   animation, the step as before. LutWipeViewTest.
-- «Ark» -> «Why» (owner's order, item 5): the UI texts first (the third-party app's name dropped where it named a variant of
+- «Why» -> «Why» (owner's order, item 5): the UI texts first (the third-party app's name dropped where it named a variant of
   an algorithm: «Многомасштабный», «Средние цветовых блоков», «Кривая ACES»…; «Тон Why», «Резкость Why»), then the whole tree
-  (rename_ark.py: tokenised rules Ark -> Why, ARK -> WHY, the word ark -> why; protected: research/, CHANGELOG history, the P55
-  vectors, kHybMergeMain1 (byte-identical), paths into research/, the tools' historical `git show a3e94db:...ark/...`): 172 files,
-  36 moved (shaders/ark -> shaders/why, Ark* / LiveArk* classes and tests, check_ark_* tools). Stored keys: BrandMigration gets
-  a WHY stage (the key segment «ark», kept reversed, -> «why» after the P55 words: preferences, profiles, backups, shade tiles
+  (rename_why.py: tokenised rules Why -> Why, WHY -> WHY, the word why -> why; protected: research/, CHANGELOG history, the P55
+  vectors, kHybMergeMain1 (byte-identical), paths into research/, the tools' historical `git show a3e94db:...why/...`): 172 files,
+  36 moved (shaders/why -> shaders/why, Why* / LiveArk* classes and tests, check_why_* tools). Stored keys: BrandMigration gets
+  a WHY stage (the key segment «why», kept reversed, -> «why» after the P55 words: preferences, profiles, backups, shade tiles
   in one pass; dark / mark untouched); scam_dev.txt lines and lab records of old names are read under the new ones
   (BrandMigration.why / whyMap: the tone word only, never the P55 vendor words - vivo_sdk_fullres stays). Proof:
   check_colour_output's baseline is a3e94db through the same rules: the token stream and the GL render equal bit for bit;
   WhyRenameMigrationTest (every *_why_* key of preferences.xml from its old name, profiles, tiles, a second pass changes
-  nothing); BrandMigrationTest's frozen vectors through the WHY stage. Left with «ark»: PLAN / HANDOFF / research history,
-  CHANGELOG history, tools/check_ark_tone.py (not ours).
+  nothing); BrandMigrationTest's frozen vectors through the WHY stage. Left with «why»: PLAN / HANDOFF / research history,
+  CHANGELOG history, tools/check_why_tone.py (not ours).
 
 ### P320 - settings for ordinary users: plain titles and one-line summaries, no setting lost (owner, 2026-10-23: «Упростить экран настроек и тексты параметров так, чтобы их понимал обычный пользователь… не потеряв ни одной функции»; keys, defaults and ranges unchanged; then «Когда закончишь залей на гит, затем обнови описание нашей камеры на гитхаб»): DONE in code, not device-tested.
 - Audit (scratchpad settings319/audit*.py, table in Downloads/x200u/settings_audit_p320.md): all 373 rows of preferences.xml with
@@ -7193,16 +7228,16 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 
 ### P330-P334 - less smear (branch claude/stitching-noise-reduction-uktsf9, another session, owner 2026-10-25: «исправь чтобы не было мыла»; build 31123): dn_model_read 6 -> 2 and denoise_lsc_max 4 -> 2 (P330, one-time move of the stored defaults), N frames below 0.75 x the median sharpness left out (P331), the Sabre 6.1 structure tensor from the green sites at full resolution (s61Fine 2, P332), the WHY fusion as a Laplacian pyramid (why_ef_coarse 48, P333), alignment-refused donors to F6 from the identity (P334); the 6.1 kernel stays «Всегда». Not device-tested.
 
-### P335 - Ark 1.92 studied, its ideas improved and added: soft rejection motion prior, noise-aware false-colour damping, grain, daylight colour denoise (owner, 2026-10-25: «не уверен что ядро 6.1 у нас работает, детализация хуже чем у Арк камеры», «днём слишком сильный хрома шумодав, да и люма тоже», D:/scam_burst-20261025-124513.bin + D:/LUT.zip (crops, logs, ArkCam JPEG), «по поводу зерна шумодава же, у нас должно быть что-то между арк и нашим», arkcamv192.apk, «посмотри как работают у Арк реджекты и подумай как их можно улучшить у нас, так же проверь как у него работают антизиппер и попробуй его улучшить и добавить нам», «вместо того чтобы в точности переносить что-либо с Арк, сначала постарайся это улучшить», «когда полностью всё закончишь заливай на гит»): DONE in code, not device-tested (the phone was disconnected).
-- Ark 1.92 (com.arkcam, libopenhdr_engine.so, no libgcastartup any more): its own GLSL Sabre. The kernel's SNR is Google's key
+### P335 - Why 1.92 studied, its ideas improved and added: soft rejection motion prior, noise-aware false-colour damping, grain, daylight colour denoise (owner, 2026-10-25: «не уверен что ядро 6.1 у нас работает, детализация хуже чем у Why камеры», «днём слишком сильный хрома шумодав, да и люма тоже», D:/scam_burst-20261025-124513.bin + D:/LUT.zip (crops, logs, WhyCam JPEG), «по поводу зерна шумодава же, у нас должно быть что-то между Why и нашим», arkcamv192.apk, «посмотри как работают у Why реджекты и подумай как их можно улучшить у нас, так же проверь как у него работают антизиппер и попробуй его улучшить и добавить нам», «вместо того чтобы в точности переносить что-либо с Why, сначала постарайся это улучшить», «когда полностью всё закончишь заливай на гит»): DONE in code, not device-tested (the phone was disconnected).
+- Why 1.92 (com.whycam, libopenhdr_engine.so, no libgcastartup any more): its own GLSL Sabre. The kernel's SNR is Google's key
   0.18 / sqrt(O + 0.18 S) of the base frame and its curves are ours (f2 {1,4,14,30} -> {0.01,0.002,0.001,0.001}, f3 {1,3,12,30} ->
   {0.02,0.015,0.009,0.006}, cov_* defaults = the key-30 values 8.8 / 1.0 / 0.001 / 4.0 / 1.33 / 166.7): the 6.1 kernel is the same.
   Defaults: multiscale denoise off, Sabre denoise factor 0.4 with luma revert 0.85 (motion 0.5), grain 0.15 only where < 5 frames
   merged, no sharpening (USM / bilateral radius 0), 15 frames, no long frames. Rejection = Google's with a binary motion prior
   (flow variation / affine residual: half the noise forgiven, boost); anti-zipper = on the motion fallback a 3x3 directional green +
   chroma damping by the Gr / Gb step, and a 5x5 chroma-difference filter on the highlight mask.
-- The owner's ISO 12800 pair: our fine / mid luma noise 0.65 / 0.59 x Ark's, chroma 0.6 x: 23 merged frames (3 long at A = 4)
-  against Ark's 15, not a stronger luma denoise (the tiers revert 0.9 / 0.88 there).
+- The owner's ISO 12800 pair: our fine / mid luma noise 0.65 / 0.59 x Why's, chroma 0.6 x: 23 merged frames (3 long at A = 4)
+  against Why's 15, not a stronger luma denoise (the tiers revert 0.9 / 0.88 there).
 - Worker: rejPrior 1 (the Z channel bilinear between the tiles, the prior smoothstep 0.5..1.5 x motionThreshold, half the noise
   forgiven inside it, the boost by the share), baseDemosaicAlias 1 (Bayer base demosaic: colour difference damped by the Gr / Gb
   step of the 5x5 core above 2 sigma of the phase means, less along a clear edge). Both off by worker default (replays unchanged),
@@ -7217,7 +7252,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   research/replay-bursts there). Round 4 (final vs 31123): synthetic day colour error static -4 %, moving -2 %, border -6.5 %; night
   moving luma -0.4 %, colour -1.4 %; real crops (124513 night, 193420, 101423 day) unchanged where static. check_luma_grain.py (CI).
 - Tests: CI list 1701/1701, UI language, settings model, shader fp16, WHY pyramid PASS.
-- Open: Ark's crisper night edges in the owner's pair are not reproduced on the host (no vendor CRE there: the global alignment
+- Open: Why's crisper night edges in the owner's pair are not reproduced on the host (no vendor CRE there: the global alignment
   differs); a phone replay of 124513 with the CRE would tell whether alignment / ghosting is the difference.
 
 ### P336 - PC backlight artifacts and the processing time (owner, 2026-10-25: «Перепроверь как наша последняя обработка работает с подсветкой пк и исправь все косяки», Desktop.zip SCA_20261025_115901 / 115923 + SCAMERA-debug-20261019-151900.txt (31117 = c7f39aa5): «на подсветке сверху артефакты, а на одном из вентиляторов сетка», «недавно у нас увеличилось время обработки, займись исправлением», «проверь и исправь работу пирамиды лапласа, возможно она перенесена не совсем корректно»): DONE in code, not device-tested.
@@ -7245,10 +7280,10 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - Open: the owner's burst of the backlight scene (keep-burst) to replay the blotch fix; the pyramid's red rim at the LED bar edge
   (a Mertens dark band next to the light) is still there in the host render.
 
-### P337 - night detail next to ArkCam, the telephoto mesh, the pink sun, lateral CA without the 2 px cut (owner, 2026-10-25: D:/Games/SCAMERA.zip (ArkCam pair ISO 12800, crops, log of 31148) + scam_burst-20261025-170530.bin «у нас заметно хуже мелкая деталь»; SCAMERA2.zip + scam_burst-20261025-171106 / 171123.bin «фото с телевика где мелкая деталь хуже и контровой снимок где у нас фиолетовый артефакт на солнце и отражение на воде слилось в кашу»; «коррекция ха у нас ограничена 2мя пикселями, убери ограничение»; «когда закончишь залей на гит»): DONE in code, replayed on the OPPO (PHY110, the worker with the owner's tuning, CRE off), not shot on a phone.
+### P337 - night detail next to WhyCam, the telephoto mesh, the pink sun, lateral CA without the 2 px cut (owner, 2026-10-25: D:/Games/SCAMERA.zip (WhyCam pair ISO 12800, crops, log of 31148) + scam_burst-20261025-170530.bin «у нас заметно хуже мелкая деталь»; SCAMERA2.zip + scam_burst-20261025-171106 / 171123.bin «фото с телевика где мелкая деталь хуже и контровой снимок где у нас фиолетовый артефакт на солнце и отражение на воде слилось в кашу»; «коррекция ха у нас ограничена 2мя пикселями, убери ограничение»; «когда закончишь залей на гит»): DONE in code, replayed on the OPPO (PHY110, the worker with the owner's tuning, CRE off), not shot on a phone.
 - Replay route: the owner's full bursts pushed to the OPPO, the NDK-built worker run with each shot's hybrid_tuning from the log
   (session scratchpad p337/rp.sh), merged RGB pulled and measured (detail = high band of sqrt luma minus the flat-wall noise).
-- Night (key 5.05): our merge already lost the detail ArkCam keeps (the JPEG: ArkCam +12..24 % detail, +19 % noise). ArkCam's
+- Night (key 5.05): our merge already lost the detail WhyCam keeps (the JPEG: WhyCam +12..24 % detail, +19 % noise). WhyCam's
   kernel is ours (libopenhdr_engine: f0 0.33 at that key, f1 by the key table 6/12/30 -> 5/4/3, f2 / f3 the same; the Java
   cov_* are the key-30 values). The structure threshold (f2 / f3 x0.1..0.5), the tensor noise, rejection and the base widening
   changed nothing; the kernel width did: x0.8 = detail +11..16 %, text in the darks +31..48 %, flat noise +18 %. Worker
@@ -7274,7 +7309,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   around it (merged G at the base's clipped green sites: median 0.69, p10 0.31), and the glitter's texture variance let dark
   donors pass. Worker rimLift (kHybRim: a saturated G at least the mean of all its samples, the clipped ones at their values;
   kHybMergeMain1 untouched) -> median 0.99, p10 0.91; clipReject (kHybReject: a normal donor whose green is darker than a
-  clipped base cell by > 3 sigma is rejected, the physical form of GCam / ArkCam's force-reject) -> p10 0.94. The app sends
+  clipped base cell by > 3 sigma is rejected, the physical form of GCam / WhyCam's force-reject) -> p10 0.94. The app sends
   both (scam_dev hybrid_rim_lift / hybrid_clip_reject 0 = before); the night and telephoto bursts change in 0.002 % / 0 % of
   the pixels (run-to-run GPU noise alone touches 56 % below 0.016).
 - Tests: CI list, check_ui_language, check_settings_model, highlight checks (neutral / recovery / landing / one channel off /
@@ -7290,8 +7325,8 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   the app's rejPrior / clipReject / rimLift / s61NightScale 0.8). The split mosaic merge keeps the last sub-merge's maps only.
 - Open: the root worker's stages.bin read by the app on the phone (SELinux; the file is chmod 0644, like scam-diag-*.pfm).
 
-### P339 - processing speed towards ArkCam (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне ArkCam»): DONE in part, replayed on the OPPO, not shot on a phone.
-- ArkCam saves its JPEG 1-3 s after the shot (file times in the owner's zips against the EXIF capture time); ours 8-11 s in the log
+### P339 - processing speed towards WhyCam (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне WhyCam»): DONE in part, replayed on the OPPO, not shot on a phone.
+- WhyCam saves its JPEG 1-3 s after the shot (file times in the owner's zips against the EXIF capture time); ours 8-11 s in the log
   of 31148, of which 3.3-3.8 s was the keep-burst write in front of the merge («mapped» 3343-3784 ms).
 - Worker: the keep-burst copy runs on a thread of its own under the merge (joined before the mapping goes; the app waits for the
   worker's exit, so the file is whole before the lab reads it).
@@ -7303,15 +7338,15 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   1.8 s (kHybMergeMain1, untouched); the plain chroma median 0.3 s; the post 0.7 s on the phone. Open: the viewfinder's RAW
   development keeps the GPU busy at 60-80 fps during the merge (worker at low GPU priority).
 
-### P340 - the owner's three pairs against LMC 9.6, ArkCam and the stock camera (owner, 2026-10-25: D:/оо/scam_burst-20261025-175757 / 180552 / 184023.bin + скинуть.zip (ARK_* LMC 9.6, ArkCam_*, IMG_* stock, SCA_* ours: 1x backlit sunset, 3.7x sunset, ultrawide ISO ~2900 night), «сделай так чтобы у нас был лучший результат среди всех пар», «я разрешаю тебе искать, добавлять и делать всё что нужно»): DONE in code, replayed (OPPO worker with the owner's tuning + host post chain p340/vivo_host.py), not shot on a phone.
+### P340 - the owner's three pairs against LMC 9.6, WhyCam and the stock camera (owner, 2026-10-25: D:/оо/scam_burst-20261025-175757 / 180552 / 184023.bin + скинуть.zip (WHY_* LMC 9.6, WhyCam_*, IMG_* stock, SCA_* ours: 1x backlit sunset, 3.7x sunset, ultrawide ISO ~2900 night), «сделай так чтобы у нас был лучший результат среди всех пар», «я разрешаю тебе искать, добавлять и делать всё что нужно»): DONE in code, replayed (OPPO worker with the owner's tuning + host post chain p340/vivo_host.py), not shot on a phone.
 - The sun: the WHY fusion's darkest synthetic exposure came from the frame statistics (2^(-1.5 effH)) only, 0.48 / 1.0 on the
   sunsets, so the Bento-recovered glow (2-8 x white) went white with the disc and the clipped core drew a ring.
   WhyFusion.headroomExposure caps it at 1 / (ae x hr) when the headroom is above the clip. Host: white/red disc with an orange
-  glow (like ArkCam / LMC), full-frame p1 / p50 0.072 / 0.410 against LMC 0.078 / 0.404.
+  glow (like WhyCam / LMC), full-frame p1 / p50 0.072 / 0.410 against LMC 0.078 / 0.404.
 - Fine detail: the full-size merge's detail delta was ~0.6 x LMC on water and deck. WhyCombine.detailBoost(finishSnr): x1 to
   SNR 20, log to x1.7 at SNR 150+ (sunsets 1.7, the ISO 2900 night 1.22). Host: 1x sunset fine band 0.0072 -> 0.0101 (LMC
-  0.0106-0.016), 3.7x sea mid band +18 % (ours above ArkCam, LMC's fine band 2 x ours is mostly its grain/sharpening).
-- Not changed: the 3.7x sky is bluer than the others (the telephoto ISP WB is colder); the night is ArkCam's brightness, LMC
+  0.0106-0.016), 3.7x sea mid band +18 % (ours above WhyCam, LMC's fine band 2 x ours is mostly its grain/sharpening).
+- Not changed: the 3.7x sky is bluer than the others (the telephoto ISP WB is colder); the night is WhyCam's brightness, LMC
   brighter. Tests: WhyPairsTest (CI list); check_why_* / check_highlight_* PASS; the CI unit list passes.
 
 ### P341 - the 17:57 sunset after P340: the lilac rim, the lost rung, the sky colour (owner, 2026-10-26: before / after against 31148, the stock camera and GCam; «кайму тоже убери», «я вижу что у нас пропадает ступенька возле солнца», «нам нужно получить цвет у неба как у стока, при этом чтобы небо не темнило», «сделай чтобы было лучше чем в стоке», «в новой версии у нас теперь артефакт оранжевый, переход должен быть плавный»): DONE in code (218b12d5), host replay of the owner's three bursts, not shot on a phone.
@@ -7323,11 +7358,11 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   than the glow kept 9 % of its detail.
 - Sky: P310's saturated-light ramp 0.35..0.7 switched weights within ~100 px of a sunset sky's warmth slope: an orange wedge with
   an edge; now 0.15..0.95. vibHlU (key vibrance_hl 1.0): light tones x (1 + 1.6 v) for pale chroma, none from OKLab chroma 0.10,
-  L kept. Host: 1x sky Lab C 8 / 22 -> 20 / 34 (stock 25 / 42, lower L), 3.7x glow 34 -> 43 (LMC / ArkCam 33-38).
+  L kept. Host: 1x sky Lab C 8 / 22 -> 20 / 34 (stock 25 / 42, lower L), 3.7x glow 34 -> 43 (LMC / WhyCam 33-38).
 - Open: thin light rims along the window frame next to the sun (from the darker em0, P340), seen on the host only.
 - Tests: WhyPairsTest (2 x ceiling), DevKeysCoverage; check_why_* / check_highlight_* PASS (check_why_pyramid uses the new ramp).
 
-### P342 - the rejection map (owner, 2026-10-26: lab screenshots of our «Реджект» map next to ArkCam's «после · отсечение», «вот так выглядит реджект у нас и у Арк камеры», «займись картой реджектов»): DONE in code, replayed on the OPPO (worker with the owner's tuning, CRE off), not shot on a phone; not pushed («на гит не лей»).
+### P342 - the rejection map (owner, 2026-10-26: lab screenshots of our «Реджект» map next to WhyCam's «после · отсечение», «вот так выглядит реджект у нас и у Why камеры», «займись картой реджектов»): DONE in code, replayed on the OPPO (worker with the owner's tuning, CRE off), not shot on a phone; not pushed («на гит не лей»).
 - Cause: kHybReject tested one cell (the donor's bilinear sample against the base cell): a single noise draw. With the noise
   model exact (simulation) the mean weight is 0.94 and 13 % of the cells fall under 0.85; DilateMask sums 25 cells of those tails
   into a rejection of the area. Owner's 18:40 night burst: static sky 0.78 of each frame (raw 0.92, 20 % of the cells < 0.85),
@@ -7391,7 +7426,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   imageLibraryFragment as its start destination; the camera thumbnail and VIEW / REVIEW intents keep the viewer start. Back from a
   photo -> the library; back from the library finishes (its callback: navigateUp false -> finish).
 
-### P348 - WHY fusion: two dark synthetic exposures and one bright; the warm glow out of P310 (owner, 2026-10-26: «по поводу синтетических экспозиций, сделай две тёмных и одну светлую»; «на примере с лесницей у нас очень жёсткий переход оранжевого, сделай ближе к Арк камере»): DONE in code, host replay only.
+### P348 - WHY fusion: two dark synthetic exposures and one bright; the warm glow out of P310 (owner, 2026-10-26: «по поводу синтетических экспозиций, сделай две тёмных и одну светлую»; «на примере с лесницей у нас очень жёсткий переход оранжевого, сделай ближе к Why камере»): DONE in code, host replay only.
 - WhyAe.exposures: (em0, 1, sqrt(em0), min(2^(1.5 effS), 8)) instead of (em0, 1, 2^effS, 2^2effS); em0 = 2^(-1.5 effH), WhyFusion caps it
   by the Bento headroom first (the second dark follows the capped one). Layer weights 0.8 / 1 / 0.4 / 1.0 (WhyTone.layerWeights;
   new keys pref_scam_hybrid_why_weight_dark2 / _bright replace weight_ext_hl / weight_shadow, whose stored defaults 0.7 / 0.5 meant the
@@ -7401,12 +7436,12 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   hybrid_why_sat_light_warm_lo / _hi). The owner's 17:57 sunset glow is as saturated as an LED (0.85 - 0.9) and its share fell
   0.95 -> 0 within ~15 whyLow px (the level gate): a dark orange ring round a white disc. Its hue 0.30 - 0.58. Weaker share / wider
   level gates tried: rings or bleached LED bars (check_why_pyramid). Not checked: orange LEDs (they now take the pyramid like the sun).
-- Host replay (p340 vivo_host, s1 / s2 / s3): the ladder glow soft and bright like ArkCam, s2's V wedge gone, s3 (night, sodium deck
+- Host replay (p340 vivo_host, s1 / s2 / s3): the ladder glow soft and bright like WhyCam, s2's V wedge gone, s3 (night, sodium deck
   lights) unchanged. A faint 2 px rim (-4 levels) at the clipped disc's edge shows on the now near-white glow (it was there before).
 - Checks: FusedCurveTest host values recomputed (independent numpy, envelope included), WhyAeTest new set, check_why_pyramid with the
   new BENTO set + an orange-glow case (fails without warmU), glslc lpyr / gf every MODE. Not device-tested.
 
-### P349 - the sun a flat disc, dark contours along edges against the glow (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Арк камерой»; «грани у нас выглядят гораздо хуже чем у Арк камеры», «хорошо видно справа от солнца», «ступеньки у Арк тоже выглядят отлично»; «перепроверь лестницу»): DONE in code, host replay only.
+### P349 - the sun a flat disc, dark contours along edges against the glow (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Why камерой»; «грани у нас выглядят гораздо хуже чем у Why камеры», «хорошо видно справа от солнца», «ступеньки у Why тоже выглядят отлично»; «перепроверь лестницу»): DONE in code, host replay only.
 - The disc: the merge holds it as a flat plateau at the data ceiling (8.0, clip flags 55: R, G, B clipped in the ultrashort too)
   inside a 2 - 3 x white glow; the tone kept the glow below white, so the plateau stood out with a hard edge, plus a -4 level
   ring from hr_detail at the clipped edge. A higher em0 ceiling (4 / 8 / none) or a lower tone ceiling (hr 8 / 5) did not
@@ -7425,10 +7460,10 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   check_shader_fp16, unit tests. Not device-tested; the bloom needs the clip flags (hybrid with highlight recovery).
 
 #### P349 round 2 (owner, 2026-10-26: «я ещё вижу этот артефакт» - the window frame right of the sun; «на ступеньке обводка ещё больше стала»; «я вижу все ещё гало на ступеньке»)
-- Measured against ArkCam (NCC-aligned rows): a rung in front of the window is 3 x brighter than over the wall in the merge itself
-  (veiling glare; ArkCam 171 / 109, ours 161 / 114) - physics, kept. What differed: (1) the window frame: a 1 px trench 2 - 3 px into
+- Measured against WhyCam (NCC-aligned rows): a rung in front of the window is 3 x brighter than over the wall in the merge itself
+  (veiling glare; WhyCam 171 / 109, ours 161 / 114) - physics, kept. What differed: (1) the window frame: a 1 px trench 2 - 3 px into
   the wall - a 5 % dip in the merge (its ring at a hard edge), deepened by the luma sharpening; (2) the rung's lower edge 26 levels
-  lighter than ArkCam (the base smeared, a zero floor on the darkening kept it there); (3) a Mertens band in the glow above / below
+  lighter than WhyCam (the base smeared, a zero floor on the darkening kept it there); (3) a Mertens band in the glow above / below
   each rung (the warm glow goes through the pyramid since P348).
 - Now: beside light above white (brightMax, Y x ae >= 0.7 in the footprint) the P311 rim rule in a bright mode (rimDeltaBy: share
   0.7 .. 1.1 x white): a one-sided rim's darkening goes down to the far side's level (sharp edge) and, on a 1 px trench of the merge
@@ -7437,12 +7472,12 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   the fusion of light above white from the guided filter (why/lpyr guidedMixU 0.8 .. 1.6 x white of the guide; WhyFusion.guided;
   dev keys hybrid_why_fusion_guided_lo / _hi): no Mertens band round dark objects in a glow, mid-tones and shadows keep the pyramid.
   The earlier -0.035 floor is gone. fullInputU: off above 100 MP (the full-size image is given back there).
-- Host rows vs ArkCam: rung lower edge 148 / 161 (ArkCam 158 / 152, main 128 / 144, the sent build 154 / 171); the window frame
-  row 1494 182 181 181 178 (ArkCam 188 182 176 173, main 174 167 151 176); rows 1524 / 1540 keep a 7 - 10 level ripple (main 28 - 64).
+- Host rows vs WhyCam: rung lower edge 148 / 161 (WhyCam 158 / 152, main 128 / 144, the sent build 154 / 171); the window frame
+  row 1494 182 181 181 178 (WhyCam 188 182 176 173, main 174 167 151 176); rows 1524 / 1540 keep a 7 - 10 level ripple (main 28 - 64).
 - Tried and dropped: a larger pyramid coarse level (96 - 384: brighter bands), the full guided filter, the far side's base for
   dark rim pixels (bilinear far taps: a step 4 px into the wall), the unsharpened delta for every rim pixel (new dips at the edge).
 
-### P344 - rejection maps as clean as ArkCam's, motion still cut (owner, 2026-10-26: «Постарайся максимально насколько можешь улучшить реджект карты»; «Для режима "движения" сделай упор на максимальный захват движения»): DONE (harness + OPPO replays), not shot in the app.
+### P344 - rejection maps as clean as WhyCam's, motion still cut (owner, 2026-10-26: «Постарайся максимально насколько можешь улучшить реджект карты»; «Для режима "движения" сделай упор на максимальный захват движения»): DONE (harness + OPPO replays), not shot in the app.
 - Worker keys (scam-hybrid.h, all off by default; every shader change behind REJ_OPTS, compiled only when a key is on - the
   edited text alone changed Adreno's rounding): rejPool 2 / 3 (each 3 x 3 cell over its own tolerance; 3: the donor texture
   around its own bilinear sample), rejVarExact (the exact bilinear noise factor), rejMatchBlur (the base blurred as the donor's
@@ -7459,7 +7494,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   12 -> 4 %, night water ghosts 16.6 -> 11 %; known trade-off: moving thin wires caught 0.69 -> 0.57 (rejPool 1 also cut static
   wires), water_day ghost 2.5 -> 3.0 %. Real bursts (7): static flat 0.85 - 0.96 -> 0.94 - 0.99; sea / hand still black; isz2 window
   mesh with parallax and a door-bolt specular get more frames (review, small).
-- Lab: raw / robust per donor min-pooled over the block (a point sample hid a rejected wire); 'cutoff' («Отсечение», ArkCam's
+- Lab: raw / robust per donor min-pooled over the block (a point sample hid a rejected wire); 'cutoff' («Отсечение», WhyCam's
   view) = min over the NORMAL donors of their block-MEAN robust / A (review: min of minima over 19 - 27 donors drew static scenes as
   speckle, and the long frames' by-design clip zeros drew a static window black); 'accepted' back to the mean weight.
 - Checks: keys off bit-identical (b175757 d7b04597..., b184023 2cd8d9cf...), glslc 16 reject / dilate variants (8 without REJ_OPTS ==
@@ -7562,9 +7597,9 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - Checks: glslc 200 programs (148 non-P350 variants == HEAD), check_hybrid_stages / still / series / us_rows on the OPPO,
   HybridSettingsTest. Not phone-shot; risk: mv2131 registration may lock on moving content (shifts 2 - 2.7 px).
 
-### P353 - processing as fast as the reference app (owner, 2026-10-27: «Узнай почему у арк гораздо быстрее обработка чем у нас и
+### P353 - processing as fast as the reference app (owner, 2026-10-27: «Узнай почему у Why гораздо быстрее обработка чем у нас и
   ускорь нашу до его уровня»; log, config and APK 2.01 on the Desktop): part 1 DONE (md5-identical), the rest open.
-- Reference app 2.01 (decompiled in the session scratchpad ark201): an in-process ring of packed RAW10 frames, a GPU homography per
+- Reference app 2.01 (decompiled in the session scratchpad why201): an in-process ring of packed RAW10 frames, a GPU homography per
   frame interleaved with its merge, the whole post on the same GL context and only RGBA8 read back. Its own log on the OPPO X7U
   (the owner installed it there): 32 frames aligned + merged in 1742 ms (~54 ms a frame), post 323 ms, JPEG 158 ms, press -> file
   2.7 s; on the X200 Ultra 2.0 - 2.8 s for 30 frames. Normal and ultrashort frames only (no long ones).
@@ -7624,7 +7659,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   weights 0.8 / 0.4 and the P349 guided fusion in lights are the first suspects for the band; the US blend cell mode 2 / scale 2 (P350),
   the P344 rejection set and the P349 combine edge rules for the steps).
 - Data: the X8U LED burst of the same PC (Desktop/т/p7/scam_burst-20261020-193420.bin, P310) is on the OPPO as
-  /data/local/tmp/led1934.bin. Chandelier (owner, 2026-10-27): Desktop/scam_burst-20261026-232432.bin + the ArkCam pair in
+  /data/local/tmp/led1934.bin. Chandelier (owner, 2026-10-27): Desktop/scam_burst-20261026-232432.bin + the WhyCam pair in
   Desktop/lamp.zip. Replay the LED burst
   through the worker + the host post chain (scratchpad p340 vivo_host route), bisect P344 / P348 / P349 / P350 by their switches.
 - DONE (glow): host replay (session scratchpad p354: r5.py on the WHY chain of p340 / p348, the burst through worker 353p2) found
@@ -7638,13 +7673,13 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   same on the phone JPEG), the led1934 (2026-10-20) ring edges are clean in the linear merge and through the post chain with and
   without sharpening / the clip band. Owner asked for scam_burst exports of those two scenes on the current build.
 
-### P355 - the lab, handier and practical like ArkCam's (owner, 2026-10-27: «Сделай лабораторию более удобной и практичной, посмотри как
-  сделано в арк камере и сделай у нас схожим образом»): DONE (UI not phone-tried).
-- Study ArkCam 2.01's lab / adjustment screens (Desktop/arkcamv201.apk, decompiled in the session scratchpad ark201; its config keys in
+### P355 - the lab, handier and practical like WhyCam's (owner, 2026-10-27: «Сделай лабораторию более удобной и практичной, посмотри как
+  сделано в Why камере и сделай у нас схожим образом»): DONE (UI not phone-tried).
+- Study WhyCam 2.01's lab / adjustment screens (Desktop/arkcamv201.apk, decompiled in the session scratchpad why201; its config keys in
   Desktop/init_33.xml: pref_adj_last_category_key, pref_quick_params_list, pref_lab_capture_dump_enabled, per-lens keys) and our
   ScamLabFragment (P277, see memory scam-lab); list what makes theirs quicker (categories, quick parameter list, per-lens values,
   live re-render), then bring ours close to it without dropping our A/B replay.
-- Study (2.01 decompiled with jadx in the session scratchpad ark201/jadx: LabActivity, LabSettingsActivity, AdjustmentsBottomSheet,
+- Study (2.01 decompiled with jadx in the session scratchpad why201/jadx: LabActivity, LabSettingsActivity, AdjustmentsBottomSheet,
   LabManager): sessions from a LAB capture switch, one session screen with a zoomable picture, hold-to-compare, split view,
   debug layers; an adjustments sheet with categories, a «Quick» tab of starred params (pref_quick_params_list), the last
   category kept (pref_adj_last_category_key), a per-session sandbox of every changed value (fast pass 80 ms / full pass 350 ms,
@@ -7786,7 +7821,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   and under the list when a shot could not be read; a template shot it cannot read is skipped.
 - Tests: ScamLabSeriesTest (grant path mapping), lab tests green.
 
-### P364 - processing as fast as the reference app, without losing quality (owner, 2026-10-27: «закончи с ускорением обработки ... цель максимально приблизиться к Арк камере по скорости обработки ... у нас меньше кадров ... должны быть даже быстрее»; «не потеряв в качестве»; «попробуй ускорить сделав своё выравнивание как второй вариант, но главное чтобы оно не уступало по качеству»; no push, decide alone; then «когда всё закончишь заливай на гит»): DONE (round closed, pushed).
+### P364 - processing as fast as the reference app, without losing quality (owner, 2026-10-27: «закончи с ускорением обработки ... цель максимально приблизиться к Why камере по скорости обработки ... у нас меньше кадров ... должны быть даже быстрее»; «не потеряв в качестве»; «попробуй ускорить сделав своё выравнивание как второй вариант, но главное чтобы оно не уступало по качеству»; no push, decide alone; then «когда всё закончишь заливай на гит»): DONE (round closed, pushed).
 - Replays had the GL program cache off (rp.sh never made its directory: cache 0/0, 1.9 s compiling); the app hits 13/13. Fixed in
   the session's rp.sh; all numbers below are with the cache. OPPO lamp2324, app tuning + P358 set, 26 frames: worker 4.35 s.
 - Critical path (SCAM_LOG_MS): ultrashort row / tile tests 77 -> 422 ms (tile test ~0.3 s a frame, its grid field), CRE 422 -> 671,
@@ -7844,7 +7879,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   blend 0.23, dilate 0.15, guide / chroma 0.14); post 0.65 s (denoise 0.25-0.3, WHY stats + early sharpen 0.14, ScamRgb 0.13-0.18,
   combine 0.08, fusion 0.06). The reference app: ~2.7 s. The gap is the per-pixel merge on 26 frames and the CPU front end; closing
   it without a quality change needs the merge kernel itself (P364 rule: untouched) or a GPU registration / Shasta.
-- Status: parts 1-8 pushed with P362 / P363 (5538ae90); the round went on (owner, 2026-10-27: «пойми почему у Арк гораздо быстрее
+- Status: parts 1-8 pushed with P362 / P363 (5538ae90); the round went on (owner, 2026-10-27: «пойми почему у Why гораздо быстрее
   чем у нас ... сделай так чтобы у нас была скорость такая же, либо быстрее», «для всех делай на ГПУ»).
 - Why the reference app is faster (its 2.01 shaders and strings): everything on the GPU in one process - a homography per frame
   from 24 x 24 corners, single-level KLT and RANSAC on compute shaders, a per-frame accumulating merge in fragment shaders on
@@ -7873,7 +7908,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   2.77 / 2.83 s - our RAW viewfinder already costs a parallel merge less than the reference one (P365 makes its stream and per-frame
   work like it anyway).
 
-### P365 - the RAW viewfinder with the reference app's requirements (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): DONE (OPPO X7U measured)
+### P365 - the RAW viewfinder with the reference app's requirements (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): DONE (OPPO X7U measured)
 - Measured first (OPPO, the same replay with the camera closed / our viewfinder / the reference app's open): 2.51 / 2.77 / 2.83 s -
   our RAW viewfinder already cost a parallel merge less. Sessions: the reference app runs 4096x3072 RAW10 with an 8-image reader
   (16 HAL buffers), a 1440x1080 ISP stream, noise reduction and edge OFF in the repeating request; ours RAW_SENSOR, 20 images
@@ -7993,7 +8028,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - Host: full :app:testDebugUnitTest on the merged branch 2016 tests / 345 classes, 0 failures. Phone: split screen and
   pause / resume under a translucent activity, a zoomed FULLRES shot against its viewfinder, ETTR on the plain session.
 
-### P376 - the vivo X200 Pro's GPU merge (Mali compiler crash on kHybCells) and white blown cores on the base frame alone (owner, 2026-10-28: a pink ceiling lamp next to ArkCam's white one, «Вот такой артефакт на последней версии, нам нужно исправить»; log + SCAMERA-debug + diagnostics zip, build e8100faa): DONE in code (host), not tried on a phone
+### P376 - the vivo X200 Pro's GPU merge (Mali compiler crash on kHybCells) and white blown cores on the base frame alone (owner, 2026-10-28: a pink ceiling lamp next to WhyCam's white one, «Вот такой артефакт на последней версии, нам нужно исправить»; log + SCAMERA-debug + diagnostics zip, build e8100faa): DONE in code (host), not tried on a phone
 - Cause: «WORKER CRASH: signal 11 SIGSEGV ... stage=GPU compile cells: glCompileShader» - the Mali-G925 (Dimensity 9400) driver's
   compiler (cmpbe_v2_compile_multiple_shaders, null dereference) died on kHybCells (P364's own-quad fill: an array argument the
   function changes, an out bool, nested index ternaries; 57 -> 105 lines in c0b75a60), in the prewarm and in every job; stepOf put
@@ -8384,7 +8419,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   the merge's sharpness); the viewfinder's brightness with the boost (ISP: display gain; RAW: its own meter); the photo's noise with
   ETTR on / off in the same scene.
 
-### P378 - the sky's tone like the reference app's (owner, 2026-10-28: «Добавь в план, исправить тонмапинг чтобы у нас небо было схожее с фото с Арк камеры. при этом чтобы в остальных сценариях ничего не сломалось»; zip 44dcd82c-xx.zip): DONE in code (host), not tried on a phone
+### P378 - the sky's tone like the reference app's (owner, 2026-10-28: «Добавь в план, исправить тонмапинг чтобы у нас небо было схожее с фото с Why камеры. при этом чтобы в остальных сценариях ничего не сломалось»; zip 44dcd82c-xx.zip): DONE in code (host), not tried on a phone
 - The zip holds two of our photos only (SCA_20261028_113851 / _114230, OPPO Find X8 Ultra, ISO 100, 1/3100 and 1/3900 s, 8.67 mm,
   an overcast autumn sky over a block of flats; the second with the ES / L stamp «ES ✗ align», «L ✓3»). Then (same day): the
   reference app's photo beside ours of the same view, a sun shot of ours, SCAMERA-debug_2.txt (build f118c571, OPPO PKJ110 = Find X8
@@ -8591,9 +8626,9 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - To do: every step source in plain auto (the RAW tone's meter cadence and easing, whether a RAW frame is drawn against its own
   exposure when the HAL's AE moves, the own AEs, the ISP viewfinder of the other phones); smooth per drawn frame without slowing
   the AE's settling or changing the photo.
-- The owner's screen recording (17:08, ArkCam then SCAMERA, ETTR off) measured per frame: ours a step every 4th frame (-0.139,
-  -0.122, -0.115, -0.118, -0.089, -0.052 EV) and nothing between, ArkCam 0.02 - 0.09 EV every frame (lag-1 autocorrelation of |Δ|:
-  ours 0.07, ArkCam 0.78).
+- The owner's screen recording (17:08, WhyCam then SCAMERA, ETTR off) measured per frame: ours a step every 4th frame (-0.139,
+  -0.122, -0.115, -0.118, -0.089, -0.052 EV) and nothing between, WhyCam 0.02 - 0.09 EV every frame (lag-1 autocorrelation of |Δ|:
+  ours 0.07, WhyCam 0.78).
 - DONE: (1) ToneEase - the shown ae, film ae, exposures, curve and AgX / clip values move every drawn frame, by time (a critically
   damped pair of lags, TAU 0.12 s each, exact in dt, dt capped at 0.1 s: 6 % of a gap in the first frame at 30 a second, at most
   ~10 % a frame, 90 % after ~0.47 s; the old law 35 % at once every 4th frame). (2) FrameExposure - each RAW frame drawn against its
@@ -8764,11 +8799,11 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   («скрытая: телефон не показывает её в списке, но открывает») and a physical one («физическая у 0»); the typed check uses the
   same list. Test: CameraIdCheckTest.theSheetOffersEveryCameraThePhoneOpens.
 
-### P391 - the WHY pyramid: no halos at edges, continuous depth, shadow lift and fine-band gain bounded by noise (owner, 2026-10-28: «Веса с учётом краёв на каждом уровне ... Глубина пирамиды ... Подъём теней по шуму ... Детали ... делаем»; «Мы будем использовать пирамиду Лапласа, у Арк в последних версиях она как раз и используется, также у него синтетические экспозиции распределены так же как у нас»): DONE in code (host), not tried on a phone
+### P391 - the WHY pyramid: no halos at edges, continuous depth, shadow lift and fine-band gain bounded by noise (owner, 2026-10-28: «Веса с учётом краёв на каждом уровне ... Глубина пирамиды ... Подъём теней по шуму ... Детали ... делаем»; «Мы будем использовать пирамиду Лапласа, у Why в последних версиях она как раз и используется, также у него синтетические экспозиции распределены так же как у нас»): DONE in code (host), not tried on a phone
 - Measured first (scratch hdr_understand/report_B.md): the literal item 1 (a guided filter on each level's weight map, 30+
   configs) does NOT remove frame / horizon halos (0.033-0.046 against 0.033): their height is made at the finest level by the
   edge's own band, the coarse levels only widen it. Depth sets the width (15 / 29 / 58 / 116 / 232 rows for 3-7 levels), not the
-  height. Nothing about ArkCam's pyramid levels is on record; the pyramid and our synthetic exposures stay.
+  height. Nothing about WhyCam's pyramid levels is on record; the pyramid and our synthetic exposures stay.
 - DONE (item 1, edge-aware bands, lpyr EDGE_BANDS, MODEs 7-10): per level, where the guide's log light differs from its Gaussian 3
   levels down (a step of S EV reads ~S/2; ramp 1.2-1.8 EV, the level's noise taken out in quadrature at 2 sigma), the band is the
   per-pixel fusion's instead of the pyramid's excess; the share spreads up to 3 px (fall 0.25), a coarser level never takes less
@@ -8825,10 +8860,10 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   away), the check at the F6 position, usGainScope. One G/B-clipped LED pixel of burst 1 (1032,1630) stays dark: every short frame
   shows the strip absent there.
 
-### P393 (A) - our pale walls and ceilings yellower than the reference app's (owner, 2026-10-29: «У нас что-то с желтыми цветом, прикрепил примеры против Арк камеры. В последней паре более жёлтое фото наше»; three pairs ours / ArkCam v206 on the X200 Ultra, messenger copies, no RAW; part A: the indoor cast, part B: the pale bright yellow leaves): the vibrance DONE in code (host), not tried on a phone; the white point and the exposure diagnosed, not changed
+### P393 (A) - our pale walls and ceilings yellower than the reference app's (owner, 2026-10-29: «У нас что-то с желтыми цветом, прикрепил примеры против Why камеры. В последней паре более жёлтое фото наше»; three pairs ours / WhyCam v206 on the X200 Ultra, messenger copies, no RAW; part A: the indoor cast, part B: the pale bright yellow leaves): the vibrance DONE in code (host), not tried on a phone; the white point and the exposure diagnosed, not changed
 - Pair 3 (bedroom, daylight / room light, «the more yellow one is ours»; our photo is a gallery screenshot carrying a Display P3
   profile and is read as P3 - P393's first measurement read it as sRGB, 1 - 2 b* too low): the walls left / right (near-white) /
-  upper b* 11.2 / 7.5 / 16.0 against ArkCam's 6.2 / 3.6 / 10.2, the frame median (L* > 40) 9.9 against 5.75. Cause: P341's light-tone vibrance (why/combine.glsl vibHlU) ramped in over OKLab L 0.45 .. 0.75 with its
+  upper b* 11.2 / 7.5 / 16.0 against WhyCam's 6.2 / 3.6 / 10.2, the frame median (L* > 40) 9.9 against 5.75. Cause: P341's light-tone vibrance (why/combine.glsl vibHlU) ramped in over OKLab L 0.45 .. 0.75 with its
   neutral gate open from chroma 0.002 .. 0.008, while the tone itself gives a pale colour x1.5 of the scene's chroma in the
   mid-tones and the AgX shoulder takes it only from L ~0.6 (host ramp through the shader, chroma 0.01 - 0.03: x1.0 / 0.80 / 0.55 /
   0.39 at L 0.60 / 0.65 / 0.75 / 0.90): pale mid-light colour went to x1.9 - 2.0 of the scene, a near-white's cast x2.1 - 2.6
@@ -8845,7 +8880,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   the right wall 12.3 -> 6.9 (the app's own JPEG 12.0), the left ceiling -4.6 -> -2.4, palm / forearm unchanged; OPPO dump near-neutrals
   (C* 5 - 10) a* -4.6 -> -2.2 (L* 65 - 80), -1.5 -> -0.8 (L* 80 - 90), the yellow / orange leaves and facades at C* 20 - 80 x0.98 -
   1.00 of P341 at every L*; the owner's JPEGs re-rendered through the shader (a display LUT, P341's -> the new shape): pair 3 walls
-  b* 11.2 / 7.5 / 16.0 -> 6.6 / 3.2 / 11.0 (ArkCam 6.2 / 3.6 / 10.2), frame median 9.9 -> 5.9 (ArkCam 5.75); pair 2 (trees)
+  b* 11.2 / 7.5 / 16.0 -> 6.6 / 3.2 / 11.0 (WhyCam 6.2 / 3.6 / 10.2), frame median 9.9 -> 5.9 (WhyCam 5.75); pair 2 (trees)
   yellows (h_ab 60 - 100) per pixel x1.000 of P341 at every L* band; pair 1 near-neutral light blocks a* -5.3 -> -3.1, the top
   quarter b* 21.8 -> 21.4 (its yellow is the white point's, below). Guard: tools/check_vibrance_hl.py (CI); check_why_sky's C1
   chroma ratios against the photo as P378 measured it (P341's shape: cloud x0.48, gaps x0.87 as before) and, new, against the
@@ -8854,7 +8889,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - P393 review (A) (fixed): (1) the first version's pale class reached to chroma 0.04 .. 0.07 (blend smoothstep(0.04, 0.07)): a skin
   tone or a yellow at L* 55 - 76 and chroma 0.03 - 0.05 took x0.74 - 0.88 of P341's chroma (skin hue 55 / chroma 0.04: C* 28.7 ->
   22.1; the birch dump's yellows at C* 20 - 30 x0.77; pair 2's yellows at L* 55 - 75 x0.94, 42 - 45 % of them losing > 10 %), the
-  wrong way for the owner's trees pair where ours is already paler than ArkCam's (C* 45.6 vs 53.6 at L* 55 - 65); its pale gate
+  wrong way for the owner's trees pair where ours is already paler than WhyCam's (C* 45.6 vs 53.6 at L* 55 - 65); its pale gate
   (chroma 0.02 - 0.035) locked that in. Now the blend is 0.020 .. 0.035: the walls stay where the first version put them (V2405A
   walls identical), the birch yellows x0.98 - 1.00 of P341, pair 2 x1.000; the pale gate covers chroma 0.012 - 0.020, new gates:
   every colour from chroma 0.035 up as P341 within rounding, warm hues 30 - 100 at chroma 0.035 - 0.06 >= 95 %, skin >= 97 %.
@@ -8868,15 +8903,15 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   operator. The «bit for bit» off-switch is a host claim (software GL); a phone GPU within rounding. LiveWhyTone's lines moved so
   the merge with part B is clean there (git merge-tree: PLAN.md only). check_vibrance_hl's bench compiled one program per
   «source text given», not per text: two variant texts in one render shared the first one's program (fixed).
-- Pair 1 (ship's mess, ceiling lights, camera 4): ours yellow-green mostly by the WHITE POINT, not the tone: ArkCam's
+- Pair 1 (ship's mess, ceiling lights, camera 4): ours yellow-green mostly by the WHITE POINT, not the tone: WhyCam's
   near-neutral blocks (the ceiling, distance < 0.006 from D65 in u'v') ours at u'v' (-0.0024, +0.0235) against (+0.0013, +0.0014);
   the same +0.020 .. +0.026 v' at every chroma level and over the frame (centre +0.025, edges +0.020, thirds +0.019 .. +0.022): a
   global green-yellow tint (~Duv +0.015). Our chain on the ISP route carries the HAL's neutral unchanged (Parameters ReCalcColor:
   SENSOR_NEUTRAL_COLOR_POINT, diag(1/n), the result's transform rows normalised; X200U daylight log: gains = 1/neutral, rows sum
   1; LSC centre 1.01 all channels; nothing at the defaults moves a neutral - ColourLook keep warm / tint 0). So the HAL's neutral of
-  our shot (the oldest N ring frame) left the light's green, or ArkCam's session / own AWB removed it. Not changed (no log, no
+  our shot (the oldest N ring frame) left the light's green, or WhyCam's session / own AWB removed it. Not changed (no log, no
   RAW). Decides it: one fluorescent shot - our log («colour: ISP_CST ... neutral ... AWB label», «result colorCorrection
-  transform ... gains») and ArkCam's DNG of the same scene (AsShotNeutral).
+  transform ... gains») and WhyCam's DNG of the same scene (AsShotNeutral).
 - Pair 1 is also 0.84 EV darker (median Y of matched flat blocks x0.56): WhyAe's highlight overflow (p995 x ae > 2: ae towards
   2 / p995 with blend 0.33); with Bento data the histogram stops at the clip 4, so ceiling lamps over 0.5 % of the frame pin
   p995 at 4 and pull the room down (V2405A burst: deficit 2.37, ae 3.62 -> 1.53, -1.24 EV). The rule is the reference kernel's,
@@ -8892,10 +8927,10 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   reference app's own AWB. Needed: log-2026-10-29.txt (both 'colour: ISP_CST ... neutral' lines, the camera-4 open time), or the
   mess with a sheet of paper on cameras 3 and 4 after 3 s of preview plus the reference app's DNG.
 
-### P393 B - sunlit yellow leaves pale peach-white beside ArkCam's saturated yellow (owner, 2026-10-29: «У нас что-то с желтыми цветом, прикрепил примеры против Арк камеры. В последней паре более жёлтое фото наше»; pair 2 = autumn birches in a low sun; the OPPO X8U burst 15:41:26 of the same birches with its diagnostics zip): DONE in code (host), not tried on a phone
-- Pair 2 (messenger copies, relative only): the leftmost birch's leaves ArkCam C* 42 / 57 / 63 / 63 at L* 30-50 / 50-65 / 65-80 /
-  80+, hue 73 - 84; ours 35 / 50 / 43 / 33, hue 67 - 75, 17 k pixels above L* 80 against ArkCam's 1.3 k; the whole frame's
-  orange-yellow hues ArkCam C* 54 / 59 / 56 at L* 50-65 / 65-80 / 80-90, ours 46 / 42 / 32 (yellow-greens, greens, blues: ours as
+### P393 B - sunlit yellow leaves pale peach-white beside WhyCam's saturated yellow (owner, 2026-10-29: «У нас что-то с желтыми цветом, прикрепил примеры против Why камеры. В последней паре более жёлтое фото наше»; pair 2 = autumn birches in a low sun; the OPPO X8U burst 15:41:26 of the same birches with its diagnostics zip): DONE in code (host), not tried on a phone
+- Pair 2 (messenger copies, relative only): the leftmost birch's leaves WhyCam C* 42 / 57 / 63 / 63 at L* 30-50 / 50-65 / 65-80 /
+  80+, hue 73 - 84; ours 35 / 50 / 43 / 33, hue 67 - 75, 17 k pixels above L* 80 against WhyCam's 1.3 k; the whole frame's
+  orange-yellow hues WhyCam C* 54 / 59 / 56 at L* 50-65 / 65-80 / 80-90, ours 46 / 42 / 32 (yellow-greens, greens, blues: ours as
   saturated or more).
 - Cause (the 15:41:26 burst: stage dumps; a host merge of the burst with the shot's tuning reproduces the phone - Bento applied, the
   same clip-flag counts, ScamRgb within 0.5 % of 03-ScamRgb; the WHY passes on the host at the logged AE match 03-WhyCombine within
@@ -8908,7 +8943,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   84): R 253 G 218 B 185, peach-white. Not it on this shot: the clip guard, «Inpaint opposed» (no clipped pixel), hl_white and
   hl_soft (0 change when off), the sky term (no sky), sun bloom. Shares (host, off one at a time): macro contrast 1.1 -5 C* at the
   top, the light-tone vibrance (P341, part A's) +5 .. +10 C* on these leaves (their OKLab chroma 0.09 - 0.12 is under its 0.10 cut).
-  Part of the gap is lightness, not chroma: our sunlit leaves land at L* 85 - 90, ArkCam's at <= 84 (the tone's level - not changed).
+  Part of the gap is lightness, not chroma: our sunlit leaves land at L* 85 - 90, WhyCam's at <= 84 (the tone's level - not changed).
 - (3) The same leaves clipped WITHOUT ultrashort content (single frame, «Движение», a refused Bento - foliage in wind): RT's opposed
   reference takes a clipped channel from the other two with ONE additive chrominance for the frame; on textured leaves (dark gaps in
   every 3 x 3) it comes out -0.12 .. -0.99 for G, so G stays at its clip while R rises: hue 69 -> 58 -> 25 -> 12 deg (orange, salmon,
@@ -8936,7 +8971,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   neutral, lavender bit for bit; a green leaf at L* 84 - 93 45 / 39 / 34 -> 60 / 60 / 58; red / violet LEDs +3 .. +5 C* at L* 61 - 74.
 - Checks: tools/check_light_chroma.py and tools/check_opposed_foliage.py (CI); every colour host check and the CI unit list green
   (check_colour_output --files strict needs pillow-heif: environment).
-- Open: the lightness of sunlit leaves (L* 85 - 90 vs ArkCam's <= 84) and ArkCam's generally more saturated orange-yellows (C* 42 vs
+- Open: the lightness of sunlit leaves (L* 85 - 90 vs WhyCam's <= 84) and WhyCam's generally more saturated orange-yellows (C* 42 vs
   26 at L* 30 - 50) - the tone's level and the colour look, not this item; bright greens get more saturated in the light tones (a lime
   lawn); sunsets: the glow under the AgX white turns more saturated and yellower in its light tones (synthetic: C* +4 .. +16, hue +9 ..
   +14 deg at L* 68 - 83; no sunset burst here); the owner's three shots have no RAW; nothing tried on a phone.
@@ -8985,12 +9020,12 @@ Owner, same day: «сделай гпу выравнивание и дай воз
     interior / green / blue bit for bit or within 3 dE76 at the edges; the leaf's hue at L* 84 kept, at L* 88 yellow - the former
     "hue >= 76 at L* 84" was the light-tone turn the review removed), check_opposed_foliage (+ leaves on a blue sky, the gradient
     beside five other surfaces, smooth and textured); 7695068f's shaders fail 46 / 17 of them.
-  - Open: the hue of the leaves at L* 75 - 85 stays near the scene's (75 - 77 at +1 EV; ArkCam 78 - 84, 7695068f 82) - the gamut
-    holds their raised chroma there, so the turn does not act; the lightness of sunlit leaves and ArkCam's more saturated mid-tones as
+  - Open: the hue of the leaves at L* 75 - 85 stays near the scene's (75 - 77 at +1 EV; WhyCam 78 - 84, 7695068f 82) - the gamut
+    holds their raised chroma there, so the turn does not act; the lightness of sunlit leaves and WhyCam's more saturated mid-tones as
     above.
   - After merging P393 A: re-run check_light_chroma (hlGainK is read from the vibHl block A reshapes).
 
-### P394 - teeth and dots along edges against a clipped light (owner, 2026-10-29, vivo X200 Ultra hand-held: a ship's window frame, a crane, a window rim against a white sky beside ArkCam; «зубчатые артефакты», «у нас такое уже было и мы это исправляли»): DONE (host), not tried on a phone
+### P394 - teeth and dots along edges against a clipped light (owner, 2026-10-29, vivo X200 Ultra hand-held: a ship's window frame, a crane, a window rim against a white sky beside WhyCam; «зубчатые артефакты», «у нас такое уже было и мы это исправляли»): DONE (host), not tried on a phone
 - The owner's A/B on the phone (scam_dev.txt): the P391 bands, the P392 partial refusal and long scope, P393's opposed local, bento_blend,
   rim_lift, clip_reject, shasta, us_set at 0 - none removed it. log-2026-10-29: plain Bayer (Sabre 6.1), 14 - 19 % of the cells
   clipped in N, the burst hand-held (donors moved 0.3 - 17 px).
@@ -9006,7 +9041,7 @@ Owner, same day: «сделай гпу выравнивание и дай воз
   0.44 %, the window burst 0 -> 0, the LED burst unchanged. Worker unchanged (replays bit for bit).
 - Tried and dropped: holding the ultrashort colour to N at the blend (bentoEdgeGuard: no effect on the teeth, stepped the lamp's rim,
   2 x 2 blocks at a moving finger), the cellClipMin threshold.
-- Open: ArkCam's softer edges and weaker green lateral CA line (our RAW CA correction R -0.25 / B +0.39 px on these shots); the
+- Open: WhyCam's softer edges and weaker green lateral CA line (our RAW CA correction R -0.25 / B +0.39 px on these shots); the
   native Quad path keeps the same switch (the app's line reaches it too) - not measured on a Quad burst.
 - Round 2 (owner: «нам нужно сделать грань максимально гладкой без зубчиков»): with the cell clip off the lamp's rim kept a thin dark
   outline and pixel steps along its slanted lower edge - the sharpening (WhyLumaSharpen + the detail delta), not the merge (no
@@ -9019,36 +9054,36 @@ Owner, same day: «сделай гпу выравнивание и дай воз
 - CI fix: the edge hold sat in the P3_OUT 0 token stream check_colour_output compares (and in P311's rim pattern) - now under its
   own define EDGE_HOLD (WhyCombine sets it with the full-size merge), applied to the sharpened luma where it is read (yS).
 
-### P395 - saturated yellow orange-ochre beside ArkCam's (owner, 2026-10-29, vivo X200 Ultra: the «Лента» facade, the burst scam_burst-20261029-102753 with its .json and preview; the pair SCAMERA / ArkCam of the same scene): DONE (host), not tried on a phone
+### P395 - saturated yellow orange-ochre beside WhyCam's (owner, 2026-10-29, vivo X200 Ultra: the «Лента» facade, the burst scam_burst-20261029-102753 with its .json and preview; the pair SCAMERA / WhyCam of the same scene): DONE (host), not tried on a phone
 - The host chain (the burst merged with the app's tuning, the shot's DNG_FM colour: sensorToProPhoto then proPhotoToSRGB, its
   neutral, WHY) matches the phone's preview: the facade L* 56 C* 59 h 81 (phone 61 / 61 / 81). Scene hue after the camera matrix
-  CIELAB 82 (OKLab 82), the tone keeps it (hue lock on / off: 81); ArkCam 87 (OKLab ~90), the brand's yellow 87.5. The birches of
-  P393 B: ours 67 - 75, ArkCam 78 - 84 - the same matrix bias on saturated orange-yellows.
+  CIELAB 82 (OKLab 82), the tone keeps it (hue lock on / off: 81); WhyCam 87 (OKLab ~90), the brand's yellow 87.5. The birches of
+  P393 B: ours 67 - 75, WhyCam 78 - 84 - the same matrix bias on saturated orange-yellows.
 - DONE: why/combine YELLOW_HUE (yellowHueU, WhyTone.yellowHue 1, scam_dev hybrid_why_yellow_hue; the photo and the RAW viewfinder):
   the scene's OKLab hue 64 .. 100 deg (full 74 .. 88), C / L from 0.10 (full 0.14), turned up to 8 deg towards yellow before the hue
   lock. Host: the facade 81 -> 87 deg (L* and C* kept), dry grass 69 -> 71, 4.5 % of the frame's pixels change > 2 codes.
   tools/check_yellow_hue.py (CI): the facade colour +5.8 .. +6.8 deg up to the light tones (towards yellow, not past 94, where
   LIGHT_CHROMA turns it already), skin (ColorChecker, Fitzpatrick III - V), a deep orange, a sunset glow, pale colours, greens and
   blues bit for bit, hue and saturation sweeps without a step.
-- Not changed: ArkCam's darker exposure of the pair (the owner: «Арк камера в этой паре сильно темнит, нам такое не нужно»).
+- Not changed: WhyCam's darker exposure of the pair (the owner: «Why камера в этой паре сильно темнит, нам такое не нужно»).
 
 
-### P396 - the bedroom wallpaper's golden pattern yellow in the light tones beside ArkCam (owner, 2026-10-29: SCA_20261029_100119, «проблема с жёлтым», the upper wall circled; the same shot at saturation -40, «не решение»; ArkCam's; JPEG screenshots, no RAW): DONE (host), not tried on a phone
-- Measured on the JPEGs (OKLab, pattern = the top 1/8 by chroma, wall = the lower half): the lower wall as ArkCam's (wall C / L
+### P396 - the bedroom wallpaper's golden pattern yellow in the light tones beside WhyCam (owner, 2026-10-29: SCA_20261029_100119, «проблема с жёлтым», the upper wall circled; the same shot at saturation -40, «не решение»; WhyCam's; JPEG screenshots, no RAW): DONE (host), not tried on a phone
+- Measured on the JPEGs (OKLab, pattern = the top 1/8 by chroma, wall = the lower half): the lower wall as WhyCam's (wall C / L
   0.003 / 0.002, pattern 0.021 / 0.020); the upper wall by the window warmer in both (wall 0.018 / 0.021), but our pattern
-  0.044 against ArkCam's 0.035 (x1.27; absolute chroma x1.57, ours at L 0.80 where ArkCam is at 0.67).
+  0.044 against WhyCam's 0.035 (x1.27; absolute chroma x1.57, ours at L 0.80 where WhyCam is at 0.67).
 - Cause: the light-tone vibrance (vibHlU) on the pale class: the pattern lies at chroma ~0.02 at OKLab L 0.65 - 0.70, where
   P393's ramp 0.50 .. 0.85 raised it x1.6 over the tone (host bench, tools/check_vibrance_hl.Bench, hue 83: display C / L 0.040
   against 0.025 without the vibrance). LIGHT_CHROMA (LC_SAT) and YELLOW_HUE (C / L 0.10) do not reach it.
 - DONE: WhyTone.VIBRANCE_HL_SHAPE / the shader's unset default 0.57 .. 0.89 (gate 0.010 .. 0.025 as before): the pattern x0.82
-  (display C / L ~0.033 - 0.036, ArkCam 0.035), a near-white's cast and every colour from chroma 0.035 up (skin, leaves, facades)
+  (display C / L ~0.033 - 0.036, WhyCam 0.035), a near-white's cast and every colour from chroma 0.035 up (skin, leaves, facades)
   as P341, the sky as P378. 0.60 .. 0.95 cut more but the chroma slope went x1.18 of P341's (check_vibrance_hl's limit x1.10:
   chroma noise on white walls); 0.57 .. 0.89: x4.62 (P341 x4.26, P393 x4.66), the boundary at 0.035 1.67e-6 from P341.
   Host checks: vibrance_hl, colour_output, light_chroma, yellow_hue, why_sky, vf_fused, viewfinder_look, colour_look, tone_ops,
   why_highlights, why_headroom, highlight_landing, shader_fp16 PASS.
 
 ### P397 - the sunlit wall beside «Лента» flat cream-white («засвет») (owner, 2026-10-29: «исправь также засвет на этом бурсте»,
-the circled building of scam_burst-20261029-102753; «Арк камера в этой паре сильно темнит, нам такое не нужно»): DONE (host), not tried on a phone
+the circled building of scam_burst-20261029-102753; «Why камера в этой паре сильно темнит, нам такое не нужно»): DONE (host), not tried on a phone
 - The phone's photo: the wall R 254 G 239 B 223 (87 % of it R >= 250), the yellow complex round it 189 / 137 / 17.
 - The raw frames (quad Bayer, 4 x 4 period: B at (0, 0), G at (0, 2) / (2, 0), R at (2, 2)): normal frame B 0.31, G clipped, R 0.94;
   ultrashort (x8.04 with the measured gain) B 0.29, G 1.25, R 0.90 - the merge holds it (0.96, 1.32, 0.31): after the white
@@ -9131,7 +9166,7 @@ dump 14:14:07 and the full JPEG pair): DONE (host), not tried on a phone
 
 ### P401 - a daylit window as build 31091 drew it (owner, 2026-10-29: «изучи что было на версии 31091 и проверь как будет на всех наших
 бурстах», then «делай. При этом у нас остаётся пирамида Лапласа»): DONE (host), not tried on a phone; replaces P400's constant
-- Build 31091 (ArkFusion / ArkAe, 2026-10-18/19): guided-filter fusion, exposures (2^-1.5 effH, 1, 2^effS <= 8, 2^2effS <= 16),
+- Build 31091 (WhyFusion / WhyAe, 2026-10-18/19): guided-filter fusion, exposures (2^-1.5 effH, 1, 2^effS <= 8, 2^2effS <= 16),
   layer weights (0.8, 1, 0.7, 0.5), centre 0.6, no envelope. Since: P291 (31106, centre 0.75 / highlight layer 0.4 / envelope),
   P333 / P391 (pyramid, edge bands), P340 / P341 (the darkest exposure capped at 2 / (ae hr)), the layout (em0, 1, sqrt em0,
   2^1.5effS) with (0.8, 1, 0.1, 1).
@@ -9149,13 +9184,13 @@ dump 14:14:07 and the full JPEG pair): DONE (host), not tried on a phone
 
 ### P402 - the reference app v2.07's settings that ours lacked (owner, 2026-10-29: «Перенеси то чего нам не хватает для того чтобы
 применить конфиг который я кинул», «dezipper нам также перенеси», «те параметры которые ты перенёс должны быть не в дев настройках»,
-«добавлять поддержку конфигов Арк нам не нужна»): DONE (host), not tried on a phone; every default as before
+«добавлять поддержку конфигов Why нам не нужна»): DONE (host), not tried on a phone; every default as before
 - «Раскладка слоёв экспозиции» (why_fusion_layout 1 «Классическая (v2.07)»): exposures (2^-2.5 effH, 1, 2^-1.2 effH,
   min(2^1.8 effS, 16)) (WhyFusion.exposures207, the viewfinder's curve too), its own weights classic_weight_ext_hl / _hl / _mid /
   _shadow (0.7 / 0.8 / 1 / 0.5) and centre classic_weight_center 0.5 (separate rows: the menu's stored defaults would hide the
   layout's own), no P291 / P310 headroom weights, no P340 cap, no P401 window term; with it the v2.07 Smart-HDR strengths
   (WhyAe.Settings.v207: effS without nf, effH = min(hl_str, 0.833 soft(log2(peak / 0.85 bt)) hl_boost (1 + 0.35 ..) (0.2 + 0.8
-  area))) and why/combine ARK_BASE (target_lin's knee at 0.7 of the top, the gain held in 0.05 .. 12 with ae fading to 1 over the
+  area))) and why/combine WHY_BASE (target_lin's knee at 0.7 of the top, the gain held in 0.05 .. 12 with ae fading to 1 over the
   lights).
 - why/combine hrEaseU («Сила удержания цвета в светах», hr_strength 1), AGX_INSET («Плёночное выгорание светов», agx_inset 100:
   lerp(I, inset) and its inverse as the outset, from libopenhdr_engine 0x13c068), WhyAe hl_blend («Баланс защиты светов» 0.33),
@@ -9173,7 +9208,7 @@ dump 14:14:07 and the full JPEG pair): DONE (host), not tried on a phone
   lights -0.08 .. -0.30 EV. Without the v2.07 AE (our effH) the classic layout came out 1.4 - 1.6 EV darker.
 - Checks: tools/check_why_v207.py, check_ms_denoise.py, check_hybrid_dezipper.py; WhyV207PortTest.
 
-### P403 - SHDR's pages in the reference app's grouping (owner, 2026-10-29: «Изучи расположение/группировку настроек Арк камеры и
+### P403 - SHDR's pages in the reference app's grouping (owner, 2026-10-29: «Изучи расположение/группировку настроек Why камеры и
 сделай у нас схоже с учётом отличия наших параметров»): DONE
 - SHDR: «Экспозиция (AE)» (metering / highlight protection / shadows and contrast / limits), «Глобальный тонмап» (the curves page
   from the tone page: AgX + inset, ACES, Uchimura, the own curve, gamma and deep black), «Локальный тонмап» (DR compression,
@@ -9190,7 +9225,7 @@ dump 14:14:07 and the full JPEG pair): DONE (host), not tried on a phone
 - Pyramid denoise: the merge's frame map (ScamHybridBurst.lastEffectiveFrames, frames = code x median / 64) at the input's size ->
   msdn MOTION 1: the detail thresholds x (1 + 0.30 k) luma / (1 + 0.50 k) colour x smoothstep of (1 - (n - 1) / 5) - pyr_laplace_
   filter_msdenoise's boost, k = «Усиление в зонах движения» (1). No map (a single frame, legacy, another size): no boost.
-- Colour: ARK_VIB in combine's scene OKLab with our vibrance (saturated / mid-tone / shadow terms, held off skin by the reference's
+- Colour: WHY_VIB in combine's scene OKLab with our vibrance (saturated / mid-tone / shadow terms, held off skin by the reference's
   own skin mask x «Сила защиты кожи», hue centre 41.2 deg, lower L 0.16, the skin saturation shift); its strength / sky / green /
   light terms are ours, its skin hue shift is «Оттенок кожи». cct_gain R/G/B: a diagonal on the matrix after cct_sat (photo and
   viewfinder through withCctSat). «Сочность в светах» stays ours.
@@ -9219,7 +9254,7 @@ dump 14:14:07 and the full JPEG pair): DONE (host), not tried on a phone
 - With the classic layout the room-window term (P401) and P291 / P310 do not run (as before in that layout).
 
 ### P406 - the whole settings menu in the reference app's grouping, two-line summaries (owner, 2026-10-29: «Перегрупируй полностью всё меню
-настроек максимально схоже с Арк», «описание у всех параметров должно быть не больше двух строк»): DONE
+настроек максимально схоже с Why», «описание у всех параметров должно быть не больше двух строк»): DONE
 - Root: Модули камеры и линзы / Сохранение и форматы фото / Основные настройки (with Видоискатель, Съёмка, Оформление) / Настройки
   изображения (style, the six sliders, the ten processing pages, profiles) / Лаборатория / Логи / О приложении.
 - SHDR pages regrouped further: «Цвет» (vibrance, skin, CCM, adaptation), the merge's categories, the denoise and HDR pages.
@@ -9237,7 +9272,7 @@ wallpaper, speakers, board): DONE
 - check_vibrance_hl: the TONE_OP 1 gates restated for the reference's term (cast not raised, nothing below L 0.55, x1.25 band).
 
 ### P408 - colour matrix and Quad / Tetra white balance as in the reference app (owner, 2026-10-29: «Перенеси логику работы с CCM из
-арк, особенно для Quad/Tetra», «логику работы баланса белого с Quad и Tetra перенеси так же с ARK»): DONE
+Why, особенно для Quad/Tetra», «логику работы баланса белого с Quad и Tetra перенеси так же с WHY»): DONE
 - CcmPresets: the reference's CameraCcmRegistry (94 LMC matrices, ids 4 .. 97, read from its dex). Parameters.ReCalcColor under the
   DCP profile: «Профиль матрицы цвета» (id > 0), else «Своя матрица цвета 3×3» (nine numbers), rows to 1, WB-only sensorToProPhoto;
   routes CCM_PRESET / CCM_OVERRIDE.
@@ -9245,7 +9280,7 @@ wallpaper, speakers, board): DONE
   on white matrix x CCM before cct_sat / gains (WhyTone.colourMatrixOf). Off by default as there; we apply it with any matrix
   (the reference only with a registry profile).
 - All rows are module-local, so every FULLRES (Quad / Tetra 50 / 200 MP) profile holds its own, as the reference's fullResProfile.
-- WB (CameraManager$3.onCaptureCompleted, lastWbGains at the press): MosaicNeutralResolver.ROUTE_ARK, the default of «Баланс белого
+- WB (CameraManager$3.onCaptureCompleted, lastWbGains at the press): MosaicNeutralResolver.ROUTE_WHY, the default of «Баланс белого
   Quad / Tetra» - the live stream's newest result of the last second (its gains, from its neutral point when they are the identity),
   no AWB-state / curve gate; without one the shot's HAL neutral. Not where the ISP runs no 3A (P366's ispIdle): the teacher / P121.
   «Своя оценка SCAMERA» keeps P121 / P212g / P366.
@@ -9272,7 +9307,7 @@ wallpaper, speakers, board): DONE
   stream). HybridPlan.bracketCountFor: 1 under 10 %, 2 from 10 %, 3 from 30 % or with P409's deep shadows; at most 2 while the
   HAL reports motion; «Кадры теней: число» is the maximum; unknown share or «Число длинных кадров по сцене» off: the set count.
 
-### P411 - «Мерцание ламп» as in the reference app (owner, 2026-10-30, screenshot of the sheet: «возьми его работу из Арк камеры, у
+### P411 - «Мерцание ламп» as in the reference app (owner, 2026-10-30, screenshot of the sheet: «возьми его работу из Why камеры, у
 нас он работает неверно»): DONE in code (host), not tried on a phone
 - The reference (CameraManager.applyAntibandingToBuilder / updateAntibanding): pref_antibanding_mode -> CONTROL_AE_ANTIBANDING_MODE
   on the preview and every capture request, the repeating request rebuilt on a change; no flicker detection of its own.
@@ -9289,7 +9324,7 @@ wallpaper, speakers, board): DONE
   its top closes the sheet; the chosen option opens in view.
 
 ### P413 - lens settings as in the reference app (owner, 2026-10-30, two videos of its «Настройка линз и зума»: «Сделай настройки
-линз аналогично Арк, убедись что настройки нигде не дублируются в других местах»): DONE in code (host), not tried on a phone
+линз аналогично Why, убедись что настройки нигде не дублируются в других местах»): DONE in code (host), not tried on a phone
 - The reference: one page per lens (sensor, RAW format, black/white levels, colour matrix and dynamic CCT, noise model, ...).
 - Ours: «Настройки линзы» on each module card (and per FULLRES variant) opens modulePage(profile, ModuleRows.LENS): lens_screen
   (hidden elsewhere) with the module's sensor, RAW, levels, colour (method, DCP, matrix profile/override, dynamic CCT, Quad/Tetra
@@ -9297,7 +9332,7 @@ wallpaper, speakers, board): DONE
   colour_expert_category, expert_module_ids, noise_model_screen) are removed: each row exists once. «Камеры и линзы» holds the
   module pages only (ModulePageFilter.NOT_MODULE: a module's photo page hides it, the settings order does not move rows into it).
   Search opens the lens page of the row's slot (or the active module).
-- (owner, 2026-10-30: «учитывай что у нас могут быть настройки которых в Арк нет, если они подходят по смыслу, то мы их тоже
+- (owner, 2026-10-30: «учитывай что у нас могут быть настройки которых в Why нет, если они подходят по смыслу, то мы их тоже
   переносим») LensPage puts the module's generated sensor rows in the reference app's sections: the ISP stream, the RAW frame rate,
   its check and the RAW viewfinder size under «Формат RAW»; the manual black / white levels under «Уровни»; OIS and the session
   type under «Управление ISP и оптикой»; the camera keys, the sensor mode and the reset stay in «Ключи камеры (вендор-теги)». The
@@ -9373,13 +9408,13 @@ emulation), not tried on a phone
   kernel untouched. Replay: the band 6 px -> 2 - 4 px (luma 2.5 x -> 1.2 - 1.45 x beyond 2 px), 16+ px in bit for bit (40+ px:
   float rounding); the vivo hand burst unchanged. Check: tools/check_hybrid_stages.cpp (cells 2 - 3 from the edge 0.49 -> 0.98).
 
-### P419 - the vibrance as in the reference app (owner, 2026-10-30: «Исправь настройку вайбранса, можешь взять её из Арк камеры.
+### P419 - the vibrance as in the reference app (owner, 2026-10-30: «Исправь настройку вайбранса, можешь взять её из Why камеры.
 Так же остальные настройки цвета проверь и исправь»): DONE in code (host GL check), not tried on a phone
 - Ours was four stacked forms: the overall / sky / green gain tapered by (1 - 2 chroma) (a colour at chroma 0.1 kept 0.8 of
-  «Сочность»), P404's saturated / mid / shadow terms behind ARK_VIB with a skin protection of their own, P341 / P407's light tones
+  «Сочность»), P404's saturated / mid / shadow terms behind WHY_VIB with a skin protection of their own, P341 / P407's light tones
   behind a hidden factor and «Цвет»'s shadow / light vibrance with a second skin protection (0 by default: the sky and green gains
   reached faces). The visible «Сочность бледных светов» was a different term from the light tones' vibrance the photo used.
-- why/combine ARK_VIBRANCE 1 (WhyCombine and the viewfinder): the reference's tonemap_final 4.1 - 4.3 in one gain in scene OKLab,
+- why/combine WHY_VIBRANCE 1 (WhyCombine and the viewfinder): the reference's tonemap_final 4.1 - 4.3 in one gain in scene OKLab,
   x max(0, 1 + boost x (1 - 0.70 skin x protection)); boost = mix(pastel, saturated, smoothstep(0.02, 0.09, C)) + sky (-b / C) +
   green (-a / C) + light tones (TONE_OP 1; L 0.60 .. 0.80 to 0.88 .. 0.98, P393's cast gate) + mid-tones + shadows; the skin's mask
   (hue sigma 0.28 rad) and saturation shift. Ours kept: the sky term in the sky mask on a clearly blue colour only (P378 C1). AgX
@@ -9387,10 +9422,10 @@ emulation), not tried on a phone
 - Rows: «Сочность», «Сочность насыщенных», неба, зелени, «Сочность в светах» (why_vibrance_hl_str, the reference's 0..1.5, 0.25),
   средних тонов, теней, «Защита кожи в сочности» (1 by default, also the look's protection of positive gains). Removed:
   colour_vib_shadows / colour_vib_highlights / colour_skin_protect; SettingsMigration adds a set value to the shadows / light rows
-  once (VIBRANCE_REV). scam_dev "ark_vibrance 0" = the forms before, token for token.
+  once (VIBRANCE_REV). scam_dev "why_vibrance 0" = the forms before, token for token.
 - Colour rows checked: CCM gains, cct_sat, calibration, warmth / tint / keep warm / cool, skin hue / evenness are wired as shown;
   «Насыщенность матрицы» acts under AgX only (its summary says so).
-- Check: tools/check_ark_vibrance.py (every strength 0 bit for bit no vibrance under SKY 0 / 1, TONE_OP 0 / 1; each term on its
+- Check: tools/check_why_vibrance.py (every strength 0 bit for bit no vibrance under SKY 0 / 1, TONE_OP 0 / 1; each term on its
   colours; the skin's share of the gain 0.30 with protection 1, 1.0 with 0; the light tones not on a near-white's cast).
 
 ### P420 - the denoise settings audit (owner, 2026-10-30: «Перепроверь наши параметры шумодава, удали лишние которые у нас не
@@ -9461,7 +9496,7 @@ emulation), not tried on a phone
 ### P424 - window rim stair-step investigation (owner, 2026-10-30): IN PROGRESS, no confirmed production fix
 - 2026-11-01 transfer requested by owner after unsuccessful controls: read `WINDOW-STAIRS-HANDOFF-20261101.md` first.
   The exact screenshot also contains the INNER white-glass edge: Nsupport median.1, strongRim/ES, alpha median.725. The outer
-  curved glint's N-only proof below must not be extended to this inner contour. Exact3ES Ark/Google substitution, alpha1/smooth
+  curved glint's N-only proof below must not be extended to this inner contour. Exact3ES Why/Google substitution, alpha1/smooth
   remaps, original worker s61Fine1, strict fullG alignment, scene-delta and sparseLP controls all retain the visible breaks.
   Actual parity-verified effB/gate64F trace is saved; effB is weightedkernelcover+basewb, not framecount/Neff. No confidence
   policy or new reconstruction/AA is integrated. All phone jobs/leases are closed. No new commit/push/APK.
@@ -9473,7 +9508,7 @@ emulation), not tried on a phone
   passes preserve full output/stage bytes against the original replay: vertical70ridge samples F>=12.23, curve42 F>=10.8,
   Lweight0; G is bit-identical before/after kHybChroma. On the curve G is also bit-identical before/afterUS. A first intrusive
   diagnostic version changed output and was rejected as baseline evidence. For the bottomline manyF<4, butChromaG is unchanged.
-- Matched Ark111333 has a visibly more continuous glint than SCAMERA111323 in unwarped source crops. They differ by10seconds,
+- Matched Why111333 has a visibly more continuous glint than SCAMERA111323 in unwarped source crops. They differ by10seconds,
   tone/exposure and about1degree, so no same-RAW causal ranking is inferred. Pair and exact RAW/trace receipts are saved under
   ../evidence/window-stair-review-20261030/target111323-20261031. A bright-ridge sharpening guard remains evidence-only: it
   reduces excess amplification but the controlled final post still has visible breaks, including with unsharpenedYa.
@@ -9505,7 +9540,7 @@ emulation), not tried on a phone
 - Full-resolution post replay now includes measured WHY AE, exact ChannelClip and highlight passes; RMSE against quarter-sampled
   diagnostics is 0.00488 / 0.00715. The earlier no-HL approximation is not evidence that sharpening caused the target defect.
   Native SceneY coverage and unclipped-R coverage candidates were rejected: they created pink segmented edges and shifted G50
-  by up to 2.48 / 2.30 px. Registered ARK photos share gross seal geometry/pink rims; different shots cannot resolve 1 px causation.
+  by up to 2.48 / 2.30 px. Registered WHY photos share gross seal geometry/pink rims; different shots cannot resolve 1 px causation.
 - A missing clipHiUnflaggedU upload in ScamRgb.clipband was independently corrected and regression-tested. Both target bursts
   have hiUnflagged=false, so this is not a confirmed fix for their distant windows. Investigation continues in native RAW stages.
 - Isolated diagnostic worker on OPPO: both111118/111305 off/on runs reproduce the original full RGB+flags byte for byte;
@@ -9513,7 +9548,7 @@ emulation), not tried on a phone
   unchanged. Actual H-anchor error on both top edges is below0.003 RAW px. Plain US improves measured R contour geometry;
   green-clipped guidance has a reproducible interpolation bias, but same-colour fallback/gates damage text or add phase ripple.
   Existing native mosaicUsFillTol1 and post-US chroma bypass controls fail to remove the target stairs/colour rim. No safe fix.
-- Owner added111118's radios/antennas on the right as another target. Unwarped source crops against paired ArkCam111124 show
+- Owner added111118's radios/antennas on the right as another target. Unwarped source crops against paired WhyCam111124 show
   stronger light/dark outlines and rougher silhouettes in SCAMERA; both have some aliasing. The captures are6s apart, with
   different exposure/processing; this does not isolate demosaic. Front antennas and rear bodies are unclipped in every N/ES,
   while L frames clip. Actual no-long and Sabre2x->2x2 controls leave the defect; neither is a production fix.
@@ -9521,11 +9556,11 @@ emulation), not tried on a phone
   Original31156 metadata requests multiscale plus WhyMS; current P421 has different finish routing. Quarter-view RMSE does not
   validate native finish-denoise parity. Radio RL controls show amplification within the controlled replay, not exact original
   JPEG amplitudes. Final halo bounds were rejected for losing known thin-line/star detail without fixing window stairs.
-- Same-N0 SCAMERA Bayer fallback / ARK209 / Google11 core comparison excludes merge/DN/sharpen and shows more chroma zipper
+- Same-N0 SCAMERA Bayer fallback / WHY209 / Google11 core comparison excludes merge/DN/sharpen and shows more chroma zipper
   in the fallback. Saved min-pooled robust maps give F_N>=12.0098 throughout the front-antennas ROI; kHybChroma returns atF>=4
   before calling this fallback. It therefore does not explain the front antennas in that replay. Bounds exclude fallback on
   99.7306% of the radio group; the remainder is unknown, not proven active. This is not proof about primary Sabre reconstruction
-  or the paired ArkCam v206 JPEG. Full Android Lab31193 replay succeeded with all26, actual primaryDN228ms/SNR567.23 and MS20ms;
+  or the paired WhyCam v206 JPEG. Full Android Lab31193 replay succeeded with all26, actual primaryDN228ms/SNR567.23 and MS20ms;
   native RGB before/after primaryDN is saved. On front antennas primaryDN changes p95RGB by.0009766 and G highpass by-.20%.
   No native final JPEG was exported; the Lab screenshot is UI evidence only. Four tuning differences, FP16 transport and actual
   Neff differ from the older host replay, so the two runs do not isolate DN. Protected kHybMergeMain1 is unchanged.
@@ -9543,7 +9578,7 @@ emulation), not tried on a phone
   fits do not justify changing global TET/black.
 - Actual3ES core comparison is complete for plain111118: exact saved sourceO/localF6, unchanged weights/clip/normalizer/alpha/gain.
   Current usColourAt source projection matches trace within1.91e-6; reducer2.27e-6 and stage3 with measured RTZ packing2.87e-6.
-  ARK209/G11 make small, mixed changes on the window and do not remove its edge. Known-GT sharp-text R error is worse (ARK.85
+  WHY209/G11 make small, mixed changes on the window and do not remove its edge. Known-GT sharp-text R error is worse (WHY.85
   6.87x/G11.85 3.51x; G11sharpness1 1.21x), although optical-sigma.75 improves. No unconditional core replacement is justified.
   Actual prepackU bypassing half quantization changes centre/darkside G phase4 by only-.265/-1.45%; it is not the main source.
   NativeQuad111305 is not covered by this Bayer-core test. Front dezipper/baseFill are independently excluded by the saved F
@@ -9552,7 +9587,7 @@ emulation), not tried on a phone
   and thin lines/PSF are preserved, but a real.25px/period4 wave loses70.5% of its G50 amplitude and a1x2 notch loses10.2% depth.
   It barely changes front antennas and leaves their stairs. Straightening unknown real contours is not a validated fix.
   Evidence: post-audit/directional-aa-review. All experiments remain in evidence; no new production AA/gain/demosaic change.
-  The supplied archive contains four paired ArkCam JPEGs, no Ark RAW/burst. The owner confirmed Ark111124 has only JPEG;
+  The supplied archive contains four paired WhyCam JPEGs, no Why RAW/burst. The owner confirmed Why111124 has only JPEG;
   matched-RAW capture/processing separation is unavailable. SCAMERA source and native outputs are saved locally, no new push/APK.
 - Evidence and native/control outputs: ../evidence/window-stair-review-20261030 (relative to the worktree's parent).
 
@@ -9592,7 +9627,7 @@ emulation), not tried on a phone
 - P419's common vibrance gain handled light tones only for TONE_OP1; AgX retained the stronger P341 term outside the common
   skin protection. The default slider strength 0.25 therefore acted through vibHlU=1 and a 1.6 coefficient on pale highlights.
 - AgX now uses the same P419 light-tone term at the slider's actual strength, with the common skin protection. Legacy
-  ARK_VIBRANCE0 keeps its original path. Photo and WHY preview share the shader; explicit saturation, calibration and WB remain.
+  WHY_VIBRANCE0 keeps its original path. Photo and WHY preview share the shader; explicit saturation, calibration and WB remain.
 - Actual GL regression: old shader fails skin protection/default gain/HL slider controls; the new path passes. Skin's share of
   default HL gain is 0.298 instead of 1.000. Real scene-colour samples from111118/111305 reduce p90 chroma amplification over
   plain AgX from2.387/2.204 to1.271/1.249 at fixed AE1. This is a colour-response model, not a new phone photo or colour reference.
@@ -9620,11 +9655,11 @@ emulation), not tried on a phone
 
 ### P429 - AgX saturation after highlight landing (owner, 2026-10-31): DONE in code and host GL, not phone colour/timing validation
 - The former RGB extrapolation could create negative channels before the gamut cut, raise lightness and reverse chroma as
-  saturation increased. Highlight landing could restore colour after saturation0. Under ARK_VIBRANCE1, AgX now applies this
+  saturation increased. Highlight landing could restore colour after saturation0. Under WHY_VIBRANCE1, AgX now applies this
   control once after landing/sun bloom and before explicit user LUT/film, scaling OKLab chroma at fixed lightness. The LC
   mid-reference uses neutral saturation. The existing skin protection limits increases; decreases can reach neutral.
 - An absolute14-step chroma boundary independent of slider strength prevents a falling gamut plateau. sRGB/P3 and all3gamma
-  encodings are covered. Saturation1 bypasses exactly; ARK_VIBRANCE0 and other tone operators retain their original path.
+  encodings are covered. Saturation1 bypasses exactly; WHY_VIBRANCE0 and other tone operators retain their original path.
   Explicit user LUTs remain able to recolour a neutral input intentionally.
 - Actual GL old-fail/new-pass: old30FAIL/58, final72/72PASS. Maximum OKLabL drift6.06e-7 and minimum adjacent chroma delta
   -5.86e-7 against2e-5 bounds. The earlier fractional-gamut candidate was rejected, not excused by looser tolerances.
@@ -9669,10 +9704,10 @@ emulation), not tried on a phone
 - Full real-burst old/off/on outputs identical on all8 new Штрихи series plus Moving8, with original per-shot tuning. Warm three-pair worker medians: windows4841→3554 and4736→3541ms; deck3755→3523ms. No gain claimed for the two unaffected controls; no full-app/6.1 timing equivalence.
 - Import/invalidation and row/local measurement-equivalence device checks PASS; Linux ASan/UBSan/TSan added to CI. All shaders/Main1, frame counts, capture and sharpening unchanged. Alternative SAD/coarse/convergence routes remain evidence-only. Details and evidence boundary: GCAM61-SPEED-ROUND2-20261101.md.
 
-### P444 - exact GPU noise percentile / ARK209 post-speed review
+### P444 - exact GPU noise percentile / WHY209 post-speed review
 - Keep the original noise-statistics render and denoising. Select its positive-half quarter with two small integer compute passes; validate complete counts and retain the original CPU path for zero/subnormal/NaN/missing values, capability or GPU failures. 8x8/128x1 groups, no vendor whitelist; developer CPU override, legacy unchanged.
 - Full actual Android PostPipeline outputs on all8 recent Штрихи plus Moving8 are byte-identical to the original baseline. Eleven Adreno GPU/readback fixtures and actual host-shader sort checks pass; targeted Java compilation/tests and LinuxCI cover the change. NoiseEst warm stage medians26->6/22->6ms; not a full-app speed claim. No live Mali proof.
-- ARK209 verified against the supplied APK. Matrix/curve-texture, RL/sky batching, flush, gather and fused-colour candidates replayed on identical real bursts; unproven gains and the approximate AgX candidate are excluded. No protected Main1, tone, sharpening, frame-count or resolution change. See POST-SPEED-ARK-20261101.md and local evidence/gcam61-post-speed-20261101.
+- WHY209 verified against the supplied APK. Matrix/curve-texture, RL/sky batching, flush, gather and fused-colour candidates replayed on identical real bursts; unproven gains and the approximate AgX candidate are excluded. No protected Main1, tone, sharpening, frame-count or resolution change. See POST-SPEED-WHY-20261101.md and local evidence/gcam61-post-speed-20261101.
 
 ### P445 - exact integer half-bit fallback for noise maps the sampler declines
 - Retain P444's cheap sampled path first. For remaining RGBA16F statistics, a GLES3.1 RGBA16UI image reads the original half bits only after an all65536-code integer/GL_FLOAT agreement probe; failures/mismatches retain CPU. Independent visited-pixel count validates complete coverage; binding/FBO/viewport state restored.
@@ -9707,7 +9742,7 @@ emulation), not tried on a phone
 
 ### P451 - Nubia Z17 NX563J Android10 regression: IN INVESTIGATION
 - Latest owner clarification: no personal access to Z17/12X; APK is distributed to external testers. Publish the reviewed test build after local/available-device checks, then obtain device results externally. Do not block its delivery on connecting these phones locally, and do not describe their regressions as verified fixed.
-- New owner evidence: ArkCam_Log_2026-11-01.txt and SCAM-20261101-140618-391-5a89c493.zip. Reference15frames at5488x4112: merge4166ms, Resolve312ms, LSC/CCM390ms, post973ms, full native call6456ms including JPEG. Our supplied ZIP confirms4accepted normal frames and22695.65ms merge, no active Bento/long frames. Exact ten-frame NCH v11 RAW, JSON and preview were subsequently supplied and preserved with hashes in D:/burst/Nubia/20261101-140618. Owner explicitly confirms a black saved photo, no crash. See NUBIA-PROCESSING-20261101.md.
+- New owner evidence: WhyCam_Log_2026-11-01.txt and SCAM-20261101-140618-391-5a89c493.zip. Reference15frames at5488x4112: merge4166ms, Resolve312ms, LSC/CCM390ms, post973ms, full native call6456ms including JPEG. Our supplied ZIP confirms4accepted normal frames and22695.65ms merge, no active Bento/long frames. Exact ten-frame NCH v11 RAW, JSON and preview were subsequently supplied and preserved with hashes in D:/burst/Nubia/20261101-140618. Owner explicitly confirms a black saved photo, no crash. See NUBIA-PROCESSING-20261101.md.
 - Local mitigations: corrected GLTexture texture-name/unit misuse; processing preview cap remains active throughout long merges, default2fps on msm8998 or<=4.5GiB RAM, thermal severity cannot increase that cap. Owner now requests disabling persistent DCIM logs below8Gen3 and ordinary RAW viewfinder on8Gen3 and below (P454). Host tests pass; actual Nubia black-photo fix/current speed still unverified. Only OPPO is connected; do not keep requesting a crash log.
 - Owner reports excessive processing and application exit with even5 frames; supplied SCAMERA-debug.txt and SCAMERA-timings.txt are the evidence. Current31200 traces show5488x4112, Adreno540, about26-28 seconds worker plus8.8-11.5 seconds post, total37-40 seconds. A3-frame accepted merge itself takes about21 seconds; do not attribute this only to frame count.
 - The included fatal stack is dated2026-10-22/build31110: direct TextView.setStateDescription on Android10 in ViewerChrome.bindHdr. Current main already uses ViewCompat there; recheck Android10 gallery coverage and inspect other compatibility paths. No November fatal stack is present in the supplied file, so a current crash cause is not established yet.
@@ -9744,3 +9779,94 @@ emulation), not tried on a phone
 - Two current31200 shots fail GPU slot3 readback across local-align, homography and conservative attempts, then CPU-single:35894/32192ms. This is a lost multi-frame result and repeated failure overhead, not a successful35second merge. Driver reset/OOM/root cause remain unproven.
 - Corrected illegal MAP_READ plus MAP_UNSYNCHRONIZED flags and unchecked final-fallback glUnmapBuffer invalidation. Preserve actual GL error on failed chunks. Production-method fault/cleanup/error tests pass and run in CI. Full Nubia-input actual OPPO ABBA output/decisions exact after fixes; no dependable new speed gain claimed. See XIAOMI12X-PROCESSING-20261101.md.
 - No live12X or12XRAW supplied. Verify the corrected worker on12X before claiming this regression fixed; do not lower frame count, resolution or processing quality to produce a shorter timing. Owner has no personal access to this phone and supplies APKs to external testers; publish the reviewed test build as one main commit, retaining this verification boundary.
+
+### P473 - portrait processing round 2 and the «Портрет» submenu: DONE ON THE HOST, PHONE CHECK OPEN
+- Owner 2026-11-03: start after the speed and optimisation work. Base: the portrait delivery in origin/main 93a1b37d (CI 512, APK 31208; evidence ../evidence/portrait-20261102: README.md, ci-status.json, host-validation.json; portrait.patch is for reading only, never re-apply it).
+- Already there: group in «Цвет и стиль» (master switch off by default, dependent skin-warmth switch), Camera2 face metadata matched by timestamp and physical camera with the RAW crop, flat/contrast boost 0 and macroU 1 when a face is found, bounded OKLab skin-tone correction from a small GPU sample with soft face masks at constant linear luma, photo / RAW viewfinder / ReferenceFilm / lab integration, settings frozen at the shutter, the correction skipped when the geometry is unknown. Classes PortraitFaces, PortraitSkin, PortraitGpu; shaders utils/import_portrait.glsl, portrait/sample.glsl.
+- To do: improve the result (on the five supplied scenes in D:/burst/face the algorithm did not change the skin at all: check whether its gates are too tight, verify the whole chain, fix confirmed problems, a pronounced yellow or cold skin cast corrected with natural tones and background kept), and lay out the submenu «Портрет» (owner now spells it so; the group was named «Портерт» before) with a clearer visible difference: what each switch does, ideally a before/after preview.
+- Open since the last delivery: HAL face detection on real phones, quality at a strong colour cast, performance on the phone. Same inputs and settings in comparisons, no exaggerated differences, test thresholds unchanged.
+- Done in W 2026-11-03 (host only): the five D:/burst/face scenes were shot with build 31204, before the portrait code (no Portrait line, no pref_portrait keys); their skin hues 44.6-54.4 deg need no correction. New: a cast shift along OKLab b/L when the grey/white background outside the faces and the skin hue lean the same way (0.7 of the background cast, at most 0.035, never past 52 / 48 deg), PortraitGpu logs every gate per shot, «Портрет» with plain summaries, the second switch «Естественный цвет кожи». PortraitSkinSceneTest (5), tools/check_portrait_shift.py; JVM 109/109. Not verified on a phone (HAL faces, a real cast).
+
+### P474 - processing mode «Быстрый» (default) / «Качество»: IN PROGRESS
+- Owner 2026-11-03: the fast mode by default, «Качество» as the second choice (ListPreference pref_scam_hybrid_processing). Stage 1 done in W: PreferenceKeys.FAST_TUNING (P344 rejection options off, F6 laStride 16 / laIters 0; worker 1829 -> 1300-1436 ms on the OPPO). Stage 2: the merge 1:1 by the reference scheme (spec and port outside the repo, D:/burst/scamera-research) for ~1.0-1.3 s; owner: «Тонмапинг и всё что с ним связано должен остаться наш, даже с быстрым» - the tone mapping and everything tied to it stay ours in the fast mode too.
+- Stage 2 in W (2026-11-03): the whole merge by the reference scheme in the worker (scam-fast-gpu.h, scam-fast-merge.h, scam-fast-shaders.h; tune fastMerge 1 from FAST_TUNING, fastMergeSelect 0 = selector off): frame selector, ultrashort frames (highlight path, safety-gate clip limit 0.5 instead of 0.35 - our ultrashort frames measure 43 % clipped on lamp2324 and 0.35 kept every lamp clipped), long frames (weight and kernel width exact; pedestal and motion scope NOT built), exact noise LUT. Above 16 MP and DCG stay on the SCAM merge. Not recovered: the RAW noise measurement rule (HAL model kept).
+- Measured on the OPPO complete30 (harness v6 --fast, QA-5d7aa7fe): total 1870 ms warm (merge+transport 1148, post 612-642, JPEG 80) vs the reference 979-1025; worker peak RSS 1102-1141 MB (quality 1622). The merge's GPU time equals the reference's Sabre stage (~22 ms per donor); the rest of the gap is our post / tone (~0.63 s vs the reference's ~0.15 s), kept ours by the owner's rule. Final JPEG (jcmp): luma noise 1.85 / sharpness 1.68 vs the reference 2.13 / 1.70 and quality 0.62 / 0.82.
+
+### P475 - developer settings cannot be changed: OPEN, BEFORE THE PUSH
+- Owner 2026-11-03: «в дев настройках у нас невозможно поменять ни один параметр, нужно исправить» - no developer setting can be changed in the app. Reproduce, find the cause, fix, before the next push to GitHub.
+
+### P476 - Unspektra AE steps instead of a smooth change: OPEN, BEFORE THE PUSH
+- Owner 2026-11-03: «исправить unspektra AE, он у нас работает ступенчато, должен работать плавно». Find where the Unspektra AE updates the exposure in steps (its update rate, quantisation or hysteresis) and make the change smooth; check on the viewfinder of the phone before the next push.
+
+### P477 - memory use: OPEN, BEFORE THE PUSH
+- Owner 2026-11-03: «оптимизировать потребление памяти». Known numbers to start from: worker peak RSS ~1.6 GB on the OPPO detail30 (12 MP, 30 frames) and 2.3 GB on the vivo X200 Ultra (46 frames); the post pipeline allocates main1/main2 (~100 MB FP16 each) and two 64 MB resolve-denoise strips per shot; the final 48 MB PBO and the 50 MB bitmap. Measure (worker peakRssMB, app PSS during the shot, GPU memory), cut what is held without need (same output), keep the frame count and resolution.
+- Measured 2026-11-03 (OPPO complete30, ps RSS every 0.2 s): fast mode worker peak 1054-1141 MB (quality 1622-2013), app process peak 939 MB; both include the shared 755 MB shot arena (one memfd counted in both). The frames are released right after the merge (ScamProcessor.releaseFrames, off the critical path); the fast route does not keep the per-frame aligned copies. Remaining (not done): post main1/main2 and the resolve strips per shot.
+
+### P478 - no name of the reference app anywhere: DONE IN W (re-check before the commit)
+- Owner 2026-11-03: «в чейнжлогах, коде и описании ... не упоминаем» - the reference camera app is named nowhere: code, comments, identifiers, log strings, preference keys (renamed with a SettingsMigration step so stored values survive), shader file names and texts, tests, tools, CI workflow test names, research notes inside the repo, PLAN.md, CHANGELOG.md, commit message. Count before the work (2026-11-03, whole-word matches): main Java 151 / C++ 27 / shaders 56 / res 30 / tests 749 / tools 125 / workflow 1 / PLAN.md 439; CHANGELOG.md line 445 fixed already. Check with a whole-word grep for the name (any case) before the delivery commit.
+
+### P479 - post / tone: the reference's implementation techniques where the output stays the same: DONE IN W
+- Owner 2026-11-03: «Посмотри различия в тоне и посте между нашей реализацией и реализацией ... и возьми то что может ускорить обработку, но результат при этом не изменится». Gate: the fast-mode complete30 JPEG stays byte-identical (sha ecc76b0d30bac9da, QA-5d7aa7fe). Our post 612-642 ms vs the reference's ~150 ms GPU + readback; the per-node sync profile is in P474.
+- Done 2026-11-03 (QA-b6587b0c; every rep JPEG sha ecc76b0d.. = baseline): purple-fringe 8x8 bound map skips the 32-tap loop where the weight is exactly 0 (scam_dev purple_bound; 63 -> 6+3 ms GPU), sun-bloom / landing block sums as a compute pass (suncore_cs; 51 -> 0.3 ms), clip-band flag mask in two separable passes (clipband_mask, <= 100 MP), framebuffer invalidation (post_invalidate, neutral), ScamRgb tail on the stats helper (scamrgb_tail, <= 16 MP; 70 -> 51 ms), async SNR read-back (snr_async, neutral), GLGpuTimer (post_sync only). Post 629 -> 573 ms mean (10 warm reps), total 1877 -> 1853. Rejected: fusing resolve pointwise passes (fp16 rounding), Oklab cache (200 MB), GPU opposed / AE means (double sums), texture pool (creation 1 ms), skipping the PBO->bitmap copy (encoder API).
+- P479b 2026-11-03 (owner: ±1 level allowed; QA-cab66c77, JPEG still ecc76b0d.., pre-JPEG 4 px by 1): opposed_gpu_mean (highlight chrominance summed on the GPU, no read-back stall; byte-identical), ae_gpu_chain (AE pass 2 clip from pass 1 on the GPU, sharpening queued before the AE read-back; byte-identical), hlmask_fast (blur weights once, paired taps; 12.5 -> 9.7 ms). Off by default (fail ±1: isolated pixels by 3-11): ms_fuse, ms_fuse_lab. Post 549 -> 516 ms mean (10 paired warm reps); fragment GPU 321 -> 218-229 ms since P479. Harness leak fixed (each replay left a 755 MB burst copy in the app's files dir; 41 copies = 27.4 GiB purged; v6 + v7 clean up per run). Remaining post costs are algorithmic: combine 50, lpyr 28 (33 passes), RL 27 (12 passes), CPU highlight stats ~48 ms.
+
+### P480 - the dezipper exactly as the reference's: DONE IN W (in-app check open)
+- Owner 2026-11-03: «перед пушем на гит перепроверь работу дезипера, сделай так чтобы он работал полностью идентично». Found: the fast route's base self-merge (MERGE_A, sabre_dezipper_thresh 4.5 / 1.5) is verbatim; its highlight_chroma_dezipper (sh109, after the resolve, only with valid short frames, half-res highlight mask) is missing. The quality route's P402 dezipper has only the base weight max(1, 4.5 - accepted donors); missing: the isotropised base kernel at motion holes, the linear kernel mix (0.85 x hole), the weight equalisation (blend_eq from the radius-2 minimum of the donor weight) and the green-phase chroma correction. Port in D:/burst/scamera-research/dezip-20261103 (offline first; the phone after P479).
+- Done 2026-11-03 (worker c38abbc7): fast route - sh109 verbatim as the post node WhyHlDezipper after ScamHdrDenoise with the worker's half-res BASE highlight mask (trailer SCHLMSK1, only when the highlight path is on; the reference binds the base mask even when every short frame is rejected); bursts without it byte-identical (detail30/moving/night/lamp verified). Quality route - the reference base self-merge at motion holes (isotropised kernel P = ln2 C, linear kernel 0.85 x hole, blend_eq over the radius-2 minimum, green-phase chroma correction, white balanced) as kHybDzCover (per-strip donor coverage) + kHybDzPass after the merge (replaces the merge's base share where the fallback applies); the merge itself only stores its colour weight sums (Adreno 750 falls off a compiler cliff with dezipper code inside the merge: 9.8 s night). Cost +2..7 % written (night 2020 -> 2156, detail30 1984 -> 1942, moving 1045 -> 994 ms); moving sharpness 1.047 -> 0.738 (holes filled the reference's way), detail30 / night unchanged within noise; dezipper 0 byte-identical. Needs > 23 SSBO bindings (else off with a log line).
+
+### P481 - fast mode for bursts above 16 MP and DCG: DONE IN W (real DCG / real 50 MP Bayer untested)
+- Owner 2026-11-03: «Серии больше 16 Мп и DCG должны работать через "быструю" обработку», «Если она включена». Today: above 16 MP hybridFastEligible sends the burst to the SCAM merge (no strip / memory strategy; the accumulators alone 16 B/px); a DCG burst enters the fast route before the DCG noise check and gets one HAL curve (against the P320 rule: never one noise curve over a DCG frame). To do: strips with a halo (global alignment once), the two-zone DCG model in every noise-dependent fast pass, ≤ 16 MP non-DCG byte-identical.
+- 2026-11-03 offline (the fast-merge port folder under D:/burst/scamera-research: stage3.diff against W, worker-s3): above 16 MP the gate estimates GPU + CPU memory (≤ 60 % of MemAvailable, viewport / SSBO limits; 200 MP normally declined, ~5 GB GPU); phase A per-frame alignment / rejection on whole-frame HALF textures, phase B the merge in RGBA16F output strips (~256 MB) re-uploading only the rows a strip needs, same summation order; above ~26 MP the result goes through the float path (stream limit 160 MB). DCG: the noise check (two-zone fit, report lines) runs first, then the fast route with the measured zones in the noise LUT bin by bin (guide / rejection / unblocker follow), long-frame weights per zone; SNR stays scalar (offset at 0.18 blended across the knee). No real DCG burst on the PC or the phone (plumbing test only: moving burst with flag 32). Phone plan: byte identity ≤ 16 MP, strip equality (detail30 SCAM_FM_STRIP_ROWS=1024), Nubia 23 MP, 50 MP scam_burst-20261020-115603.bin, 200 MP gate.
+- Phone 2026-11-03 (worker 0770f99b, applied to W): ≤ 16 MP byte-identical (detail30 / moving / night / lamp2324); strips exact (1024 / 1536 / 3072 rows, short / long / moving bursts); Nubia 23 MP real 902 ms vs SCAM 9485 ms (RSS 952 / 872 MB, GPU 722 MB); 50 MP synthetic 8 frames 1461 vs 3423 ms (RSS 1880 / 1865, GPU 1426 MB); 200 MP declined by the gate (needs ~7.4 GB > 60 % of 5.7 GB available; SCAM 15.6 s). The PC's 50 MP burst is a Quad stream (SCAM route). DCG: noise check before the fast route, report lines as the SCAM path; two-zone path exercised only with SCAM_FM_DCG_TEST. Fixed on the way: strip flow-input rebind (2 % noise-like diff), output-stream refusal above ~26 MP.
+- Quad (owner: «На оппо х7у есть 50мп»; worker fb26ea4d in W): the OPPO 50 MP FULLRES and its 12 MP 1x mode are Quad streams; the fast route takes block-2 streams the reference's way (no remosaic: its six Quad programs - zone gain, hot pixels with the Quad step, guide, gray base, merge with kernel scale (1, 0.85), colour threshold 0.35; grey-world WB over 4x4 periods; strips with a wider margin; no clip-border bit). 4x4 streams stay on the SCAM merge. OPPO 50 MP real (13 frames, 5 strips): 5223 vs SCAM 7216 ms, RSS 2366 vs 3515 MB, GPU 1639 MB, no seams; 12 MP main511: 2255 vs 3134 ms. Flat noise higher than SCAM's (as the Bayer fast route); clipped lights on main511 pink before the post (check in the app). Bayer byte-identical, strips exact.
+
+### P482-P486 - further speed (owner 2026-11-03: «Подумай как мы ещё можем оптимизировать и ускорить обработку»; tolerance ±1 level of the 8-bit image, everything behind scam_dev switches): QUEUED
+- P482 zero-copy merge -> post: the worker's result as an AHardwareBuffer handed to the app (AHardwareBuffer_sendHandleToUnixSocket) and imported as a texture (EGLImage), instead of readback 40-80 + memfd + re-upload 51-59 ms. After P479b.
+- P483 streamed JPEG: DONE in W (QA-2a4867cd, native lib aa75a4f6, scam_dev jpeg_stream): one native encode body for the Bitmap and the mapped-buffer entry (row stride: ISZ 4:3 crop as a sub-rectangle), ScamProcessor.jpegStreamRoute (JPEG sRGB 8-bit, no gain map / HDR / fast JPEG / lab / post_ab / stamp / digital zoom / CPU resize, ≤ 16 MP) -> PhotoOutput.saveStreamedJpeg with the EXIF APP1 in the stream. Harness: JPEG ecc76b0d on every rep, self-check equal; -22 ms per photo (the copy is gone but jpegli reads the mapped buffer slower: 87-92 vs ~80 ms). The app's ScamProcessor route is covered by JVM tests only.
+- P484 fast merge precision: RGBA16F / R16F guide, pyramid, flow where the 8-bit result stays within ±1 (the route is GPU-bandwidth bound, ~22 ms per donor); est. -80..160 ms. After P481.
+- P485 capture-time work: frame-selector thumbnails / sharpness / shift as each ring frame arrives (the reference uses its ring's thumbnails), and the merge of the pre-shutter ring frames started before the post-shutter frames are in. In-app only (the harness cannot show it). After P481.
+- P486 small ones: CLOSED without changes (2026-11-03) - creating the post's 88 textures costs ~1 ms of CPU (P477 inventory), its programs come from the binary cache, and the post starts 8 ms after the worker's result (harness timeline): nothing to prepare ahead. The worker's GPU priority only matters against a running viewfinder, which the harness has none of; measuring it needs shots through the phone's UI (not done by us) - left as is (scam_dev worker_gpu_normal_priority exists for an owner A/B).
+
+### P487 - film simulation: exposure too low + the spectral / DIR / halation / chemistry settings: DONE IN W (phone check open)
+- Owner 2026-11-03 (screenshots of another app's film menu: DIR Couplers, Halation, Film with push/pull mode Standard/Experimental, chemistry, spectral model Hanatos 2025 / Mallett 2019 / Hanatos 2026): «исправь экспозицию при использовании симуляции плёнки, у нас она занижена. Так же добавь такие же настройки спектра нам». Every control wired to the spektrafilm parameter block (defaults = today's look); spectral models only with local data (no downloads without the owner).
+- Exposure fixed in W (by me; the settings part is the agent's): cause - ReferenceFilm fed the film the why/low scene at input scale 1 (the capture's exposure, exposed low for its highlights), the film at full strength skips the whole tone incl. the WHY AE (ae ~2.0 = +1 EV on detail30), and spektrafilm's own auto exposure was off (packet 88 = 0). Now: ReferenceFilm.whyAeEv meters the same scene like WhyStats (shared WhyStats.aeSettings, reduced grid, WhyAeGpu stats, WhyAe.finish) and sets filmExposureEv = the film's EV + log2(inScale x ae); without GPU stats spektrafilm's centre-weighted auto exposure; scam_dev film_why_ae 0 = old. Log: spectral film ... shotAE=+x.xxEV. JVM 46/46; not run on a phone (the harness forces film off).
+- Settings done in W (agent, 2026-11-03; owner: only the screenshot controls, plain texts): film page tabs «DIR», «Ореол», «Проявка» (FilmAdvanced.java, FilmSimPreference): DIR amount / spread / tail / tail weight / same-layer / interlayer / 9 DIR gammas; halation switch, scatter and halation amount / size, highlight boost / range / protect; push/pull + mode, development gamma, negative bleach bypass, leuco cyan coupling, spectral model Hanatos 2026 (default, as before) / Mallett 2019. Untouched settings = byte-identical parameter block (FilmAdvancedTest); colour settings enter the viewfinder LUT key only when moved. Hanatos 2025 left out: its 20 per-film filter files (~213 KB each, spektrafilm-ofx Resources/data/profiles/archive at 86476afc) are not in the repo - download needs the owner's OK. Highlight boost > 0 forces the slower non-tiled renderer path (timing unmeasured). JVM 215/215, UI checks pass; nothing on a phone.
+- Hanatos 2025 added (owner «Да» to the download, 2026-11-03): the 20 per-film archive profiles of spektrafilm-ofx 86476afc (4.2 MB, size + git blob sha verified against ofx-tree.json, sha256 in third_party/spektrafilm/SOURCE.json), SpektraGeneratedProfileCurves.cpp regenerated with the pinned generator (only change: 20 tables 81x3), film lib +20 KB stripped (local build fda7c2eb, not in an APK). Menu Hanatos 2025 | Mallett 2019 | Hanatos 2026 (default). JVM 216/216. Not run on a phone.
+
+### P488 - Sports #3 / #5 / #6 + P471 replay check, P477 post memory, P489 Tetra on the fast route: DONE IN W (app check open)
+- Result (agent, 2026-11-03, D:/burst/scamera-research/sport-p488, runs/summary.txt): diff p488-cpp.diff applied to W, worker d96b235c (W unpatched rebuilds 733203ed exactly); Photo quality / fast and Sport with the keys off byte-identical on m0902.
+  - #3 rejPixDiff: built and kept in the worker but OFF in Sport too (lead decision): rejected area detail +0.2..4.8 %, ghosting +0.1..3 %, no clear gain. scam_dev hybrid_rej_pix_diff 0.35 turns it on.
+  - fastMergeSport 3 (the reference Sport overrides boost 10 / pixel difference 0.35 / 15 px 0.75 donor gate): kept, metrics within 0.1 % on 5 bursts (the fast merge accepts ~8 of 8 here).
+  - #6 donorShiftMax 120 RAW px: kept, never fired (no pan burst).
+  - #5 ring 12 at >= 60 fps with an empty queue: kept; 12 vs 8 replays: flat noise -11..-20 %, merge +100..270 ms; viewfinder in the app not observed.
+  - P471 numpy check agrees with the owner's 0.5.
+- P488 (SPORT-COMPARISON.md Part D): #3 pixel-difference-guarded rejection post-filter (SCAM merge, Sports only; the fast route gets the reference's Sport merge overrides), #5 min(12, frames in the window) on 60 fps rings, #6 global-translation donor gate (15/35 ratio), replay A/B of P471 on the Moving bursts + one night burst; Photo outputs byte-identical.
+- P477 rest: the post's per-shot allocations (main1/main2, resolve strips, PBO, 88 textures / 1.47 GB created per shot): earlier release, same-size reuse, output within ±1.
+- P489: 4x4 (Tetra) streams through the fast route the reference's way; Bayer / Quad byte-identical.
+- P489 done in W (stage4.diff + gate, worker aadc48d0): 4x4 streams on the fast route with the reference's sh103 merge (cfa_sensor_type 2: the Quad stage's guide / pyramid / QPC / hot pixels in their step-4 branches), WB over 8x8 periods, 8-row strip halo, dngMosaic for Quad / Tetra; Bayer / Quad / SCAM byte-identical, strips exact. 12 MP Tetra replays: no faster (t100546 6268 vs 6455 ms; v10_2 8963 vs 8674), softer (0.020 vs 0.048), 4x more fine colour grain, a faint 4x4 grid (the reference's QPC fixes 4 of 16 positions) -> behind tuning fastMergeTetra (default 0: Tetra stays on SCAM). Owner decides whether to turn it on.
+- P477 done (agent, QA-25f5cac6, JPEG ecc76b0d 5/5): ms_reuse - WhyMsDenoise level 0 rebuilds into its Oklab plane, the frame weights / merge codes freed after their last pass: texture peak 564 -> 456 MB at 12 MP, post not slower; tex_pool (a reuse pool) off - it made the peak 938 MB. GLTexturePool keeps a per-shot texture inventory (log «texture memory post»). App PSS / RSS changes are within the harness noise (the burst copy dominates); kgsl not readable without root.
+
+### P491 - gallery: state lost after minimising, zoom % from 0, remembered folders: DONE IN W (phone check open)
+- Owner 2026-11-03: open the gallery in our camera, minimise the app, bring it back -> the viewfinder opens instead of the gallery where the user was. Restore the screen the user left (the gallery and its position).
+- Owner 2026-11-03: in the gallery's comparison the percentage must start at 0 %, not 100 %; the gallery must remember the user's choice of shown folders.
+- Done 2026-11-03: (1) GalleryActivity android:finishOnTaskLaunch="true" instead of P299's finish in onUserLeaveHint - the camera icon (task launch) closes the gallery and shows the camera, the recents keep the gallery (childLaunch / finishOnLeave / editorBusy removed; unsaved editor work is now dropped by the icon). (2) The owner meant the viewer's zoom, not the compare (compare already counted from 0 %, P196): the viewer pill uses comparePercent («0 %» = whole photo; «115 %» read 15 % past it). (3) The folder chip chosen last is remembered (gallery_ui prefs active_folder); the shown-folders set was already stored (FOLDERS_LIST). Owner: the shown-folders switches themselves were not kept - cause: GalleryFileOperations merges folders by bucket NAME but the choice was stored by bucket id, and a merged folder takes the id of the bucket with the newest photo, so the stored id stopped matching after new photos; now stored by name (the folders sheet and the old GallerySettingsFragment; old stored ids still match). Tests: GalleryActivityRoutesTest (FLAG_FINISH_ON_TASK_LAUNCH), gallery / settings tests pass. Not on a phone.
+
+### P490 - processing mode at the top of the main settings screen: DONE IN W
+- Owner 2026-11-03: «Пункт переключения быстрой и качественной обработки перенеси на главный экран в самый верх, сделай выбор плашки слева на право» (as P6b's SHDR / SCAM HDR route card), «Стиль должен соответствовать нашему нынешнему». SegmentedListPreference (preference_segments.xml: the current settings row - icon tile, title, plain summary - with equal-width chips below in the film page's chip style), first row of the root screen; SettingsStyle keeps its layout; summary rewritten for ordinary users. SettingsMenuTest updated (root order, the root row counted with the everyday ones); settings tests + UI / settings checks pass. Not seen on a phone.
+
+### P492 - gallery: more detailed file properties + a histogram button: DONE IN W (phone check open)
+- Owner 2026-11-03 (screenshot of the gallery's «Сведения» sheet: date + folder, 35 mm equiv. + phone, MP / size / resolution / format / Ultra HDR, ISO, shutter, aperture, focal length, histogram): «сделать более детальные свойства у файлов, так же добавь кнопку вывода гистограммы, при активации гистограмма должна отображаться постоянно пока ты не деактивируешь. Куда добавить кнопку реши сам». Plan: more EXIF / shot rows in «Сведения» (lens / module, exposure bias, white balance, flash, frames merged, processing mode, colour space, orientation, GPS when present, file path); a «Гистограмма» toggle chip in the photo viewer's top bar next to the HDR chip - when on, a small live histogram overlays every photo (also when swiping) until it is switched off; the state is remembered.
+- Done 2026-11-03: «Сведения» got a «Подробнее» card (PhotoMore.rows from the file's EXIF header: date taken, exposure compensation, white balance, flash, metering, digital zoom, colour space, rotation, GPS, software, then the file path; a missing tag gives no row; the value selectable). The viewer's top bar got a round histogram button beside the HDR pill (gallery_ic_histogram); on, a 176x92 dp RGB histogram card stays under the top bar at the right on every photo (recomputed per page through ExifDialogViewModel.updateHistogramView), also with the bars hidden, until switched off; the state is remembered (gallery_ui show_histogram). PhotoMoreTest + gallery tests pass, UI check pass. Not on a phone.
+
+### P493 - our chromatic-aberration net (CaNetP v3) or the old P399, a main-screen switch + the net's settings: DONE IN W, DEFAULT «Классическое»
+- GPU hang on the OPPO fixed (agent, 2026-11-03): MODE 4's 48-tap local arrays spilled on Adreno -> taps re-read; MODE 3/4 drawn in 64-row strips with a flush each. Neural 3/3 clean and identical; +~160 ms post at 12 MP; JPEG vs classic: 0.46 % of pixels, max 18 levels (detail30 has almost no fringe). Do not use QA-84d71535 / QA-9c0794e4. Default classic until a fringe burst proves the net.
+- hl_stats_gpu re-check with classic (runs 154321 on / 154407 off): JPEG 2a91b2a3 in all 6 reps, no GPU errors, post 975/609/636 vs 771/482/598 ms: no gain, stays off by default.
+- Owner 2026-11-03: «Не забудь добавить нашу нейросеть для подавления хроматических аберраций, я должен иметь возможность включать либо её, либо старый способ подавления, можно сделать переключатель на главном экране настроек как у быстрой/качественной склейки», then «настройки для нового способа ... тоже добавь». Package SCAMERA-PC/handoff-canet (weights_v3, shader MODE 4 + MODE 3, REACH 12). Switch: SegmentedListPreference under «Режим обработки» (Нейросеть default | Классическое); the net's runtime knobs on their own page, defaults = v3.
+- P482 GPU highlight statistics (mine, 2026-11-03): ScamRgb.channelClipGpu + hlrecovery/clipstats_cs.glsl - the CPU walk's samples, bins from the CPU's own table, per-bin sums as integers of 2^-11, maxima as float bits: exactly the CPU levels (ScamRgbClipStatsGpuTest simulates the shader: equal lo / hi / max / log); run on the GL thread right after the half upload (before the helper may free the buffer; CPU walk on failure / NaN), not with Bento levels or > 16 MP; scam_dev hl_stats_gpu. Phone timing pending (with the AHB transport agent's APK).
+
+### P494 - the shade's HDR tile = long / ultrashort frames, «UHDR» = Ultra HDR: DONE IN W (phone check open)
+- Owner 2026-11-03 (screenshot of the shade): «кнопка HDR, поменяй её значение, в положении выкл он должен полностью отключать длинные и сверхкороткие кадры», «А для включения Ultra HDR сделай плитку UHDR». New pref_hdr_frames (default on; settings «Съёмка» after «Спорт»; tile «HDR»; scam_dev hdr_frames): off = PreferenceKeys.noHdrFrames() as «Спорт» does - bento / shasta 0 in hybridValue / hybridSwitch / the tuning lines, HybridPlan.shastaEnabled / bentoMode, SCAM HDR's short / long counts 0. The Ultra HDR tile is «UHDR» now; default tiles HDR + UHDR (19); a stored list with the Ultra HDR tile gets «HDR» inserted before it once (SettingsMigration.migrateHdrTile).
+
+### P495 - a more stylish, modern shade (concept): AFTER THE PUSH
+- Owner 2026-11-03: «Так же я хочу более стильную и современную шторку, сделай концепт», then «Стилем шторки займёшься после того как запушишь на гит, до этого момента заканчивай всё что осталось». DONE 2026-11-03 (worker 733203ed): every texture already has the reference's format; mediump / narrower formats fail ±1 (up to 145 levels) or gain nothing (the GPU clocks follow the load) - dropped. Kept: the fast route's program-cache limit 40 -> 128 (45 programs; 5 were recompiled every run: context wait 150-320 -> 44-79 ms; written ms detail30 1159 -> 1069, moving 684 -> 556, night 1106 -> 840, lamp 1077 -> 1023), fmFilterGather (rejection filter's 7x7 by textureGather, same order; submit 804 -> 777 ms), fmMergeBatch N (default 1 = off; in-app A/B), gpuPrio in the fast-merge log line. Output byte-identical on 4 Bayer + Quad + Tetra + strips. RESULT 2026-11-03: built (app: scam-ahb.cpp JNI, HardwareRgb, AhbRoute, ScamNeuralClient socketpair / 'A'|'M' reply, HalfRgbUpload import; worker diff D:/burst/scamera-research/p482/p482-worker-v2.diff, NOT applied) but NOT accepted - importing the CPU-locked AHB into the post's GL context (glBufferStorageExternalEXT) crashes the app (SIGSEGV in Java heap, 3/3 on the OPPO); the CPU-view route hung the GPU in ScamHdrDenoise like hl_stats_gpu did. scam_dev ahb_transport default 0 (no marker, the worker answers as before). Gain if it ever works: ~40-60 ms. My hl_stats_gpu (exact in the JVM test) is default OFF too until the on-phone hang is understood (repro queued).
+- 2026-11-03 sweep: the earlier rename missed the lowercase Cyrillic form in the owner's quotes (45 places: «в Why камере» now) and one research path; a whole-word scan (any case, Latin / Cyrillic, camelCase and _ forms) of every tracked and new file finds 0 (HANDOFF.md and third_party aside). The D: folders named after it stay outside the repo. tools/check_hybrid_dezipper.py's frozen merge-source digest updated: its only change was a renamed comment.

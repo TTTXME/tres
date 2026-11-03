@@ -79,6 +79,31 @@ public final class ScamNeuralClient {
                     if(outputBytes==expected+d+e+c)return new long[]{d,e,c};
         return null;
     }
+    /**
+     * P480: {@link #trailers} with the optional last trailer, the base highlight mask ({@code hlTrailer} bytes: 16 of header and the
+     * halves of the HALF grid; only on the hl-mask request): {dng, eff, clip, mask} bytes, the layout with the mask first, or null.
+     * The header ({@link #highlightMaskOk}) decides whether those bytes are the mask.
+     */
+    static long[] trailers(long outputBytes,long expected,long rawTrailer,long outTrailer,boolean dng,boolean map,boolean clip,long hlTrailer){
+        if(hlTrailer>0){
+            final long[] l=trailers(outputBytes-hlTrailer,expected,rawTrailer,outTrailer,dng,map,clip);
+            if(l!=null)return new long[]{l[0],l[1],l[2],hlTrailer};
+        }
+        final long[] l=trailers(outputBytes,expected,rawTrailer,outTrailer,dng,map,clip);
+        return l==null?null:new long[]{l[0],l[1],l[2],0};
+    }
+    /** P480: the mask trailer's bytes for an ow x oh sensor-grid RGB: "SCHLMSK1", HALF width / height (int32 LE), the halves. */
+    static long highlightMaskBytes(int ow,int oh){
+        return ow%2==0&&oh%2==0?16L+(long)(ow/2)*(oh/2)*2:0L;
+    }
+    /** P480: the header of a mask trailer read into {@code b} (position 0): its tag and the HALF size of the RGB. */
+    static boolean highlightMaskOk(ByteBuffer b,int ow,int oh){
+        if(b.capacity()<16)return false;
+        final byte[] tag={'S','C','H','L','M','S','K','1'};
+        for(int i=0;i<8;i++)if(b.get(i)!=tag[i])return false;
+        final ByteBuffer le=b.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+        return le.getInt(8)==ow/2&&le.getInt(12)==oh/2;
+    }
     interface Truncatable { void truncate(long size) throws IOException; }
     /**
      * P179: dst.remaining() bytes from {@code position} into dst read from the end in slices of {@code slice} bytes, the source cut
@@ -192,7 +217,17 @@ public final class ScamNeuralClient {
         // thread, and nothing it does can fail the session.
         try{PREWARM.execute(()->prewarmRun(app,b));}catch(RuntimeException e){Log.w("SCAM_HDR","HYBRID PREWARM: "+e);}
     }
+    /**
+     * P470: the prewarm of block {@code b} on the calling thread (the first-run compile screen); progress gets the worker's
+     * (done, total) program counts. Nothing when this process already prewarmed that block and tuning.
+     */
+    public static void prewarmHybridGpuBlocking(Context context,int block,java.util.function.BiConsumer<Integer,Integer> progress){
+        if(context!=null)prewarmRun(context.getApplicationContext(),block==2||block==4?block:1,progress);
+    }
     private static void prewarmRun(Context app,int b){
+        prewarmRun(app,b,null);
+    }
+    private static void prewarmRun(Context app,int b,java.util.function.BiConsumer<Integer,Integer> progress){
         final String tuning;
         try{
             if(!com.particlesdevs.photoncamera.util.WorkerSpawn.available(app))return;
@@ -219,6 +254,11 @@ public final class ScamNeuralClient {
             final StringBuilder report=new StringBuilder();
             try(BufferedReader lines=new BufferedReader(new InputStreamReader(child.output))){
                 String line;while((line=lines.readLine())!=null){
+                    if(progress!=null&&line.startsWith("HYBRID PREWARM PROGRESS ")){ // P470
+                        final String[] p=line.substring(24).trim().split(" ");
+                        try{progress.accept(Integer.parseInt(p[0]),Integer.parseInt(p[1]));}catch(RuntimeException ignored){}
+                        continue;
+                    }
                     if(line.startsWith("HYBRID PREWARM"))result=line;
                     if(report.length()<16000)report.append(line).append('\n');
                 }
@@ -278,6 +318,7 @@ public final class ScamNeuralClient {
         com.particlesdevs.photoncamera.util.WorkerSpawn.Child process=adopted!=null?adopted.child:null;
         boolean handedOff=false; // P371 (ok_read): the result taken at the completion line, the worker still exiting
         SharedMemory scamIn=null,scamOut=null;
+        AhbRoute ahb=null;boolean ahbWanted=false; // P482: the RGB in the app's hardware buffer (closed in the finally block)
         // Without root: the worker and its QNN/CRE runtime are installed as native
         // libraries and run as the app's own child process (sandboxed, same NPU/GPU).
         // su remains the optional fallback for builds without them.
@@ -306,15 +347,13 @@ public final class ScamNeuralClient {
                 if(line.indexOf(" row profile ")>0&&line.indexOf(" bands G ")>0&&rowProfiles.size()<16)rowProfiles.add(line);
                 if(line.indexOf(EFFECTIVE_MAP_LINE)>=0)effMedian[0]=reportNumber(line,EFFECTIVE_MAP_LINE,"median frames=",Float.NaN);
                 long now=android.os.SystemClock.elapsedRealtime();
-                // Keep every line in memory; batch disk commits so the reader
-                // cannot stall the native stdout pipe on frequent progress logs.
-                // P371: the fsync'ed commit outside the lock (the processing thread takes it for its own lines and the report's
-                // numbers), none for the completion line (the shot reads its result there; the finally block stores the report)
-                if((now-lastReportWriteMs[0]>=500||line.startsWith("STOP:")||line.startsWith("CLIENT STOP:"))&&!line.equals("SCAM CAPTURE OK")){
+                // Progress/metadata always stay in memory. Disk snapshots are opt-in; errors and the final report survive.
+                if(((com.particlesdevs.photoncamera.util.ScameraDebugLog.isEnabled()&&now-lastReportWriteMs[0]>=500)
+                        ||line.startsWith("STOP:")||line.startsWith("CLIENT STOP:"))&&!line.equals("SCAM CAPTURE OK")){
                     commit=report.toString();lastReportWriteMs[0]=now;
                 }
             }
-            if(commit!=null&&generation==JOB_GENERATION.get())prefs.edit().putString("report",commit).commit();
+            if(commit!=null&&generation==JOB_GENERATION.get())prefs.edit().putString("report",commit).apply();
             com.particlesdevs.photoncamera.processing.ShotTimeline.workerLine(line);
             observer.accept(line);
         };
@@ -358,6 +397,8 @@ public final class ScamNeuralClient {
                 // and the tuning lines written from the SCAM HDR settings.
                 if(!new File(dir,"hybrid-merge").createNewFile())throw new IOException(Lang.t("Не удалось создать маркер склейки SHDR","Could not create the SHDR merge marker"));
                 if(scamBurst.stages()&&!new File(dir,"stage-dump").createNewFile())log.accept("CLIENT: stage-dump marker not written");
+                // P480: the base highlight mask may come back (the fast merge's highlight path) for the dezipper pass
+                if(scamBurst.highlightMask()&&!new File(dir,"hl-mask").createNewFile())log.accept("CLIENT: hl-mask marker not written");
                 // P188: scam_dev "keep_burst 1" - the worker keeps the shot's RAW burst for an offline replay. P191: one file per shot
                 // in Download/SCAMERA (scam_burst-<time>.bin, next to the debug log), not the package's external files: a file
                 // manager on Android 16 no longer opens Android/data (owner, 2026-10-17)
@@ -389,6 +430,8 @@ public final class ScamNeuralClient {
                 String tuning=settingsTuning+burstTuning;
                 if(!tuning.isEmpty())try(java.io.FileWriter tw=new java.io.FileWriter(new File(dir,"hybrid_tuning.txt"))){tw.write(tuning);}
                 log.accept("CLIENT: SCAM Hybrid merge requested"+(tuning.isEmpty()?"":" tuning="+tuning.replace('\n',' ')));
+                // P482 (ahb_transport): the RGB in a hardware buffer of the app (AhbRoute), the worker's fast merge writes it there
+                ahbWanted=direct&&AhbRoute.wanted(true,rgbHalf,(long)scamBurst.outputWidth()*scamBurst.outputHeight(),scamBurst.mergedDng(),tuning);
             }
             if(adopted==null)writeDumpForward(context,dir);
             final long assetsDone=android.os.SystemClock.elapsedRealtime();
@@ -448,12 +491,17 @@ public final class ScamNeuralClient {
                         +" ms before the go (scam_dev worker_prespawn)");
                 com.particlesdevs.photoncamera.processing.ShotTimeline.note("w_gpu_priority",adopted.normalGpu?"normal":"medium");
                 com.particlesdevs.photoncamera.processing.ShotTimeline.note("w_nice",adopted.nice==com.particlesdevs.photoncamera.util.WorkerEnv.KEEP_NICE?"inherited":String.valueOf(adopted.nice));
+                // P482: the standby's socket (its fd 6) carries the hardware buffer when this job wants it (the marker before the go)
+                ahb=adopted.ahb;adopted.ahb=null;
+                if(ahb!=null&&!(ahbWanted&&scamOut!=null&&ahbMarker(dir,6,log))){ahb.close();ahb=null;}
+                if(ahb!=null)ahb.start((long)scamBurst.outputWidth()*scamBurst.outputHeight()*6);
                 // review M2 (a, b): a standby that died since take() (the go pipe's reader gone: EPIPE) gives its lines to this report
                 // and a worker spawned now takes the job (the burst is in the arena, the output memfd still empty)
                 String gone=null;
                 try{if(adopted.child.waitFor(0))gone="exited "+adopted.child.exitValue();else adopted.go();}
                 catch(IOException goFailed){gone=String.valueOf(goFailed.getMessage());}
                 if(gone!=null){
+                    if(ahb!=null){ahb.close();ahb=null;} // (the worker spawned below gets a socket of its own)
                     adopted.closeGo();adopted.child.destroy();
                     try{adopted.reader.join(500);}catch(InterruptedException e){Thread.currentThread().interrupt();} // its last lines
                     for(String l:adopted.route.drop())log.accept("STANDBY: "+l);
@@ -471,6 +519,14 @@ public final class ScamNeuralClient {
                 // memfd burst/result inherited as fd 3/4 (the sandbox cannot open /proc/<pid>/fd).
                 if(scamOut!=null)fds=goPipe!=null?new android.os.ParcelFileDescriptor[]{scamIn.fd,scamOut.fd,goPipe[0]}
                         :new android.os.ParcelFileDescriptor[]{scamIn.fd,scamOut.fd};
+                // P482: the hardware buffer's socket as the next inherited fd (the marker rgb-ahb names it)
+                if(ahbWanted&&scamOut!=null)ahb=AhbRoute.create();
+                if(ahb!=null&&ahbMarker(dir,3+fds.length,log)){
+                    fds=java.util.Arrays.copyOf(fds,fds.length+1);fds[fds.length-1]=ahb.workerEnd;
+                } else {
+                    if(ahb!=null){ahb.close();ahb=null;}
+                    if(new File(dir,"rgb-ahb").exists()&&!new File(dir,"rgb-ahb").delete())throw new IOException("rgb-ahb marker left");
+                }
                 java.util.Collections.addAll(args,"--scam-capture",dirPath,scamOut!=null?"fd:3":input.getAbsolutePath(),
                         scamOut!=null?"fd:4":output.getAbsolutePath());
                 log.accept(Lang.t("WORKER: отдельный процесс приложения (без root)","WORKER: separate app process (no root)"));
@@ -484,6 +540,7 @@ public final class ScamNeuralClient {
                 com.particlesdevs.photoncamera.processing.ShotTimeline.note("w_nice",workerNice==com.particlesdevs.photoncamera.util.WorkerEnv.KEEP_NICE?"inherited":String.valueOf(workerNice));
                 process=com.particlesdevs.photoncamera.util.WorkerSpawn.start(context,args,
                         com.particlesdevs.photoncamera.util.WorkerSpawn.environment(context,dir),fds);
+                if(ahb!=null){ahb.spawned();ahb.start((long)scamBurst.outputWidth()*scamBurst.outputHeight()*6);}
                 if(goPipe!=null){
                     goPipe[0].close();
                     final long writeStarted=android.os.SystemClock.elapsedRealtime();
@@ -563,15 +620,47 @@ public final class ScamNeuralClient {
                     Lang.t("SCAM HDR не завершён. Откройте SCAM HDR — проверка запуска → Отчёт последней съёмки SCAM HDR.","SCAM HDR not finished. Open “SCAM HDR: launch check” → “Last SCAM HDR capture report”."));
             }
             final int ow=scamBurst.outputWidth(),oh=scamBurst.outputHeight();
-            long expected=(long)ow*oh*(rgbHalf?6:12);
-            if(expected<=0||expected>Integer.MAX_VALUE)throw new IOException(Lang.t("Слишком большой нейрорезультат","Neural result too large"));
+            final long rgbBytes=(long)ow*oh*(rgbHalf?6:12);
+            if(rgbBytes<=0||rgbBytes>Integer.MAX_VALUE)throw new IOException(Lang.t("Слишком большой нейрорезультат","Neural result too large"));
+            // P482: the worker's answer on the socket (sent before its completion line): 'A' = the RGB is in the app's hardware
+            // buffer, the memfd holds the trailers only
+            final boolean rgbInAhb=ahb!=null&&ahb.answer(200)==AhbRoute.IN_BUFFER;
+            if(ahb!=null)log.accept("CLIENT: hardware buffer "+ahb.note()+(rgbInAhb?", the RGB in it (scam_dev ahb_transport)":", the RGB in the memfd"));
+            final long expected=rgbInAhb?0:rgbBytes; // the RGB's bytes in the memfd
             final long outputBytes=scamOut!=null?scamOut.size():output.length();
             // The trailers after the RGB (merged RAW, effective-frame map, clip flags; see trailers)
             final boolean map=scamBurst.effectiveMap();
             if(!map)log.accept("CLIENT: no effective-frame map asked for ("+ow+"x"+oh+": no denoise reads it)");
-            final long[] layout=trailers(outputBytes,expected,scamBurst.mergedRawPixels()*2,(long)ow*oh,scamBurst.mergedDng(),map,scamBurst.clipFlags());
+            long[] layout=trailers(outputBytes,expected,scamBurst.mergedRawPixels()*2,(long)ow*oh,scamBurst.mergedDng(),map,scamBurst.clipFlags(),
+                    scamBurst.highlightMask()?highlightMaskBytes(ow,oh):0L);
+            ScamHybridBurst.lastHlMask=null;
+            // P480: the base highlight mask (the last trailer) first: its header decides the layout (without it: the one without the mask)
+            ByteBuffer hlMask=null;
+            if(layout!=null&&layout[3]>0){
+                try{
+                    hlMask=ByteBuffer.allocateDirect((int)layout[3]);
+                    final long position=outputBytes-layout[3];
+                    if(scamOut!=null)scamOut.readFully(hlMask,position);
+                    else try(FileChannel channel=new FileInputStream(output).getChannel()){
+                        long p=position;
+                        while(hlMask.hasRemaining()){int n=channel.read(hlMask,p);if(n<0)throw new EOFException("highlight mask");p+=n;}
+                    }
+                    hlMask.flip();
+                }catch(Exception|OutOfMemoryError e){hlMask=null;log.accept("CLIENT: highlight mask not read: "+e);}
+                if(hlMask==null||!highlightMaskOk(hlMask,ow,oh)){
+                    if(hlMask!=null)log.accept("CLIENT: the bytes after the trailers are no highlight mask (header): layout without it");
+                    hlMask=null;
+                    final long[] l=trailers(outputBytes,expected,scamBurst.mergedRawPixels()*2,(long)ow*oh,scamBurst.mergedDng(),map,scamBurst.clipFlags());
+                    layout=l==null?null:new long[]{l[0],l[1],l[2],0};
+                }
+            }
             if(layout==null)throw new IOException(Lang.t("Неверный размер нейрорезультата","Wrong neural result size"));
-            final long dngBytes=layout[0],effBytes=layout[1],clipBytes=layout[2];
+            final long dngBytes=layout[0],effBytes=layout[1],clipBytes=layout[2],hlBytes=hlMask!=null?layout[3]:0;
+            if(hlMask!=null){
+                hlMask.position(16);
+                ScamHybridBurst.lastHlMask=new ScamHybridBurst.HlMask(hlMask.slice().order(ByteOrder.nativeOrder()),ow/2,oh/2);
+                log.accept("CLIENT: base highlight mask "+(ow/2)+"x"+(oh/2)+" for the dezipper pass");
+            }
             {ScamHybridBurst.lastMergedDng=null;ScamHybridBurst.lastEffectiveFrames=null;ScamRgb.dropClipFlags();
                 // P371: the report as it stands at the completion line (the reader may still append the worker's last lines)
                 final String rep;
@@ -607,12 +696,20 @@ public final class ScamNeuralClient {
             // between the RGB and the clip views - the merged DNG and the effective map - before their reads: zeros from ~21 MP
             // with RAW saving, on 2x grids); on any way out the views are freed with it
             try{
+            if(rgbInAhb){ // P482: a CPU view of the locked hardware buffer (freed by its consumers as the memfd's view: Allocator.free)
+                final long lockStart=System.nanoTime();
+                result=ahb.take((int)rgbBytes);
+                if(result==null)throw new IOException(Lang.t("Результат склейки недоступен (аппаратный буфер)","The merge result is unreadable (hardware buffer)"));
+                viewed=true;
+                log.accept("CLIENT: result in the app's hardware buffer, locked for CPU reads in "+(System.nanoTime()-lockStart)/1_000_000+" ms");
+            } else {
             result=adoptedArena>0?com.particlesdevs.photoncamera.util.Allocator.arenaView(adoptedArena,0,(int)expected):null;
             viewed=result!=null;
             if(!viewed)result=com.particlesdevs.photoncamera.util.Allocator.allocate((int)expected);
             if(result==null)throw new IOException(Lang.t("Недостаточно памяти для результата","Not enough memory for the result"));
-            result.order(ByteOrder.nativeOrder());
             if(viewed)log.accept("CLIENT: result read in place (the memfd mapped, scam_dev zero_copy_read)");
+            }
+            result.order(ByteOrder.nativeOrder());
             if(!shrink&&!viewed){
                 try{
                     if(scamOut!=null)scamOut.readFully(result,0); // P48: parallel pread of the memfd
@@ -684,6 +781,7 @@ public final class ScamNeuralClient {
             // the merged DNG and the effective map are copies now: their pages of the result go back (as the memfd did when the
             // job closed it; the views keep the RGB and the clip flags)
             if(adoptedArena>0&&dngBytes+effBytes>0)com.particlesdevs.photoncamera.util.Allocator.arenaPunch(adoptedArena,expected,dngBytes+effBytes);
+            if(adoptedArena>0&&hlBytes>0)com.particlesdevs.photoncamera.util.Allocator.arenaPunch(adoptedArena,expected+dngBytes+effBytes+clipBytes,hlBytes); // P480: a copy too
             taken=true;
             }finally{
                 if(adoptedArena>0){
@@ -707,6 +805,8 @@ public final class ScamNeuralClient {
             if(process!=null && process.isAlive() && !reap)process.destroy();
             if(scamIn!=null)scamIn.close();
             if(scamOut!=null)scamOut.close();
+            if(ahb!=null)ahb.close(); // P482: a buffer no view took goes back
+            if(adopted!=null&&adopted.ahb!=null){adopted.ahb.close();adopted.ahb=null;}
             // P371 (review M2b): the lines of a standby this job took but never attached (it threw first) go to its report
             if(adopted!=null&&!adopted.route.attached())for(String l:adopted.route.drop())log.accept("STANDBY: "+l);
             if(adopted!=null){ // P371 (review m3): a job that threw before its memfds took the standby's
@@ -750,6 +850,12 @@ public final class ScamNeuralClient {
     private static String creSourceMarker(){
         String creSource=com.particlesdevs.photoncamera.settings.PreferenceKeys.getScamCreSource();
         return "bundled".equals(creSource)?"cre-force-bundled":"vendor".equals(creSource)?"cre-vendor-only":null;
+    }
+
+    /** P482: the job marker rgb-ahb naming the worker's fd of the hardware buffer socket; false (logged): not written. */
+    static boolean ahbMarker(File dir,int fd,Consumer<String> log){
+        try(java.io.FileWriter w=new java.io.FileWriter(new File(dir,"rgb-ahb"))){w.write(String.valueOf(fd));return true;}
+        catch(IOException e){log.accept("CLIENT: rgb-ahb marker not written: "+e.getMessage());return false;}
     }
 
     /** P30: the worker keeps its compiled GPU programs in the app's cache (−0.6 s per shot after the first). */
@@ -825,6 +931,8 @@ public final class ScamNeuralClient {
         final LineRoute route=new LineRoute();final Thread reader;
         /** The burst's arena as job() reads it (take: the header written into it). */
         android.os.ParcelFileDescriptor arena;
+        /** P482: the hardware buffer socket (the worker's fd 6), or null; job() takes it (marker rgb-ahb) or closes it. */
+        AhbRoute ahb;
         private boolean goDone;
 
         private Standby(File dir,com.particlesdevs.photoncamera.util.WorkerSpawn.Child child,SharedMemory out,android.os.ParcelFileDescriptor goWrite,
@@ -857,6 +965,7 @@ public final class ScamNeuralClient {
         void discard(String why){
             closeGo();
             if(arena!=null){try{arena.close();}catch(IOException ignored){}arena=null;}
+            if(ahb!=null){ahb.close();ahb=null;}
             out.close();
             Log.i("SCAM_HDR","CLIENT: worker started at the shutter not used ("+why+")");
             final Runnable reap=()->{
@@ -896,6 +1005,7 @@ public final class ScamNeuralClient {
         private static void spawn(Context context,int arenaId,long at){
             Standby made=null;
             File dir=null;SharedMemory out=null;android.os.ParcelFileDescriptor[] go=null;android.os.ParcelFileDescriptor arena=null;
+            AhbRoute ahb=null;
             try{
                 final int fd=com.particlesdevs.photoncamera.util.Allocator.arenaFd(arenaId);
                 if(fd<0)throw new IOException("arena "+arenaId+" gone");
@@ -919,12 +1029,19 @@ public final class ScamNeuralClient {
                 final String preGo=preGoKey(context,creOff);
                 final boolean normalGpu=com.particlesdevs.photoncamera.util.WorkerEnv.gpuNormalPriority();
                 final int nice=com.particlesdevs.photoncamera.util.WorkerEnv.workerNice();
+                // P482: the hardware buffer socket as fd 6 (used only when the job writes its marker rgb-ahb before the go)
+                if(com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("ahb_transport",false))ahb=AhbRoute.create();
                 final long spawnedNs=android.os.SystemClock.elapsedRealtimeNanos();
-                final com.particlesdevs.photoncamera.util.WorkerSpawn.Child child=com.particlesdevs.photoncamera.util.WorkerSpawn.startFast(context,args,
-                        com.particlesdevs.photoncamera.util.WorkerSpawn.environment(context,dir),arena,out.fd,go[0]);
+                final com.particlesdevs.photoncamera.util.WorkerSpawn.Child child=ahb!=null
+                        ?com.particlesdevs.photoncamera.util.WorkerSpawn.startFast(context,args,
+                            com.particlesdevs.photoncamera.util.WorkerSpawn.environment(context,dir),arena,out.fd,go[0],ahb.workerEnd)
+                        :com.particlesdevs.photoncamera.util.WorkerSpawn.startFast(context,args,
+                            com.particlesdevs.photoncamera.util.WorkerSpawn.environment(context,dir),arena,out.fd,go[0]);
                 go[0].close();
+                if(ahb!=null)ahb.spawned();
                 arena.close();arena=null; // the worker holds its own fd 3
                 made=new Standby(dir,child,out,go[1],st.st_ino,st.st_dev,spawnedNs,preGo,normalGpu,nice);
+                made.ahb=ahb;ahb=null;
                 made.reader.start();
                 Log.i("SCAM_HDR","CLIENT: worker started at the shutter for arena "+arenaId+" in "
                         +(android.os.SystemClock.elapsedRealtimeNanos()-spawnedNs)/1_000_000+" ms");
@@ -937,6 +1054,7 @@ public final class ScamNeuralClient {
                 }
             }finally{
                 if(arena!=null)try{arena.close();}catch(IOException ignored){}
+                if(ahb!=null)ahb.close(); // P482: not handed to a standby
             }
             final Standby ready=made;
             boolean stale=false;

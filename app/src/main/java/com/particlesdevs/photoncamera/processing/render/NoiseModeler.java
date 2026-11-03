@@ -7,6 +7,32 @@ import com.particlesdevs.photoncamera.processing.parameters.FrameNumberSelector;
 
 public class NoiseModeler {
     private static String TAG = "NoiseModeler";
+
+    /**
+     * P473: Nubia / ZTE HALs report the profile's offset in sensor units (~0.0256 instead of ~1e-5 of
+     * the [0, 1] signal) and the shot is then taken for deep night. An offset above 0.01 (a read noise over 10 % of full scale, never
+     * real) is divided by the white level, above 1 by its square; any other value is returned as it is.
+     */
+    public static double halOffset(double offset, int white) {
+        if (white <= 1 || !(offset > 0.01) || Double.isInfinite(offset)) return offset;
+        return offset > 1.0 ? offset / ((double) white * white) : offset / white;
+    }
+
+    /** {@link #halOffset} on every channel of a SENSOR_NOISE_PROFILE; the same array when nothing changes (null stays null). */
+    public static Pair<Double,Double>[] sanitizedOffsets(Pair<Double,Double>[] profile, int white) {
+        if (profile == null) return null;
+        Pair<Double,Double>[] out = null;
+        for (int i = 0; i < profile.length; i++) {
+            final Pair<Double,Double> c = profile[i];
+            if (c == null || c.second == null) continue;
+            final double o = halOffset(c.second, white);
+            if (o == c.second) continue;
+            if (out == null) out = profile.clone();
+            out[i] = new Pair<>(c.first, o);
+        }
+        if (out != null) Log.w(TAG, "HAL noise offset in sensor units: divided by the white level " + white);
+        return out != null ? out : profile;
+    }
     public Pair<Double,Double>[] baseModel;
     public Pair<Double,Double>[] computeModel;
     public int AnalogueISO;

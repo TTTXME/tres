@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""P419: why/combine ARK_VIBRANCE 1 - the reference app's vibrance in one gain, on the GPU.
+"""P419: why/combine WHY_VIBRANCE 1 - the reference app's vibrance in one gain, on the GPU.
 
-With every strength 0 the define is bit for bit the shader without vibrance (ARK_VIBRANCE 0, vibU 0, vibHlU 0) under SKY 0 / 1 and
+With every strength 0 the define is bit for bit the shader without vibrance (WHY_VIBRANCE 0, vibU 0, vibHlU 0) under SKY 0 / 1 and
 TONE_OP 0 / 1. Each term raises its own colours only: the pastel strength the low chroma, «saturated» the high one, the sky term
 OKLab b < 0 only, the green term a < 0 only, the mid-tones OKLab L 0.35 .. 0.55, the shadows below 0.08 .. 0.25 and the light tones 0.80 ..
 0.88 (AgX and TONE_OP 1) and not a near-white's cast (P393's gate). The skin protection holds a skin-hue colour
@@ -55,32 +55,32 @@ def main():
         if not cond:
             failures.append(msg)
 
-    assert SRC.count('#define ARK_VIBRANCE 0\n') == 1 and SRC.count('#define TONE_OP 0\n') == 1
+    assert SRC.count('#define WHY_VIBRANCE 0\n') == 1 and SRC.count('#define TONE_OP 0\n') == 1
     tone1 = SRC.replace('#define TONE_OP 0\n', '#define TONE_OP 1\n')
     aces = {'toneOpU': 1, 'acesU': (1.0, 2.61, 0.59, 0.05)}
     off = {'vibU': (0.0, 0.0, 0.0), 'vibHlU': 0.0}
     skin = (1.0, float(np.radians(SKIN_HUE)), 0.16, 0.0)
-    zero = dict(off, vibArkU=(0.0, 0.0, 0.0, 0.0), vibSkinU=skin)
+    zero = dict(off, vibWhyU=(0.0, 0.0, 0.0, 0.0), vibSkinU=skin)
     runs = {
-        'pastel': {'vibU': (0.4, 0.0, 0.0)}, 'saturated': {'vibArkU': (0.4, 0.0, 0.0, 0.0)},
+        'pastel': {'vibU': (0.4, 0.0, 0.0)}, 'saturated': {'vibWhyU': (0.4, 0.0, 0.0, 0.0)},
         'sky': {'vibU': (0.0, 0.4, 0.0)}, 'green': {'vibU': (0.0, 0.0, 0.4)},
-        'mid': {'vibArkU': (0.0, 0.0, 0.5, 0.0)}, 'shadows': {'vibArkU': (0.0, 0.0, 0.0, 0.5)},
-        'mid0': {'vibArkU': (0.0, 0.0, 0.5, 0.0), 'vibSkinU': (0.0,) + skin[1:]},
+        'mid': {'vibWhyU': (0.0, 0.0, 0.5, 0.0)}, 'shadows': {'vibWhyU': (0.0, 0.0, 0.0, 0.5)},
+        'mid0': {'vibWhyU': (0.0, 0.0, 0.5, 0.0), 'vibSkinU': (0.0,) + skin[1:]},
         'skinsat': {'vibSkinU': skin[:3] + (0.4,)},
     }
     img = image()
     b = Bench()
     try:
         r0 = b.render(img, [('ref', None, 0, off), ('refsky', None, 1, off), ('ref1', tone1, 0, dict(off, **aces))])
-        b.extra = (('ARK_VIBRANCE', '1'),)
+        b.extra = (('WHY_VIBRANCE', '1'),)
         r = b.render(img, [('zero', None, 0, zero), ('zerosky', None, 1, zero), ('zero1', tone1, 0, dict(zero, **aces))]
                      + [(k, None, 0, dict(zero, **o)) for k, o in runs.items()]
-                     + [('hl1', tone1, 0, dict(zero, vibArkU=(0.0, 0.25, 0.0, 0.0), **aces)), ('hl1z', tone1, 0, dict(zero, **aces)),
-                        ('hl0', None, 0, dict(zero, vibArkU=(0.0, 0.25, 0.0, 0.0)))])
+                     + [('hl1', tone1, 0, dict(zero, vibWhyU=(0.0, 0.25, 0.0, 0.0), **aces)), ('hl1z', tone1, 0, dict(zero, **aces)),
+                        ('hl0', None, 0, dict(zero, vibWhyU=(0.0, 0.25, 0.0, 0.0)))])
         # compiles with the other defines it meets in the app
         for extra in ((('COLOUR_LOOK', '1'),), (('LIGHT_CHROMA', '1'),), (('SKY', '1'), ('COLOUR_LOOK', '1'), ('LIGHT_CHROMA', '1'))):
             for text in (SRC, tone1):
-                defs = [('HL_LANDING', '1'), ('ARK_VIBRANCE', '1')] + list(extra)
+                defs = [('HL_LANDING', '1'), ('WHY_VIBRANCE', '1')] + list(extra)
                 b.gl.ctx.program(vertex_shader=cwp.VS, fragment_shader=cwp.read_program(text, defs)).release()
         print('compiles with COLOUR_LOOK / LIGHT_CHROMA / SKY, TONE_OP 0 / 1')
     finally:
@@ -136,7 +136,7 @@ def main():
     if failures:
         print('%d FAILED' % len(failures))
         return 1
-    print('check_ark_vibrance: all passed')
+    print('check_why_vibrance: all passed')
     return 0
 
 

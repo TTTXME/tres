@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="full_debug_summary">Writes a detailed processing log to Download/SCAMERA for bug hunting.</string>
+    <string name="full_debug_summary">Application, processing and crash logs in Documents/SCAMERA/Logs. Off by default. The actual path is shown when enabled.</string>
 </resources>

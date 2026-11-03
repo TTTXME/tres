@@ -51,6 +51,38 @@ public final class JpegliEncoder {
      */
     private static native void setAdaptiveQuantization(boolean on);
 
+    /** P483: {@link #encode} of RGBA rows {@code stride} bytes apart in a direct buffer (the bytes of a bitmap holding these pixels). */
+    private static native String encodeBuffer(java.nio.ByteBuffer src, int width, int height, int stride, int quality, OutputStream out, int threads, int[] mode);
+
+    private static native void setFastHuffmanTables(boolean on);
+
+    private static native boolean copyPixels(java.nio.ByteBuffer src, Bitmap dst, int threads);
+
+    private static native boolean touchPixels(Bitmap dst, int threads);
+
+    /** P473: the new bitmap's pages faulted in on four threads (its contents undefined until copyPixels); false: not done. */
+    public static boolean touchPixels(Bitmap dst) {
+        if (!AVAILABLE || dst == null) return false;
+        try {
+            return touchPixels(dst, 4);
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
+    }
+
+    /**
+     * P473 (speed): {@code src} (direct, tightly packed RGBA8 rows from its start) into the RGBA_8888 {@code dst} on four threads,
+     * the bytes Bitmap.copyPixelsFromBuffer would copy; false when the library or the buffers do not allow it (copy as before).
+     */
+    public static boolean copyPixels(java.nio.ByteBuffer src, Bitmap dst) {
+        if (!AVAILABLE || src == null || !src.isDirect() || dst == null) return false;
+        try {
+            return copyPixels(src, dst, 4);
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
+    }
+
     static boolean adaptiveQuantization() {
         return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("jpeg_aq", false);
     }
@@ -69,6 +101,30 @@ public final class JpegliEncoder {
     public static void compress(Bitmap bitmap, int quality, OutputStream out) throws IOException {
         if (!AVAILABLE) throw new IOException("jpegli unavailable");
         if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) throw new IOException("jpegli needs ARGB_8888, got " + bitmap.getConfig());
+        compress(bitmap, null, bitmap.getWidth(), bitmap.getHeight(), 0, quality, out);
+    }
+
+    /**
+     * P483 (speed): {@link #compress} of the tightly packed RGBA rows of the direct buffer {@code rgba} ({@code width} x
+     * {@code height}: the final readback's mapped pixel-pack buffer) - the same settings and the same bytes as a bitmap of these
+     * pixels, without the bitmap and the copy into it. Throws as {@link #compress} (the caller has the pixels for a retry).
+     */
+    public static void compress(java.nio.ByteBuffer rgba, int width, int height, int quality, OutputStream out) throws IOException {
+        compress(rgba, width, height, 4 * width, quality, out);
+    }
+
+    /**
+     * P483: as above for rows {@code stride} bytes apart from the buffer's start - a sub-rectangle of a frame as a slice at its first
+     * pixel (the ISZ 4:3 crop: the bytes of Bitmap.createBitmap(source, x, y, w, h) encoded).
+     */
+    public static void compress(java.nio.ByteBuffer rgba, int width, int height, int stride, int quality, OutputStream out) throws IOException {
+        if (!AVAILABLE) throw new IOException("jpegli unavailable");
+        if (rgba == null || !rgba.isDirect() || width <= 0 || height <= 0 || stride < 4 * width
+                || (long) rgba.capacity() < (long) (height - 1) * stride + 4L * width) throw new IOException("jpegli: no direct RGBA buffer");
+        compress(null, rgba, width, height, stride, quality, out);
+    }
+
+    private static void compress(Bitmap bitmap, java.nio.ByteBuffer rgba, int width, int height, int stride, int quality, OutputStream out) throws IOException {
         final int[] mode = {1};
         final long started = System.nanoTime();
         final boolean aq = adaptiveQuantization();
@@ -77,10 +133,24 @@ public final class JpegliEncoder {
         } catch (UnsatisfiedLinkError old) {
             Log.w(TAG, "jpegli without the adaptive quantisation switch: " + old);
         }
-        String error = encode(bitmap, quality, out, threads(), mode);
+        boolean fastTables = true;
+        try {
+            fastTables = com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("jpeg_fast_tables", true);
+            setFastHuffmanTables(fastTables);
+        } catch (UnsatisfiedLinkError old) {
+            fastTables = false;
+            Log.w(TAG, "jpegli without the Huffman statistics switch: " + old);
+        }
+        final String error;
+        try {
+            error = bitmap != null ? encode(bitmap, quality, out, threads(), mode) : encodeBuffer(rgba, width, height, stride, quality, out, threads(), mode);
+        } catch (UnsatisfiedLinkError old) {
+            throw new IOException("jpegli without the buffer entry: " + old);
+        }
         if (error != null) throw new IOException("jpegli: " + error);
-        Log.d(TAG, "jpegli " + bitmap.getWidth() + "x" + bitmap.getHeight() + " q" + quality + " "
-                + (mode[0] > 1 ? "strips on " + mode[0] + " threads" : "one thread") + (aq ? " aq" : "") + " ms=" + (System.nanoTime() - started) / 1000000);
+        Log.d(TAG, "jpegli " + width + "x" + height + (bitmap != null ? "" : " (mapped buffer)") + " q" + quality + " "
+                + (mode[0] > 1 ? "strips on " + mode[0] + " threads" : "one thread") + (aq ? " aq" : "")
+                + (mode[0] > 1 && fastTables ? " token reuse allowed" : "") + " ms=" + (System.nanoTime() - started) / 1000000);
     }
 
     /** Android's encoder (4:2:0), the fallback when jpegli failed. */

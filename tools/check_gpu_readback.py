@@ -45,11 +45,13 @@ suffix=r'''
 };
 int main(){
  if(!hybridBayerSplitEligible(1,false,1,2,4,4.f,1.f,1.f)
-    ||!hybridBayerSplitEligible(1,false,1,4,4,4.f,1.f,1.f))
+    ||!hybridBayerSplitEligible(1,false,1,4,4,4.f,1.f,1.f)
+    ||!hybridBayerSplitEligible(1,false,2,2,4,4.f,1.f,1.f)
+    ||!hybridBayerSplitEligible(1,false,2,4,4,4.f,1.f,1.f))
      throw std::runtime_error("eligible Bayer split refused");
  if(hybridBayerSplitEligible(0,false,1,4,4,4.f,1.f,1.f)
     ||hybridBayerSplitEligible(1,true,1,4,4,4.f,1.f,1.f)
-    ||hybridBayerSplitEligible(1,false,2,4,4,4.f,1.f,1.f)
+    ||hybridBayerSplitEligible(1,false,4,4,4,4.f,1.f,1.f)
     ||hybridBayerSplitEligible(1,false,1,1,4,4.f,1.f,1.f)
     ||hybridBayerSplitEligible(1,false,1,5,4,4.f,1.f,1.f)
     ||hybridBayerSplitEligible(1,false,1,4,0,4.f,1.f,1.f)

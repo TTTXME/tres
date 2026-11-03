@@ -53,11 +53,11 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_lut_sigma": return new double[]{1,2,0};
             case "pref_scam_hybrid_despeckle": return new double[]{0,1,1};
             case "pref_scam_hybrid_bento_denoise_max": return new double[]{1,12,0};
-            // P443: the reference app's resolve denoise (ArkResolveDenoise), its ranges
+            // P443: the reference app's resolve denoise (WhyResolveDenoise), its ranges
             case "pref_scam_hybrid_resolve_speckle_threshold": return new double[]{0.01,0.5,0};
             case "pref_scam_hybrid_resolve_speckle_strength": return new double[]{0,1,0};
-            case "pref_scam_hybrid_ark_dn_factor": case "pref_scam_hybrid_ark_dn_grain": return new double[]{0,2,0};
-            case "pref_scam_hybrid_ark_dn_luma_revert": case "pref_scam_hybrid_ark_dn_motion_revert": return new double[]{0,1,0};
+            case "pref_scam_hybrid_why_dn_factor": case "pref_scam_hybrid_why_dn_grain": return new double[]{0,2,0};
+            case "pref_scam_hybrid_why_dn_luma_revert": case "pref_scam_hybrid_why_dn_motion_revert": return new double[]{0,1,0};
             // SCAM Hybrid noise reduction (ScamDenoise, engine "multiscale")
             case "pref_scam_hybrid_dn_snr_scale": return new double[]{0.25,8,0};
             case "pref_scam_hybrid_dn_model_shot": return new double[]{0.25,4,0};
@@ -82,6 +82,13 @@ public final class SettingsNumericRules {
             // Per-channel highlight recovery of the hybrid (ScamRgb clamps the strength to 100 %).
             case "pref_scam_hybrid_highlight_recovery": return new double[]{0,100,0};
             case "pref_scam_hybrid_highlight_chroma": return new double[]{0.05,1,0};
+            // P493 «Настройки нейросети» (CaNetP, postpipeline/CaNetP.Settings): strength, reach 6 / 12 px, the lowest fringe hue, how many
+            // times brighter and how bright (share of white) the light next to a fringe must be
+            case "pref_scam_hybrid_fringe_net_strength": return new double[]{0,1,0};
+            case "pref_scam_hybrid_fringe_net_reach": return new double[]{6,12,1};
+            case "pref_scam_hybrid_fringe_net_hue": return new double[]{180,260,1};
+            case "pref_scam_hybrid_fringe_net_near": return new double[]{1.1,4,0};
+            case "pref_scam_hybrid_fringe_net_light": return new double[]{0.02,0.6,0};
             // Worker round 5 (hybrid_tuning.txt): Sabre 6.1 kernel 0/1/2 (auto), its auto threshold, outlier sites, Bento checks.
             case "pref_scam_hybrid_sabre61": return new double[]{0,2,1};
             case "pref_scam_hybrid_local_align": return new double[]{0,2,1};

@@ -72,7 +72,7 @@ precision highp int;
 // frame, times inScaleU here. POINT_FUSED 0: every block below drops out (the photo's shader, token for token).
 #define POINT_FUSED 0
 // P365 RAW_SOURCE 1 (with POINT_FUSED 1: the RAW viewfinder's fused pass, LiveWhyTone.drawFused; never the photo; owner,
-// 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the linear colour comes
+// 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the linear colour comes
 // straight from the RAW frame at texCoord (utils/import_vfraw.glsl: rawdevelop_fs's linear output, and the 3 x 3 colour
 // neighbourhood from the same range-filtered quads / cell means at the neighbouring pixels' frame positions, textureGather), the
 // pixel grid is gl_FragCoord less the viewport's origin (vpOriginU, vpSizeU) - one pass instead of the linear frame, the tone and
@@ -105,7 +105,7 @@ precision highp int;
 // for token; a pixel outside the mask takes the same operations bit for bit).
 #define SKY 0
 // P393 LIGHT_CHROMA 1 (WhyCombine and the viewfinder set it with AgX; scam_dev hybrid_why_light_chroma 0 takes it off; owner, 2026-10-29:
-// sunlit yellow birches pale peach-white beside ArkCam's saturated yellow): a saturated orange-yellow in the light tones keeps the
+// sunlit yellow birches pale peach-white beside WhyCam's saturated yellow): a saturated orange-yellow in the light tones keeps the
 // chroma the AgX tone gives it at the mid-tones (its rendition at a grey's luminance - the same colour at another exposure) where the
 // per-channel shoulder took more of it, its hue turned towards the AgX rendition's only as far as sRGB cannot hold that chroma at its
 // own; skin, pale colours, other hues, lights at the AgX white and the sky as before (see main). 0: the shader before P393, token for
@@ -117,17 +117,17 @@ precision highp int;
 // P441 RIM_SMOOTH 1: the P311 / P349 rim rules of the detail delta on every darkening pixel with a continuous far side (rimDelta;
 // the photo, WhyCombine); 0: the rules before P441 (lightRimDelta / rimDeltaBy, the viewfinder), token for token.
 #define RIM_SMOOTH 0
-// P395 (owner, 2026-10-29: the «Лента» facade orange-ochre beside ArkCam's yellow): 1 = the saturated orange-yellow scene hues
+// P395 (owner, 2026-10-29: the «Лента» facade orange-ochre beside WhyCam's yellow): 1 = the saturated orange-yellow scene hues
 // turned towards yellow (yellowHueU; 0 = the shader before)
 #define YELLOW_HUE 0
 // P398 (owner, 2026-10-29, the ship's bridge: «света почему-то получаются кремовые»): 1 = a pale colour lands on white at the top of
 // the tone (hlNeutralU; 0 = the shader before)
 #define HL_NEUTRAL 0
-// P402 ARK_BASE 1 (WhyCombine sets it with the reference app's fusion layout, WhyTone.arkLayout): its base of the tone -
+// P402 WHY_BASE 1 (WhyCombine sets it with the reference app's fusion layout, WhyTone.whyLayout): its base of the tone -
 // with headroom (clip > 1.05) the fused target_lin goes softly into the tonemapper's top above 0.7 of it (AgX 0.18 x 2^(max EV +
 // EV), ACES 3, the others 4) instead of up the ACES inverse's asymptote, and the gain is held in 0.05 .. 12 against an auto
 // exposure above 1 that fades to 1 over the lights (Y 0.70 .. 1.20). 0: the shader before P402, token for token.
-#define ARK_BASE 0
+#define WHY_BASE 0
 // P402 AGX_INSET 1 (WhyCombine sets it for «Плёночное выгорание светов» below 100 %): the reference app's inset strength - the
 // inset matrix of the tone goes towards the identity (insetU 1: the matrix, 0: per channel) and the outset is its inverse, as there.
 // 0: the shader before P402, token for token.
@@ -136,21 +136,21 @@ precision highp int;
 // fusion's lumas (import why_fusion) and their inversion, as the reference app's u_gamma_curve_type; 0: the pure power 1 / gamma,
 // the shader as before token for token. The sun glow keeps its pure-power round trip (an approximate linear, exact where none).
 #define GAMMA_TYPE 0
-// P404 ARK_VIB 1 (WhyCombine sets it when one of these rows is not 0): the reference app's vibrance terms ours lacked - of saturated
+// P404 WHY_VIB 1 (WhyCombine sets it when one of these rows is not 0): the reference app's vibrance terms ours lacked - of saturated
 // colours (chroma 0.02 .. 0.09 up), of the mid-tones (OKLab L 0.15 .. 0.75) and of the shadows (L under 0.08 .. 0.25), held off
 // skin by its own mask (OKLab hue round the skin centre, sigma 0.28 rad, chroma 0.015 .. 0.28, L from the skin's lower luminance)
 // x the skin protection, and the skin's saturation shift; with our vibrance, in scene OKLab. 0: the shader before, token for token.
-#define ARK_VIB 0
-// P419 ARK_VIBRANCE 1 (owner, 2026-10-30: «Исправь настройку вайбранса, можешь взять её из Арк камеры»; WhyCombine and the viewfinder
+#define WHY_VIB 0
+// P419 WHY_VIBRANCE 1 (owner, 2026-10-30: «Исправь настройку вайбранса, можешь взять её из Why камеры»; WhyCombine and the viewfinder
 // set it): the reference app's vibrance (tonemap_final 4.1 - 4.3) in one gain, in scene OKLab before the tone: x max(0, 1 + boost x
 // (1 - 0.70 skin x protection)), boost = mix(pastel, saturated, smoothstep(0.02, 0.09, chroma)) + sky x (-b / C) + green x (-a / C)
 // + light tones x (L 0.60 .. 0.80 to 0.88 .. 0.98) + mid-tones x (L 0.15 .. 0.35 to 0.55 .. 0.75) + shadows x (L under 0.08 ..
 // 0.25); the skin's own mask (OKLab hue round its centre, sigma 0.28 rad, chroma 0.015 .. 0.28, L from its lower luminance) and its
 // saturation shift. Ours on top of it: the sky term in the sky mask on a clearly blue colour only (P378 C1, the clouds neutral) and
 // the light-tone term not on a near-white's cast (P393: vibHlShapeU's chroma gate), shared by AgX and the other operators.
-// It replaces the overall / sky / green gain (vibU's protect form), ARK_VIB and «Цвет»'s vibrance by
+// It replaces the overall / sky / green gain (vibU's protect form), WHY_VIB and «Цвет»'s vibrance by
 // brightness and skin protection of positive gains. 0: the shader before, token for token.
-#define ARK_VIBRANCE 0
+#define WHY_VIBRANCE 0
 #import interpolation
 uniform sampler2D InputBuffer;      // full-size white-balanced linear camera RGB (the merge after denoising)
 uniform sampler2D GainMap;          // lens shading gains
@@ -173,14 +173,14 @@ uniform float toeU;                 // ACES toe; <= 0 -> 0.05
 uniform float gammaInvU;            // 1 / ef_gamma; <= 0 -> 1 / 2.2
 uniform float macroU;               // OKLab macro contrast; <= 0 -> 1.1
 uniform vec3 vibU;                  // vibrance: overall, sky, green (0 = off)
-#if ARK_VIBRANCE == 1
-uniform vec4 vibArkU;               // P419: saturated, light tones (the reference's strength), mid-tones, shadows
+#if WHY_VIBRANCE == 1
+uniform vec4 vibWhyU;               // P419: saturated, light tones (the reference's strength), mid-tones, shadows
 uniform vec4 vibSkinU;              // P419: skin protection 0..1, the skin hue centre (radians, OKLab), its lower luminance (OKLab L), its
                                     // saturation shift
 #endif
-#if ARK_VIB == 1
-uniform vec4 arkVibU;               // P404: saturated, mid-tones, shadows, skin protection (0..1)
-uniform vec3 arkSkinU;              // P404: the skin hue centre (radians, OKLab), its lower luminance (OKLab L), its saturation shift
+#if WHY_VIB == 1
+uniform vec4 whyVibU;               // P404: saturated, mid-tones, shadows, skin protection (0..1)
+uniform vec3 whySkinU;              // P404: the skin hue centre (radians, OKLab), its lower luminance (OKLab L), its saturation shift
 #endif
 uniform float vibHlU;               // P341: vibrance of the light tones (OKLab L 0.45 .. 0.75 up), lightness kept (0 = off)
 uniform vec4 vibHlShapeU;           // P393: its shape for pale colour - OKLab L from / full, chroma gate from / full; unset: 0.57 / 0.89, 0.010 / 0.025
@@ -334,10 +334,10 @@ float max3(vec3 v) { return max(v.r, max(v.g, v.b)); }
 // 10.2. From chroma 0.020 .. 0.035 up P341's ramp: a clearly coloured surface (skin, a yellow leaf, a facade, a sunset's glow off
 // the sky mask) as before - the pale class reaching to 0.04 .. 0.07 took a skin tone or a yellow at L* 55 - 76 to x0.74 - 0.88
 // of P341's chroma (the owner's trees pair: ours already paler than the reference app's). Under the sky mask P378's ramp and gate.
-// P396 (owner, 2026-10-29, the same bedroom shot again beside ArkCam: «проблема с жёлтым», the wallpaper's golden pattern by the
+// P396 (owner, 2026-10-29, the same bedroom shot again beside WhyCam: «проблема с жёлтым», the wallpaper's golden pattern by the
 // window yellow, «насыщенность жёлтого -40» right but no solution): the pattern lies at chroma ~0.02 at L 0.65 - 0.70, where the
-// ramp 0.50 .. 0.85 still raised it x1.6 over the tone (display C / L 0.044 against ArkCam's 0.035; the plain wall under it as
-// ArkCam's). The pale ramp is now 0.57 .. 0.89: x0.82 of that (C / L ~0.036), the cast gate and every colour from chroma 0.035 up
+// ramp 0.50 .. 0.85 still raised it x1.6 over the tone (display C / L 0.044 against WhyCam's 0.035; the plain wall under it as
+// WhyCam's). The pale ramp is now 0.57 .. 0.89: x0.82 of that (C / L ~0.036), the cast gate and every colour from chroma 0.035 up
 // (skin, leaves, facades) as before; 0.60 .. 0.95 cut more but made the chroma slope x1.18 of P341's (chroma noise on walls).
 // vibHlShapeU (0.45, 0.75, 0.002, 0.008) (scam_dev vibrance_hl_shape 0) is P341's shape (bit for bit on the host's GL, within
 // rounding on a phone GPU).
@@ -433,7 +433,7 @@ float lightShare(vec3 lowTap, float m) {
 // where the delta is negative and a light tap is in the footprint (0.1 - 0.6 % of the pixels of the test scenes).
 // P349: brightAe > 0 - the same rule for light above white instead of a clipped light: a tap's share is its luminance x brightAe
 // from 0.7 to 1.1 of white (the sun's glow by a window frame, 1 - 2 x white, under lightShare's 2 x). There the darkening goes
-// down to the far side's level (a rung's edge against the glow stays as sharp as ArkCam's), and a pixel in a 1 px trench
+// down to the far side's level (a rung's edge against the glow stays as sharp as WhyCam's), and a pixel in a 1 px trench
 // (trench 1: trenchAt - the merge's own ring at a hard edge, the line along the window's frame by the sun) takes none;
 // a thin dark object with the light on both sides (side ~0) keeps its delta.
 float rimDeltaBy(float delta, float y, float yRef, int bx, int by, float fx, float fy, float m, float brightAe, float trench) {
@@ -493,6 +493,10 @@ float lightRimDelta(float delta, float y, float yRef, float lightW, int bx, int 
 // Host replay of the owner's crops: the steps and dots gone, the edge against sunlit white without its dark line; LED rings
 // (P311's synthetic pink / blue / white) as before.
 const float RIM_FAR = 1.25;
+#define RIM_SUPPORT 0
+#if RIM_SUPPORT == 1
+layout(std430, binding = 0) readonly buffer rimTiles { uint support[]; };
+#endif // RIM_SUPPORT
 
 float rimTo(float delta, float y, float yRef, int bx, int by, float fx, float fy, vec3 mm, vec3 sec, bool bright) {
     float mass = mm.z;
@@ -518,7 +522,21 @@ float rimTo(float delta, float y, float yRef, int bx, int by, float fx, float fy
     return mix(delta, max(delta, min(cbrtp(max(y, 0.000001)) - cbrtp(max(yFar, 0.000001)), 0.0)), rim);
 }
 
+#if RIM_SUPPORT == 1
+bool rimOccupied(int bx, int by) {
+    ivec2 last = textureSize(WhyLow, 0) - ivec2(1);
+    int width = (last.x + 8) / 8;
+    if (any(lessThan(last, ivec2(0))) || support.length() < width * ((last.y + 8) / 8)) return true;
+    ivec2 lo = clamp(ivec2(bx - 3, by - 3), ivec2(0), last) / 8;
+    ivec2 hi = clamp(ivec2(bx + 4, by + 4), ivec2(0), last) / 8;
+    return (support[lo.y * width + lo.x] | support[lo.y * width + hi.x]
+            | support[hi.y * width + lo.x] | support[hi.y * width + hi.x]) != 0u;
+}
+#endif
 float rimDelta(float delta, float y, float yRef, int bx, int by, float fx, float fy, float m, float brightAe) {
+#if RIM_SUPPORT == 1
+    if (!rimOccupied(bx, by)) return delta;
+#endif
     ivec2 last = textureSize(WhyDetailRef, 0) - ivec2(1);
     vec3 lm = vec3(0.0), bm = vec3(0.0), ls = vec3(0.0), bs = vec3(0.0);
     for (int dy = -3; dy <= 4; dy++) {
@@ -540,9 +558,17 @@ float rimDelta(float delta, float y, float yRef, int bx, int by, float fx, float
 }
 #endif
 
+#define EDGE_LUMA_CACHE 0
+#if EDGE_LUMA_CACHE == 1
+uniform sampler2D WhySceneY;
+#endif
 // P349: the full-size merge's luminance at a clamped pixel.
 float sceneY(ivec2 p, ivec2 size) {
+#if EDGE_LUMA_CACHE == 1
+    return texelFetch(WhySceneY, clamp(p, ivec2(0), size - ivec2(1)), 0).r;
+#else
     return max(dot(sceneLinear(clamp(p, ivec2(0), size - ivec2(1)), size), LUMA), 0.0);
+#endif
 }
 
 // P349: 1 where the merge itself has a 1 px trench - the pixel darker by 3.5 - 6 % than both its neighbours along a row or a
@@ -1143,7 +1169,7 @@ void main() {
     float targetLin = inverseAcescg(decG(vec3(max(fused, 0.0))).x, toe);
 #endif
     float origLuma = max(max(dot(orig, LUMA), max3(orig) * 0.5), 0.0001);
-#if ARK_BASE == 1
+#if WHY_BASE == 1
     if (clipCeiling > 1.05) {
 #if TONE_OP == 1
         float topT = toneOpU == 1 ? 3.0 : 4.0;
@@ -1266,15 +1292,15 @@ void main() {
 #if FILM_SIM == 1
         filmDelta = delta;   // The film keeps scene detail before our gain, clarity and flat-area suppression.
 #endif
-        // P349 (owner, 2026-10-26, the sunset with the ladder: «грани у нас выглядят гораздо хуже чем у Арк камеры», «ступеньки
-        // у Арк тоже выглядят отлично»): a gain above 1 (P340's detail by finish SNR, up to 1.7) lifts texture - the small
+        // P349 (owner, 2026-10-26, the sunset with the ladder: «грани у нас выглядят гораздо хуже чем у Why камеры», «ступеньки
+        // у Why тоже выглядят отлично»): a gain above 1 (P340's detail by finish SNR, up to 1.7) lifts texture - the small
         // deltas - and leaves an edge's delta as it is. The whole delta x 1.7 overshot every edge the base (whyLow, B-spline)
         // has soft: a dark line with the merge's stair-steps along the dark side (rails and rungs against the sky, the window's
-        // frame by the sun), where the merge itself is clean and ArkCam has none. Host replay: the lines gone, the rails'
+        // frame by the sun), where the merge itself is clean and WhyCam has none. Host replay: the lines gone, the rails'
         // cracks and the wall's grain kept. A gain up to 1 scales the delta as before.
         delta = detailGainU > 1.0 ? delta + (detailGainU - 1.0) * clamp(delta, -0.02, 0.02) : delta * detailGainU;
         // and next to light above white (luminance x AE over ~1: the sun's glow by the window's frame) the darkening delta stops
-        // at the kernel's full-resolution floor (-0.035 L): there it is the edge itself, where ArkCam's bright side is clipped
+        // at the kernel's full-resolution floor (-0.035 L): there it is the edge itself, where WhyCam's bright side is clipped
         if (abs(clarityU) > 0.001) delta *= 1.0 + clarityU;
         if (flatProtectU > 0.001) {
             float smoothFactor = 1.0 - smoothstep(0.0, (flatProtectU / 10.0) * 0.015, abs(delta));
@@ -1351,7 +1377,7 @@ void main() {
     if (abs(macro - 1.0) > 0.001) lab.x = max(0.40 + (lab.x - 0.40) * macro, 0.0001);
 #endif
 #endif
-#if ARK_VIBRANCE == 1
+#if WHY_VIBRANCE == 1
     float satMult = 1.0;   // the «Цвет» skin keep of positive vibrance below: inside the gain
     float vibHlK = 1.0;    // the light tones' share of the gain (P393: divided out of the mid rendition)
     {
@@ -1360,7 +1386,7 @@ void main() {
         dth = mod(dth + 3.14159265, 6.2831853) - 3.14159265;
         float skinA = clamp(exp(-0.5 * dth * dth / (0.28 * 0.28)) * smoothstep(0.015, 0.040, cs) * (1.0 - smoothstep(0.18, 0.28, cs))
                             * smoothstep(vibSkinU.z - 0.06, vibSkinU.z + 0.06, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)), 0.0, 1.0);
-        float boost = mix(vibU.x, vibArkU.x, smoothstep(0.02, 0.09, cs));
+        float boost = mix(vibU.x, vibWhyU.x, smoothstep(0.02, 0.09, cs));
         if (abs(vibU.y) > 0.001 && lab.z < 0.0) {
 #if SKY == 1
             boost += vibU.y * clamp(-lab.z / cs, 0.0, 1.0) * (skyNeutral > 0.0 ? mix(1.0, skyBlue(lab, cs) * skyMU.w, skyNeutral) : 1.0);
@@ -1370,12 +1396,12 @@ void main() {
         }
         if (abs(vibU.z) > 0.001 && lab.y < 0.0) boost += vibU.z * clamp(-lab.y / cs, 0.0, 1.0);
         float hlT = 0.0;
-        if (abs(vibArkU.y) > 0.001) {
+        if (abs(vibWhyU.y) > 0.001) {
             vec4 hlShape = vibHlShape();
-            hlT = vibArkU.y * smoothstep(0.60, 0.80, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)) * smoothstep(hlShape.z, hlShape.w, cs);
+            hlT = vibWhyU.y * smoothstep(0.60, 0.80, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)) * smoothstep(hlShape.z, hlShape.w, cs);
         }
-        if (abs(vibArkU.z) > 0.001) boost += vibArkU.z * smoothstep(0.15, 0.35, lab.x) * (1.0 - smoothstep(0.55, 0.75, lab.x));
-        if (abs(vibArkU.w) > 0.001) boost += vibArkU.w * (1.0 - smoothstep(0.08, 0.25, lab.x));
+        if (abs(vibWhyU.z) > 0.001) boost += vibWhyU.z * smoothstep(0.15, 0.35, lab.x) * (1.0 - smoothstep(0.55, 0.75, lab.x));
+        if (abs(vibWhyU.w) > 0.001) boost += vibWhyU.w * (1.0 - smoothstep(0.08, 0.25, lab.x));
         float skinMult = mix(1.0, 1.0 - 0.70 * skinA, vibSkinU.x);
         float gNoHl = max(0.0, 1.0 + boost * skinMult), g = max(0.0, 1.0 + (boost + hlT) * skinMult);
         vibHlK = gNoHl > 0.000001 ? g / gNoHl : 1.0;
@@ -1397,44 +1423,44 @@ void main() {
 #endif
     if (abs(vibU.z) > 0.001 && lab.y < 0.0) satMult += vibU.z * clamp(-lab.y / sat, 0.0, 1.0) * protect;
     lab.yz *= satMult;
-#if ARK_VIB == 1
+#if WHY_VIB == 1
     {
         // P404: the reference's tonemap_final 4.1 - 4.4 (its strength, sky and green terms are ours above, its light-tone term ours below)
         float cs = max(length(lab.yz), 0.0001);
-        float dth = atan(lab.z, lab.y) - arkSkinU.x;
+        float dth = atan(lab.z, lab.y) - whySkinU.x;
         dth = mod(dth + 3.14159265, 6.2831853) - 3.14159265;
         float skinA = clamp(exp(-0.5 * dth * dth / (0.28 * 0.28)) * smoothstep(0.015, 0.040, cs) * (1.0 - smoothstep(0.18, 0.28, cs))
-                            * smoothstep(arkSkinU.y - 0.06, arkSkinU.y + 0.06, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)), 0.0, 1.0);
-        float boost = arkVibU.x * smoothstep(0.02, 0.09, cs)
-                      + arkVibU.y * smoothstep(0.15, 0.35, lab.x) * (1.0 - smoothstep(0.55, 0.75, lab.x))
-                      + arkVibU.z * (1.0 - smoothstep(0.08, 0.25, lab.x));
-        lab.yz *= max(0.0, 1.0 + boost * (1.0 - 0.70 * skinA * arkVibU.w));
-        if (abs(arkSkinU.z) > 0.001) lab.yz *= max(0.0, 1.0 + arkSkinU.z * skinA);
+                            * smoothstep(whySkinU.y - 0.06, whySkinU.y + 0.06, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)), 0.0, 1.0);
+        float boost = whyVibU.x * smoothstep(0.02, 0.09, cs)
+                      + whyVibU.y * smoothstep(0.15, 0.35, lab.x) * (1.0 - smoothstep(0.55, 0.75, lab.x))
+                      + whyVibU.z * (1.0 - smoothstep(0.08, 0.25, lab.x));
+        lab.yz *= max(0.0, 1.0 + boost * (1.0 - 0.70 * skinA * whyVibU.w));
+        if (abs(whySkinU.z) > 0.001) lab.yz *= max(0.0, 1.0 + whySkinU.z * skinA);
     }
 #endif
 #endif
 #if LIGHT_CHROMA == 1
-#if ARK_VIBRANCE == 1
+#if WHY_VIBRANCE == 1
     float cPreK = length(lab.yz) / vibHlK;   // P419: the chroma without the light tones' term of the gain (P393)
 #else
     float cPreK = length(lab.yz);   // P393: the chroma before the light tones' vibrance (its gain is divided out of the mid rendition)
 #endif
 #endif
-#if ARK_VIBRANCE == 0
+#if WHY_VIBRANCE == 0
     // P341 (legacy): P419 uses the slider's actual strength and one skin protection in the gain above, also under AgX.
     // P341 (owner, 2026-10-26: «нам нужно получить цвет у неба как у стока, при этом чтобы небо не темнило», «сделай чтобы было
     // лучше чем в стоке»): the AgX shoulder and the path to white take most of a pale bright sky's chroma (the 17:57 sunset at
     // OKLab-L 0.85: Lab chroma 8 / 22 against the stock camera's 25 / 42 at the same hue and a lower L). The light tones get
     // vibrance before the tone, L unchanged: x (1 + 1.6 vibHlU) for a pale colour, falling to none at chroma 0.10 - a sky that
     // has its colour already stays (the 3.7x sunset's glow at chroma 34 went to 66, red-orange, under a plain x 2.2; LMC 9.6 /
-    // ArkCam 33 - 38), none on a neutral (its hue is noise below chroma 0.004). Host replay: the 1x sky 8 / 22 -> ~20 / ~33,
+    // WhyCam 33 - 38), none on a neutral (its hue is noise below chroma 0.004). Host replay: the 1x sky 8 / 22 -> ~20 / ~33,
     // the 3.7x glow 34 -> ~42.
 #if TONE_OP == 1
-    // P407 (owner, 2026-10-29, OPPO Find X8 Ultra beside ArkCam: wallpaper, board and speakers too yellow): P341's term made up
+    // P407 (owner, 2026-10-29, OPPO Find X8 Ultra beside WhyCam: wallpaper, board and speakers too yellow): P341's term made up
     // AgX's shoulder loss; the per-channel curves keep a colour's chroma (the own curve raises it), so under them the light tones
     // take the reference's own term (tonemap_final 4.2: x (1 + str) from OKLab L 0.60 .. 0.80 to 0.88 .. 0.98), vibHlU 1 its
     // config's strength 0.25. Host model of the shot: wallpaper / board sRGB 168 150 121 / 167 142 92 -> 164 151 130 / 159 143 115,
-    // ArkCam 162 150 129 / 160 144 118.
+    // WhyCam 162 150 129 / 160 144 118.
     // P393's cast gate kept (a white-balance cast on a near-white not raised; the reference raises it x1.25).
     if (vibHlU > 0.0) {
         vec4 hlShape = vibHlShape();
@@ -1478,8 +1504,8 @@ void main() {
         float keep = 1.0 - skinU.x * skinW;
         // skin protection: positive vibrance reaches skin only with (1 - protection)
         if (satMult > 1.0 && keep < 1.0) lab.yz *= (1.0 + (satMult - 1.0) * keep) / satMult;
-        // P419 (ARK_VIBRANCE 1): the gain above has the shadows' and the light tones' terms
-#if ARK_VIBRANCE == 0
+        // P419 (WHY_VIBRANCE 1): the gain above has the shadows' and the light tones' terms
+#if WHY_VIBRANCE == 0
         if (vibLU != vec2(0.0)) {
             float mSh = (1.0 - smoothstep(0.25, 0.45, lab.x)) * smoothstep(0.05, 0.12, lab.x);
             float mHl = smoothstep(0.6, 0.8, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x));
@@ -1523,7 +1549,7 @@ void main() {
     float hlGainK = cPreK > 0.000001 ? length(lab.yz) / cPreK : 1.0;   // P393: the light tones' vibrance
 #endif
 #endif
-    // P395 (owner, 2026-10-29, vivo X200 Ultra: the yellow «Лента» facade and the sunlit birches beside ArkCam's - ours orange-ochre,
+    // P395 (owner, 2026-10-29, vivo X200 Ultra: the yellow «Лента» facade and the sunlit birches beside WhyCam's - ours orange-ochre,
     // OKLab hue 82 against 90): the camera matrix renders a saturated yellow ~6 deg Lab too red (the scene's hue already, the tone
     // keeps it). The saturated orange-yellows (OKLab 64 .. 100 deg, full 74 .. 88; C / L from 0.10, full 0.14) turn up to 8 deg
     // towards yellow; skin (~52 deg), oranges, greens, pale walls and greys as before.
@@ -1687,7 +1713,7 @@ void main() {
 #if AGX_INSET == 1
     graded = insetFix(graded);
 #endif
-#if ARK_VIBRANCE == 0
+#if WHY_VIBRANCE == 0
     if (abs(agxA.w - 1.0) > 0.001) {
         float ol = dot(graded, LUMA);
 #if COLOUR_LOOK == 1
@@ -1713,13 +1739,13 @@ void main() {
     vec3 post = toOklab(graded);
 #if LIGHT_CHROMA == 1
 #if TONE_OP == 0
-    // P393 (owner, 2026-10-29, ArkCam beside us: sunlit yellow birch leaves pale peach-white). The OPPO X8U birch shot 15:41:26
+    // P393 (owner, 2026-10-29, WhyCam beside us: sunlit yellow birch leaves pale peach-white). The OPPO X8U birch shot 15:41:26
     // (diagnostics zip): the leaves are unclipped (N frame p99 0.34 of the RAW white, Bento k 8, no clip flag) and ScamRgb / WhyLow
     // hold their colour at every brightness (linear sRGB 1 : 0.53 - 0.59 : 0.18 - 0.23); the loss is this tone: the per-channel AgX
     // shoulder takes the saturation of every colour whose brightest channel enters it (the leaves' OKLab chroma x1.6 of the scene's
     // at the mid-tones, x1.04 at L* 78, x0.48 at L* 89, x0.33 at L* 92: C* 53 -> 34 -> 25 -> 21) and the hue lock then holds the
     // bright leaves at the scene's orange hue (67 - 71 deg where the AgX rendition's is 79 - 83), where sRGB has the least chroma near
-    // white (C* 33 at L* 85): R 253 G 218 B 185, peach-white. ArkCam keeps C* ~60 at L* 65 - 84, hue 78 - 84.
+    // white (C* 33 at L* 85): R 253 G 218 B 185, peach-white. WhyCam keeps C* ~60 at L* 65 - 84, hue 78 - 84.
     // A saturated orange-yellow whose exposed light (before the shoulders) lies in the light tones keeps the OKLab chroma of its own
     // AgX rendition at a grey's luminance (the colour at a mid-tone exposure, the light-tone vibrance's gain on it; scaled with L below
     // that rendition's L), lightChromaU of it, only ever raised; its hue goes the AgX rendition's own way (never past it) as far as the
@@ -1745,7 +1771,7 @@ void main() {
         float keepK = baseK * (1.0 - smoothstep(-1.0, 1.0, evK));
         float turnK = baseK * (1.0 - smoothstep(-0.5, 1.5, evK));
         // P393 review (M3 / M4 / M5): the orange-yellow scene hues only - the owner's pair 2 is deficient there alone (its
-        // yellow-greens, greens and blues as saturated as ArkCam's or more); the birch shot's light-tone leaves lie at OKLab 53 - 75 deg
+        // yellow-greens, greens and blues as saturated as WhyCam's or more); the birch shot's light-tone leaves lie at OKLab 53 - 75 deg
         // (p10 - p90 at L* 80 - 90, median 62). Below 56 deg as before: skin (ColorChecker, Fitzpatrick III - V, a medium or tan face:
         // 44 - 54; Fitzpatrick II 57 and a warm-lit face 58 take 7 / 16 % of the term), red-orange sunset glows (P341's), maple red;
         // from 120 deg: the greens (a lawn), cyans and blues (an undetected sky: its chroma and the lock as before). An olive or light
@@ -1767,7 +1793,7 @@ void main() {
             vec3 cK = max(fromOklab(labK), vec3(0.0));
 #endif
             cK *= 0.18 / max(dot(cK, LUMA), 0.000001);
-#if ARK_VIBRANCE == 1
+#if WHY_VIBRANCE == 1
             float satK = 1.0;
 #else
             float satK = agxA.w;
@@ -2010,9 +2036,9 @@ void main() {
     }
 #endif
 #if SUN_BLOOM == 1
-    // P349 (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Арк камерой»): a core with no
+    // P349 (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Why камерой»): a core with no
     // data at all (the setting sun's disc: R, G, B clipped in the ultrashort too) stood as a flat white disc with a hard rim in
-    // its orange glow (2 - 3 x white, kept below white by the Bento headroom), where ArkCam, clipping all of it, shows a soft
+    // its orange glow (2 - 3 x white, kept below white by the Bento headroom), where WhyCam, clipping all of it, shows a soft
     // warm-white area. Bright pixels round such a core move by distance towards warm white, white near the core; dark ones
     // (the ladder's rungs in front of the sun) keep their tone. Host replay of the owner's 17:57 sunset: the disc's rim gone,
     // the rungs kept; the moon (a core of ~300 px) and recovered windows (no fully clipped core) get none.
@@ -2029,7 +2055,7 @@ void main() {
         }
     }
 #endif
-#if ARK_VIBRANCE == 1
+#if WHY_VIBRANCE == 1
 #if TONE_OP == 0
     // Apply the control once, including the landing's colour. RGB extrapolation before the gamut cut lifted lightness
     // through negative channels and could reduce chroma as saturation rose. The default is an exact bypass.

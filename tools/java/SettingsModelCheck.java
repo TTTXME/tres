@@ -197,12 +197,12 @@ public class SettingsModelCheck {
         active(dn,"pref_scam_hybrid_dn_luma_mult");active(dn,"pref_scam_hybrid_dn_luma_t1_snr");active(dn,"pref_scam_hybrid_dn_dark_fade");
         active(dn,"pref_scam_hybrid_despeckle");
         // P443: the Resolve rows act with their engine (the default) only
-        Map<String,Object> ark=new HashMap<>();
-        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(ark,"pref_scam_hybrid_ark_dn_"+k);
-        active(ark,"pref_scam_hybrid_denoise_engine");
-        ark.put("pref_scam_hybrid_denoise_engine","scam");
-        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(ark,"pref_scam_hybrid_ark_dn_"+k);
-        ark.put("pref_scam_hybrid_denoise_engine","ark");active(ark,"pref_scam_hybrid_ark_dn_factor");
+        Map<String,Object> why=new HashMap<>();
+        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(why,"pref_scam_hybrid_why_dn_"+k);
+        active(why,"pref_scam_hybrid_denoise_engine");
+        why.put("pref_scam_hybrid_denoise_engine","scam");
+        for(String k:new String[]{"factor","luma_revert","motion_revert","grain"})active(why,"pref_scam_hybrid_why_dn_"+k);
+        why.put("pref_scam_hybrid_denoise_engine","why");active(why,"pref_scam_hybrid_why_dn_factor");
         Map<String,Object> out=new HashMap<>(); // output "sensor" (default)
         inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_output");
         // the 2x colour share also acts on 200 MP shots (their 2x2 means): inactive at the sensor size only without them
@@ -267,6 +267,19 @@ public class SettingsModelCheck {
         if(!new SettingsAvailability(scam).xiaomiSmoothZoom(false).hidden("pref_xiaomi_smooth_zoom"))throw new AssertionError("Xiaomi zoom shown");
         if(!new SettingsAvailability(scam).fullResHwRemosaic(false).hidden("pref_fullres_hw_remosaic"))throw new AssertionError("FULLRES hardware remosaic shown");
         if(new SettingsAvailability(scam).hidden("pref_fullres_hw_remosaic"))throw new AssertionError("FULLRES hardware remosaic hidden where it acts");
-        System.out.println("Settings model PASS: exact precision, legacy types, finite bounds, mode/algorithm availability, SHDR bounds, native mosaic, no neural remosaic rules, photo format, 10-bit HEIC, AVIF, sharpening / denoise / output / motion / colour method availability");
+        // P493: «Подавление аберраций»: the net's page only with «Нейросеть» (the default); its numbers bounded, the trained defaults inside
+        Map<String,Object> fringeMap=new HashMap<>();
+        if(!new SettingsAvailability(fringeMap).hidden("fringe_net_screen"))throw new AssertionError("fringe net page shown by default (classic)");
+        fringeMap.put("pref_scam_hybrid_fringe_method","classic");
+        if(!new SettingsAvailability(fringeMap).hidden("fringe_net_screen"))throw new AssertionError("fringe net page shown with the classic method");
+        fringeMap.put("pref_scam_hybrid_fringe_method","neural");
+        if(new SettingsAvailability(fringeMap).hidden("fringe_net_screen"))throw new AssertionError("fringe net page hidden with the net");
+        eq(SettingsNumericRules.value("pref_scam_hybrid_fringe_net_strength","2",1),1);
+        eq(SettingsNumericRules.value("pref_scam_hybrid_fringe_net_reach","9.4",12),9);
+        eq(SettingsNumericRules.value("pref_scam_hybrid_fringe_net_hue","205",205),205);
+        eq(SettingsNumericRules.value("pref_scam_hybrid_fringe_net_near","0",1.5),1.1);
+        eq(SettingsNumericRules.value("pref_scam_hybrid_fringe_net_light","0.12",0.12),0.12);
+        if(SettingsNumericRules.error("pref_scam_hybrid_fringe_net_hue","300")==null)throw new AssertionError("fringe hue 300 accepted");
+        System.out.println("Settings model PASS: exact precision, legacy types, finite bounds, mode/algorithm availability, SHDR bounds, native mosaic, no neural remosaic rules, photo format, 10-bit HEIC, AVIF, sharpening / denoise / output / motion / colour method availability, fringe net");
     }
 }

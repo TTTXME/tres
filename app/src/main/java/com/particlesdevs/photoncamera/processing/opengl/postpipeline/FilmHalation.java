@@ -111,7 +111,7 @@ public final class FilmHalation extends Node {
                 if (!halo) WorkingTexture = e1;
             }
             if (!halo) return;
-            final float sigma = set.stock.halationUm / um;
+            final float sigma = set.halationUm() / um; // P487: x «Halation size»
             // the pyramid down to the level whose own blur (about 0.8 x 2^k) is under half the first bounce's width
             final List<GLTexture> v = new ArrayList<>();
             v.add(e1);

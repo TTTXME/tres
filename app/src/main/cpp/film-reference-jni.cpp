@@ -13,6 +13,7 @@ struct FilmRuntime {
     std::mutex mutex;
     std::unique_ptr<spektrafilm::VulkanRenderer> renderer;
     std::string resourceDirectory;
+    spektrafilm::QueuePolicy queuePolicy = spektrafilm::QueuePolicy::Legacy;
 };
 
 FilmRuntime& runtime(){
@@ -26,14 +27,18 @@ void fail(JNIEnv* env,const std::string& message){
     env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),message.c_str());
 }
 
-void selectRenderer(FilmRuntime& state,const std::string& directory){
+spektrafilm::QueuePolicy checkedPolicy(jint policy){
+    if(policy!=0&&policy!=1)throw std::invalid_argument("Unsupported film queue policy");
+    return static_cast<spektrafilm::QueuePolicy>(policy);
+}
+
+void selectRenderer(FilmRuntime& state,const std::string& directory,spektrafilm::QueuePolicy policy){
     if(directory.empty())throw std::invalid_argument("Film resource directory is empty");
-    if(state.renderer&&state.resourceDirectory==directory)return;
-    state.renderer.reset();
-    if(setenv("SPEKTRAFILM_RESOURCE_DIR",directory.c_str(),1)!=0)
-        throw std::runtime_error("Film resource directory could not be selected");
-    state.resourceDirectory=directory;
-    state.renderer=std::make_unique<spektrafilm::VulkanRenderer>();
+    spektrafilm::selectCachedFilmRenderer(state,directory,policy,[&]{
+        if(setenv("SPEKTRAFILM_RESOURCE_DIR",directory.c_str(),1)!=0)
+            throw std::runtime_error("Film resource directory could not be selected");
+        return std::make_unique<spektrafilm::VulkanRenderer>(policy);
+    });
 }
 }
 
@@ -43,9 +48,7 @@ extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM*,void*){
     state.renderer.reset();
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_availableNative(
-        JNIEnv* env,jclass,jstring directory){
+static jboolean availableWithQueue(JNIEnv* env,jstring directory,jint policy){
     if(!directory)return JNI_FALSE;
     auto& state=runtime();
     std::lock_guard<std::mutex> lock(state.mutex);
@@ -56,15 +59,13 @@ Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_availab
     catch(...){env->ReleaseStringUTFChars(directory,path);return JNI_FALSE;}
     env->ReleaseStringUTFChars(directory,path);
     try{
-        selectRenderer(state,requested);
+        selectRenderer(state,requested,checkedPolicy(policy));
         return state.renderer->isAvailable()?JNI_TRUE:JNI_FALSE;
     }catch(...){state.renderer.reset();return JNI_FALSE;}
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderNative(
-        JNIEnv* env,jclass,jstring directory,jobject input,jobject output,jobject packet,
-        jint width,jint height,jlong budget,jdouble time){
+static jstring renderWithQueue(JNIEnv* env,jstring directory,jobject input,jobject output,jobject packet,
+        jint width,jint height,jlong budget,jdouble time,jint policy){
     auto& state=runtime();
     std::lock_guard<std::mutex> lock(state.mutex);
     auto& renderer=state.renderer;
@@ -96,7 +97,7 @@ Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderN
                 throw std::invalid_argument("Unsupported film frame size");
         }
         params.gpuRenderTiling=spektrafilm::GpuRenderTilingMode::Tiled;
-        selectRenderer(state,requested);
+        selectRenderer(state,requested,checkedPolicy(policy));
         if(!renderer->isAvailable())throw std::runtime_error(renderer->lastError());
         renderer->setScratchBudget(static_cast<uint64_t>(budget));
         const auto started=std::chrono::steady_clock::now();
@@ -111,7 +112,8 @@ Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderN
                 +" budget="+std::to_string(budget)+" route="+(d.stagedRendering?"staged":"whole")
                 +" storageLimit="+std::to_string(d.storageBufferLimitBytes)+" device="+d.deviceName
                 +" setupMs="+std::to_string(d.cpuSetupMs)+" submitMs="+std::to_string(d.commandBufferMs)
-                +" copyMs="+std::to_string(d.sourceCopyMs+d.outputCopyMs);
+                +" copyMs="+std::to_string(d.sourceCopyMs+d.outputCopyMs)
+                +" "+renderer->queueDescription();
         renderer->releaseTransientResources();
         return env->NewStringUTF(report.c_str());
     }catch(const std::exception& error){
@@ -120,4 +122,30 @@ Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderN
     }catch(...){
         renderer.reset();fail(env,"Film renderer failed");return nullptr;
     }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_availableNative(
+        JNIEnv* env,jclass,jstring directory){
+    return availableWithQueue(env,directory,0);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_availableWithQueueNative(
+        JNIEnv* env,jclass,jstring directory,jint policy){
+    return availableWithQueue(env,directory,policy);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderNative(
+        JNIEnv* env,jclass,jstring directory,jobject input,jobject output,jobject packet,
+        jint width,jint height,jlong budget,jdouble time){
+    return renderWithQueue(env,directory,input,output,packet,width,height,budget,time,0);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderWithQueueNative(
+        JNIEnv* env,jclass,jstring directory,jobject input,jobject output,jobject packet,
+        jint width,jint height,jlong budget,jdouble time,jint policy){
+    return renderWithQueue(env,directory,input,output,packet,width,height,budget,time,policy);
 }

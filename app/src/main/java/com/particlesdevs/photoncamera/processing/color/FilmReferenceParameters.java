@@ -179,10 +179,18 @@ public final class FilmReferenceParameters {
         "kodak_ektachrome_100","kodak_kodachrome_64","fujifilm_velvia_100","fujifilm_provia_100f"};
     private static final String[] PAPERS={"kodak_endura_premier","kodak_ultra_endura","kodak_ektacolor_edge",
         "kodak_supra_endura","kodak_portra_endura","fujifilm_crystal_archive_typeii","kodak_2383","kodak_2393"};
+    // Generated profile coefficients, in packet order: same-layer RGB, R->GB, G->RB, B->RG.
+    private static final float[][] SLIDE_DIR={
+        {.12f,.08f,.06f,.12f,.06f,.08f,.06f,.06f,.06f},
+        {.12f,.08f,.06f,.12f,.06f,.08f,.06f,.06f,.06f},
+        {.108f,.072f,.054f,.108f,.054f,.072f,.054f,.054f,.054f},
+        {.156f,.104f,.078f,.156f,.078f,.104f,.078f,.078f,.078f}};
     private static int index(String[] values,String key){
         for(int i=0;i<values.length;i++)if(values[i].equals(key))return i;
         return -1;
     }
+    /** P487: a stock with its own measured profile in the spectral renderer (the advanced controls act only on these). */
+    public static boolean measured(String stockId){return index(FILMS,stockId)>=0;}
     public static boolean supports(FilmSim.Settings s){
         return s!=null&&s.stock!=null&&s.print!=null&&index(FILMS,s.stock.id)>=0&&index(PAPERS,s.print.id)>=0;
     }
@@ -194,6 +202,8 @@ public final class FilmReferenceParameters {
             .real(84,s.exposure).real(96,s.printEv).real(124,(float)Math.pow(2,s.tone))
             .real(144,s.printM).real(148,s.printY).real(196,s.couplers)
             .integer(352,seed);
+        int film=index(FILMS,s.stock.id);
+        if(film>=16)for(int i=0;i<9;i++)p.real(220+4*i,SLIDE_DIR[film-16][i]);
         boolean physical=s.format.longMm>0;
         int format;
         switch(s.format.id){
@@ -214,8 +224,28 @@ public final class FilmReferenceParameters {
         int diffusion=index(FilmSim.DIFFUSIONS,s.diffusion)-1;
         p.integer(492,physical&&diffusion>=0&&s.diffusionGrade>0?1:0)
             .integer(496,Math.max(0,diffusion)).real(500,s.diffusionGrade);
+        // P487: the page's DIR / halation / development / spectral-model controls (upstream defaults when untouched)
+        FilmAdvanced a=s.advanced;
+        p.integer(12,a.rgbToRawMethod()).integer(100,a.pushMode).real(104,a.get(FilmAdvanced.PUSH))
+            .real(112,a.get(FilmAdvanced.BLEACH)).real(116,a.get(FilmAdvanced.LEUCO))
+            .real(124,(float)Math.pow(2,s.tone)*a.get(FilmAdvanced.DEV_GAMMA))
+            .real(200,a.get(FilmAdvanced.DIR_SPREAD)).real(204,a.get(FilmAdvanced.DIR_TAIL)).real(208,a.get(FilmAdvanced.DIR_TAIL_WEIGHT))
+            .real(212,a.get(FilmAdvanced.DIR_SAME)).real(216,a.get(FilmAdvanced.DIR_INTER))
+            .real(440,s.halation*a.get(FilmAdvanced.SCATTER)).real(444,a.get(FilmAdvanced.SCATTER_SIZE))
+            .real(448,s.halation*a.get(FilmAdvanced.HALO)).real(452,a.get(FilmAdvanced.HALO_SIZE))
+            .real(480,a.get(FilmAdvanced.BOOST)).real(484,a.get(FilmAdvanced.BOOST_RANGE)).real(488,a.get(FilmAdvanced.PROTECT));
+        for(int i=0;i<9;i++)if(Float.isFinite(a.gamma(i)))p.real(220+4*i,a.gamma(i));
         if(!physical)p.real(200,0f).real(204,0f);
         return p;
+    }
+    /** P487: the stock's own DIR gammas in packet order (offsets 220 .. 252): spektrafilm's defaults, the slides' generated ones. */
+    public static float[] dirGamma(String stockId){
+        int film=index(FILMS,stockId);
+        if(film>=16)return SLIDE_DIR[film-16].clone();
+        FilmReferenceParameters p=new FilmReferenceParameters();
+        float[] out=new float[9];
+        for(int i=0;i<9;i++)out[i]=p.data.getFloat(220+4*i);
+        return out;
     }
     public FilmReferenceParameters integer(int offset,int value){
         check(offset);data.putInt(offset,value);return this;

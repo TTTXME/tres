@@ -94,7 +94,7 @@ public final class SettingsMigration {
             // Resolve and the post-CCM pyramid replace the old SCAM/NLM filters.
             "pref_scam_hybrid_denoise_engine",
             "pref_scam_hybrid_despeckle",
-            "pref_scam_hybrid_ark_dn_dark_chroma",
+            "pref_scam_hybrid_why_dn_dark_chroma",
             "pref_scam_hybrid_why_ms_motion",
             "pref_scam_hybrid_dn_luma_mult",
             "pref_scam_hybrid_dn_sabre_luma_mult",
@@ -423,6 +423,33 @@ public final class SettingsMigration {
             int at = keys.indexOf("ui_photo_size");
             if (at >= 0 && !keys.contains("pref_scam_hybrid_output")) {
                 keys.set(at, "pref_scam_hybrid_output");
+                e.putString(ShadeTiles.KEY, String.join(",", keys));
+                moved = true;
+            }
+        }
+        e.commit();
+        return moved;
+    }
+
+    /** P494: set once a stored tile list had «HDR-фото» (Ultra HDR) swapped for «HDR» (the long / ultrashort frames). */
+    static final String HDR_TILE = "ui_shade_tiles_hdr_p494";
+
+    /**
+     * P494 (owner, 2026-11-03, the shade's «HDR-фото» tile: «поменяй её значение, в положении выкл он должен полностью отключать
+     * длинные и сверхкороткие кадры»): a stored tile list with pref_ultrahdr_key and without pref_hdr_frames gets the HDR frames
+     * tile in the same place (the Ultra HDR tile stays in the catalog's format group). Once.
+     */
+    public static boolean migrateHdrTile(SharedPreferences prefs) {
+        if (prefs.getBoolean(HDR_TILE, false)) return false;
+        SharedPreferences.Editor e = prefs.edit().putBoolean(HDR_TILE, true);
+        String stored = prefs.getString(ShadeTiles.KEY, null);
+        boolean moved = false;
+        if (stored != null && !stored.isEmpty()) {
+            java.util.List<String> keys = new java.util.ArrayList<>(java.util.Arrays.asList(stored.split(",")));
+            int at = keys.indexOf("pref_ultrahdr_key");
+            if (at >= 0 && !keys.contains(PreferenceKeys.HDR_FRAMES_KEY)) {
+                // «HDR» takes its place, «UHDR» (the same Ultra HDR switch) stays right after it (owner: «сделай плитку UHDR»)
+                keys.add(at, PreferenceKeys.HDR_FRAMES_KEY);
                 e.putString(ShadeTiles.KEY, String.join(",", keys));
                 moved = true;
             }

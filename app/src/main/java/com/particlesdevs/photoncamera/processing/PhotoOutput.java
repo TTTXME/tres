@@ -273,6 +273,56 @@ public final class PhotoOutput {
     }
 
     /**
+     * P483 (speed): the JPEG of a shot the post pipeline already encoded from its readback (PostPipeline.streamJpeg, no bitmap) -
+     * the file {@link #save} writes for the same pixels with JPEG chosen, sRGB and no gain map: {@code jpeg} holds jpegli's bytes
+     * with the EXIF APP1 inserted in the stream as ImageSaver does ({@code exifInStream}; false: the block failed, the EXIF is
+     * written into the file afterwards as ImageSaver does then).
+     */
+    public static Result saveStreamedJpeg(Path base, byte[] jpeg, ParseExif.ExifData exif, boolean exifInStream) {
+        final Result result = new Result();
+        final Path file = PhotoFormat.JPEG.fileFor(base);
+        final long start = System.nanoTime();
+        boolean ok = false;
+        SavingFiles.begin(file); // P89: the gallery waits for it
+        try {
+            try (OutputStream out = new java.io.BufferedOutputStream(Files.newOutputStream(file), ImageSaver.Util.SAVE_BUFFER_BYTES)) {
+                writeAll(out, jpeg);
+                out.flush();
+                ok = true;
+            } catch (IOException | RuntimeException e) {
+                Log.e(TAG, "streamed JPEG save failed: " + android.util.Log.getStackTraceString(e));
+            }
+            if (!ok) {
+                try { Files.deleteIfExists(file); } catch (IOException ignored) {}
+            } else if (!exifInStream && exif != null) {
+                try {
+                    androidx.exifinterface.media.ExifInterface inter = ParseExif.setAllAttributes(file.toFile(), exif);
+                    if (inter != null) inter.saveAttributes();
+                } catch (IOException | RuntimeException e) {
+                    Log.e(TAG, "EXIF write failed: " + android.util.Log.getStackTraceString(e));
+                }
+            }
+        } finally {
+            SavingFiles.end(file);
+        }
+        Log.d(TAG, PhotoFormat.JPEG + " streamed " + (ok ? "saved" : "failed") + " in " + (System.nanoTime() - start) / 1000000 + " ms: " + file.getFileName());
+        if (ok) {
+            try {
+                Log.i(TAG, "encode params " + PhotoFormat.JPEG + ": " + encodeParams(PhotoFormat.JPEG) + ", " + fileSize(file) + " bytes");
+            } catch (RuntimeException noSettings) {
+                // a log line only
+            }
+            result.files.add(file);
+        }
+        return result;
+    }
+
+    /** P483: the bytes into the stream in 1 MB writes (as the encoder hands them over). */
+    static void writeAll(OutputStream out, byte[] bytes) throws IOException {
+        for (int at = 0; at < bytes.length; at += 1 << 20) out.write(bytes, at, Math.min(1 << 20, bytes.length - at));
+    }
+
+    /**
      * The HEIC of a shot: the 10-bit encoder for a 10-bit image when «HEIC 10 бит» is in effect, and HeifWriter at 8 bits
      * otherwise or when the 10-bit encode fails. {@code how} gets " 10-bit" / " 8-bit" for the save log line.
      */

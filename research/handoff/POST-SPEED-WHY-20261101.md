@@ -1,4 +1,4 @@
-# Post-processing speed / ARK209 review (2026-11-01)
+# Post-processing speed / WHY209 review (2026-11-01)
 
 ## Accepted change
 
@@ -48,13 +48,13 @@ Local, uncommitted evidence: `SCAMERA-PC/evidence/gcam61-post-speed-20261101`.
   uses shared GLES3.1 features and conservative runtime fallback, not Mali timing
   or image-quality proof.
 
-## What ARK209 establishes
+## What WHY209 establishes
 
 The owner's `arkcamv209.apk` SHA256 is
 `28d72b6267860cd0d6fa93c78bb1254b834babb97d382df01559cdce34c5e3d1`.
 93 of 94 supplied shader bodies are present byte-for-byte in its actual library;
 the final tone body is at native file offset0x5b872. Evidence is in
-`evidence/arkcam-review-20261030/apk209/shader-comparison.json`.
+`evidence/whycam-review-20261030/apk209/shader-comparison.json`.
 
 The final shader receives ready inset/outset matrices and samples its custom
 curve from a texture. It still evaluates analytic AgX powers. Its separate RL

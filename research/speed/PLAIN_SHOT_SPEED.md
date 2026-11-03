@@ -28,7 +28,7 @@ Branch from 9f6a459. Nothing was run on a phone for this note; the numbers come 
 | PostPipeline: **RGB32F upload** (nicergb input upload=2240) | | **2240** | 312 |
 | PostPipeline: decimate 239 + free 38 | | 277 | 52 |
 | PostPipeline: rest of VivoNiceRgb (lens shading, chroma blocks) | | ~140 | ~120 |
-| PostPipeline: NiceDenoise 495, ArkStats 524, ArkFusion 26, ArkCombine 10, FinalResize 12, Rotate 1 | | 1068 | 642 |
+| PostPipeline: NiceDenoise 495, WhyStats 524, WhyFusion 26, WhyCombine 10, FinalResize 12, Rotate 1 | | 1068 | 642 |
 | PostPipeline: GPU drain + tile readback into the bitmap (Rotate -> runAll end) | | 1756 | 193 |
 | PostPipeline total (post_start -> post_readback) | 13410 -> 19376 | 5966 | 1324 |
 | Encode: WebP 5184x3904 (Bitmap.compress) | 19436 -> 23134 | **3697** | 2249 (12 MP) |
@@ -96,7 +96,7 @@ Expected Pixel 7: F6 never on the path in the logged conditions (-0.9..-16 s), -
 | Option | Gain (vivo plain) | Cost |
 |---|---|---|
 | Plain Bayer on the sensor grid instead of the Sabre 2x grid (output mode 12 MP for plain streams, keep 2x for remosaic) | merge 9.7 -> ~2.5 s, post 6.0 -> ~1.3 s, hand-off -0.6 s, WebP 3.7 -> ~2.2 s: about **-13 s** | loses the 2x super-resolution detail of mode 20 |
-| Resize to the final 20 MP before the post pipeline instead of after it | post 6.0 -> ~2.5-3 s | the ARK tone / sharpening run on resampled pixels (different look of fine detail) |
+| Resize to the final 20 MP before the post pipeline instead of after it | post 6.0 -> ~2.5-3 s | the WHY tone / sharpening run on resampled pixels (different look of fine detail) |
 | JPEG (jpegli) instead of WebP for the photo | 3.7 -> ~0.7 s at 20 MP | the owner's format choice |
 | Pixel 7 / low-RAM phones: cap the burst (e.g. 15 frames) or the F6 frames | merge and F6 roughly halved | more noise |
 | Processing diagnostics off (Pixel log) | -1.1..-2.3 s header, -1..-8.5 s client output | no NICE zip per shot |

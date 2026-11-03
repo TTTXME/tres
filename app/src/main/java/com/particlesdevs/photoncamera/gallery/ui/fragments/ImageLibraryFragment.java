@@ -60,6 +60,8 @@ import java.util.stream.Collectors;
  */
 public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Host {
     private static final String PREFS = "gallery_ui", KEY_CHIPS = "show_folder_chips";
+    /** P491 (owner, 2026-11-03: «галерея должна запоминать мой выбор отображаемых папок»): the folder chip last chosen. */
+    private static final String KEY_FOLDER = "active_folder";
     private GalleryViewModel viewModel;
     private NavController navController;
     private final SelectionHelper<GalleryItem> selection = new SelectionHelper<>();
@@ -205,6 +207,14 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             String current = viewModel != null ? viewModel.getCurrentFolderName() : null;
             activeFolder = folders.get(0).getDisplayName();
             for (GalleryItem f : folders) if (f.getDisplayName().equals(current)) activeFolder = current;
+            // P491: a new library opens the folder chosen last time (rotation keeps the shown one: it is the same folder)
+            final String remembered = prefs().getString(KEY_FOLDER, null);
+            if (remembered != null && !remembered.equals(activeFolder)) for (GalleryItem f : folders) {
+                if (!f.getDisplayName().equals(remembered)) continue;
+                activeFolder = remembered;
+                viewModel.setCurrentFolderImages(f);
+                break;
+            }
         }
         renderChips();
     }
@@ -221,6 +231,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             chip.setOnClickListener(v -> {
                 clearSelection();
                 activeFolder = f.getDisplayName();
+                prefs().edit().putString(KEY_FOLDER, activeFolder).apply(); // P491
                 viewModel.setCurrentFolderImages(f);
                 renderChips();
             });
@@ -352,7 +363,9 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
                 return;
             }
             Set<String> set = new HashSet<>();
-            for (GallerySheets.Folder r : rows) if (r.on) set.add(r.id);
+            // P491 (owner, 2026-11-03: the shown folders were not remembered): stored by name - the folders are merged by their
+            // name and a merged one took the id of the bucket with the newest photo, so a stored id stopped matching after new photos
+            for (GallerySheets.Folder r : rows) if (r.on) set.add(r.name);
             ScameraApp.getSettingsManagerStatic().set("default_scope", PreferenceKeys.Key.FOLDERS_LIST, set);
             clearSelection();
             viewModel.setUpdatePending(true);

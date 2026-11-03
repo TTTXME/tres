@@ -107,7 +107,11 @@ public class ImageFrame {
                 slope += channel.first; offset += channel.second;
             }
             if (Double.isFinite(slope+offset) && slope>=0 && offset>=0) {
-                noiseSlope=(float)(slope/model.length); noiseOffset=(float)(offset/model.length);
+                // P473: an offset in sensor units (NoiseModeler.halOffset) by the sensor's declared white level
+                final android.hardware.camera2.CameraCharacteristics camera = com.particlesdevs.photoncamera.capture.CaptureController.mCameraCharacteristics;
+                final Integer white = camera == null ? null : camera.get(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
+                noiseSlope=(float)(slope/model.length);
+                noiseOffset=(float)com.particlesdevs.photoncamera.processing.render.NoiseModeler.halOffset(offset/model.length, white == null ? 0 : white);
             }
         }
         Float focus = result.get(android.hardware.camera2.CaptureResult.LENS_FOCUS_DISTANCE);

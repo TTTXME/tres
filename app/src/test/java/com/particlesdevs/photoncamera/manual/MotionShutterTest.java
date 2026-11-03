@@ -427,6 +427,17 @@ public class MotionShutterTest {
     }
 
     @Test
+    public void aFreshSlowSceneTakesTheLongerSportCeiling() {
+        // P471: measured slow (within 2 px at 1/150 s) and fresh: 1/150 s; stale, faster or a faster setting: unchanged
+        long t = 5_000_000_000L;
+        assertEquals(MotionShutter.Levels.SLOW_CAP_NS, new MotionShutter.Levels().capNs(CAP, 100, t, t));
+        assertEquals(MotionShutter.Levels.SLOW_CAP_NS, new MotionShutter.Levels().capNs(CAP, 0, t - 100 * MS, t));
+        assertEquals(CAP, new MotionShutter.Levels().capNs(CAP, 100, t - 400 * MS, t));
+        assertEquals(CAP, new MotionShutter.Levels().capNs(CAP, 400, t, t));
+        assertEquals(2 * MS, new MotionShutter.Levels().capNs(2 * MS, 100, t, t));
+    }
+
+    @Test
     public void aTapLearnsTheNewPointFirst() {
         Sim s = new Sim(false, 0.2 / 81.4);
         s.engage(22 * MS, 3700);

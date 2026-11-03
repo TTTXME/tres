@@ -274,6 +274,7 @@ public final class SettingsStyle {
         // P144: the own tone curve draws its own card (graph and shortcuts); P162: so does the crop picture
         if (p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ToneCurvePreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.RawCropPreference
+                || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.SegmentedListPreference // P490
                 || page(p)) {
             p.setIconSpaceReserved(false);
             return;

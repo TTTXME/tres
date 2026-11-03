@@ -10,7 +10,7 @@ precision highp sampler2D;
 // most of its sharpening (B passes 0.65 of it at 0.2, 0.9 at 0.1).
 // P337 (owner, 2026-10-25: a mesh on the sea of a 3.7x telephoto shot): a plain Bayer shot reads Ya without its 2 px lattice
 // (mode 3): the merge leaves the checker / row / column alternation at 10 % of the high band (sea, vivo X200 Ultra tele), the
-// USM, bilateral and Richardson-Lucy stages lifted it to 16 % in the JPEG (row alternation 1.8 x ArkCam's). Mode 3 takes out
+// USM, bilateral and Richardson-Lucy stages lifted it to 16 % in the JPEG (row alternation 1.8 x WhyCam's). Mode 3 takes out
 // exactly the 2 px alternations of the 5 x 5 sites around (weights (1 2 2 2 1) / 8 per axis, as scamdn/lgrain): a constant or
 // a linear Ya gives 0 in them, every other detail is sharpened as before, and the lattice comes back at its own level (mode 2).
 //  modeU 0: Output = B(InputBuffer), B = [1 2 1]^T [1 2 1] / 16, edge pixels repeated     -> R16F: the sharpening's source

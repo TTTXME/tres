@@ -964,7 +964,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 s.values = new String[pr.length];
                 s.labels = new CharSequence[pr.length];
                 for (int i = 0; i < pr.length; i++) { s.values[i] = pr[i].id; s.labels[i] = pr[i].brand + " " + pr[i].name; }
-                s.def = pr[0].id;
+                s.def = com.particlesdevs.photoncamera.processing.color.FilmSim.DEFAULT_PRINT;
                 s.title = Lang.t(c, "Печать", "Print");
                 s.summary = Lang.t(c, "Бумага или кинопечать, на которую печатается негатив", "The paper or print film the negative is printed on");
                 return s;
@@ -981,11 +981,11 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 return s;
             }
             case com.particlesdevs.photoncamera.processing.color.FilmSim.GRAIN_KEY:
-                return slider(key, Lang.t(c, "Зерно плёнки", "Film grain"), 0, 200, 1, "100");
+                return slider(key, Lang.t(c, "Зерно плёнки", "Film grain"), 0, 200, 1, Integer.toString(com.particlesdevs.photoncamera.processing.color.FilmSim.defaultPercent(key)));
             case com.particlesdevs.photoncamera.processing.color.FilmSim.HALATION_KEY:
-                return slider(key, Lang.t(c, "Ореол плёнки", "Film halation"), 0, 400, 1, "100");
+                return slider(key, Lang.t(c, "Ореол плёнки", "Film halation"), 0, 400, 1, Integer.toString(com.particlesdevs.photoncamera.processing.color.FilmSim.defaultPercent(key)));
             case com.particlesdevs.photoncamera.processing.color.FilmSim.SOFTNESS_KEY:
-                return slider(key, Lang.t(c, "Мягкость плёнки", "Film softness"), 0, 300, 1, "100");
+                return slider(key, Lang.t(c, "Мягкость плёнки", "Film softness"), 0, 300, 1, Integer.toString(com.particlesdevs.photoncamera.processing.color.FilmSim.defaultPercent(key)));
             case com.particlesdevs.photoncamera.processing.color.FilmSim.EXPOSURE_KEY:
                 return slider(key, Lang.t(c, "Экспозиция плёнки, EV", "Film exposure, EV"), -2, 2, .1f, "0");
             case com.particlesdevs.photoncamera.processing.color.FilmSim.PRINT_EV_KEY:
@@ -1013,10 +1013,42 @@ public class ScamLabFragment extends ModuleConceptFragment {
             case com.particlesdevs.photoncamera.processing.color.FilmSim.DIFFUSION_STRENGTH_KEY:
                 return slider(key, Lang.t(c, "Сила диффузии, x100", "Diffusion grade, x100"), 0, 200, 5, "50");
             case com.particlesdevs.photoncamera.processing.color.FilmSim.DIR_KEY:
-                return slider(key, Lang.t(c, "Цветоразделение (DIR), %", "Colour separation (DIR), %"), 0, 100, 1, "100");
+                return slider(key, Lang.t(c, "Цветоразделение (DIR), %", "Colour separation (DIR), %"), 0, 100, 1, Integer.toString(com.particlesdevs.photoncamera.processing.color.FilmSim.defaultPercent(key)));
             default:
-                return null;
+                return advancedFilmSpec(key, c);
         }
+    }
+
+    /**
+     * P487: the film page's DIR / halation / development sliders and the push / pull mode and spectral model choices (FilmAdvanced);
+     * the DIR gammas' lab default is the negatives' value (each stock's own on the page).
+     */
+    @Nullable
+    private static Spec advancedFilmSpec(String key, Context c) {
+        final com.particlesdevs.photoncamera.processing.color.FilmAdvanced.Param p =
+                com.particlesdevs.photoncamera.processing.color.FilmAdvanced.param(key);
+        if (p != null) return slider(key, p.title(c) + (p.unit.isEmpty() ? "" : "," + p.unit), p.min, p.max, p.step,
+                p.def == Math.rint(p.def) ? Integer.toString((int) p.def) : String.format(java.util.Locale.ROOT, "%.2f", p.def));
+        // the DIR gammas: the negatives' own value as the lab's default (each stock's own on the film page)
+        final int gamma = com.particlesdevs.photoncamera.processing.color.FilmAdvanced.gammaIndex(key);
+        if (gamma >= 0) return slider(key, Lang.t(c, "Калибровка DIR ", "DIR gamma ")
+                        + com.particlesdevs.photoncamera.processing.color.FilmAdvanced.DIR_GAMMA_NAMES[gamma], 0,
+                com.particlesdevs.photoncamera.processing.color.FilmAdvanced.DIR_GAMMA_MAX,
+                com.particlesdevs.photoncamera.processing.color.FilmAdvanced.DIR_GAMMA_STEP, String.format(java.util.Locale.ROOT, "%.3f",
+                        com.particlesdevs.photoncamera.processing.color.FilmReferenceParameters.dirGamma("kodak_portra_400")[gamma]));
+        final boolean push = com.particlesdevs.photoncamera.processing.color.FilmAdvanced.PUSH_MODE_KEY.equals(key);
+        if (!push && !com.particlesdevs.photoncamera.processing.color.FilmAdvanced.SPECTRAL_KEY.equals(key)) return null;
+        final Spec s = new Spec(key, Spec.LIST);
+        s.values = (push ? com.particlesdevs.photoncamera.processing.color.FilmAdvanced.PUSH_MODES
+                : com.particlesdevs.photoncamera.processing.color.FilmAdvanced.SPECTRAL_MODELS).clone();
+        s.labels = new CharSequence[s.values.length];
+        for (int i = 0; i < s.values.length; i++)
+            s.labels[i] = push ? com.particlesdevs.photoncamera.processing.color.FilmAdvanced.pushModeName(c, i)
+                    : com.particlesdevs.photoncamera.processing.color.FilmAdvanced.spectralName(i);
+        s.def = s.values[0];
+        s.title = push ? Lang.t(c, "Режим пуш / пулл", "Push / pull mode") : Lang.t(c, "Спектральная модель плёнки", "Film spectral model");
+        s.summary = com.particlesdevs.photoncamera.settings.ParamHelp.of(c, key);
+        return s;
     }
 
     private static Spec slider(String key, String title, float min, float max, float step, String def) {
@@ -1123,7 +1155,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
         // «Кадры теней»'s rows: the same (no android:dependency since the mode greys the photo switch: its own rules there)
         if (Arrays.asList(HYBRID + "shasta_mode", HYBRID + "shasta_motion_max", HYBRID + "shasta_frames", HYBRID + "shasta_ev").contains(key))
             return HYBRID + "shasta";
-        if (key.startsWith(HYBRID + "dn_") || key.startsWith(HYBRID + "ark_dn_") || key.startsWith(HYBRID + "why_ms_")
+        if (key.startsWith(HYBRID + "dn_") || key.startsWith(HYBRID + "why_dn_") || key.startsWith(HYBRID + "why_ms_")
                 || key.equals(HYBRID + "why_bracket_denoise")
                 || key.equals(HYBRID + "why_chroma_denoise")) return DENOISE;
         return null;
@@ -1168,6 +1200,10 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 if (family == null || !Arrays.asList(com.particlesdevs.photoncamera.processing.color.LensFilters.IDS).contains(String.valueOf(family)))
                     f.put(FilmSim.DIFFUSION_KEY, com.particlesdevs.photoncamera.processing.color.LensFilters.PEARLESCENT);
             }
+            // P487: an advanced control acts only with what gates it on the page (both sides equal otherwise)
+            final String gate = com.particlesdevs.photoncamera.processing.color.FilmAdvanced.gate(key);
+            if (gate != null && PreferenceNumber.read(shot.get(gate), 0) == 0)
+                f.put(gate, com.particlesdevs.photoncamera.processing.color.FilmAdvanced.gateValue(gate));
         }
         if ((key.equals(HYBRID + "highlight_chroma") || key.equals(HYBRID + "highlight_defringe")) && !recoveryAt(shot))
             f.put(RECOVERY, "100");
@@ -1648,7 +1684,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
         return !devFailed;
     }
 
-    // ───── P355 (owner, 2026-10-27: «Сделай лабораторию более удобной и практичной, посмотри как сделано в арк камере»): favourites,
+    // ───── P355 (owner, 2026-10-27: «Сделай лабораторию более удобной и практичной, посмотри как сделано в Why камере»): favourites,
     // the last section, a sandbox of several settings at once, B saved as a JPEG ─────
 
     static final String LAB_STORE = "scam_lab", FAVOURITES = "favourites", LAST_GROUP = "last_group", SANDBOX_FILE = "sandbox.json";

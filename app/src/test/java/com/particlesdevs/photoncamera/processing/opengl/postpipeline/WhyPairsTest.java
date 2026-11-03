@@ -5,7 +5,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 
 /**
- * P340 (owner, 2026-10-25: pairs against LMC 9.6, ArkCam and the stock camera): the fusion's darkest exposure reaches the Bento
+ * P340 (owner, 2026-10-25: pairs against LMC 9.6, WhyCam and the stock camera): the fusion's darkest exposure reaches the Bento
  * headroom ceiling (WhyFusion.headroomExposure) and the detail delta grows with the finish SNR (WhyCombine.detailBoost).
  */
 public class WhyPairsTest {

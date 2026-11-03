@@ -243,11 +243,26 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
      * copied with SRC), but without the full-frame readback buffer next to the bitmap (~200 MB at 50 MP). Only
      * for 4-channel 8-bit output formats.
      */
+    /**
+     * P483 (speed): a consumer of the final readback's mapped RGBA rows (tightly packed, width x height) in place of the bitmap -
+     * the JPEG encode of a caller that only saves the photo. True: it took them, {@link #drawBlocksToBitmap} returns null and
+     * {@link #sinkTook} is set; false: the bitmap is made from the same mapping as before.
+     */
+    public interface RgbaSink {
+        boolean accept(ByteBuffer rgba, int width, int height);
+    }
+
+    /** P483: set by the caller before {@link #drawBlocksToBitmap} (the pixel-pack buffer path only); null: always a bitmap. */
+    public RgbaSink rgbaSink;
+    /** P483: the last {@link #drawBlocksToBitmap} gave its pixels to {@link #rgbaSink} (no bitmap). */
+    public boolean sinkTook;
+
     public Bitmap drawBlocksToBitmap() {
+        sinkTook = false;
         // P187: above 100 MP the textures the last nodes gave back are freed only once the GPU is done with them; the readback
         // waits for that GPU work anyway, so the 0.8 GB bitmap is made after their storage is back, not on top of it
         if ((long) mOutWidth * mOutHeight > 100_000_000L) GLES30.glFinish();
-        // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»), step 0c: where the
+        // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»), step 0c: where the
         // time between the last node and the bitmap goes, one SCAM_PIPELINE line ("final output ms"). scam_dev.txt "post_sync 1":
         // the earlier nodes' GPU work finished first ("pending") and a glFinish after every draw and readback, so render /
         // readback / copy are each their own; without it no glFinish is added and the draws' GPU time lands in the readback.
@@ -265,6 +280,10 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         String path = "tiles";
         if (pboReadbackWanted(mOutWidth, mOutHeight)) {
             final Bitmap direct = drawBlocksToBitmapPbo(timing);
+            if (sinkTook) {
+                timing.log("pbo -> jpeg (no bitmap)", mOutWidth, mOutHeight);
+                return null;
+            }
             if (direct != null) {
                 timing.log("pbo", mOutWidth, mOutHeight);
                 return direct;
@@ -419,7 +438,10 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             final GLProg program = super.mProgram;
             final GLBlockDivider divider = new GLBlockDivider(mOutHeight, GLDrawParams.TileSize);
             final int[] row = new int[2];
+            final boolean invalidate = PostGlMode.invalidate();
             while (divider.nextBlock(row)) {
+                // P479: the tile's old rows are not needed (the rows drawn are the rows read back)
+                if (invalidate) GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, new int[]{GLES30.GL_COLOR_ATTACHMENT0}, 0);
                 glViewport(0, 0, mOutWidth, row[1]);
                 program.setVar("yOffset", row[0]);
                 program.draw();
@@ -430,6 +452,13 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 timing.tiles++;
             }
             if (glGetError() != GL_NO_ERROR) return null;
+            final RgbaSink sink = rgbaSink;
+            if (sink == null) try {
+                dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+                com.particlesdevs.photoncamera.processing.JpegliEncoder.touchPixels(dst); // P473: while the GPU draws the tiles
+            } catch (OutOfMemoryError pendingGpuStorage) {
+                Log.w(TAG, "bitmap allocation postponed until queued GPU work finishes");
+            }
             final java.nio.Buffer view = GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, (int) bytes, GLES30.GL_MAP_READ_BIT);
             mapped = view != null;
             if (!(view instanceof ByteBuffer) || view.capacity() < bytes || glGetError() != GL_NO_ERROR) return null;
@@ -437,8 +466,20 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             final ByteBuffer src = (ByteBuffer) view;
             src.clear();
             src.limit((int) bytes);
-            dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
-            dst.copyPixelsFromBuffer(src);
+            // P483: the rows straight to the sink (the JPEG encode) while mapped; a sink that fails leaves the bitmap path below
+            if (sink != null && sink.accept(src, mOutWidth, mOutHeight)) {
+                mapped = false;
+                if (!GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER)) {
+                    Log.w(TAG, "final readback: the pixel-pack buffer was lost while mapped, the sink's result is dropped, the tiles are read again");
+                    return null;
+                }
+                timing.copied();
+                mBlockBuffer = null;
+                sinkTook = true;
+                return null;
+            }
+            if (dst == null) dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+            if (!com.particlesdevs.photoncamera.processing.JpegliEncoder.copyPixels(src, dst)) dst.copyPixelsFromBuffer(src);
             mapped = false;
             // GL_FALSE: the buffer's contents were lost while it was mapped (e.g. a display mode change): the copy is not used
             if (!GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER)) {

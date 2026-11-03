@@ -48,7 +48,7 @@ LMC-гибриде SCAMERA (Sabre 6.1 kernel × LMC 9.6 rejection/weights × Ben
 Bento добавляет к серии 1–2 кадра с экспозицией в k раз меньше (по умолчанию k = 8) и **заменяет** ими клиппированные
 области базы: внутри маски светов база и все остальные кадры теряют вес, сливаются только ультракороткие кадры, умноженные на
 k (приведённые к единицам базы). Поэтому выход слияния в светах уходит **выше 1.0** (до ≈ k·белого) — это реальные данные о
-яркости, которые дальше использует восстановление светов и тон (ARK) [код: шапка `H:11-13`; `H:1016-1017`; §5].
+яркости, которые дальше использует восстановление светов и тон (WHY) [код: шапка `H:11-13`; `H:1016-1017`; §5].
 
 ### 1.2 Маршрут
 
@@ -619,19 +619,19 @@ robust[f][cell] = r;  atomicAdd(sums[f], round(clamp(r,0,1)·255));
 локальный свет (нижняя граница, только вверх), «нейтральный белый при одном измеренном канале», при клипе всех трёх — нейтральный
 белый на уровне `max(r, top)`; смешивание с силой `highlight_recovery/100` [код]. Узел `HighlightRecovery` для гибрида/Bento
 пропускается (`HighlightRecovery.java:56-62`: «per-channel recovery in VivoNiceRgb»). Пост-проход `vivohdr/clipband.glsl`
-(сила `highlight_band`) гасит оранжево-синий пунктир края клипа по флагам (комментарий `clipband.glsl:1-12`: у ArkCam его нет,
+(сила `highlight_band`) гасит оранжево-синий пунктир края клипа по флагам (комментарий `clipband.glsl:1-12`: у WhyCam его нет,
 потому что «the Bento frame covers the band») [код].
 
-### 7.4 ARK-тон и запас по светам
+### 7.4 WHY-тон и запас по светам
 
-* `ArkStats` строит `arkLow` (½ сетки, полное затенение линзы) **без клипа**: «Bento content above 1 stays»; потолок `clip`
-  берётся из максимума данных, не больше 4 (`ArkStats.java:21-27` (javadoc)).
-* `ArkAe`: `r.bento = gmax > 1.05` (`ArkAe.java:148`) — флаг `bento=1` в строке `ARK SMART_HDR_STAT` означает «данные выше
-  1.05», а не «воркер применил Bento» [код]. `ArkFusion`: `bracket_denoise` диапазона Bento (`clip > 1.05`, `ArkFusion.java:15`).
-* `ArkCombine`: потолок/плечо Bento только при реальном запасе: `headroomU = VivoNiceRgb.lastRealClip ||
-  LmcHybridBurst.lastBentoUsClipped > 0` (`ArkCombine.java:102-103`).
+* `WhyStats` строит `whyLow` (½ сетки, полное затенение линзы) **без клипа**: «Bento content above 1 stays»; потолок `clip`
+  берётся из максимума данных, не больше 4 (`WhyStats.java:21-27` (javadoc)).
+* `WhyAe`: `r.bento = gmax > 1.05` (`WhyAe.java:148`) — флаг `bento=1` в строке `WHY SMART_HDR_STAT` означает «данные выше
+  1.05», а не «воркер применил Bento» [код]. `WhyFusion`: `bracket_denoise` диапазона Bento (`clip > 1.05`, `WhyFusion.java:15`).
+* `WhyCombine`: потолок/плечо Bento только при реальном запасе: `headroomU = VivoNiceRgb.lastRealClip ||
+  LmcHybridBurst.lastBentoUsClipped > 0` (`WhyCombine.java:102-103`).
 * Значения > 1 в цепочке: воркер их не клампит (§5.2), `nicergb` в гибриде принимает знаковый вход без клампа
-  (`VNR:200-210`, `signedU`), ARK сжимает их тоном. В объединённый DNG они не попадают (кламп `H:5673`) [код].
+  (`VNR:200-210`, `signedU`), WHY сжимает их тоном. В объединённый DNG они не попадают (кламп `H:5673`) [код].
 
 ### 7.5 Шумодав по карте эффективных кадров
 
@@ -677,7 +677,7 @@ robust[f][cell] = r;  atomicAdd(sums[f], round(clamp(r,0,1)·255));
 | Выравнивание | `gain = 1.25·TET_b/TET_f`, медиана 3×3 ×3 | `1/exposure`, гомография CRE, без F6 (`SM:81`, `H:5295`) | — (1.25 не перенесён) |
 | Ядро | база ×2.5 (S) по всему кадру; линейное ядро только в spatial_bayer | ultrashort изотропное σ = 1 px; ядро базы не трогается (`H:1242`) | гайд базы давал «молнию» R/B (`H:1238-1240`) |
 | Единицы выхода | TET_us, F16, финиш ×k | TET_base, float32, ultrashort ×k в шейдере (`H:5420`) | один набор uniform-ов, без переделки финиша (`COMBO` §3 п.10) |
-| Финиш | `highlight_scale ≤ 1.7·k`, `ScaleHalideBufferByBentoGain`, SLM `bento_factor` | `VivoNiceRgb` hi = k, ARK headroom, шумодав по карте (§7) | своя цепочка тона |
+| Финиш | `highlight_scale ≤ 1.7·k`, `ScaleHalideBufferByBentoGain`, SLM `bento_factor` | `VivoNiceRgb` hi = k, WHY headroom, шумодав по карте (§7) | своя цепочка тона |
 | Цвет внутри маски | нет | проход `kHybBento` (§6) | пунктир R/B одного кадра |
 | Флаги клипа | нет | биты 4/5 трейлера (§5.6) | поканальное восстановление светов |
 | Аннотация, `bento_annotate` | есть | нет | — |
@@ -690,7 +690,7 @@ robust[f][cell] = r;  atomicAdd(sums[f], round(clamp(r,0,1)·255));
    (пятнистость) [вывод из кода]. F6 к ultrashort не применяется (`laUltrashort 0`): параллакс и локальные сдвиги внутри
    света не исправляются [код].
 2. **Ночной экран / клипующий ultrashort.** Память проекта (2026-10-04): текст экрана ноутбука клиппирован в N, ultrashort
-   ещё 17 % клиппирован, Bento «Всегда» → испорченный текст; предложено недоэкспонировать N ночью как ARK. В авто-режиме при
+   ещё 17 % клиппирован, Bento «Всегда» → испорченный текст; предложено недоэкспонировать N ночью как WHY. В авто-режиме при
    `usClippedRatio > 0.62` был бы откат; в «Всегда» клиппированный ultrashort остаётся (нижняя граница на уровне k·0.98) [док:
    memory, код].
 3. **Пятна на лампе (история).** «Artifacts on light» (vivo, plain Bayer, Bento forced, usClipped 0.75): пятна давало
@@ -752,7 +752,7 @@ bentoUsWeight 1.0 … bentoUsSigma 1.0 bentoFrames 2.0 bentoChromaSigma 2.0 … 
 | `highlight recovery per channel: strength=1.0 bento=true k=16.00005 usClipped=0.0 flags=true lo=1.0(nominal)×3 hi=0.0(off)×3 max=0.9647604,1.2378565,0.78249043 samples=2949120 nearClip=true clipWhite=1.9806577` | Java взяла `applied`, `factor`, `usClippedRatio` из строки воркера (`VNC:502-504`). Флаги есть → `useLo`; плато у 1.0 нет (клип заменён) → номинал. `hi` выключен: плато у k нет и `usClipped = 0` (`VNR:183`). `samples` = 50.1 МП/17. `nearClip`: G max 1.24 ≥ 0.85 → строятся блоки цвета. `clipWhite = max(lo[c]/whitePoint[c])` = 1.98066 = WB-усиление R из `Parameters: [1.9806577, …, 1.4883721]` [вывод: `whitePoint = 1/gain`]. |
 | `highlight recovery per channel: chroma=510x384 block 16 limit=0.35 band=1.0 gpu ms=138` | Блок 8 px сенсора × 2 (сетка 2×) = 16 выходных px: 8160/16 = 510, 6144/16 = 384. |
 | `highlightRecovery skipped: LMC hybrid, per-channel recovery in VivoNiceRgb` | `HighlightRecovery.java:59-62`. |
-| `ARK SMART_HDR_STAT clip=2.191 gmax=2.191 … bento=1` | `bento=1` здесь = `gmax > 1.05` по данным `arkLow` после WB/затенения (`ArkAe.java:148`), потолок `clip` = максимум данных (≤ 4). |
+| `WHY SMART_HDR_STAT clip=2.191 gmax=2.191 … bento=1` | `bento=1` здесь = `gmax > 1.05` по данным `whyLow` после WB/затенения (`WhyAe.java:148`), потолок `clip` = максимум данных (≤ 4). |
 
 ### 9.2 Снимок 14:18:09 — Tetra (forceSensorMode 7), нативный мозаичный путь T1, один ultrashort
 
@@ -773,7 +773,7 @@ bentoUsWeight 1.0 … bentoUsSigma 1.0 bentoFrames 2.0 bentoChromaSigma 2.0 … 
 | `HYBRID RIM: off` | §6.3. |
 | `NICE RGB: mean=0.098603 max=0.966106` | Максимум < 1 даже с Bento: свет маленький, а при бининге «белый, если клиппирован любой сайт» в маску попали блоки, где большинство сайтов не клиппировано, — данные ultrashort × 7.2 там ниже 1; затем ещё медиана цветности [вывод, не проверялось]. |
 | `highlight recovery per channel: … bento=true k=7.21153 usClipped=0.0 flags=true lo=1.0(nominal)×3 hi=0.0(off)×3 max=0.21468343,0.39923728,0.29652652 samples=737280 nearClip=false clipWhite=1.9357278` | Каждый 17-й пиксель маленький свет не задел (max < 0.85) → `nearClip=false` → `chroma=neutral` (блоки цвета не строились). |
-| `ARK SMART_HDR_STAT clip=1.186 gmax=1.186 … bento=1` | После WB и затенения максимум данных 1.186 > 1.05 → флаг ARK `bento=1` [вывод]. |
+| `WHY SMART_HDR_STAT clip=1.186 gmax=1.186 … bento=1` | После WB и затенения максимум данных 1.186 > 1.05 → флаг WHY `bento=1` [вывод]. |
 
 ### 9.3 Для сравнения: авто-режим на Pixel (`P7`, 14:50:54)
 
@@ -846,7 +846,7 @@ channelClip: lo = плато у 1 (если !bento или есть флаги), 
 nicergb: уровень клипа на пиксель по флагам (бит 5 → k·white; биты 0–2 → white; бит 3 внутри маски →
          k·white или «нет клипа»), реконструкция клиппированных каналов, нейтральный белый; clipband
 шумодав: усиление по eff (Bento-области) до bento_denoise_max = 3
-ARK: arkLow без клипа (света > 1 остаются, потолок ≤ 4), headroom при lastRealClip || usClipped > 0
+WHY: whyLow без клипа (света > 1 остаются, потолок ≤ 4), headroom при lastRealClip || usClipped > 0
 ```
 
 ---

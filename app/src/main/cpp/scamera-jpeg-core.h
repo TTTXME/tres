@@ -64,7 +64,7 @@ inline void termDestination(j_compress_ptr cinfo) {
 
 // Encodes RGBA rows (alpha ignored; Android ARGB_8888 memory order) as a baseline-compatible progressive JPEG,
 // YCbCr 4:4:4, quality 1-100 on the libjpeg scale. Throws std::runtime_error on any failure.
-inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stride, int quality, const Writer& writer) {
+inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stride, int quality, const Writer& writer, bool aq = adaptiveQuantisation().load()) {
     if (pixels == nullptr || width <= 0 || height <= 0 || stride < size_t(width) * 4)
         throw std::runtime_error("JPEG: bad image geometry");
     jpeg_compress_struct cinfo{};
@@ -85,7 +85,7 @@ inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stri
         cinfo.in_color_space = JCS_EXT_RGBA;
         jpegli_set_defaults(&cinfo);
         jpegli_set_quality(&cinfo, quality < 1 ? 1 : quality > 100 ? 100 : quality, TRUE);
-        jpegli_enable_adaptive_quantization(&cinfo, adaptiveQuantisation().load() ? TRUE : FALSE);   // P443
+        jpegli_enable_adaptive_quantization(&cinfo, aq ? TRUE : FALSE);   // P443
         for (int c = 0; c < cinfo.num_components; ++c) {
             cinfo.comp_info[c].h_samp_factor = 1;
             cinfo.comp_info[c].v_samp_factor = 1;

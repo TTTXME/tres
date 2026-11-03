@@ -909,7 +909,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // P212g (W6 = M6): P208's still-only viewfinder is the normal mode (its ISP AWB valid): its neutrals for the press
                 // P408: with the reference app's rule every session's (its live stream's last result at the press)
                 if (mVfNeutralFeed && mVivoSdkRawSession != null
-                        || com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.arkMode())
+                        || com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.whyMode())
                     mVfNeutrals.offer(physicalID, android.os.SystemClock.elapsedRealtime(), result);
                 // P212g (W7 = M12): a converged plain result teaches the camera's colour table (about once a second)
                 if (mVivoSdkRawSession == null) plainColour(result);
@@ -3220,7 +3220,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // The raw viewfinder consumes from this reader continuously, so it
         // needs its own headroom even when ZSL is off.
         if (PreferenceKeys.isLiveViewfinderRawEnabled()) maxjpg = 6;
-        // P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the
+        // P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the
         // phone's own reader depth (DeviceDefaults.zslReaderImages: 8 on the OPPO Find X7 Ultra, the reference app's reader there at
         // 30 fps) as the default and the floor; 0 = no rule: 20, at least 16
         final int deviceReader = com.particlesdevs.photoncamera.settings.DeviceDefaults.zslReaderImages();
@@ -3280,7 +3280,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mImageReaderPreview.setOnImageAvailableListener(mOnYuvImageAvailableListener, mBackgroundHandler);
         }
             mBufferSize = getPreviewOutputSize(getSafeDisplay(),characteristics,ScameraApp.getSettings().selectedMode);
-        // P365 step 9 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
+        // P365 step 9 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
         // scam_dev vf_isp_light, on by default on the X7 Ultra): under the RAW viewfinder the ISP stream is only its fallback - the
         // reference app's 1440x1080 class (the smallest of the session's aspect with a long side of at least 1440)
         if (mBufferSize != null && fullRes == null && !mIsRecordingVideo && !mLiveRawRejected && isRawFormat(mTargetFormat) && ispLight()
@@ -5000,7 +5000,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private int mMeterStride;
 
     /**
-     * P365 (review; owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the
+     * P365 (review; owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the
      * plain 16-bit samples of a live RAW frame for the per-frame RAW meters (plainMeter, plainTeacher, ettrMeter, observeRawLevel),
      * asked for only when one of them is due - the camera's plane of a RAW_SENSOR frame; a packed RAW10 / RAW12 frame (the Find X7
      * Ultra's stream since DeviceDefaults v7, the X8 Ultra's since v2) unpacked once per frame into a reused buffer (RawUnpack:
@@ -5253,7 +5253,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             final boolean shown = !probe && com.particlesdevs.photoncamera.util.ThermalPolicy.viewfinderFrameDue(img.getTimestamp());
             // the ZSL ring's mode barrier (P41, below), decided before the viewfinder takes the frame (P365)
             final boolean zslPass = isZslMode() && passModeBarrier(img, result);
-            // P365 step 4 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
+            // P365 step 4 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
             // scam_dev vf_ring_ref): a shown frame the ring copies anyway as plain 16-bit reaches the viewfinder from its slot after
             // the ring copy (ringFrameView) instead of a copy of its own out of the camera's buffer; its parameters are read now,
             // while the Image is open
@@ -5761,9 +5761,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.Press mosaicWbAtPress() {
         try {
             // P408: «Баланс белого Quad / Tetra» as the reference app - the live stream's last result at the press
-            if (com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.arkMode()) {
+            if (com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.whyMode()) {
                 final com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.Press p =
-                        mVfNeutrals.ark(physicalID, android.os.SystemClock.elapsedRealtime());
+                        mVfNeutrals.why(physicalID, android.os.SystemClock.elapsedRealtime());
                 Log.i("SCAM_CAPTURE", "mosaic white balance at the press: " + p);
                 return p;
             }
@@ -7421,6 +7421,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             }
             Log.i("SCAM_HDR", "motion ring: anchor " + anchor + ", " + skip + " frames before press, window "
                     + window / 1_000_000 + " ms, meter " + (fresh ? "fresh" : "unavailable"));
+            // P488: a 60 fps ring with an empty queue merges up to 12 of the frames inside the window (the mode's 8 left most unused)
+            if (PreferenceKeys.scamDevSwitch("motion_fast_ring", true)) {
+                final long[] gaps = new long[Math.max(0, rawImages.size() - 1)];
+                for (int i = 0; i < gaps.length; i++) gaps[i] = rawImages.get(i).getTimestamp() - rawImages.get(i + 1).getTimestamp();
+                java.util.Arrays.sort(gaps);
+                final long gap = gaps.length > 0 ? gaps[gaps.length / 2] : 0;
+                final int fast = com.particlesdevs.photoncamera.settings.MotionMode.ringFrames(requestedCount, sScamPending.get(), rawImages.size(), gap);
+                if (fast != requestedCount) {
+                    Log.i("SCAM_HDR", "motion ring: fast ring (" + gap / 1000 + " us a frame), queue empty: " + fast + " frames instead of " + requestedCount);
+                    requestedCount = fast;
+                }
+            }
         }
         RingFrame base = null;
         for (RingFrame image : rawImages) if (base == null || image.getTimestamp() > base.getTimestamp()) base = image;
@@ -8284,7 +8296,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // SCAM HDR's plan: four N, short S and ES, long L (the N normally come from the ZSL ring); the hybrid
             // takes its own N count from the ring and its Bento / Shasta requests from HybridPlan.
             int denoiseFrameCount = 4, shortFrameCount = 2, longFrameCount = 1;
-            if (com.particlesdevs.photoncamera.settings.MotionMode.on()) shortFrameCount = longFrameCount = 0;
+            // P494: the shade's HDR off as «Спорт»: no short and no long frames
+            if (com.particlesdevs.photoncamera.settings.PreferenceKeys.noHdrFrames()) shortFrameCount = longFrameCount = 0;
             if (manualPsl) {
                 // as an empty ring: every frame after the shutter, the viewfinder keeps running, RAWs routed by their timestamp
                 mHybridZslCapture = false;
@@ -9754,7 +9767,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     }
 
     /**
-     * P365 step 7 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»):
+     * P365 step 7 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»):
      * whether a shot's series is being taken - the flags under which onMatchedLiveRaw publishes no viewfinder frame (MainRenderer
      * keeps the last RAW frame on the screen meanwhile, scam_dev vf_series_hold).
      */

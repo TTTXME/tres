@@ -20,7 +20,7 @@ import java.util.HashMap;
 final class LiveRawRenderer {
     private int program, shadingTex, lutTex;
     /**
-     * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
+     * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»; scam_dev
      * vf_fused): two RAW textures taken in turn, so a frame's upload never waits for the GPU to finish reading the texture of the
      * frame before (busy with the merge: the 36-134 ms worst draws of P353's logs); +25 MB at 4096 x 3072. vf_fused 0: one, as
      * before. Their sizes, the frame versions they hold (-1 none) and the one drawn ({@code cur}).
@@ -52,7 +52,12 @@ final class LiveRawRenderer {
     private boolean lookOn,lookMixOn;
     private float lutStrength;
     private volatile String lutWanted="";
-    private volatile FilmLut lutReady;
+    private static final class Loaded {
+        final String key;
+        final FilmLut lut;
+        Loaded(String key, FilmLut lut) { this.key=key; this.lut=lut; }
+    }
+    private volatile Loaded lutReady;
     private FilmLut lutShown;
     private int filmLutTex;
     private void refreshLook(){
@@ -74,8 +79,9 @@ final class LiveRawRenderer {
             if(!name.equals(lutWanted)){
                 lutWanted=name;lutReady=null;
                 if(!name.isEmpty())LUT_LOADER.execute(()->{
-                    FilmLut lut=com.particlesdevs.photoncamera.processing.color.FilmChain.lut(ScameraApp.getAppContext(),name);
-                    if(name.equals(lutWanted))lutReady=lut;
+                    if(!name.equals(lutWanted))return;
+                    com.particlesdevs.photoncamera.processing.color.FilmChain.loadLut(ScameraApp.getAppContext(),name,
+                            ()->name.equals(lutWanted),lut->{if(name.equals(lutWanted))lutReady=new Loaded(name,lut);});
                 });
             }
         }catch(RuntimeException e){
@@ -92,7 +98,8 @@ final class LiveRawRenderer {
         return out;
     }
     private void setLook(){
-        FilmLut lut=lutReady;
+        Loaded ready=lutReady;
+        FilmLut lut=ready!=null&&ready.key.equals(lutWanted)?ready.lut:null;
         if(lut!=lutShown){
             if(filmLutTex!=0)GLES20.glDeleteTextures(1,new int[]{filmLutTex},0);
             filmLutTex=lut!=null?lut.upload():0;lutShown=lut;
@@ -353,7 +360,7 @@ final class LiveRawRenderer {
     private boolean boundFresh;
     boolean boundFresh(){return boundFresh;}
     /**
-     * P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
+     * P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the RAW
      * frame for the fused WHY pass (LiveWhyTone.drawFused: why/combine RAW_SOURCE 1 is {@code p}, its target bound and its viewport
      * set) - uploaded as for {@link #draw}, the RAW on unit 9 and the lens-shading map on unit 10 (why/combine takes 0 - 8),
      * rawdevelop_fs's uniforms of the linear frame (the look's white matrix in color_transform), texRotate; lastView as

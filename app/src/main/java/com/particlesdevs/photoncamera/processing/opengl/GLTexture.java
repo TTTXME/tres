@@ -85,14 +85,19 @@ public class GLTexture implements AutoCloseable {
         slot = SLOTS.take(TexID[0]);
 
         mTextureID = TexID[0];
+        GLTexturePool.allocated(mTextureID, bytes(), describe(), false); // P477: the inventory
         //Log.d("GLTexture","Size:"+size+" ID:"+mTextureID);
         int previousBinding = beginEdit();
         try {
         //if(bmp.byteBuffer != null) {
+            final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
             glTexStorage2D(GL_TEXTURE_2D, 1, mFormat.getGLFormatInternal(),  mSize.x, mSize.y);
             checkEglError("glTexStorage2D");
+            if (t0 != 0L) GLGpuTimer.alloc(System.nanoTime() - t0, (long) mSize.x * mSize.y * mFormat.mFormat.mSize * mFormat.mChannels);
             if(bmp.byteBuffer != null) {
+                final String was = GLGpuTimer.mark("upload"); // P479: post_sync only (profiling)
                 glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, mSize.x, mSize.y, mFormat.getGLFormatExternal(), mFormat.getGLType(), (ByteBuffer) bmp.byteBuffer);
+                if (was != null) GLGpuTimer.mark(was);
             }
         //}
         //else glTexImage2D(GL_TEXTURE_2D, level,mFormat.getGLFormatInternal(), mSize.x, mSize.y,0, mFormat.getGLFormatExternal(), mFormat.getGLType(), null);
@@ -110,20 +115,29 @@ public class GLTexture implements AutoCloseable {
         this.mSize = size;
         this.mGLFormat = glFormat.getGLFormatInternal();
         int[] TexID = new int[1];
-        glGenTextures(1,TexID,0);
+        // P477: a texture without data may take a closed one's name and storage of its size and format (GLTexturePool, "tex_pool")
+        final int pooled = pixels == null ? GLTexturePool.take(size.x, size.y, mGLFormat) : 0;
+        if (pooled != 0) TexID[0] = pooled; else glGenTextures(1,TexID,0);
         // Shot speed (W1.0): no log line per texture (two lines each pushed the shot over OPPO's log quota); the count of
         // textures per run is in the "runAll programs" line (takeCreated).
         created++;
         slot = SLOTS.take(TexID[0]);
         mTextureID = TexID[0];
+        GLTexturePool.allocated(mTextureID, bytes(), describe(), pooled != 0); // P477: the inventory
         //Log.d("GLTexture","Size:"+size+" ID:"+mTextureID);
         int previousBinding = beginEdit();
         try {
         //if(pixels != null) {
+            final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
+            if (pooled == 0) {
             glTexStorage2D(GL_TEXTURE_2D, 1, glFormat.getGLFormatInternal(),  size.x, size.y);
             checkEglError("glTexStorage2D");
+            }
+            if (t0 != 0L) GLGpuTimer.alloc(System.nanoTime() - t0, (long) mSize.x * mSize.y * mFormat.mFormat.mSize * mFormat.mChannels);
             if(pixels != null) {
+            final String was = GLGpuTimer.mark("upload"); // P479: post_sync only (profiling)
             glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, size.x, size.y, glFormat.getGLFormatExternal(), glFormat.getGLType(), (ByteBuffer) pixels);
+            if (was != null) GLGpuTimer.mark(was);
             }
          //}
         //else glTexImage2D(GL_TEXTURE_2D, level,mFormat.getGLFormatInternal(), mSize.x, mSize.y,0, mFormat.getGLFormatExternal(), mFormat.getGLType(), null);
@@ -246,7 +260,17 @@ public class GLTexture implements AutoCloseable {
         Log.d("GLTexture","notClosed:"+SLOTS.inUse());
     }
 
+    /** P477: the bytes of this texture's storage (one level). */
+    long bytes() {
+        return (long) mSize.x * mSize.y * mFormat.mFormat.mSize * mFormat.mChannels;
+    }
+
+    private String describe() {
+        return mSize.x + "x" + mSize.y + " " + mFormat.mFormat + "x" + mFormat.mChannels;
+    }
+
     public static void closeAll(){
+        GLTexturePool.end(); // P477: the pool's kept names go too
         final int[] open = SLOTS.takeAll();
         if (open.length > 0) glDeleteTextures(open.length, open, 0);
         // W1.1: the framebuffers of the textures still open go with them; a texture attached to a framebuffer kept its
@@ -276,10 +300,15 @@ public class GLTexture implements AutoCloseable {
 
     @Override
     public void close() {
-        glDeleteTextures(1,new int[]{mTextureID},0);
+        final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
+        // P477: kept for the next texture of its size and format (GLTexturePool, during a post run), else deleted as before
+        final boolean kept = GLTexturePool.give(mTextureID, mSize.x, mSize.y, mGLFormat, bytes());
+        if (!kept) glDeleteTextures(1,new int[]{mTextureID},0);
+        GLTexturePool.closed(mTextureID, bytes(), kept);
         // its own slot, not the one its name would index (another texture's once a raw glGenTextures took a name: P369 film grain)
         SLOTS.release(slot, mTextureID);
         slot = 0;
+        if (t0 != 0L) GLGpuTimer.free(System.nanoTime() - t0);
         //Log.d("GLTexture","close ID:"+mTextureID);
         if(isBuffered) {
             untrackFramebuffer(mTextureID);

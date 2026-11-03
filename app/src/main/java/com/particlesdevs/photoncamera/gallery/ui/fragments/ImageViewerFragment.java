@@ -92,6 +92,12 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     private int lastHdrPosition = -1;
     private Histogram histogram;
     private Observable.OnPropertyChangedCallback histogramCallback;
+    /** P492: the histogram overlay (the viewer's switch; on until it is switched off, remembered) and its model listener. */
+    private Histogram liveHistogram;
+    private FrameLayout liveHistogramCard;
+    private Observable.OnPropertyChangedCallback liveHistogramCallback;
+    private boolean histogramOn;
+    private static final String UI_PREFS = "gallery_ui", KEY_HISTOGRAM = "show_histogram";
     private SSIVListener ssivListener = new SSIVListener() {
         @Override
         public void onScaleChanged(float newScale, int origin) {
@@ -163,6 +169,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             @Override public void info() { onExifButtonClick(); }
             @Override public void delete() { onDeleteButtonClick(); }
             @Override public void hdr() { onHdrToggleClicked(); }
+            @Override public void histogram() { onHistogramToggle(); }
             @Override public void openPosition(int position) { if (viewPager != null) viewPager.setCurrentItem(position, true); }
         });
         chrome.edit.setOnLongClickListener(v -> {
@@ -170,6 +177,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             return true;
         });
         root.addView(chrome.top, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
+        buildLiveHistogram(c);
         root.addView(chrome.bottom, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
         overlays = new LinearLayout(c);
         overlays.setOrientation(LinearLayout.VERTICAL);
@@ -220,6 +228,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
      */
     @Override
     public void onDestroyView() {
+        if (liveHistogramCallback != null) exifDialogViewModel.getExifDataModel().removeOnPropertyChangedCallback(liveHistogramCallback);
+        liveHistogramCallback = null;
+        liveHistogram = null;
+        liveHistogramCard = null;
         if (viewPager != null) {
             viewPager.clearOnPageChangeListeners();
             for (int i = 0; i < viewPager.getChildCount(); i++) {
@@ -306,8 +318,56 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         });
     }
 
+    /** P492: the overlay under the top bar at the right, shown while the switch is on (the state of the last session). */
+    private void buildLiveHistogram(Context c) {
+        histogramOn = c.getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE).getBoolean(KEY_HISTOGRAM, false);
+        liveHistogram = new Histogram(c, null);
+        liveHistogram.setContentDescription(Lang.t("Гистограмма RGB", "RGB histogram"));
+        liveHistogramCard = new FrameLayout(c);
+        liveHistogramCard.setBackground(GalleryUi.card(c, GalleryUi.PILL_BG, 14));
+        int pad = GalleryUi.dp(c, 8);
+        liveHistogramCard.setPadding(pad, pad, pad, pad);
+        liveHistogramCard.setTag("viewer_histogram_overlay");
+        liveHistogramCard.addView(liveHistogram, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(GalleryUi.dp(c, 176), GalleryUi.dp(c, 92), Gravity.TOP | Gravity.END);
+        lp.topMargin = GalleryUi.dp(c, 92);
+        lp.rightMargin = GalleryUi.dp(c, 12);
+        root.addView(liveHistogramCard, lp);
+        final ExifDialogModel model = exifDialogViewModel.getExifDataModel();
+        final Histogram view = liveHistogram;
+        liveHistogramCallback = new Observable.OnPropertyChangedCallback() {
+            @Override
+            public void onPropertyChanged(Observable sender, int propertyId) {
+                if (histogramOn && model.getHistogramModel() != null) view.post(() -> view.setHistogramModel(model.getHistogramModel()));
+            }
+        };
+        model.addOnPropertyChangedCallback(liveHistogramCallback);
+        applyHistogramSwitch();
+    }
+
+    private void onHistogramToggle() {
+        histogramOn = !histogramOn;
+        if (getContext() != null)
+            requireContext().getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_HISTOGRAM, histogramOn).apply();
+        applyHistogramSwitch();
+    }
+
+    /** The switch's state on the overlay and the button; on: the current photo's histogram (each photo shown recomputes it). */
+    private void applyHistogramSwitch() {
+        if (liveHistogramCard == null || chrome == null) return;
+        liveHistogramCard.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
+        chrome.setHistogram(histogramOn);
+        if (histogramOn && viewPager != null && !galleryItems.isEmpty()) liveHistogramFor(viewPager.getCurrentItem());
+    }
+
+    private void liveHistogramFor(int position) {
+        if (!histogramOn || position < 0 || position >= galleryItems.size()) return;
+        exifDialogViewModel.updateHistogramView((ImageFile) galleryItems.get(position).getFile());
+    }
+
     /** The current photo's meta, badges, filmstrip and zoom. */
     private void onPageShown(int position) {
+        liveHistogramFor(position); // P492
         updateExif();
         updateScaleText();
         if (chrome != null) chrome.centre(position);
@@ -608,6 +668,14 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         d.width = m.getWidth();
         d.height = m.getHeight();
         d.bytes = item.getFile().getSize();
+        // P492: the rest of the EXIF (the header only: a few ms on the main thread)
+        androidx.exifinterface.media.ExifInterface exif = null;
+        if (getContext() != null) try (java.io.InputStream in = requireContext().getContentResolver().openInputStream(item.getFile().getFileUri())) {
+            if (in != null) exif = new androidx.exifinterface.media.ExifInterface(in);
+        } catch (Exception | OutOfMemoryError ignored) {
+            // no EXIF rows: the file's place only
+        }
+        d.more = com.particlesdevs.photoncamera.gallery.ui.PhotoMore.rows(exif, item.getFile().getAbsolutePath());
         return d;
     }
 
@@ -664,7 +732,9 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             pill.setVisibility(View.VISIBLE);
             return;
         }
-        pill.setText(String.format(Locale.ROOT, "%d %%", Math.round(rel * 100)));
+        // P491 (owner, 2026-11-03: «Про 0%, я имел ввиду ... просто при кропе фото»): the viewer's zoom counts from 0 % for the
+        // whole photo as the compare panes do («115 %» was 15 % past it)
+        pill.setText(comparePercent(rel));
         pill.setVisibility(rel > 1.02f ? View.VISIBLE : View.GONE);
     }
 

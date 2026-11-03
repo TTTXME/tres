@@ -59,7 +59,12 @@ final class LiveLensFilter {
     private int uLut, uLutOn, uLutStrength, uLutSize, uLutMin, uLutScale;
     private int lutTex, dummyTex;
     private volatile String lutWanted = "";
-    private volatile FilmLut lutReady;
+    private static final class Loaded {
+        final String key;
+        final FilmLut lut;
+        Loaded(String key, FilmLut lut) { this.key = key; this.lut = lut; }
+    }
+    private volatile Loaded lutReady;
     private FilmLut lutShown;
     private float lutStrength;
     private long readAt = -REFRESH_MS;
@@ -322,7 +327,8 @@ final class LiveLensFilter {
 
     /** The film LUT's texture on unit 1 and its uniforms (the program in use); unit 0 is the camera's frame. */
     private void applyLut() {
-        FilmLut lut = ownLut && lutStrength > 0f ? lutReady : null;
+        Loaded ready = lutReady;
+        FilmLut lut = ownLut && lutStrength > 0f && ready != null && ready.key.equals(lutWanted) ? ready.lut : null;
         if (lut != lutShown) {
             if (lutTex != 0) GLES20.glDeleteTextures(1, new int[]{lutTex}, 0);
             lutTex = lut != null ? lut.upload() : 0;
@@ -363,12 +369,8 @@ final class LiveLensFilter {
             lutReady = null;
             if (!name.isEmpty()) LUT_LOADER.execute(() -> {
                 if (!name.equals(lutWanted)) return; // settings moved on while queued
-                FilmLut lut = com.particlesdevs.photoncamera.processing.color.FilmChain.lut(ScameraApp.getAppContext(), name);
-                if (name.equals(lutWanted)) lutReady = lut;
-                // P369: the photo's scene table of the same settings built ahead (WhyCombine takes it from FilmChain's cache: the
-                // first film shot of an ISP-viewfinder session does not build it); not for settings already left
-                if (sim != null && name.equals(lutWanted))
-                    com.particlesdevs.photoncamera.processing.color.FilmChain.scene(ScameraApp.getAppContext(), sim, user, userStrength);
+                com.particlesdevs.photoncamera.processing.color.FilmChain.loadLut(ScameraApp.getAppContext(), name,
+                        () -> name.equals(lutWanted), lut -> { if (name.equals(lutWanted)) lutReady = new Loaded(name, lut); });
             });
         } catch (RuntimeException e) {
             lutStrength = 0f;   // no settings yet

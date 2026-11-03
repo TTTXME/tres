@@ -340,7 +340,7 @@ void main() {
     fusedL += lift;
     // P349 (owner, 2026-10-26, the sunset with the ladder: «на ступеньке обводка ещё больше стала»): Mertens' halo of a dark
     // object in light above white - a bright band under each rung and a dark one above it, ~100 px, in the sun's glow (the warm
-    // glow takes the pyramid since P348) - where ArkCam's guided filter, edge-aware, has none. Light above white takes the
+    // glow takes the pyramid since P348) - where WhyCam's guided filter, edge-aware, has none. Light above white takes the
     // guided filter's fusion, the mid-tones and shadows keep the pyramid's; on flat areas the two agree, so the share needs no
     // spatial smoothing.
 #if SKY == 1

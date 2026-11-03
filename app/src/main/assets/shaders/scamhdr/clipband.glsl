@@ -34,6 +34,10 @@ uniform int radiusU;                // window radius in output pixels (3 at 1x, 
 uniform int zoneU;                  // how far the band reaches past the flagged pixels, output pixels; <= 0 -> 2
 uniform float strengthU;            // 0..1; <= 0 -> pass-through
 uniform int clipHiUnflaggedU;       // P58, as in scamhdr/scamrgb: inside the Bento mask bit 3 is no clip edge (0 = unset)
+#define BAND_MASK 0
+#if BAND_MASK == 1
+uniform sampler2D BandMask;         // P479: scamhdr/clipmask (the windows' columns), the ClipFlags size
+#endif
 out vec4 Output;
 
 uint flagAt(ivec2 p) {
@@ -54,15 +58,24 @@ void main() {
     // the band: a flagged pixel or one within 2 px (output grid: zoneU) of a flagged one
     int z = zoneU > 0 ? zoneU : 2;
     bool zone = (own & 15u) != 0u;
+    int rs = max(1, (r + 2) / 3);
+#if BAND_MASK == 1
+    // P479 (speed): the same two windows, their columns ORed by scamhdr/clipmask (clamped per axis as here): 12 fetches, not 74
+    for (int dx = -z; dx <= z && !zone; dx++)
+        zone = (uint(texelFetch(BandMask, ivec2(clamp(xy.x + dx, 0, last.x), xy.y), 0).r * 255.0 + 0.5) & 1u) != 0u;
+    bool reach = zone;
+    for (int dx = -r; dx <= r && !reach; dx += rs)
+        reach = (uint(texelFetch(BandMask, ivec2(clamp(xy.x + dx, 0, last.x), xy.y), 0).r * 255.0 + 0.5) & 2u) != 0u;
+#else
     for (int dy = -z; dy <= z && !zone; dy++)
         for (int dx = -z; dx <= z && !zone; dx++)
             zone = (flagAt(clamp(xy + ivec2(dx, dy), ivec2(0), last)) & 15u) != 0u;
     // the fringe reach: within the window radius of a flagged pixel (taps every rs px: a flagged area is wider than that)
     bool reach = zone;
-    int rs = max(1, (r + 2) / 3);
     for (int dy = -r; dy <= r && !reach; dy += rs)
         for (int dx = -r; dx <= r && !reach; dx += rs)
             reach = (flagAt(clamp(xy + ivec2(dx, dy), ivec2(0), last)) & 15u) != 0u;
+#endif
     if (!reach) { Output = c; return; }
     vec3 sum = vec3(0.0);
     float n = 0.0, top = 0.0, low = 1.0e30, lowM = 1.0e30;

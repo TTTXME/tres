@@ -21,9 +21,10 @@ import android.os.PowerManager;
 public final class ThermalPolicy {
     public static final int SEVERE_VF_FPS = 15;
     /**
-     * P353 (owner, 2026-10-27: «Узнай почему у арк гораздо быстрее обработка чем у нас и ускорь нашу до его уровня»): while a shot
+     * P353 (owner, 2026-10-27: «Узнай почему у Why гораздо быстрее обработка чем у нас и ускорь нашу до его уровня»): while a shot
      * is processed (the merge worker and the post pipeline on the same GPU) the developed RAW viewfinder tones at most this many
-     * frames a second. OPPO Find X7 Ultra, the same 26-frame merge: 3.06 s with the ISP viewfinder (30 draws a second, 1.3 ms
+     * frames a second on older GPUs; newer RAW-capable GPUs use 30 fps with a smaller preview target. OPPO Find X7 Ultra, the same
+     * 26-frame merge: 3.06 s with the ISP viewfinder (30 draws a second, 1.3 ms
      * each), 4.38 s with the developed RAW one (29 tones and 55 draws a second, 8 - 10 ms each). scam_dev vf_busy_fps: the rate
      * (0 = every frame, as before).
      */
@@ -49,7 +50,8 @@ public final class ThermalPolicy {
                 if (manager != null) {
                     android.app.ActivityManager.MemoryInfo memory = new android.app.ActivityManager.MemoryInfo();
                     manager.getMemoryInfo(memory);
-                    defaultBusyVfFps = busyFpsForDevice(memory.totalMem, Build.BOARD);
+                    defaultBusyVfFps = busyFpsForDevice(memory.totalMem, Build.BOARD,
+                            com.particlesdevs.photoncamera.settings.DeviceDefaults.rawViewfinderSoc());
                     memoryPolicyKnown = memory.totalMem > 0;
                 }
             } catch (RuntimeException ignored) {}
@@ -104,6 +106,16 @@ public final class ThermalPolicy {
 
     static int busyFpsForDevice(long totalBytes, String board) {
         return "msm8998".equalsIgnoreCase(board) ? 2 : busyFpsForMemory(totalBytes);
+    }
+
+    static int busyFpsForDevice(long totalBytes, String board, boolean fastRawSoc) {
+        final int legacy = busyFpsForDevice(totalBytes, board);
+        return fastRawSoc && totalBytes > 0 && legacy == BUSY_VF_FPS ? 30 : legacy;
+    }
+
+    /** Newer RAW-capable GPUs keep 30 fps by temporarily developing fewer preview pixels. */
+    public static boolean reducedRawViewfinder() {
+        return defaultBusyVfFps == 30 && busy(android.os.SystemClock.elapsedRealtimeNanos());
     }
 
     /** P353: a shot is being processed (set less than {@link #BUSY_MAX_NS} ago). */

@@ -24,6 +24,12 @@ public final class UnspektraCameraAe {
     private volatile boolean acknowledged;
     private long previewTimestamp, previewArrival, usedTimestamp, logAt;
     private long sentTimestamp;
+    /**
+     * P476 (owner, 2026-11-03: «unspektra AE ... работает ступенчато, должен работать плавно»): the exposures sent lately. A frame
+     * whose own request is one of them pairs its meter with its own exposure, so the loop steps on every frame instead of waiting
+     * the HAL's 3-5 frame latency for the last request and then moving up to 0.2 EV at once (visible steps ~6 times a second).
+     */
+    private final java.util.ArrayDeque<UnspektraAe.Exposure> sent = new java.util.ArrayDeque<>();
     private int misses;
     private String configuration;
     private Long previousFrameDuration;
@@ -55,9 +61,10 @@ public final class UnspektraCameraAe {
         previousFrameDuration = null; ownedFrameDuration = 0;
         previewTimestamp = previewArrival = usedTimestamp = logAt = 0; misses = 0; motion.reset();
         sentTimestamp = 0;
+        sent.clear();
     }
 
-    public synchronized void invalidate() { applied = null; configuration = null; usedTimestamp = 0; acknowledged = false; loop.resetMeter(); }
+    public synchronized void invalidate() { applied = null; configuration = null; usedTimestamp = 0; acknowledged = false; sent.clear(); loop.resetMeter(); }
     public void resetMeter() { loop.resetMeter(); }
     public long revision() { return loop.meterRevision(); }
 
@@ -154,6 +161,7 @@ public final class UnspektraCameraAe {
                 acknowledged = false;
                 applied = bounds.clamp(new UnspektraAe.Exposure(manualIso > 0 ? manualIso : iso, manualTime > 0 ? manualTime : time));
                 sentTimestamp = ts;
+                sent.clear(); sent.addLast(applied);
                 loop.reset(mode, applied); rebuild = true;
                 Log.i("SCAM_AE", "Unspektra AE start " + camera.physicalId() + " " + mode + " ISO " + applied.iso + " ns " + applied.timeNs);
             } else {
@@ -161,15 +169,16 @@ public final class UnspektraCameraAe {
                 Integer ae = result.get(CaptureResult.CONTROL_AE_MODE);
                 Integer requestedIso = request.get(CaptureRequest.SENSOR_SENSITIVITY);
                 Long requestedTime = request.get(CaptureRequest.SENSOR_EXPOSURE_TIME);
-                if (requestedIso == null || requestedTime == null || requestedIso != applied.iso || requestedTime != applied.timeNs) {
+                if (requestedIso == null || requestedTime == null || requestedIso <= 0 || requestedTime <= 0
+                        || !sent.contains(new UnspektraAe.Exposure(requestedIso, requestedTime))) {
                     if (ts - sentTimestamp > 2_000_000_000L) {
                         refused = true; applied = null;
                         Log.w("SCAM_AE", "Unspektra AE: preview request was overridden, restoring Android AE for this session");
                     }
                     return false;
                 }
-                if (ae == null || ae != CaptureResult.CONTROL_AE_MODE_OFF || Math.abs((double)time / applied.timeNs - 1) > .05
-                        || Math.abs((double)iso / applied.iso - 1) > .05) {
+                if (ae == null || ae != CaptureResult.CONTROL_AE_MODE_OFF || Math.abs((double)time / requestedTime - 1) > .05
+                        || Math.abs((double)iso / requestedIso - 1) > .05) {
                     if (++misses >= 24) {
                         refused = true; applied = null;
                         Log.w("SCAM_AE", "Unspektra AE: HAL did not apply exposure, restoring Android AE for this session");
@@ -177,13 +186,17 @@ public final class UnspektraCameraAe {
                     return false;
                 }
                 misses = 0;
-                acknowledged = true;
+                acknowledged = requestedIso == applied.iso && requestedTime == applied.timeNs;
                 Rational step = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
                 double ev = camera.getParamController().effectiveEv() * (step == null ? 1. / 3 : step.doubleValue());
                 UnspektraAe.Exposure next = loop.update(meterEv, new UnspektraAe.Exposure(requestedIso, time), ts,
                         loop.generation(), loop.meterRevision(), bounds, ev, 0, ir.getLower(),
                         MainsFlicker.hz() > 0 ? MainsFlicker.hz() * .5f : null, iso, true);
-                if (next != null) { applied = next; sentTimestamp = ts; acknowledged = false; rebuild = true; }
+                if (next != null) {
+                    applied = next; sentTimestamp = ts; acknowledged = false; rebuild = true;
+                    sent.addLast(next);
+                    while (sent.size() > 16) sent.removeFirst();
+                }
                 long now = android.os.SystemClock.elapsedRealtime();
                 if (now - logAt >= 1000) {
                     logAt = now;

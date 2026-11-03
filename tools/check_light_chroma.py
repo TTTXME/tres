@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P393 (owner, 2026-10-29: sunlit yellow birches pale peach-white beside ArkCam's saturated yellow): why/combine.glsl LIGHT_CHROMA
+"""P393 (owner, 2026-10-29: sunlit yellow birches pale peach-white beside WhyCam's saturated yellow): why/combine.glsl LIGHT_CHROMA
 on the GPU (moderngl), the shipped shader with and without the define, as WhyCombine / LiveWhyTone draw it (AgX, the photo's
 uniforms, the colour fed so that the fusion's gain is 1: the exposed light reaches the tone unchanged, fU 1).
 

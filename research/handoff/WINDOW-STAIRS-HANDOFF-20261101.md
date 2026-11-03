@@ -21,7 +21,7 @@ Speed integration does not fix P424. No push or APK delivery is implied; do not 
 
 ## Actual status and scope
 
-**P424 is not fixed. No production window-AA/reconstruction change was integrated.** The owner asked for a prompt for another locally installed AI if the fix was unsuccessful. Do not label a lower contour statistic, RAW RMSE, weaker sharpening, or a smoother different Ark JPEG as completion.
+**P424 is not fixed. No production window-AA/reconstruction change was integrated.** The owner asked for a prompt for another locally installed AI if the fix was unsuccessful. Do not label a lower contour statistic, RAW RMSE, weaker sharpening, or a smoother different Why JPEG as completion.
 
 The current task is the jagged/discontinuous window rim, including the lower-right curved corner in the owner's last screenshot, plus earlier distant windows and radios. FULLRES/ISZ/DCG and stock ZSL bracket are unrelated historical tasks; do not resume them.
 
@@ -73,7 +73,7 @@ Original native RGBfloat+flags output: same job's `output.f32`,163577856 bytes, 
 
 All four relevant bursts are Oct30:111118,111305(native Quad),111323,111407. Owner said dates were approximate; do not keep seeking Oct29. Earlier target was distant windows111118/111305. Radios to the right in111118 are also requested. Source files/paired JPEGs are inventoried in E.
 
-Ark111333 is a paired JPEG10seconds later at a different angle/exposure/tone. Ark111124 is also JPEG only; owner confirmed no Ark RAW. Use those for appearance, never as same-RAW processing ground truth.
+Why111333 is a paired JPEG10seconds later at a different angle/exposure/tone. Why111124 is also JPEG only; owner confirmed no Why RAW. Use those for appearance, never as same-RAW processing ground truth.
 
 ## Critical distinction: two different contours in the screenshot
 
@@ -103,7 +103,7 @@ Read `T/primary-estimator-review/REPORT.md`, `T/cloud-local-regression-review/RE
 
 `T/es-core-review/REPORT.md` describes exact3ES22/23/24 source projection/reduction. Actual origins/localF6/weights/clip/alpha/gain are frozen. Literal current projection closes to actual GPU within9.54e−7, reducer/stage3 within6.90e−7. All accepted source ES samples are unclipped; do not confuse N clipping with ES clipping.
 
-Four complete packed outputs replacing only the ES core with real ARK209 or Google11, fullRGB or scalarLuma, were rendered with identical post. All retain breaks; curved G50 shifts<.1px. Late native R/B chroma median was not rerun; G late-stage identity is separately proven. See their per-output manifests.
+Four complete packed outputs replacing only the ES core with real WHY209 or Google11, fullRGB or scalarLuma, were rendered with identical post. All retain breaks; curved G50 shifts<.1px. Late native R/B chroma median was not rerun; G late-stage identity is separately proven. See their per-output manifests.
 
 Alpha1 control and a single predeclared smooth remap `a'=a+a*a*(1-a)` do not fix the photograph. Alpha1 worsens G30. Smooth curved G30 p95|Δ²x|.2143→.2451(worse), G50.3301→.3167, G70.2582→.2462; the outer curved glint is bit-identical. Smooth remap also has no unconditional noise guarantee. Both source-semantic flags and frozen-flags controls were kept. Do not choose a curve from one favorable statistic.
 
@@ -129,7 +129,7 @@ Output dir must be a sibling under post-audit and start `111323-`. It renders ac
 
 Baseline crop native origin(1728,1312), shape352×384; target atlocal[64:288,64:320]. Baseline array: `E/post-audit/111323-corner-review/post/render/111323-current_protected-display.npy`, SHA `f0987b6f10358439d35f9cc8fe1c1db0de06c60057592ea917928ed7cd3f4aa5`. Comparison PNGs use nearest3x, no warp. Do not warp away defects or judge quarter-resolution diagnostic PFM views as native aliasing proof.
 
-Recent full post outputs: `111323-{fullgreen,cell-exact,mode6,fine1}-review`, `111323-ES-{ARK209_085,Google11_085}-{fullRGB,scalarLuma}-review`, `111323-{alpha1,smooth-alpha}-{source-stage3-flags,frozen-flags}-review`.
+Recent full post outputs: `111323-{fullgreen,cell-exact,mode6,fine1}-review`, `111323-ES-{WHY209_085,Google11_085}-{fullRGB,scalarLuma}-review`, `111323-{alpha1,smooth-alpha}-{source-stage3-flags,frozen-flags}-review`.
 
 ## Remaining ideas: explicitly not completed
 

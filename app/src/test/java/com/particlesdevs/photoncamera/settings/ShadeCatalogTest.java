@@ -100,13 +100,13 @@ public class ShadeCatalogTest {
                 assertTrue(key, e.isCurated());
             }
         }
-        assertEquals(23, curated); // P356 added «ETTR»; P129: the route tile and the SCAM HDR group (frames, L boost, mosaic) are gone; «Кодек» (pref_photo_format) is part of the FORMAT choice now, no row of its own; P42 added «Лица» and «Трекинг»;
+        assertEquals(24, curated); // P494 added «HDR» (the long / ultrashort frames); P356 added «ETTR»; P129: the route tile and the SCAM HDR group (frames, L boost, mosaic) are gone; «Кодек» (pref_photo_format) is part of the FORMAT choice now, no row of its own; P42 added «Лица» and «Трекинг»;
                                    // P64 removed «Кривая» (the Hybrid tone curve); P118 «Резкость» (sharp_mode) and «USM» with its group
         // The rows the owner dropped (answer 8) stay out.
         for (String gone : new String[]{"pref_scam_hybrid_why_tone", "pref_scamhdr_fusion_enabled", "pref_scam_tone_curve"})
             assertFalse(gone, ShadeCatalog.isCurated(gone));
         for (String key : ShadeCatalog.DEFAULT_TILES) assertTrue(key, catalog.isKnown(key));
-        assertEquals("SIMPLE_UI §2: the concept's 18 default tiles (with Стиль and Селфи)", 18, ShadeCatalog.DEFAULT_TILES.size());
+        assertEquals("SIMPLE_UI §2: the concept's 18 default tiles (with Стиль and Селфи) + P494 «UHDR» beside «HDR»", 19, ShadeCatalog.DEFAULT_TILES.size());
         // «Стиль» cycles Обычный -> Ч/б -> Плёнка over the mono filter and the LUT; «Селфи» reads «Зеркало» / «Как есть»
         ShadeCatalog.Entry style = catalog.entry(ShadeCatalog.STYLE);
         assertEquals(context.getResources().getTextArray(R.array.shade_l_style)[0].toString(), catalog.valueText(style, true));
@@ -219,12 +219,12 @@ public class ShadeCatalogTest {
         assertEquals(context.getString(R.string.shade_off), catalog.valueText(shasta, true));
 
         // P443: «Шумодав» is the Resolve denoise's strength
-        ShadeCatalog.Entry luma = catalog.entry("pref_scam_hybrid_ark_dn_factor");
+        ShadeCatalog.Entry luma = catalog.entry("pref_scam_hybrid_why_dn_factor");
         assertEquals(ShadeCatalog.SLIDER, luma.kind);
         assertEquals(0.01f, luma.step, 1e-6f);
         assertEquals("0" + point + "40", catalog.valueText(luma, true));
         catalog.write(luma, 0.6f);
-        assertEquals("0.6", prefs.getString("pref_scam_hybrid_ark_dn_factor", null));
+        assertEquals("0.6", prefs.getString("pref_scam_hybrid_why_dn_factor", null));
         assertEquals("0" + point + "60", catalog.valueText(luma, true));
         assertTrue(catalog.changed(luma));
 

@@ -26,6 +26,32 @@ public final class PostGlMode {
     public static boolean syncNodes() { return syncNodes; }
     public static void setSyncNodes(boolean on) { syncNodes = on; }
 
+    private static long lapAt;
+
+    /** post_sync 1 (P473 speed): the node's GPU work since its start or the last lap finished, logged as one sub-step. */
+    public static void lap(String name) {
+        if (!syncNodes) return;
+        android.opengl.GLES30.glFinish();
+        final long now = System.nanoTime();
+        if (lapAt != 0) com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE", "post_sync lap " + name + " ms=" + (now - lapAt) / 1_000_000);
+        lapAt = now;
+    }
+
+    /** The start of a node's laps (GLBasePipeline, before the node runs). */
+    public static void lapStart() {
+        if (syncNodes) lapAt = System.nanoTime();
+    }
+
+    private static volatile boolean invalidate;
+
+    /**
+     * P479 (speed): scam_dev.txt "post_invalidate" (on by default; never in the old model of post_ab): a pass that draws every
+     * pixel of its target (GLProg.drawBlocks of a whole texture, the final output's tiles) tells the driver the target's old
+     * contents are not needed (glInvalidateFramebuffer), so a tiler need not load them; every pixel is drawn anyway.
+     */
+    public static boolean invalidate() { return invalidate; }
+    public static void setInvalidate(boolean on) { invalidate = on; }
+
     private static volatile boolean tileReadback;
 
     public static boolean tileReadback() { return tileReadback; }

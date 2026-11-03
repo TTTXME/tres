@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run the ARK tone shaders (assets/shaders/ark/*) on the desktop GPU (moderngl, GL 4.3) and compare them with the
-numpy reference of the ArkCam 1.23 / LMC 9.6 photo tone (research/hybrid5/ref/tone/ark_tone.py, itself checked against
-the native code and a real LMC JPEG). The host logic between the passes mirrors ArkStats / ArkFusion / ArkCombine.
+"""Run the WHY tone shaders (assets/shaders/why/*) on the desktop GPU (moderngl, GL 4.3) and compare them with the
+numpy reference of the WhyCam 1.23 / LMC 9.6 photo tone (research/hybrid5/ref/tone/why_tone.py, itself checked against
+the native code and a real LMC JPEG). The host logic between the passes mirrors WhyStats / WhyFusion / WhyCombine.
 
-Usage: python tools/check_ark_tone.py [path/to/gclean.npy]   (default: the vivo G_CLEAN of the tone research, if present)
+Usage: python tools/check_why_tone.py [path/to/gclean.npy]   (default: the vivo G_CLEAN of the tone research, if present)
 Pass criterion (tone_port.md 7.8): mean |difference| <= 1/255 after a sigma=3 blur, per case.
 """
 import sys, re
@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SHADERS = ROOT / 'app/src/main/assets/shaders'
 REF = ROOT.parent / 'research/hybrid5/ref/tone'
 sys.path.insert(0, str(REF))
-import ark_ae, ark_tone  # noqa: E402
+import why_ae, why_tone  # noqa: E402
 
-# ArkCam 2.85 X8U effective settings (tone_port.md section 3) in the reference's key names.
+# WhyCam 2.85 X8U effective settings (tone_port.md section 3) in the reference's key names.
 S285 = {'pref_smart_hdr_ae_target_key': 0.15, 'pref_smart_hdr_ae_max_boost_key': 5.0, 'pref_smart_hdr_ae_min_limit_key': 0.5,
         'pref_ae_hl_overflow_key': 2.0, 'pref_ae_hl_blend_key': 0.33, 'pref_ae_night_thresh_key': 100.0, 'pref_ae_night_dim_key': 1.0,
         'pref_smart_hdr_ae_face_priority_key': 0.7, 'pref_smart_hdr_ae_metering_key': 0, 'pref_smart_hdr_bright_thresh_key': 0.8,
@@ -97,20 +97,20 @@ def read(t):
 IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 
-def ark_gpu(full, f, S, iso=0, max_iso=0, detail=0.0, colour_from_mid=False, raw=False):
-    """full: HxWx3 linear Rec.709 at the output grid. Returns (8-bit output, ae result) as ArkStats -> ArkCombine;
-    raw=True: (float output RGBA, ae result, arkLow pixels)."""
+def why_gpu(full, f, S, iso=0, max_iso=0, detail=0.0, colour_from_mid=False, raw=False):
+    """full: HxWx3 linear Rec.709 at the output grid. Returns (8-bit output, ae result) as WhyStats -> WhyCombine;
+    raw=True: (float output RGBA, ae result, whyLow pixels)."""
     H, W = full.shape[:2]
     inp = tex(np.concatenate([full, np.ones((H, W, 1), np.float32)], -1))
     gm = tex(np.ones((1, 1, 4), np.float32), linear=True)
     colour = {'sensorToIntermediate': IDENT, 'intermediateToSRGB': IDENT, 'neutralPointU': (1.0, 1.0, 1.0), 'inScaleU': 1.0}
     lw, lh = (W + f - 1) // f, (H + f - 1) // f
-    low = run('ark/low', (lw, lh), {'InputBuffer': inp, 'GainMap': gm}, dict(colour, factorU=f), dtype='f2')
+    low = run('why/low', (lw, lh), {'InputBuffer': inp, 'GainMap': gm}, dict(colour, factorU=f), dtype='f2')
     lowpix = read(low)[..., :3]
-    ae, clip, S2, st = ark_ae.smart_hdr(lowpix, S, iso=iso, max_iso=max_iso)
+    ae, clip, S2, st = why_ae.smart_hdr(lowpix, S, iso=iso, max_iso=max_iso)
     src = low
     if clip > 1.05 and S2['pref_bracket_denoise_key'] > 0.001:
-        src = run('ark/bracket_dn', (lw, lh), {'InputBuffer': low}, {'strengthU': S2['pref_bracket_denoise_key']}, dtype='f2')
+        src = run('why/bracket_dn', (lw, lh), {'InputBuffer': low}, {'strengthU': S2['pref_bracket_denoise_key']}, dtype='f2')
     effH, effS = S2['pref_sharp_ef_highlight_str_key'], S2['pref_sharp_ef_shadow_str_key']
     em = (2.0 ** (-1.5 * effH), 1.0, min(2.0 ** effS, 8.0), min(2.0 ** (2 * effS), 16.0))
     lw4 = (S2['pref_sharp_ef_weight_hl_key'], S2['pref_sharp_ef_weight_mid_key'], S2['pref_sharp_ef_weight_ext_hl_key'], S2['pref_sharp_ef_weight_shadow_key'])
@@ -120,21 +120,21 @@ def ark_gpu(full, f, S, iso=0, max_iso=0, detail=0.0, colour_from_mid=False, raw
     r = int(S2['pref_ef_gf_radius_key']); r = max(r, 1); r = (r >> 1) if r > 1 else 1
 
     def box(t):
-        h = run('ark/box', (dw, dh), {'InputBuffer': t}, {'dirU': (1, 0), 'radiusU': r})
-        return run('ark/box', (dw, dh), {'InputBuffer': h}, {'dirU': (0, 1), 'radiusU': r})
-    mII = box(run('ark/gf', (dw, dh), {'InputBuffer': src}, gfu, MODE=0))
-    mP = box(run('ark/gf', (dw, dh), {'InputBuffer': src}, gfu, MODE=1))
-    mIP = box(run('ark/gf', (dw, dh), {'InputBuffer': src}, gfu, MODE=2))
+        h = run('why/box', (dw, dh), {'InputBuffer': t}, {'dirU': (1, 0), 'radiusU': r})
+        return run('why/box', (dw, dh), {'InputBuffer': h}, {'dirU': (0, 1), 'radiusU': r})
+    mII = box(run('why/gf', (dw, dh), {'InputBuffer': src}, gfu, MODE=0))
+    mP = box(run('why/gf', (dw, dh), {'InputBuffer': src}, gfu, MODE=1))
+    mIP = box(run('why/gf', (dw, dh), {'InputBuffer': src}, gfu, MODE=2))
     eps = {'epsU': max(S2['pref_ef_gf_eps_key'], 1e-6)}
-    a = box(run('ark/ab', (dw, dh), {'MeanII': mII, 'MeanP': mP, 'MeanIP': mIP}, eps, MODE=0))
-    b = box(run('ark/ab', (dw, dh), {'MeanII': mII, 'MeanP': mP, 'MeanIP': mIP}, eps, MODE=1))
-    fused = run('ark/gf', (lw, lh), {'InputBuffer': src, 'MeanA': a, 'MeanB': b}, gfu, MODE=3)
+    a = box(run('why/ab', (dw, dh), {'MeanII': mII, 'MeanP': mP, 'MeanIP': mIP}, eps, MODE=0))
+    b = box(run('why/ab', (dw, dh), {'MeanII': mII, 'MeanP': mP, 'MeanIP': mIP}, eps, MODE=1))
+    fused = run('why/gf', (lw, lh), {'InputBuffer': src, 'MeanA': a, 'MeanB': b}, gfu, MODE=3)
     colour_tex, fc = src, f
     if colour_from_mid:
-        colour_tex = run('ark/low', ((W + 1) // 2, (H + 1) // 2), {'InputBuffer': inp, 'GainMap': gm}, dict(colour, factorU=2), dtype='f2')
+        colour_tex = run('why/low', ((W + 1) // 2, (H + 1) // 2), {'InputBuffer': inp, 'GainMap': gm}, dict(colour, factorU=2), dtype='f2')
         fc = 2
-    # Bounded reference of the detail delta (ArkCombine, review_arktone F1): box mean of min(ae * Y709, 1).
-    ref = run('ark/low', (lw, lh), {'InputBuffer': inp, 'GainMap': gm}, dict(colour, factorU=f, detailClipU=ae), DETAIL_REF=1) \
+    # Bounded reference of the detail delta (WhyCombine, review_whytone F1): box mean of min(ae * Y709, 1).
+    ref = run('why/low', (lw, lh), {'InputBuffer': inp, 'GainMap': gm}, dict(colour, factorU=f, detailClipU=ae), DETAIL_REF=1) \
         if detail != 0.0 else low
     look = S2['pref_agx_look_key']
     comb = {'fU': f, 'colourFU': fc, 'aeU': ae, 'clipU': clip, 'toeU': S2['pref_ef_aces_toe_key'], 'gammaInvU': 1.0 / S2['pref_ef_gamma_key'],
@@ -146,8 +146,8 @@ def ark_gpu(full, f, S, iso=0, max_iso=0, detail=0.0, colour_from_mid=False, raw
             'agxAU': (S2['pref_agx_slope_key'], S2['pref_agx_sp_key'], S2['pref_agx_tp_key'], S2['pref_agx_sat_boost_key']),
             'agxBU': (S2['pref_agx_min_ev_key'], S2['pref_agx_max_ev_key'], S2['pref_agx_ev_key'], float(look)), 'ditherU': 0}
     comb.update(colour)
-    out = run('ark/combine', (W, H), {'InputBuffer': inp, 'GainMap': gm, 'ArkLow': low, 'ArkColour': colour_tex, 'ArkFused': fused,
-                                      'ArkDetailRef': ref}, comb, dtype='f2')
+    out = run('why/combine', (W, H), {'InputBuffer': inp, 'GainMap': gm, 'WhyLow': low, 'WhyColour': colour_tex, 'WhyFused': fused,
+                                      'WhyDetailRef': ref}, comb, dtype='f2')
     o = read(out)
     for t in {id(t): t for t in (inp, gm, low, src, mII, mP, mIP, a, b, fused, out, colour_tex, ref)}.values():
         t.release()
@@ -157,7 +157,7 @@ def ark_gpu(full, f, S, iso=0, max_iso=0, detail=0.0, colour_from_mid=False, raw
 
 
 def to_oklab_L(rgb):
-    return ark_tone.to_oklab(np.maximum(rgb, 0))[..., 0]
+    return why_tone.to_oklab(np.maximum(rgb, 0))[..., 0]
 
 
 def bspline_f(img, f, H, W):
@@ -179,7 +179,7 @@ def bspline_f(img, f, H, W):
 
 
 def boxmean(a, f):
-    """Box mean of factor f with the edge clamp of ark/low.glsl (the last box repeats the edge pixel)."""
+    """Box mean of factor f with the edge clamp of why/low.glsl (the last box repeats the edge pixel)."""
     H, W = a.shape
     lh, lw = (H + f - 1) // f, (W + f - 1) // f
     p = np.pad(a, ((0, lh * f - H), (0, lw * f - W)), mode='edge')
@@ -187,7 +187,7 @@ def boxmean(a, f):
 
 
 def detail_check():
-    """The detail delta of the full-size input (the part ArkCam takes from Google's guide): output OKLab L with the
+    """The detail delta of the full-size input (the part WhyCam takes from Google's guide): output OKLab L with the
     detail minus without it must equal delta * s^2 * (1 - smoothstep(0.75, 1, L) / 2), delta = cbrt(c) -
     cbrt(B-spline(box mean c)), c = min(ae Y_full, 1) (bounded like the kernel's a3), s = min(1, L / cbrt(reference)),
     wherever no clamp, film toe or channel clip interferes."""
@@ -196,8 +196,8 @@ def detail_check():
     base = 0.02 + 0.25 * (x / W) * (0.5 + 0.5 * y / H)
     tex_ = 1.0 + 0.15 * np.sin(x * 1.3) * np.cos(y * 0.9) + 0.1 * ((x.astype(int) + y.astype(int)) % 2)
     full = np.stack([base * tex_ * 0.9, base * tex_, base * tex_ * 0.8], -1).astype(np.float32)
-    o0, (ae, clip, st), low = ark_gpu(full, 2, dict(S285), detail=0.0, raw=True)
-    o1, _, _ = ark_gpu(full, 2, dict(S285), detail=1.0, raw=True)
+    o0, (ae, clip, st), low = why_gpu(full, 2, dict(S285), detail=0.0, raw=True)
+    o1, _, _ = why_gpu(full, 2, dict(S285), detail=1.0, raw=True)
     yfull = full.astype(np.float64) @ np.array([0.2126, 0.7152, 0.0722])
     c = np.minimum(np.maximum(yfull, 0) * ae, 1.0)
     ref = np.cbrt(np.maximum(bspline_f(np.maximum(boxmean(c, 2), 1e-6), 2, H, W), 1e-6))
@@ -219,7 +219,7 @@ def detail_check():
 
 
 def lamp_edge_check():
-    """Regression of review_arktone F1: a light far above white (Bento headroom) on a dim textured background. The
+    """Regression of review_whytone F1: a light far above white (Bento headroom) on a dim textured background. The
     detail delta must not draw a dark ring outside the light: the 5th percentile of the 8-bit luma in a 6 px ring
     with the detail has to stay above 70 % of the background (an ordinary edge undershoot is ~20 %), on the 1x and
     2x grids. The unbounded delta gave 0..7 against a background of ~108 (a black ring around every lamp)."""
@@ -235,7 +235,7 @@ def lamp_edge_check():
     for f in (2, 4):
         p5, bg = [], 0.0
         for detail in (0.0, 1.0):
-            o, (ae, clip, st), _ = ark_gpu(full, f, dict(S285), detail=detail, raw=True, colour_from_mid=(f == 4))
+            o, (ae, clip, st), _ = why_gpu(full, f, dict(S285), detail=detail, raw=True, colour_from_mid=(f == 4))
             luma = 255.0 * np.clip(o[..., :3], 0, 1) @ np.array([0.2126, 0.7152, 0.0722])
             p5.append(np.percentile(luma[ring], 5))
             bg = np.median(luma[far])
@@ -247,7 +247,7 @@ def lamp_edge_check():
 
 
 def colour_check():
-    """ark/low.glsl colour chain (matrices, white point, LSC gain, input scale, box mean)."""
+    """why/low.glsl colour chain (matrices, white point, LSC gain, input scale, box mean)."""
     rng = np.random.default_rng(3)
     H, W = 37, 53
     cam = rng.uniform(0.0, 2.0, (H, W, 3)).astype(np.float32)
@@ -256,13 +256,13 @@ def colour_check():
     gm = tex(np.full((3, 3, 4), 1.3, np.float32), linear=True)
     u = {'sensorToIntermediate': tuple(m1.T.ravel()), 'intermediateToSRGB': tuple(m2.T.ravel()), 'neutralPointU': tuple(wp),
          'inScaleU': scale, 'factorU': 4}
-    low = read(run('ark/low', ((W + 3) // 4, (H + 3) // 4), {'InputBuffer': inp, 'GainMap': gm}, u))[..., :3]
+    low = read(run('why/low', ((W + 3) // 4, (H + 3) // 4), {'InputBuffer': inp, 'GainMap': gm}, u))[..., :3]
     lin = (cam.astype(np.float64) * wp * 1.3 * scale) @ m1.T @ m2.T
     pad = np.pad(lin, ((0, 3 - (H - 1) % 4), (0, 3 - (W - 1) % 4), (0, 0)), mode='edge')
     exp = pad.reshape(pad.shape[0] // 4, 4, pad.shape[1] // 4, 4, 3).mean(axis=(1, 3))
     e1 = np.abs(low - exp).max() / np.abs(exp).max()
     ok = e1 < 1e-4
-    print('arkLow colour chain rel. error %.2e  %s' % (e1, 'PASS' if ok else 'FAIL'))
+    print('whyLow colour chain rel. error %.2e  %s' % (e1, 'PASS' if ok else 'FAIL'))
     return ok
 
 
@@ -299,38 +299,38 @@ def main():
     ok &= lamp_edge_check()
     syn = synthetic()
     for iso in (0, 6400):
-        ref, st, _ = ark_tone.ark_photo_tone(syn, dict(S285), iso=iso, max_iso=6400)
-        ours, (ae, clip, st2) = ark_gpu(syn, 1, dict(S285), iso=iso, max_iso=6400)
+        ref, st, _ = why_tone.why_photo_tone(syn, dict(S285), iso=iso, max_iso=6400)
+        ours, (ae, clip, st2) = why_gpu(syn, 1, dict(S285), iso=iso, max_iso=6400)
         print('synthetic iso %d: ae %.4f clip %.2f effS %.3f effH %.3f' % (iso, ae, clip, st2.get('eff_S', 0), st2.get('eff_H', 0)))
         ok &= compare('synthetic f=1 iso %d' % iso, ours, ref)
     g_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('C:/Users/MECHREVO/AppData/Local/Temp/claude/C--Users-MECHREVO-Downloads-x200u/016880ac-3f01-4443-9f4b-35ee907b6811/scratchpad/h5_tone/vivo_gclean.npy')
     if g_path.is_file():
         g = np.load(g_path).astype(np.float32)
         for iso in (12800, 0):
-            ref, st, _ = ark_tone.ark_photo_tone(g, dict(S285), iso=iso, max_iso=12800)
-            ours, (ae, clip, st2) = ark_gpu(g, 1, dict(S285), iso=iso, max_iso=12800)
+            ref, st, _ = why_tone.why_photo_tone(g, dict(S285), iso=iso, max_iso=12800)
+            ours, (ae, clip, st2) = why_gpu(g, 1, dict(S285), iso=iso, max_iso=12800)
             print('vivo G_CLEAN iso %d: ae %.4f clip %.2f effS %.3f effH %.3f' % (iso, ae, clip, st2.get('eff_S', 0), st2.get('eff_H', 0)))
             ok &= compare('vivo G_CLEAN f=1 iso %d' % iso, ours, ref)
-        # 1x grid of the app: the output is twice arkLow (nearest-upsampled crop, so arkLow == G_CLEAN crop exactly);
+        # 1x grid of the app: the output is twice whyLow (nearest-upsampled crop, so whyLow == G_CLEAN crop exactly);
         # base only (detail 0), compared at the G_CLEAN size after a 2x2 mean.
         crop = g[384:1152, 512:1536]
-        ref, st, _ = ark_tone.ark_photo_tone(crop, dict(S285), iso=12800, max_iso=12800)
+        ref, st, _ = why_tone.why_photo_tone(crop, dict(S285), iso=12800, max_iso=12800)
         up = np.repeat(np.repeat(crop, 2, 0), 2, 1)
         for detail in (0.0, 1.0):
-            ours, (ae, clip, st2) = ark_gpu(up, 2, dict(S285), iso=12800, max_iso=12800, detail=detail)
+            ours, (ae, clip, st2) = why_gpu(up, 2, dict(S285), iso=12800, max_iso=12800, detail=detail)
             o = ours.astype(np.float32).reshape(crop.shape[0], 2, crop.shape[1], 2, 3).mean(axis=(1, 3))
             res = compare('vivo crop f=2 detail %.0f (2x2 mean)' % detail, o, ref)
             if detail == 0.0:
                 ok &= res
-        # 2x grid of the app: arkLow is a quarter of the output, the colour comes from the 2x2 mean (arkMid).
+        # 2x grid of the app: whyLow is a quarter of the output, the colour comes from the 2x2 mean (whyMid).
         quarter = crop[:384, :512]
-        ref4, _, _ = ark_tone.ark_photo_tone(quarter, dict(S285), iso=12800, max_iso=12800)
-        ours, _ = ark_gpu(np.repeat(np.repeat(quarter, 4, 0), 4, 1), 4, dict(S285), iso=12800, max_iso=12800, colour_from_mid=True)
+        ref4, _, _ = why_tone.why_photo_tone(quarter, dict(S285), iso=12800, max_iso=12800)
+        ours, _ = why_gpu(np.repeat(np.repeat(quarter, 4, 0), 4, 1), 4, dict(S285), iso=12800, max_iso=12800, colour_from_mid=True)
         o = ours.astype(np.float32).reshape(384, 4, 512, 4, 3).mean(axis=(1, 3))
-        ok &= compare('vivo crop f=4, colour arkMid (4x4 mean)', o, ref4)
+        ok &= compare('vivo crop f=4, colour whyMid (4x4 mean)', o, ref4)
     else:
         print('no G_CLEAN at', g_path, '- synthetic cases only')
-    print('ARK tone shaders:', 'PASS' if ok else 'FAIL')
+    print('WHY tone shaders:', 'PASS' if ok else 'FAIL')
     sys.exit(0 if ok else 1)
 
 

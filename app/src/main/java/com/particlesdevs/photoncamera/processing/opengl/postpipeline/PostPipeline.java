@@ -343,11 +343,46 @@ public class PostPipeline extends GLBasePipeline {
         fusionNoiseS = Math.max(fusionNoiseS, Float.MIN_NORMAL);
     }
 
+    /**
+     * P483 (speed): a caller that only saves the photo as a JPEG asks for it here before {@link #Run}: the final readback's mapped
+     * pixels are encoded straight away (JpegliEncoder, the bytes of the bitmap path) and Run returns null with the file in
+     * {@link #streamedJpeg}. Taken only on the pixel-pack buffer path (up to 16 MP, 8-bit, not the old model of post_ab) and with
+     * scam_dev.txt "jpeg_stream" on; otherwise Run returns the bitmap as before and streamedJpeg stays null. One Run each call.
+     */
+    public void streamJpeg(int quality) {
+        streamJpeg(quality, null);
+    }
+
+    /**
+     * P483: what a save-only caller does to the streamed JPEG - the part of the frame it keeps ({@link #crop}, null: all of it;
+     * a sub-rectangle is the bytes of Bitmap.createBitmap of it) and the stream the encoder writes into ({@link #wrap}: the EXIF
+     * / ICC insertion of the file, the cropped size given).
+     */
+    public interface JpegPlan {
+        @androidx.annotation.Nullable android.graphics.Rect crop(int width, int height);
+        java.io.OutputStream wrap(java.io.OutputStream out, int width, int height) throws java.io.IOException;
+    }
+
+    /** P483: {@link #streamJpeg(int)} with the caller's crop and stream wrapper ({@code plan} null: the whole frame, plain JPEG). */
+    public void streamJpeg(int quality, @androidx.annotation.Nullable JpegPlan plan) {
+        streamQuality = quality;
+        streamPlan = plan;
+    }
+
+    private int streamQuality = -1;
+    private JpegPlan streamPlan;
+    /** P483: the JPEG {@link #streamJpeg} asked for, when Run returned null; else null. */
+    public byte[] streamedJpeg;
+
     public Bitmap Run(ByteBuffer inBuffer, Parameters parameters) {
         // The old-model run of post_ab is not the shot's own: its times are in the POST AB line, not in the SHOT TIMELINE.
         final boolean legacyRun = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy();
         if (!legacyRun) com.particlesdevs.photoncamera.processing.ShotTimeline.mark("post_start");
         com.particlesdevs.photoncamera.processing.opengl.PostGlMode.setSyncNodes(!legacyRun && PreferenceKeys.scamDevSwitch("post_sync", false));
+        com.particlesdevs.photoncamera.processing.opengl.PostGlMode.setInvalidate(!legacyRun && PreferenceKeys.scamDevSwitch("post_invalidate", true));
+        // P477 (memory): the run's texture inventory, and the reuse of closed textures of the same size and format within the run
+        // (scam_dev.txt "tex_pool"; off and in the old model of post_ab: every texture its own allocation as before)
+        com.particlesdevs.photoncamera.processing.opengl.GLTexturePool.begin(!legacyRun && PreferenceKeys.scamDevSwitch("tex_pool", false));
         mParameters = parameters;
         mSettings = ScameraApp.getSettings();
         workSize = new Point(mParameters.rawSize.x, mParameters.rawSize.y);
@@ -403,6 +438,38 @@ public class PostPipeline extends GLBasePipeline {
         // P353: on the context kept for the process (its programs linked once)
         GLCoreBlockProcessing glproc = new GLCoreBlockProcessing(rotatedSize, output, format, GLDrawParams.Allocate.None, tenBitOutput, true);
         glint = new GLInterface(glproc);
+        streamedJpeg = null;
+        final int jpegQuality = streamQuality;
+        final JpegPlan jpegPlan = streamPlan;
+        streamQuality = -1;
+        streamPlan = null;
+        glproc.rgbaSink = jpegQuality > 0 && !legacyRun && !tenBitOutput && PreferenceKeys.scamDevSwitch("jpeg_stream", true)
+                && com.particlesdevs.photoncamera.processing.JpegliEncoder.available() ? (rgba, w, h) -> {
+            final java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream(8 << 20);
+            try {
+                final android.graphics.Rect crop = jpegPlan != null ? jpegPlan.crop(w, h) : null;
+                java.nio.ByteBuffer from = rgba;
+                int cw = w, ch = h;
+                if (crop != null && (crop.left != 0 || crop.top != 0 || crop.width() != w || crop.height() != h)) {
+                    if (crop.left < 0 || crop.top < 0 || crop.right > w || crop.bottom > h || crop.isEmpty())
+                        throw new java.io.IOException("crop " + crop + " outside " + w + "x" + h);
+                    final java.nio.ByteBuffer d = rgba.duplicate();
+                    d.clear();
+                    d.position((crop.top * w + crop.left) * 4);
+                    from = d.slice();
+                    cw = crop.width();
+                    ch = crop.height();
+                }
+                final java.io.OutputStream into = jpegPlan != null ? jpegPlan.wrap(jpeg, cw, ch) : jpeg;
+                com.particlesdevs.photoncamera.processing.JpegliEncoder.compress(from, cw, ch, 4 * w, jpegQuality, into);
+                if (into != jpeg) into.close();
+                streamedJpeg = jpeg.toByteArray();
+                return true;
+            } catch (java.io.IOException | RuntimeException e) {
+                Log.w("PostPipeline", "streamed JPEG failed (" + e + "), the bitmap path");
+                return false;
+            }
+        } : null;
         stackFrame = inBuffer;
         glint.parameters = parameters;
 
@@ -411,6 +478,8 @@ public class PostPipeline extends GLBasePipeline {
         // the peak is the GL working set + the bitmap, without the full-frame readback buffer (~200 MB at 50 MP) that
         // used to sit next to one or the other (textures + buffer, then buffer + bitmap).
         Bitmap res = runAllToBitmap();
+        glproc.rgbaSink = null;
+        if (!glproc.sinkTook) streamedJpeg = null; // P483: a sink result whose buffer was lost afterwards is not the photo
         if (tenBitOutput) Log.i("PostPipeline", "final image " + res.getWidth() + "x" + res.getHeight() + " " + res.getConfig()
                 + (res.getConfig() == Bitmap.Config.ARGB_8888 ? " (10-bit target unavailable)" : " for the 10-bit HEIC / AVIF"));
         if (!legacyRun) com.particlesdevs.photoncamera.processing.ShotTimeline.mark("post_readback");
@@ -991,6 +1060,10 @@ public class PostPipeline extends GLBasePipeline {
         add(new ScamRgb());
         // P129: HighlightRecovery is gone (SCAM HDR's; SHDR recovers the highlights per channel in ScamRgb)
         add(new ScamHdrDenoise());
+        // P480: the reference's highlight chroma dezipper right after its resolve, only when the worker sent the base highlight mask
+        // (the fast merge with its highlight path on); no node otherwise
+        final ScamHybridBurst.HlMask hlMask = ScamHybridBurst.lastHlMask;
+        if (hlMask != null) add(new WhyHlDezipper(hlMask));
         // P402 «Пирамидальный шумодав» (the reference app's ms denoise): only when switched on (no node otherwise)
         if (PreferenceKeys.isHybridDenoiseEnabled()) add(new WhyMsDenoise());
         // P228: the lens filter on the linear RGB (highlights with their headroom), before the tone; none: no node at all.

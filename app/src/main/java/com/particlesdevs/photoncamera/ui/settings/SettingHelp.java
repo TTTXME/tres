@@ -82,7 +82,7 @@ public final class SettingHelp {
         EXACT.put("pref_scam_hybrid_why_macro_contrast", R.string.help_contrast);
         EXACT.put("pref_scam_hybrid_why_agx_sat", R.string.help_saturation);
         EXACT.put("pref_scam_hybrid_why_sharp_gain", R.string.help_sharpness);
-        EXACT.put("pref_scam_hybrid_ark_dn_factor", R.string.help_noise);   // P443: the everyday denoise slider
+        EXACT.put("pref_scam_hybrid_why_dn_factor", R.string.help_noise);   // P443: the everyday denoise slider
         EXACT.put("pref_ettr", R.string.help_ettr);
         EXACT.put("focus_screen", R.string.help_focus);
         EXACT.put("pref_af_mode_key", R.string.help_af_mode);

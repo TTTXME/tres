@@ -15,7 +15,7 @@ import java.nio.ByteBuffer;
  * sensor mode stay as they are). After the renderer drew a frame (ISP or developed RAW), two
  * {@code glBlitFramebuffer} passes halve the default framebuffer twice — at exactly 2:1 a linear blit is a 2x2 box
  * average, so this is a small mip pyramid without aliasing — and the quarter-size level is read into a pixel-pack
- * buffer. The PBO is mapped on the next drawn frame, so the GL thread never waits for the GPU. Only when the sink
+ * buffer. Later draws poll its fence without waiting and map it only once the read has finished. Only when the sink
  * wants a frame (tracking active, or software face detection; throttled by the sink) — otherwise one volatile read
  * per frame.
  * <p>
@@ -33,6 +33,7 @@ final class SubjectFrameGrabber {
     private final int[] pbo = new int[1];
     private int surfaceW, surfaceH;
     private boolean ready, failed, pending;
+    private long pendingFence;
     private int pendingW, pendingH;
     /** The sink that asked for the pending frame (the tracker or the P60 field-of-view check). */
     private SubjectFrames.Sink pendingSink;
@@ -42,6 +43,8 @@ final class SubjectFrameGrabber {
         for (int i = 0; i < LEVELS; i++) fbo[i] = tex[i] = 0;
         pbo[0] = 0;
         ready = failed = pending = false;
+        pendingFence = 0;
+        pendingSink = null;
     }
 
     void onSurfaceChanged(int width, int height) {
@@ -56,9 +59,10 @@ final class SubjectFrameGrabber {
         if (failed) return;
         final long now = System.nanoTime();
         SubjectFrames.Sink sink = SubjectFrames.sink();
+        SubjectFrames.Sink second = SubjectFrames.secondarySink();
+        if (pending && pendingSink != sink && pendingSink != second) release();
         boolean want = sink != null && surfaceW >= 16 && surfaceH >= 16 && sink.wantsFrame(now);
         if (!want) { // P60: the field-of-view self-check takes the frames the tracker does not want
-            SubjectFrames.Sink second = SubjectFrames.secondarySink();
             if (second != null && surfaceW >= 16 && surfaceH >= 16 && second.wantsFrame(now)) {
                 sink = second;
                 want = true;
@@ -69,7 +73,7 @@ final class SubjectFrameGrabber {
         // checks below only see this grabber's own calls.
         for (int i = 0; i < 8 && GLES20.glGetError() != GLES20.GL_NO_ERROR; i++) { /* drain */ }
         if (pending) deliver(pendingSink);
-        if (!want || failed) return;
+        if (!want || failed || pending) return;
         if (!ready && !allocate()) return;
         try {
             GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, 0);
@@ -87,41 +91,75 @@ final class SubjectFrameGrabber {
             GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
             GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 4);
             GLES30.glReadPixels(0, 0, levelW[last], levelH[last], GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, 0);
-            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0);
+            pendingFence = GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            if (pendingFence == 0) {
+                disable("readback fence creation failed");
+                return;
+            }
+            GLES30.glFlush();
             pendingW = levelW[last];
             pendingH = levelH[last];
             pendingSink = sink;
             pending = true;
+        } catch (RuntimeException e) {
+            disable("readback failed: " + e);
         } finally {
+            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0);
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         }
-        if (!check("readback")) pending = false;
+        check("readback");
     }
 
     private void deliver(SubjectFrames.Sink sink) {
+        final int status;
+        try {
+            status = GLES30.glClientWaitSync(pendingFence, 0, 0);
+        } catch (RuntimeException e) {
+            disable("readback fence poll failed: " + e);
+            return;
+        }
+        if (!check("fence poll") || status == GLES30.GL_TIMEOUT_EXPIRED) return;
+        if (status != GLES30.GL_ALREADY_SIGNALED && status != GLES30.GL_CONDITION_SATISFIED) {
+            disable("readback fence poll failed: " + status);
+            return;
+        }
+        GLES30.glDeleteSync(pendingFence);
+        pendingFence = 0;
         pending = false;
+        pendingSink = null;
         int bytes = pendingW * pendingH * 4;
         GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
         byte[] dst = null;
+        boolean mapped = false;
+        String failure = null;
         try {
-            ByteBuffer mapped = (ByteBuffer) GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, bytes,
+            ByteBuffer pixels = (ByteBuffer) GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, bytes,
                     GLES30.GL_MAP_READ_BIT);
-            if (mapped != null) {
+            if (pixels != null) {
+                mapped = true;
                 dst = sink != null ? sink.obtainBuffer(bytes) : null;
                 if (dst != null) {
-                    mapped.position(0);
-                    mapped.get(dst, 0, bytes);
+                    pixels.position(0);
+                    pixels.get(dst, 0, bytes);
                 }
-                GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER);
             }
         } catch (RuntimeException e) {
-            Log.w(TAG, "map failed: " + e);
-            dst = null;
-            failed = true;
+            failure = "map failed: " + e;
         } finally {
+            if (mapped) {
+                try {
+                    if (!GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER)) failure = "mapped storage invalidated";
+                } catch (RuntimeException e) {
+                    failure = "unmap failed: " + e;
+                }
+            }
             GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0);
         }
-        if (!check("map") || failed) return;
+        if (failure != null) disable(failure);
+        if (!check("map") || failed) {
+            if (dst != null) sink.releaseBuffer(dst);
+            return;
+        }
         if (dst != null) sink.onFrame(dst, pendingW, pendingH);
     }
 
@@ -147,8 +185,7 @@ final class SubjectFrameGrabber {
             if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, prevTex[0]);
-                Log.e(TAG, "framebuffer incomplete: " + status + "; tracking frames disabled");
-                failed = true;
+                disable("framebuffer incomplete: " + status);
                 return false;
             }
         }
@@ -166,6 +203,9 @@ final class SubjectFrameGrabber {
     }
 
     private void release() {
+        if (pendingFence != 0) GLES30.glDeleteSync(pendingFence);
+        pendingFence = 0;
+        pendingSink = null;
         if (tex[0] != 0) GLES20.glDeleteTextures(LEVELS, tex, 0);
         if (fbo[0] != 0) GLES20.glDeleteFramebuffers(LEVELS, fbo, 0);
         if (pbo[0] != 0) GLES20.glDeleteBuffers(1, pbo, 0);
@@ -178,9 +218,13 @@ final class SubjectFrameGrabber {
         int error = GLES20.glGetError();
         if (error == GLES20.GL_NO_ERROR) return true;
         // Never disturb the viewfinder: on any GL error the grabber switches itself off for this context.
-        failed = true;
-        pending = false;
-        Log.e(TAG, step + " GL error " + error + "; tracking frames disabled");
+        disable(step + " GL error " + error);
         return false;
+    }
+
+    private void disable(String reason) {
+        failed = true;
+        release();
+        Log.e(TAG, reason + "; tracking frames disabled");
     }
 }

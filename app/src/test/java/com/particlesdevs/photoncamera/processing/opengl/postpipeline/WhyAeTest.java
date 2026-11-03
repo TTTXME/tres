@@ -8,7 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * WhyAe (Java port of the WhyCam Smart-HDR AE) against the Python reference research/hybrid5/ref/tone/ark_ae.py, which
+ * WhyAe (Java port of the WhyCam Smart-HDR AE) against the Python reference research/hybrid5/ref/tone/why_ae.py, which
  * matches libfc_suppressor.so under emulation within 5e-5. Expected values: scratchpad h5_whytone/gen_ae_cases.py on the
  * same synthetic image (rational formula, identical in float64 in both languages, then cast to float32).
  */

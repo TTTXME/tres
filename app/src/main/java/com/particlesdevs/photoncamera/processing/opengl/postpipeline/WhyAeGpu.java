@@ -86,6 +86,99 @@ final class WhyAeGpu {
         }
     }
 
+    /**
+     * P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): {@link #stats} without the read-back between its passes - PASS 2
+     * takes the clip from PASS 1's maximum on the GPU (why/aestats GPU_CLIP) - and with its read-back left to {@link #end}, so
+     * the caller can queue other GPU work (WhyLumaSharpen's early passes) first. Null when a GL call fails (nothing pending).
+     */
+    static final class Pending {
+        GLBuffer max, hy, hm, sums, tail;
+        int w, h, mode;
+
+        void close() {
+            for (GLBuffer b : new GLBuffer[]{max, hy, hm, sums, tail}) if (b != null) b.close();
+            max = hy = hm = sums = tail = null;
+        }
+    }
+
+    @Nullable
+    static Pending begin(GLProg prog, GLTexture low, int mode) {
+        final int w = low.mSize.x, h = low.mSize.y;
+        final int gx = (w + TILE - 1) / TILE, gy = (h + TILE - 1) / TILE;
+        final GLFormat u32 = new GLFormat(GLFormat.DataType.UNSIGNED_32);
+        while (GLES31.glGetError() != GLES31.GL_NO_ERROR) {
+            // drain: only the passes below decide
+        }
+        final Pending p = new Pending();
+        p.w = w; p.h = h; p.mode = mode;
+        try {
+            p.max = new GLBuffer(1, u32); p.hy = new GLBuffer(WhyAe.BINS, u32); p.hm = new GLBuffer(WhyAe.BINS, u32);
+            p.sums = new GLBuffer(2 * gx * gy, u32); p.tail = new GLBuffer(WhyAe.TAIL_BINS, u32);
+            prog.setDefine("PASS", 1);
+            prog.setLayout(8, 8, 1);
+            prog.useAssetProgram("why/aestats", true);
+            prog.setTexture("whyLow", low);
+            prog.setVar("sizeU", w, h);
+            prog.setVar("modeU", mode);
+            prog.setBufferCompute("aeMax", p.max);
+            prog.computeManualAsync(gx, gy, 1);
+            prog.setDefine("PASS", 2);
+            prog.setDefine("GPU_CLIP", 1);
+            prog.setLayout(8, 8, 1);
+            prog.useAssetProgram("why/aestats", true);
+            prog.setTexture("whyLow", low);
+            prog.setVar("sizeU", w, h);
+            prog.setVar("modeU", mode);
+            prog.setBufferCompute("aeMax", p.max);
+            prog.setBufferCompute("aeHistY", p.hy);
+            prog.setBufferCompute("aeHistM", p.hm);
+            prog.setBufferCompute("aeSums", p.sums);
+            prog.setBufferCompute("aeTail", p.tail);
+            prog.computeManualAsync(gx, gy, 1);
+            final int error = GLES31.glGetError();
+            if (error != GLES31.GL_NO_ERROR) {
+                Log.w("SCAM_PIPELINE", "WHY AE GPU (chained): GL error 0x" + Integer.toHexString(error) + ", the read-back between the passes");
+                p.close();
+                return null;
+            }
+            return p;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_PIPELINE", "WHY AE GPU (chained) failed: " + e + ", the read-back between the passes");
+            p.close();
+            return null;
+        }
+    }
+
+    /** P479b: {@link #begin}'s results read back and checked as {@link #stats} does; null: the CPU statistics. Closes the buffers. */
+    @Nullable
+    static WhyAe.Stats end(Pending p) {
+        try {
+            final int key = p.max.readBufferIntegers(false)[0];
+            int[] y = p.hy.readBufferIntegers(false), m = p.hm.readBufferIntegers(false), s = p.sums.readBufferIntegers(false);
+            int[] t = p.tail.readBufferIntegers(false);
+            int error = GLES31.glGetError();
+            if (error != GLES31.GL_NO_ERROR || y == null || m == null || s == null || t == null) {
+                Log.w("SCAM_PIPELINE", "WHY AE GPU: GL error 0x" + Integer.toHexString(error) + ", CPU statistics");
+                return null;
+            }
+            WhyAe.Stats st = WhyAe.fromGpu(key, y, m, s, t);
+            double weight = totalWeight(p.w, p.h, p.mode), hmTotal = 0;
+            for (double v : st.hm) hmTotal += v;
+            final double tolerance = p.mode < 1 ? weight * 1e-4 : weight * 1e-3; // as stats (P353)
+            if (Math.abs(st.tot - weight) > tolerance || Math.abs(hmTotal - weight) > tolerance) {
+                Log.w("SCAM_PIPELINE", "WHY AE GPU: histogram weight " + (long) st.tot + " / " + (long) hmTotal + " instead of "
+                        + (long) weight + ", CPU statistics");
+                return null;
+            }
+            return st;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_PIPELINE", "WHY AE GPU failed: " + e + ", CPU statistics");
+            return null;
+        } finally {
+            p.close();
+        }
+    }
+
     /** The metering weight of a w x h image (WhyAe.stats: 1 each for the average, the centre and spot weights else). */
     static double totalWeight(int w, int h, int mode) {
         if (mode < 1) return (double) w * h;

@@ -1081,7 +1081,7 @@ The settings live in different places now; the curated groups use these keys.
   "standard binned mode". On the Java side: Quad needs 16 ring frames (5 for Bayer), and the -3 EV burst is skipped on Quad.
 - **Ours (P14 / P15 / P22):** GCam 11 QuadBayerRgbMerge design. b² plain-Bayer sub-frames go through the unchanged merge on
   the 2x / 4x grid, followed by a chroma median and false-colour suppression; plus `mosaicEdgeScale` and `mosaicShare`.
-- **Study done (2026-10-06, `research/ark23/quad_report.md`, disassembly listings in `research/ark23/quad_disasm/`):**
+- **Study done (2026-10-06, `research/why23/quad_report.md`, disassembly listings in `research/why23/quad_disasm/`):**
   - **No remosaic.** WhyCam's Quad path merges every frame's raw sites straight from the mosaic into native-resolution RGB:
     - `merge_quad`: a 5x5 native-pixel Sabre RBF; R / B kernel 1.18x wider than G (scales 1.0 / 0.85, constants in `main()`);
     - R / B fill from G + the local (R−G) / (B−G) of the 3x3 block means when their weight < 0.25 × G's weight;
@@ -1167,4 +1167,4 @@ The settings live in different places now; the curated groups use these keys.
   - TurboJPEG instead of jpegli;
   - the FrameSelector culling.
 - **To measure:** both apps on one phone, same scene, 1x, diagnostics and `nice_keep` off. Full list in the session
-  scratchpad `why_all.txt`, to copy to `research/ark23/`.
+  scratchpad `why_all.txt`, to copy to `research/why23/`.

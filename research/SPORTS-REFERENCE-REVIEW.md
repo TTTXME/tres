@@ -35,7 +35,7 @@ actual Android movement post replays repeat exactly and save JPEGs. No blur
 removal after an already smeared exposure, or new matched live reference
 Sports photograph, is claimed.
 
-Evidence: `../evidence/ark220-speed-20261102/sports-*` and
+Evidence: `../evidence/why220-speed-20261102/sports-*` and
 `replay_sports_meter.py`.
 
 ## Earlier inspection
@@ -50,7 +50,7 @@ sharpness. It also rejects large thumbnail translations (threshold 35 in its
 thumbnail coordinates) and uses a static-score sum threshold of 0.5. These
 thresholds cannot be copied as RAW-pixel speeds or sensor exposure limits.
 Disassembly is preserved outside Git in
-`../evidence/gcam61-deep-20261101/ark-frame-selector.txt`.
+`../evidence/gcam61-deep-20261101/why-frame-selector.txt`.
 
 SCAMERA already has stricter Sports selection: the base is anchored two frames
 before the shutter event, short 8/4/2 series receive sharp-donor rejection,

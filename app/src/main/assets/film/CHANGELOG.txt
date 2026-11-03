@@ -18,3 +18,9 @@ Modified by SCAMERA (2026-10-19):
 - shared.bin: the TH-KG3 enlarger lamp, the custom dichroic filters and the neutral print filters (TH-KG3) of
   spektrafilm's database.
 The export script is research/filmsim/export.py in the SCAMERA repository.
+
+Modified by SCAMERA (2026-11-03, P487):
+- the spectral photo renderer's per-film Hanatos 2025 bandpass (one 81 x 3 table per colour film) from spektrafilm-ofx's
+  archived profiles Resources/data/profiles/archive/<film>.json at commit 86476afc5b077de77e2278e3658d1ba9309892a1,
+  derived from these profiles; the 20 files are pinned with their sha256 in app/src/main/cpp/third_party/spektrafilm/
+  SOURCE.json and written into SpektraGeneratedProfileCurves.cpp by the source's own tools/generate_profile_curves.py.

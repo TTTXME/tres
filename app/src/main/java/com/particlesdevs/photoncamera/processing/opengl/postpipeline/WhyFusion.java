@@ -160,8 +160,8 @@ public final class WhyFusion extends Node {
             glProg.setVar("strengthU", strength);
             glProg.drawBlocks(st.lowDn);
         }
-        final boolean ark = WhyTone.arkLayout();
-        float[] em = ark ? exposures207(r) : WhyAe.exposures(r, headroomExposure(WhyAe.darkestExposure(r), r.ae, r.clip, r.hr));
+        final boolean why = WhyTone.whyLayout();
+        float[] em = why ? exposures207(r) : WhyAe.exposures(r, headroomExposure(WhyAe.darkestExposure(r), r.ae, r.clip, r.hr));
         float[] lw = WhyTone.layerWeights();
         // P391: the noise model of the fusion's guide (the noise-bound deep floor, the bands' noise cap); the old run of post_ab
         // keeps the fusion before P391
@@ -179,7 +179,7 @@ public final class WhyFusion extends Node {
         // 249 .. 199); without headroom the kernel's weights as before.
         float center = WhyTone.fusionCenter();
         float[] satLight = new float[6];
-        if (r.hr > 0f && !ark) {
+        if (r.hr > 0f && !why) {
             // P310: only neutral light (a white sheet under a lamp) takes the headroom weights; a coloured light and what it lights
             // keep the kernel's centre and highlight weight (and no monotonic lift), ramped over the light's saturation
             final float[] ramp = WhyTone.saturatedLightRamp();
@@ -192,6 +192,7 @@ public final class WhyFusion extends Node {
             // gives the photo no sky term, not a failed shot
             try {
                 WhySky.build(glProg, pipeline, st, st.lowDn);
+                com.particlesdevs.photoncamera.processing.opengl.PostGlMode.lap("why sky");
             } catch (RuntimeException e) {
                 Log.w("SCAM_PIPELINE", "WHY sky: failed (" + e + "), no sky term");
                 if (st.sky != null) st.sky.close();
@@ -201,7 +202,7 @@ public final class WhyFusion extends Node {
             }
             // P401: a room with daylit windows takes build 31091's fusion inside them (why/lpyr WINDOW; null: off)
             final com.particlesdevs.photoncamera.processing.render.Parameters prm = basePipeline.mParameters;
-            final float[] win = WhyTone.bands() != null && !ark ? windowParams(WhyTone.windowShare(), r, prm != null
+            final float[] win = WhyTone.bands() != null && !why ? windowParams(WhyTone.windowShare(), r, prm != null
                     ? WhySkyMask.evOffset(prm.iso, prm.exposureTime, prm.aperture, st.inScale) : Float.NaN) : null;
             GLTexture fused31 = null;
             try {
@@ -256,7 +257,7 @@ public final class WhyFusion extends Node {
     }
 
     /**
-     * P340 (owner, 2026-10-25: pairs against LMC 9.6, ArkCam and the stock camera, «сделай так чтобы у нас был лучший результат среди
+     * P340 (owner, 2026-10-25: pairs against LMC 9.6, WhyCam and the stock camera, «сделай так чтобы у нас был лучший результат среди
      * всех пар»): with Bento headroom (recovered light above the clip, ceiling hr) the darkest synthetic exposure reaches that
      * ceiling: at most 2 / (ae x hr) (P341), so the recovered range lands inside the fusion instead of above it. Its multiplier came
      * from the frame's statistics alone (2^(-1.5 effH)), which a setting sun or the moon (< 0.5 % of the frame) never moves:
@@ -561,7 +562,7 @@ public final class WhyFusion extends Node {
         return null;
     }
 
-    /** P401: build 31091's fusion (ArkFusion / ArkAe of 2026-10-19): the kernel's centre and layer weights (hl, mid, ext_hl, shadow). */
+    /** P401: build 31091's fusion (WhyFusion / WhyAe of 2026-10-19): the kernel's centre and layer weights (hl, mid, ext_hl, shadow). */
     static final float CENTER_31091 = 0.6f;
     static final float[] LAYERS_31091 = {0.8f, 1f, 0.7f, 0.5f};
 
@@ -577,7 +578,7 @@ public final class WhyFusion extends Node {
 
     /** The fusion's exposures of the viewfinder and the curve (no headroom cap): the layout's. */
     static float[] liveExposures(WhyAe.Result r) {
-        return WhyTone.arkLayout() ? exposures207(r) : WhyAe.exposures(r);
+        return WhyTone.whyLayout() ? exposures207(r) : WhyAe.exposures(r);
     }
 
     static float[] exposures31(WhyAe.Result r) {

@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * P413 (owner, 2026-10-30: «Сделай настройки линз аналогично Арк»): the lens page in the reference app's sections. The module's
+ * P413 (owner, 2026-10-30: «Сделай настройки линз аналогично Why»): the lens page in the reference app's sections. The module's
  * generated sensor rows go to the section of their meaning; its camera keys, sensor mode, frame-rate check and reset stay in its
  * own category («Ключи камеры»), which rebuilds them.
  */

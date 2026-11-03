@@ -28,6 +28,15 @@ interface ScamTransport {
      */
     default boolean effectiveMap() { return true; }
     /**
+     * P480: whether the worker may append the base highlight mask (job marker hl-mask; the last trailer, HALF of the sensor grid,
+     * only from the fast merge with its highlight path on) for {@link WhyHlDezipper}. Sensor-grid output only (the route's), and
+     * scam_dev.txt "why_hl_dezipper 0" turns it off.
+     */
+    default boolean highlightMask() {
+        return hybrid() && outputWidth() == width() && outputHeight() == height()
+                && com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("why_hl_dezipper", true);
+    }
+    /**
      * P30: the burst already lies in shared memory (the shot's arena): the transport header is written into it and a
      * descriptor of that memfd is returned (the caller owns it); null: write() the burst as before.
      */

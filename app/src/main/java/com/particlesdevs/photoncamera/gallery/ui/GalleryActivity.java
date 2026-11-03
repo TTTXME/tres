@@ -254,55 +254,16 @@ public class GalleryActivity extends BaseActivity {
         super.onResume();
         // Apply hideSystemUI in onResume to prevent flickering when returning to the gallery
         hideSystemUI();
-        childLaunch = false;
     }
 
-    /** P299: this gallery started one of its own screens (share, edit, a viewer) - leaving for it keeps the gallery. */
-    private boolean childLaunch;
-
-    @Override
-    public void startActivityForResult(Intent intent, int requestCode, @Nullable Bundle options) {
-        childLaunch = true;
-        super.startActivityForResult(intent, requestCode, options);
-    }
-
-    /**
-     * P345 (owner, 2026-10-26, X200 Ultra screen recording): the system's delete request (MediaStore.createDeleteRequest) comes in
-     * through an IntentSender, not startActivityForResult, so the P299 rule below took its dialog for the user leaving and closed the
-     * gallery under it: the camera behind the dialog, the result lost (the viewer gone, no «Удалено», the camera's thumbnail still the
-     * deleted photo) and the camera session restarted twice. It is the gallery's own screen as well.
-     */
-    @Override
-    public void startIntentSenderForResult(IntentSender intent, int requestCode, @Nullable Intent fillInIntent, int flagsMask,
-                                           int flagsValues, int extraFlags, @Nullable Bundle options) throws IntentSender.SendIntentException {
-        childLaunch = true;
-        super.startIntentSenderForResult(intent, requestCode, fillInIntent, flagsMask, flagsValues, extraFlags, options);
-    }
-
-    /**
+    /*
      * P299 (owner, 2026-10-20: «если в камере зайти в галерею и свернуть, а потом нажать на иконку камеры, она откроется на
-     * галерее»): the gallery opened from the camera shares its task, and the launcher icon brings the task back with the gallery
-     * on top. Leaving it for the home screen (or another app) closes it, so the icon returns to the camera.
+     * галерее») closed the gallery whenever the user left it; P491 (owner, 2026-11-03: «если в нашей камере открыть галерею и
+     * свернуть, затем развернуть приложение, то оно открывается ... не на галерее, открывается видоискатель»): the manifest's
+     * finishOnTaskLaunch does both - the launcher icon (a task launch) closes the gallery and shows the camera, the recents
+     * (resuming the task) keep the gallery where the user left it. Shortcut: unsaved editor work is dropped by the icon now
+     * (P299 kept it), keep it in mind if the owner reports lost edits.
      */
-    @Override
-    protected void onUserLeaveHint() {
-        super.onUserLeaveHint();
-        if (finishOnLeave(externalUsage, childLaunch, isFinishing(), editorBusy())) finish();
-    }
-
-    /**
-     * P299, except while the editor holds unsaved edits or a running «Сохранить копию»: finishing then dropped them without a
-     * word (the editor asks before discarding edits on back); the camera's icon returns to the editor instead.
-     */
-    static boolean finishOnLeave(boolean externalUsage, boolean childLaunch, boolean finishing, boolean editorBusy) {
-        return !externalUsage && !childLaunch && !finishing && !editorBusy;
-    }
-
-    private boolean editorBusy() {
-        NavHostFragment host = (NavHostFragment) getSupportFragmentManager().findFragmentById(R.id.gallery_navigation_host);
-        Fragment top = host != null ? host.getChildFragmentManager().getPrimaryNavigationFragment() : null;
-        return top instanceof PhotoEditorFragment && ((PhotoEditorFragment) top).hasUnsavedWork();
-    }
 
     @Override
     protected void onDestroy() {

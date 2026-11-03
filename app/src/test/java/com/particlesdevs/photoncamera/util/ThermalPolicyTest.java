@@ -8,6 +8,8 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
+import com.particlesdevs.photoncamera.settings.PreferenceKeys;
+
 import static org.junit.Assert.*;
 
 /** P238 (speed-ux D2): the hot-phone policy - the viewfinder cap, the press notice, the status names. */
@@ -48,6 +50,65 @@ public class ThermalPolicyTest {
         assertEquals(2, ThermalPolicy.busyFpsForDevice(8L << 30, "MSM8998"));
         assertEquals(15, ThermalPolicy.busyFpsForDevice(8L << 30, "kalama"));
         assertEquals(15, ThermalPolicy.busyFpsForDevice(0, null));
+    }
+
+    @Test public void onlyNewerRawCapableDevicesUseThirtyFpsWhileProcessing() {
+        assertEquals(30, ThermalPolicy.busyFpsForDevice(8L << 30, "sun", true));
+        assertEquals(30, ThermalPolicy.busyFpsForDevice(12L << 30, "MT6991", true));
+        assertEquals(15, ThermalPolicy.busyFpsForDevice(8L << 30, "pineapple", false));
+        assertEquals(15, ThermalPolicy.busyFpsForDevice(0, "sun", true));
+        assertEquals(2, ThermalPolicy.busyFpsForDevice(4L << 30, "sun", true));
+        assertEquals(2, ThermalPolicy.busyFpsForDevice(8L << 30, "msm8998", true));
+    }
+
+    @Test public void theReducedTargetStartsImmediatelyAndEndsWithProcessing() throws Exception {
+        java.lang.reflect.Field field = ThermalPolicy.class.getDeclaredField("defaultBusyVfFps");
+        field.setAccessible(true);
+        int previous = field.getInt(null);
+        try {
+            field.setInt(null, 30);
+            assertFalse(ThermalPolicy.reducedRawViewfinder());
+            ThermalPolicy.processing(true);
+            assertTrue(ThermalPolicy.reducedRawViewfinder());
+            ThermalPolicy.processing(false);
+            assertFalse(ThermalPolicy.reducedRawViewfinder());
+            field.setInt(null, 15);
+            ThermalPolicy.processing(true);
+            assertFalse("older devices keep their original target", ThermalPolicy.reducedRawViewfinder());
+        } finally {
+            field.setInt(null, previous);
+        }
+    }
+
+    @Test public void thirtyFpsPolicyKeepsExplicitOverridesAndTheThermalCap() throws Exception {
+        java.lang.reflect.Field field = ThermalPolicy.class.getDeclaredField("defaultBusyVfFps");
+        field.setAccessible(true);
+        int previous = field.getInt(null);
+        try (org.mockito.MockedStatic<PreferenceKeys> prefs = org.mockito.Mockito.mockStatic(PreferenceKeys.class)) {
+            field.setInt(null, 30);
+            ThermalPolicy.processing(true);
+            prefs.when(() -> PreferenceKeys.scamDevSwitch("thermal_policy", true)).thenReturn(true);
+            int[] caps = {30, 15, 5, 0};
+            int[] expected = {60, 30, 10, 60};
+            for (int c = 0; c < caps.length; c++) {
+                prefs.when(() -> PreferenceKeys.scamDevNumber("vf_busy_fps", 30)).thenReturn((float) caps[c]);
+                ThermalPolicy.resetNotice();
+                ThermalPolicy.set(0);
+                int shown = 0;
+                for (int i = 0; i < 60; i++)
+                    if (ThermalPolicy.viewfinderFrameDue(5_000_000_000L + i * 33_333_333L)) shown++;
+                assertEquals("explicit vf_busy_fps=" + caps[c], expected[c], shown);
+                assertTrue("the pixel budget does not override a requested frame rate", ThermalPolicy.reducedRawViewfinder());
+            }
+            ThermalPolicy.resetNotice();
+            ThermalPolicy.set(3);
+            int shown = 0;
+            for (int i = 0; i < 60; i++)
+                if (ThermalPolicy.viewfinderFrameDue(9_000_000_000L + i * 33_333_333L)) shown++;
+            assertEquals("SEVERE still caps an unlimited explicit frame rate", 30, shown);
+        } finally {
+            field.setInt(null, previous);
+        }
     }
 
     @Test public void thermalStatusCannotRaiseAStricterProcessingCap() throws Exception {

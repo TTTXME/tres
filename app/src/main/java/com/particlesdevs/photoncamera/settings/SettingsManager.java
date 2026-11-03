@@ -118,6 +118,7 @@ public class SettingsManager {
         SettingsMigration.migrateShadeTiles(mDefaultPreferences);
         SettingsMigration.migrateSimpleUiTiles(mDefaultPreferences);
         SettingsMigration.migrateOutputTile(mDefaultPreferences);
+        SettingsMigration.migrateHdrTile(mDefaultPreferences); // P494
         SettingsMigration.migrateIspPreview(mDefaultPreferences); // P266
         SettingsMigration.migrateHdrPhoto(mDefaultPreferences); // P266
         // After the route migration, which reads the former route switches before they become obsolete.

@@ -55,6 +55,15 @@ public class ScamLabFragmentTest {
     private PreferenceScreen tree;
     private MockedStatic<ScameraApp> camera;
 
+    @Test public void filmEffectDefaultsMatchTheCameraRecipe() {
+        for (String key : new String[]{FilmSim.GRAIN_KEY, FilmSim.HALATION_KEY, FilmSim.SOFTNESS_KEY, FilmSim.DIR_KEY}) {
+            ScamLabFragment.Spec spec = ScamLabFragment.filmSpec(key, context);
+            assertNotNull(key, spec);
+            assertEquals(key, Integer.toString(FilmSim.defaultPercent(key)), spec.def);
+        }
+        assertEquals(FilmSim.DEFAULT_PRINT, ScamLabFragment.filmSpec(FilmSim.PRINT_KEY, context).def);
+    }
+
     @Before public void setUp() {
         context = RuntimeEnvironment.getApplication();
         final SettingsManager manager = new SettingsManager(context);
@@ -117,7 +126,7 @@ public class ScamLabFragmentTest {
                 H + "bento_chroma_sigma", H + "bento_scam", H + "shasta", H + "shasta_mode", H + "shasta_motion_max",
                 H + "shasta_sharpness", H + "shasta_max_ratio", H + "lut_sigma", H + "bento_factor", H + "shasta_ev",
                 // the denoise engine and the Resolve rows (P443; the SCAM 9.6 tables left the menu)
-                H + "resolve_speckle_strength", H + "ark_dn_factor", H + "ark_dn_luma_revert", H + "ark_dn_motion_revert", H + "ark_dn_grain",
+                H + "resolve_speckle_strength", H + "why_dn_factor", H + "why_dn_luma_revert", H + "why_dn_motion_revert", H + "why_dn_grain",
                 // «Движение», the noise model, the photo size
                 H + "mm_boost_value", H + "mm_bento", H + "mm_shutter", H + "noise_photon", "pref_noise_model_profile_key",
                 H + "downsampler", H + "auto2x", H + "output", "pref_crop_upscale",
@@ -171,20 +180,20 @@ public class ScamLabFragmentTest {
     }
 
     @Test public void theResolveRowsCompareOnTheirEngine() {
-        final ScamLabFragment.Spec factor = ScamLabFragment.spec(tree, context, H + "ark_dn_factor");
+        final ScamLabFragment.Spec factor = ScamLabFragment.spec(tree, context, H + "why_dn_factor");
         assertEquals(ScamLabFragment.Spec.SLIDER, factor.kind);
         assertEquals(0f, factor.min, 0f);
         assertEquals(2f, factor.max, 0f);
-        final ScamLabFragment.Spec revert = ScamLabFragment.spec(tree, context, H + "ark_dn_luma_revert");
+        final ScamLabFragment.Spec revert = ScamLabFragment.spec(tree, context, H + "why_dn_luma_revert");
         assertEquals(ScamLabFragment.Spec.SLIDER, revert.kind);
         assertEquals(1f, revert.max, 0f);
         // the denoise switch off at the shot: the row compares with it on; a «SCAM 9.6» shot compares it on the Resolve engine
         assertEquals(Collections.singletonMap(H + "denoise", true),
-                ScamLabFragment.forced(H + "ark_dn_luma_revert", Collections.singletonMap(H + "denoise", false), tree));
-        assertTrue(ScamLabFragment.forced(H + "ark_dn_grain", Collections.singletonMap(H + "denoise_engine", "scam"), tree).isEmpty());
+                ScamLabFragment.forced(H + "why_dn_luma_revert", Collections.singletonMap(H + "denoise", false), tree));
+        assertTrue(ScamLabFragment.forced(H + "why_dn_grain", Collections.singletonMap(H + "denoise_engine", "scam"), tree).isEmpty());
         assertFalse(offered().contains(H + "denoise_engine"));
         assertFalse(offered().contains(H + "despeckle"));
-        assertTrue(ScamLabFragment.forced(H + "ark_dn_grain", Collections.singletonMap(H + "denoise_engine", "ark"), tree).isEmpty());
+        assertTrue(ScamLabFragment.forced(H + "why_dn_grain", Collections.singletonMap(H + "denoise_engine", "why"), tree).isEmpty());
     }
 
     @Test public void aMotionShotComparesTheModesOwnValues() {

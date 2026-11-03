@@ -1,4 +1,4 @@
-// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Арк камеры»): the worker's trailers
+// P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): the worker's trailers
 // made strip by strip (app/src/main/cpp/scam-hybrid.h, tune stripTrailers) and its leftovers freed after the completion line
 // (HybridLater, tune fastExit). Checked:
 //   - hybridEffectiveCodes (FCVTAS eight at a time on arm64) against the scalar code of the effective map,

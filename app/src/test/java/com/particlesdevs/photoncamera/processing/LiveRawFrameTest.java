@@ -365,7 +365,7 @@ public class LiveRawFrameTest {
         }
     }
 
-    // P365 (owner, 2026-10-27: «В арк камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the
+    // P365 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»): the
     // viewfinder draws a ZSL ring slot through a pinned view (publishRef); every view is freed exactly once (Allocator.free is
     // replaced by a counting hook: no native library on the host)
 
