@@ -38,6 +38,15 @@ public class LensButton extends Button {
     /** Where the running turn ends, in [0, 360). */
     private float turnTarget;
     private ValueAnimator turn;
+    /** The active lens's own pill (the selected state's fill). */
+    private GradientDrawable pill;
+
+    /** P495: hides the own pill while the strip draws the one gliding to this lens ({@link AuxButtonsLayout}). */
+    void ownPill(boolean shown) {
+        if (pill == null) return;
+        pill.setAlpha(shown ? 255 : 0);
+        invalidate();
+    }
 
     public LensButton(Context context) {
         super(context);
@@ -64,7 +73,9 @@ public class LensButton extends Button {
         mask.setColor(0xFFFFFFFF);
         mask.setCornerRadius(radius);
         setBackground(new RippleDrawable(ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x33000000), states, mask));
-        setStateListAnimator(null);
+        pill = selected;
+        // P495: the lens gives under the finger and springs back (in place of the button's elevation animator)
+        com.particlesdevs.photoncamera.ui.Motion.press(this);
         setBackgroundTintList(null);
         setTransformationMethod(null);
         applyState();

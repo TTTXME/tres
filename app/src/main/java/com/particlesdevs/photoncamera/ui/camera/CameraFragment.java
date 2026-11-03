@@ -380,10 +380,18 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                 com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.setSideOn(bar, R.id.pro_button, open);
                 if (open && lutTray != null) lutTray.setOpen(false);
             });
-            bar.findViewById(R.id.pro_button).setOnClickListener(v -> panel.setExpanded(!panel.isExpanded(), true));
+            // P495 (owner, 2026-11-03): «Про» with the shade up lowers the shade and opens the Pro panel
+            bar.findViewById(R.id.pro_button).setOnClickListener(v -> {
+                if (cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN) {
+                    cameraFragmentViewModel.setSheetLevel(CameraFragmentModel.SHEET_HIDDEN);
+                    panel.setExpanded(true, true);
+                } else panel.setExpanded(!panel.isExpanded(), true);
+            });
             com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.setSideOn(bar, R.id.pro_button, panel.isExpanded());
         }
-        bar.findViewById(R.id.more_button).setOnClickListener(v -> cameraFragmentViewModel.setSheetLevel(CameraFragmentModel.SHEET_PEEK));
+        // P495 (owner, 2026-11-03): «Ещё» again lowers the shade
+        bar.findViewById(R.id.more_button).setOnClickListener(v -> cameraFragmentViewModel.setSheetLevel(
+                cameraFragmentViewModel.getSheetLevel() == CameraFragmentModel.SHEET_HIDDEN ? CameraFragmentModel.SHEET_PEEK : CameraFragmentModel.SHEET_HIDDEN));
         placeMessageBand(cameraFragmentBinding);
     }
 
@@ -651,6 +659,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             intent.setAction(SettingsActivity.ACTION_IMPORT_CONFIG);
             intent.putExtra("camera_mode", PreferenceKeys.getCameraModeOrdinal());
             startActivity(intent);
+            pushTransition();
         }
 
         @Override
@@ -661,6 +670,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             intent.setAction(SettingsActivity.ACTION_OPEN_FOLDER);
             intent.putExtra("camera_mode", PreferenceKeys.getCameraModeOrdinal());
             startActivity(intent);
+            pushTransition();
         }
     };
 
@@ -708,8 +718,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         catalogView.animate().cancel();
         catalogView.setVisibility(View.VISIBLE);
         catalogView.setTranslationY(root.getHeight() > 0 ? root.getHeight() : 2000);
-        catalogView.animate().translationY(0).setDuration(300)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        // P495: rises as an iOS sheet does, leaves quicker (closeCatalog)
+        catalogView.animate().translationY(0).setDuration(340)
+                .setInterpolator(com.particlesdevs.photoncamera.ui.Motion.SHEET).start();
     }
 
     private boolean isCatalogOpen() {
@@ -720,8 +731,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         if (!isCatalogOpen()) return;
         View view = catalogView;
         view.animate().cancel();
-        view.animate().translationY(view.getHeight()).setDuration(250)
-                .withEndAction(() -> view.setVisibility(View.GONE)).start();
+        view.animate().translationY(view.getHeight()).setDuration(240)
+                .setInterpolator(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.EXIT).withEndAction(() -> view.setVisibility(View.GONE)).start();
         if (cameraFragmentBinding != null) cameraFragmentBinding.settingsBar.refresh();
     }
 
@@ -747,6 +758,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         intent.putExtra(SettingsActivity.EXTRA_KEY, key);
         intent.putExtra("camera_mode", PreferenceKeys.getCameraModeOrdinal());
         startActivity(intent);
+        pushTransition();
     }
 
     /** P214f: «Последние сообщения», the last 20 messages of the card (a long press on it). */
@@ -1730,6 +1742,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         galleryIntent.putExtra("CameraFragment", true);
         
         startActivity(galleryIntent, null);
+        pushTransition();
     }
 
     /** Shade level when the settings were opened, restored on the way back; -1 otherwise. */
@@ -1743,6 +1756,17 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         // Pass current camera mode to settings
         settingsIntent.putExtra("camera_mode", PreferenceKeys.getCameraModeOrdinal());
         startActivity(settingsIntent);
+        pushTransition();
+    }
+
+    /**
+     * P495: the iOS push - the settings or the gallery slide in from the right over the camera, which moves a third to the left
+     * and dims (res/anim/motion_push_*); their finish() plays it backwards. Window animations: the system's transition scale
+     * applies, nothing runs in the app per frame.
+     */
+    @SuppressWarnings("deprecation")
+    private void pushTransition() {
+        if (activity != null) activity.overridePendingTransition(R.anim.motion_push_enter, R.anim.motion_push_exit);
     }
 
     /**
@@ -1984,6 +2008,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             zslSeries = com.particlesdevs.photoncamera.capture.CaptureController.ZSL_SERIES_STARTED.equals(o);
             if (ScameraApp.getSettings().selectedMode != CameraMode.RAWVIDEO) {
                 sounds().shutter(); // one shutter sound per shot, at the press (P16)
+                final View vf = textureView; // P495: the shot's blink over the viewfinder
+                if (vf != null && vf.getParent() instanceof View) vf.post(() -> com.particlesdevs.photoncamera.ui.Motion.blink((View) vf.getParent()));
                 if (instantShot) {
                     snapshotViewfinderThumb();
                 } else {

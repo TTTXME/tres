@@ -78,19 +78,25 @@ public final class MotionShutter {
      * its exposure: the shutter that keeps the smear within {@link #BLUR_PX} RAW px, in half stops below the setting (at most
      * {@link #MAX_LEVEL} half stops, not below 1/4000 s). A faster level at once; back one half stop per {@link #HOLD_NS} of
      * slower motion (a subject that stops for a moment keeps the short shutter); no measurement for a second counts as still.
+     * P495 (owner, 2026-11-03, vivo at night: «экспозиция работает ступеньками»): the way back glides at that pace in twelfths of
+     * a stop ({@link #GLIDE_STEPS} a half stop) once {@link #HOLD_NS} passed; whole half stops at the top ISO stepped the
+     * viewfinder by 0.5 EV each.
      */
     public static final class Levels {
         static final double BLUR_PX = 2.0;
         static final int MAX_LEVEL = 6;
         static final long HOLD_NS = 600_000_000L, STALE_NS = 1_000_000_000L, MIN_CAP_NS = 250_000L;
-        private int level;
-        private long changedAtNs;
+        static final int GLIDE_STEPS = 6;
+        /** Half stops below the setting: the level reached, gliding back (P495). */
+        private double glide;
+        private long changedAtNs, lastNs;
 
-        public int level() { return level; }
+        /** Whole half stops below the setting (any glide left counts as a level). */
+        public int level() { return (int) Math.ceil(glide - 1e-9); }
 
         public void reset() {
-            level = 0;
-            changedAtNs = 0;
+            glide = 0;
+            changedAtNs = lastNs = 0;
         }
 
         /** Half stops below the setting the motion needs ({@code pxPerS} RAW px / s, NaN or <= 0: still). */
@@ -108,23 +114,25 @@ public final class MotionShutter {
                 return 0;
             }
             final int want = nowNs - sampleAtNs > STALE_NS ? 0 : wanted(settingNs, pxPerS);
-            if (want > level) {
-                level = want;
+            if (want > glide) {
+                glide = want;
                 changedAtNs = nowNs;
-            } else if (want < level && nowNs - changedAtNs >= HOLD_NS) {
-                level--;
-                changedAtNs = nowNs;
+            } else if (want < glide && nowNs - changedAtNs >= HOLD_NS) {
+                glide = Math.max(want, glide - (nowNs - Math.max(lastNs, changedAtNs + HOLD_NS)) / (double) HOLD_NS);
             }
-            final long cap = Math.max(Math.min(settingNs, MIN_CAP_NS), Math.round(settingNs / Math.pow(2, level / 2.0)));
+            lastNs = nowNs;
+            final double halfStops = Math.ceil(glide * GLIDE_STEPS - 1e-9) / GLIDE_STEPS;
+            final long cap = Math.max(Math.min(settingNs, MIN_CAP_NS), Math.round(settingNs / Math.pow(2, halfStops / 2.0)));
             // P471: a fresh measurement of a slow scene (BLUR_PX of smear take longer than 1/150 s) lets the default ceiling
             // (1/250 s or a slower setting) grow to 1/150 s, the reference app's sport shutter: ~0.7 EV more light; any faster
             // measurement takes the levels above at once
-            if (level == 0 && settingNs >= SLOW_SETTING_NS && nowNs - sampleAtNs <= FRESH_NS && pxPerS >= 0
+            if (halfStops == 0 && settingNs >= SLOW_SETTING_NS && nowNs - sampleAtNs <= FRESH_NS && pxPerS >= 0
                     && BLUR_PX / pxPerS * 1e9 > SLOW_CAP_NS && slowCeiling()) return Math.max(cap, SLOW_CAP_NS);
             return cap;
         }
 
-        static final long SLOW_CAP_NS = 6_666_667L, SLOW_SETTING_NS = 4_000_000L, FRESH_NS = 250_000_000L;
+        // P495: fresh for a second (as STALE_NS), where a quarter second flipped 1/150 <-> 1/250 s between measurements
+        static final long SLOW_CAP_NS = 6_666_667L, SLOW_SETTING_NS = 4_000_000L, FRESH_NS = STALE_NS;
 
         /** P471: scam_dev motion_slow_ceiling 0 = the setting's ceiling for slow scenes too (as before). */
         static boolean slowCeiling() {

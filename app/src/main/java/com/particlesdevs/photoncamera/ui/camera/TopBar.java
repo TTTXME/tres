@@ -58,13 +58,21 @@ public final class TopBar {
     public static void bind(LayoutMainTopbarBinding tb) {
         View root = tb.getRoot();
         Context c = root.getContext();
-        if (root.getTag(R.id.topbar_row) == null) {
+        // P495: a change of a bound state pops its icon (the first bind only sets them)
+        final boolean rebind = root.getTag(R.id.topbar_row) != null;
+        if (!rebind) {
             root.setTag(R.id.topbar_row, Boolean.TRUE);
             scaleTree(root, UiScale.k(c), true);
             root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
                 if (r - l != or - ol) v.post(() -> fit(tb));
             });
+            // P495: every control of the bar gives under the finger and springs back
+            for (View v : new View[]{tb.torchButton, tb.timerButton, tb.motionModeButton, tb.formatBadge, tb.sizeBadge, tb.dcgBadge,
+                    tb.settingsButton})
+                com.particlesdevs.photoncamera.ui.Motion.press(v);
         }
+        final boolean wasTorch = tb.torchButton.isActivated(), wasMotion = tb.motionModeButton.isActivated();
+        final String wasTimer = tb.timerButton.isActivated() ? String.valueOf(tb.timerBadge.getText()) : "";
         int accent = ShadeStyle.accent(c);
         // torch (pref_ae_mode: 0 torch, 1 off)
         boolean torch = PreferenceKeys.getAeMode() == 0;
@@ -87,10 +95,9 @@ public final class TopBar {
         boolean motion = MotionMode.on();
         button(tb.motionModeButton, tb.motionIcon, tb.motionLabel, motion, accent,
                 c.getString(motion ? R.string.motion_mode_on : R.string.motion_mode_off));
-        // the pill card: format | size | DCG
+        // the pill card: format | size | DCG - P495: a tonal capsule as the shade's tiles (no line)
         GradientDrawable card = new GradientDrawable();
-        card.setColor(0xBF1A1F22);
-        card.setStroke(Math.max(1, UiScale.dp(c, 1)), ShadeStyle.LINE);
+        card.setColor(ShadeStyle.TONAL);
         card.setCornerRadius(UiScale.dpF(c, 20));
         tb.topbarBadges.setBackground(card);
         FormatChoice format = FormatChoice.current();
@@ -113,7 +120,14 @@ public final class TopBar {
         tb.dcgBadge.setContentDescription(c.getString(dcgOn ? R.string.dcg14_on : R.string.dcg14_off));
         ViewCompat.setStateDescription(tb.dcgBadge, Lang.t(c, dcgOn ? "вкл." : "выкл.", dcgOn ? "on" : "off"));
         tb.settingsButton.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
+        tb.settingsButton.setBackground(ShadeStyle.pressable(c, ShadeStyle.TONAL, 0, 999)); // P495: the shade's tonal disc
         for (TextView t : new TextView[]{tb.formatBadge, tb.sizeBadge, tb.dcgBadge}) t.setBackground(ShadeStyle.ripple(c, 20));
+        if (rebind) {
+            // P495: torch, timer and Motion switched (here or from the shade): their icon breathes (the badges have the press)
+            if (wasTorch != torch) com.particlesdevs.photoncamera.ui.Motion.pop(tb.torchIcon);
+            if (!wasTimer.equals(timer ? String.valueOf(tb.timerBadge.getText()) : "")) com.particlesdevs.photoncamera.ui.Motion.pop(tb.timerIcon);
+            if (wasMotion != motion) com.particlesdevs.photoncamera.ui.Motion.pop(tb.motionIcon);
+        }
         fit(tb);
     }
 
@@ -131,22 +145,19 @@ public final class TopBar {
         }, text -> fragment.showSnackBar(text.toString()), PhotoSize::dead);
     }
 
-    /** An icon button: off, the bare icon; on, a card pill (or circle) with the accent icon and, where it has one, the label. */
+    /**
+     * An icon button in the shade's style (P495, owner 2026-11-03: «иконки в верхней панели под стиль шторки»): off, a tonal disc
+     * with the icon; on, the pill (or disc) filled with the accent, the icon and the label in its ink - as a changed tile.
+     */
     private static void button(View box, ImageView icon, @Nullable TextView label, boolean on, int accent, String name) {
         Context c = box.getContext();
         box.setActivated(on);
         box.setContentDescription(name);
         ViewCompat.setTooltipText(box, name);
-        icon.setImageTintList(ColorStateList.valueOf(on ? accent : ShadeStyle.TEXT));
-        if (label != null) label.setTextColor(accent);
-        if (on) {
-            GradientDrawable pill = new GradientDrawable();
-            pill.setColor(ShadeStyle.CARD);
-            pill.setCornerRadius(UiScale.dpF(c, 999));
-            box.setBackground(pill);
-        } else {
-            box.setBackground(ShadeStyle.ripple(c, 22));
-        }
+        final int ink = on ? ShadeStyle.onAccent(accent) : ShadeStyle.TEXT;
+        icon.setImageTintList(ColorStateList.valueOf(ink));
+        if (label != null) label.setTextColor(ink);
+        box.setBackground(ShadeStyle.pressable(c, on ? accent : ShadeStyle.TONAL, 0, 999));
     }
 
     /** The self-timer in seconds (0: off). */

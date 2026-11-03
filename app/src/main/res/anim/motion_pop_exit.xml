@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P495: iOS back - the screen leaves to the right, above the camera. -->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+        android:duration="320"
+        android:fromXDelta="0"
+        android:toXDelta="100%"
+        android:interpolator="@interpolator/motion_sheet"
+        android:zAdjustment="top" />

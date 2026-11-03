@@ -122,6 +122,21 @@ public class LensFilterAtPressTest {
         assertNull("no node: the press had no filter", LensFilter.of(pipeline.lensFilterOfShot()));
     }
 
+    @Test public void aRawArrivingAfterTheDetachDoesNotTakeTheShot() {
+        // P495: the first shot after the start - a RAW right after the detach swaps the implementation (DefaultSaver ->
+        // RAW16Saver); the shot is still processed by the saver its frames went to
+        tray("");
+        final LensFilter.Choice press = LensFilter.Choice.now();
+        ImageSaver saver = new ImageSaver(mock(ProcessingEventsListener.class));
+        saver.lensFilterAtPress = press;
+        DefaultSaver detached = (DefaultSaver) saver.implementation;
+        saver.detachForQueue(true);
+        saver.implementation = ImageSaverSelector.getImageSaver(android.graphics.ImageFormat.RAW10, saver.implementation);
+        assertNotSame(detached, saver.implementation);
+        saver.runRaw(null, null, null, new ArrayList<>(), 0, new HashMap<>());
+        assertSame("the detached saver processed the shot", press, detached.scamProcessor.ownedLensFilter);
+    }
+
     @Test public void withoutAPressThePipelineReadsTheSettings() {
         // a lab render (its own pipeline, the settings under its overlay) and a saver no press filled
         tray(LensFilters.CINEBLOOM);

@@ -110,19 +110,26 @@ public final class MessageCard implements UiMessages.Sink {
         if (e.error) view.setTextColor(errorColor);
         else view.setTextColor(infoColor);
         view.setAccessibilityLiveRegion(e.error ? View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE : View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        // P495: the band comes in as Motion.fade does (a fade from .96 on the sheet curve, 240 ms) and leaves quicker (180 ms);
+        // its own: the band's translation is its place (CameraFragment.placeMessageBand), which Motion.fade would reset
         if (view.getVisibility() != View.VISIBLE) {
             view.setAlpha(0f);
+            view.setScaleX(.96f);
+            view.setScaleY(.96f);
             view.setVisibility(View.VISIBLE);
         }
-        view.animate().alpha(1f).setDuration(200).start();
+        view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240).setInterpolator(com.particlesdevs.photoncamera.ui.Motion.SHEET).start();
     }
 
     private void hide() {
         showing = null;
         view.animate().cancel();
         if (view.getVisibility() != View.VISIBLE) return;
-        view.animate().alpha(0f).setDuration(250).withEndAction(() -> {
-            if (showing == null) view.setVisibility(View.GONE);
-        }).start();
+        view.animate().alpha(0f).scaleX(.96f).scaleY(.96f).setDuration(180).setInterpolator(com.particlesdevs.photoncamera.ui.Motion.EASE_OUT)
+                .withEndAction(() -> {
+                    if (showing == null) view.setVisibility(View.GONE);
+                    view.setScaleX(1f);
+                    view.setScaleY(1f);
+                }).start();
     }
 }

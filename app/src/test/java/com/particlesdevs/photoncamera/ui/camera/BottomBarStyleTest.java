@@ -161,8 +161,9 @@ public class BottomBarStyleTest {
             assertEquals(at + "gallery: the card", card, galleryBg.getColor().getDefaultColor());
             assertEquals(at + "gallery: 16dp corners", BottomChrome.SIDE_RADIUS_DP * density * s, galleryBg.getCornerRadius(), .5f);
             assertTrue(at + "flip: a ripple on its tonal fill", row.flipCameraButton.getBackground() instanceof RippleDrawable);
-            assertEquals(at + "flip: a circle", android.graphics.drawable.GradientDrawable.OVAL,
-                    ((android.graphics.drawable.GradientDrawable) ((RippleDrawable) row.flipCameraButton.getBackground()).getDrawable(0)).getShape());
+            // P495: the switch the gallery card's shape
+            assertEquals(at + "flip: the gallery's corners", BottomChrome.SIDE_RADIUS_DP * density * s,
+                    ((GradientDrawable) ((RippleDrawable) row.flipCameraButton.getBackground()).getDrawable(0)).getCornerRadius(), .5f);
             // P185: the strip a capsule round its lenses of one height, the active one a pill at least 54dp wide
             assertEquals(at + "strip: capsule corners", BottomChrome.STRIP_RADIUS_DP * density * s, stripBg.getCornerRadius(), .5f);
             for (int i = 0; i < strip.getChildCount(); i++) {

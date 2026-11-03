@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P495: iOS back - the camera comes back from a third to the left, lighting up. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+        android:duration="320"
+        android:interpolator="@interpolator/motion_sheet"
+        android:zAdjustment="normal">
+    <translate android:fromXDelta="-30%" android:toXDelta="0" />
+    <alpha android:fromAlpha="0.6" android:toAlpha="1" />
+</set>

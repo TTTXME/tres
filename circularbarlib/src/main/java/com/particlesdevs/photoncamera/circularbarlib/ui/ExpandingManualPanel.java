@@ -145,8 +145,9 @@ public class ExpandingManualPanel extends LinearLayout {
             return;
         }
         animator = ValueAnimator.ofFloat(progress, value ? 1 : 0);
-        animator.setDuration(value ? 220 : 180);
-        animator.setInterpolator(new DecelerateInterpolator());
+        // P495 (the app's Motion): opens on UIKit's sheet curve, closes quicker
+        animator.setDuration(value ? 280 : 180);
+        animator.setInterpolator(value ? SHEET : new DecelerateInterpolator());
         animator.addUpdateListener(a -> {
             progress = (float) a.getAnimatedValue();
             updateFrame();
@@ -170,8 +171,10 @@ public class ExpandingManualPanel extends LinearLayout {
 
     /** Whether the shade allows the panel on screen (the shade is HIDDEN). */
     private boolean shadeShown = true;
-    /** Duration of the fade and slide when the shade leaves or returns to HIDDEN. */
-    static final int SHADE_FADE_MS = 200;
+    /** Duration of the fade and slide when the shade leaves or returns to HIDDEN (P495: the return on the sheet curve, the leave quicker). */
+    static final int SHADE_RETURN_MS = 240, SHADE_LEAVE_MS = 180;
+    /** P495: UIKit's sheet curve (the app's Motion.SHEET; this library cannot see the app). */
+    static final android.animation.TimeInterpolator SHEET = new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f);
     /** How far the panel slides down while it fades out. */
     static final float SHADE_SLIDE_DP = 16;
 
@@ -198,9 +201,9 @@ public class ExpandingManualPanel extends LinearLayout {
         if (!changed && (shown ? getVisibility() == VISIBLE && getAlpha() == 1f : getVisibility() != VISIBLE)) return;
         if (shown) {
             setVisibility(VISIBLE);
-            animate().alpha(1f).translationY(0f).setDuration(SHADE_FADE_MS).start();
+            animate().alpha(1f).translationY(0f).setDuration(SHADE_RETURN_MS).setInterpolator(SHEET).start();
         } else {
-            animate().alpha(0f).translationY(slide).setDuration(SHADE_FADE_MS)
+            animate().alpha(0f).translationY(slide).setDuration(SHADE_LEAVE_MS).setInterpolator(new DecelerateInterpolator())
                     .withEndAction(() -> { if (!shadeShown) setVisibility(INVISIBLE); }).start();
         }
     }

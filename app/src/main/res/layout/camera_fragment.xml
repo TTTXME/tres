@@ -178,6 +178,8 @@
                         android:id="@+id/settings_bar"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginEnd="8dp"
                         app:layout_behavior="@string/bottom_sheet_behavior"
                         app:behavior_hideable="true"
                         app:behavior_peekHeight="120dp"

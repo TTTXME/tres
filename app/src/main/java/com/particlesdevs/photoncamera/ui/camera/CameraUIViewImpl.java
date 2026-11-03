@@ -111,6 +111,17 @@ public class CameraUIViewImpl implements CameraUIView {
         bottombuttons.galleryPlaceholder.setImageTintList(ColorStateList.valueOf(ShadeStyle.MUTED));
         bottombuttons.flipCameraButton.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
         mShutterButton.setBackground(shutterRing);
+        // P495: the controls give under the finger and spring back (the shutter deeper); the gallery card follows its thumbnail's
+        // press (the card, the picture and the processing ring as one)
+        com.particlesdevs.photoncamera.ui.Motion.press(mShutterButton, .9f);
+        bottombuttons.galeryButtonContainer.setAddStatesFromChildren(true);
+        com.particlesdevs.photoncamera.ui.Motion.press(bottombuttons.galeryButtonContainer);
+        com.particlesdevs.photoncamera.ui.Motion.press(bottombuttons.flipCameraButton);
+        View bar = cameraFragment.cameraFragmentBinding.layoutBottombar.getRoot();
+        for (int id : new int[]{R.id.pro_button, R.id.more_button}) {
+            View side = bar.findViewById(id);
+            if (side != null) com.particlesdevs.photoncamera.ui.Motion.press(side);
+        }
     }
 
     /**
@@ -128,15 +139,17 @@ public class CameraUIViewImpl implements CameraUIView {
     }
 
     static final int SHUTTER_WHITE = 0xFFFFFFFF;
+    /** P495: the shutter's tonal glass ring (white at 30 %). */
+    static final int SHUTTER_TONAL = 0x4DFFFFFF;
 
     private static Drawable ring(Context context, int ringColor, int centreColor, boolean pressed) {
         // the concept's 78dp shutter times the screen's scale (BottomChrome.scale / UiScale)
         float f = com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.scale(context);
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
-        ring.setColor(0);
-        int stroke = ShadeStyle.dp(context, 4 * f);
-        ring.setStroke(stroke, ringColor);
+        // P495 (the shade's style): the ring a tonal glass disc round the centre (white: the tiles' tonal fill, brighter; a
+        // coloured state: that colour at the same strength), no hard line
+        ring.setColor(ringColor == SHUTTER_WHITE ? SHUTTER_TONAL : (ringColor & 0x00FFFFFF) | 0x8C000000);
         GradientDrawable centre = new GradientDrawable();
         centre.setShape(GradientDrawable.OVAL);
         centre.setColor(centreColor);

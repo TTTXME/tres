@@ -2,9 +2,10 @@ package com.particlesdevs.photoncamera.ui.camera.views.settingsbar;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.text.Layout;
 import android.text.StaticLayout;
@@ -66,11 +67,58 @@ public final class ShadeStyle {
      * «Прозрачность шторки»), 28dp top corners x the screen's scale.
      */
     public static Drawable sheet(Context c) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor((SHEET_FILL & 0x00FFFFFF) | (Math.round(255 * sheetAlpha(c)) << 24));
-        float r = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 28);
-        d.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
-        return new InsetDrawable(d, 0, 0, 0, -dp(c, 2));
+        // P495 (concept G): a floating glass panel - all corners round (18dp), a hairline light edge, the glass alpha
+        return new GlassPlates((SHEET_FILL & 0x00FFFFFF) | (Math.round(255 * glassAlpha(c)) << 24),
+                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 18),
+                Math.max(1, Math.round(c.getResources().getDisplayMetrics().density * .5f)), dp(c, 10));
+    }
+
+    /**
+     * P495 (owner, 2026-11-03: «Для опытных» and «Настройки камеры» outside the shade's border, brought up by a swipe): the glass
+     * as one plate, or - with a {@link #setSplit split} - two plates with a see-through gap above the split row (the lower one the
+     * FULL level's rows, rising with the sheet from under the panel).
+     */
+    static final class GlassPlates extends Drawable {
+        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), line = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final float radius;
+        private final int gap;
+        private int split = -1;
+
+        GlassPlates(int color, float radius, int stroke, int gap) {
+            fill.setColor(color);
+            line.setStyle(Paint.Style.STROKE);
+            line.setStrokeWidth(stroke);
+            line.setColor(0x29FFFFFF);
+            this.radius = radius;
+            this.gap = gap;
+        }
+
+        /** The row (in the drawable's bounds) where the lower plate starts; -1: one plate. */
+        void setSplit(int y) {
+            if (split != y) { split = y; invalidateSelf(); }
+        }
+
+        @Override public void draw(Canvas canvas) {
+            final android.graphics.Rect b = getBounds();
+            if (split <= 0 || split >= b.height()) { plate(canvas, b.top, b.bottom); return; }
+            if (split - gap > 2 * radius) plate(canvas, b.top, b.top + split - gap);
+            plate(canvas, b.top + split, b.bottom);
+        }
+
+        private void plate(Canvas canvas, float top, float bottom) {
+            final android.graphics.Rect b = getBounds();
+            canvas.drawRoundRect(b.left, top, b.right, bottom, radius, radius, fill);
+            final float h = line.getStrokeWidth() / 2f;
+            canvas.drawRoundRect(b.left + h, top + h, b.right - h, bottom - h, radius, radius, line);
+        }
+
+        @Override public void getOutline(android.graphics.Outline outline) {
+            outline.setRoundRect(getBounds(), radius);
+        }
+
+        @Override public void setAlpha(int alpha) { fill.setAlpha(alpha); invalidateSelf(); }
+        @Override public void setColorFilter(android.graphics.ColorFilter filter) { fill.setColorFilter(filter); invalidateSelf(); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
     }
 
     /** The concept's sheet colour (--sheet). */
@@ -78,6 +126,14 @@ public final class ShadeStyle {
     /** «Прозрачность шторки» (0..80 %, default 40 %): the key of the setting. */
     public static final String TRANSPARENCY_KEY = "pref_shade_transparency";
     public static final int TRANSPARENCY_DEFAULT = 40;
+
+    /**
+     * P495 (owner, 2026-11-03, concept G): the shade's glass panel is 10 points more see-through than «Прозрачность шторки» says
+     * (the default 40 % shows as 50 %; owner: first +30, then «на 20% менее прозрачной»), still following the setting, at most 90 %.
+     */
+    public static float glassAlpha(Context c) {
+        return Math.max(.1f, sheetAlpha(c) - GLASS_EXTRA / 100f);
+    }
 
     /** The sheet's and its cards' alpha: 1 - the transparency. */
     public static float sheetAlpha(Context c) {
@@ -90,6 +146,17 @@ public final class ShadeStyle {
         }
         t = Math.max(0, Math.min(80, t));
         return 1f - t / 100f;
+    }
+
+    /** P495: how much more see-through the glass panel is than «Прозрачность шторки» (points). */
+    static final int GLASS_EXTRA = 10;
+    /** P495: the Material You tonal fill of a tile at rest (white at 9 % over the glass). */
+    public static final int TONAL = 0x17FFFFFF;
+
+    /** The ink on an accent fill: dark on a light accent, white on a dark one. */
+    public static int onAccent(int accent) {
+        float l = (0.299f * ((accent >> 16) & 255) + 0.587f * ((accent >> 8) & 255) + 0.114f * (accent & 255)) / 255f;
+        return l > .6f ? INK : 0xFFFFFFFF;
     }
 
     /** Small uppercase accent label of a section («ЗАКРЕПЛЕНО», «HYBRID»). */

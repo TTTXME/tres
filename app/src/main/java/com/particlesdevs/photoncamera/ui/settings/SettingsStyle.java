@@ -746,11 +746,23 @@ public final class SettingsStyle {
         LinearLayout body = sheetBody(c, title, pinKey);
         LinearLayout options = new LinearLayout(c);
         options.setOrientation(LinearLayout.VERTICAL);
+        final int max = (int) (c.getResources().getDisplayMetrics().heightPixels * .6f);
         // nested scrolling: a drag scrolls the list (a plain ScrollView let the sheet take the drag and slide away)
-        NestedScrollView scroll = new NestedScrollView(c);
+        NestedScrollView scroll = new NestedScrollView(c) {
+            @Override protected void onMeasure(int w, int h) {
+                // P495 (owner, 2026-11-03: lists ending above the screen's bottom): the list capped while it is measured, so
+                // the sheet opens at its final height; capped after the show, the expanded sheet kept its old top and the
+                // screen showed under it
+                View root = getRootView();
+                int window = root != null && root.getHeight() > 0 ? root.getHeight() : getResources().getDisplayMetrics().heightPixels;
+                int rest = body.getPaddingTop() + body.getPaddingBottom();
+                for (int i = 0; i < body.getChildCount(); i++) if (body.getChildAt(i) != this) rest += body.getChildAt(i).getMeasuredHeight();
+                int cap = listCap(window, rest, max, getResources().getDisplayMetrics().density);
+                super.onMeasure(w, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST));
+            }
+        };
         scroll.setTag("option_list");
         scroll.addView(options);
-        int max = (int) (c.getResources().getDisplayMetrics().heightPixels * .6f);
         body.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         BottomSheetDialog d = sheet(c, body, false);   // P412: the list is the sheet's scroller (a drag down at its top closes it)
         for (int i = 0; labels != null && i < labels.length; i++) {
@@ -780,16 +792,10 @@ public final class SettingsStyle {
             });
             options.addView(row);
         }
-        scroll.post(() -> {
-            View window = d.getWindow() != null ? d.getWindow().getDecorView() : null;
-            int cap = listCap(window != null ? window.getHeight() : 0, body.getHeight() - scroll.getHeight(), max,
-                    c.getResources().getDisplayMetrics().density);
-            if (scroll.getHeight() > cap) { scroll.getLayoutParams().height = cap; scroll.requestLayout(); }
-            // P412: the chosen option in view (a third down the list), not the list's top
-            if (selected > 0 && selected < options.getChildCount()) scroll.post(() -> {
-                View row = options.getChildAt(selected);
-                scroll.scrollTo(0, Math.max(0, row.getTop() - scroll.getHeight() / 3));
-            });
+        // P412: the chosen option in view (a third down the list), not the list's top
+        if (selected > 0 && selected < options.getChildCount()) scroll.post(() -> {
+            View row = options.getChildAt(selected);
+            scroll.scrollTo(0, Math.max(0, row.getTop() - scroll.getHeight() / 3));
         });
         d.show();
         return d;

@@ -131,7 +131,12 @@ final class CameraUIController implements CameraUIEventsListener,
             // Flash, self-timer and grid are quick-settings tiles now (P25); EIS, FPS and the Quad toggle are gone.
             case R.id.flip_camera_button:
                 cameraFragment.onLensSwitch();
-                view.animate().rotationBy(180).setDuration(450).start();
+                // P495: the glyph turns half a round on a spring (from the half turn it is heading for: a quick second tap
+                // ends on a half turn too)
+                view.animate().cancel();
+                view.animate().rotation(Math.round(view.getRotation() / 180f) * 180f + 180f)
+                        .setDuration(com.particlesdevs.photoncamera.ui.Motion.ENTER.durationMs)
+                        .setInterpolator(com.particlesdevs.photoncamera.ui.Motion.ENTER).start();
                 //cameraFragment.textureView.animate().rotationBy(360).setDuration(450).start();
                 //PreferenceKeys.setCameraID(cycler(PreferenceKeys.getCameraID()));
                 setID(cameraFragment.flip(PreferenceKeys.getCameraID()));

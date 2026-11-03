@@ -43,7 +43,6 @@ import com.particlesdevs.photoncamera.util.Lang;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.widget.NestedScrollView;
 import androidx.recyclerview.widget.DefaultItemAnimator;
-import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -108,6 +107,10 @@ public class SettingsBarLayout extends LinearLayout {
     /** The header's settings gear (hidden in the edit mode). */
     private final ImageView headGear;
     private final RecyclerView tiles;
+    /** P495: the tiles in swiped pages of 4 x 2 (the plain 4-column grid only while editing, for the drag). */
+    private final ShadePager.Layout pagerLayout = new ShadePager.Layout();
+    private final ShadePager.Snap pagerSnap = new ShadePager.Snap();
+    private ShadePager.Dots pagerDots;
     private final ItemTouchHelper dragHelper;
     private final ShadeTileAdapter adapter;
     /** Inline card of the open slider tile, under the grid. */
@@ -164,6 +167,9 @@ public class SettingsBarLayout extends LinearLayout {
         @Override
         public void onStateChanged(@NonNull View bottomSheet, int newState) {
             updateHiddenHandle();
+            // P495: leaving HIDDEN, the tiles of the page come in one after another as the panel rises
+            if (sheetLevel == LEVEL_HIDDEN && (newState == BottomSheetBehavior.STATE_SETTLING || newState == BottomSheetBehavior.STATE_DRAGGING))
+                enterTiles();
             if (newState == BottomSheetBehavior.STATE_EXPANDED) updateScrim(1f);
             else if (newState != BottomSheetBehavior.STATE_DRAGGING && newState != BottomSheetBehavior.STATE_SETTLING) updateScrim(0f);
             int level = levelForState(newState);
@@ -228,12 +234,13 @@ public class SettingsBarLayout extends LinearLayout {
         listScroll.setNestedScrollingEnabled(true);
         listScroll.setOverScrollMode(OVER_SCROLL_NEVER);
         listScroll.setVerticalScrollBarEnabled(false);
+        listScroll.setOnScrollChangeListener((View v, int x, int y, int ox, int oy) -> updatePlates());
         addView(listScroll, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         content = new LinearLayout(context);
         content.setOrientation(VERTICAL);
         // The tiles carry 5dp of the 10dp gap themselves: 11 + 5 = the 16dp edge.
-        content.setPadding(dp(11), 0, dp(11), dp(20));
+        content.setPadding(dp(11), 0, dp(11), dp(10));
         listScroll.addView(content, new NestedScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout head = new LinearLayout(context);
@@ -297,9 +304,10 @@ public class SettingsBarLayout extends LinearLayout {
                 com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 46)));
 
         tiles = new RecyclerView(context);
-        tiles.setLayoutManager(new GridLayoutManager(context, 4));
+        tiles.setLayoutManager(pagerLayout);
         tiles.setNestedScrollingEnabled(false);
-        tiles.setOverScrollMode(OVER_SCROLL_NEVER);
+        // the system's stretch edge effect is the rubber band past the first and the last page
+        tiles.setOverScrollMode(OVER_SCROLL_ALWAYS);
         tiles.setClipChildren(false);
         tiles.setClipToPadding(false);
         tiles.setTag("shade_tiles");
@@ -335,11 +343,21 @@ public class SettingsBarLayout extends LinearLayout {
         dragHelper = new ItemTouchHelper(new DragCallback());
         dragHelper.attachToRecyclerView(tiles);
         content.addView(tiles, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        pagerSnap.attachToRecyclerView(tiles);
+        pagerDots = new ShadePager.Dots(context);
+        pagerDots.setTag("shade_pages");
+        content.addView(pagerDots, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)));
+        tiles.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                updatePagerDots();
+            }
+        });
+        tiles.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> updatePagerDots());
 
         sliderCard = new LinearLayout(context);
         sliderCard.setOrientation(VERTICAL);
         sliderCard.setPadding(dp(16), dp(14), dp(16), dp(10));
-        sliderCard.setBackground(ShadeStyle.card(context, ShadeStyle.CARD, ShadeStyle.LINE, 20));
+        sliderCard.setBackground(ShadeStyle.card(context, ShadeStyle.TONAL, 0, 18));
         sliderCard.setVisibility(GONE);
         sliderCard.setTag("shade_slider_card");
         LinearLayout sliderTop = new LinearLayout(context);
@@ -391,13 +409,43 @@ public class SettingsBarLayout extends LinearLayout {
 
         fullList = new LinearLayout(context);
         fullList.setOrientation(VERTICAL);
-        fullList.setPadding(dp(5), 0, dp(5), 0);
+        fullList.setPadding(dp(5), dp(10), dp(5), 0); // P495: inside its own glass plate (updatePlates)
         content.addView(fullList, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         styleEditButton(accent);
         headGear.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
         configChip.setAccent(accent);
         refreshConfigName();
+    }
+
+    /** The tiles of the current page in reading order, 18 ms apart, on the entry spring. */
+    private void enterTiles() {
+        final java.util.List<View> page = new java.util.ArrayList<>();
+        final int first = pagerLayout.page() * ShadePager.PER_PAGE;
+        for (int i = 0; i < tiles.getChildCount(); i++) {
+            final View v = tiles.getChildAt(i);
+            final int pos = tiles.getChildAdapterPosition(v);
+            if (pos >= first && pos < first + ShadePager.PER_PAGE) page.add(v);
+        }
+        page.sort((a, b) -> Integer.compare(tiles.getChildAdapterPosition(a), tiles.getChildAdapterPosition(b)));
+        com.particlesdevs.photoncamera.ui.Motion.enter(page, 40, 18);
+    }
+
+    /**
+     * P495: the FULL level's rows («Для опытных», «Все настройки») on a glass plate of their own below the panel - the background
+     * splits at their top (moving with the list's scroll); no rows: one plate.
+     */
+    private void updatePlates() {
+        if (!(getBackground() instanceof ShadeStyle.GlassPlates)) return;
+        int y = -1;
+        if (fullList.getVisibility() == VISIBLE && fullList.getChildCount() > 0 && fullList.getHeight() > 0)
+            y = listScroll.getTop() + content.getTop() + fullList.getTop() - listScroll.getScrollY();
+        ((ShadeStyle.GlassPlates) getBackground()).setSplit(y);
+    }
+
+    /** The page dots follow the pages (hidden with one page). A drag in the edit mode turns the pages at the edge (ItemTouchHelper). */
+    private void updatePagerDots() {
+        if (pagerDots != null) pagerDots.set(ShadePager.pages(adapter.getItemCount()), pagerLayout.progress());
     }
 
     // ───────────────────────────────── P143 / P255: the profile button and its menu
@@ -565,12 +613,15 @@ public class SettingsBarLayout extends LinearLayout {
         Context c = getContext();
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int ph = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14), pv = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 12);
+        // P495 (concept G): a slim menu row - the title, its contents on the same line, the chevron
+        int ph = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14), pv = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 8);
         row.setPadding(ph, pv, ph, pv);
-        row.setBackground(ShadeStyle.pressable(c, sheetCard(c), ShadeStyle.LINE, 18));
+        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 44));
+        row.setBackground(ShadeStyle.pressable(c, sheetCard(c), 0, 14));
         row.setTag("shade_advanced");
         LinearLayout texts = new LinearLayout(c);
-        texts.setOrientation(VERTICAL);
+        texts.setOrientation(HORIZONTAL);
+        texts.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(c);
         title.setText(R.string.shade_advanced);
         title.setTextColor(ShadeStyle.TEXT);
@@ -580,8 +631,13 @@ public class SettingsBarLayout extends LinearLayout {
         TextView summary = new TextView(c);
         summary.setText(R.string.shade_advanced_summary);
         summary.setTextColor(ShadeStyle.MUTED);
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(summary, 12);
-        texts.addView(summary);
+        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(summary, 11);
+        summary.setMaxLines(1);
+        summary.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        summary.setGravity(Gravity.END);
+        LayoutParams sp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        sp.setMarginStart(dp(10));
+        texts.addView(summary, sp);
         row.addView(texts, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         ImageView chevron = new ImageView(c);
         chevron.setImageResource(R.drawable.ui_ic_chev);
@@ -600,26 +656,26 @@ public class SettingsBarLayout extends LinearLayout {
         return row;
     }
 
-    /** The sheet's cards at its see-through alpha (the concept's --sa on .card / .disc-h). */
+    /** P495 (concept G): the cards on the glass are Material You tonal plates. */
     private static int sheetCard(Context c) {
-        return (ShadeStyle.CARD & 0x00FFFFFF) | (Math.round(255 * ShadeStyle.sheetAlpha(c)) << 24);
+        return ShadeStyle.TONAL;
     }
 
     /** SIMPLE_UI §2: the full-width «Все настройки» button at the end (the concept's .big), as the header's gear. */
     private View allSettingsCard() {
         Context c = getContext();
         LinearLayout row = new LinearLayout(c);
-        row.setGravity(Gravity.CENTER);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         int p = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14);
-        row.setPadding(p, p, p, p);
-        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 52));
-        row.setBackground(ShadeStyle.pressable(c, (0x232A2E) | (Math.round(255 * ShadeStyle.sheetAlpha(c)) << 24), 0, 18));
+        row.setPadding(p, dp(8), p, dp(8));
+        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 44));
+        row.setBackground(ShadeStyle.pressable(c, sheetCard(c), 0, 14));
         row.setTag("shade_all_settings");
         ImageView icon = new ImageView(c);
         icon.setImageResource(R.drawable.ui_ic_gear);
         icon.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        int is = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 24);
+        int is = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 20);
         LayoutParams ip = new LayoutParams(is, is);
         ip.setMarginEnd(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 10));
         row.addView(icon, ip);
@@ -637,7 +693,7 @@ public class SettingsBarLayout extends LinearLayout {
 
     private LayoutParams moreRowParams() {
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(16);
+        lp.topMargin = dp(6); // P495: the rows close together on their plate
         return lp;
     }
 
@@ -1348,13 +1404,18 @@ public class SettingsBarLayout extends LinearLayout {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        // FULL always has the same height, the 86% limit: opening the slider card never moves the
-        // top of the FULL sheet. The behavior measures the sheet AT_MOST that limit.
-        // SIMPLE_UI §2: one open height - the grab, the header and the tiles (+14dp), at most 86 % of the viewfinder; what
-        // lies below («Для опытных», «Все настройки») is reached by scrolling the content, the sheet does not grow.
+        // The behavior measures the sheet AT_MOST the 86 % limit.
+        // P495 (owner, 2026-11-03: «Для опытных» / «Настройки камеры» outside the panel, brought up by a swipe): the sheet is as tall
+        // as its content again (at most the 86 % limit) - PEEK shows the panel, FULL lifts it and the rows' own plate comes up below
         int mode = MeasureSpec.getMode(heightMeasureSpec);
         int cap = maxSheetHeight;
-        if (contentBuilt && sheetPeekHeight > 0) cap = cap > 0 ? Math.min(cap, sheetPeekHeight) : sheetPeekHeight;
+        if (contentBuilt && mode != MeasureSpec.EXACTLY) {
+            // no taller than the handle and the content (the lower plate ends with its rows, not at the limit)
+            final int w = Math.max(0, MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight());
+            content.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+            final int want = getPaddingTop() + getPaddingBottom() + handle.getLayoutParams().height + content.getMeasuredHeight();
+            cap = cap > 0 ? Math.min(cap, want) : want;
+        }
         if (cap > 0 && mode != MeasureSpec.EXACTLY) {
             int size = mode == MeasureSpec.UNSPECIFIED ? cap : Math.min(MeasureSpec.getSize(heightMeasureSpec), cap);
             heightMeasureSpec = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY);
@@ -1366,8 +1427,11 @@ public class SettingsBarLayout extends LinearLayout {
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         super.onLayout(changed, l, t, r, b);
         updateShape();
-        // OPEN: the handle, the header and the grid, or down to the slider card when it is open; +14dp (the concept).
-        View last = sliderCard.getVisibility() == VISIBLE ? sliderCard : tiles;
+        updatePlates();
+        // OPEN: the handle, the header and the grid (P495: with its page dots), or down to the slider card when it is open;
+        // +14dp (the concept).
+        View last = sliderCard.getVisibility() == VISIBLE ? sliderCard
+                : pagerDots != null && pagerDots.getVisibility() == VISIBLE ? pagerDots : tiles;
         int peek = listScroll.getTop() + content.getTop() + last.getBottom()
                 + com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), 14);
         if (contentBuilt && peek > 0 && peek != sheetPeekHeight) {

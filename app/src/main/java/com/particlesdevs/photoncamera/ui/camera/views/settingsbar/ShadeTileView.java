@@ -60,12 +60,13 @@ public class ShadeTileView extends FrameLayout {
         card.setPadding(p, com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 4), p,
                 com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 3));
         card.setDuplicateParentStateEnabled(true);
+        com.particlesdevs.photoncamera.ui.Motion.press(card); // P495: gives under the finger, springs back
         addView(card, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         icon = new ImageView(context);
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        int iconSize = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 18);
+        int iconSize = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 20);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(iconSize, iconSize);
         ip.bottomMargin = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 2);
         card.addView(icon, ip);
@@ -121,10 +122,14 @@ public class ShadeTileView extends FrameLayout {
 
     /** Shows a setting: icon of its current value, short value, name, highlight and dimming. */
     void bind(ShadeCatalog catalog, ShadeCatalog.Entry entry, @Nullable String reason) {
+        final boolean wasActive = active && entry.key.equals(key);
+        final boolean sameKey = entry.key.equals(key);
         key = entry.key;
         addTile = false;
         accent = ShadeStyle.accent(getContext());
         active = catalog.changed(entry);
+        // P495: a switched tile's icon «breathes» (the same tile bound again with the other state)
+        if (sameKey && wasActive != active) com.particlesdevs.photoncamera.ui.Motion.pop(icon);
         dimmed = reason != null;
         // SIMPLE_UI: the icon as it is (the concept strikes nothing through; the value says «Выкл.»)
         icon.setImageDrawable(catalog.icon(entry));
@@ -153,7 +158,7 @@ public class ShadeTileView extends FrameLayout {
         value.setVisibility(GONE);
         remove.setVisibility(GONE);
         GradientDrawable dashed = new GradientDrawable();
-        dashed.setCornerRadius(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 13));
+        dashed.setCornerRadius(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 20));
         dashed.setColor(0);
         dashed.setStroke(ShadeStyle.dp(getContext(), 1), ShadeStyle.LINE, ShadeStyle.dp(getContext(), 5), ShadeStyle.dp(getContext(), 4));
         card.setBackground(dashed);
@@ -171,16 +176,21 @@ public class ShadeTileView extends FrameLayout {
         if (!addTile) applyColors();
     }
 
+    /**
+     * P495 (concept G, Material You tiles): a tonal tile without a line, 20dp corners; a changed setting fills the whole tile with
+     * the accent and its ink ({@link ShadeStyle#onAccent}); the open slider tile keeps the tonal fill with an accent outline. The
+     * value line only for a changed setting (the name alone otherwise, the value is in the description and the toast).
+     */
     private void applyColors() {
-        value.setVisibility(VISIBLE);
-        int alpha = Math.round(255 * ShadeStyle.sheetAlpha(getContext()));   // the sheet's see-through alpha
-        int fill = active ? (accent & 0x00FFFFFF) | 0x24000000 : (ShadeStyle.CARD & 0x00FFFFFF) | (alpha << 24);
-        int stroke = open ? accent : active ? (accent & 0x00FFFFFF) | 0x59000000 : ShadeStyle.LINE;
+        value.setVisibility(GONE); // P495 (concept G): the name only - a changed value shows as the accent fill (and in the toast)
+        final int ink = active ? ShadeStyle.onAccent(accent) : ShadeStyle.TEXT;
+        final int fill = active ? accent : ShadeStyle.TONAL;
+        final int stroke = open && !active ? accent : 0;
         card.setBackground(ShadeStyle.pressable(getContext(), fill, stroke,
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 13) / getResources().getDisplayMetrics().density));
-        icon.setImageTintList(ColorStateList.valueOf(active ? accent : ShadeStyle.MUTED));
-        value.setTextColor(active ? accent : ShadeStyle.MUTED);
-        name.setTextColor(ShadeStyle.TEXT);
+                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 20) / getResources().getDisplayMetrics().density));
+        icon.setImageTintList(ColorStateList.valueOf(ink));
+        value.setTextColor((ink & 0x00FFFFFF) | 0xB8000000);
+        name.setTextColor(ink);
         name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         card.setAlpha(dimmed ? ShadeStyle.DIMMED : 1f);
     }

@@ -18,11 +18,13 @@ ICONS = {
             'a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74'
             'l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4'
             'a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
-    'sliders': '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/>'
-               '<circle cx="18" cy="18" r="2"/>',
-    'apps': '<rect x="4" y="4" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="2"/>'
-            '<rect x="4" y="13.5" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2"/>',
-    'flip': '<path d="M4.5 10A8 8 0 0 1 18 6.5M19.5 14A8 8 0 0 1 6 17.5"/><path d="M18.5 2.5v4.2h-4.2M5.5 21.5v-4.2h4.2"/>',
+    # P495 (owner, 2026-11-03: «иконки перерисуй»): «Про» - a manual control's scale under its pointer
+    'sliders': '<path d="M9.5 4.5h5L12 8z"/><path d="M12 11v9M4 15v5M8 13.5v6.5M16 13.5v6.5M20 15v5"/>',
+    # P495: «Ещё» - the quick sheet: its tiles sliding up
+    'apps': '<path d="M8.5 6.5L12 3.5l3.5 3"/><rect x="4" y="10" width="7" height="4.6" rx="1.6"/><rect x="13" y="10" width="7" height="4.6" rx="1.6"/>'
+            '<rect x="4" y="16.4" width="7" height="4.6" rx="1.6"/><rect x="13" y="16.4" width="7" height="4.6" rx="1.6"/>',
+    'flip': '<path d="M3.5 9a2 2 0 0 1 2-2h2.2l1.5-2.2h5.6L16.3 7h2.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>'
+            '<path d="M8.6 12.6a3.5 3.5 0 0 1 6.1-1.9M15.4 14.4a3.5 3.5 0 0 1-6.1 1.9"/><path d="M15.1 9v1.9h-1.9M8.9 18v-1.9h1.9"/>',
     'sun': '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4'
            'M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
     'lock': '<rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',

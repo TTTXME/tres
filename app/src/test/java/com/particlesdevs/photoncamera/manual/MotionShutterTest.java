@@ -412,11 +412,20 @@ public class MotionShutterTest {
         assertEquals(CAP, l.capNs(CAP, 300, t, t));
         assertEquals(2 * MS, l.capNs(CAP, 1000, t, t)); // faster: at once
         assertEquals(500_000L, l.capNs(CAP, 4000, t, t)); // a sprint: 1/2000 s
-        // the subject stops: one half stop back per 0.6 s, not at once
+        // the subject stops: held for 0.6 s, then one half stop back per 0.6 s in twelfths of a stop (P495), not at once
         t += 100 * MS;
         assertEquals(500_000L, l.capNs(CAP, 0, t, t));
-        t += 600 * MS;
-        assertEquals(707_107L, l.capNs(CAP, 0, t, t), 1);
+        t += 500 * MS;
+        assertEquals(500_000L, l.capNs(CAP, 0, t, t));
+        long last = 500_000L;
+        for (int i = 0; i < 12; i++) {
+            t += 50 * MS;
+            final long cap = l.capNs(CAP, 0, t, t);
+            assertTrue("never a bigger step than a twelfth of a stop", cap >= last && cap <= last * Math.pow(2, 1.0 / 12) + 1);
+            last = cap;
+        }
+        assertEquals(707_107L, last, 1); // 0.6 s on: one half stop back
+        assertEquals(5, l.level());
         // no measurement for a second: still
         for (int i = 0; i < 10; i++) { t += 600 * MS; l.capNs(CAP, 4000, 0, t); }
         assertEquals(0, l.level());
@@ -432,7 +441,8 @@ public class MotionShutterTest {
         long t = 5_000_000_000L;
         assertEquals(MotionShutter.Levels.SLOW_CAP_NS, new MotionShutter.Levels().capNs(CAP, 100, t, t));
         assertEquals(MotionShutter.Levels.SLOW_CAP_NS, new MotionShutter.Levels().capNs(CAP, 0, t - 100 * MS, t));
-        assertEquals(CAP, new MotionShutter.Levels().capNs(CAP, 100, t - 400 * MS, t));
+        assertEquals(MotionShutter.Levels.SLOW_CAP_NS, new MotionShutter.Levels().capNs(CAP, 100, t - 400 * MS, t)); // P495
+        assertEquals(CAP, new MotionShutter.Levels().capNs(CAP, 100, t - 1200 * MS, t));
         assertEquals(CAP, new MotionShutter.Levels().capNs(CAP, 400, t, t));
         assertEquals(2 * MS, new MotionShutter.Levels().capNs(2 * MS, 100, t, t));
     }

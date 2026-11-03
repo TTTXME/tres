@@ -18,6 +18,7 @@ import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.circularbarlib.ui.UiScale;
 import com.particlesdevs.photoncamera.processing.PhotoFormat;
 import com.particlesdevs.photoncamera.settings.FormatChoice;
+import com.particlesdevs.photoncamera.ui.Motion;
 import com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle;
 import com.particlesdevs.photoncamera.ui.settings.SettingsStyle;
 import com.particlesdevs.photoncamera.util.Lang;
@@ -84,6 +85,23 @@ public final class CameraSheets {
     }
 
     // ───── the sheet frame
+
+    /**
+     * P495: the sheet's rows (the title, the format's groups and lines, the size card) come in one after another while the sheet
+     * rises (Motion.enter, once it is on screen); the grab is there at once. Hidden before the show, so no frame shows them still.
+     */
+    static void enterRows(LinearLayout body) {
+        List<View> rows = new ArrayList<>();
+        for (int i = 1; i < body.getChildCount(); i++) {
+            View v = body.getChildAt(i);
+            if ("format_sheet".equals(v.getTag()) && v instanceof ViewGroup)
+                for (int j = 0; j < ((ViewGroup) v).getChildCount(); j++) rows.add(((ViewGroup) v).getChildAt(j));
+            else rows.add(v);
+        }
+        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
+        for (View v : rows) v.setAlpha(0f);
+        body.post(() -> Motion.enter(rows, 60, 30));
+    }
 
     /** The see-through camera sheet with the grab and the title; returns {dialog body}: add the content to the body. */
     static LinearLayout frame(Context c, CharSequence title) {
@@ -153,6 +171,7 @@ public final class CameraSheets {
             b.setSelected(on);
             b.setTag("seg_" + i);
             b.setOnClickListener(v -> pick.accept(index));
+            Motion.press(b);   // P495
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, UiScale.dp(c, 42), 1f);
             if (i > 0) lp.setMarginStart(p);
             seg.addView(b, lp);
@@ -190,6 +209,7 @@ public final class CameraSheets {
         LinearLayout body = frame(c, Lang.t(c, "Формат файла", "File format"));
         body.addView(formatContent(c, offered, current, storedCodec, apply));
         BottomSheetDialog d = SettingsStyle.sheet(c, body);
+        enterRows(body);
         d.show();
         return d;
     }
@@ -290,6 +310,7 @@ public final class CameraSheets {
             if (dialog[0] != null) body.postDelayed(dialog[0]::dismiss, 180);
         }, refuse, dead));
         dialog[0] = SettingsStyle.sheet(c, body);
+        enterRows(body);
         dialog[0].show();
         return dialog[0];
     }
@@ -357,6 +378,7 @@ public final class CameraSheets {
                 }
                 pick.accept(size);
             });
+            Motion.press(row, .98f);   // P495: a wide row gives a little less
             if (i > 0) {
                 View divider = new View(c);
                 divider.setBackgroundColor(ShadeStyle.LINE);

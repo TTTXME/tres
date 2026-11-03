@@ -48,9 +48,9 @@ public final class SettingsMotion {
      */
     public static final class Spring implements TimeInterpolator {
         final float response, damping;
-        final long durationMs;
+        public final long durationMs;
 
-        Spring(float response, float damping) {
+        public Spring(float response, float damping) {
             this.response = response;
             this.damping = Math.max(0.05f, Math.min(0.999f, damping));
             final double w = 2 * Math.PI / response;

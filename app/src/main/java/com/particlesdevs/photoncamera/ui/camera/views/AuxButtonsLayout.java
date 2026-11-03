@@ -321,15 +321,113 @@ public AuxButtonsLayout(Context context, @Nullable AttributeSet attrs) {
         }
     }
 
+    // ───── P495: the active lens's pill glides to the lens chosen next (iOS' segmented control)
+
+    /** The settings' chip pill spring (SettingsMotion.GLIDE). */
+    private static final com.particlesdevs.photoncamera.ui.settings.SettingsMotion.Spring GLIDE =
+            new com.particlesdevs.photoncamera.ui.settings.SettingsMotion.Spring(0.34f, 0.78f);
+    private final android.graphics.Paint pillPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+    /** The pill the strip draws while it glides (empty: the active lens draws its own), where the glide started, and the active lens's place. */
+    private final android.graphics.RectF pill = new android.graphics.RectF(), pillFrom = new android.graphics.RectF(),
+            pillAt = new android.graphics.RectF();
+    /** The active lens at the last layout; the lens whose own pill is hidden while the strip's glides to it. */
+    @Nullable private LensButton pillLens, pillHidden;
+    @Nullable private android.animation.ValueAnimator glide;
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        followSelection();
+    }
+
+    /**
+     * After a layout: another lens of the same buttons became the active one - the pill glides from where it was to that lens on
+     * the GLIDE spring (drawn by the strip under the labels while the lens hides its own); the same lens moved or grew (its
+     * live zoom label, the fit): a running glide heads for its new place; new buttons or no motion: the lens's own pill at once.
+     */
+    private void followSelection() {
+        LensButton now = null;
+        for (int i = 0; i < getChildCount() && now == null; i++) {
+            View v = getChildAt(i);
+            if (v instanceof LensButton && v.isSelected() && v.getVisibility() == VISIBLE) now = (LensButton) v;
+        }
+        final LensButton before = pillLens;
+        final boolean had = before != null && before.getParent() == this && !pillAt.isEmpty();
+        final float l0 = pillAt.left, t0 = pillAt.top, r0 = pillAt.right, b0 = pillAt.bottom;
+        pillLens = now;
+        if (now == null) {
+            endGlide();
+            pillAt.setEmpty();
+            return;
+        }
+        pillAt.set(now.getLeft(), now.getTop(), now.getRight(), now.getBottom());
+        if (now == before) {
+            if (glide != null) invalidate();
+            return;
+        }
+        if (!had || !com.particlesdevs.photoncamera.ui.Motion.enabled(this)) {
+            endGlide();
+            return;
+        }
+        if (glide != null) pillFrom.set(pill);
+        else pillFrom.set(l0, t0, r0, b0);
+        endGlide();
+        pill.set(pillFrom);
+        pillPaint.setColor(com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(getContext()));
+        pillHidden = now;
+        now.ownPill(false);
+        final android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        a.setDuration(GLIDE.durationMs);
+        a.setInterpolator(GLIDE);
+        a.addUpdateListener(x -> {
+            final float k = (float) x.getAnimatedValue();
+            pill.set(pillFrom.left + (pillAt.left - pillFrom.left) * k, pillFrom.top + (pillAt.top - pillFrom.top) * k,
+                    pillFrom.right + (pillAt.right - pillFrom.right) * k, pillFrom.bottom + (pillAt.bottom - pillFrom.bottom) * k);
+            invalidate();
+        });
+        a.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                if (glide == a) endGlide();
+            }
+        });
+        glide = a;
+        a.start();
+    }
+
+    /** The glide stops: the active lens draws its own pill again. */
+    private void endGlide() {
+        final android.animation.ValueAnimator g = glide;
+        glide = null;
+        if (g != null) g.cancel();
+        if (pillHidden != null) pillHidden.ownPill(true);
+        pillHidden = null;
+        if (!pill.isEmpty()) {
+            pill.setEmpty();
+            invalidate();
+        }
+    }
+
+    @Override
+    protected void dispatchDraw(android.graphics.Canvas canvas) {
+        if (!pill.isEmpty()) {
+            final float r = pill.height() / 2f;
+            canvas.drawRoundRect(pill, r, r, pillPaint);
+        }
+        super.dispatchDraw(canvas);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        endGlide();
+        super.onDetachedFromWindow();
+    }
+
     private void onAuxButtonClick(View view) {
         if (view.isSelected()) return;
         if (auxButtonsModel != null && auxButtonsModel.isEnabled() && android.os.SystemClock.elapsedRealtime()-lastSwitch>=500) {
             view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
-            // Property animators are independent of rotation and layout. Final scale remains 1.
-            android.animation.PropertyValuesHolder x=android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, .90f, 1.06f, 1f);
-            android.animation.PropertyValuesHolder y=android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, .90f, 1.06f, 1f);
-            android.animation.ObjectAnimator pulse=android.animation.ObjectAnimator.ofPropertyValuesHolder(view,x,y);
-            pulse.setDuration(220);pulse.setInterpolator(new android.view.animation.DecelerateInterpolator());pulse.start();
+            // P495: the press springs the lens back (LensButton) and the active pill glides over to it (dispatchDraw); the old
+            // click pulse would fight the press for the scale
             lastSwitch=android.os.SystemClock.elapsedRealtime();
             for (int i = 0; i < getChildCount(); i++) {
                 View child = getChildAt(i);

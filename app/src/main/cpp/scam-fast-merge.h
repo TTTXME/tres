@@ -90,9 +90,10 @@ inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune
         const uint64_t need=hybridFastStripBytes(input);
         uint64_t avail=hybridMemAvailable();
         if(const char* fake=std::getenv("SCAM_FM_MEMAVAIL_MB"))avail=uint64_t(std::max(0L,std::atol(fake)))<<20;
-        if(avail>0&&need>avail/10*6){
-            why="row strips need ~"+hybridMB(need)+" MB, above 60 % of MemAvailable "+hybridMB(avail)+" MB";return false;
-        }
+        // P495 (owner, 2026-11-03: «Убери лимит»): only reported. The bound counts every short frame and the highlight path on,
+        // and the SCAM merge it sent the Nubia Z17 (22 MP, MemAvailable 1441 MB) to took 52 s at a 1513 MB peak itself
+        if(avail>0&&need>avail/10*6)
+            report("HYBRID FAST MERGE: row strips may need ~"+hybridMB(need)+" MB, above 60 % of MemAvailable "+hybridMB(avail)+" MB; taken anyway");
     }
     if(input.cfa<0||input.cfa>3){why="CFA "+std::to_string(input.cfa);return false;}
     return true;
@@ -669,9 +670,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const size_t frameBytes=size_t(W)*H*2;
     GLuint ring[3]{};GLsync ringFence[3]{};
     if(bufUpload){
-        glGenBuffers(3,ring);
-        for(GLuint b:ring){glBindBuffer(GL_SHADER_STORAGE_BUFFER,b);glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(frameBytes),nullptr,GL_STREAM_DRAW);g.buffers.push_back(b);}
-        g.objBytes+=3*frameBytes;
+        for(GLuint& b:ring)b=g.writeBuffer(frameBytes); // P495: AHardwareBuffers where the driver takes them
         g.u1i(FastMergeGpu::pUnpackBuf,"u_width",w2);g.u1i(FastMergeGpu::pUnpackBuf,"u_height",h2);g.u1i(FastMergeGpu::pUnpackBuf,"u_cfa_pattern",cfa);
         g.u1i(FastMergeGpu::pUnpackBuf,"u_raw_format",32);g.u1i(FastMergeGpu::pUnpackBuf,"u_row_bytes",2*W);
         if(quad){ // Quad: the unpack only (strength 0); the hot pixels with the quad step and the QPC map in sh093
@@ -704,8 +703,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             glDeleteSync(ringFence[slot]);ringFence[slot]=nullptr;
             fenceMs+=ms(f0,Clock::now());
         }
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER,ring[slot]);
-        void* m=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(frameBytes),GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT|GL_MAP_INVALIDATE_RANGE_BIT);
+        void* m=g.mapWrite(ring[slot],0,frameBytes);
         if(!m)throw std::runtime_error("FAST MERGE GPU: upload buffer not mapped (GL error "+std::to_string(glGetError())+")");
         stagedSlot=slot;
         staged=std::async(std::launch::async,[m,r,frameBytes,H,&copyMs]{
@@ -760,8 +758,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             if(stagedSlot<0)stage(r); // the first frame: staged right here
             {const auto w0=Clock::now();staged.get();stagedWaitMs+=ms(w0,Clock::now());}
             const int slot=stagedSlot;stagedSlot=-1;
-            glBindBuffer(GL_SHADER_STORAGE_BUFFER,ring[slot]);
-            if(!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER))throw std::runtime_error("FAST MERGE GPU: upload buffer lost");
+            if(!g.unmapWrite(ring[slot]))throw std::runtime_error("FAST MERGE GPU: upload buffer lost");
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,ring[slot]);
             unpackProg=A::pUnpackBuf;
             stage(next); // the next frame's bytes while this one's passes are submitted
@@ -1241,9 +1238,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             glDeleteSync(ringFence[slot]);ringFence[slot]=nullptr;
             fenceMs+=ms(f0,Clock::now());
         }
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER,ring[slot]);
         const size_t row=size_t(W)*2;
-        void* m=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,GLintptr(size_t(ra)*row),GLsizeiptr(size_t(rb-ra)*row),GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT|GL_MAP_INVALIDATE_RANGE_BIT);
+        void* m=g.mapWrite(ring[slot],size_t(ra)*row,size_t(rb-ra)*row);
         if(!m)throw std::runtime_error("FAST MERGE GPU: upload rows not mapped (GL error "+std::to_string(glGetError())+")");
         {
             const auto c0=Clock::now();
@@ -1251,7 +1247,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             mergeRowBands(rb-ra,[&](int y0,int y1){std::memcpy(static_cast<char*>(m)+size_t(y0)*row,src+size_t(y0)*row,size_t(y1-y0)*row);});
             copyMs+=ms(c0,Clock::now());
         }
-        if(!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER))throw std::runtime_error("FAST MERGE GPU: upload rows lost");
+        if(!g.unmapWrite(ring[slot]))throw std::runtime_error("FAST MERGE GPU: upload rows lost");
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,ring[slot]);
         uploadMs+=ms(u0,Clock::now());
         g.u1i(A::pUnpackBuf,"u_row0q",qa);
@@ -1461,8 +1457,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     if(!effLine.empty())report(effLine);
     const auto finished=Clock::now();
     {
-        char t[400];std::snprintf(t,sizeof(t),"HYBRID FAST MERGE ms: front %.0f, context %.0f, objects %.0f, submit %.0f (base %.0f, first donor %.0f; uploads %.0f: copy waited %.0f, fences %.0f; copies %.0f), readback %.0f, side outputs %.0f",
-            ms(started,gpuStarted),ms(gpuStarted,gpuReady),ms(gpuReady,objectsMade),ms(objectsMade,submitted),ms(objectsMade,baseSubmitted),ms(baseSubmitted,firstDonorSubmitted),uploadMs,stagedWaitMs,fenceMs,copyMs,ms(submitted,readDone),ms(readDone,finished));
+        char t[400];std::snprintf(t,sizeof(t),"HYBRID FAST MERGE ms: front %.0f, context %.0f, objects %.0f, submit %.0f (base %.0f, first donor %.0f; uploads %.0f%s: copy waited %.0f, fences %.0f; copies %.0f), readback %.0f, side outputs %.0f",
+            ms(started,gpuStarted),ms(gpuStarted,gpuReady),ms(gpuReady,objectsMade),ms(objectsMade,submitted),ms(objectsMade,baseSubmitted),ms(baseSubmitted,firstDonorSubmitted),uploadMs,bufUpload&&g.ahbUpload(ring[0])?" (AHB)":"",stagedWaitMs,fenceMs,copyMs,ms(submitted,readDone),ms(readDone,finished));
         report(t);
     }
     char line[600];

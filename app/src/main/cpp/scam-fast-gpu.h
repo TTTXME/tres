@@ -13,7 +13,8 @@ struct AHardwareBuffer;
 struct ARect { int32_t left, top, right, bottom; };
 struct AHardwareBuffer_Desc { uint32_t width, height, layers, format; uint64_t usage; uint32_t stride, rfu0; uint64_t rfu1; };
 enum : uint32_t { AHARDWAREBUFFER_FORMAT_BLOB = 0x21 };
-enum : uint64_t { AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN = 3, AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER = 1ULL << 24 };
+enum : uint64_t { AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN = 3, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN = 3UL << 4,
+                  AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER = 1ULL << 24 };
 #endif
 #include <dlfcn.h>
 #include "scam-superres-gpu.h" // scamProcessingContext
@@ -297,6 +298,46 @@ public:
         }
         return buffer(bytes,GL_DYNAMIC_READ);
     }
+    // P495 (owner, 2026-11-03: «Тоже делаем»): the RAW upload ring the same way, written by the CPU (CPU_WRITE_OFTEN): the
+    // AHardwareBuffer's lock / unlock in place of the driver's map / unmap, which took ~1.2 s of a 2.8 s merge of 22 frames on
+    // the Xiaomi 12X's Adreno 650 (uploads 1612 ms, the copies themselves 260). SCAM_FM_NO_AHB_UPLOAD: the GL buffers (A/B).
+    bool uploadAhbFailed=false;
+    GLuint writeBuffer(size_t bytes){
+        if(!uploadAhbFailed&&!std::getenv("SCAM_FM_NO_AHB_UPLOAD")&&ahbReady()){
+            AHardwareBuffer_Desc d{};d.width=uint32_t(bytes);d.height=1;d.layers=1;d.format=AHARDWAREBUFFER_FORMAT_BLOB;
+            d.usage=AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN|AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER;
+            AHardwareBuffer* h=nullptr;
+            if(ahb.allocate(&d,&h)==0&&h){
+                const EGLClientBuffer cb=ahb.clientBuffer(h);
+                GLuint b=0;glGenBuffers(1,&b);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER,b);
+                glGetError();
+                if(cb)ahb.storageExternal(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(bytes),cb,0);
+                if(cb&&glGetError()==GL_NO_ERROR){buffers.push_back(b);ahbOf[b]=h;return b;}
+                glDeleteBuffers(1,&b);ahb.release(h);
+            }
+            uploadAhbFailed=true; // the readback buffers keep theirs
+        }
+        return buffer(bytes,GL_STREAM_DRAW);
+    }
+    /** An upload buffer for the CPU's writes (the caller waited for the GPU's last read of it): the AHB's view, else the map. */
+    void* mapWrite(GLuint b,size_t offset,size_t bytes){
+        const auto ah=ahbOf.find(b);
+        if(ah!=ahbOf.end()){
+            void* p=nullptr;
+            if(ahb.lock(ah->second,AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,-1,nullptr,&p)!=0||!p)return nullptr;
+            return static_cast<char*>(p)+offset;
+        }
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER,b);
+        return glMapBufferRange(GL_SHADER_STORAGE_BUFFER,GLintptr(offset),GLsizeiptr(bytes),GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT|GL_MAP_INVALIDATE_RANGE_BIT);
+    }
+    bool unmapWrite(GLuint b){
+        const auto ah=ahbOf.find(b);
+        if(ah!=ahbOf.end())return ahb.unlock(ah->second,nullptr)==0;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER,b);
+        return glUnmapBuffer(GL_SHADER_STORAGE_BUFFER)==GL_TRUE;
+    }
+    bool ahbUpload(GLuint b) const { return ahbOf.count(b)!=0; }
     // invalidate: the pass writes every pixel of its targets (no blending): their old contents need not be loaded (a tiler's
     // GMEM load; the same pixels result). Off for the additive passes. SCAM_FM_NO_INVALIDATE: off everywhere (A/B).
     bool invalidateOn=!std::getenv("SCAM_FM_NO_INVALIDATE");

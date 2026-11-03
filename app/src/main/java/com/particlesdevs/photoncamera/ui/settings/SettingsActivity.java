@@ -228,6 +228,14 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         super.onBackPressed();
     }
 
+    /** P495: the iOS back - the settings leave to the right over the camera coming back (the camera's push backwards). */
+    @SuppressWarnings("deprecation")
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.motion_pop_enter, R.anim.motion_pop_exit);
+    }
+
     public static class SettingsFragment extends PreferenceFragmentCompat implements SharedPreferences.OnSharedPreferenceChangeListener, PreferenceManager.OnPreferenceTreeClickListener {
         private static final String KEY_MAIN_PARENT_SCREEN = "prefscreen";
         /** P189: argument of a page of a module's group: the module profile it shows and edits ("back2@full200"). */

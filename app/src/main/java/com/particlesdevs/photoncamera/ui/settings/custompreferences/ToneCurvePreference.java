@@ -281,7 +281,13 @@ public class ToneCurvePreference extends Preference {
         LinearLayout rows = new LinearLayout(c);
         rows.setOrientation(LinearLayout.VERTICAL);
         rows.setTag("curve_list");
-        NestedScrollView scroll = new NestedScrollView(c);
+        final int cap = (int) (c.getResources().getDisplayMetrics().heightPixels * .5f);
+        // P495: capped while measured (capped after the show, the expanded sheet kept its old top and a gap stayed under it)
+        NestedScrollView scroll = new NestedScrollView(c) {
+            @Override protected void onMeasure(int w, int h) {
+                super.onMeasure(w, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST));
+            }
+        };
         scroll.addView(rows);
         body.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         BottomSheetDialog d = SettingsStyle.sheet(c, body);
@@ -344,13 +350,6 @@ public class ToneCurvePreference extends Preference {
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2);
         pp.topMargin = SettingsStyle.dp(c, 10);
         body.addView(pick, pp);
-        int cap = (int) (c.getResources().getDisplayMetrics().heightPixels * .5f);
-        scroll.post(() -> {
-            if (scroll.getHeight() > cap) {
-                scroll.getLayoutParams().height = cap;
-                scroll.requestLayout();
-            }
-        });
         d.show();
     }
 

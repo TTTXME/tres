@@ -119,7 +119,15 @@ public class ImageSaver {
         final String name = base + uniqueSuffix(base);
         saver.ownedDngFile = ImagePath.dngFile(name);
         saver.ownedImageFile = ImagePath.imageFile(name);
+        detached.addLast(saver);
     }
+
+    /**
+     * P495 (OPPO 2026-11-03, the first shot after the start: «Index 1 out of bounds for length 1»): the savers frames were detached
+     * into, oldest first. A RAW arriving just after the detach swapped {@link #implementation} (the constructor's DefaultSaver -> the
+     * RAW16Saver), so runRaw ran on a saver without the shot's frames and read the shared buffer's one stray frame as the burst.
+     */
+    private final java.util.ArrayDeque<DefaultSaver> detached = new java.util.ArrayDeque<>();
 
     // Names of the default template have one-second resolution; queued shots can share a second.
     private static String lastReservedName = "";
@@ -169,14 +177,19 @@ public class ImageSaver {
     }
 
     public void runRaw(CameraCharacteristics characteristics, CaptureResult captureResult, CaptureRequest captureRequest, ArrayList<GyroBurst> burstShakiness, int cameraRotation, HashMap<Long, Double> exposures) {
-        implementation.iszAspect4x3 = iszAspect4x3;
-        implementation.zoomResidual = zoomResidual;
-        implementation.cameraIdAtPress = cameraIdAtPress;
-        implementation.planNote = planNote;
-        implementation.lensFilterAtPress = lensFilterAtPress;
-        implementation.lookAtPress = lookAtPress;
-        implementation.motionAtPress = motionAtPress;
-        implementation.runRaw(imageFormat,characteristics,captureResult, captureRequest,burstShakiness,cameraRotation, exposures);
+        final SaverImplementation target;
+        synchronized (this) {
+            final DefaultSaver queued = detached.pollFirst();
+            target = queued != null ? queued : implementation;
+        }
+        target.iszAspect4x3 = iszAspect4x3;
+        target.zoomResidual = zoomResidual;
+        target.cameraIdAtPress = cameraIdAtPress;
+        target.planNote = planNote;
+        target.lensFilterAtPress = lensFilterAtPress;
+        target.lookAtPress = lookAtPress;
+        target.motionAtPress = motionAtPress;
+        target.runRaw(imageFormat,characteristics,captureResult, captureRequest,burstShakiness,cameraRotation, exposures);
     }
 
     public void processStart(CameraCharacteristics characteristics, CaptureResult captureResult, CaptureRequest captureRequest, int cameraRotation) {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P495: iOS push - the new screen (settings, gallery) slides in from the right over the camera. -->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+        android:duration="380"
+        android:fromXDelta="100%"
+        android:toXDelta="0"
+        android:interpolator="@interpolator/motion_sheet"
+        android:zAdjustment="top" />

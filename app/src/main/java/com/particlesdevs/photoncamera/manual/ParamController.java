@@ -268,6 +268,13 @@ public class ParamController implements Observer {
     private final MotionShutter.Controller motion = new MotionShutter.Controller();
     private final MotionShutter.Limits motionLimits = new MotionShutter.Limits();
     private final MotionShutter.Levels motionLevels = new MotionShutter.Levels();
+    /**
+     * P495 (owner, 2026-11-03, vivo at night: the Sport viewfinder stepped and was dark): the last measurement that saw motion
+     * (motion priority holds a second after it, where a frame of 0 px/s flipped it and the shutter between 1/150 and 1/120 s
+     * every few frames), and the post-RAW gain the camera AE gave its viewfinder before the ceiling took over (AE off drops it).
+     */
+    private long motionSeenAtNs;
+    private int motionAeBoost = 100;
     /** P111: the ceiling of the last viewfinder result (the setting lowered by the motion level). */
     private long motionCapNs;
     private long motionBandLogNs;
@@ -398,7 +405,7 @@ public class ParamController implements Observer {
         builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, motion.shutterNs());
         builder.set(CaptureRequest.SENSOR_SENSITIVITY, motion.iso());
         builder.set(CaptureRequest.SENSOR_FRAME_DURATION, Math.max(motion.shutterNs(), motionMaxNs()));
-        setPostRawBoost(builder, motion.underRatio());
+        setPostRawBoost(builder, motion.underRatio() * motionAeBoost / 100.0);
         captureController.rebuildPreviewBuilder();
     }
 
@@ -490,8 +497,13 @@ public class ParamController implements Observer {
         }
         final com.particlesdevs.photoncamera.capture.RawLevel.Sample sample = com.particlesdevs.photoncamera.capture.RawLevel.sample();
         final boolean aeOff = aeMode != null && aeMode == CaptureRequest.CONTROL_AE_MODE_OFF;
+        if (!aeOff) {
+            final Integer boost = result.get(CaptureResult.CONTROL_POST_RAW_SENSITIVITY_BOOST);
+            motionAeBoost = boost != null && boost >= 100 ? boost : 100;
+        }
         // P111: the setting lowered by how fast the scene moves (the stock snapshot mode's motion levels)
         final com.particlesdevs.photoncamera.capture.MotionMeter.Sample moving = com.particlesdevs.photoncamera.capture.MotionMeter.sample();
+        if (moving != null && moving.pxPerS() > 0) motionSeenAtNs = Math.max(motionSeenAtNs, moving.atNs);
         final int levelBefore = motionLevels.level();
         final long cap = motionLevels.capNs(setting, moving == null ? Double.NaN : moving.pxPerS(), moving == null ? 0 : moving.atNs,
                 System.nanoTime());
@@ -503,8 +515,8 @@ public class ParamController implements Observer {
         motionLimits.set(cap, motionMaxNs(), isoMin(), Math.min(isoMax(), captureController.honouredIsoCap()), flickerSafe,
                 evStops()).under(motionLevels.level() > 0 ? MotionShutter.MOTION_UNDER_STOPS : 0)
                 .motionPriority(com.particlesdevs.photoncamera.settings.MotionMode.captureV2()
-                        && (motionLevels.level() > 0 || moving != null && moving.pxPerS() > 0
-                        && System.nanoTime() - moving.atNs >= 0 && System.nanoTime() - moving.atNs <= 250_000_000L));
+                        && (motionLevels.level() > 0 || motionSeenAtNs != 0
+                        && System.nanoTime() - motionSeenAtNs <= MotionShutter.Levels.STALE_NS));
         final boolean wasActive = motion.active();
         final long oldShutter = motion.shutterNs(), flickerBefore = motion.flickerHalfNs();
         final com.particlesdevs.photoncamera.capture.MotionMeter.Profile rows = com.particlesdevs.photoncamera.capture.MotionMeter.profile();
@@ -537,7 +549,7 @@ public class ParamController implements Observer {
             if (!wasActive)
                 Log.i(TAG, "motion shutter ceiling on: AE " + exposure + " ns at ISO " + iso + " -> " + motion.shutterNs()
                         + " ns at ISO " + motion.iso() + " (ceiling " + (motionLimits.motionPriority ? cap : motion.capNs(cap))
-                        + " ns, motion level " + motionLevels.level()
+                        + " ns, motion level " + motionLevels.level() + ", AE post-RAW gain " + motionAeBoost
                         + String.format(java.util.Locale.ROOT, ", %.2f stops under, viewfinder gain)", Math.log(motion.underRatio()) / Math.log(2)));
             else if (motion.shutterNs() != oldShutter)
                 Log.i(TAG, "motion shutter " + oldShutter + " -> " + motion.shutterNs() + " ns at ISO " + motion.iso()

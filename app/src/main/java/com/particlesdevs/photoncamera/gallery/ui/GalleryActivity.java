@@ -39,6 +39,14 @@ public class GalleryActivity extends BaseActivity {
 
     private boolean externalUsage = false;
 
+    /** P495: from the camera, the iOS back - the gallery leaves to the right over the camera coming back. */
+    @SuppressWarnings("deprecation")
+    @Override
+    public void finish() {
+        super.finish();
+        if (!externalUsage) overridePendingTransition(R.anim.motion_pop_enter, R.anim.motion_pop_exit);
+    }
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
