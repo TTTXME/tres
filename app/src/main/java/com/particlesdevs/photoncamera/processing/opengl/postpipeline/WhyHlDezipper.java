@@ -37,8 +37,9 @@ public final class WhyHlDezipper extends Node {
         WorkingTexture = input;
         glProg.closed = true;
         final Point size = input.mSize;
-        final int s = Math.max(1, Math.min(2, Math.round(pipeline.mParameters.outputScale)));
-        if (mask == null || mask.width * 2 * s != size.x || mask.height * 2 * s != size.y
+        // P501: the Sabre scale of the merged RGB (1, 1.5 or 2; the reference's u_sabre_scale), the mask the sensor's HALF grid
+        final float s = Math.max(1f, Math.min(2f, pipeline.mParameters.outputScale));
+        if (mask == null || Math.abs(mask.width * 2 * s - size.x) > 4 * s || Math.abs(mask.height * 2 * s - size.y) > 4 * s
                 || mask.halves.capacity() < (long) mask.width * mask.height * 2) {
             Log.w("SCAM_PIPELINE", "why-hl-dezipper: skipped (mask " + (mask == null ? "none" : mask.width + "x" + mask.height)
                     + " for " + size.x + "x" + size.y + " at grid " + s + ")");
@@ -66,7 +67,7 @@ public final class WhyHlDezipper extends Node {
             glProg.setTexture("u_merged_rgb", input);
             glProg.setTexture("u_highlight_mask", m);
             glProg.setVar("u_tex_size", size.x, size.y, 1f / size.x, 1f / size.y);
-            glProg.setVar("u_sabre_scale", (float) s);
+            glProg.setVar("u_sabre_scale", s);
             glProg.setVar("u_inv_zoom", 1f);
             glProg.drawBlocks(out);
             glProg.closed = true;

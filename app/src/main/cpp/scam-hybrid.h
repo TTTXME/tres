@@ -6781,7 +6781,8 @@ public:
             guideProgram=timed("guide",dcg?hybridDcgSources().guide.c_str():kHybGuide); // P320: the zone's texture floor
             texGuideSrc=dcg?hybridDcgSources().guide:std::string(kHybGuide); // P469
             // P377: kHybCells on every GPU (md5 as kHybCellsPlain); kHybCellsPlain after a compiler died on it (cellsPlain 1)
-            if(hybridCellsPlain()){cellsSource=kHybCellsPlain;cellsName="cellsPlain";} else cellsSource=kHybCells;
+            // P501: on the Mali-G925 at once (its compiler dies on kHybCells: every app update cost a shot to learn cellsPlain again)
+            if(hybridCellsPlain()||renderer.find("G925")!=std::string::npos){cellsSource=kHybCellsPlain;cellsName="cellsPlain";} else cellsSource=kHybCells;
             cellsProgram=timed(cellsName,cellsSource);
             // P76: the shared-memory variants (Adreno only; debugging: SCAM_HYB_NO_TILES=1 builds the Mali variants anywhere)
             const std::string tiles=std::string(adreno&&!std::getenv("SCAM_HYB_NO_TILES")?"#define SHARED_TILES 1\n":"");

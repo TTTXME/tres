@@ -58,6 +58,8 @@ uniform highp sampler2D u_base_bayer; // P497: the base frame's Bayer quads (HAL
 uniform vec4 u_black;     // P497: its black level per quad channel
 uniform float u_white;    // P497: its white level
 uniform float u_moire;   // P497: Quad colour moire suppression (0 = off)
+uniform float u_step;    // P501: OUT px per sensor px (the sabre_scale; the Quad filters' sensor offsets scaled, 1 = as before)
+ivec2 sc(int dx, int dy) { return ivec2(round(vec2(float(dx), float(dy)) * u_step)); }
 uniform int u_fill;       // P497: > 0 = the reach (OUT px) of the hole fill below (short frames merged), 0 = off
 layout(std430,binding=0) writeonly buffer Rgb{uint rgb[];};
 layout(std430,binding=1) writeonly buffer Flags{uint flags[];};
@@ -127,13 +129,13 @@ vec3 deGrid(ivec2 p, vec3 v) {
     ivec2 lo = ivec2(0, u_acc_row0), hi = ivec2(u_size.x - 1, u_acc_row0 + textureSize(u_accum_color_r, 0).y - 1);
     float y0 = dot(v, vec3(0.25, 0.5, 0.25));
     if (y0 <= 1.0e-5) return v;
-    float xm2 = lumaAt(p + ivec2(-2, 0), lo, hi), xm1 = lumaAt(p + ivec2(-1, 0), lo, hi), xp1 = lumaAt(p + ivec2(1, 0), lo, hi), xp2 = lumaAt(p + ivec2(2, 0), lo, hi);
-    float ym2 = lumaAt(p + ivec2(0, -2), lo, hi), ym1 = lumaAt(p + ivec2(0, -1), lo, hi), yp1 = lumaAt(p + ivec2(0, 1), lo, hi), yp2 = lumaAt(p + ivec2(0, 2), lo, hi);
+    float xm2 = lumaAt(p + sc(-2, 0), lo, hi), xm1 = lumaAt(p + sc(-1, 0), lo, hi), xp1 = lumaAt(p + sc(1, 0), lo, hi), xp2 = lumaAt(p + sc(2, 0), lo, hi);
+    float ym2 = lumaAt(p + sc(0, -2), lo, hi), ym1 = lumaAt(p + sc(0, -1), lo, hi), yp1 = lumaAt(p + sc(0, 1), lo, hi), yp2 = lumaAt(p + sc(0, 2), lo, hi);
     float nx = (xm2 + 2.0 * (xm1 + y0 + xp1) + xp2) / 8.0; // the period-4 notch along x
     float ny = (ym2 + 2.0 * (ym1 + y0 + yp1) + yp2) / 8.0; // along y
     // structure: the change across (a horizontal line changes along y), over 4 px so the period 4 itself does not count
-    float gx = abs(xp2 - xm2) + 0.5 * abs(lumaAt(p + ivec2(2, 1), lo, hi) - lumaAt(p + ivec2(-2, 1), lo, hi)) + 0.5 * abs(lumaAt(p + ivec2(2, -1), lo, hi) - lumaAt(p + ivec2(-2, -1), lo, hi));
-    float gy = abs(yp2 - ym2) + 0.5 * abs(lumaAt(p + ivec2(1, 2), lo, hi) - lumaAt(p + ivec2(1, -2), lo, hi)) + 0.5 * abs(lumaAt(p + ivec2(-1, 2), lo, hi) - lumaAt(p + ivec2(-1, -2), lo, hi));
+    float gx = abs(xp2 - xm2) + 0.5 * abs(lumaAt(p + sc(2, 1), lo, hi) - lumaAt(p + sc(-2, 1), lo, hi)) + 0.5 * abs(lumaAt(p + sc(2, -1), lo, hi) - lumaAt(p + sc(-2, -1), lo, hi));
+    float gy = abs(yp2 - ym2) + 0.5 * abs(lumaAt(p + sc(1, 2), lo, hi) - lumaAt(p + sc(1, -2), lo, hi)) + 0.5 * abs(lumaAt(p + sc(-1, 2), lo, hi) - lumaAt(p + sc(-1, -2), lo, hi));
     float rel = (gx + gy) / (4.0 * y0);
     float flatK = 1.0 - smoothstep(0.04, 0.10, rel); // a single 50 MP frame's noise alone reaches ~0.04
     float hline = smoothstep(1.5, 3.0, gy / max(gx, 1.0e-5 * y0)) * (1.0 - flatK); // a horizontal line: notch along x
@@ -153,7 +155,7 @@ vec3 antiMoire(ivec2 p, vec3 v) {
     float ysum = 0.0;
     int i = 0;
     for (int dy = -2; dy <= 2; dy += 2) for (int dx = -2; dx <= 2; dx += 2) {
-        vec3 u = at(clamp(p + ivec2(dx, dy), lo, hi)) * wbg;
+        vec3 u = at(clamp(p + sc(dx, dy), lo, hi)) * wbg;
         s += u;
         float y = dot(u, L);
         ys[i++] = y;
@@ -260,6 +262,77 @@ void main() {
     oAlignment = vec4(p4, 0.0);
 }
 )FM";
+// P501 (owner, 2026-11-04: «x200 pro не у меня в руках, давай без смартфона чинить»): the vivo X200 Pro's Mali-G925 driver
+// (MT6991, Android 17 PD2405_A_17.2.11.3) dies with SIGSEGV inside its compiler (libGLES_mali.so+0x1eda70c, under
+// cmpbe_v2_compile_multiple_shaders) on kHybCells, whose array argument the function changed (kHybCellsPlain without it compiles
+// there), and the PowerVR D-Series refuses sh000's median9, which sorts its array argument in place. The fast route's programs
+// with an array parameter - sh000 (median9), sh059 / sh035 (GetThreeBayerQuadFromExtractedBayer's out arrays) and sh025
+// (median9_valid) - are given here without one, the same arithmetic in the same order (the medians as the min / max network: the
+// same element selected), so the result is bit for bit the reference shader's. Taken on every Mali GPU (the crash kills the worker
+// before any fallback could run) and with SCAM_FM_ARRAY_FREE in a replay (the check of the equality); else the reference's text.
+inline std::string fastFunctionBody(const std::string& src,const std::string& signature,size_t& at,size_t& end){
+    at=src.find(signature);
+    if(at==std::string::npos)throw std::runtime_error("FAST MERGE GPU: array-free variant: no "+signature);
+    end=src.find("\n}\n",at);
+    if(end==std::string::npos)throw std::runtime_error("FAST MERGE GPU: array-free variant: no end of "+signature);
+    end+=3;
+    return src.substr(at,end-at);
+}
+inline void fastReplaceOnce(std::string& s,const std::string& a,const std::string& b){
+    const size_t at=s.find(a);
+    if(at==std::string::npos||s.find(a,at+1)!=std::string::npos)throw std::runtime_error("FAST MERGE GPU: array-free variant: not one "+a);
+    s.replace(at,a.size(),b);
+}
+// the guides' GetThreeBayerQuadFromExtractedBayer with each out array as its three elements (raw: the full guide's raw values too)
+inline std::string fastGuideArrayFree(const char* reference,bool raw){
+    std::string s(reference);
+    const std::string sig=raw?"void GetThreeBayerQuadFromExtractedBayer(in vec2 pos, out vec4 values[3], out vec4 raw_values[3]) {"
+                             :"void GetThreeBayerQuadFromExtractedBayer(in vec2 pos, out vec4 values[3]) {";
+    size_t at=0,end=0;
+    std::string body=fastFunctionBody(s,sig,at,end);
+    for(int i=0;i<3;++i){
+        const std::string k=std::to_string(i);
+        if(raw)fastReplaceOnce(body,"raw_values["+k+"]","raw_values"+k);
+        fastReplaceOnce(body,"  values["+k+"]","  values"+k);
+    }
+    fastReplaceOnce(body,sig,raw?"void GetThreeBayerQuadFromExtractedBayer(in vec2 pos, out vec4 values0, out vec4 values1, out vec4 values2, "
+                                  "out vec4 raw_values0, out vec4 raw_values1, out vec4 raw_values2) {"
+                                :"void GetThreeBayerQuadFromExtractedBayer(in vec2 pos, out vec4 values0, out vec4 values1, out vec4 values2) {");
+    s.replace(at,end-at,body);
+    const std::string call="GetThreeBayerQuadFromExtractedBayer(tc_mirror + vec2(0.0, tex_size.w * float(y)), rggb_values";
+    fastReplaceOnce(s,call+(raw?", raw_rggb_values);":");"),call.substr(0,call.size()-std::string("rggb_values").size())
+        +"rggb_values[0], rggb_values[1], rggb_values[2]"+(raw?", raw_rggb_values[0], raw_rggb_values[1], raw_rggb_values[2]);":");"));
+    return s;
+}
+// sh025's median of the 3 x 3 validity: the selection sort's a[4] is the fifth smallest, the network's p4 the same element
+inline std::string fastCleanValidArrayFree(const char* reference){
+    std::string s(reference);
+    size_t at=0,end=0;
+    fastFunctionBody(s,"float median9_valid(float a[9]) {",at,end);
+    s.replace(at,end-at,
+        "float median9_valid(float p0, float p1, float p2, float p3, float p4, float p5, float p6, float p7, float p8) {\n"
+        "    float t;\n"
+        "#define S2(a, b) t = a; a = min(t, b); b = max(t, b);\n"
+        "    S2(p1, p2) S2(p4, p5) S2(p7, p8) S2(p0, p1) S2(p3, p4) S2(p6, p7)\n"
+        "    S2(p1, p2) S2(p4, p5) S2(p7, p8) S2(p0, p3) S2(p5, p8) S2(p4, p7)\n"
+        "    S2(p3, p6) S2(p1, p4) S2(p2, p5) S2(p4, p7) S2(p4, p2) S2(p6, p4)\n"
+        "    S2(p4, p2)\n"
+        "#undef S2\n"
+        "    return p4;\n"
+        "}\n");
+    fastReplaceOnce(s,"median9_valid(v);","median9_valid(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);");
+    return s;
+}
+// the reference's source, or its array-free variant (built once; the pointer names the program in the shader fallbacks)
+inline const char* fastArrayFree(const char* src){
+    static const std::string guide=fastGuideArrayFree(kFastGuide,true),guideQuad=fastGuideArrayFree(kFastGuideQuad,false),
+                             clean=fastCleanValidArrayFree(kFastHlCleanValid);
+    if(src==kFastMedianAlign)return kFastMedianAlignNet;
+    if(src==kFastGuide)return guide.c_str();
+    if(src==kFastGuideQuad)return guideQuad.c_str();
+    if(src==kFastHlCleanValid)return clean.c_str();
+    return src;
+}
 } // namespace fastmerge
 
 // The GLES 3.1 context of the route and its programs (compiled, or loaded from the merge's program binary cache: files "fm-*.bin").
@@ -308,6 +381,9 @@ public:
             const char* eglExt=eglQueryString(display,EGL_EXTENSIONS);
             nativeClientBuffer=eglExt&&std::strstr(eglExt,"EGL_ANDROID_get_native_client_buffer")!=nullptr;
             using namespace fastmerge;
+            // P501: the programs without array parameters on Mali (fastArrayFree)
+            arrayFree=renderer.find("Mali")!=std::string::npos||std::getenv("SCAM_FM_ARRAY_FREE");
+            if(arrayFree)notes.push_back("FAST MERGE GPU: programs without array parameters ("+renderer+")");
             prog[pUnpack]=cs(kFastUnpackFused);prog[pUnpackBuf]=cs(kFastUnpackFusedBuf);prog[pGuide]=fs(kFastGuide);prog[pRef]=fs(kFastBaseRefColor);prog[pUnblock]=cs(kFastUnblocker);
             prog[pDown2]=fs(kFastGrayDown2);prog[pDown4]=fs(kFastGrayDown4);prog[pProducts]=cs(kFastGradProducts);prog[pGuide8]=fs(kFastPyrToGuide8);
             prog[pCorners]=cs(kFastHomoCorners);prog[pKlt]=cs(kFastHomoKlt);prog[pRansac]=cs(kFastHomoRansac);prog[pFill]=cs(kFastHomoFillFlow);prog[pCoarseShift]=cs(kFastCoarseShift);prog[pHomoPick]=cs(kFastHomoPick);
@@ -695,31 +771,39 @@ private:
         if(!file.empty())storeBinary(program,file);
         return program;
     }
-    GLuint cs(const char* src){return link({{GL_COMPUTE_SHADER,src}});}
-    GLuint fs(const char* src){return link({{GL_VERTEX_SHADER,fastmerge::kFastVs},{GL_FRAGMENT_SHADER,src}});}
+    bool arrayFree=false; // P501: fastArrayFree's variants (Mali)
+    GLuint cs(const char* src){return link({{GL_COMPUTE_SHADER,arrayFree?fastmerge::fastArrayFree(src):src}});}
+    GLuint fs(const char* src){return link({{GL_VERTEX_SHADER,fastmerge::kFastVs},{GL_FRAGMENT_SHADER,arrayFree?fastmerge::fastArrayFree(src):src}});}
 };
 
 // The context with its programs made on the worker's EGL warm-up thread while it waits for the burst (as laGpuPrewarm)
-struct FastGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false;std::unique_ptr<FastMergeGpu> gpu;std::string error; };
+struct FastGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false,abandoned=false;std::unique_ptr<FastMergeGpu> gpu;std::string error; };
 inline FastGpuPrewarm& fastGpuPrewarm(){static FastGpuPrewarm p;return p;}
 // Marked on the starting thread before the warm-up thread runs (the merge may ask for the context before that thread is scheduled);
 // fastGpuPrewarmCancel when the thread could not be started
 inline void fastGpuPrewarmBegin(){FastGpuPrewarm& p=fastGpuPrewarm();std::lock_guard<std::mutex> l(p.m);p.started=true;}
-inline void fastGpuPrewarmCancel(){FastGpuPrewarm& p=fastGpuPrewarm();{std::lock_guard<std::mutex> l(p.m);p.error="no thread";p.done=true;}p.cv.notify_all();}
+inline void fastGpuPrewarmCancel(const char* why="no thread"){FastGpuPrewarm& p=fastGpuPrewarm();{std::lock_guard<std::mutex> l(p.m);p.error=why;p.done=true;}p.cv.notify_all();}
 inline void fastGpuPrewarmMake(const std::string& cache){
     FastGpuPrewarm& p=fastGpuPrewarm();
     {std::lock_guard<std::mutex> l(p.m);p.started=true;}
     std::unique_ptr<FastMergeGpu> g;std::string error;
     try{g=std::make_unique<FastMergeGpu>(cache);g->release();}catch(const std::exception& e){g.reset();error=e.what();}
-    {std::lock_guard<std::mutex> l(p.m);p.gpu=std::move(g);p.error=error;p.done=true;}
+    {std::lock_guard<std::mutex> l(p.m);if(p.abandoned){(void)g.release();}else{p.gpu=std::move(g);p.error=error;}p.done=true;} // (P501: given up: leaked to the exit)
     p.cv.notify_all();
 }
-// why: "" when it came; else not started / its error
+// why: "" when it came; else not started / its error. P501 (Pixel 10 Pro log of build 31224: the merge waited for the warm-up
+// thread, which never finished in the PowerVR driver - no progress until the app's 90 s watchdog): at most kFastPrewarmWaitMs, then
+// the merge makes its own context (the warm-up's, if it ever comes, is left to the process exit)
+constexpr int kFastPrewarmWaitMs=8000;
 inline std::unique_ptr<FastMergeGpu> fastGpuPrewarmTake(std::string& why){
     FastGpuPrewarm& p=fastGpuPrewarm();
     std::unique_lock<std::mutex> l(p.m);
     if(!p.started){why="no prewarm";return nullptr;}
-    p.cv.wait(l,[&]{return p.done;});
+    if(!p.cv.wait_for(l,std::chrono::milliseconds(kFastPrewarmWaitMs),[&]{return p.done;})){
+        why="the warm-up still running after "+std::to_string(kFastPrewarmWaitMs/1000)+" s: a context of the merge's own";
+        p.abandoned=true;
+        return nullptr;
+    }
     why=p.gpu?"":"prewarm failed: "+p.error;
     return std::move(p.gpu);
 }

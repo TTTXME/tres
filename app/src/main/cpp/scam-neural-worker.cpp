@@ -14,6 +14,9 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <signal.h>
+#if defined(__ANDROID__)
+#include <sys/system_properties.h>
+#endif
 #include <sys/resource.h>
 
 static int integer(const char* text) {
@@ -130,9 +133,20 @@ int main(int argc,char** argv) {
                     worker_crash::Stage stage("EGL warm-up (driver load)");
                     EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
                     if(display!=EGL_NO_DISPLAY)eglInitialize(display,nullptr,nullptr); // loads the driver; the merge's own init is then a no-op
+                    // P501: the fast route's warm-up context on Adreno only (ro.hardware.egl "adreno"; EGL_VENDOR is the loader's
+                    // "Android"): the PowerVR driver of the Pixel 10 Pro hung in it (the merge waited for it) and the X200 Pro's Mali died
+                    // compiling there; elsewhere the merge makes the context itself, as in every working shot on those phones
+#if defined(__ANDROID__)
+                    char egl[PROP_VALUE_MAX]={};
+                    __system_property_get("ro.hardware.egl",egl);
+                    const bool qualcomm=std::strstr(egl,"adreno")!=nullptr;
+#else
+                    const bool qualcomm=true; // (a host build: the warm-up as before)
+#endif
+                    if(fastWarm&&!qualcomm&&!std::getenv("SCAM_FAST_PREWARM_ANY"))scam::fastGpuPrewarmCancel("not on this GPU (Adreno only)");
                     // tune fastMerge (the fast merge route, «Быстрый»): its context and programs instead (the route takes them; a burst
                     // the route does not take merges with the F6 context made then)
-                    if(fastWarm)scam::fastGpuPrewarmMake(warmCache);
+                    else if(fastWarm)scam::fastGpuPrewarmMake(warmCache);
                     // P364: the GPU F6 / alignment context and its programs as well (the hybrid merge takes it)
                     else if(!std::getenv("SCAM_NO_LA_PREWARM")&&!warmCache.empty())scam::laGpuPrewarmMake(warmCache);
                 });}catch(const std::exception&){if(fastWarm)scam::fastGpuPrewarmCancel();}
@@ -227,6 +241,7 @@ int main(int argc,char** argv) {
             std::vector<uint16_t> mergedDng;
             std::vector<uint8_t> effMap,clipFlags;
             std::vector<uint16_t> hlMask; // P480: the base highlight mask for the app's dezipper (fast merge with the highlight path)
+            size_t sensorPixels=0; // P501: the burst's RAW pixels (the mask is their HALF grid at any output size)
             bool noEffMap=false; // P187: header flag 16 (or SCAM_NO_EFFMAP in an offline replay): no effective-frame map
             std::vector<float> result;
             // P440 (tune fastExit): the merge's large buffers, freed after the completion line (_exit: never)
@@ -256,6 +271,7 @@ int main(int argc,char** argv) {
                 const auto tuning=scam::loadHybridTuning(argv[2],report);
                 scam::HybridInput hin=hybridBurst.hybrid?hybridBurst.input:scam::hybridFromScamBurst(mapped->burst);
                 if(std::getenv("SCAM_MERGED_DNG"))hin.mergedDng=true;
+                sensorPixels=size_t(hin.w)*hin.h;
                 // P320: a DCG burst (header flag 32): the two-zone noise check runs on it; the app's DCG tuning lines (bento 1,
                 // shastaEnable 0, mochi 0) come last in the job's hybrid_tuning.txt, the values in effect are reported here
                 if(hin.dcg)report("HYBRID DCG: dual conversion gain burst (header flag 32), tuning bento="+std::to_string(tuning.bento)
@@ -378,7 +394,8 @@ int main(int argc,char** argv) {
                 parts.emplace_back(clipFlags.data(),clipFlags.size());
             // P480: optional last trailer (job marker hl-mask, the fast merge with the highlight path only): the base highlight mask
             // at HALF for the app's dezipper pass - 16 bytes of header ("SCHLMSK1", HALF width, height) and its halves row by row
-            if(hlMask.size()>8&&(hlMask.size()-8)*12==result.size())parts.emplace_back(hlMask.data(),hlMask.size()*sizeof(uint16_t));
+            // (P501: the sensor's HALF grid at any output size)
+            if(hlMask.size()>8&&(hlMask.size()-8)*4==sensorPixels)parts.emplace_back(hlMask.data(),hlMask.size()*sizeof(uint16_t));
             // P48 (research/speed/PLAIN_SHOT_SPEED.md): the output (the app's memfd, or a replay's file) reserved with fallocate,
             // mapped and filled on all cores: write() moved the 600 MB of the 2x grid on one core (~300 ms on the vivo X200 Ultra).
             // The same bytes in the same order; anything the mapping cannot take (a pipe, a sealed or non-empty file, no memory for

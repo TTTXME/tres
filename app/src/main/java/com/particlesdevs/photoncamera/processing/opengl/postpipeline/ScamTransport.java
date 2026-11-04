@@ -29,12 +29,12 @@ interface ScamTransport {
     default boolean effectiveMap() { return true; }
     /**
      * P480: whether the worker may append the base highlight mask (job marker hl-mask; the last trailer, HALF of the sensor grid,
-     * only from the fast merge with its highlight path on) for {@link WhyHlDezipper}. Sensor-grid output only (the route's), and
-     * scam_dev.txt "why_hl_dezipper 0" turns it off.
+     * only from the fast merge with its highlight path on) for {@link WhyHlDezipper}; scam_dev.txt "why_hl_dezipper 0" turns it off.
+     * P501: on the Sabre 1.5x / 2x output too (the mask stays the sensor's HALF grid, the dezipper samples it in uv and steps its
+     * filter by the scale, as the reference's u_sabre_scale).
      */
     default boolean highlightMask() {
-        return hybrid() && outputWidth() == width() && outputHeight() == height()
-                && com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("why_hl_dezipper", true);
+        return hybrid() && com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("why_hl_dezipper", true);
     }
     /**
      * P30: the burst already lies in shared memory (the shot's arena): the transport header is written into it and a

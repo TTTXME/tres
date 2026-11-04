@@ -944,6 +944,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 final ExposureLimits limits = mExposureLimits;
                 if (limits != null) limits.observeManual(request, result);
                 paramController.onPreviewResult(result); // P82 shutter / ISO priority
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.RawBoost.observe(result); // P501
                 observeParkedLens(result);
                 observeFpsProbe(result); // P266
                 // P87: the ISO extremes the camera's own AE uses (the manual rulers' range)

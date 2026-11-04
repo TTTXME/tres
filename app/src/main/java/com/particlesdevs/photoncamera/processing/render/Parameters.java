@@ -63,6 +63,8 @@ public class Parameters {
     private static final String TAG = "Parameters";
     private int analogIso;
     public int iso;
+    /** P501: the shot's post-RAW gain of the camera (RawBoost: 1 = none). */
+    public float postRawBoost = 1f;
     public int multiFrameCount; // Actual equal-exposure RAWs merged by the native backend.
     public double exposureTime = 1.0/30.0; // Default to 1/30s if not available
     public byte cfaPattern;
@@ -463,6 +465,7 @@ public class Parameters {
             }
         }
         iso = sensivity;
+        postRawBoost = com.particlesdevs.photoncamera.processing.opengl.postpipeline.RawBoost.of(result); // P501
         noiseModeler = new NoiseModeler(NoiseModeler.sanitizedOffsets(result.get(CaptureResult.SENSOR_NOISE_PROFILE), whiteLevel), analogIso, sensivity, cfaPattern);
         Long exposure = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
         if (exposure == null) {

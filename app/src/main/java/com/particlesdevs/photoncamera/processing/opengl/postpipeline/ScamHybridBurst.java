@@ -993,7 +993,17 @@ public final class ScamHybridBurst implements ScamTransport {
     static volatile boolean scamMergeBlack;
     /** P501: whether the worker report says the fast merge route made the result. */
     static boolean fastRouteMerged(String report) {
-        return report != null && report.contains("(fast merge)");
+        return report != null && currentAttempt(report).contains("(fast merge)");
+    }
+    /**
+     * P501 (Pixel 7 log of build 31224: the retry's fast merge, mean 0.008, was taken for black - its job report carries the first
+     * attempt's «SCAM RGB: mean=0.000000 max=0.000000» before «RETRY:», ScamNeuralClient): the report's own attempt, after the last
+     * «RETRY:» line (the whole report without one).
+     */
+    static String currentAttempt(String report) {
+        final String marker = "\nRETRY:\n";
+        final int at = report.lastIndexOf(marker);
+        return at < 0 ? report : report.substring(at + marker.length());
     }
     /** P371 (review M2c): the GPU merge is off for this session (every shot merges on the CPU: no worker to start ahead). */
     static boolean gpuMergeUnusable() {
@@ -1224,6 +1234,7 @@ public final class ScamHybridBurst implements ScamTransport {
         // P500 (Pixel 10 log of build 31222: most strips zero after both re-reads, two with image - «max=2.0», mean 0.000016):
         // a strip the worker could not read back as anything but zero is a broken result too
         if (report == null) return false;
+        report = currentAttempt(report); // P501: not the carried first attempt's lines
         if (BLACK_LINE.matcher(report).find()) return true;
         // (a Pixel 7 strip of exact zeros in an ordinary merge, mean 0.042, is no failure: only a near-black whole counts)
         if (!report.contains(": still zero")) return false;

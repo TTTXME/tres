@@ -894,10 +894,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     int validShorts=0,shortsDone=0;std::string shortLog;
     // P497: the reach (OUT px) of the output pass's hole fill (kFastOutput): 24 covers a near wire's refused copy (~16 px + rims)
     const int holeFill=std::getenv("SCAM_FM_HOLE_FILL")?std::atoi(std::getenv("SCAM_FM_HOLE_FILL")):24;
-    // P501: the reach in OUT px (the same sensor distance at any sabre_scale); the Quad de-grid / anti-moire read the sensor grid's
-    // period 4 and stay off on OUT != RAW
+    // P501: the reach in OUT px (the same sensor distance at any sabre_scale); the Quad de-grid / anti-moire step their sensor
+    // offsets by the scale (u_step)
     const int outFill=int(std::lround(double(holeFill)*double(OW)/double(W)));
-    const float moire=quad&&!sabre&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f;
+    const float moire=quad&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f;
     double longWeightSum=0;std::string longLog;
     const float sfx=float(w2)/float(tiles[0]*gx[0]),sfy=float(h2)/float(tiles[0]*gy[0]); // flow_scale_offset of a short frame's uv flow
     // the highlight mask's validity finished (0x175204..0x175654): when the first frame after the short frames comes (or after
@@ -1208,7 +1208,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         bEff=g.readBuffer(size_t(w2)*h2*4);
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
-        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_moire",moire);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
@@ -1218,7 +1218,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.dispatch(A::pOutput,(OW/4+63)/64,rows);
         }
         // P480: the base highlight mask (0x530) for the app's dezipper pass, only with the highlight path on (none: no pass, no trailer)
-        if(hlMaskOut&&bento&&!sabre){ // (P501: the app's dezipper takes the mask at the sensor grid only)
+        if(hlMaskOut&&bento){ // (P501: the sensor's HALF grid at any sabre_scale: the app's dezipper samples it in uv)
             g.hlMaskOutProgram();
             bHlMask=g.readBuffer(size_t(w2)*h2*2);
             g.tex(A::pHlMaskOut,"u_mask",0,hlBase);g.u2i(A::pHlMaskOut,"u_half",w2,h2);
@@ -1274,7 +1274,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // ---- phase B (row strips): see the strip decision above
     } else {
     bEff=g.readBuffer(size_t(w2)*h2*4);
-    if(hlMaskOut&&bento&&!sabre){ // P480: as the whole-frame branch
+    if(hlMaskOut&&bento){ // P480: as the whole-frame branch
         g.hlMaskOutProgram();
         bHlMask=g.readBuffer(size_t(w2)*h2*2);
         g.tex(A::pHlMaskOut,"u_mask",0,hlBase);g.u2i(A::pHlMaskOut,"u_half",w2,h2);
@@ -1367,7 +1367,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint bRgbS=g.readBuffer(size_t(OW)*stripRows*6),bFlagsS=g.readBuffer(size_t(OW)*stripRows);
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
     g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
-    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_moire",moire);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
     out=outAlloc.get();
     if(clipFlags)clipFlags->assign(size_t(OW)*OH,0);
     streamed=streamWanted&&halvesHook;bool streamTook=false;

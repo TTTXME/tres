@@ -228,6 +228,15 @@ public class ScamHybridBurstCrashTest {
         assertTrue(ScamHybridBurst.fastRouteMerged("HYBRID STAGES ms: align=0 localAlign=0 mask=0 merge=1523 total=1523 merged=8 droppedBracketed=0 bento=0 (fast merge)"));
         assertFalse(ScamHybridBurst.fastRouteMerged("HYBRID STAGES ms: align=528 localAlign=178 mask=0 merge=7638 total=8966 merged=5 droppedBracketed=3 bento=0"));
         assertFalse(ScamHybridBurst.fastRouteMerged(null));
+        // P501: a retry's report carries the first attempt: only its own lines count
+        final String nl = String.valueOf((char) 10);
+        final String retry = "PREVIOUS ATTEMPT:" + nl + "SCAM RGB: mean=0.000000 max=0.000000" + nl + "HYBRID STAGES ms: merge=4074 bento=1" + nl
+                + "RETRY:" + nl + "HYBRID STAGES ms: merge=3279 (fast merge)" + nl + "SCAM RGB: mean=0.008080 max=15.320312" + nl;
+        assertFalse(ScamHybridBurst.blackResult(retry));
+        assertTrue(ScamHybridBurst.fastRouteMerged(retry));
+        assertTrue(ScamHybridBurst.blackResult("PREVIOUS ATTEMPT:" + nl + "SCAM RGB: mean=0.1 max=2" + nl + "RETRY:" + nl
+                + "SCAM RGB: mean=0.000000 max=0.000000" + nl));
+        assertFalse(ScamHybridBurst.fastRouteMerged("PREVIOUS ATTEMPT:" + nl + "(fast merge)" + nl + "RETRY:" + nl + "HYBRID STAGES ms: merge=1" + nl));
     }
     /** P500: vivo X200 Pro (Mali-G925, Android 17): the compiler died on a fast-route program - only the fast route goes. */
     @Test public void fastRouteCompileCrashLeavesTheClassicMerge() {

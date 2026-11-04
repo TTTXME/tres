@@ -632,7 +632,7 @@ public final class ScamNeuralClient {
             final boolean map=scamBurst.effectiveMap();
             if(!map)log.accept("CLIENT: no effective-frame map asked for ("+ow+"x"+oh+": no denoise reads it)");
             long[] layout=trailers(outputBytes,expected,scamBurst.mergedRawPixels()*2,(long)ow*oh,scamBurst.mergedDng(),map,scamBurst.clipFlags(),
-                    scamBurst.highlightMask()?highlightMaskBytes(ow,oh):0L);
+                    scamBurst.highlightMask()?highlightMaskBytes(scamBurst.width(),scamBurst.height()):0L); // P501: HALF of the sensor grid
             ScamHybridBurst.lastHlMask=null;
             // P480: the base highlight mask (the last trailer) first: its header decides the layout (without it: the one without the mask)
             ByteBuffer hlMask=null;
@@ -647,7 +647,7 @@ public final class ScamNeuralClient {
                     }
                     hlMask.flip();
                 }catch(Exception|OutOfMemoryError e){hlMask=null;log.accept("CLIENT: highlight mask not read: "+e);}
-                if(hlMask==null||!highlightMaskOk(hlMask,ow,oh)){
+                if(hlMask==null||!highlightMaskOk(hlMask,scamBurst.width(),scamBurst.height())){
                     if(hlMask!=null)log.accept("CLIENT: the bytes after the trailers are no highlight mask (header): layout without it");
                     hlMask=null;
                     final long[] l=trailers(outputBytes,expected,scamBurst.mergedRawPixels()*2,(long)ow*oh,scamBurst.mergedDng(),map,scamBurst.clipFlags());
@@ -658,8 +658,8 @@ public final class ScamNeuralClient {
             final long dngBytes=layout[0],effBytes=layout[1],clipBytes=layout[2],hlBytes=hlMask!=null?layout[3]:0;
             if(hlMask!=null){
                 hlMask.position(16);
-                ScamHybridBurst.lastHlMask=new ScamHybridBurst.HlMask(hlMask.slice().order(ByteOrder.nativeOrder()),ow/2,oh/2);
-                log.accept("CLIENT: base highlight mask "+(ow/2)+"x"+(oh/2)+" for the dezipper pass");
+                ScamHybridBurst.lastHlMask=new ScamHybridBurst.HlMask(hlMask.slice().order(ByteOrder.nativeOrder()),scamBurst.width()/2,scamBurst.height()/2);
+                log.accept("CLIENT: base highlight mask "+(scamBurst.width()/2)+"x"+(scamBurst.height()/2)+" for the dezipper pass");
             }
             {ScamHybridBurst.lastMergedDng=null;ScamHybridBurst.lastEffectiveFrames=null;ScamRgb.dropClipFlags();
                 // P371: the report as it stands at the completion line (the reader may still append the worker's last lines)
