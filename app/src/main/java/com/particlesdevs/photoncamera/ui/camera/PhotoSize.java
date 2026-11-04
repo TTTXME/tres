@@ -202,12 +202,9 @@ public final class PhotoSize {
     static int[] output(int w, int h, boolean wide169, String mode) {
         int ow = w, oh = h;
         if (wide169 && ow > oh) oh = com.particlesdevs.photoncamera.processing.Wide169.rows(ow, oh);
-        if ("2x".equals(mode)) return new int[]{2 * ow, 2 * oh};
-        if ("12".equals(mode) || "16".equals(mode) || "20".equals(mode)) {
-            android.graphics.Point t = com.particlesdevs.photoncamera.settings.PreferenceKeys.hybridTargetSize(Integer.parseInt(mode), ow, oh);
-            return new int[]{t.x, t.y};
-        }
-        return new int[]{ow, oh};
+        final android.graphics.Point t = com.particlesdevs.photoncamera.settings.PreferenceKeys.hybridSabreSize(ow, oh,
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.outputMode(mode)); // P501
+        return new int[]{t.x, t.y};
     }
 
 

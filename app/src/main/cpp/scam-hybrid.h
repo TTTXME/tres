@@ -37,6 +37,7 @@
 // POSIX on every target: the program binary cache (trimProgramCache) runs on the host builds of CI too.
 #include <dirent.h>
 #include <sys/stat.h>
+#include <utime.h>
 #if defined(__linux__)
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -93,6 +94,10 @@ struct HybridInput {
     // Output grid (NCH v11): 1 = sensor grid (today), 2 = the Sabre 6.1 2x grid (four sub-positions +-0.25 px per
     // sensor pixel, RGB 2w x 2h). The app runs its whole pipeline on that grid and resizes at the end.
     int grid=1;
+    // P501 (NCH v11 words 15 / 16; 0 = the grid's size): the result's size for a Sabre scale between 1 and 2 (the reference's 1.5x:
+    // OUT = RAW x 1.5, width a multiple of 4, height even), with grid 2: the fast merge merges at that size, the SCAM merge on
+    // the 2x grid and the worker resamples its result (hybridResampleResult)
+    int outW=0,outH=0;
     // Colour block of the stream (NCH v11 word 14, P14): 0 = unknown (the worker measures it), 1 = plain Bayer, 2 = Quad (2x2
     // same-colour sites, a sensor mode without remosaic), 4 = Tetra (4x4). A block mosaic goes through hybridReconstructMosaic.
     int mosaic=0;
@@ -1093,6 +1098,70 @@ inline void shiftOrigin(std::vector<float>& v,int w,int h,int channels,int dx,in
 inline int hybridRequestedGrid(const HybridInput& input,const HybridTuning& tune) {
     if(input.strict2x)return input.grid;
     return tune.grid==4||tune.grid==8?tune.grid:tune.grid>0?std::min(tune.grid,2):std::max(1,std::min(input.grid,2));
+}
+
+// P501: a result of `rw` x `rh` (the SCAM merge's grid) to the app's size `ow` x `oh` (the Sabre 1.5x output): the RGB by a
+// separable Catmull-Rom of support widened by the reduction (antialiased, as the post's bicubic downsampler), the effective-frame
+// map by its nearest cell, the clip flags as the OR of the cells under the pixel's footprint (a clip seen stays seen).
+// shortcut: CPU, rows on all cores; a GPU pass would be faster if a 2x -> 1.5x shot ever needs it
+inline void hybridResampleResult(std::vector<float>& rgb,int rw,int rh,int ow,int oh,std::vector<uint8_t>* eff,std::vector<uint8_t>* clip){
+    struct Tap{int i0=0;std::vector<float> w;};
+    auto taps=[](int src,int dst){
+        std::vector<Tap> t(static_cast<size_t>(dst));
+        const double scale=double(src)/dst,support=2.0*std::max(1.0,scale);
+        for(int o=0;o<dst;++o){
+            const double c=(o+0.5)*scale-0.5;
+            const int a=int(std::floor(c-support))+1,b=int(std::floor(c+support));
+            Tap& tp=t[size_t(o)];tp.i0=a;double sum=0;
+            for(int i=a;i<=b;++i){
+                const double x=std::abs(i-c)/std::max(1.0,scale);
+                const double w=x<1?1.5*x*x*x-2.5*x*x+1:x<2?-0.5*x*x*x+2.5*x*x-4*x+2:0;
+                tp.w.push_back(float(w));sum+=w;
+            }
+            for(float& w:tp.w)w=float(w/sum);
+        }
+        return t;
+    };
+    const std::vector<Tap> tx=taps(rw,ow),ty=taps(rh,oh);
+    std::vector<float> mid(size_t(ow)*rh*3),out(size_t(ow)*oh*3);
+    mergeRowBands(rh,[&](int y0,int y1){
+        for(int y=y0;y<y1;++y){
+            const float* s=rgb.data()+size_t(y)*rw*3;float* d=mid.data()+size_t(y)*ow*3;
+            for(int x=0;x<ow;++x){
+                const Tap& tp=tx[size_t(x)];float r=0,g=0,b=0;
+                for(size_t k=0;k<tp.w.size();++k){const int i=std::clamp(tp.i0+int(k),0,rw-1);const float w=tp.w[k];r+=w*s[3*i];g+=w*s[3*i+1];b+=w*s[3*i+2];}
+                d[3*x]=r;d[3*x+1]=g;d[3*x+2]=b;
+            }
+        }
+    });
+    mergeRowBands(oh,[&](int y0,int y1){
+        for(int y=y0;y<y1;++y){
+            const Tap& tp=ty[size_t(y)];float* d=out.data()+size_t(y)*ow*3;
+            for(size_t k=0;k<tp.w.size();++k){
+                const float* s=mid.data()+size_t(std::clamp(tp.i0+int(k),0,rh-1))*ow*3;const float w=tp.w[k];
+                for(int i=0;i<ow*3;++i)d[i]+=w*s[i];
+            }
+            for(int i=0;i<ow*3;++i)d[i]=std::max(d[i],0.f); // (the kernel's lobes: no negative light)
+        }
+    });
+    rgb.swap(out);
+    if(eff&&eff->size()==size_t(rw)*rh){
+        std::vector<uint8_t> e(size_t(ow)*oh);
+        for(int y=0;y<oh;++y){const int sy=std::min(rh-1,int((y+0.5)*rh/oh));for(int x=0;x<ow;++x)e[size_t(y)*ow+x]=(*eff)[size_t(sy)*rw+std::min(rw-1,int((x+0.5)*rw/ow))];}
+        eff->swap(e);
+    }
+    if(clip&&clip->size()==size_t(rw)*rh){
+        std::vector<uint8_t> c(size_t(ow)*oh);
+        for(int y=0;y<oh;++y){
+            const int ya=int(int64_t(y)*rh/oh),yb=std::max(ya+1,int((int64_t(y+1)*rh+oh-1)/oh));
+            for(int x=0;x<ow;++x){
+                const int xa=int(int64_t(x)*rw/ow),xb=std::max(xa+1,int((int64_t(x+1)*rw+ow-1)/ow));uint8_t v=0;
+                for(int sy=ya;sy<std::min(yb,rh);++sy)for(int sx=xa;sx<std::min(xb,rw);++sx)v|=(*clip)[size_t(sy)*rw+sx];
+                c[size_t(y)*ow+x]=v;
+            }
+        }
+        clip->swap(c);
+    }
 }
 
 inline bool hybridAuto2x(const HybridInput& input,const HybridTuning& tune,bool fine2x) {
@@ -6344,6 +6413,7 @@ class HybridGpu {
         GLint ok=0;glGetProgramiv(program,GL_LINK_STATUS,&ok);
         if(!ok||glGetError()!=GL_NO_ERROR){glDeleteProgram(program);std::remove(file.c_str());return 0;} // driver changed: compile again
         ++cacheHits;
+        utime(file.c_str(),nullptr); // P501: a hit is fresh for trimProgramCache (least recently used goes first)
         return program;
     }
     void storeProgramBinary(GLuint program,const std::string& file){
@@ -6359,7 +6429,9 @@ class HybridGpu {
         if(std::rename(tmp.c_str(),file.c_str())!=0){std::remove(tmp.c_str());return;}
         ++cacheStores;
     }
-    // Old builds leave their binaries behind: keep the newest 48 files of the cache directory.
+    // Old builds leave their binaries behind: keep the 160 most recently used files of the cache directory. P501 (Pixel 7 log,
+    // 2026-11-04: the prewarm of blocks 1, 2 and 4 alone is ~60 programs; with 48 kept by store time, the block 2 / 4 stores
+    // removed the block 1 blend / rim / chroma binaries it had just loaded, and the shot compiled them again for 6.8 s on Mali)
     static void trimProgramCache(){
         const std::string& dir=hybridProgramCacheDir();
         if(dir.empty())return;
@@ -6370,9 +6442,9 @@ class HybridGpu {
             struct stat st{};if(stat((dir+"/"+name).c_str(),&st)==0)files.emplace_back(st.st_mtime,dir+"/"+name);
         }
         closedir(d);
-        if(files.size()<=48)return;
+        if(files.size()<=160)return;
         std::sort(files.begin(),files.end());
-        for(size_t i=0;i+48<files.size();++i)std::remove(files[i].second.c_str());
+        for(size_t i=0;i+160<files.size();++i)std::remove(files[i].second.c_str());
     }
     // Crash diagnostics (vivo X200 Pro: every Mali worker died after "HYBRID GPU: compile flags"): the program and the GL call in
     // progress, for the worker's crash report. One GPU thread compiles at a time; the text lives for the whole process.
@@ -16765,6 +16837,13 @@ struct MappedHybridBurst {
                 if(h[14]!=0&&h[14]!=1&&h[14]!=2&&h[14]!=4)throw std::runtime_error("Unsupported hybrid colour block");
                 input.mosaic=int(h[14]);
                 if(input.strict2x&&input.grid!=2)throw std::runtime_error("Hybrid: strict Sabre 2x requires output grid 2");
+                if(h[15]!=0||h[16]!=0){ // P501
+                    const uint32_t ow=h[15],oh=h[16];
+                    if(input.grid!=2||ow%4||oh%2||ow<h[2]||oh<h[3]||ow>2*h[2]||oh>2*h[3])
+                        throw std::runtime_error("Hybrid: output "+std::to_string(ow)+"x"+std::to_string(oh)+" is no Sabre scale of "
+                            +std::to_string(h[2])+"x"+std::to_string(h[3]));
+                    input.outW=int(ow);input.outH=int(oh);
+                }
             }
             const uint64_t rgbBytes=streamPixels*uint64_t(input.grid)*input.grid*(halfRgb?6:12);
             if(rgbBytes>uint64_t(INT32_MAX))

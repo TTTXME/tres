@@ -209,7 +209,8 @@ public class SettingsModelCheck {
         active(out,"pref_scam_hybrid_dn_chroma_2x_keep");
         if(new SettingsAvailability(out).fullResSizes(true,false).reason("pref_scam_hybrid_dn_chroma_2x_keep")==null)throw new AssertionError("2x colour share live without 200 MP");
         out.put("pref_scam_hybrid_output","2x");inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_dn_chroma_2x_keep");
-        for(String mp:new String[]{"12","16","20"}){out.put("pref_scam_hybrid_output",mp);active(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_dn_chroma_2x_keep");}
+        // P501: the Sabre scales merge at their own size: no downsampler (the old 16 / 20 MP read as 1.5x)
+        for(String mp:new String[]{"1.5x","16","20"}){out.put("pref_scam_hybrid_output",mp);inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_dn_chroma_2x_keep");}
         Map<String,Object> scam=new HashMap<>();
         // «Цветовой метод»: inactive where a tuned / ISP matrix replaces it
         active(scam,"pref_color_method_key");

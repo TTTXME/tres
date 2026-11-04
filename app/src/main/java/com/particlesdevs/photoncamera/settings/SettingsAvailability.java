@@ -174,19 +174,20 @@ public final class SettingsAvailability {
                 || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
                 && !on("pref_scam_hybrid_denoise", true)) return Lang.t("Включите «Все шумодавы» (Для опытных › SHDR › Шумоподавление: подробно).",
                 "Turn on “All denoisers” (For experts › SHDR › Noise reduction: details).");
-        // Output size (pref_scam_hybrid_output): every size but the sensor's merges on the Sabre 2x grid; 12 / 16 / 20 MP are
-        // then made with the downsampler (HybridFinalResize), 2x is kept as it is.
-        String output = text("pref_scam_hybrid_output", "sensor").trim();
-        if (key.equals("pref_scam_hybrid_downsampler") && !any(output, "12", "16", "20"))
-            return Lang.t("Только при «Разрешение» 12, 16 или 20 МП (Файл и размер › Размер фото).",
-                    "Only with “Resolution” 12, 16 or 20 MP (File and size › Photo size).");
+        // Output size (pref_scam_hybrid_output, P501): the Sabre scales 1.0x / 1.5x / 2x; the merge returns that size itself, so the
+        // downsampler only brings a cropped shot to its photo size.
+        final String stored = text("pref_scam_hybrid_output", "sensor").trim();
+        final String output = "2x".equals(stored) ? "2x" : any(stored, "1.5x", "16", "20") ? "1.5x" : "sensor"; // (PreferenceKeys.outputMode)
+        if (key.equals("pref_scam_hybrid_downsampler"))
+            return Lang.t("Не используется: «Разрешение» 1.0×, 1.5× и 2.0× склеивает сразу в свой размер.",
+                    "Not used: “Resolution” 1.0×, 1.5× and 2.0× merge at their own size.");
         if (key.equals("pref_scam_hybrid_auto2x") && output.equals("sensor"))
-            return Lang.t("Только на сетке 2×: «Разрешение» 12, 16, 20 МП или 2× (Файл и размер › Размер фото).",
-                    "2× grid only: “Resolution” 12, 16, 20 MP or 2× (File and size › Photo size).");
+            return Lang.t("Только при «Разрешение» 1.5× или 2× (Файл и размер › Размер фото).",
+                    "Only with “Resolution” 1.5× or 2× (File and size › Photo size).");
         // P306: a 200 MP shot is denoised on its 2x2 means, the 2x grid path, whatever the resolution (ScamDenoise: s = 2)
         if (key.equals("pref_scam_hybrid_dn_chroma_2x_keep") && output.equals("sensor") && !fullRes200)
-            return Lang.t("Только на сетке 2× («Разрешение» 12, 16, 20 МП или 2×) и в снимках 200 Мп.",
-                    "2× grid only (“Resolution” 12, 16, 20 MP or 2×) and 200 MP shots.");
+            return Lang.t("Только при «Разрешение» 1.5× или 2× и в снимках 200 Мп.",
+                    "Only with “Resolution” 1.5× or 2× and in 200 MP shots.");
         if (key.equals("pref_scam_hybrid_auto2x") && output.equals("2x"))
             return Lang.t("В «Разрешение 2×» всегда используется настоящая сетка склейки 2×; автоматическая замена на 1× выключена.",
                     "“Resolution 2×” always uses the native 2× merge grid; automatic 1× replacement is disabled.");

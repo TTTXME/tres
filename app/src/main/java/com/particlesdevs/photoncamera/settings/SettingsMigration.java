@@ -15,6 +15,10 @@ public final class SettingsMigration {
         Map<String, ?> values = preferences.getAll();
         SharedPreferences.Editor editor = preferences.edit();
         if (!values.containsKey("settings_audit_schema")) editor.putInt("settings_audit_schema",1);
+        // P501: «Разрешение» as the Sabre scales 1.0x / 1.5x / 2x (the old 12 MP -> 1.0x, 16 / 20 MP -> 1.5x)
+        final Object output = values.get("pref_scam_hybrid_output");
+        if (output instanceof String && !output.equals(PreferenceKeys.outputMode((String) output)) && !"sensor".equals(output))
+            editor.putString("pref_scam_hybrid_output",PreferenceKeys.outputMode((String) output));
         try (XmlResourceParser parser = context.getResources().getXml(R.xml.preferences)) {
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
                 if (parser.getEventType() != XmlPullParser.START_TAG) continue;

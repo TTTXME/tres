@@ -234,8 +234,11 @@ public class HybridSettingsTest {
         manager.set("default_scope","pref_scam_hybrid_shasta",false);
         String tuning=PreferenceKeys.hybridTuningText();
         assertTrue(tuning,tuning.contains("cdm 0.1\n"));assertTrue(tuning,tuning.contains("shastaEnable 0\n"));
-        PreferenceKeys.setHybridOutputIndex(3);
-        assertEquals("20",prefs.getString("pref_scam_hybrid_output",""));assertEquals("20",PreferenceKeys.hybridOutputMode());
+        PreferenceKeys.setHybridOutputIndex(1);
+        assertEquals("1.5x",prefs.getString("pref_scam_hybrid_output",""));assertEquals("1.5x",PreferenceKeys.hybridOutputMode());
+        // P501: the old 12 / 16 / 20 MP values read as the Sabre scales
+        manager.set("default_scope","pref_scam_hybrid_output","20");assertEquals("1.5x",PreferenceKeys.hybridOutputMode());
+        manager.set("default_scope","pref_scam_hybrid_output","12");assertEquals("sensor",PreferenceKeys.hybridOutputMode());
         PreferenceKeys.setHybridDownsamplerIndex(2);
         assertEquals("area",PreferenceKeys.hybridDownsampler());assertEquals(2,PreferenceKeys.hybridDownsamplerIndex());
         assertArrayEquals(new float[]{1,2},PreferenceKeys.hybridList("unset_list",new float[]{1,2}),0f);
@@ -799,7 +802,7 @@ public class HybridSettingsTest {
         s.put("pref_scam_hybrid_output","2x");
         assertNotNull("native 2x cannot be replaced by a coarse merge",new SettingsAvailability(s).reason("pref_scam_hybrid_auto2x"));
         assertNull("chroma strength still acts on native 2x",new SettingsAvailability(s).reason("pref_scam_hybrid_dn_chroma_2x_keep"));
-        s.put("pref_scam_hybrid_output","12");assertNull(new SettingsAvailability(s).reason("pref_scam_hybrid_auto2x"));
+        s.put("pref_scam_hybrid_output","1.5x");assertNull(new SettingsAvailability(s).reason("pref_scam_hybrid_auto2x"));
     }
 
     /** P79: the per-pass GPU times (a glFinish after every pass, 30-60 % slower merge) are off by default on every phone. */

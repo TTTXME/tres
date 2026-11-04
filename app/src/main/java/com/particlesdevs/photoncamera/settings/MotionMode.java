@@ -38,10 +38,13 @@ public final class MotionMode {
 
     public static final class Snapshot {
         final boolean on, captureV2, sharpPriority;
-        Snapshot(boolean on, boolean captureV2, boolean sharpPriority) {
+        /** P501: the exposure the «Движение» shutter ceiling took from the RAW at the press (1: none; {@link #underGain}). */
+        final float underGain;
+        Snapshot(boolean on, boolean captureV2, boolean sharpPriority, float underGain) {
             this.on = on;
             this.captureV2 = captureV2;
             this.sharpPriority = sharpPriority;
+            this.underGain = underGain;
         }
     }
 
@@ -50,7 +53,26 @@ public final class MotionMode {
         if (s != null) return s;
         final boolean enabled = on();
         return new Snapshot(enabled, enabled && PreferenceKeys.scamDevSwitch("motion_capture_v2", true),
-                enabled && PreferenceKeys.scamDevSwitch("motion_sharp_priority", true));
+                enabled && PreferenceKeys.scamDevSwitch("motion_sharp_priority", true), enabled ? liveUnderGain : 1f);
+    }
+
+    /**
+     * P501 (owner, 2026-11-04, vivo X200 Ultra at night: «Ты не исправил экспозицию в спорт режиме, всё ещё темнит сильно»): the
+     * ceiling keeps the moving scene's short shutter below the camera AE's exposure (ParamController: «1.58 stops under, viewfinder
+     * gain»), and the viewfinder and the photo are developed from that RAW by the WHY tone, whose noise clamp then held the gain at
+     * 1.0 at ISO 6400 - both came out that much darker than the same scene without the mode. The ratio the ceiling took (its
+     * underRatio, set by ParamController on every viewfinder result) widens the tone's gain limits by as much: the brightness of
+     * the photo mode with the mode's noise. 1 without the mode or with the ceiling off.
+     */
+    private static volatile float liveUnderGain = 1f;
+    public static void setLiveUnderGain(double gain) {
+        liveUnderGain = Double.isFinite(gain) && gain > 1 ? (float) Math.min(gain, 64) : 1f;
+    }
+    /** P501: the shot's (its press's snapshot) or else the viewfinder's under-exposure gain, at least 1. */
+    public static float underGain() {
+        Snapshot s = SHOT.get();
+        if (s != null) return s.underGain;
+        return on() ? liveUnderGain : 1f;
     }
 
     public static void beginShot(Snapshot snapshot) {

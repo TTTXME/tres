@@ -223,6 +223,12 @@ public class ScamHybridBurstCrashTest {
         assertFalse(ScamHybridBurst.blackResult("HYBRID GPU readback: strip 1 read as all zero: still zero after a glFinish" + (char) 10
                 + "SCAM RGB: mean=0.042182 max=8.901612" + (char) 10));
     }
+    /** P501: Pixel 10 Pro: a black SCAM merge sends the session to the fast route (the report names the route that merged). */
+    @Test public void blackScamMergeSwitchesToTheFastRoute() {
+        assertTrue(ScamHybridBurst.fastRouteMerged("HYBRID STAGES ms: align=0 localAlign=0 mask=0 merge=1523 total=1523 merged=8 droppedBracketed=0 bento=0 (fast merge)"));
+        assertFalse(ScamHybridBurst.fastRouteMerged("HYBRID STAGES ms: align=528 localAlign=178 mask=0 merge=7638 total=8966 merged=5 droppedBracketed=3 bento=0"));
+        assertFalse(ScamHybridBurst.fastRouteMerged(null));
+    }
     /** P500: vivo X200 Pro (Mali-G925, Android 17): the compiler died on a fast-route program - only the fast route goes. */
     @Test public void fastRouteCompileCrashLeavesTheClassicMerge() {
         String report = "HYBRID FAST MERGE FrameSelector: base idx=0" + (char) 10

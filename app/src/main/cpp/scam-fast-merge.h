@@ -4,6 +4,10 @@
 // stays as «Качество»). Spec: the research pipeline spec (§n below); the GLSL is the reference's own, byte for byte
 // (scam-fast-shaders.h, generated). Stage 1: plain Bayer (cfa_sensor_type 0), NORMAL frames only (ultrashort / bracketed frames
 // stay out of this route: no Bento, no long-frame pedestal / motion scope), sabre_scale 1.0 (OUT = RAW grid).
+// P501 (owner, 2026-11-04: «В Арк камере есть Sabre 1.5х и 2х, возьми из неё»): sabre_scale 1.5 / 2 as the reference's super-res -
+// OUT = RAW x scale (the app's size, hybridFastOut), the merge drawn at OUT (its tex_coord samples the HALF textures in uv, so the
+// frames' passes stay at HALF), kernel_blurring_params.z = 1 (the reference's flag for sabre_scale > 1.001: MERGE_A's Demosaic1x
+// fill of the base where the donors were rejected), the outputs of the worker contract at OUT.
 //
 // Per burst (§3, §4): every RAW is uploaded as its byte stream (R8UI, RAW16 little endian, §3.5) and unpacked on the GPU into
 // RGBA16F quads of raw DN at HALF = W/2 x H/2 (sh108 = unpack + hot pixels). The base frame gets the guide (sh059: sqrt-domain YCoCg
@@ -56,6 +60,12 @@ inline void hybridHighlightMaskHeader(std::vector<uint16_t>& v,int w2,int h2){
     std::memcpy(v.data(),tag,8);std::memcpy(v.data()+4,dims,8);
 }
 
+// P501: the route's output grid OUT: the app's size (header words 15 / 16: Sabre 1.5x), else the requested grid (1 or 2) x RAW
+inline std::array<int,2> hybridFastOut(const HybridInput& in,const HybridTuning& tune){
+    if(in.outW>0&&in.outH>0)return {in.outW,in.outH};
+    const int g=hybridRequestedGrid(in,tune);
+    return {in.w*g,in.h*g};
+}
 // The route takes the burst: plain Bayer, the sensor grid, up to kHybridClassicPixels, a width of 4 px multiples
 // Above 16 MP (owner, 2026-11-03: «Серии больше 16 Мп ... должны работать через "быструю" обработку») the fast merge runs in row
 // strips: the GPU memory it holds then, estimated per RAW pixel from its textures (scam-fast-merge.h, the strip branch) and the CPU
@@ -84,7 +94,12 @@ inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune
     if(input.mosaic==0){const int block=hybridMosaicBlock(input,tune,report);if(block!=1&&block!=2&&block!=4){why="measured colour block "+std::to_string(block);return false;}
         if(block==4&&tune.fastMergeTetra==0){why="4x4 colour block (fastMergeTetra 0)";return false;}}
     if(input.mosaic==4&&tune.fastMergeTetra==0){why="4x4 colour block (fastMergeTetra 0)";return false;} // P489: Tetra stays on SCAM by default
-    if(hybridRequestedGrid(input,tune)!=1){why="output grid "+std::to_string(hybridRequestedGrid(input,tune));return false;}
+    { // P501: sabre_scale 1, 1.5 (the app's OUT) or 2
+        const int rg=hybridRequestedGrid(input,tune);
+        if(rg!=1&&rg!=2){why="output grid "+std::to_string(rg);return false;}
+        const auto o=hybridFastOut(input,tune);
+        if(o[0]%4||o[1]%2||o[0]<input.w||o[1]<input.h||o[0]>2*input.w||o[1]>2*input.h){why="output "+std::to_string(o[0])+"x"+std::to_string(o[1]);return false;}
+    }
     if(input.w%4||input.h%2||input.w<64||input.h<64){why="frame "+std::to_string(input.w)+"x"+std::to_string(input.h);return false;}
     if(int64_t(input.w)*input.h>kHybridClassicPixels){ // row strips (hybridFastMerge): the memory they need against MemAvailable
         const uint64_t need=hybridFastStripBytes(input);
@@ -193,6 +208,14 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         }
     }
     const int W=input.w,H=input.h,w2=W/2,h2=H/2,cfa=input.cfa;
+    // P501: OUT (the accumulators, the output pass and every output of the contract); sabre: OUT != RAW
+    const std::array<int,2> outWH=hybridFastOut(input,tune);
+    const int OW=outWH[0],OH=outWH[1];
+    const bool sabre=OW!=W||OH!=H;
+    if(sabre){
+        char line[200];std::snprintf(line,sizeof(line),"HYBRID FAST MERGE SABRE: OUT %dx%d (sabre_scale %.3f x %.3f), Demosaic1x hole fill on",OW,OH,double(OW)/W,double(OH)/H);
+        report(line);
+    }
     // P480: the base highlight mask for the app's dezipper (hybridHighlightMaskOut), filled only by a finished merge
     std::vector<uint16_t>* const hlMaskOut=hybridHighlightMaskOut();
     if(hlMaskOut)hlMaskOut->clear();
@@ -417,9 +440,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // and then the worker's output memfd reserved and mapped (every page in place) for the halves (hybridFinalHalvesHook), on the
     // same thread (the result's data pointer names the stream)
     const bool streamWanted=hybridFinalHalvesHook()&&!(mergedDng&&input.mergedDng)&&!std::getenv("SCAM_NO_STREAM_OUT");
-    std::future<std::vector<float>> outAlloc=std::async(std::launch::async,[n=size_t(W)*H*3,streamWanted,W,H]{
+    std::future<std::vector<float>> outAlloc=std::async(std::launch::async,[n=size_t(OW)*OH*3,streamWanted,OW,OH]{
         std::vector<float> v(n);
-        if(streamWanted)hybridFinalHalvesHook()(nullptr,W,H,0,0,v.data());
+        if(streamWanted)hybridFinalHalvesHook()(nullptr,OW,OH,0,0,v.data());
         return v;
     });
     // ---- row strips above 16 MP (owner, 2026-11-03): phase A (every frame's alignment, rejection chain and frame weights at HALF,
@@ -431,9 +454,11 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // strips of that many rows at any size (the equality check against the whole-frame merge).
     int stripRows=0;
     if(const char* e=std::getenv("SCAM_FM_STRIP_ROWS"))stripRows=std::atoi(e);
-    if(stripRows<=0&&int64_t(W)*H>kHybridClassicPixels)stripRows=int(std::max<int64_t>(64,std::min<int64_t>(H,int64_t(kFastStripBytes)/(23*int64_t(W)))));
-    if(stripRows>0)stripRows=std::min(H,std::max(64,stripRows&~15));
-    const bool stripMode=stripRows>0&&(stripRows<H||std::getenv("SCAM_FM_STRIP_ROWS"));
+    // P501: strips of OUT rows; also when the whole OUT's accumulators pass 512 MB (2x of 12 MP: 800 MB; 1.5x: 450 MB stays whole)
+    if(stripRows<=0&&(int64_t(W)*H>kHybridClassicPixels||int64_t(OW)*OH*16>2*int64_t(kFastStripBytes)))
+        stripRows=int(std::max<int64_t>(64,std::min<int64_t>(OH,int64_t(kFastStripBytes)/(23*int64_t(OW)))));
+    if(stripRows>0)stripRows=std::min(OH,std::max(64,stripRows&~15));
+    const bool stripMode=stripRows>0&&(stripRows<OH||std::getenv("SCAM_FM_STRIP_ROWS"));
     // ---- the context (prewarmed during the burst's delivery, else made here)
     const auto gpuStarted=Clock::now();
     std::string prewarmWhy;
@@ -456,6 +481,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     g.selectRejFilter(tune.fmFilterGather!=0); // P484
     GLint maxTex=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&maxTex);
     if(2*W>maxTex||H>maxTex)throw std::runtime_error("RAW byte stream "+std::to_string(2*W)+"x"+std::to_string(H)+" above GL_MAX_TEXTURE_SIZE "+std::to_string(maxTex));
+    if(OW>maxTex||OH>maxTex)throw std::runtime_error("output "+std::to_string(OW)+"x"+std::to_string(OH)+" above GL_MAX_TEXTURE_SIZE "+std::to_string(maxTex));
     GLint ssboAlign=256;glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT,&ssboAlign);ssboAlign=std::max(ssboAlign,64);
     const auto gpuReady=Clock::now();
     // tune profile: GPU timestamps (EXT_disjoint_timer_query, no stall) at every stage boundary, summed per stage after the readback
@@ -510,10 +536,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     GLuint flowT=g.texture(GL_RGBA32F,gx[0],gy[0],lin32);
     GLuint rejRaw=g.texture(GL_RG8,w2,h2,true),rejF=g.texture(GL_R8,w2,h2,true),rejD=g.texture(GL_R8,w2,h2,true),rejW=g.texture(GL_RG8,w2,h2,true);
     GLuint accW=g.texture(GL_R16F,w2,h2,true);
-    GLuint acc0=g.texture(GL_RGBA16F,W,stripMode?stripRows:H,true),acc1=g.texture(GL_RGBA16F,W,stripMode?stripRows:H,true);
+    GLuint acc0=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true),acc1=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true);
     if(stripMode){ // the strips' limits: the viewport moved up by a strip spans the frame, the upload ring holds a whole frame
         GLint vp[2]={0,0},blk=0;glGetIntegerv(GL_MAX_VIEWPORT_DIMS,vp);glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&blk);
-        if(H>vp[1]||W>vp[0])throw std::runtime_error("frame "+std::to_string(W)+"x"+std::to_string(H)+" above GL_MAX_VIEWPORT_DIMS");
+        if(OH>vp[1]||OW>vp[0])throw std::runtime_error("output "+std::to_string(OW)+"x"+std::to_string(OH)+" above GL_MAX_VIEWPORT_DIMS");
         if(blk>0&&uint64_t(W)*H*2>uint64_t(uint32_t(blk)))throw std::runtime_error("RAW frame above GL_MAX_SHADER_STORAGE_BLOCK_SIZE");
     }
     GLuint zeroFlow=g.texture(GL_RGBA16F,1,1,false),constRej=g.texture(GL_RG8,1,1,false),gainOne=g.texture(GL_RGBA16F,1,1,false),
@@ -653,11 +679,11 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u4f(A::pCyclops,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));g.u1f(A::pCyclops,"u_rejection_dilate_div",3.5f);
         g.u4f(A::pBlendEq,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));
 
-        // merge (§5.7, exact; mvp identity at sabre_scale 1)
+        // merge (§5.7, exact; mvp identity: no zoom crop, OUT spans the frame at any sabre_scale)
         for(int p:{PMB,PMA}){
             g.u4f(p,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));
             g.uMat4(p,"mvp_matrix_tex",identity);
-            g.u4f(p,"kernel_blurring_params",4.5f,1.5f,0.f,0.f); // [UNCERTAIN] §11.7: z = 0
+            g.u4f(p,"kernel_blurring_params",4.5f,1.5f,sabre?1.f:0.f,0.f); // [UNCERTAIN] §11.7: z = 0 at sabre_scale 1 (P501: 1 above, the reference's)
             g.u1f(p,"accumulated_weight_scale",1.f);g.u1i(p,"u_cfa_pattern",cfa);
             g.u2f(p,"u_ca_k_r",0.f,0.f);g.u2f(p,"u_ca_k_b",0.f,0.f);
             // (gains / black_levels_times_gains / u_ev_scale: the frame's, set per merge)
@@ -868,6 +894,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     int validShorts=0,shortsDone=0;std::string shortLog;
     // P497: the reach (OUT px) of the output pass's hole fill (kFastOutput): 24 covers a near wire's refused copy (~16 px + rims)
     const int holeFill=std::getenv("SCAM_FM_HOLE_FILL")?std::atoi(std::getenv("SCAM_FM_HOLE_FILL")):24;
+    // P501: the reach in OUT px (the same sensor distance at any sabre_scale); the Quad de-grid / anti-moire read the sensor grid's
+    // period 4 and stay off on OUT != RAW
+    const int outFill=int(std::lround(double(holeFill)*double(OW)/double(W)));
+    const float moire=quad&&!sabre&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f;
     double longWeightSum=0;std::string longLog;
     const float sfx=float(w2)/float(tiles[0]*gx[0]),sfy=float(h2)/float(tiles[0]*gy[0]); // flow_scale_offset of a short frame's uv flow
     // the highlight mask's validity finished (0x175204..0x175654): when the first frame after the short frames comes (or after
@@ -1125,7 +1155,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.tex(mp,"rejection_texture",3,rejWK);g.tex(mp,"base_frame_guide_texture",4,refColor);g.tex(mp,"accumulated_frame_weights",5,accW);
             g.tex(mp,"highlight_mask_texture",6,hlMaskTex);g.tex(mp,"u_long_scope_tex",7,oneScope);
             glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE);
-            g.draw(mp,fMerge,W,H);
+            g.draw(mp,fMerge,OW,OH);
             glDisable(GL_BLEND);
         });
         // P484: the batch's merges back to back once it is full (then a flush); else this frame's passes are flushed now
@@ -1152,7 +1182,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.tex(mp,"rejection_texture",3,constRej);g.tex(mp,"base_frame_guide_texture",4,refColor);g.tex(mp,"accumulated_frame_weights",5,accW);
             g.tex(mp,"highlight_mask_texture",6,hlMaskTex);g.tex(mp,"u_long_scope_tex",7,oneScope);
             glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE);
-            g.draw(mp,fMerge,W,H);
+            g.draw(mp,fMerge,OW,OH);
             glDisable(GL_BLEND);
             glFlush();
         }
@@ -1166,29 +1196,29 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.tex(PMA,"rejection_texture",3,constRej);g.tex(PMA,"base_frame_guide_texture",4,refColor);g.tex(PMA,"accumulated_frame_weights",5,accW);
         g.tex(PMA,"highlight_mask_texture",6,hlMaskTex);g.tex(PMA,"u_long_scope_tex",7,oneScope);
         glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE);
-        g.draw(PMA,fMerge,W,H);
+        g.draw(PMA,fMerge,OW,OH);
         glDisable(GL_BLEND);
         glFlush();
         FastMergeGpu::check("base self-merge");
         lap(6);
         // ---- normalisation and the readback buffers, in bands of rows (each buffer read from offset 0)
         const int bandRows=512;
-        const int bands=(H+bandRows-1)/bandRows;
+        const int bands=(OH+bandRows-1)/bandRows;
         std::vector<GLuint> bRgb(static_cast<size_t>(bands)),bFlags(static_cast<size_t>(bands));
         bEff=g.readBuffer(size_t(w2)*h2*4);
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
-        g.u2i(A::pOutput,"u_size",W,H);g.u2i(A::pOutput,"u_half",w2,h2);
-        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.u1f(A::pOutput,"u_moire",quad&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+        g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
+        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_moire",moire);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
         for(int b=0;b<bands;++b){
-            const int y0=b*bandRows,rows=std::min(bandRows,H-y0);
-            bRgb[size_t(b)]=g.readBuffer(size_t(W)*rows*6);bFlags[size_t(b)]=g.readBuffer(size_t(W)*rows);
+            const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
+            bRgb[size_t(b)]=g.readBuffer(size_t(OW)*rows*6);bFlags[size_t(b)]=g.readBuffer(size_t(OW)*rows);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bRgb[size_t(b)]);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bFlags[size_t(b)]);
             g.u1i(A::pOutput,"u_row0",y0);g.u1i(A::pOutput,"u_rows",rows);
-            g.dispatch(A::pOutput,(W/4+63)/64,rows);
+            g.dispatch(A::pOutput,(OW/4+63)/64,rows);
         }
         // P480: the base highlight mask (0x530) for the app's dezipper pass, only with the highlight path on (none: no pass, no trailer)
-        if(hlMaskOut&&bento){
+        if(hlMaskOut&&bento&&!sabre){ // (P501: the app's dezipper takes the mask at the sensor grid only)
             g.hlMaskOutProgram();
             bHlMask=g.readBuffer(size_t(w2)*h2*2);
             g.tex(A::pHlMaskOut,"u_mask",0,hlBase);g.u2i(A::pHlMaskOut,"u_half",w2,h2);
@@ -1203,31 +1233,31 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // ---- readback: the RGB halves into the worker's floats (rows on all cores), the flags, the effective frames
         // the result vector (the worker's contract: W x H x 3 floats) was allocated on a helper thread during the GPU work
         out=outAlloc.get();
-        if(clipFlags)clipFlags->assign(size_t(W)*H,0);
+        if(clipFlags)clipFlags->assign(size_t(OW)*OH,0);
         // the halves straight into the worker's output memfd (hybridFinalHalvesHook): the floats are then not filled - nothing reads
         // them (the worker writes the streamed halves and only the trailers); a band the stream does not take, or a merged DNG (made
         // from the floats), fills the floats from the same buffers
         streamed=streamWanted&&halvesHook;
         for(int b=0;b<bands&&streamed;++b){
-            const int y0=b*bandRows,rows=std::min(bandRows,H-y0);
+            const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
             const auto t0=Clock::now();
-            g.readBuffer(bRgb[size_t(b)],size_t(W)*rows*6,[&](const void* m){
+            g.readBuffer(bRgb[size_t(b)],size_t(OW)*rows*6,[&](const void* m){
                 if(b==0)waitMs=ms(t0,Clock::now());
-                streamed=halvesHook(static_cast<const uint16_t*>(m),W,H,y0,y0+rows,out.data());
+                streamed=halvesHook(static_cast<const uint16_t*>(m),OW,OH,y0,y0+rows,out.data());
             });
         }
-        if(streamed)streamed=halvesHook(nullptr,W,H,-1,-1,out.data());
+        if(streamed)streamed=halvesHook(nullptr,OW,OH,-1,-1,out.data());
         outNote=streamed?"halves streamed into the output":"floats";
         if(!streamed&&halvesHook)outNote+=" (the stream did not take the halves)";
         for(int b=0;b<bands;++b){
-            const int y0=b*bandRows,rows=std::min(bandRows,H-y0);
+            const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
             const auto t0=Clock::now();
-            if(!streamed)g.readBuffer(bRgb[size_t(b)],size_t(W)*rows*6,[&](const void* m){
+            if(!streamed)g.readBuffer(bRgb[size_t(b)],size_t(OW)*rows*6,[&](const void* m){
                 if(b==0&&waitMs==0)waitMs=ms(t0,Clock::now());
                 const uint16_t* src=static_cast<const uint16_t*>(m);
                 mergeRowBands(rows,[&](int r0,int r1){
-                    const size_t a=size_t(r0)*W*3,e=size_t(r1)*W*3;
-                    float* d=out.data()+size_t(y0)*W*3;
+                    const size_t a=size_t(r0)*OW*3,e=size_t(r1)*OW*3;
+                    float* d=out.data()+size_t(y0)*OW*3;
     #if defined(__aarch64__)
                     const __fp16* s=reinterpret_cast<const __fp16*>(src);
                     size_t i=a;
@@ -1239,12 +1269,12 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     #endif
                 });
             });
-            if(clipFlags)g.readBuffer(bFlags[size_t(b)],size_t(W)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*W,m,size_t(W)*rows);});
+            if(clipFlags)g.readBuffer(bFlags[size_t(b)],size_t(OW)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*OW,m,size_t(OW)*rows);});
         }
     // ---- phase B (row strips): see the strip decision above
     } else {
     bEff=g.readBuffer(size_t(w2)*h2*4);
-    if(hlMaskOut&&bento){ // P480: as the whole-frame branch
+    if(hlMaskOut&&bento&&!sabre){ // P480: as the whole-frame branch
         g.hlMaskOutProgram();
         bHlMask=g.readBuffer(size_t(w2)*h2*2);
         g.tex(A::pHlMaskOut,"u_mask",0,hlBase);g.u2i(A::pHlMaskOut,"u_half",w2,h2);
@@ -1334,20 +1364,21 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     };
     // the accumulators of one strip, the readback of one strip (reused)
     const GLuint fStrip=fMerge;
-    const GLuint bRgbS=g.readBuffer(size_t(W)*stripRows*6),bFlagsS=g.readBuffer(size_t(W)*stripRows);
+    const GLuint bRgbS=g.readBuffer(size_t(OW)*stripRows*6),bFlagsS=g.readBuffer(size_t(OW)*stripRows);
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
-    g.u2i(A::pOutput,"u_size",W,H);g.u2i(A::pOutput,"u_half",w2,h2);
-    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.u1f(A::pOutput,"u_moire",quad&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+    g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
+    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_moire",moire);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
     out=outAlloc.get();
-    if(clipFlags)clipFlags->assign(size_t(W)*H,0);
+    if(clipFlags)clipFlags->assign(size_t(OW)*OH,0);
     streamed=streamWanted&&halvesHook;bool streamTook=false;
     int strips=0;std::vector<int> winRows;
-    for(int y0=0;y0<H;y0+=stripRows,++strips){
-        const int y1=std::min(H,y0+stripRows),rows=y1-y0,ca=y0/2,cb=std::min(h2,(y1+1)/2);
+    for(int y0=0;y0<OH;y0+=stripRows,++strips){
+        // the strip's HALF rows (P501: OUT rows y over OH -> y h2 / OH; at sabre_scale 1 y / 2 and (y1 + 1) / 2 as before)
+        const int y1=std::min(OH,y0+stripRows),rows=y1-y0,ca=int(int64_t(y0)*h2/OH),cb=std::min<int>(h2,int((int64_t(y1)*h2+OH-1)/OH));
         {const float z[4]={0,0,0,0};glBindFramebuffer(GL_FRAMEBUFFER,fStrip);glClearBufferfv(GL_COLOR,0,z);glClearBufferfv(GL_COLOR,1,z);}
         auto mergeDraw=[&](int mp){
             glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE);
-            g.drawAt(mp,fStrip,0,-y0,W,H);
+            g.drawAt(mp,fStrip,0,-y0,OW,OH);
             glDisable(GL_BLEND);
         };
         for(size_t k=0;k<loop.size();++k){ // the merges in the loop's order (the whole-frame branch's order of the sums)
@@ -1397,18 +1428,18 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bRgbS);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bFlagsS);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
         g.u1i(A::pOutput,"u_row0",y0);g.u1i(A::pOutput,"u_rows",rows);g.u1i(A::pOutput,"u_acc_row0",y0);
-        g.dispatch(A::pOutput,(W/4+63)/64,rows);
+        g.dispatch(A::pOutput,(OW/4+63)/64,rows);
         glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
         FastMergeGpu::check("strip");
         const auto t0=Clock::now();
-        g.readBuffer(bRgbS,size_t(W)*rows*6,[&](const void* m){
+        g.readBuffer(bRgbS,size_t(OW)*rows*6,[&](const void* m){
             if(y0==0)waitMs=ms(t0,Clock::now());
             const uint16_t* src=static_cast<const uint16_t*>(m);
-            if(streamed){streamed=halvesHook(src,W,H,y0,y1,out.data());if(streamed){streamTook=true;return;}}
+            if(streamed){streamed=halvesHook(src,OW,OH,y0,y1,out.data());if(streamed){streamTook=true;return;}}
             if(streamTook)throw std::runtime_error("FAST MERGE: the output stream refused a strip after taking the first ones");
             mergeRowBands(rows,[&](int r0,int r1){
-                const size_t a=size_t(r0)*W*3,e=size_t(r1)*W*3;
-                float* d=out.data()+size_t(y0)*W*3;
+                const size_t a=size_t(r0)*OW*3,e=size_t(r1)*OW*3;
+                float* d=out.data()+size_t(y0)*OW*3;
 #if defined(__aarch64__)
                 const __fp16* s16=reinterpret_cast<const __fp16*>(src);
                 size_t i=a;
@@ -1420,16 +1451,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
 #endif
             });
         });
-        if(clipFlags)g.readBuffer(bFlagsS,size_t(W)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*W,m,size_t(W)*rows);});
+        if(clipFlags)g.readBuffer(bFlagsS,size_t(OW)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*OW,m,size_t(OW)*rows);});
     }
-    if(streamed)streamed=halvesHook(nullptr,W,H,-1,-1,out.data());
+    if(streamed)streamed=halvesHook(nullptr,OW,OH,-1,-1,out.data());
     outNote=streamed?"halves streamed into the output":"floats";
     if(!streamed&&halvesHook)outNote+=" (the stream did not take the halves)";
     {
         long wsum=0;for(int r:winRows)wsum+=r;
         char line[300];
         std::snprintf(line,sizeof(line),"HYBRID FAST MERGE STRIPS: %d strips of %d rows (accumulators %s MB); frames' rows re-read per strip %.2f x the HALF height on average",
-            strips,stripRows,hybridMB(uint64_t(W)*stripRows*16).c_str(),winRows.empty()?0.0:double(wsum)/double(winRows.size())/double(h2)*double(strips));
+            strips,stripRows,hybridMB(uint64_t(OW)*stripRows*16).c_str(),winRows.empty()?0.0:double(wsum)/double(winRows.size())/double(h2)*double(strips));
         report(line);
     }
     submitted=Clock::now();
@@ -1478,11 +1509,11 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         float median=1.f;
         if(!sample.empty()){std::nth_element(sample.begin(),sample.begin()+sample.size()/2,sample.end());median=std::max(sample[sample.size()/2],1.f);}
         const float codeScale=64.f/median;
-        effMap->assign(size_t(W)*H,0);
-        mergeRowBands(H,[&](int y0,int y1){
+        effMap->assign(size_t(OW)*OH,0);
+        mergeRowBands(OH,[&](int y0,int y1){ // (P501: the HALF cell of an OUT pixel, x w2 / OW; x / 2 at sabre_scale 1)
             for(int y=y0;y<y1;++y){
-                const float* e=eff.data()+size_t(std::min(y/2,h2-1))*w2;uint8_t* d=effMap->data()+size_t(y)*W;
-                for(int x=0;x<W;++x)d[x]=uint8_t(std::clamp(std::lround(e[std::min(x/2,w2-1)]*codeScale),1L,255L));
+                const float* e=eff.data()+size_t(std::min(int(int64_t(y)*h2/OH),h2-1))*w2;uint8_t* d=effMap->data()+size_t(y)*OW;
+                for(int x=0;x<OW;++x)d[x]=uint8_t(std::clamp(std::lround(e[std::min(int(int64_t(x)*w2/OW),w2-1)]*codeScale),1L,255L));
             }
         });
         char line[160];std::snprintf(line,sizeof(line),"HYBRID EFFECTIVE MAP: median frames=%.3f (1 + accumulated donor weight) code scale=%.6f",median,codeScale);
@@ -1490,22 +1521,38 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     }
     if(clipFlags){
         std::atomic<long> counts[4]{};
-        mergeRowBands(H,[&](int y0,int y1){
+        mergeRowBands(OH,[&](int y0,int y1){
             long c[4]{};
             const uint8_t* f=clipFlags->data();
-            for(size_t i=size_t(y0)*W;i<size_t(y1)*W;++i){
-                if(i%8==0&&i+8<=size_t(y1)*W){uint64_t q;std::memcpy(&q,f+i,8);if(q==0){i+=7;continue;}}
+            for(size_t i=size_t(y0)*OW;i<size_t(y1)*OW;++i){
+                if(i%8==0&&i+8<=size_t(y1)*OW){uint64_t q;std::memcpy(&q,f+i,8);if(q==0){i+=7;continue;}}
                 const uint8_t v=f[i];if(v)for(int k=0;k<4;++k)if(v&(1<<k))++c[k];
             }
             for(int k=0;k<4;++k)counts[k]+=c[k];
         });
-        report("HYBRID CLIP FLAGS: trailer "+std::to_string(W)+"x"+std::to_string(H)+" uint8 (fast merge: bits R,G,B merged >= 0.94, border 2..98 % clipped kernel weight) R="
+        report("HYBRID CLIP FLAGS: trailer "+std::to_string(OW)+"x"+std::to_string(OH)+" uint8 (fast merge: bits R,G,B merged >= 0.94, border 2..98 % clipped kernel weight) R="
             +std::to_string(counts[0].load())+" G="+std::to_string(counts[1].load())+" B="+std::to_string(counts[2].load())+" border="+std::to_string(counts[3].load()));
     }
     if(mergedDng&&input.mergedDng){
         const int dngBlock=quad&&tune.dngMosaic!=0?mosaicBlock:1; // P267
         if(dngBlock>1)report("HYBRID DNG: merged mosaic layout, colour block "+std::to_string(dngBlock)+" (dngMosaic 1, no remosaic)");
-        const float headroom=hybridWriteMergedDng(*mergedDng,W,H,input,[&](int x,int y,int c){return out[(size_t(y)*W+x)*3+c];},tune.dngDither!=0,dngBlock);
+        // P501: OUT != RAW: the OUT pixels over the sensor pixel, area weighted (sabre_scale 2: the mean of its 2 x 2, the SCAM
+        // merge's grid 2 DNG)
+        const double kx=double(OW)/W,ky=double(OH)/H;
+        auto at=[&](int x,int y,int c){
+            if(!sabre)return out[(size_t(y)*W+x)*3+c];
+            const double x0=x*kx,x1=(x+1)*kx,y0=y*ky,y1=(y+1)*ky;
+            double sum=0,wsum=0;
+            for(int oy=int(y0);oy<std::min(OH,int(std::ceil(y1)));++oy){
+                const double wy=std::min(y1,oy+1.0)-std::max(y0,double(oy));if(wy<=0)continue;
+                for(int ox=int(x0);ox<std::min(OW,int(std::ceil(x1)));++ox){
+                    const double wx=std::min(x1,ox+1.0)-std::max(x0,double(ox));if(wx<=0)continue;
+                    sum+=wx*wy*out[(size_t(oy)*OW+ox)*3+c];wsum+=wx*wy;
+                }
+            }
+            return float(sum/std::max(wsum,1e-12));
+        };
+        const float headroom=hybridWriteMergedDng(*mergedDng,W,H,input,at,tune.dngDither!=0,dngBlock);
         report(hybridDngReport(headroom,W,H,hybridDngCeiling(input),tune.dngDither!=0));
     }
     {

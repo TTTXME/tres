@@ -27,6 +27,7 @@ enum : uint64_t { AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN = 3, AHARDWAREBUFFER_USAG
 #include <iterator>
 #include <mutex>
 #include <sys/stat.h>
+#include <utime.h>
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
@@ -208,11 +209,11 @@ void main(){
     rgb[o+4]=packHalf2x16(vec2(c[2].b,c[3].r));
     rgb[o+5]=packHalf2x16(c[3].gb);
     flags[(yb*u_size.x+q*4)/4]=fl;
-    if((y&1)==0){
-        for(int k=0;k<2;++k){
-            ivec2 h=ivec2(q*2+k,y/2);
-            if(h.x<u_half.x&&h.y<u_half.y)eff[h.y*u_half.x+h.x]=texelFetch(u_frame_weights,h,0).r+1.0;
-        }
+    // P501: each HALF cell once, by the first OUT pixel over it (p = ceil(h OUT / HALF)); at OUT = 2 HALF the even pixels, as before
+    for(int k=0;k<4;++k){
+        ivec2 p=ivec2(q*4+k,y);
+        ivec2 h=p*u_half/u_size;
+        if(p==(h*u_size+u_half-ivec2(1))/u_half&&h.x<u_half.x&&h.y<u_half.y)eff[h.y*u_half.x+h.x]=texelFetch(u_frame_weights,h,0).r+1.0;
     }
 }
 )FM";
@@ -591,6 +592,7 @@ private:
         GLint ok=0;glGetProgramiv(program,GL_LINK_STATUS,&ok);
         if(!ok||glGetError()!=GL_NO_ERROR){glDeleteProgram(program);std::remove(file.c_str());return 0;}
         ++cacheHits;
+        utime(file.c_str(),nullptr); // P501: a hit is fresh for trimCache (least recently used goes first)
         return program;
     }
     void storeBinary(GLuint program,const std::string& file){

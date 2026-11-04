@@ -113,6 +113,26 @@ public class ScamHybridBurstAnyResolutionTest {
         assertEquals(16, encoded.getInt(44) & 16);
     }
 
+    /** P501: «Разрешение» 1.5x: grid 2 for the SCAM merge, the 1.5x size in header words 15 / 16, no forced grid lines. */
+    @Test public void sabre15xAsksForItsOwnSize() throws Exception {
+        outputMode = "1.5x";
+        ScamHybridBurst b = burst(List.of(frame(64, 64, ByteBuffer.allocate(64 * 64 * 2))), parameters(64, 64));
+        assertEquals(96, b.outputWidth());
+        assertEquals(96, b.outputHeight());
+        assertFalse(b.tuningOverride().contains("grid 2"));
+        java.lang.reflect.Method header = ScamHybridBurst.class.getDeclaredMethod("header");
+        header.setAccessible(true);
+        ByteBuffer encoded = (ByteBuffer) header.invoke(b);
+        assertEquals(2, encoded.getInt(52));
+        assertEquals(96, encoded.getInt(60));
+        assertEquals(96, encoded.getInt(64));
+        assertEquals(0, encoded.getInt(44) & 8);
+        assertArrayEquals(new int[]{0, 0}, ScamHybridBurst.sabreWords(4080, 3072, 8160, 6144));
+        assertArrayEquals(new int[]{6120, 4608}, ScamHybridBurst.sabreWords(4080, 3072, 6120, 4608));
+        assertEquals(new Point(6120, 4608), ScamHybridBurst.sabreSize(4080, 3072, "1.5x"));
+        outputMode = "2x";
+    }
+
     @Test public void upTo16MegapixelsThe2xChoiceIsUnchanged() throws Exception {
         ScamHybridBurst b = burst(List.of(frame(64, 64, ByteBuffer.allocate(64 * 64 * 2))), parameters(64, 64));
         assertEquals(128, b.outputWidth());

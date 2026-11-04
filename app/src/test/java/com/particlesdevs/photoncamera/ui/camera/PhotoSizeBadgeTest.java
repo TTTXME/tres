@@ -24,9 +24,11 @@ public class PhotoSizeBadgeTest {
         assertArrayEquals(new int[]{6528, 4896}, PhotoSize.output(3264, 2448, false, "2x"));
         // «16:9»: 4096 x 2304 (whole colour blocks)
         assertArrayEquals(new int[]{4096, 2304}, PhotoSize.output(4096, 3072, true, "sensor"));
-        // «Разрешение» 16 / 20 on a 4:3 stream: the classic sizes
-        assertArrayEquals(new int[]{4608, 3456}, PhotoSize.output(4096, 3072, false, "16"));
-        assertArrayEquals(new int[]{5184, 3888}, PhotoSize.output(4096, 3072, false, "20"));
+        // P501: «Разрешение» 1.5x: OUT = RAW x 1.5 (width on 4 px, height on 2 px); the old 16 / 20 MP read as 1.5x
+        assertArrayEquals(new int[]{6144, 4608}, PhotoSize.output(4096, 3072, false, "1.5x"));
+        assertArrayEquals(new int[]{6120, 4608}, PhotoSize.output(4080, 3072, false, "20"));
+        assertArrayEquals(new int[]{6048, 4536}, PhotoSize.output(4032, 3024, false, "16"));
+        assertArrayEquals(new int[]{4896, 3672}, PhotoSize.output(3264, 2448, false, "1.5x"));
         // a FULLRES 50 MP stream at the sensor size
         assertArrayEquals(new int[]{8192, 6144}, PhotoSize.output(8192, 6144, false, "sensor"));
         // a portrait stream is never cropped to 16:9

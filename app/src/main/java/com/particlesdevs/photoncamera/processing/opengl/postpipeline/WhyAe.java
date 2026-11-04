@@ -27,6 +27,11 @@ public final class WhyAe {
         public float nightThresh = 100f, nightDim = 1.0f;
         public double noiseS = 0.0, noiseO = 0.0;
         public float noiseMax = 0.05f;
+        /**
+         * P501: the exposure a «Движение» shutter ceiling took from the RAW (MotionMode.underGain, 1: none): the gain limits
+         * (maxBoost, the noise clamp, the hard 9x) widen by it, so the scene keeps the photo mode's brightness.
+         */
+        public float motionGain = 1f;
         public int metering = 0;
         public float brightThresh = 0.8f, darkThresh = 15f, darkPixelThresh = 10f, hlBoost = 1.0f, contrastBoost = 0.5f;
         public float shadowStr = 2.0f, highlightStr = 2.0f;
@@ -91,6 +96,8 @@ public final class WhyAe {
         public float nightW;
         public boolean bento;
         public boolean portraitFace;
+        /** P501: the «Движение» ceiling's gain the limits were widened by (1: none). */
+        public float motionGain = 1f;
         public float slope, sp, tp, minEv, maxEv, sat, ev;
         public int look;
 
@@ -99,6 +106,7 @@ public final class WhyAe {
             return String.format(Locale.ROOT,
                     "clip=%.3f gmax=%.3f ae=%.4f geo=%.5f mean=%.5f p10=%.5f p50=%.5f p98=%.5f p995=%.5f p98x=%.3f p995x=%.3f nf=%.3f deficit=%.4f"
                             + (maxGainByNoise > 0f ? String.format(Locale.ROOT, " gainClamp=%.3f", maxGainByNoise) : "")
+                            + (motionGain > 1.001f ? String.format(Locale.ROOT, " motionGain=%.3f", motionGain) : "")
                             + " effS=%.4f effH=%.4f flat=%.3f spread=%.4f ov=%.4f bento=%d agx(slope=%.3f sp=%.2f tp=%.2f ev=[%.2f,%.2f]+%.2f sat=%.2f look=%d)",
                     clip, gmax, ae, geo, mean, p10, p50, p98, p995, p98x, p995x, nf, deficit, effS, effH, flat, spread, ovArea, bento ? 1 : 0,
                     slope, sp, tp, minEv, maxEv, ev, sat, look)
@@ -442,7 +450,9 @@ public final class WhyAe {
             }
         }
         r.nf = (float) nf;
-        final double mxB = s.maxBoost, mnL = s.minLimit;
+        final double mg = Math.max(1.0, s.motionGain); // P501
+        r.motionGain = (float) mg;
+        final double mxB = s.maxBoost * mg, mnL = s.minLimit;
         double deficit = 1.0, ae;
         final boolean hasNoiseModel = s.noiseS > 0 || s.noiseO > 0;
         if (meter > 1e-4) {                                                                  // 0x72c50
@@ -468,14 +478,14 @@ public final class WhyAe {
             ae = Math.max(Math.min(mxB, aeF), mnL);                                            // 0x72da8-0x72dc4
             // AGC Noise-based Gain Clamp: limit exposure multiplier by SNR of sensor noise model
             if (hasNoiseModel) {
-                double maxGainByNoise = gainClamp(s.noiseS, s.noiseO, s.noiseMax);
+                double maxGainByNoise = gainClamp(s.noiseS, s.noiseO, s.noiseMax) * mg;
                 r.maxGainByNoise = (float) maxGainByNoise;
                 if (ae > maxGainByNoise) {
                     ae = maxGainByNoise;
                 }
             }
-            if (ae > 9.0f) {
-                ae = 9.0f;
+            if (ae > 9.0f * mg) {
+                ae = 9.0f * mg;
             }
         } else {
             ae = Math.max(Math.min(mxB, 1.0), mnL);

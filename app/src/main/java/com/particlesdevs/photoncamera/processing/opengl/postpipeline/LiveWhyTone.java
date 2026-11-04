@@ -534,6 +534,7 @@ public final class LiveWhyTone {
         settingsAt = now;
         settings = WhyTone.settings();
         settings.bentoHeadroom = false;     // a single frame: no Bento data above the clip
+        settings.motionGain = com.particlesdevs.photoncamera.settings.MotionMode.underGain(); // P501: the ceiling's in force
         aeScene = PreferenceKeys.scamDevSwitch("vf_ae_scene", true);
         final boolean trace = PreferenceKeys.scamDevSwitch("vf_ae_trace", false);
         if (trace && !aeTrace) traceUntilMs = now + TRACE_MS;

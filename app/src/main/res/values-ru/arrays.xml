@@ -53,11 +53,9 @@
         <item>RAW12 (упакованный)</item>
     </string-array>
     <string-array name="scam_hybrid_output_entries">
-        <item>Сенсор (1×, по умолчанию)</item>
-        <item>12 МП (2× → 12)</item>
-        <item>16 МП (2× → 16)</item>
-        <item>20 МП (2× → 20)</item>
-        <item>2× (≈50 МП, без уменьшения)</item>
+        <item>1.0× (размер сенсора, по умолчанию)</item>
+        <item>1.5× (≈28 МП)</item>
+        <item>2.0× (≈50 МП)</item>
     </string-array>
     <string-array name="scam_hybrid_shasta_mode_entries">
         <item>Авто (проверка резкости)</item>

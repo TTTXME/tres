@@ -285,6 +285,23 @@ public class WhyAeTest {
         assertEquals(WhyAe.stats((y, row) -> java.util.Arrays.fill(row, 0.2f), 3, 96, 64, 1).tot, WhyAeGpu.totalWeight(96, 64, 1), 0);
         assertEquals(WhyAe.stats((y, row) -> java.util.Arrays.fill(row, 0.2f), 3, 96, 64, 2).tot, WhyAeGpu.totalWeight(96, 64, 2), 0);
     }
+    /**
+     * P501: a «Движение» RAW the shutter ceiling made 3x darker, at a noise model whose clamp holds the gain: with the mode's gain
+     * the AE gets 3x the gain of the same frame without it, so the scene comes out as bright as the photo mode's exposure.
+     */
+    @Test
+    public void motionCeilingGainKeepsThePhotoModesBrightness() {
+        WhyAe.Settings photo = new WhyAe.Settings(), sport = new WhyAe.Settings();
+        photo.noiseS = sport.noiseS = 4e-3; photo.noiseO = sport.noiseO = 1e-5;   // ISO 6400-like: the clamp near 1.1
+        sport.motionGain = 3f;
+        WhyAe.Result a = WhyAe.smartHdr(synth(.3, false), 3, W, H, photo, 6400, 6400);
+        WhyAe.Result dark = WhyAe.smartHdr(synth(.1, false), 3, W, H, photo, 6400, 6400);
+        WhyAe.Result b = WhyAe.smartHdr(synth(.1, false), 3, W, H, sport, 6400, 6400);
+        assertTrue(a.ae + " held by the clamp", a.ae <= a.maxGainByNoise + 1e-4);
+        assertEquals("the photo mode's brightness", a.ae * .3, b.ae * .1, 0.03 * a.ae * .3);
+        assertTrue(dark.ae * .1 < 0.5 * a.ae * .3);                                     // without the mode's gain: darker
+        assertTrue(b.describe().contains("motionGain=3.000"));
+    }
     @Test
     public void p442NightRuleOnlyAtNight() {
         // P442: the night scene's share from the median at EV100 (evWhite + log2 p50): 0 by day / without the exposure, 1 at night

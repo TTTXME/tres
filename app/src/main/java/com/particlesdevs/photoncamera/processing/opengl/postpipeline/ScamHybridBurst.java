@@ -275,11 +275,12 @@ public final class ScamHybridBurst implements ScamTransport {
                 + 2L * width + "x" + 2L * height + " exceeds GPU side " + gpuMaxSide + " or one FP16 RGB buffer)");
         Log.i("SCAM_HDR", "hybrid output mode=" + PreferenceKeys.hybridOutputMode() + " availMem=" + (availableMemory() >> 20) + " MB twoX=" + twoX
                 + (conservative ? " (conservative retry)" : ""));
-        outWidth = twoX ? 2 * width : width; outHeight = twoX ? 2 * height : height;
+        // P501: the Sabre scale's size (1.5x: the SCAM merge on the 2x grid, the worker resamples; the fast route merges at it)
+        final android.graphics.Point sabre = sabreSize(width, height, outputMode);
+        outWidth = twoX ? sabre.x : width; outHeight = twoX ? sabre.y : height;
         rgbHalf = transportHalf(outWidth, outHeight, halfTransport());
         finalWidth = fin.x; finalHeight = fin.y;
-        if (twoX) Log.i("SCAM_HDR", "hybrid output: Sabre 2x grid " + outWidth + "x" + outHeight + ", final " + finalWidth + "x" + finalHeight
-                + " (resize after the pipeline, " + PreferenceKeys.hybridDownsamplerName() + ")");
+        if (twoX) Log.i("SCAM_HDR", "hybrid output: Sabre " + outputMode + " grid " + outWidth + "x" + outHeight + ", final " + finalWidth + "x" + finalHeight);
         List<ImageFrame> normal = new ArrayList<>(), bracketed = new ArrayList<>(), shorts = new ArrayList<>();
         for (ImageFrame f : usable) {
             switch (f.getCaptureRole()) {
@@ -600,6 +601,20 @@ public final class ScamHybridBurst implements ScamTransport {
 
     @Override public int width() { return width; }
     @Override public int height() { return height; }
+    /**
+     * P501: the merged size of a w x h stream in output {@code mode}: the reference's OUT = RAW x sabre_scale (1.5x: the width on
+     * 4 px, the height on 2 px, which the fast merge's output pass and the 2x2 colour sites need).
+     */
+    public static android.graphics.Point sabreSize(int w, int h, String mode) {
+        if ("2x".equals(mode)) return new android.graphics.Point(2 * w, 2 * h);
+        if ("1.5x".equals(mode)) return new android.graphics.Point(Math.min(2 * w, Math.round(w * 1.5f / 4f) * 4), Math.min(2 * h, Math.round(h * 1.5f / 2f) * 2));
+        return new android.graphics.Point(w, h);
+    }
+    /** P501: header words 15 / 16: {@code ow} x {@code oh} unless it is the sensor grid or the 2x grid of {@code w} x {@code h}. */
+    static int[] sabreWords(int w, int h, int ow, int oh) {
+        final boolean grid = ow == w && oh == h || ow == 2 * w && oh == 2 * h;
+        return grid ? new int[]{0, 0} : new int[]{ow, oh};
+    }
     @Override public int outputWidth() { return outWidth; }
     @Override public int outputHeight() { return outHeight; }
     /** Scale of the returned RGB against the sensor grid (1 = sensor size). */
@@ -737,6 +752,7 @@ public final class ScamHybridBurst implements ScamTransport {
     public String tuningOverride() {
         // P267: the remosaic and the mosaic DNG layout first (still after the user's tuning)
         return REMOSAIC_TUNING + (dngMosaic > 1 ? "dngMosaic 1\n" : "") + (conservative ? CONSERVATIVE_TUNING : "") + avoidedTuning()
+                + (scamMergeBlack && !avoidedSteps.contains(STEP_FAST) ? PreferenceKeys.FAST_TUNING : "") // P501
                 + sceneEvTuning(sceneEv)
                 + (strictTwoX ? "grid 2\nauto2x 0\n" : "") + seriesTuning() + (dcg ? dcgTuning(com.particlesdevs.photoncamera.capture.HybridPlan.bentoMode()) : "");
     }
@@ -808,7 +824,9 @@ public final class ScamHybridBurst implements ScamTransport {
         for (float b : black) h.putFloat(b);
         h.putInt((diagnostics ? 1 : 0) | (mergedDng ? 2 : 0) | (clipFlags ? 4 : 0) | (strictTwoX ? 8 : 0) | (effectiveMap() ? 0 : 16)
                 | (dcg ? 32 : 0)).putInt(0)
-         .putInt(outWidth == width && outHeight == height ? 1 : 2).putInt(mosaicBlock).putInt(0).putInt(0);
+         .putInt(outWidth == width && outHeight == height ? 1 : 2).putInt(mosaicBlock)
+         // P501 (words 15 / 16): the result's size when it is no whole grid (the 1.5x Sabre scale), else 0
+         .putInt(sabreWords(width, height, outWidth, outHeight)[0]).putInt(sabreWords(width, height, outWidth, outHeight)[1]);
         h.position(128);
         for (int i = 0; i < frames.size(); i++) {
             h.putInt(roles.get(i)).putFloat(exposures.get(i)).putInt(frames.get(i).measuredIso)
@@ -966,6 +984,17 @@ public final class ScamHybridBurst implements ScamTransport {
     public static volatile android.graphics.Point lastFinalSize;
     /** P27: the worker died at GPU init in this process (Mali, X200 Pro): further shots go straight to the CPU fallback. */
     private static volatile String gpuUnusable;
+    /**
+     * P501 (owner, 2026-11-04, Pixel 10 Pro, PowerVR D-Series: «снимки очень шумные»): the SCAM merge came back black (its strips
+     * read as zeros on this driver) while the fast merge route works there; the black twice then turned the GPU merge off and every
+     * later shot was the base frame alone. Set when a merge without the fast route is black: every later merge of the session
+     * (the retry too) takes the fast route; the GPU merge goes off only when that is black as well.
+     */
+    static volatile boolean scamMergeBlack;
+    /** P501: whether the worker report says the fast merge route made the result. */
+    static boolean fastRouteMerged(String report) {
+        return report != null && report.contains("(fast merge)");
+    }
     /** P371 (review M2c): the GPU merge is off for this session (every shot merges on the CPU: no worker to start ahead). */
     static boolean gpuMergeUnusable() {
         return gpuUnusable != null;
@@ -1391,6 +1420,10 @@ public final class ScamHybridBurst implements ScamTransport {
             final String report = ScamNeuralClient.lastJobReport;
             final String why = String.valueOf(first.getMessage());
             final boolean retry = conservativeRetry(first);
+            if (BLACK_RESULT.equals(why) && !fastRouteMerged(report) && !avoidedSteps.contains(STEP_FAST)) {
+                scamMergeBlack = true; // P501: the retry and the later shots take the fast route
+                Log.w("SCAM_HDR", "Hybrid: the SCAM merge is black on this GPU: the fast merge route from now on (this session)");
+            }
             final boolean gpuInitDeath = gpuInitDeath((long) burst.width * burst.height, report);
             Log.e("SCAM_HDR", "Hybrid merge failed (" + why + ")" + (gpuInitDeath ? ", worker died before the GPU context" : ""));
             if (gpuInitDeath) {
@@ -1426,6 +1459,12 @@ public final class ScamHybridBurst implements ScamTransport {
                         previous = ScamNeuralClient.lastJobReport;
                         previousWhy = String.valueOf(second.getMessage());
                         if (BLACK_RESULT.equals(previousWhy)) {
+                            // P501: a black SCAM merge first sends the next attempt to the fast route (once)
+                            if (!scamMergeBlack && !fastRouteMerged(previous) && !avoidedSteps.contains(STEP_FAST)) {
+                                scamMergeBlack = true;
+                                Log.w("SCAM_HDR", "Hybrid: the SCAM merge is black on this GPU: the fast merge route from now on (this session)");
+                                continue;
+                            }
                             // P500: black twice (the full and the conservative merge): this GPU's merge is not used again this session
                             gpuUnusable = BLACK_RESULT;
                             break;

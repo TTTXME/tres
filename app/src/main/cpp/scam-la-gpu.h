@@ -35,6 +35,7 @@
 #include <vector>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <utime.h>
 #include <unistd.h>
 
 namespace scam {
@@ -719,6 +720,7 @@ class LaGpu {
         GLint ok=0;glGetProgramiv(program,GL_LINK_STATUS,&ok);
         if(!ok||glGetError()!=GL_NO_ERROR){glDeleteProgram(program);std::remove(file.c_str());return 0;} // another driver: compile again
         ++cacheHits;
+        utime(file.c_str(),nullptr); // P501: a hit is fresh for trimCache (least recently used goes first)
         return program;
     }
     void storeBinary(GLuint program,const std::string& file){

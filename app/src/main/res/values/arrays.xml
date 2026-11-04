@@ -110,11 +110,9 @@
         <item>raw12</item>
     </string-array>
     <string-array name="scam_hybrid_output_entries">
-        <item>Sensor (1×, default)</item>
-        <item>12 MP (2× → 12)</item>
-        <item>16 MP (2× → 16)</item>
-        <item>20 MP (2× → 20)</item>
-        <item>2× (≈50 MP, no downscale)</item>
+        <item>1.0× (sensor size, default)</item>
+        <item>1.5× (≈28 MP)</item>
+        <item>2.0× (≈50 MP)</item>
     </string-array>
     <string-array name="scam_hybrid_downsampler_entries" translatable="false">
         <item>Lanczos-3</item>
@@ -154,9 +152,7 @@
     </string-array>
     <string-array name="scam_hybrid_output_values" translatable="false">
         <item>sensor</item>
-        <item>12</item>
-        <item>16</item>
-        <item>20</item>
+        <item>1.5x</item>
         <item>2x</item>
     </string-array>
     <string-array name="scam_hybrid_shasta_mode_entries">

@@ -165,6 +165,7 @@ public final class WhyStats extends Node {
         settings.portraitFace = pipeline.mParameters.portraitEnabled && pipeline.mParameters.portraitFaceDetected;
         settings.noiseS = pipeline.noiseS;
         settings.noiseO = pipeline.noiseO;
+        settings.motionGain = com.particlesdevs.photoncamera.settings.MotionMode.underGain(); // P501: the press's
         // P442: the EV100 of base white for the night rule (NaN without the shot's exposure: the rule stays off)
         settings.evWhite = WhySkyMask.evOffset(pipeline.mParameters.iso, pipeline.mParameters.exposureTime, pipeline.mParameters.aperture, inScale);
         // P320: a DCG frame keeps its captured exposure and its night factor reads ISO / dcgIsoScale (the clamp's model is

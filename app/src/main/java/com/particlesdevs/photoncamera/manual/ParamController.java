@@ -431,6 +431,7 @@ public class ParamController implements Observer {
     private void motionRelease(String why, boolean resetAe) {
         motion.drop();
         motionActive = false;
+        com.particlesdevs.photoncamera.settings.MotionMode.setLiveUnderGain(1); // P501
         setPostRawBoost(captureController.mPreviewRequestBuilder, 1);
         Log.i(TAG, "motion shutter ceiling off: " + why);
         if (resetAe) {
@@ -562,6 +563,7 @@ public class ParamController implements Observer {
             captureController.rebuildPreviewBuilder();
         }
         motionActive = motion.active();
+        com.particlesdevs.photoncamera.settings.MotionMode.setLiveUnderGain(motionActive ? motion.underRatio() : 1); // P501
     }
 
     /**

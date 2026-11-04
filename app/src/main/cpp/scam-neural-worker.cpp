@@ -290,6 +290,17 @@ int main(int argc,char** argv) {
                 if(access((std::string(argv[2])+"/hl-mask").c_str(),F_OK)==0||(std::getenv("SCAM_HL_MASK")&&std::getenv("SCAM_HYBRID")))
                     scam::hybridHighlightMaskOut()=&hlMask;
                 result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
+                // P501: the app's Sabre 1.5x size; a result at another grid (the SCAM merge's 2x, a fallback's 1x) is resampled to it
+                if(hin.outW>0&&result.size()!=size_t(hin.outW)*hin.outH*3){
+                    const size_t px=result.size()/3;int g=0;
+                    for(int k=1;k<=2;++k)if(px==size_t(hin.w)*k*size_t(hin.h)*k)g=k;
+                    if(!g)throw std::runtime_error("Hybrid: a result of "+std::to_string(px)+" px is no grid of "+std::to_string(hin.w)+"x"+std::to_string(hin.h));
+                    const auto t0=std::chrono::steady_clock::now();
+                    scam::hybridResampleResult(result,hin.w*g,hin.h*g,hin.outW,hin.outH,effMap.empty()?nullptr:&effMap,clipFlags.empty()?nullptr:&clipFlags);
+                    report("HYBRID SABRE OUTPUT: the "+std::to_string(hin.w*g)+"x"+std::to_string(hin.h*g)+" result resampled to "+std::to_string(hin.outW)+"x"
+                        +std::to_string(hin.outH)+" (Catmull-Rom; effective map nearest, clip flags OR) in "
+                        +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()))+" ms");
+                }
                 scam::hybridLater()=nullptr;
                 scam::hybridHighlightMaskOut()=nullptr;
             } else {

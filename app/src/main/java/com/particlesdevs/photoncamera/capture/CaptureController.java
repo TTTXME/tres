@@ -7060,7 +7060,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             Log.w("SCAM_CAPTURE","bracket=HYBRID no N exposure known: the camera's AE exposes the frames");
             return null;
         }
-        Log.i("SCAM_CAPTURE","bracket=HYBRID N="+shutter+"ns ISO"+sensitivity+" from="+source);
+        // P501 (Pixel 10 Pro, dark room: the merged RAW at 0.15 % of white, the post's gain x45): the camera's post-RAW gain of the
+        // N frame (the viewfinder's brightness the RAW never gets), for the log
+        Integer rawBoost=null;
+        try{rawBoost=n==null?null:n.get(CaptureResult.CONTROL_POST_RAW_SENSITIVITY_BOOST);}catch(RuntimeException ignored){}
+        Log.i("SCAM_CAPTURE","bracket=HYBRID N="+shutter+"ns ISO"+sensitivity+" from="+source
+                +(rawBoost!=null&&rawBoost!=100?" postRawBoost="+rawBoost:""));
         return ScamStockAe.Plan.nOnly(shutter,sensitivity,scamZslShutterTimestamp,mSessionGeneration.get());
     }
 

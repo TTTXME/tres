@@ -660,14 +660,24 @@ public class PreferenceKeys {
     public static boolean isScamHybridShot() { return isHybridShot(); }
 
     /**
-     * Output of the hybrid merge (pref_scam_hybrid_output): "sensor" (1x grid, default), "12"/"16"/"20" = Sabre 6.1 2x
-     * grid resized to that many megapixels (4:3 of the sensor; the sensor size itself when within 10 %), "2x" = the native
-     * 2x grid. scam_dev.txt: "hybrid_output 0|12|16|20|2".
+     * Output of the hybrid merge (pref_scam_hybrid_output), P501 (owner, 2026-11-04: «В Арк камере есть Sabre 1.5х и 2х, возьми из
+     * неё», for both processing modes): the reference's Sabre scales - "sensor" (1.0x, default), "1.5x" (the merge on a 1.5x grid:
+     * the fast route merges there, the SCAM merge on its 2x grid and the worker resamples), "2x" (the native 2x grid). The old
+     * 12 / 16 / 20 MP (the 2x grid resized) read as 1.0x / 1.5x / 1.5x. scam_dev.txt: "hybrid_output 0|1.5|2".
      */
     public static String hybridOutputMode() {
         Float dev = scamDevValue("hybrid_output");
-        if (dev != null) { int v = Math.round(dev); return v == 2 ? "2x" : v == 12 || v == 16 || v == 20 ? String.valueOf(v) : "sensor"; }
-        return hybridString("output", "sensor");
+        if (dev != null) { final float v = dev; return v == 2f ? "2x" : v == 1.5f || v == 16f || v == 20f ? "1.5x" : "sensor"; }
+        return outputMode(hybridString("output", "sensor"));
+    }
+    /** P501: a stored output value as the current modes (the old 12 MP is the sensor size, 16 / 20 MP the 1.5x grid). */
+    public static String outputMode(String stored) {
+        if ("2x".equals(stored)) return "2x";
+        return "1.5x".equals(stored) || "16".equals(stored) || "20".equals(stored) ? "1.5x" : "sensor";
+    }
+    /** P501: the merged size of a w x h stream in {@code mode} (ScamHybridBurst.sabreSize). */
+    public static android.graphics.Point hybridSabreSize(int w, int h, String mode) {
+        return com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.sabreSize(w, h, mode);
     }
     /**
      * Downsampler of the final bitmap after the 2x pipeline (pref_scam_hybrid_downsampler): "lanczos" (3 lobes),
@@ -678,9 +688,9 @@ public class PreferenceKeys {
         if (dev != null) { int v = Math.round(dev); return v == 1 ? "bicubic" : v == 2 ? "area" : v == 3 ? "bilinear" : "lanczos"; }
         return hybridString("downsampler", "lanczos");
     }
-    private static final String[] HYBRID_OUTPUT_VALUES = {"sensor", "12", "16", "20", "2x"};
+    private static final String[] HYBRID_OUTPUT_VALUES = {"sensor", "1.5x", "2x"};
     private static final String[] HYBRID_DOWNSAMPLER_VALUES = {"lanczos", "bicubic", "area", "bilinear"};
-    /** Stores pref_scam_hybrid_output by its index in {sensor, 12, 16, 20, 2x} (quick-settings chips). */
+    /** Stores pref_scam_hybrid_output by its index in {sensor, 1.5x, 2x} (quick-settings chips). */
     public static void setHybridOutputIndex(int index) {
         setHybridValue("output", HYBRID_OUTPUT_VALUES[Math.max(0, Math.min(HYBRID_OUTPUT_VALUES.length - 1, index))]);
     }
@@ -780,20 +790,7 @@ public class PreferenceKeys {
     }
 
     public static android.graphics.Point hybridFinalSize(int w, int h) {
-        String mode = hybridOutputMode();
-        if ("2x".equals(mode)) return new android.graphics.Point(2 * w, 2 * h);
-        if ("12".equals(mode) || "16".equals(mode) || "20".equals(mode)) return hybridTargetSize(Integer.parseInt(mode), w, h);
-        return new android.graphics.Point(w, h);
-    }
-    public static android.graphics.Point hybridTargetSize(int megapixels, int w, int h) {
-        final double aspect = (double) w / h, pixels = megapixels * 1_000_000.0;
-        // Classic sizes: 4:3 widths on a 64 px step keep both sides on the 16 px JPEG MCU grid (4032x3024, 4608x3456, 5184x3888).
-        final int step = Math.abs(aspect - 4.0 / 3.0) < 0.01 ? 64 : 16;
-        int tw = (int) Math.round(Math.sqrt(pixels * aspect) / step) * step;
-        int th = (int) Math.round(tw / aspect / 16) * 16;
-        if (Math.abs((long) tw * th - (long) w * h) < 0.1 * w * h) { tw = w; th = h; } // the sensor size counts as its own megapixel class
-        tw = Math.max(64, Math.min(2 * w, tw)); th = Math.max(64, Math.min(2 * h, th));
-        return new android.graphics.Point(tw, th);
+        return hybridSabreSize(w, h, hybridOutputMode()); // P501: the merged size itself (no resize after the pipeline)
     }
     /**
      * The worker tuning lines of the hybrid settings: {tuning name, pref_scam_hybrid_ suffix} (hybridTuningText writes them; the lab
