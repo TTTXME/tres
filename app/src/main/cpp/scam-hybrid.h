@@ -7714,21 +7714,21 @@ public:
             const size_t rgbBytes=size_t(p.rows2)*ow*3*4;
             getBuffer(bankBuffer(3,p.bank),3,rgbDst,rgbBytes,waited);
             // P500 (owner, 2026-11-04: Pixel 10 Pro XL, PowerVR D-Series: «фото иногда получаются полностью черным», the log's
-            // «SCAM RGB: mean=0 max=0»): a strip of real image is never exactly 0.0 everywhere; such a strip is read once more
-            // through the staging copy after a glFinish (method 3) and then a fresh buffer (method 4), and the fenced map is left
-            // out for the rest of the run
+            // «SCAM RGB: mean=0 max=0»): an all-zero RGB strip is read once more after a glFinish from the same buffer (no new
+            // storage: the staging copy ran a Pixel 7's Mali-G710 out of memory and restarted the whole merge) and said in the log;
+            // a failure of that read keeps the first one. The app takes a near-black result as a failed merge.
             if(zeroBytes(rgbDst,rgbBytes)){
-                const int kept=mapMethod;
-                fencedMapFails=2;
-                for(int method:{3,4}){
-                    mapMethod=method;
-                    getBuffer(bankBuffer(3,p.bank),3,rgbDst,rgbBytes,false);
-                    const bool still=zeroBytes(rgbDst,rgbBytes);
-                    if(trace)trace("HYBRID GPU readback: strip "+std::to_string(p.index)+" read as all zero, method "+std::to_string(method)
-                            +(still?": still zero":": recovered"));
-                    if(!still)break;
-                }
-                if(zeroBytes(rgbDst,rgbBytes))mapMethod=kept;
+                bool still=true;
+                try{
+                    glFinish();
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER,bankBuffer(3,p.bank));
+                    if(const void* again=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(rgbBytes),GL_MAP_READ_BIT)){
+                        if(!zeroBytes(again,rgbBytes)){std::memcpy(rgbDst,again,rgbBytes);still=false;}
+                        glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+                    }
+                }catch(const std::exception&){}
+                while(glGetError()!=GL_NO_ERROR){}
+                if(trace)trace("HYBRID GPU readback: strip "+std::to_string(p.index)+" read as all zero"+(still?": still zero after a glFinish":": recovered after a glFinish"));
             }
             if(wantEffective)getBuffer(bankBuffer(4,p.bank),4,effective.data()+size_t(p.oy0)*ow,size_t(p.rows2)*ow*4,waited);
             if(clipFlags){

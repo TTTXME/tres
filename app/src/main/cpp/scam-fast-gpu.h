@@ -232,6 +232,33 @@ void main(){
     mask[(y*u_half.x)/2+q]=packHalf2x16(v);
 }
 )FM";
+// P500 (Pixel 10 Pro XL, PowerVR D-Series: «FAST MERGE GPU shader: Compile failed.» on sh000, whose median9 takes an array
+// argument and sorts it in place): the same per-channel median of the 3 x 3 neighbourhood by Devillard's opt_med9 min / max
+// network on vec3 - it selects the same value, so the result is bit for bit the reference shader's. Used when sh000 does not
+// compile (and with SCAM_FM_MEDIAN_NET in a replay, the check of that).
+static const char* kFastMedianAlignNet=R"FM(#version 310 es
+precision highp float;
+precision highp int;
+uniform sampler2D uAlignment;
+uniform ivec2 uGridSize;
+out vec4 oAlignment;
+vec3 at(ivec2 p, int ox, int oy) {
+    return texelFetch(uAlignment, clamp(p + ivec2(ox, oy), ivec2(0), uGridSize - ivec2(1)), 0).xyz;
+}
+void main() {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    vec3 p0 = at(p, -1, -1), p1 = at(p, 0, -1), p2 = at(p, 1, -1);
+    vec3 p3 = at(p, -1, 0), p4 = at(p, 0, 0), p5 = at(p, 1, 0);
+    vec3 p6 = at(p, -1, 1), p7 = at(p, 0, 1), p8 = at(p, 1, 1);
+    vec3 t;
+#define S2(a, b) t = a; a = min(t, b); b = max(t, b);
+    S2(p1, p2) S2(p4, p5) S2(p7, p8) S2(p0, p1) S2(p3, p4) S2(p6, p7)
+    S2(p1, p2) S2(p4, p5) S2(p7, p8) S2(p0, p3) S2(p5, p8) S2(p4, p7)
+    S2(p3, p6) S2(p1, p4) S2(p2, p5) S2(p4, p7) S2(p4, p2) S2(p6, p4)
+    S2(p4, p2)
+    oAlignment = vec4(p4, 0.0);
+}
+)FM";
 } // namespace fastmerge
 
 // The GLES 3.1 context of the route and its programs (compiled, or loaded from the merge's program binary cache: files "fm-*.bin").
@@ -283,7 +310,7 @@ public:
             prog[pUnpack]=cs(kFastUnpackFused);prog[pUnpackBuf]=cs(kFastUnpackFusedBuf);prog[pGuide]=fs(kFastGuide);prog[pRef]=fs(kFastBaseRefColor);prog[pUnblock]=cs(kFastUnblocker);
             prog[pDown2]=fs(kFastGrayDown2);prog[pDown4]=fs(kFastGrayDown4);prog[pProducts]=cs(kFastGradProducts);prog[pGuide8]=fs(kFastPyrToGuide8);
             prog[pCorners]=cs(kFastHomoCorners);prog[pKlt]=cs(kFastHomoKlt);prog[pRansac]=cs(kFastHomoRansac);prog[pFill]=cs(kFastHomoFillFlow);prog[pCoarseShift]=cs(kFastCoarseShift);prog[pHomoPick]=cs(kFastHomoPick);
-            prog[pUpsample]=cs(kFastUpsampleAlign);prog[pLk]=cs(kFastBlockLk);prog[pMedian]=fs(kFastMedianAlign);prog[pSparse]=fs(kFastAlignSparse);
+            prog[pUpsample]=cs(kFastUpsampleAlign);prog[pLk]=cs(kFastBlockLk);prog[pMedian]=fs(std::getenv("SCAM_FM_MEDIAN_NET")?kFastMedianAlignNet:kFastMedianAlign);prog[pSparse]=fs(kFastAlignSparse);
             prog[pReject]=fs(kFastRejection);prog[pRejFilter]=rejFilterProgram(true);prog[pDilate]=fs(kFastDilateMask);prog[pCyclops]=fs(kFastCyclops);
             prog[pBlendEq]=fs(kFastBlendEq);prog[pAccum]=fs(kFastAccumWeight);prog[pMergeB]=fs(kFastMergeB);prog[pMergeA]=fs(kFastMergeA);
             prog[pOutput]=cs(kFastOutput);
@@ -637,6 +664,15 @@ private:
         if(changed)if(GLuint s=tryShader(type,plain.c_str(),second)){
             notes.push_back("FAST MERGE GPU shader: compiled without GL_EXT_gpu_shader5 ("+shaderIdentity(src)+")");
             return s;
+        }
+        // P500: sh000 (the alignment's median) as a min / max network (same result) when the driver refuses its array argument
+        if(src==fastmerge::kFastMedianAlign){
+            std::string third;
+            if(GLuint s=tryShader(type,fastmerge::kFastMedianAlignNet,third)){
+                notes.push_back("FAST MERGE GPU shader: the alignment median as a min / max network ("+log+")");
+                return s;
+            }
+            log+=" / the median network: "+third;
         }
         throw std::runtime_error("FAST MERGE GPU shader: "+log+(changed?" / without GL_EXT_gpu_shader5: "+second:"")+" ["+shaderIdentity(src)+"]");
     }

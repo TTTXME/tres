@@ -1192,8 +1192,22 @@ public final class ScamHybridBurst implements ScamTransport {
             java.util.regex.Pattern.compile("SCAM RGB: mean=-?0(?:\\.0+)? max=-?0(?:\\.0+)?(?:\\s|$)");
 
     static boolean blackResult(String report) {
-        return report != null && BLACK_LINE.matcher(report).find();
+        // P500 (Pixel 10 log of build 31222: most strips zero after both re-reads, two with image - «max=2.0», mean 0.000016):
+        // a strip the worker could not read back as anything but zero is a broken result too
+        if (report == null) return false;
+        if (BLACK_LINE.matcher(report).find()) return true;
+        // (a Pixel 7 strip of exact zeros in an ordinary merge, mean 0.042, is no failure: only a near-black whole counts)
+        if (!report.contains(": still zero")) return false;
+        final java.util.regex.Matcher m = MEAN_LINE.matcher(report);
+        double mean = Double.NaN;
+        while (m.find()) {
+            try { mean = Double.parseDouble(m.group(1)); } catch (NumberFormatException ignored) { }
+        }
+        return mean < NEAR_BLACK_MEAN;
     }
+    private static final java.util.regex.Pattern MEAN_LINE = java.util.regex.Pattern.compile("SCAM RGB: mean=(-?[0-9.]+)");
+    /** P500: the mean (base-frame units) below which a merge with zero strips is a broken result, not a dark scene. */
+    static final double NEAR_BLACK_MEAN = 1e-3;
 
     /** Learns from a failed worker: true when this crash named a step the next attempt can leave out (or the GPU is unusable). */
     private static boolean learnFromCrash(String report) {

@@ -218,6 +218,10 @@ public class ScamHybridBurstCrashTest {
         assertFalse(ScamHybridBurst.blackResult("SCAM RGB: mean=0.012435 max=7.148437\n"));
         assertFalse(ScamHybridBurst.blackResult("SCAM RGB: mean=0.000000 max=0.000012\n"));
         assertFalse(ScamHybridBurst.blackResult(null));
+        assertTrue(ScamHybridBurst.blackResult("HYBRID GPU readback: strip 0 read as all zero, method 4: still zero" + (char) 10
+                + "SCAM RGB: mean=0.000016 max=2.005420" + (char) 10));
+        assertFalse(ScamHybridBurst.blackResult("HYBRID GPU readback: strip 1 read as all zero: still zero after a glFinish" + (char) 10
+                + "SCAM RGB: mean=0.042182 max=8.901612" + (char) 10));
     }
     /** P500: vivo X200 Pro (Mali-G925, Android 17): the compiler died on a fast-route program - only the fast route goes. */
     @Test public void fastRouteCompileCrashLeavesTheClassicMerge() {
