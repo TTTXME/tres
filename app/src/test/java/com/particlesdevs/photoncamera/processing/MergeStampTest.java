@@ -97,4 +97,12 @@ public class MergeStampTest {
         assertEquals("the rest of the photo untouched", 0xFF808080, out.getPixel(5, 290));
         assertEquals(0xFF808080, out.getPixel(5, 5));
     }
+
+    @org.junit.Test
+    public void theFastMergeReportsItsOwnShortFrames() {
+        // P497: the fast merge writes no Bento line; its HIGHLIGHT line decides
+        assertEquals("ES ✓2", MergeStamp.esLine("plan", 2, 2, "HYBRID FAST MERGE HIGHLIGHT: accumulated validity of 2 valid short frame(s) applied"));
+        assertEquals("ES ✗ align", MergeStamp.esLine("plan", 2, 2, "HYBRID FAST MERGE HIGHLIGHT: every short frame rejected, highlight mask cleared"));
+        assertEquals("ES ✗ nclip", MergeStamp.esLine("plan", 2, 2, "clip fraction 0.000065 -> highlight path off, select 40 ms"));
+    }
 }

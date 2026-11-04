@@ -77,6 +77,11 @@ public final class MergeStamp {
         if (sent < 0 || report == null) return "ES ✗ nomrg";
         if (sent == 0) return "ES ✗ " + (captured > 0 ? "hal" : notAsked(plan, true));
         if (report.contains("HYBRID BENTO: applied")) return "ES ✓" + sent;
+        // P497: the fast merge reports its short frames on its own lines (no Bento line: every fast shot read «ES ✗ align»)
+        final int fast = report.indexOf("HYBRID FAST MERGE HIGHLIGHT: accumulated validity of ");
+        if (fast >= 0) return "ES ✓" + Math.round(number(report.substring(fast), "accumulated validity of ", sent));
+        if (report.contains("HYBRID FAST MERGE HIGHLIGHT: every short frame rejected")) return "ES ✗ align";
+        if (report.contains("-> highlight path off")) return "ES ✗ nclip";
         if (report.contains("HYBRID BENTO: disabled")) return "ES ✗ tune";
         final int at = report.indexOf("HYBRID BENTO: not applied (");
         if (at < 0) return "ES ✗ align";

@@ -51,6 +51,8 @@ public class FullResZslTest {
         prefs = mockStatic(PreferenceKeys.class);
         prefs.when(() -> PreferenceKeys.hybridSwitch(anyString(), anyBoolean())).thenAnswer(i -> i.getArgument(1));
         prefs.when(() -> PreferenceKeys.hybridValue(anyString(), anyFloat())).thenAnswer(i -> i.getArgument(1));
+        // the FULLRES mechanics with three ultrashort frames, as written (the app's default is 2 since P497)
+        prefs.when(() -> PreferenceKeys.hybridValue(eq("bento_frames"), anyFloat())).thenReturn(3f);
         prefs.when(() -> PreferenceKeys.scamDevSwitch(anyString(), anyBoolean())).thenAnswer(i -> i.getArgument(1));
         prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(0);
         prefs.when(PreferenceKeys::hdrFrames).thenReturn(true); // P494: the shade's HDR tile on

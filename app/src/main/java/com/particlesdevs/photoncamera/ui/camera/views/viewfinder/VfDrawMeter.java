@@ -73,6 +73,10 @@ public final class VfDrawMeter {
         lastFrameMs = now;
         ++drawn;
         final double ms = drawNs / 1e6;
+        // P497 (owner, 2026-11-04: «во время обработки снимка у нас все ещё тормозит видоискатель»; vivo X200 Ultra: single draws
+        // of 176 - 334 ms while a shot was processed): a slow draw named with the post node finished last
+        if (ms > 100) Log.i(TAG, String.format(Locale.ROOT, "slow draw %.0f ms at t=+%.1fs after node %s", ms, (now - shot) / 1000.0,
+                com.particlesdevs.photoncamera.processing.opengl.GLBasePipeline.lastNode));
         drawSumMs += ms;
         drawMaxMs = Math.max(drawMaxMs, ms);
         if (now - periodStartMs >= PERIOD_MS) {

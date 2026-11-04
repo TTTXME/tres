@@ -160,7 +160,7 @@ public final class HybridPlan {
      * counts the ring's N frames too («Всегда», its default, needs none).
      */
     public static int bentoFrames() {
-        return Math.max(1, Math.min(3, Math.round(PreferenceKeys.hybridValue("bento_frames", 3f))));
+        return Math.max(1, Math.min(3, Math.round(PreferenceKeys.hybridValue("bento_frames", 2f))));
     }
     public static float bentoTriggerClip() { return Math.max(0f, Math.min(0.1f, PreferenceKeys.hybridValue("bento_trigger", 0.0005f))); }
     public static double maxBracketRatio() { return Math.max(2, Math.min(100, PreferenceKeys.hybridValue("shasta_max_ratio", 32f))); }

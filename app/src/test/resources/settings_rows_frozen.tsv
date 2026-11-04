@@ -145,7 +145,7 @@ pref_scam_hybrid_highlight_band	com.particlesdevs.photoncamera.ui.settings.custo
 pref_scam_hybrid_why_delta_chroma	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	1	0	1	100	true	-	-	-	-	-	-
 pref_scam_hybrid_why_flat_protect	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	0	0	10	10	true	-	-	-	-	-	-
 pref_scam_hybrid_bento	ListPreference	2	-	-	-	-	@array/scam_hybrid_bento_entries	@array/scam_hybrid_bento_values	-	-	-	-
-pref_scam_hybrid_bento_frames	ListPreference	3	-	-	-	-	@array/scam_hybrid_bento_frames_entries	@array/scam_hybrid_bento_frames_values	-	-	-	-
+pref_scam_hybrid_bento_frames	ListPreference	2	-	-	-	-	@array/scam_hybrid_bento_frames_entries	@array/scam_hybrid_bento_frames_values	-	-	-	-
 pref_scam_hybrid_bento_validate	ListPreference	2	-	-	-	-	@array/scam_hybrid_bento_validate_entries	@array/scam_hybrid_bento_validate_values	-	-	-	-
 pref_scam_hybrid_bento_motion_max	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	4	0	100	2	true	-	-	-	-	-	-
 pref_scam_hybrid_bento_factor	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	8	2	16	1	true	-	-	-	-	-	-

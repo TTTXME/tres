@@ -579,7 +579,7 @@ public class PreferenceKeys {
         HYBRID_DEFAULTS.put("sabre61", 1f);
         HYBRID_DEFAULTS.put("mochi", 2f);
         HYBRID_DEFAULTS.put("bento", 2f);
-        HYBRID_DEFAULTS.put("bento_frames", 3f);
+        HYBRID_DEFAULTS.put("bento_frames", 2f); // P497 (owner, 2026-11-04: the third ultrashort frame adds nothing)
         HYBRID_DEFAULTS.put("shasta_mode", 2f);
         HYBRID_DEFAULTS.put("shasta_frames", 3f);
         HYBRID_DEFAULTS.put("shasta_motion_max", 4f);

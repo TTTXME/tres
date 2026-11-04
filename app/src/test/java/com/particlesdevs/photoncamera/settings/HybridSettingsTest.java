@@ -731,7 +731,7 @@ public class HybridSettingsTest {
     @Test public void p68DefaultsOnEveryPhone() {
         // owner, 10 October 2026: XML defaults stored on the first opening, and the same values written to the worker when unset
         String tuning=PreferenceKeys.hybridTuningText();
-        for(String line:new String[]{"sabre61 1.0\n","mochi 2.0\n","bento 2.0\n","bentoFrames 3.0\n","shastaMotionMax 4.0\n","shastaForce 1\n",
+        for(String line:new String[]{"sabre61 1.0\n","mochi 2.0\n","bento 2.0\n","bentoFrames 2.0\n","shastaMotionMax 4.0\n","shastaForce 1\n",
                 "rejPrior 1\n","baseDemosaicAlias 1.0\n"}) // P335
             assertTrue(line+tuning,tuning.contains(line));
         assertFalse("P336: the green-site 6.1 tensor is off by default",tuning.contains("s61Fine"));
@@ -762,7 +762,7 @@ public class HybridSettingsTest {
         assertEquals("1",prefs.getString("pref_scam_hybrid_sabre61","?"));
         assertEquals("2",prefs.getString("pref_scam_hybrid_mochi","?"));
         assertEquals("2",prefs.getString("pref_scam_hybrid_bento","?"));
-        assertEquals("3",prefs.getString("pref_scam_hybrid_bento_frames","?"));
+        assertEquals("P497: 2 ultrashort frames","2",prefs.getString("pref_scam_hybrid_bento_frames","?"));
         assertEquals("2",prefs.getString("pref_scam_hybrid_shasta_mode","?"));
         assertEquals(3f,Float.parseFloat(prefs.getString("pref_scam_hybrid_shasta_frames","?")),0f);
         assertEquals(4f,Float.parseFloat(prefs.getString("pref_scam_hybrid_shasta_motion_max","?")),0f);
@@ -837,12 +837,26 @@ public class HybridSettingsTest {
         assertFalse(SettingsMigration.migrateScamHybrid(prefs,false));
     }
 
+    @Test public void p497ThreeUltrashortFramesMoveToTwoOnce() {
+        // the stored former default 3 moves once to 2; a 1 chosen by the user stays; a 3 chosen after the move stays
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putString("pref_scam_hybrid_bento_frames","3").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("2",prefs.getString("pref_scam_hybrid_bento_frames",""));
+        prefs.edit().putString("pref_scam_hybrid_bento_frames","3").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("3",prefs.getString("pref_scam_hybrid_bento_frames",""));
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putString("pref_scam_hybrid_bento_frames","1").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("1",prefs.getString("pref_scam_hybrid_bento_frames",""));
+    }
+
     @Test public void p68FormerDefaultsMoveOnce() {
         // stored former XML defaults move once; a value chosen before or after stays
         prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
                 .putInt(SettingsMigration.ZSL_FRAMES_REV,1).putString("pref_scam_hybrid_zsl_frames","30")
                 .putString("pref_scam_hybrid_sabre61","2").putString("pref_scam_hybrid_mochi","0").putString("pref_scam_hybrid_bento","1")
-                .putString("pref_scam_hybrid_bento_frames","2").putString("pref_scam_hybrid_shasta_frames","5").commit();
+                .putString("pref_scam_hybrid_bento_frames","2").putString("pref_scam_hybrid_shasta_frames","5")
+                .putInt(SettingsMigration.P497_US_REV,1).commit(); // P68 alone (P497 has its own test)
         assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
         assertEquals("20",prefs.getString("pref_scam_hybrid_zsl_frames",""));
         assertEquals("1",prefs.getString("pref_scam_hybrid_sabre61",""));

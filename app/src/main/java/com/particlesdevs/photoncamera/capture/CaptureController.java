@@ -8988,9 +8988,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P27 (M6): a camera whose HAL lost the first requests after the flush twice in a row is not flushed any more.
             // P54b: nor a camera under the forced stabilisation (the flush restarts the HAL pipeline; the stock app never flushes).
             final boolean forcedNoFlush = mForcedStab && ForcedStabilization.noFlush();
-            final boolean flushQueue = ForcedStabilization.flush(flushWanted && !flushStats.skipFlush(), forcedNoFlush);
+            // P497 (owner, 2026-11-04: «у нас сильнее задержка после съёмки чем на Арк камере и камера уходит сильнее», «должно
+            // работать везде»): no flush before the series on any phone - the series queues behind the preview, as the stock apps'
+            // and the reference's. A HAL restarts its pipeline after a flush (vivo X200 Ultra: the first series frame +385 ms after
+            // the submit, the preview stopped 287 ms). scam_dev series_flush 1: flushed as before
+            final boolean noFlush = !PreferenceKeys.scamDevSwitch("series_flush", false);
+            final boolean flushQueue = ForcedStabilization.flush(flushWanted && !flushStats.skipFlush(), forcedNoFlush || noFlush);
             if (flushWanted && !flushQueue) Log.i("SCAM_CAPTURE", "HAL queue not flushed: camera " + flushStats.camera
-                    + (forcedNoFlush ? " holds the forced stabilisation (P54b)" : " lost the first requests after a flush (FlushLossStats)"));
+                    + (forcedNoFlush ? " holds the forced stabilisation (P54b)" : noFlush ? ": the series queues behind the preview (P497)"
+                    : " lost the first requests after a flush (FlushLossStats)"));
             shotFlushed.set(flushQueue);
             mLastShotFlushed = flushQueue;
             // P44: preview frames right after the flush, ahead of the series (scam_dev "preview_lead"; one by default).

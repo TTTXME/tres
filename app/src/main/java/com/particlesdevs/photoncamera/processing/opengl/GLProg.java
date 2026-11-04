@@ -799,9 +799,11 @@ public class GLProg implements AutoCloseable {
         while (divider.nextBlock(row)) {
             glViewport(0, row[0], w, row[1]);
             draw();
+            // P497 (owner, 2026-11-04: «видоискатель тормозит ... на всех смартфонах»): a submission per block - the GPU lets the
+            // viewfinder's context in between submissions only, and one pass as one submission held it for the whole pass (Xiaomi
+            // 12X: single viewfinder draws of 274 - 771 ms during WhyCombine's ~0.8 s; Nubia Z17 up to 1034 ms)
+            if (!PostGlMode.legacy()) glFlush();
         }
-        // W1.1: one submission per pass (the tiles stay 256 rows, so no single draw gets long).
-        if (!PostGlMode.legacy()) glFlush();
     }
 
     public void drawBlocks(GLTexture texture, int bh) {

@@ -94,6 +94,9 @@ public class GLBasePipeline implements AutoCloseable {
         }
     }
 
+    /** P497: the post node finished last (any pipeline; VfDrawMeter names it beside a slow viewfinder draw). */
+    public static volatile String lastNode = "";
+
     public void startTimeMeasure() {
         PostGlMode.lapStart();
         timeStart = System.currentTimeMillis();
@@ -102,6 +105,7 @@ public class GLBasePipeline implements AutoCloseable {
     public void endTimeMeasure(String Name) {
         long ms = System.currentTimeMillis() - timeStart;
         Log.d("Pipeline", "Node:" + Name + " elapsed:" + ms + " ms");
+        lastNode = Name; // P497: for the viewfinder's slow-draw lines (VfDrawMeter)
         nodeTimings.add(new long[]{ms, nodeTimings.size()});
         nodeNames.add(Name);
     }

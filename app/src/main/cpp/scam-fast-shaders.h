@@ -945,6 +945,8 @@ layout(local_size_x = 256) in;
 uniform int u_frame_idx;
 uniform float u_max_reproj_error;
 uniform ivec2 u_guide_size;
+uniform float u_short_min_inliers; // P497: the short frames' inlier gate (0.65 in the scheme)
+uniform float u_short_max_shift; // P497: their largest shift at the guide's corners, Bayer quads (15 in the scheme)
 uniform int u_is_short_frame;
 
 struct TrackedPoint {
@@ -1339,7 +1341,7 @@ void main() {
 
         // Strict HDR Short-Frame Gating & Sanity Gate directly on GPU
         if (u_is_short_frame != 0) {
-            if (inlier_ratio < 0.65) {
+            if (inlier_ratio < u_short_min_inliers) {
                 is_valid = false;
             } else {
                 float gw = float(u_guide_size.x), gh = float(u_guide_size.y);
@@ -1362,7 +1364,7 @@ void main() {
                         max_shift = 9999.0;
                     }
                 }
-                if (max_shift > 15.0) {
+                if (max_shift > u_short_max_shift) {
                     is_valid = false;
                 }
             }
@@ -3332,7 +3334,9 @@ void main() {
     vec2 short_tc = tex_coord + flow;
 
     if (short_tc.x < 0.0 || short_tc.x > 1.0 || short_tc.y < 0.0 || short_tc.y > 1.0) {
-        o_validation = vec4(0.0, 1.0, 0.0, 0.0);
+        // P497: no data there, not motion - the scheme's invalid flag seeded the quarantine at the frame's edge and it flooded a
+        // whole window touching it (SCA_20261104_073312: the hand's 9-quad drift, the left window refused)
+        o_validation = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
 
@@ -3358,10 +3362,15 @@ void main() {
     // Real motion away occurs when short frame has no light at all (max_us is ambient dark).
     float dark_err = max(0.0, max_base - max_us);
 
-    // Motion in: car/light moved into non-clipped base region
-    float bright_err = (max_base < 0.85) ? max(0.0, max_us - max_base) : 0.0;
+    // Motion in: car/light moved into non-clipped base region. P497: up to the base's clip (0.97, not 0.85) and the short frame
+    // unclamped (to 2): a light wire at 0.9 before a sky the short frame put at 2.4 (its parallax, SCA_20261104_073312) passed as
+    // 1.0 - 0.9 and the sky replaced the wire; an unclipped base is the truth there
+    vec3 us_raw = short3 * u_ev_scale;
+    float bright_err = (max_base < 0.97) ? max(0.0, min(max(us_raw.r, max(us_raw.g, us_raw.b)), 2.0) - max_base) : 0.0;
 
-    float err = max(dark_err, bright_err);
+    // P497: over a clipped base a darker short frame contradicts it already at 0.35 (the sky's noise there ~0.1): the light, dotted
+    // top of a near wire's copy (0.6 - 0.9, SCA_20261104_073400) passed the scheme's 0.8 half way and left a faint stub
+    float err = max(dark_err * (max_base >= 0.97 ? max(1.0, u_err_thresh / 0.35) : 1.0), bright_err);
 
     // Photometric threshold:
     // Real motion occurs when short frame has severe photometric loss (err >= u_err_thresh).
@@ -3369,7 +3378,10 @@ void main() {
     float norm_err = clamp(err / ethresh, 0.0, 1.0);
     // Smooth Cosine Ease-out transition from 1.0 to 0.0 without harsh derivative kinks
     float valid_k = 0.5 * (1.0 + cos(3.14159265 * norm_err));
-    float invalid_flag = (err >= ethresh) ? 1.0 : 0.0;
+    // the quarantine's seed as the scheme's (its 0.85 limit): the wider bright check above only refuses the pixel - seeding from it
+    // flooded a whole window from its light wire (P497)
+    float seed_err = max(dark_err, (max_base < 0.85) ? max(0.0, max_us - max_base) : 0.0);
+    float invalid_flag = (seed_err >= ethresh) ? 1.0 : 0.0;
 
     float max_s_raw = max(max(s_norm.r, s_norm.g), max(s_norm.b, s_norm.a));
     float us_clipped = (max_s_raw >= 0.98) ? 1.0 : 0.0;
@@ -3719,6 +3731,8 @@ float median9_valid(float a[9]) {
 void main() {
     float v[9];
     float sum_v = 0.0;
+    float min_v = 1.0;
+    int n_bad = 0;
     int idx = 0;
 
     for (int dy = -1; dy <= 1; ++dy) {
@@ -3727,6 +3741,8 @@ void main() {
             float val = texture(u_valid_tex, tex_coord + off).r;
             v[idx++] = val;
             sum_v += val;
+            min_v = min(min_v, val);
+            n_bad += val < 0.5 ? 1 : 0;
         }
     }
 
@@ -3738,6 +3754,9 @@ void main() {
 
     // 3. Continuous soft falloff towards motion:
     float clean_v = min(med_v, avg_v);
+    // P497: a thin invalid line (a near wire whose parallax the flow missed, SCA_20261104_073400) is a structure, not a speck: the
+    // median would erase it and the short frame's copy of the wire would stay; 3+ invalid of 9 keep it, widened by one pixel
+    if (n_bad >= 3) clean_v = min_v;
 
     // Soft cosine ease near the contact boundary to prevent chroma fringing without hard cuts
     float safety = smoothstep(0.02, 0.40, clean_v);

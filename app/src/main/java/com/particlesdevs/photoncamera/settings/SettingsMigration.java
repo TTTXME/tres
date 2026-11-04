@@ -718,6 +718,18 @@ public final class SettingsMigration {
             e.putInt(P68_DEFAULTS_REV, 1);
             markOnly = true;
         }
+        // P497 (owner, 2026-11-04: «предлагаю использовать 2 сверхкоротких кадра вместо 3ех, 3ий пользы не дает»): the ultrashort
+        // frames' former default 3 (P68) moves once to 2; any other stored count is the user's and stays. Own marker, first run.
+        if (!values.containsKey(P497_US_REV)) {
+            final String key = ScamHybridKeys.PREFIX + "bento_frames";
+            final Object v = values.get(key);
+            if (v != null && isNumber(v, 3f)) {
+                ModuleProfiles.put(e, key, v instanceof String ? PreferenceNumber.format(2f, false) : (Object) 2f);
+                changed = true;
+            }
+            e.putInt(P497_US_REV, 1);
+            markOnly = true;
+        }
         // Slider precision (settings audit H1, 8 October 2026): the sliders stored two decimals, so the first opening of the
         // screen wrote the XML default 0.0005 of the Bento auto threshold as "0.00" (Bento then triggered on almost every
         // shot) and 1.414 of the LUT sigma as "1.41". Exactly those stored strings are that rounding, not a choice, and move
@@ -930,6 +942,7 @@ public final class SettingsMigration {
     static final String ZSL_FRAMES_REV = "pref_scam_hybrid_zsl_frames_rev";
     /** Marker of the one-time move of the P68 former defaults (N frames, Sabre 6.1, Mochi, Bento, Shasta frames). */
     static final String P68_DEFAULTS_REV = "pref_scam_hybrid_p68_defaults_rev";
+    static final String P497_US_REV = "pref_scam_hybrid_p497_us_rev";
     /** Marker of the one-time move of a stored former default of pref_scam_hybrid_mosaic_frames (24) to 30. */
     static final String MOSAIC_FRAMES_REV = "pref_scam_hybrid_mosaic_frames_rev";
     /** Marker of the one-time move of the two-decimal slider defaults "0.00" (Bento auto threshold) and "1.41" (LUT sigma). */

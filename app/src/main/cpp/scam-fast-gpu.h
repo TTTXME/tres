@@ -49,9 +49,66 @@ uniform int u_rows;       // rows of this band
 uniform int u_acc_row0;   // the accumulators' first row (row strips; 0 = the whole frame)
 uniform vec3 u_inv_wb;    // 1 / the white balance gains of the merge
 uniform float u_clip;
+uniform highp sampler2D u_hl_base;  // P497: the base's clipped mask (HALF)
+uniform highp sampler2D u_hl_final; // P497: the final mask (HALF, the short frames' validity applied)
+uniform highp sampler2D u_base_bayer; // P497: the base frame's Bayer quads (HALF, sensor units)
+uniform vec4 u_black;     // P497: its black level per quad channel
+uniform float u_white;    // P497: its white level
+uniform int u_fill;       // P497: > 0 = the reach (OUT px) of the hole fill below (short frames merged), 0 = off
 layout(std430,binding=0) writeonly buffer Rgb{uint rgb[];};
 layout(std430,binding=1) writeonly buffer Flags{uint flags[];};
 layout(std430,binding=2) writeonly buffer Eff{float eff[];};
+vec3 at(ivec2 p){
+    vec4 a=texelFetch(u_accum_color_r,p-ivec2(0,u_acc_row0),0);
+    vec4 b=texelFetch(u_accum_weights_gb,p-ivec2(0,u_acc_row0),0);
+    return max(a.rgb/max(vec3(a.a,b.r,b.g),vec3(1.0e-6))*u_inv_wb,vec3(0.0));
+}
+// P497: inside the base frame's clipped mask, the short frames refused (their validity cut the final mask) - a near wire's copy
+// their flow missed, SCA_20261104_073400: a pink band beside the wire (G at the base's clip, R and B measured) in a recovered window
+vec2 halfUv(ivec2 p){return (vec2(p)+0.5)/vec2(u_size);}
+float baseMask(ivec2 p){return textureLod(u_hl_base,halfUv(p),0.0).r;}
+// how far the short frames were refused here (bilinear: no half-res steps along a slanted wire)
+float refusal(ivec2 p){
+    vec2 uv=halfUv(p);float b=textureLod(u_hl_base,uv,0.0).r;
+    return b>0.3?smoothstep(0.05,0.3,1.0-textureLod(u_hl_final,uv,0.0).r/b):0.0;
+}
+// how clipped the base frame's own quad is: its second-highest channel (both greens for a G-clipped sky) at 90-97 % of the range;
+// a quad the thin wire crosses has one green below - not filled, so the wire keeps its edge (one channel gave a staircase)
+float baseClip(ivec2 p){
+    vec4 q=(texelFetch(u_base_bayer,p*u_half/u_size,0)-u_black)/max(u_white-u_black,vec4(1.0));
+    float second=max(max(min(q.r,q.g),min(q.b,q.a)),min(max(q.r,q.g),max(q.b,q.a))); // second-highest of four
+    return smoothstep(0.90,0.97,second);
+}
+// such a pixel: the recovered highlight around it, rays in eight directions to their first pixel the short frames filled (past the
+// mask's soft rim while it still rises), weighted 1 / distance; a ray stops at a structure (the wire, outside the mask). One average
+// of all rays, not one chosen line: the line's switches drew boxes and roofs
+vec4 fill(ivec2 p,bool cross){ // cross: through structures (the fallback when nothing is in reach otherwise)
+    ivec2 lo=ivec2(0,u_acc_row0),hi=ivec2(u_size.x-1,u_acc_row0+textureSize(u_accum_color_r,0).y-1);
+    ivec2 dirs[8]=ivec2[8](ivec2(1,0),ivec2(-1,0),ivec2(0,1),ivec2(0,-1),ivec2(1,1),ivec2(-1,-1),ivec2(1,-1),ivec2(-1,1));
+    vec3 sum=vec3(0.0);float wsum=0.0;
+    for(int d=0;d<8;++d){
+        ivec2 dd=dirs[d];float f=d<4?1.0:1.4142;
+        for(int s=1;s<=u_fill;++s){
+            ivec2 t=p+dd*s;
+            if(any(lessThan(t,lo))||any(greaterThan(t,hi)))break;
+            vec3 u=at(t);float m=max(u.r,max(u.g,u.b));
+            if(m<0.85||baseClip(t)<0.5||baseMask(t)<=0.5){if(cross)continue;break;} // the wire itself, or outside the mask
+            if(refusal(t)>0.5)continue;
+            int dist=s;
+            for(int k=1;k<=8;++k){
+                ivec2 e=t+dd*k;
+                if(any(lessThan(e,lo))||any(greaterThan(e,hi))||baseClip(e)<0.5||baseMask(e)<=0.5||refusal(e)>0.5)break;
+                vec3 w=at(e);float mw=max(w.r,max(w.g,w.b));
+                if(mw<m*1.01)break;
+                u=w;dist=s+k;m=mw;
+            }
+            float wt=1.0/(float(dist)*f);
+            sum+=u*wt;wsum+=wt;
+            break;
+        }
+    }
+    return vec4(wsum>0.0?sum/wsum:vec3(0.0),wsum);
+}
 void main(){
     int q=int(gl_GlobalInvocationID.x);
     int yb=int(gl_GlobalInvocationID.y);
@@ -65,6 +122,12 @@ void main(){
         vec4 b=texelFetch(u_accum_weights_gb,p-ivec2(0,u_acc_row0),0);
         vec3 wt=max(vec3(a.a,b.r,b.g),vec3(1.0e-6));
         vec3 v=max(a.rgb/wt*u_inv_wb,vec3(0.0));
+        if(u_fill>0){
+            float a=refusal(p)*baseClip(p)*smoothstep(0.8,0.9,max(v.r,max(v.g,v.b)));
+            // across the wire only when nothing else is in reach: a strip the flow left without data between the frame's edge and
+            // a wire (SCA_20261104_073312, its top left corner) stayed the base's pink clip
+            if(a>0.0){vec4 fv=fill(p,false);if(fv.a<=0.0)fv=fill(p,true);if(fv.a>0.0)v=mix(v,fv.rgb,a);}
+        }
         c[k]=v;
         float cf=b.z/max(b.w,1.0e-6);
         uint f=0u;

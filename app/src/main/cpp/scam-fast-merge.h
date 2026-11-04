@@ -381,7 +381,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         for(int y=4;y<H-4;y+=stepY){const uint16_t* r=base.raw+size_t(y)*W;for(int x=4;x<W-4;x+=stepX){++seen;clipped+=float(r[x])>=at?1:0;}}
         clipFraction=seen?float(clipped)/float(seen):0.f;
     }
-    bool bento=clipFraction>0.00039f&&!shorts.empty()&&!std::getenv("SCAM_FM_NO_SHORT");
+    // P497 (owner, 2026-11-04, the sun in fog, SCA_20261104_063920: a grey disc): 0.0001 (two grid samples) in place of the scheme's
+    // 0.00039 - a small sun or lamp hits the sparse grid only once or twice; the short frames' own gates still decide
+    const float clipPath=std::getenv("SCAM_FM_CLIP_PATH")?float(std::atof(std::getenv("SCAM_FM_CLIP_PATH"))):0.0001f;
+    bool bento=clipFraction>clipPath&&!shorts.empty()&&!std::getenv("SCAM_FM_NO_SHORT");
     const int shortsSent=int(shorts.size());
     if(!bento)shorts.clear();
     const int N=1+int(donors.size())+int(longs.size()); // num_frames of the merge: the short frames apart (as 0x16dc00)
@@ -468,7 +471,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     auto syncAt=Clock::now();
     auto lap=[&](int k){
         if(syncProfile){glFinish();const auto t=Clock::now();if(k>=0)stageMs[size_t(k)]+=ms(syncAt,t);syncAt=t;return;}
-        if(!profile)return;
+        // P497 (owner, 2026-11-04: the viewfinder stutters while a shot is processed, every phone): a submission at every stage
+        // boundary - the GPU lets the viewfinder's context in between submissions (Xiaomi 12X: single viewfinder draws of up to
+        // 274 ms during the merge, one submission per frame of ~100 ms GPU there)
+        if(!profile){glFlush();return;}
         GLuint q=0;glGenQueries(1,&q);queryCounter(q,0x8E28 /*GL_TIMESTAMP_EXT*/);stamps.emplace_back(q,k);
     };
     lap(-1);
@@ -750,7 +756,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         using A=FastMergeGpu;
         {
             std::array<float,4> gs,bs,gc,bc,cap;frameGains(ev,gs,bs,gc,bc);
-            for(int q=0;q<4;++q)cap[size_t(q)]=grayCap[size_t(q)]*ev;
+            // P497: a brightened (short) frame's gray clips at the BASE's white, as the reference (its tracker then sees the base's
+            // blown window where the base is blown; *ev let the window's outdoors through and the corners there failed)
+            for(int q=0;q<4;++q)cap[size_t(q)]=grayCap[size_t(q)]*std::min(ev,1.f);
             g.u4f(PG,"gains",gs);g.u4f(PG,"black_levels_times_gains",bs);
             g.u1f(PG,"u_gray_gain",grayGain*ev);g.u4f(PG,"u_gray_cap_spatial",cap);
             noiseLutFor(Sc>0.f?Sc:S,Oc>=0.f?Oc:O,ev);
@@ -837,7 +845,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.tex(A::pHlGaussH,"u_input_mask",0,hlClip);g.u4f(A::pHlGaussH,"u_tex_size",halfSize);g.draw(A::pHlGaussH,fHlBlur,w2,h2,1);
         g.tex(A::pHlGaussV,"u_input_mask",0,hlBlur);g.u4f(A::pHlGaussV,"u_tex_size",halfSize);g.draw(A::pHlGaussV,fHlBase,w2,h2,1);
         g.tex(A::pPass,"u_tex",0,hlBase);g.draw(A::pPass,fHlFinal,w2,h2,1);
-        const float z[4]={0,0,0,0};glBindFramebuffer(GL_FRAMEBUFFER,fHlAccum);glClearBufferfv(GL_COLOR,0,z);
+        const float one[4]={1,1,1,1};glBindFramebuffer(GL_FRAMEBUFFER,fHlAccum);glClearBufferfv(GL_COLOR,0,one); // P497: MIN below
     }
     glFlush();
     FastMergeGpu::check("base frame");
@@ -846,8 +854,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // the safety gate's clip limit: 0.35 in the scheme (0x179164), 0.5 here - our ultrashort frames measure 43 % clipped inside the
     // mask on lamp2324 (the SCAM merge's own check 38.7 %), 0.35 kept every lamp clipped; SCAM_FM_SHORT_CLIP_GATE (replays, A/B)
     const float clipGate=std::getenv("SCAM_FM_SHORT_CLIP_GATE")?float(std::atof(std::getenv("SCAM_FM_SHORT_CLIP_GATE"))):0.5f;
+    // P497 (owner, 2026-11-04, a ship's bridge, SCA_20261104_073312: windows blown although three short frames came): 0.5 and 40
+    // quads in place of the scheme's 0.65 / 15 - our short frames are darker (1/8), so fewer corners track (166 of 273), and the
+    // base sits early in the ring, so a handheld drift reaches them (10.9 quads at the centre, the long frames after them 11);
+    // the validation against the base inside the highlight mask (motion 0.54 % there) still rejects a misplaced one
+    const float shortMinInliers=std::getenv("SCAM_FM_SHORT_INLIERS")?float(std::atof(std::getenv("SCAM_FM_SHORT_INLIERS"))):0.5f;
+    const float shortMaxShift=std::getenv("SCAM_FM_SHORT_SHIFT")?float(std::atof(std::getenv("SCAM_FM_SHORT_SHIFT"))):40.f;
     // ---- the per-frame loop (§5)
     int validShorts=0,shortsDone=0;bool shortsRejected=false;std::string shortLog;
+    // P497: the reach (OUT px) of the output pass's hole fill (kFastOutput): 24 covers a near wire's refused copy (~16 px + rims)
+    const int holeFill=std::getenv("SCAM_FM_HOLE_FILL")?std::atoi(std::getenv("SCAM_FM_HOLE_FILL")):24;
     double longWeightSum=0;std::string longLog;
     const float sfx=float(w2)/float(tiles[0]*gx[0]),sfy=float(h2)/float(tiles[0]*gy[0]); // flow_scale_offset of a short frame's uv flow
     // the highlight mask's validity finished (0x175204..0x175654): when the first frame after the short frames comes (or after
@@ -870,6 +886,43 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             const float z[4]={0,0,0,0};glBindFramebuffer(GL_FRAMEBUFFER,fHlFinal);glClearBufferfv(GL_COLOR,0,z);
             report("HYBRID FAST MERGE HIGHLIGHT: every short frame rejected, highlight mask cleared"+shortLog);
         }
+    };
+    // the tile alignment (§5.4) of a donor against the base from its homography seed (the result in alM[0], the sparse pass's input set)
+    auto alignTiles=[&]{
+    // tile alignment per level, coarsest first (§5.4)
+    for(int l=4;l>=0;--l){
+        if(l==4){ // seed: the homography's flow at the tile centres (zero flow without a valid homography)
+            glBindImageTexture(0,alA[4],0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
+            g.u2i(A::pFill,"u_grid_size",gx[4],gy[4]);g.u1i(A::pFill,"u_tile_stride",tiles[4]);g.u2f(A::pFill,"u_bayer_size",float(w2),float(h2));
+            g.u1i(A::pFill,"u_is_short_frame",0);g.u1f(A::pFill,"u_scale_to_bayer",lscale[4]);
+            g.dispatch(A::pFill,(gx[4]+15)/16,(gy[4]+15)/16);
+        } else { // seed: the coarser level's alignment upsampled (best of three candidates by SAD)
+            glBindImageTexture(0,alA[l],0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
+            g.tex(A::pUpsample,"uReference",1,pyrB[l]);g.tex(A::pUpsample,"uCurrent",2,pyrC[l]);g.tex(A::pUpsample,"uInitialAlignment",3,alM[l+1]);
+            g.u2i(A::pUpsample,"uImageSize",lw[l],lh[l]);g.u2i(A::pUpsample,"uTargetGridSize",gx[l],gy[l]);g.u2i(A::pUpsample,"uInitialGridSize",gx[l+1],gy[l+1]);
+            g.u1i(A::pUpsample,"uInitialGridMin",1);g.u1i(A::pUpsample,"uTargetGridMin",1); // [UNCERTAIN] the (tile + 1) origin of sh091 / sh112
+            g.u1i(A::pUpsample,"uInitialTileStride",tiles[l+1]);g.u1i(A::pUpsample,"uTargetTileStride",tiles[l]);g.u1i(A::pUpsample,"uTargetTileSize",tiles[l]);
+            g.u1f(A::pUpsample,"uInitialScale",lscale[l+1]/lscale[l]);
+            g.dispatch(A::pUpsample,gx[l],gy[l]);
+        }
+        glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        // [UNCERTAIN] §11.6: two Gauss-Newton steps, a third except at the finest level
+        g.tex(A::pLk,"uReference",1,pyrB[l]);g.tex(A::pLk,"uCurrent",2,pyrC[l]);g.tex(A::pLk,"uProducts0",3,prod0[l]);g.tex(A::pLk,"uProducts1",4,prod1[l]);
+        g.u2i(A::pLk,"uImageSize",lw[l],lh[l]);g.u2i(A::pLk,"uGridSize",gx[l],gy[l]);g.u1i(A::pLk,"uTileStride",tiles[l]);g.u1i(A::pLk,"uTileSize",tiles[l]);
+        g.u1i(A::pLk,"uNormalize",l!=0);g.u1i(A::pLk,"uHasInitialAlignment",1);
+        const int steps=l==0?2:3;GLuint in=alA[l],outT=alB[l];
+        for(int st=0;st<steps;++st){
+            g.tex(A::pLk,"uInitialAlignment",5,in);
+            glBindImageTexture(0,outT,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
+            g.dispatch(A::pLk,gx[l],gy[l]);
+            glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            std::swap(in,outT);
+        }
+        g.tex(A::pMedian,"uAlignment",0,in);g.u2i(A::pMedian,"uGridSize",gx[l],gy[l]);
+        g.draw(A::pMedian,fMedian[l],gx[l],gy[l],1);
+    }
+    g.tex(A::pSparse,"uAlignment",0,alM[0]);g.u2i(A::pSparse,"uGridSize",gx[0],gy[0]);
+    g.u1f(A::pSparse,"uAlignmentScale",1.f);g.u2f(A::pSparse,"uFlowNormalizationSize",float(w2),float(h2));
     };
     const GLuint hlMaskTex=bento?hlFinal:zeroMask;
     // row strips: every frame's own flow (L0 grid) and rejection map (frame weight, blend_eq) for phase B, its long-frame weights
@@ -899,14 +952,15 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bCorners);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bTracks);
         g.dispatch(A::pKlt,(576+63)/64,1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-        g.u1i(A::pRansac,"u_frame_idx",f);g.u1f(A::pRansac,"u_max_reproj_error",2.f);g.u2i(A::pRansac,"u_guide_size",lw[1],lh[1]);g.u1i(A::pRansac,"u_is_short_frame",isShort?1:0);
+        g.u1i(A::pRansac,"u_frame_idx",f);g.u1f(A::pRansac,"u_max_reproj_error",2.f);g.u2i(A::pRansac,"u_guide_size",lw[1],lh[1]);g.u1i(A::pRansac,"u_is_short_frame",isShort?1:0);g.u1f(A::pRansac,"u_short_min_inliers",shortMinInliers);g.u1f(A::pRansac,"u_short_max_shift",shortMaxShift);
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER,2,bResult,GLintptr(resStride*size_t(k+1)),GLsizeiptr(64));
         g.dispatch(A::pRansac,1,1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         lap(2);
         if(isShort){
             // §5.3 / §5.8: the short frame's flow = the homography's, uv at the L0 tile centres (sh094 short branch: tile offset 0.5),
-            // [UNCERTAIN] used as the flow itself (no tile LK: the branch writes uv flow, not a level flow)
+            // [UNCERTAIN] used as the flow itself (no tile LK: the branch writes uv flow, not a level flow). P497: the tile LK from
+            // this seed did not move it at a near wire 16 quads off (SCA_20261104_073400) - the validity below refuses such a copy
             glBindImageTexture(0,sf.flow,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
             g.u2i(A::pFill,"u_grid_size",gx[0],gy[0]);g.u1i(A::pFill,"u_tile_stride",tiles[0]);g.u2f(A::pFill,"u_bayer_size",float(w2),float(h2));
             g.u1i(A::pFill,"u_is_short_frame",1);g.u1f(A::pFill,"u_scale_to_bayer",1.f);
@@ -951,13 +1005,15 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
                     g.draw(A::pQuarDilateV,fQuar[0],qw,qh,1);
                 };
                 qpass(2,1);for(int it=0;it<20;++it)qpass(0,2);qpass(1,2);
-                // the clean validity with the quarantine (sh066), MAX-accumulated over the short frames (PASS, GL_MAX), and the
+                // the clean validity with the quarantine (sh066), MIN-accumulated over the short frames (PASS, GL_MIN since P497), and the
                 // final mask so far (sh042)
                 g.tex(A::pHlCleanValid,"u_valid_tex",0,hlValid);g.tex(A::pHlCleanValid,"u_quarantine_tex",1,quar[0]);
                 g.u1i(A::pHlCleanValid,"u_use_quarantine",1);g.u4f(A::pHlCleanValid,"u_tex_size",halfSize);
                 g.draw(A::pHlCleanValid,fHlClean,w2,h2,1);
+                // P497: MIN, not the scheme's MAX - every valid short frame is merged under the one final mask, so a pixel takes them
+                // only where all are valid (MAX let the copies of a near wire through where one frame's copy sat off another's)
                 g.tex(A::pPass,"u_tex",0,hlClean);
-                glEnable(GL_BLEND);glBlendEquation(GL_MAX);glBlendFunc(GL_ONE,GL_ONE);
+                glEnable(GL_BLEND);glBlendEquation(GL_MIN);glBlendFunc(GL_ONE,GL_ONE);
                 g.draw(A::pPass,fHlAccum,w2,h2);
                 glDisable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);
                 sf.valid=true;++validShorts;
@@ -967,40 +1023,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             glFlush();
             continue;
         }
-        // tile alignment per level, coarsest first (§5.4)
-        for(int l=4;l>=0;--l){
-            if(l==4){ // seed: the homography's flow at the tile centres (zero flow without a valid homography)
-                glBindImageTexture(0,alA[4],0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
-                g.u2i(A::pFill,"u_grid_size",gx[4],gy[4]);g.u1i(A::pFill,"u_tile_stride",tiles[4]);g.u2f(A::pFill,"u_bayer_size",float(w2),float(h2));
-                g.u1i(A::pFill,"u_is_short_frame",0);g.u1f(A::pFill,"u_scale_to_bayer",lscale[4]);
-                g.dispatch(A::pFill,(gx[4]+15)/16,(gy[4]+15)/16);
-            } else { // seed: the coarser level's alignment upsampled (best of three candidates by SAD)
-                glBindImageTexture(0,alA[l],0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
-                g.tex(A::pUpsample,"uReference",1,pyrB[l]);g.tex(A::pUpsample,"uCurrent",2,pyrC[l]);g.tex(A::pUpsample,"uInitialAlignment",3,alM[l+1]);
-                g.u2i(A::pUpsample,"uImageSize",lw[l],lh[l]);g.u2i(A::pUpsample,"uTargetGridSize",gx[l],gy[l]);g.u2i(A::pUpsample,"uInitialGridSize",gx[l+1],gy[l+1]);
-                g.u1i(A::pUpsample,"uInitialGridMin",1);g.u1i(A::pUpsample,"uTargetGridMin",1); // [UNCERTAIN] the (tile + 1) origin of sh091 / sh112
-                g.u1i(A::pUpsample,"uInitialTileStride",tiles[l+1]);g.u1i(A::pUpsample,"uTargetTileStride",tiles[l]);g.u1i(A::pUpsample,"uTargetTileSize",tiles[l]);
-                g.u1f(A::pUpsample,"uInitialScale",lscale[l+1]/lscale[l]);
-                g.dispatch(A::pUpsample,gx[l],gy[l]);
-            }
-            glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-            // [UNCERTAIN] §11.6: two Gauss-Newton steps, a third except at the finest level
-            g.tex(A::pLk,"uReference",1,pyrB[l]);g.tex(A::pLk,"uCurrent",2,pyrC[l]);g.tex(A::pLk,"uProducts0",3,prod0[l]);g.tex(A::pLk,"uProducts1",4,prod1[l]);
-            g.u2i(A::pLk,"uImageSize",lw[l],lh[l]);g.u2i(A::pLk,"uGridSize",gx[l],gy[l]);g.u1i(A::pLk,"uTileStride",tiles[l]);g.u1i(A::pLk,"uTileSize",tiles[l]);
-            g.u1i(A::pLk,"uNormalize",l!=0);g.u1i(A::pLk,"uHasInitialAlignment",1);
-            const int steps=l==0?2:3;GLuint in=alA[l],outT=alB[l];
-            for(int st=0;st<steps;++st){
-                g.tex(A::pLk,"uInitialAlignment",5,in);
-                glBindImageTexture(0,outT,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA32F);
-                g.dispatch(A::pLk,gx[l],gy[l]);
-                glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-                std::swap(in,outT);
-            }
-            g.tex(A::pMedian,"uAlignment",0,in);g.u2i(A::pMedian,"uGridSize",gx[l],gy[l]);
-            g.draw(A::pMedian,fMedian[l],gx[l],gy[l],1);
-        }
-        g.tex(A::pSparse,"uAlignment",0,alM[0]);g.u2i(A::pSparse,"uGridSize",gx[0],gy[0]);
-        g.u1f(A::pSparse,"uAlignmentScale",1.f);g.u2f(A::pSparse,"uFlowNormalizationSize",float(w2),float(h2));
+        alignTiles();
         lap(3);
         GLuint flowK=slotFlow[slot],fFlowK=slotFlowFbo[slot],rejWK=slotRejW[slot],fRejWK=slotRejWFbo[slot];
         if(stripMode){
@@ -1127,7 +1150,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         bEff=g.readBuffer(size_t(w2)*h2*4);
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         g.u2i(A::pOutput,"u_size",W,H);g.u2i(A::pOutput,"u_half",w2,h2);
-        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);
+        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,H-y0);
@@ -1268,7 +1291,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
         std::array<float,4> gs,bs,gc,bc,cap;frameGains(ev,gs,bs,gc,bc);
-        for(int q=0;q<4;++q)cap[size_t(q)]=grayCap[size_t(q)]*ev;
+        for(int q=0;q<4;++q)cap[size_t(q)]=grayCap[size_t(q)]*std::min(ev,1.f); // P497: as frontEnd
         g.u4f(PG,"gains",gs);g.u4f(PG,"black_levels_times_gains",bs);
         g.u1f(PG,"u_gray_gain",grayGain*ev);g.u4f(PG,"u_gray_cap_spatial",cap);
         lutFrame=&fr;noiseLutFor(fr.slope>0.f?fr.slope:S,fr.offset>=0.f?fr.offset:O,ev);
@@ -1282,7 +1305,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint bRgbS=g.readBuffer(size_t(W)*stripRows*6),bFlagsS=g.readBuffer(size_t(W)*stripRows);
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
     g.u2i(A::pOutput,"u_size",W,H);g.u2i(A::pOutput,"u_half",w2,h2);
-    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);
+    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
     out=outAlloc.get();
     if(clipFlags)clipFlags->assign(size_t(W)*H,0);
     streamed=streamWanted&&halvesHook;bool streamTook=false;
@@ -1386,13 +1409,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     }
     std::vector<float> eff;
     const int NL=1+int(loop.size());
-    std::vector<int> hom(size_t(NL)*4,0);std::vector<float> homRatio(size_t(NL),0.f),homSharp(size_t(NL),0.f);
+    std::vector<int> hom(size_t(NL)*4,0);std::vector<float> homRatio(size_t(NL),0.f),homSharp(size_t(NL),0.f),homShift(size_t(NL),0.f);
     g.readBuffer(bResult,resStride*size_t(NL),[&](const void* m){
         for(int k=1;k<NL;++k){
             const uint8_t* r=static_cast<const uint8_t*>(m)+resStride*size_t(k);
             uint32_t v[14];std::memcpy(v,r,sizeof(v));
             hom[size_t(k)*4]=int(v[9]);hom[size_t(k)*4+1]=int(v[10]);hom[size_t(k)*4+2]=int(v[12]);
             std::memcpy(&homRatio[size_t(k)],&v[11],4);std::memcpy(&homSharp[size_t(k)],&v[13],4);
+            // P497: the homography's shift at the guide's centre, in Bayer quads (the short frames' 15-quad rule measures this way)
+            float h[9];std::memcpy(h,r,sizeof(h));const float cx=0.5f*float(lw[1]),cy=0.5f*float(lh[1]),dn=h[6]*cx+h[7]*cy+1.f;
+            if(std::fabs(dn)>1e-6f)homShift[size_t(k)]=2.f*std::hypot((h[0]*cx+h[1]*cy+h[2])/dn-cx,(h[3]*cx+h[4]*cy+h[5])/dn-cy);
         }
     });
     if(effMap)g.readBuffer(bEff,size_t(w2)*h2*4,[&](const void* m){eff.assign(static_cast<const float*>(m),static_cast<const float*>(m)+size_t(w2)*h2);});
@@ -1451,10 +1477,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         report(hybridDngReport(headroom,W,H,hybridDngCeiling(input),tune.dngDither!=0));
     }
     {
-        std::string line="HYBRID FAST MERGE HOMOGRAPHY: frame inliers/tracked/valid";int valid=0;
+        std::string line="HYBRID FAST MERGE HOMOGRAPHY: frame inliers/tracked/valid@centre shift (quads)";int valid=0;
         for(int k=1;k<NL;++k){
             const LoopFrame& lf=loop[size_t(k-1)];
-            char v[64];std::snprintf(v,sizeof(v)," %d%s:%d/%d/%d",lf.f,lf.cls==1?"s":lf.cls==2?"l":"",hom[size_t(k)*4],hom[size_t(k)*4+1],hom[size_t(k)*4+2]);line+=v;valid+=hom[size_t(k)*4+2]!=0;
+            char v[80];std::snprintf(v,sizeof(v)," %d%s:%d/%d/%d@%.1f",lf.f,lf.cls==1?"s":lf.cls==2?"l":"",hom[size_t(k)*4],hom[size_t(k)*4+1],hom[size_t(k)*4+2],homShift[size_t(k)]);line+=v;valid+=hom[size_t(k)*4+2]!=0;
         }
         report(line+" ("+std::to_string(valid)+" of "+std::to_string(NL-1)+" valid)");
     }

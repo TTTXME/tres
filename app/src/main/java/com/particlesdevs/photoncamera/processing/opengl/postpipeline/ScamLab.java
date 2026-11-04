@@ -401,10 +401,22 @@ public final class ScamLab {
 
     /** The kept RAW series in Download/SCAMERA not opened in the lab yet, newest first. */
     public static List<File> keptSeries() {
-        final File[] files = com.particlesdevs.photoncamera.util.ScameraFiles.dir().listFiles(f -> f.isFile()
-                && (f.getName().endsWith(".bin") || f.getName().endsWith(".nch")) && f.length() > 128);
+        final java.io.FileFilter series = f -> f.isFile() && (f.getName().endsWith(".bin") || f.getName().endsWith(".nch")) && f.length() > 128;
+        final File[] shared = com.particlesdevs.photoncamera.util.ScameraFiles.dir().listFiles(series);
+        // P497: also the app's own folder Android/data/<package>/files/labin - series copied there over USB are readable without
+        // the «all files» permission (Download/SCAMERA lists only the app's own files then)
+        File[] own = null;
+        try {
+            final android.content.Context c = com.particlesdevs.photoncamera.app.ScameraApp.getAppContext();
+            final File base = c == null ? null : c.getExternalFilesDir(null);
+            if (base != null) own = new File(base, "labin").listFiles(series);
+        } catch (RuntimeException ignored) {
+        }
         final List<File> out = new ArrayList<>();
-        if (files == null) return out;
+        if (shared == null && own == null) return out;
+        final File[] files = new File[(shared == null ? 0 : shared.length) + (own == null ? 0 : own.length)];
+        if (shared != null) System.arraycopy(shared, 0, files, 0, shared.length);
+        if (own != null) System.arraycopy(own, 0, files, shared == null ? 0 : shared.length, own.length);
         final java.util.Set<String> opened = new java.util.HashSet<>();
         final File[] dirs = root().listFiles(File::isDirectory);
         if (dirs != null) for (File d : dirs) if (new File(d, SOURCE).isFile()) opened.add(burstOf(d).getAbsolutePath());
