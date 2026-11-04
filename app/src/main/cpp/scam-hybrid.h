@@ -6482,6 +6482,15 @@ class HybridGpu {
             if(!done)throw std::runtime_error("HYBRID GPU readback failed slot="+std::to_string(slot)+" offset="+std::to_string(offset)+" bytes="+std::to_string(n)+" total="+std::to_string(bytes)+" glError="+std::to_string(mapFailureError));
         }
     }
+    /** P500: every byte of [p, p + bytes) is zero (word-wise, stops at the first non-zero word). */
+    static bool zeroBytes(const void* p,size_t bytes){
+        const uint64_t* w=static_cast<const uint64_t*>(p);
+        const size_t n=bytes/8;
+        for(size_t i=0;i<n;++i)if(w[i])return false;
+        const unsigned char* c=static_cast<const unsigned char*>(p);
+        for(size_t i=n*8;i<bytes;++i)if(c[i])return false;
+        return true;
+    }
     static GLint loc(GLuint program,const char* n){return glGetUniformLocation(program,n);}
     // A pass may be split into dispatches of `chunk` rows (a multiple of the 8-row workgroup), flushed together: a single
     // dispatch that runs for seconds trips the kernel's GPU hang detection (the context is reset, every later map returns NULL),
@@ -7701,7 +7710,26 @@ public:
                 waited=r==GL_ALREADY_SIGNALED||r==GL_CONDITION_SATISFIED;
                 glDeleteSync(p.fence);p.fence=nullptr;
             }
-            getBuffer(bankBuffer(3,p.bank),3,out.data()+size_t(p.oy0)*ow*3,size_t(p.rows2)*ow*3*4,waited);
+            float* const rgbDst=out.data()+size_t(p.oy0)*ow*3;
+            const size_t rgbBytes=size_t(p.rows2)*ow*3*4;
+            getBuffer(bankBuffer(3,p.bank),3,rgbDst,rgbBytes,waited);
+            // P500 (owner, 2026-11-04: Pixel 10 Pro XL, PowerVR D-Series: «фото иногда получаются полностью черным», the log's
+            // «SCAM RGB: mean=0 max=0»): a strip of real image is never exactly 0.0 everywhere; such a strip is read once more
+            // through the staging copy after a glFinish (method 3) and then a fresh buffer (method 4), and the fenced map is left
+            // out for the rest of the run
+            if(zeroBytes(rgbDst,rgbBytes)){
+                const int kept=mapMethod;
+                fencedMapFails=2;
+                for(int method:{3,4}){
+                    mapMethod=method;
+                    getBuffer(bankBuffer(3,p.bank),3,rgbDst,rgbBytes,false);
+                    const bool still=zeroBytes(rgbDst,rgbBytes);
+                    if(trace)trace("HYBRID GPU readback: strip "+std::to_string(p.index)+" read as all zero, method "+std::to_string(method)
+                            +(still?": still zero":": recovered"));
+                    if(!still)break;
+                }
+                if(zeroBytes(rgbDst,rgbBytes))mapMethod=kept;
+            }
             if(wantEffective)getBuffer(bankBuffer(4,p.bank),4,effective.data()+size_t(p.oy0)*ow,size_t(p.rows2)*ow*4,waited);
             if(clipFlags){
                 flagStrip.resize(size_t(p.rows2)*ow);

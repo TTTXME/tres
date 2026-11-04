@@ -18,6 +18,7 @@ import androidx.annotation.Nullable;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.particlesdevs.photoncamera.R;
+import com.particlesdevs.photoncamera.gallery.model.GalleryView;
 import com.particlesdevs.photoncamera.util.Lang;
 
 import java.util.List;
@@ -169,13 +170,13 @@ public final class GallerySheets {
         s.addView(title(c, Lang.t("Папки галереи", "Gallery folders")));
         s.addView(sub(c, Lang.t("Какие папки показывать в галерее", "Which folders the gallery shows")));
         LinearLayout rows = column(c);
-        rows.addView(switchRow(c, R.drawable.ic_gallery_merge, Lang.t("Показывать папки", "Show folders"),
+        rows.addView(switchRow(c, R.drawable.ui_ic_layers, Lang.t("Показывать папки", "Show folders"),
                 Lang.t("Лента папок над сеткой", "The folder chips above the grid"), chipsShown, on -> toggle.toggled(null, on)));
         s.addView(rows);
         s.addView(GalleryUi.sectionLabel(c, Lang.t("Папки", "Folders")));
         LinearLayout list = column(c);
         for (Folder f : folders)
-            list.addView(switchRow(c, R.drawable.ic_gallery_folder, f.name, f.path, f.on, on -> {
+            list.addView(switchRow(c, R.drawable.ui_ic_folder, f.name, f.path, f.on, on -> {
                 f.on = on;
                 toggle.toggled(f, on);
             }));
@@ -259,8 +260,136 @@ public final class GallerySheets {
         View thumb = ((FrameLayout) track).getChildAt(0);
         thumb.setBackground(GalleryUi.round(c, on ? 0xFFFFFFFF : 0xFF9AA0A7, 0, 999));
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) thumb.getLayoutParams();
-        lp.leftMargin = GalleryUi.dp(c, on ? 23 : 3);
-        thumb.setLayoutParams(lp);
+        if (lp.leftMargin != GalleryUi.dp(c, 3)) {
+            lp.leftMargin = GalleryUi.dp(c, 3);
+            thumb.setLayoutParams(lp);
+        }
+        GalleryMotion.thumb(thumb, GalleryUi.dp(c, on ? 20 : 0)); // P498: the thumb slides on the spring
+    }
+
+    // ---------------------------------------------------------------- P498: the view options
+
+    public interface Picked {
+        void picked(int index);
+    }
+
+    /** A row of choice pills (one chosen, accent filled); a pick pops the chosen pill. */
+    static android.widget.HorizontalScrollView segmented(Context c, String[] labels, int chosen, Picked picked) {
+        android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(c);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        scroll.addView(row);
+        final int[] now = {chosen};
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            TextView chip = GalleryUi.chip(c, labels[i], -1, i == chosen);
+            com.particlesdevs.photoncamera.ui.Motion.press(chip);
+            chip.setOnClickListener(v -> {
+                if (now[0] == index) return;
+                now[0] = index;
+                for (int k = 0; k < row.getChildCount(); k++) restyle((TextView) row.getChildAt(k), k == index);
+                com.particlesdevs.photoncamera.ui.Motion.pop(v);
+                picked.picked(index);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = GalleryUi.dp(c, 8);
+            row.addView(chip, lp);
+        }
+        return scroll;
+    }
+
+    private static void restyle(TextView chip, boolean active) {
+        Context c = chip.getContext();
+        int accent = GalleryUi.accent(c);
+        chip.setTextColor(active ? GalleryUi.INK : GalleryUi.MUTED);
+        chip.setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        chip.setBackground(GalleryUi.pressable(GalleryUi.round(c, active ? accent : GalleryUi.CARD, active ? accent : GalleryUi.LINE, 999)));
+        chip.setSelected(active);
+    }
+
+    /**
+     * P498 (owner, 2026-11-04: «полноценная галерея», «отображать только фото / только видео / фото и видео»): «Вид галереи» - what
+     * kind of media, which file type, the order and the grid's columns. {@code changed} runs after every pick (the grid applies it).
+     */
+    public static LinearLayout viewOptions(Context c, Runnable changed) {
+        LinearLayout s = frame(c);
+        s.addView(title(c, Lang.t("Вид галереи", "Gallery view")));
+        s.addView(sub(c, Lang.t("Что показывать и в каком порядке. Колонки меняются и щипком по сетке.",
+                "What to show and in which order. Pinch the grid to change the columns too.")));
+        GalleryView.Media media = GalleryView.media(c);
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Показывать", "Show")));
+        s.addView(segmented(c, new String[]{Lang.t("Фото и видео", "Photos and videos"), Lang.t("Только фото", "Photos only"),
+                Lang.t("Только видео", "Videos only")}, media.ordinal(), i -> {
+            GalleryView.setMedia(c, GalleryView.Media.values()[i]);
+            changed.run();
+        }));
+        GalleryView.Type type = GalleryView.type(c);
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Тип файла", "File type")));
+        s.addView(segmented(c, new String[]{Lang.t("Все", "All"), "RAW", "JPEG", "HEIC", Lang.t("Видео", "Video")}, type.ordinal(), i -> {
+            GalleryView.setType(c, GalleryView.Type.values()[i]);
+            changed.run();
+        }));
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Порядок", "Order")));
+        s.addView(segmented(c, new String[]{Lang.t("Сначала новые", "Newest first"), Lang.t("Сначала старые", "Oldest first")},
+                GalleryView.oldestFirst(c) ? 1 : 0, i -> {
+                    GalleryView.setOldestFirst(c, i == 1);
+                    changed.run();
+                }));
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Колонки", "Columns")));
+        int min = GalleryView.MIN_COLUMNS, max = GalleryView.MAX_COLUMNS;
+        String[] cols = new String[max - min + 1];
+        for (int i = 0; i < cols.length; i++) cols[i] = String.valueOf(min + i);
+        s.addView(segmented(c, cols, GalleryView.columns(c) - min, i -> {
+            GalleryView.setColumns(c, min + i);
+            changed.run();
+        }));
+        return s;
+    }
+
+    /** One action of the viewer's «Ещё» sheet. */
+    public static final class Action {
+        @DrawableRes public final int icon;
+        public final String label;
+        public final Runnable run;
+
+        public Action(@DrawableRes int icon, String label, Runnable run) {
+            this.icon = icon;
+            this.label = label;
+            this.run = run;
+        }
+    }
+
+    /** P498: the viewer's «Ещё»: one card row per action (icon, label); a tap closes the sheet and runs it. */
+    public static void showActions(Context c, String heading, List<Action> actions) {
+        final BottomSheetDialog[] d = new BottomSheetDialog[1];
+        LinearLayout s = frame(c);
+        s.addView(title(c, heading));
+        LinearLayout rows = column(c);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = GalleryUi.dp(c, 10);
+        s.addView(rows, rp);
+        List<View> shown = new java.util.ArrayList<>();
+        for (Action a : actions) {
+            LinearLayout row = cardRow(c);
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setContentDescription(a.label);
+            row.addView(GalleryUi.icon(c, a.icon, GalleryUi.accent(c), 22));
+            TextView t = GalleryUi.text(c, a.label, 15, GalleryUi.TEXT);
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            tp.leftMargin = GalleryUi.dp(c, 12);
+            row.addView(t, tp);
+            com.particlesdevs.photoncamera.ui.Motion.press(row, .97f);
+            row.setOnClickListener(v -> {
+                if (d[0] != null) d[0].dismiss();
+                a.run.run();
+            });
+            rows.addView(row);
+            shown.add(row);
+        }
+        d[0] = show(c, s);
+        com.particlesdevs.photoncamera.ui.Motion.enter(shown, 60, 28);
     }
 
     // ---------------------------------------------------------------- details

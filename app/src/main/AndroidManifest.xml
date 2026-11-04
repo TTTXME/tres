@@ -26,6 +26,7 @@
     <!-- P92: photo processing keeps running behind the screen (a foreground service while a shot is processed) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     
     <!-- Removed MANAGE_EXTERNAL_STORAGE - now using Storage Access Framework (SAF)
@@ -389,6 +390,21 @@
         <activity android:name=".ui.settings.ScamActivity"
             android:exported="false" android:process=":scam"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- P499: the gallery's own video player (its own task, so it can float in picture-in-picture) -->
+        <activity
+            android:name="com.particlesdevs.photoncamera.gallery.video.VideoPlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Scamera.BaseApp"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.video"
+            android:autoRemoveFromRecents="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode" />
+        <service
+            android:name="com.particlesdevs.photoncamera.gallery.video.VideoPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <service
             android:name="com.particlesdevs.photoncamera.processing.ProcessingKeepAlive"
             android:exported="false"

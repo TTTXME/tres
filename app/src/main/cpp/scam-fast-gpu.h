@@ -4,6 +4,8 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl31.h>
+#include <cstdio>
+#include "scam-crash.h" // P500: the program being compiled is the crash site a driver crash names
 #ifdef __ANDROID__
 #include <android/hardware_buffer.h>
 #else
@@ -54,6 +56,7 @@ uniform highp sampler2D u_hl_final; // P497: the final mask (HALF, the short fra
 uniform highp sampler2D u_base_bayer; // P497: the base frame's Bayer quads (HALF, sensor units)
 uniform vec4 u_black;     // P497: its black level per quad channel
 uniform float u_white;    // P497: its white level
+uniform float u_moire;   // P497: Quad colour moire suppression (0 = off)
 uniform int u_fill;       // P497: > 0 = the reach (OUT px) of the hole fill below (short frames merged), 0 = off
 layout(std430,binding=0) writeonly buffer Rgb{uint rgb[];};
 layout(std430,binding=1) writeonly buffer Flags{uint flags[];};
@@ -109,6 +112,65 @@ vec4 fill(ivec2 p,bool cross){ // cross: through structures (the fallback when n
     }
     return vec4(wsum>0.0?sum/wsum:vec3(0.0),wsum);
 }
+// P497 (owner, 2026-11-04, a 50 MP Quad shot: «муар на шторах», purple outlines, lavender speaker grilles): a 2 x 2 Quad samples
+// colour every 4 px, so a fine neutral mesh (lace, a grille) gets per-pixel false colour (chroma sd 0.046 there vs 0.025 on the
+// flat wall); the post's chroma denoise gathers it into purple / green blotches. In a textured (luma HF), near-neutral (local mean
+// colour) spot the pixel takes the local mean colour at its own luma; a coloured edge (red print) keeps its colour
+// P497 (owner, 2026-11-04: «сетка» on 2x ISZ from the wide and main cameras, the cage in a 50 MP Quad shot): a 2 x 2 Quad leaves a
+// period-4 luma pattern - its pixel response inside a block (QPC, +-15 % at the frame's edge raw, +-0.8 % left on a flat wall
+// after the merge) and its colour phase along a thin line (a horizontal bar: beads every 4 px, 3 - 5 %). Along a line the period
+// 4 is notched in the line's direction only ([1 2 2 2 1] / 8 there, the cross direction keeps its sharpness); on flat ground in
+// both; texture without one direction (print, diagonals) is left alone. The pixel's colour ratio is kept
+float lumaAt(ivec2 p, ivec2 lo, ivec2 hi) { return dot(at(clamp(p, lo, hi)), vec3(0.25, 0.5, 0.25)); }
+vec3 deGrid(ivec2 p, vec3 v) {
+    ivec2 lo = ivec2(0, u_acc_row0), hi = ivec2(u_size.x - 1, u_acc_row0 + textureSize(u_accum_color_r, 0).y - 1);
+    float y0 = dot(v, vec3(0.25, 0.5, 0.25));
+    if (y0 <= 1.0e-5) return v;
+    float xm2 = lumaAt(p + ivec2(-2, 0), lo, hi), xm1 = lumaAt(p + ivec2(-1, 0), lo, hi), xp1 = lumaAt(p + ivec2(1, 0), lo, hi), xp2 = lumaAt(p + ivec2(2, 0), lo, hi);
+    float ym2 = lumaAt(p + ivec2(0, -2), lo, hi), ym1 = lumaAt(p + ivec2(0, -1), lo, hi), yp1 = lumaAt(p + ivec2(0, 1), lo, hi), yp2 = lumaAt(p + ivec2(0, 2), lo, hi);
+    float nx = (xm2 + 2.0 * (xm1 + y0 + xp1) + xp2) / 8.0; // the period-4 notch along x
+    float ny = (ym2 + 2.0 * (ym1 + y0 + yp1) + yp2) / 8.0; // along y
+    // structure: the change across (a horizontal line changes along y), over 4 px so the period 4 itself does not count
+    float gx = abs(xp2 - xm2) + 0.5 * abs(lumaAt(p + ivec2(2, 1), lo, hi) - lumaAt(p + ivec2(-2, 1), lo, hi)) + 0.5 * abs(lumaAt(p + ivec2(2, -1), lo, hi) - lumaAt(p + ivec2(-2, -1), lo, hi));
+    float gy = abs(yp2 - ym2) + 0.5 * abs(lumaAt(p + ivec2(1, 2), lo, hi) - lumaAt(p + ivec2(1, -2), lo, hi)) + 0.5 * abs(lumaAt(p + ivec2(-1, 2), lo, hi) - lumaAt(p + ivec2(-1, -2), lo, hi));
+    float rel = (gx + gy) / (4.0 * y0);
+    float flatK = 1.0 - smoothstep(0.04, 0.10, rel); // a single 50 MP frame's noise alone reaches ~0.04
+    float hline = smoothstep(1.5, 3.0, gy / max(gx, 1.0e-5 * y0)) * (1.0 - flatK); // a horizontal line: notch along x
+    float vline = smoothstep(1.5, 3.0, gx / max(gy, 1.0e-5 * y0)) * (1.0 - flatK);
+    float yt = y0;
+    yt = mix(yt, nx, hline);
+    yt = mix(yt, ny, vline);
+    yt = mix(yt, 0.5 * (nx + ny), flatK);
+    return v * (yt / y0);
+}
+vec3 antiMoire(ivec2 p, vec3 v) {
+    ivec2 lo = ivec2(0, u_acc_row0), hi = ivec2(u_size.x - 1, u_acc_row0 + textureSize(u_accum_color_r, 0).y - 1);
+    vec3 wbg = 1.0 / u_inv_wb;
+    const vec3 L = vec3(0.25, 0.5, 0.25);
+    vec3 s = vec3(0.0);
+    float ys[9];
+    float ysum = 0.0;
+    int i = 0;
+    for (int dy = -2; dy <= 2; dy += 2) for (int dx = -2; dx <= 2; dx += 2) {
+        vec3 u = at(clamp(p + ivec2(dx, dy), lo, hi)) * wbg;
+        s += u;
+        float y = dot(u, L);
+        ys[i++] = y;
+        ysum += y;
+    }
+    vec3 m = s / 9.0;
+    float ym = ysum / 9.0;
+    float hf = 0.0;
+    for (int j = 0; j < 9; ++j) hf += abs(ys[j] - ym);
+    hf /= 9.0 * max(ym, 1.0e-4);
+    float mx = max(m.r, max(m.g, m.b)), mn = min(m.r, min(m.g, m.b));
+    float msat = (mx - mn) / max(mx, 1.0e-4);
+    float a = u_moire * smoothstep(0.02, 0.05, hf) * (1.0 - smoothstep(0.15, 0.3, msat)); // lace hf ~0.05, the wall 0.02; lace colour ~0.08-0.15
+    if (a <= 0.0) return v;
+    vec3 vw = v * wbg;
+    vec3 target = m * (dot(vw, L) / max(dot(m, L), 1.0e-6));
+    return mix(vw, target, a) / wbg;
+}
 void main(){
     int q=int(gl_GlobalInvocationID.x);
     int yb=int(gl_GlobalInvocationID.y);
@@ -128,6 +190,7 @@ void main(){
             // a wire (SCA_20261104_073312, its top left corner) stayed the base's pink clip
             if(a>0.0){vec4 fv=fill(p,false);if(fv.a<=0.0)fv=fill(p,true);if(fv.a>0.0)v=mix(v,fv.rgb,a);}
         }
+        if(u_moire>0.0)v=deGrid(p,antiMoire(p,v));
         c[k]=v;
         float cf=b.z/max(b.w,1.0e-6);
         uint f=0u;
@@ -236,6 +299,8 @@ public:
         }catch(...){cleanup();throw;}
         initMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
     }
+    /** P500: lines for the worker's report (a shader that needed its plain variant), taken by the merge. */
+    std::vector<std::string> notes;
     FastMergeGpu(const FastMergeGpu&)=delete;
     FastMergeGpu& operator=(const FastMergeGpu&)=delete;
     ~FastMergeGpu(){cleanup();}
@@ -527,13 +592,55 @@ private:
         std::sort(files.begin(),files.end());
         for(size_t i=0;i+keep<files.size();++i)std::remove(files[i].second.c_str());
     }
-    GLuint shader(GLenum type,const char* src){
+    GLuint tryShader(GLenum type,const char* src,std::string& log){
         GLuint s=glCreateShader(type);
-        glShaderSource(s,1,&src,nullptr);glCompileShader(s);
+        glShaderSource(s,1,&src,nullptr);
+        // P500 (vivo X200 Pro, Mali-G925, Android 17: the driver's compiler died on the fast route's programs, the crash said
+        // «EGL warm-up» and the app took the GPU for unusable - every shot one frame): the crash report names the fast route, so
+        // the app leaves only the fast route out (fastMerge 0) and the shot merges on the classic route
+        static thread_local char stage[128];
+        std::snprintf(stage,sizeof(stage),"GPU compile fast: %.100s",shaderIdentity(src).c_str());
+        const char* const previous=worker_crash::threadStage();
+        worker_crash::mark(stage);
+        glCompileShader(s);
+        worker_crash::setThreadStage(previous);
         GLint ok=0;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);
-        if(!ok){char msg[2048]{};glGetShaderInfoLog(s,sizeof(msg),nullptr,msg);glDeleteShader(s);throw std::runtime_error(std::string("FAST MERGE GPU shader: ")+msg);}
-        return s;
+        if(ok)return s;
+        char msg[2048]{};glGetShaderInfoLog(s,sizeof(msg),nullptr,msg);glDeleteShader(s);
+        log=msg;
+        return 0;
     }
+    /** P500: the first declaration lines of a shader that would not compile (the driver's log may say only «Compile failed.»). */
+    static std::string shaderIdentity(const char* src){
+        std::string out;
+        const std::string s(src);
+        size_t at=0;
+        for(int lines=0;at<s.size()&&lines<4;){
+            size_t end=s.find('\n',at);if(end==std::string::npos)end=s.size();
+            const std::string line=s.substr(at,end-at);at=end+1;
+            if(line.empty()||line[0]=='#'||line.rfind("precision",0)==0||line.rfind("//",0)==0)continue;
+            out+=(out.empty()?"":" | ")+line.substr(0,90);++lines;
+        }
+        return out;
+    }
+    GLuint shader(GLenum type,const char* src){
+        std::string log;
+        if(GLuint s=tryShader(type,src,log))return s;
+        // P500 (Pixel 10 Pro XL, PowerVR D-Series: «FAST MERGE GPU shader: Compile failed.», the fast merge never ran there): the
+        // optional GL_EXT_gpu_shader5 line (textureGather with a constant component is core ES 3.1) is left out and it is tried
+        // again; the line becomes an empty one so the driver's line numbers still match
+        std::string plain(src);
+        const std::string ext="#extension GL_EXT_gpu_shader5 : enable";
+        bool changed=false;
+        for(size_t at=plain.find(ext);at!=std::string::npos;at=plain.find(ext,at)){plain.replace(at,ext.size(),"");changed=true;}
+        std::string second;
+        if(changed)if(GLuint s=tryShader(type,plain.c_str(),second)){
+            notes.push_back("FAST MERGE GPU shader: compiled without GL_EXT_gpu_shader5 ("+shaderIdentity(src)+")");
+            return s;
+        }
+        throw std::runtime_error("FAST MERGE GPU shader: "+log+(changed?" / without GL_EXT_gpu_shader5: "+second:"")+" ["+shaderIdentity(src)+"]");
+    }
+
     GLuint link(std::initializer_list<std::pair<GLenum,const char*>> stages){
         std::string all;for(const auto& st:stages){all+=st.second;all+='\x01';}
         const std::string file=cacheFile(all);

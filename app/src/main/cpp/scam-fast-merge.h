@@ -442,6 +442,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     if(held){try{held->acquire();}catch(const std::exception& e){held.reset();prewarmed=false;prewarmWhy=e.what();}}
     if(!held)held=std::make_unique<FastMergeGpu>(hybridProgramCacheDir());
     FastMergeGpu& g=*held;
+    for(const std::string& n:g.notes)report(n); // P500
+    g.notes.clear();
     struct Release{std::unique_ptr<FastMergeGpu>& g;~Release(){
         if(!g)return;
         // the merge's textures and the context go on a helper thread (joined at the exit); a refused thread destroys them here
@@ -735,7 +737,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // Quad (§4.1): the base's QPC zonal gain from its unpacked quads (sh039 -> sh025, once), then every frame's hot pixels with the
     // quad step and the QPC map (sh093) from bayerTmp into `to`
     bool qpcMade=false;
-    auto quadHotPixels=[&](GLuint to){
+    auto quadHotPixels=[&](GLuint to,int row0=0,int row1=-1){ // P497: rows [row0, row1) only (a row strip; -1 = to the end)
         using A=FastMergeGpu;
         if(!qpcMade){
             g.tex(A::pQpcEstimate,"u_extracted_bayer",0,bayerTmp);glBindImageTexture(1,qpcRaw,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
@@ -748,7 +750,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         }
         g.tex(A::pHotPixel,"u_input_extracted",0,bayerTmp);g.tex(A::pHotPixel,"u_qpc_map",2,qpcMap);
         glBindImageTexture(1,to,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
-        g.dispatch(A::pHotPixel,(w2+15)/16,(h2+15)/16);
+        const int r1=row1<0?h2:row1;g.u1i(A::pHotPixel,"u_row0",row0);
+        g.dispatch(A::pHotPixel,(w2+15)/16,(r1-row0+15)/16);
+        g.u1i(A::pHotPixel,"u_row0",0);
         glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     };
     auto frontEnd=[&](const uint16_t* r,GLuint bayer,GLuint fGuide,GLuint guide,GLuint* pyr,GLuint* fPyr,const uint16_t* next,
@@ -994,7 +998,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.tex(A::pHlValidate,"u_flow_tex",3,sf.flow);g.tex(A::pHlValidate,"u_prev_valid_accum",4,hlAccum);
             g.u4f(A::pHlValidate,"u_flow_scale_offset",sfx,sfy,0.f,0.f);g.u4f(A::pHlValidate,"u_black_level",blackSensor);
             g.u1f(A::pHlValidate,"u_white_level",input.white);g.u1f(A::pHlValidate,"u_ev_scale",lf.ev);
-            g.u1i(A::pHlValidate,"u_is_first_short",shortsDone==0);g.u1f(A::pHlValidate,"u_err_thresh",0.8f);
+            g.u1i(A::pHlValidate,"u_is_first_short",shortsDone==0);g.u1f(A::pHlValidate,"u_err_thresh",0.8f);g.u3f(A::pHlValidate,"u_wb",wb[0],wb[1],wb[2]);
             g.draw(A::pHlValidate,fHlValid,w2,h2,1);
             // quarantine blocks (sh100) and the safety gate (sh018, sums read back): rejected when the homography failed (inliers
             // < 65 % or a shift > 15 px), motion (invalid / mask) > 0.35 or clip (clipped / mask) > 0.35; then every short frame is off
@@ -1174,7 +1178,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         bEff=g.readBuffer(size_t(w2)*h2*4);
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         g.u2i(A::pOutput,"u_size",W,H);g.u2i(A::pOutput,"u_half",w2,h2);
-        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.u1f(A::pOutput,"u_moire",quad&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,H-y0);
@@ -1307,11 +1311,15 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u1i(A::pUnpackBuf,"u_row0q",0);
         ringFence[slot]=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
         glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-        if(quad)quadHotPixels(unpackTo?unpackTo:bayer); // (over the frame: only the window's rows are read later)
-        if(unpackTo){ // a short frame: sh011 over the whole frame (only its unpacked rows are read later)
+        // P497: over the unpacked rows only (50 MP Quad, 5 strips: the whole frame's passes per strip were most of phase B; the rows
+        // outside were stale data nobody read)
+        if(quad)quadHotPixels(unpackTo?unpackTo:bayer,qa,qb);
+        if(unpackTo){ // a short frame: sh011 over its unpacked rows
             g.tex(A::pShortRecover,"u_input_extracted",0,unpackTo);
             glBindImageTexture(1,bayer,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
-            g.dispatch(A::pShortRecover,(w2+15)/16,(h2+15)/16);
+            g.u1i(A::pShortRecover,"u_row0",qa);
+            g.dispatch(A::pShortRecover,(w2+15)/16,(qb-qa+15)/16);
+            g.u1i(A::pShortRecover,"u_row0",0);
             glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
         std::array<float,4> gs,bs,gc,bc,cap;frameGains(ev,gs,bs,gc,bc);
@@ -1329,7 +1337,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint bRgbS=g.readBuffer(size_t(W)*stripRows*6),bFlagsS=g.readBuffer(size_t(W)*stripRows);
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
     g.u2i(A::pOutput,"u_size",W,H);g.u2i(A::pOutput,"u_half",w2,h2);
-    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1i(A::pOutput,"u_fill",validShorts>0?holeFill:0);g.u1f(A::pOutput,"u_moire",quad&&!std::getenv("SCAM_FM_NO_MOIRE")?1.f:0.f);g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
     out=outAlloc.get();
     if(clipFlags)clipFlags->assign(size_t(W)*H,0);
     streamed=streamWanted&&halvesHook;bool streamTook=false;

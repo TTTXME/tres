@@ -134,7 +134,7 @@ public class GalleryUiTest {
             adapter.onBindViewHolder(h, pos);
             List<Integer> b = badges(h);
             assertEquals(items.get(i).getFile().getDisplayName(), (Integer) expected[i], b.get(0));
-            assertEquals("Ultra HDR badge of " + items.get(i).getFile().getDisplayName(), i == 3, b.contains(R.drawable.ic_gallery_uhdr));
+            assertEquals("Ultra HDR badge of " + items.get(i).getFile().getDisplayName(), i == 3, b.contains(R.drawable.ui_ic_sun));
             assertTrue(h.itemView.getContentDescription().toString().length() > 0);
         }
         // the day header carries the count
@@ -258,6 +258,8 @@ public class GalleryUiTest {
         assertEquals("Вчера", GalleryUi.dayLabel(now - 24L * 3600 * 1000, now));
         assertFalse(GalleryUi.dayLabel(now - 40L * 24 * 3600 * 1000, now).isEmpty());
         assertEquals("5 фото", GalleryUi.dayCount(5));
+        assertEquals("3 фото · 1 видео", GalleryUi.dayCount(3, 1));
+        assertEquals("2 видео", GalleryUi.dayCount(0, 2));
     }
 
     /** Renders the screens into build/reports/gallery for review (no assertions beyond drawing). */
@@ -270,8 +272,8 @@ public class GalleryUiTest {
         LinearLayout col = new LinearLayout(context);
         col.setOrientation(LinearLayout.VERTICAL);
         lib.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        col.addView(GalleryUi.header(context, "Галерея", GalleryUi.squareButton(context, R.drawable.ic_gallery_camera, "К камере", v -> {}),
-                GalleryUi.squareButton(context, R.drawable.ic_gallery_folders, "Папки", v -> {})));
+        col.addView(GalleryUi.header(context, "Галерея", GalleryUi.squareButton(context, R.drawable.ui_ic_camera, "К камере", v -> {}),
+                GalleryUi.squareButton(context, R.drawable.ui_ic_folders, "Папки", v -> {})));
         LinearLayout chips = new LinearLayout(context);
         chips.setPadding(dp(16), dp(4), dp(16), dp(10));
         chips.addView(GalleryUi.chip(context, "Все", 128, true));

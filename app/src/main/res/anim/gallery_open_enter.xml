@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P498: the viewer opens out of the tapped thumbnail (ImageViewerFragment scales it from the cell; this is the plain fallback). -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+        android:duration="340"
+        android:interpolator="@interpolator/motion_sheet"
+        android:zAdjustment="top">
+    <scale android:fromXScale="0.9" android:toXScale="1" android:fromYScale="0.9" android:toYScale="1"
+            android:pivotX="50%" android:pivotY="50%" />
+    <alpha android:fromAlpha="0" android:toAlpha="1" />
+</set>

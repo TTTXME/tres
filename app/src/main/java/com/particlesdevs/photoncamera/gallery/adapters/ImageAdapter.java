@@ -480,7 +480,8 @@ public class ImageAdapter extends PagerAdapter {
             return;
         }
         GalleryItem galleryItem = galleryItemList.get(position);
-        if (FileUtils.getExtension(galleryItem.getFile().getDisplayName()).equalsIgnoreCase("dng")) {
+        if (FileUtils.getExtension(galleryItem.getFile().getDisplayName()).equalsIgnoreCase("dng")
+                || com.particlesdevs.photoncamera.gallery.files.GalleryVideo.isVideo(galleryItem.getFile())) { // P498: a video's poster frame
             colour[position] = 1 + UltraHdrGalleryUtil.COLOUR_SRGB;
             return;
         }

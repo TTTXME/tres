@@ -43,6 +43,7 @@ public class GalleryActivity extends BaseActivity {
     @SuppressWarnings("deprecation")
     @Override
     public void finish() {
+        GalleryUndo.flush(); // P498: a delete still waiting for «Вернуть» is done before the camera is back
         super.finish();
         if (!externalUsage) overridePendingTransition(R.anim.motion_pop_enter, R.anim.motion_pop_exit);
     }

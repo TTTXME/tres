@@ -88,8 +88,8 @@ public class ImageCompareFragment extends Fragment {
         LinearLayout column = new LinearLayout(c);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setBackgroundColor(0xFF000000);
-        View back = GalleryUi.squareButton(c, R.drawable.ic_gallery_back, Lang.t("Назад", "Back"), v -> NavHostFragment.findNavController(this).navigateUp());
-        View swap = GalleryUi.squareButton(c, R.drawable.ic_gallery_swap, Lang.t("Поменять местами", "Swap"), v -> swap());
+        View back = GalleryUi.squareButton(c, R.drawable.ui_ic_back, Lang.t("Назад", "Back"), v -> NavHostFragment.findNavController(this).navigateUp());
+        View swap = GalleryUi.squareButton(c, R.drawable.ui_ic_swap, Lang.t("Поменять местами", "Swap"), v -> swap());
         header = GalleryUi.header(c, Lang.t("Сравнение", "Compare"), back, swap);
         header.setBackgroundColor(GalleryUi.BG);
         column.addView(header);
@@ -117,7 +117,7 @@ public class ImageCompareFragment extends Fragment {
         cbar.setBackgroundColor(GalleryUi.BG);
         cbar.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 8), GalleryUi.dp(c, 12), GalleryUi.dp(c, 12));
         cbar.addView(syncCard(c), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        View share = GalleryUi.squareButton(c, R.drawable.ic_gallery_share, Lang.t("Поделиться сравнением", "Share the comparison"), v -> onShareClick());
+        View share = GalleryUi.squareButton(c, R.drawable.ui_ic_share, Lang.t("Поделиться сравнением", "Share the comparison"), v -> onShareClick());
         share.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 18)));
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 48), GalleryUi.dp(c, 48));
         sp.leftMargin = GalleryUi.dp(c, 8);
@@ -136,7 +136,7 @@ public class ImageCompareFragment extends Fragment {
         card.setMinimumHeight(GalleryUi.dp(c, 48));
         card.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 18)));
         card.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 10), GalleryUi.dp(c, 14), GalleryUi.dp(c, 10));
-        card.addView(GalleryUi.icon(c, R.drawable.ic_gallery_link, GalleryUi.accent(c), 22));
+        card.addView(GalleryUi.icon(c, R.drawable.ui_ic_link, GalleryUi.accent(c), 22));
         TextView t = GalleryUi.fitText(c, Lang.t("Зум и сдвиг вместе", "Zoom and pan together"), 14, GalleryUi.TEXT);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         tp.leftMargin = tp.rightMargin = GalleryUi.dp(c, 10);

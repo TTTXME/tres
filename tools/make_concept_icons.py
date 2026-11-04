@@ -84,6 +84,45 @@ ICONS = {
     'detail': '<path d="M12 3.5 21 19.5H3z"/>',
     'effects': '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="12" cy="12" r="4.5"/>',
     'styles': '<rect x="4" y="7" width="13" height="13" rx="2.5"/><path d="M8 4h9.5A2.5 2.5 0 0 1 20 6.5V16"/>',
+    # P498 (owner, 2026-11-04: «переделай иконки в новом стиле нашей шторки»): the gallery's glyphs in the shade's line style
+    'heart': '<path d="M12 19.5s-7.5-4.4-7.5-9.7A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6c0 5.3-7.5 9.7-7.5 9.7z"/>',
+    'heart_on': '<path d="M12 19.5s-7.5-4.4-7.5-9.7A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6c0 5.3-7.5 9.7-7.5 9.7z" fill="1"/>',
+    'folders': '<path d="M7.5 8V6a1.5 1.5 0 0 1 1.5-1.5h3.3l1.7 2h5A1.5 1.5 0 0 1 20.5 8v6.5A1.5 1.5 0 0 1 19 16h-1.5"/>'
+               '<path d="M3.5 10.5A1.5 1.5 0 0 1 5 9h3.5l1.7 2H15a1.5 1.5 0 0 1 1.5 1.5V18A1.5 1.5 0 0 1 15 19.5H5A1.5 1.5 0 0 1 3.5 18z"/>',
+    'check': '<path d="m5.5 12.5 4 4L18.5 7.5" stroke-width="2.6"/>',
+    'swap': '<path d="M7.5 4 4 7.5 7.5 11M4 7.5h12.5M16.5 13l3.5 3.5-3.5 3.5M20 16.5H7.5"/>',
+    'link': '<path d="M10.5 13.5a3.8 3.8 0 0 0 5.4 0l2.8-2.8a3.8 3.8 0 0 0-5.4-5.4l-.9.9"/>'
+            '<path d="M13.5 10.5a3.8 3.8 0 0 0-5.4 0l-2.8 2.8a3.8 3.8 0 0 0 5.4 5.4l.9-.9"/>',
+    'sort': '<path d="M7.5 4.5v15M4 16l3.5 3.5L11 16M13.5 6.5h6.5M13.5 11h5M13.5 15.5h3.5"/>',
+    'filter': '<path d="M4 5.5h16l-6.2 7.4v5.4l-3.6 1.7v-7.1z"/>',
+    'play': '<path d="M8 5.5v13l10.5-6.5z"/>',
+    'pause': '<path d="M8.5 5.5v13M15.5 5.5v13"/>',
+    'wallpaper': '<rect x="6" y="2.5" width="12" height="19" rx="2.6"/><path d="m6.5 16.5 3.4-3.4 2.6 2.6 1.6-1.6 3.4 3.4"/>'
+                 '<circle cx="14.4" cy="8.3" r="1.4"/>',
+    'open': '<path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+    'select_all': '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="m8 12.3 2.8 2.8L16 9.6"/>',
+    'columns': '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/>'
+               '<rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
+    'calendar': '<rect x="3.5" y="5" width="17" height="15.5" rx="2.8"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    # P499: the video player
+    'repeat': '<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/>',
+    'repeat_one': '<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/>'
+                  '<path d="M11 10.5l1.5-1v5"/>',
+    'screenshot': '<path d="M3.5 8V6a2.5 2.5 0 0 1 2.5-2.5h2M16 3.5h2A2.5 2.5 0 0 1 20.5 6v2M20.5 16v2a2.5 2.5 0 0 1-2.5 2.5h-2M8 20.5H6'
+                  'A2.5 2.5 0 0 1 3.5 18v-2"/><path d="M7.5 10a1.5 1.5 0 0 1 1.5-1.5h1l1-1.5h2l1 1.5h1a1.5 1.5 0 0 1 1.5 1.5v4.5'
+                  'a1.5 1.5 0 0 1-1.5 1.5h-6a1.5 1.5 0 0 1-1.5-1.5z"/><circle cx="12" cy="12" r="1.8"/>',
+    'headphones': '<path d="M4 18v-5a8 8 0 0 1 16 0v5"/><rect x="3.5" y="13.5" width="4.5" height="7" rx="1.8"/>'
+                  '<rect x="16" y="13.5" width="4.5" height="7" rx="1.8"/>',
+    'music': '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+    'subtitles': '<rect x="2.5" y="4.5" width="19" height="15" rx="3"/><path d="M6.5 12.5h4M13 12.5h4.5M6.5 15.5h7M15.5 15.5h2"/>',
+    'prev': '<path d="M6 5v14"/><path d="M19 5.5v13L9 12z"/>',
+    'next': '<path d="M18 5v14"/><path d="M5 5.5v13L15 12z"/>',
+    'pip': '<rect x="2.5" y="4.5" width="19" height="15" rx="2.6"/><rect x="12" y="12" width="7" height="5" rx="1.2"/>',
+    'unlock': '<rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 7.7-1.5"/>',
+    'moon': '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
+    'mute': '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/>',
+    'minus': '<path d="M5 12h14"/>',
+    'pause_bars': '<path d="M8.5 5v14M15.5 5v14"/>',
 }
 
 NAMES = {
@@ -117,6 +156,8 @@ def elements(svg):
     for tag, attrs in re.findall(r'<(\w+)\s+([^>]*?)/>', svg):
         a = dict(re.findall(r'([\w-]+)="([^"]*)"', attrs))
         width = a.get('stroke-width', '1.8')
+        if a.get('fill') == '1':  # P498: a filled glyph (an «on» state, as the heart of a favourite)
+            width = 'fill'
         if tag == 'path':
             yield a['d'], width
         elif tag == 'circle':
@@ -137,11 +178,12 @@ def vector(name, svg):
            '    android:viewportWidth="24"',
            '    android:viewportHeight="24">']
     for d, w in elements(svg):
+        filled = w == 'fill'
         out += ['    <path',
                 '        android:pathData="%s"' % d,
-                '        android:fillColor="#00000000"',
+                '        android:fillColor="%s"' % ('#FFFFFFFF' if filled else '#00000000'),
                 '        android:strokeColor="#FFFFFFFF"',
-                '        android:strokeWidth="%s"' % w,
+                '        android:strokeWidth="%s"' % ('1.8' if filled else w),
                 '        android:strokeLineCap="round"',
                 '        android:strokeLineJoin="round" />']
     out.append('</vector>')

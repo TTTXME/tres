@@ -5,6 +5,8 @@
             android:id="@+id/gallery_nav"
             app:startDestination="@id/imageViewerFragment">
 
+    <!-- P498: the photo opens out of its thumbnail and folds back into it (gallery_open / gallery_close); the editor, compare and
+         settings come in as iOS pushes (motion_push / motion_pop). The old slide_* waited 500 ms before every move. -->
     <fragment
             android:id="@+id/imageViewerFragment"
             android:name="com.particlesdevs.photoncamera.gallery.ui.fragments.ImageViewerFragment"
@@ -12,32 +14,32 @@
         <action
                 android:id="@+id/action_imageViewFragment_to_imageLibraryFragment"
                 app:destination="@id/imageLibraryFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit" />
+                app:enterAnim="@anim/gallery_close_enter"
+                app:exitAnim="@anim/gallery_close_exit"
+                app:popEnterAnim="@anim/gallery_open_enter"
+                app:popExitAnim="@anim/gallery_open_exit" />
         <action
                 android:id="@+id/action_imageViewerFragment_to_imageCompareFragment"
                 app:destination="@id/imageCompareFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit" />
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
         <action
                 android:id="@+id/action_imageViewerFragment_to_gallerySettingsFragment"
                 app:destination="@id/gallerySettingsFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit"/>
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
         <!-- P351: the photo editor -->
         <action
                 android:id="@+id/action_imageViewerFragment_to_photoEditorFragment"
                 app:destination="@id/photoEditorFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit"/>
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
     </fragment>
     <fragment
             android:id="@+id/photoEditorFragment"
@@ -50,25 +52,25 @@
         <action
                 android:id="@+id/action_imageLibraryFragment_to_imageViewerFragment"
                 app:destination="@id/imageViewerFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit">
+                app:enterAnim="@anim/gallery_open_enter"
+                app:exitAnim="@anim/gallery_open_exit"
+                app:popEnterAnim="@anim/gallery_close_enter"
+                app:popExitAnim="@anim/gallery_close_exit" >
         </action>
         <action
                 android:id="@+id/action_imageLibraryFragment_to_imageCompareFragment"
                 app:destination="@id/imageCompareFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit"/>
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
         <action
                 android:id="@+id/action_imageLibraryFragment_to_gallerySettingsFragment"
                 app:destination="@id/gallerySettingsFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit"/>
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
 
     </fragment>
     <fragment
@@ -78,10 +80,10 @@
         <action
                 android:id="@+id/action_imageCompareFragment_to_imageLibraryFragment"
                 app:destination="@id/imageLibraryFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit"/>
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
     </fragment>
 
     <fragment
@@ -91,9 +93,9 @@
         <action
                 android:id="@+id/action_gallerySettingsFragment_to_imageLibraryFragment"
                 app:destination="@id/imageLibraryFragment"
-                app:enterAnim="@anim/slide_up_enter"
-                app:exitAnim="@anim/slide_up_exit"
-                app:popEnterAnim="@anim/slide_down_enter"
-                app:popExitAnim="@anim/slide_down_exit"/>
+                app:enterAnim="@anim/motion_push_enter"
+                app:exitAnim="@anim/motion_push_exit"
+                app:popEnterAnim="@anim/motion_pop_enter"
+                app:popExitAnim="@anim/motion_pop_exit" />
     </fragment>
 </navigation>

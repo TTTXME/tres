@@ -96,6 +96,7 @@ public final class GalleryUi {
         ImageView i = icon(c, res, accent(c), 22);
         b.addView(i, new FrameLayout.LayoutParams(dp(c, 22), dp(c, 22), Gravity.CENTER));
         b.setLayoutParams(new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44)));
+        com.particlesdevs.photoncamera.ui.Motion.press(b); // P498: gives under the finger as the shade's controls
         return b;
     }
 
@@ -166,6 +167,40 @@ public final class GalleryUi {
         return t;
     }
 
+    /** P498: the header with several discs at the right (8dp apart). */
+    public static FrameLayout header(Context c, String title, View left, View... rights) {
+        if (rights.length <= 1) return header(c, title, left, rights.length == 1 ? rights[0] : null);
+        LinearLayout group = new LinearLayout(c);
+        group.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < rights.length; i++) {
+            disc(rights[i]);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44));
+            if (i > 0) lp.leftMargin = dp(c, 8);
+            group.addView(rights[i], lp);
+        }
+        FrameLayout h = header(c, title, left, (View) null);
+        LinearLayout row = (LinearLayout) h.getChildAt(0);
+        row.addView(group, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(c, 44)));
+        return h;
+    }
+
+    /** P498: the MIME type for sharing a set of files: the common one, else image/ or video/ any, else any for a mix. */
+    public static String shareType(java.util.List<String> names) {
+        String common = null;
+        boolean video = false, image = false;
+        for (String n : names) {
+            String m = com.particlesdevs.photoncamera.gallery.files.GalleryVideo.isVideoName(n)
+                    ? com.particlesdevs.photoncamera.gallery.files.GalleryVideo.mime(n)
+                    : com.particlesdevs.photoncamera.gallery.editor.ExternalEdit.mediaTypeOf(n);
+            if (m == null) m = "image/*";
+            if (m.startsWith("video/")) video = true;
+            else image = true;
+            common = common == null ? m : common.equals(m) ? common : "";
+        }
+        if (common != null && !common.isEmpty()) return common;
+        return video && image ? "*/*" : video ? "video/*" : "image/*";
+    }
+
     /** The header of the gallery screens: «SCAMERA» eyebrow, the title, a 44dp card button on each side. */
     public static FrameLayout header(Context c, String title, View left, @Nullable View right) {
         // SIMPLE_UI §5 (the concept's .ghead): the left disc, the title on the left (22sp, 600), the right disc
@@ -223,6 +258,13 @@ public final class GalleryUi {
     /** The day section's count «N фото» / "N photos". */
     public static String dayCount(int n) {
         return Lang.t(n + " фото", n + (n == 1 ? " photo" : " photos"));
+    }
+
+    /** P498: a day with videos: «3 фото · 1 видео», «2 видео». */
+    public static String dayCount(int photos, int videos) {
+        if (videos <= 0) return dayCount(photos);
+        String v = Lang.t(videos + " видео", videos + (videos == 1 ? " video" : " videos"));
+        return photos > 0 ? dayCount(photos) + " · " + v : v;
     }
 
     /** Russian plural form of {@code n}: 0 one (1, 21), 1 few (2..4, 22..24), 2 many (0, 5..20, 11..14). */

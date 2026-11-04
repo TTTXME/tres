@@ -307,6 +307,7 @@ public class GalleryFileOperations {
             cursor.close();
         }
         appendOtherRawFiles(contentResolver);
+        appendVideos(contentResolver);
         //find latest image:
         ALL_FOLDERS.forEach(imagesFolder -> {
             imagesFolder.getAllImageFiles().sort(Comparator.comparingLong(value -> -value.getLastModified()));
@@ -314,6 +315,40 @@ public class GalleryFileOperations {
         });
         ALL_FOLDERS.sort(Comparator.comparing(o -> o.folderName));
         return ALL_FOLDERS;
+    }
+
+    /**
+     * P498 (owner, 2026-11-04: «Наша галерея ещё не умеет в видео, добавь поддержку воспроизведения и обнаружения»): the videos of
+     * MediaStore's video collection, into the folders of their bucket (a camera's videos sit beside its photos), their length kept
+     * (GalleryVideo). Without the video permission the query sees only this app's own videos, or none.
+     */
+    static void appendVideos(@NonNull ContentResolver resolver) {
+        String[] projection = {MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DATE_ADDED,
+                MediaStore.Video.Media.SIZE, MediaStore.MediaColumns.DATA, MediaStore.Video.Media.BUCKET_ID,
+                MediaStore.Video.Media.BUCKET_DISPLAY_NAME, MediaStore.Video.Media.DURATION};
+        try (Cursor c = resolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, projection, null, null, null)) {
+            if (c == null) return;
+            while (c.moveToNext()) {
+                long id = c.getLong(0);
+                String bucket = c.getString(6);
+                if (bucket == null) continue;
+                ImageFile file = new ImageFile(id, ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id), c.getString(1),
+                        TimeUnit.SECONDS.toMillis(c.getLong(2)), c.getLong(3), c.getString(4));
+                GalleryVideo.remember(id, c.getLong(7));
+                ImagesFolder folder = null;
+                for (ImagesFolder f : ALL_FOLDERS) if (bucket.equals(f.getFolderName())) folder = f;
+                if (folder == null) {
+                    folder = new ImagesFolder();
+                    folder.setFolderName(bucket);
+                    folder.setFolderId(c.getLong(5));
+                    folder.setAllImageFiles(new ArrayList<>());
+                    ALL_FOLDERS.add(folder);
+                }
+                folder.getAllImageFiles().add(file);
+            }
+        } catch (RuntimeException e) {
+            Log.w("GalleryFileOperations", "video query: " + e);
+        }
     }
 
     /**

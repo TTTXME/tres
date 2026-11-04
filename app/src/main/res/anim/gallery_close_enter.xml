@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P498: the grid comes forward again as the photo folds back into it. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+        android:duration="320"
+        android:interpolator="@interpolator/motion_sheet"
+        android:zAdjustment="normal">
+    <scale android:fromXScale="0.96" android:toXScale="1" android:fromYScale="0.96" android:toYScale="1"
+            android:pivotX="50%" android:pivotY="50%" />
+    <alpha android:fromAlpha="0.5" android:toAlpha="1" />
+</set>

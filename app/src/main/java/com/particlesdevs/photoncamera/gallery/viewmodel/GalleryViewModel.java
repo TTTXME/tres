@@ -52,6 +52,16 @@ public class GalleryViewModel extends AndroidViewModel {
             allSelectedImagesFolder.setValue(ALL_Folder);
 
             allFolders.add(0, ALL_Folder);
+            // P498: «Избранное» after «Все» when there are favourites
+            java.util.Set<String> fav = com.particlesdevs.photoncamera.gallery.model.GalleryView.favourites(getApplication());
+            List<GalleryItem> favs = new ArrayList<>();
+            for (GalleryItem i : ALL_Folder.getFiles()) if (fav.contains(com.particlesdevs.photoncamera.gallery.model.GalleryView.key(i.getFile()))) favs.add(i);
+            if (!favs.isEmpty()) {
+                GalleryItem favourites = new GalleryItem(favs.get(0).getFile());
+                favourites.setDisplayName(com.particlesdevs.photoncamera.gallery.model.GalleryView.FAVOURITES);
+                favourites.getFiles().addAll(favs);
+                allFolders.add(1, favourites);
+            }
         } else {
             // every selected folder is empty: no stale «ALL» (its deleted photos came back in the grid and the viewer)
             GalleryItem none = GalleryItem.createEmpty();
@@ -90,7 +100,20 @@ public class GalleryViewModel extends AndroidViewModel {
 
     public void setCurrentFolderImages(GalleryItem currentFolder) {
         currentFolderName = currentFolder != null ? currentFolder.getDisplayName() : null;
-        currentFolderImages.setValue(currentFolder.getFiles());
+        currentFolder_ = currentFolder;
+        // P498: the view's filter / order and the photos pending deletion (GalleryView), the same list for the grid and the viewer
+        final boolean fav = com.particlesdevs.photoncamera.gallery.model.GalleryView.FAVOURITES.equals(currentFolderName);
+        currentFolderImages.setValue(com.particlesdevs.photoncamera.gallery.model.GalleryView.active(getApplication(), fav)
+                ? com.particlesdevs.photoncamera.gallery.model.GalleryView.apply(getApplication(), currentFolder.getFiles(), fav)
+                : currentFolder.getFiles());
+    }
+
+    /** P498: the folder shown, before the view's filter. */
+    @androidx.annotation.Nullable private GalleryItem currentFolder_;
+
+    /** P498: the shown folder filtered again (a view option, a favourite or a pending delete changed). */
+    public void applyView() {
+        if (currentFolder_ != null) setCurrentFolderImages(currentFolder_);
     }
 
     /** P351: the folder the viewer shows («ALL» for every selected folder), null for a list built by hand (another app's file). */

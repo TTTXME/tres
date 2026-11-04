@@ -28,6 +28,8 @@ public enum GalleryFormat {
     RAW_HEIC("RAW + HEIC", R.drawable.ic_shade_rawheic),
     RAW_WEBP("RAW + WebP", R.drawable.ic_shade_rawwebp),
     RAW_AVIF("RAW + AVIF", R.drawable.ic_shade_rawavif),
+    /** P498: a video (its badge: the play glyph with the length beside it). */
+    VIDEO("", R.drawable.ui_ic_play),
     OTHER("", R.drawable.ic_shade_jpeg);
 
     public final String label;
@@ -54,6 +56,7 @@ public enum GalleryFormat {
     public static GalleryFormat of(String name, boolean withRaw) {
         // P352: every camera RAW is «RAW»
         if (com.particlesdevs.photoncamera.gallery.raw.RawFormats.isRawName(name)) return RAW;
+        if (com.particlesdevs.photoncamera.gallery.files.GalleryVideo.isVideoName(name)) return VIDEO; // P498
         switch (extension(name)) {
             case "dng": return RAW;
             case "jpg": case "jpeg": return withRaw ? RAW_JPEG : JPEG;

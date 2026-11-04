@@ -983,7 +983,13 @@ public final class ScamHybridBurst implements ScamTransport {
             /** P377: the ultrashort blend's per-stage programs (blend0 - blend4): one program with the stage uniform instead. */
             STEP_BLEND_STAGES = "blend stage programs",
             /** P377: the blend's GPU-built tile lists (its indirect dispatches): every pixel instead. */
-            STEP_BLEND_LISTS = "blend tile lists", STEP_US_CACHE = "ultrashort demosaic cache", STEP_BAYER_SPLIT = "split Bayer demosaic";
+            STEP_BLEND_LISTS = "blend tile lists", STEP_US_CACHE = "ultrashort demosaic cache", STEP_BAYER_SPLIT = "split Bayer demosaic",
+            /**
+             * P500 (owner, 2026-11-04: vivo X200 Pro, Mali-G925, Android 17 - «на мали не работает правильно шумодав»: every shot was
+             * one frame because the driver's compiler died on the fast route's programs): the fast route (fastMerge) left out, the
+             * shot merges on the classic route.
+             */
+            STEP_FAST = "fast merge route";
     /**
      * P377 (owner, 2026-10-28: «всё что работает на адрено на гпу, на мали тоже должно работать на гпу. При этом чтобы никто из них не
      * пострадал и результат не ухудшился»): the GPU variants P364 kept to Adreno (the own-quad cells, the blend's stage programs and
@@ -992,6 +998,13 @@ public final class ScamHybridBurst implements ScamTransport {
      */
     static final java.util.Set<String> SAME_RESULT_STEPS = new java.util.HashSet<>(java.util.Arrays.asList(STEP_CELLS,
             STEP_BLEND_STAGES, STEP_BLEND_LISTS, STEP_US_CACHE, STEP_BAYER_SPLIT));
+    /**
+     * P500: the steps kept off on this build of the phone and the app after one crash (P377's same-result steps, the fast route and
+     * the outlier tests the Mali-G925 compiler dies on): without it every start paid the crash again, and the fast route's crash
+     * at the start left the shot one frame.
+     */
+    static final java.util.Set<String> KEPT_STEPS = new java.util.HashSet<>(java.util.Arrays.asList(STEP_CELLS,
+            STEP_BLEND_STAGES, STEP_BLEND_LISTS, STEP_US_CACHE, STEP_BAYER_SPLIT, STEP_FAST, STEP_OUTLIERS));
     /** Crash site that leaves no GPU merge (a required program, the context): the session goes to the CPU fallback. */
     static final String STEP_GPU = "GPU";
 
@@ -1010,6 +1023,7 @@ public final class ScamHybridBurst implements ScamTransport {
         if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
         if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
         if (avoidedSteps.contains(STEP_BAYER_SPLIT)) t.append("bayerSplit 0\n");
+        if (avoidedSteps.contains(STEP_FAST)) t.append("fastMerge 0\n");
         return t.toString();
     }
 
@@ -1053,6 +1067,7 @@ public final class ScamHybridBurst implements ScamTransport {
             if (colon >= 0) program = program.substring(0, colon);
             program = program.trim();
             switch (program) {
+                case "fast": return STEP_FAST; // P500: a program of the fast route (scam-fast-gpu.h names it «fast: …»)
                 case "mean": case "flags": return STEP_OUTLIERS;
                 case "rim": return STEP_RIM;
                 case "bento": return STEP_BENTO;
@@ -1105,6 +1120,7 @@ public final class ScamHybridBurst implements ScamTransport {
         if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
         if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
         if (avoidedSteps.contains(STEP_BAYER_SPLIT)) t.append("bayerSplit 0\n");
+        if (avoidedSteps.contains(STEP_FAST)) t.append("fastMerge 0\n");
         return t.toString();
     }
 
@@ -1131,7 +1147,7 @@ public final class ScamHybridBurst implements ScamTransport {
             final android.content.SharedPreferences prefs = context.getSharedPreferences(LEARNED_PREFS, android.content.Context.MODE_PRIVATE);
             if (!learnedBuild(context).equals(prefs.getString(LEARNED_BUILD, null))) return;
             for (String step : prefs.getStringSet(LEARNED_STEPS, java.util.Collections.emptySet()))
-                if (SAME_RESULT_STEPS.contains(step) && avoidedSteps.add(step))
+                if (KEPT_STEPS.contains(step) && avoidedSteps.add(step))
                     Log.i("SCAM_HDR", "Hybrid: " + step + " off on this build (a driver crash learned before)");
         } catch (RuntimeException e) {
             Log.w("SCAM_HDR", "Hybrid: learned GPU steps not read: " + e);
@@ -1142,7 +1158,7 @@ public final class ScamHybridBurst implements ScamTransport {
     static void storeLearned(android.content.Context context) {
         if (context == null) return;
         final java.util.Set<String> keep = new java.util.HashSet<>();
-        for (String step : avoidedSteps) if (SAME_RESULT_STEPS.contains(step)) keep.add(step);
+        for (String step : avoidedSteps) if (KEPT_STEPS.contains(step)) keep.add(step);
         if (keep.isEmpty()) return;
         try {
             context.getSharedPreferences(LEARNED_PREFS, android.content.Context.MODE_PRIVATE).edit()
@@ -1158,12 +1174,25 @@ public final class ScamHybridBurst implements ScamTransport {
      */
     static boolean learnFromPrewarm(android.content.Context context, String report) {
         final String step = stepOf(crashStage(report));
-        if (step == null || !SAME_RESULT_STEPS.contains(step)) return false;
+        if (step == null || !KEPT_STEPS.contains(step)) return false;
         loadLearned(context);
         final boolean added = avoidedSteps.add(step);
         Log.w("SCAM_HDR", "Hybrid: the prewarm died in " + crashStage(report) + "; " + step + " off" + (added ? "" : " (already off)"));
         storeLearned(context);
         return added;
+    }
+
+    /**
+     * P500 (owner, 2026-11-04: Pixel 10 Pro XL, PowerVR GPU: «фото иногда получаются полностью черным»): the worker's merge came back
+     * all zero (its «SCAM RGB: mean=0.000000 max=0.000000» line, a readback the GPU handed back empty). Not a photo: the merge counts
+     * as failed, so the conservative retry and then the base frame alone (cpu-single) save the shot instead of a black JPEG.
+     */
+    static final String BLACK_RESULT = "the GPU merge returned an all-black image";
+    private static final java.util.regex.Pattern BLACK_LINE =
+            java.util.regex.Pattern.compile("SCAM RGB: mean=-?0(?:\\.0+)? max=-?0(?:\\.0+)?(?:\\s|$)");
+
+    static boolean blackResult(String report) {
+        return report != null && BLACK_LINE.matcher(report).find();
     }
 
     /** Learns from a failed worker: true when this crash named a step the next attempt can leave out (or the GPU is unusable). */
@@ -1338,6 +1367,7 @@ public final class ScamHybridBurst implements ScamTransport {
         }
         try {
             final ByteBuffer merged = ScamNeuralClient.processScamBurst(context, burst);
+            if (blackResult(ScamNeuralClient.lastJobReport)) throw new IOException(BLACK_RESULT);
             p.mosaicBlock = mergedBlock(burst.mosaicBlock, ScamNeuralClient.lastJobReport);
             lastNormals = burst.normalCount();
             return merged;
@@ -1369,6 +1399,7 @@ public final class ScamHybridBurst implements ScamTransport {
                         lastFinalSize = new android.graphics.Point(safe.finalWidth, safe.finalHeight);
                         ScamNeuralClient.carryReport = "previous attempt: " + previousWhy + "\n" + (previous == null ? "" : tail(previous, 4000));
                         ByteBuffer out = ScamNeuralClient.processScamBurst(context, safe);
+                        if (blackResult(ScamNeuralClient.lastJobReport)) throw new IOException(BLACK_RESULT);
                         p.mosaicBlock = mergedBlock(safe.mosaicBlock, ScamNeuralClient.lastJobReport);
                         lastNormals = safe.normalCount();
                         lastMergeTier = "gpu-conservative";
@@ -1380,6 +1411,11 @@ public final class ScamHybridBurst implements ScamTransport {
                         Log.e("SCAM_HDR", "Hybrid conservative merge failed too: " + second.getMessage());
                         previous = ScamNeuralClient.lastJobReport;
                         previousWhy = String.valueOf(second.getMessage());
+                        if (BLACK_RESULT.equals(previousWhy)) {
+                            // P500: black twice (the full and the conservative merge): this GPU's merge is not used again this session
+                            gpuUnusable = BLACK_RESULT;
+                            break;
+                        }
                         final boolean learned = learnFromCrash(previous);
                         storeLearned(context);
                         if (!conservativeRetry(second) || !learned || gpuUnusable != null) break;

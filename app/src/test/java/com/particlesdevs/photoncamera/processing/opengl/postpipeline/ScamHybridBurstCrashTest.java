@@ -210,4 +210,22 @@ public class ScamHybridBurstCrashTest {
             ScamHybridBurst.avoidedSteps.remove(ScamHybridBurst.STEP_CELLS);
         }
     }
+
+    /** P500: Pixel 10 Pro XL (PowerVR): the merge came back all zero - not a photo, the fallback takes it. */
+    @Test public void blackMergeIsAFailure() {
+        assertTrue(ScamHybridBurst.blackResult("HYBRID STAGES ms: merge=1219\nSCAM RGB: mean=0.000000 max=0.000000\nSCAM CAPTURE OK\n"));
+        assertTrue(ScamHybridBurst.blackResult("SCAM RGB: mean=-0.000000 max=0.000000"));
+        assertFalse(ScamHybridBurst.blackResult("SCAM RGB: mean=0.012435 max=7.148437\n"));
+        assertFalse(ScamHybridBurst.blackResult("SCAM RGB: mean=0.000000 max=0.000012\n"));
+        assertFalse(ScamHybridBurst.blackResult(null));
+    }
+    /** P500: vivo X200 Pro (Mali-G925, Android 17): the compiler died on a fast-route program - only the fast route goes. */
+    @Test public void fastRouteCompileCrashLeavesTheClassicMerge() {
+        String report = "HYBRID FAST MERGE FrameSelector: base idx=0" + (char) 10
+                + "WORKER CRASH: signal 11 SIGSEGV code=1 addr=0x8 tid=1 thread=libscamera_work stage=GPU compile fast: layout(local_size_x = 16) in; last=hybrid merge" + (char) 10
+                + "WORKER EXIT: signal 11 SIGSEGV, no completion line" + (char) 10;
+        assertEquals(ScamHybridBurst.STEP_FAST, ScamHybridBurst.stepOf(ScamHybridBurst.crashStage(report)));
+        assertFalse(ScamHybridBurst.gpuInitDeath(12_000_000L, report));
+        assertTrue(ScamHybridBurst.KEPT_STEPS.contains(ScamHybridBurst.STEP_FAST));
+    }
 }

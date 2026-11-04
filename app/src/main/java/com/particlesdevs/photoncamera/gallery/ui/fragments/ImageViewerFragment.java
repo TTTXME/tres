@@ -38,7 +38,12 @@ import com.particlesdevs.photoncamera.gallery.helper.Constants;
 import com.particlesdevs.photoncamera.gallery.helper.UltraHdrGalleryUtil;
 import com.particlesdevs.photoncamera.gallery.model.ExifDialogModel;
 import com.particlesdevs.photoncamera.gallery.model.GalleryItem;
+import com.particlesdevs.photoncamera.gallery.files.GalleryVideo;
+import com.particlesdevs.photoncamera.gallery.model.GalleryView;
 import com.particlesdevs.photoncamera.gallery.ui.GalleryFormat;
+import com.particlesdevs.photoncamera.gallery.ui.GalleryMotion;
+import com.particlesdevs.photoncamera.gallery.ui.GalleryUndo;
+import com.particlesdevs.photoncamera.ui.Motion;
 import com.particlesdevs.photoncamera.gallery.ui.GallerySheets;
 import com.particlesdevs.photoncamera.gallery.ui.GalleryUi;
 import com.particlesdevs.photoncamera.gallery.ui.ViewerChrome;
@@ -66,6 +71,10 @@ import java.util.Set;
  * controls (a mini-EXIF pill while hidden; they are visible again the next time the viewer opens), a swipe down at 1x
  * closes the viewer. In compare mode (a pane of ImageCompareFragment) only the photo, its label card and the zoom pill.
  * The Ultra HDR, colour-mode, edit, share and delete logic is the one before.
+ * <p>P498 (owner, 2026-11-04: «полноценная галерея», «красивые анимации», videos): the photo opens out of its thumbnail and folds
+ * back into it, the bars slide off and back, a heart («Избранное») and «Ещё» (slideshow, set as, open with) in the top row, this
+ * app's own files deleted with an undo instead of the confirmation, and a video page - its poster frame with a play button - plays
+ * in {@link com.particlesdevs.photoncamera.gallery.video.VideoPlayerActivity}.
  */
 public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrStateListener {
     private static final String TAG = ImageViewerFragment.class.getSimpleName();
@@ -98,6 +107,12 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     private Observable.OnPropertyChangedCallback liveHistogramCallback;
     private boolean histogramOn;
     private static final String UI_PREFS = "gallery_ui", KEY_HISTOGRAM = "show_histogram";
+    /** P498: the play button over a video page (P499: it opens the gallery's own player). */
+    private View playDisc;
+    /** P498: the slideshow (3 s a photo, a tap stops it). */
+    private boolean slideshow;
+    private final Runnable slideTick = this::nextSlide;
+    static final long SLIDE_MS = 3000;
     private SSIVListener ssivListener = new SSIVListener() {
         @Override
         public void onScaleChanged(float newScale, int origin) {
@@ -170,6 +185,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             @Override public void delete() { onDeleteButtonClick(); }
             @Override public void hdr() { onHdrToggleClicked(); }
             @Override public void histogram() { onHistogramToggle(); }
+            @Override public void favourite() { onFavouriteClick(); }
+            @Override public void more() { onMoreClick(); }
             @Override public void openPosition(int position) { if (viewPager != null) viewPager.setCurrentItem(position, true); }
         });
         chrome.edit.setOnLongClickListener(v -> {
@@ -194,6 +211,164 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         FrameLayout.LayoutParams op = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
         root.addView(overlays, op);
         chrome.bottom.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placeOverlays());
+        // P498: the play button of a video page
+        FrameLayout disc = new FrameLayout(c);
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        d.setColor(0x99000000);
+        d.setStroke(GalleryUi.dp(c, 1), 0x55FFFFFF);
+        disc.setBackground(GalleryUi.pressable(d));
+        disc.setContentDescription(Lang.t("Смотреть видео", "Play the video"));
+        disc.setClickable(true);
+        disc.setFocusable(true);
+        disc.setTag("viewer_play");
+        disc.addView(GalleryUi.icon(c, R.drawable.ui_ic_play, 0xFFFFFFFF, 34),
+                new FrameLayout.LayoutParams(GalleryUi.dp(c, 34), GalleryUi.dp(c, 34), Gravity.CENTER));
+        disc.setOnClickListener(v -> openPlayer());
+        Motion.press(disc);
+        disc.setVisibility(View.GONE);
+        playDisc = disc;
+        root.addView(disc, new FrameLayout.LayoutParams(GalleryUi.dp(c, 76), GalleryUi.dp(c, 76), Gravity.CENTER));
+    }
+
+    @Nullable
+    private GalleryItem currentItem() {
+        if (viewPager == null || galleryItems.isEmpty()) return null;
+        int position = viewPager.getCurrentItem();
+        return position >= 0 && position < galleryItems.size() ? galleryItems.get(position) : null;
+    }
+
+    private boolean currentIsVideo() {
+        GalleryItem item = currentItem();
+        return item != null && GalleryVideo.isVideo(item.getFile());
+    }
+
+    /** P499: the shown video in the gallery's own player; the other videos of the list are its previous / next. */
+    private void openPlayer() {
+        GalleryItem item = currentItem();
+        if (item == null || item.getFile().getFileUri() == null || getContext() == null) return;
+        stopSlideshow();
+        List<android.net.Uri> uris = new ArrayList<>();
+        List<String> names = new ArrayList<>(), paths = new ArrayList<>();
+        int at = 0;
+        for (GalleryItem g : galleryItems) {
+            if (!GalleryVideo.isVideo(g.getFile()) || g.getFile().getFileUri() == null) continue;
+            if (g == item) at = uris.size();
+            uris.add(g.getFile().getFileUri());
+            names.add(g.getFile().getDisplayName() != null ? g.getFile().getDisplayName() : "");
+            paths.add(g.getFile().getAbsolutePath() != null ? g.getFile().getAbsolutePath() : "");
+        }
+        // a long gallery: the 400 videos around this one (the intent stays small)
+        int from = Math.max(0, Math.min(at - 200, uris.size() - 400)), to = Math.min(uris.size(), from + 400);
+        com.particlesdevs.photoncamera.gallery.video.VideoPlayerActivity.open(requireContext(), uris.subList(from, to),
+                names.subList(from, to), paths.subList(from, to), at - from);
+    }
+
+    private void bindPlayDisc() {
+        if (playDisc == null) return;
+        playDisc.setVisibility(currentIsVideo() ? View.VISIBLE : View.GONE);
+        playDisc.setAlpha(1f);
+    }
+
+    /** P498: the heart: the shown photo into / out of «Избранное». */
+    private void onFavouriteClick() {
+        GalleryItem item = currentItem();
+        if (item == null || getContext() == null || chrome == null) return;
+        boolean on = !GalleryView.isFavourite(requireContext(), item.getFile());
+        GalleryView.setFavourite(requireContext(), Collections.singletonList(item.getFile()), on);
+        chrome.setFavourite(on, true);
+        if (root != null) root.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
+    }
+
+    /** P498: «Ещё» - slideshow, set as (photos), open with another app. */
+    private void onMoreClick() {
+        GalleryItem item = currentItem();
+        if (item == null || getContext() == null) return;
+        Context c = requireContext();
+        boolean video = GalleryVideo.isVideo(item.getFile());
+        List<GallerySheets.Action> actions = new ArrayList<>();
+        if (galleryItems.size() > 1)
+            actions.add(new GallerySheets.Action(R.drawable.ui_ic_play, Lang.t("Слайд-шоу", "Slideshow"), this::startSlideshow));
+        if (!video)
+            actions.add(new GallerySheets.Action(R.drawable.ui_ic_wallpaper, Lang.t("Установить как…", "Set as…"), () -> sendTo(item, Intent.ACTION_ATTACH_DATA)));
+        actions.add(new GallerySheets.Action(R.drawable.ui_ic_open, Lang.t("Открыть в другом приложении", "Open in another app"), () -> sendTo(item, Intent.ACTION_VIEW)));
+        GallerySheets.showActions(c, Lang.t("Ещё", "More"), actions);
+    }
+
+    private void sendTo(GalleryItem item, String action) {
+        Uri uri = item.getFile().getFileUri();
+        if (uri == null || getContext() == null) return;
+        Intent i = new Intent(action);
+        i.setDataAndType(uri, mimeOf(item));
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (Intent.ACTION_ATTACH_DATA.equals(action)) i.putExtra("mimeType", mimeOf(item));
+        try {
+            startActivity(Intent.createChooser(i, null));
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(requireContext(), Lang.t("Нет подходящего приложения", "No app for this"), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static String mimeOf(GalleryItem item) {
+        String name = item.getFile().getDisplayName();
+        return GalleryVideo.isVideo(item.getFile()) ? GalleryVideo.mime(name) : mediaTypeOf(name);
+    }
+
+    private void startSlideshow() {
+        if (viewPager == null || galleryItems.size() < 2 || getContext() == null) return;
+        slideshow = true;
+        if (chromeVisible) onImageViewClicked(viewPager);
+        if (root != null) root.setKeepScreenOn(true);
+        Toast.makeText(requireContext(), Lang.t("Слайд-шоу: касание останавливает", "Slideshow: tap to stop"), Toast.LENGTH_SHORT).show();
+        viewPager.removeCallbacks(slideTick);
+        viewPager.postDelayed(slideTick, SLIDE_MS);
+    }
+
+    private void nextSlide() {
+        if (!slideshow || viewPager == null) return;
+        int next = viewPager.getCurrentItem() + 1;
+        if (next >= galleryItems.size()) {
+            stopSlideshow();
+            if (!chromeVisible) onImageViewClicked(viewPager);
+            return;
+        }
+        viewPager.setCurrentItem(next, true);
+        viewPager.postDelayed(slideTick, SLIDE_MS);
+    }
+
+    private void stopSlideshow() {
+        if (!slideshow) return;
+        slideshow = false;
+        if (viewPager != null) viewPager.removeCallbacks(slideTick);
+        if (root != null) root.setKeepScreenOn(false);
+    }
+
+    private boolean openedOnce;
+
+    /**
+     * P498: the viewer opens out of the tapped thumbnail and, closed on the same photo, folds back into it (the grid keeps its
+     * scroll position across the viewer, so the cell is where it was); other cases keep the graph's fade.
+     */
+    @Nullable
+    @Override
+    public android.view.animation.Animation onCreateAnimation(int transit, boolean enter, int nextAnim) {
+        Bundle args = getArguments();
+        int[] cell = args != null ? args.getIntArray(ImageLibraryFragment.CELL_KEY) : null;
+        View content = getActivity() != null ? getActivity().findViewById(android.R.id.content) : null;
+        if (cell == null || cell.length != 4 || content == null || isCompareMode()) return super.onCreateAnimation(transit, enter, nextAnim);
+        // entering: only from the grid (not back from the editor / compare); leaving: only back to the grid on the photo opened
+        boolean fromGrid;
+        if (enter) fromGrid = !openedOnce;
+        else // the nav back stack is already popped when the transaction asks for the animation
+            fromGrid = viewPager != null && viewPager.getCurrentItem() == args.getInt(Constants.IMAGE_POSITION_KEY, -1) && navController != null
+                    && navController.getCurrentDestination() != null && navController.getCurrentDestination().getId() == R.id.imageLibraryFragment;
+        if (enter) openedOnce = true;
+        if (!fromGrid || !Motion.enabled(content)) return super.onCreateAnimation(transit, enter, nextAnim);
+        int[] at = new int[2];
+        content.getLocationInWindow(at);
+        android.view.animation.Animation a = GalleryMotion.zoom(new android.graphics.Rect(cell[0], cell[1], cell[2], cell[3]),
+                content.getWidth(), content.getHeight(), at[0], at[1], !enter);
+        return a != null ? a : super.onCreateAnimation(transit, enter, nextAnim);
     }
 
     private void buildPaneOverlay(Context c) {
@@ -228,6 +403,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
      */
     @Override
     public void onDestroyView() {
+        stopSlideshow();
+        playDisc = null;
         if (liveHistogramCallback != null) exifDialogViewModel.getExifDataModel().removeOnPropertyChangedCallback(liveHistogramCallback);
         liveHistogramCallback = null;
         liveHistogram = null;
@@ -315,6 +492,13 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
                 onPageShown(position);
                 onPageHdrSelected(position);
             }
+
+            @Override
+            public void onPageScrollStateChanged(int state) {
+                // P498: the play button stays with its page (hidden while a page slides)
+                if (playDisc != null && currentIsVideo())
+                    Motion.fade(playDisc, state == ViewPager.SCROLL_STATE_IDLE);
+            }
         });
     }
 
@@ -371,6 +555,12 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         updateExif();
         updateScaleText();
         if (chrome != null) chrome.centre(position);
+        GalleryItem shown = position >= 0 && position < galleryItems.size() ? galleryItems.get(position) : null;
+        if (chrome != null && shown != null && getContext() != null) {
+            chrome.setFavourite(GalleryView.isFavourite(requireContext(), shown.getFile()), false);
+            chrome.setVideo(GalleryVideo.isVideo(shown.getFile()));
+        }
+        bindPlayDisc();
         CustomSSIV page = getSsivAt(position);
         if (adapter != null) adapter.reloadIfGaveUp(page, position); // P81
         if (page != null && page.isReady()) {
@@ -402,6 +592,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     @Override
     public void onPause() {
         super.onPause();
+        stopSlideshow();
         UltraHdrGalleryUtil.setWindowHdr(getActivity(), false);
         if (adapter != null && viewPager != null) {
             int position = viewPager.getCurrentItem();
@@ -607,9 +798,13 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             indexToDelete = position;
             GalleryFileOperations.deleteImageFiles(getActivity(), Collections.singletonList((ImageFile) item.getFile()), this::handleImagesDeletedCallback);
         };
-        // P345: one confirmation - the system's own dialog when it is needed, the app's sheet otherwise
+        // P345: one confirmation - the system's own dialog when it is needed; P498: this app's own file goes at once, with «Вернуть»
         if (GalleryFileOperations.needsSystemDeleteRequest(requireContext(), Collections.singletonList((ImageFile) item.getFile()))) delete.run();
-        else GallerySheets.showDelete(requireContext(), 1, item.getFile().getSize(), delete);
+        else {
+            seek_position = position; // the next photo takes its place
+            int above = chrome != null && chromeVisible ? chrome.bottom.getHeight() + GalleryUi.dp(requireContext(), 10) : GalleryUi.dp(requireContext(), 24);
+            GalleryUndo.delete(requireContext(), root, above, Collections.singletonList((ImageFile) item.getFile()), viewModel);
+        }
     }
 
     /** MIME type for share / edit: MimeTypeMap lacks HEIC on older Android versions, the photo formats are mapped here. */
@@ -623,7 +818,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.putExtra(Intent.EXTRA_STREAM, galleryItem.getFile().getFileUri());
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        intent.setType(mediaTypeOf(galleryItem.getFile().getDisplayName()));
+        intent.setType(mimeOf(galleryItem)); // P498: a video is not image/*
         startActivity(Intent.createChooser(intent, null));
     }
 
@@ -654,23 +849,26 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         d.fileName = item.getFile().getDisplayName();
         d.when = GalleryUi.dayTime(item.getFile().getLastModified(), System.currentTimeMillis());
         d.folder = folderOf(item.getFile().getAbsolutePath());
-        d.iso = m.getIsoValue();
-        d.shutter = m.getShutterValue();
-        d.fnum = m.getFnumValue();
-        d.focal = m.getFocalValue();
-        d.route = GalleryFormat.routeOf(m.getDescription());
+        // P498: a video has no photo EXIF (the model still holds the last photo's); its length in the shutter's place
+        boolean video = GalleryVideo.isVideo(item.getFile());
+        long len = GalleryVideo.durationMs(item.getFile());
+        d.iso = video ? null : m.getIsoValue();
+        d.shutter = video ? (len > 0 ? GalleryVideo.clock(len) : null) : m.getShutterValue();
+        d.fnum = video ? null : m.getFnumValue();
+        d.focal = video ? null : m.getFocalValue();
+        d.route = video ? null : GalleryFormat.routeOf(m.getDescription());
         GalleryFormat f = GalleryFormat.of(item, rawBases);
         d.format = f.label.isEmpty() ? GalleryFormat.extension(d.fileName).toUpperCase(Locale.ROOT) : f.label;
         d.formatIcon = f.icon;
         d.ultraHdr = ultraHdr;
-        d.lens = m.getFocal35Value() != null ? m.getFocal35Value() + Lang.t(" экв.", " equiv.") : null;
-        d.device = m.getMakeModel();
-        d.width = m.getWidth();
-        d.height = m.getHeight();
+        d.lens = !video && m.getFocal35Value() != null ? m.getFocal35Value() + Lang.t(" экв.", " equiv.") : null;
+        d.device = video ? null : m.getMakeModel();
+        d.width = video ? 0 : m.getWidth();
+        d.height = video ? 0 : m.getHeight();
         d.bytes = item.getFile().getSize();
         // P492: the rest of the EXIF (the header only: a few ms on the main thread)
         androidx.exifinterface.media.ExifInterface exif = null;
-        if (getContext() != null) try (java.io.InputStream in = requireContext().getContentResolver().openInputStream(item.getFile().getFileUri())) {
+        if (getContext() != null && !video) try (java.io.InputStream in = requireContext().getContentResolver().openInputStream(item.getFile().getFileUri())) {
             if (in != null) exif = new androidx.exifinterface.media.ExifInterface(in);
         } catch (Exception | OutOfMemoryError ignored) {
             // no EXIF rows: the file's place only
@@ -702,12 +900,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             else updateExif();
             return;
         }
+        if (slideshow && view != viewPager) stopSlideshow(); // a tap on the photo stops the slideshow (and brings the bars back)
         chromeVisible = !chromeVisible;
-        if (chrome != null) {
-            chrome.top.setVisibility(chromeVisible ? View.VISIBLE : View.GONE);
-            chrome.bottom.setVisibility(chromeVisible ? View.VISIBLE : View.GONE);
-        }
-        if (miniExif != null) miniExif.setVisibility(chromeVisible ? View.GONE : View.VISIBLE);
+        if (chrome != null) GalleryMotion.bars(chrome.top, chrome.bottom, chromeVisible); // P498: slid off and back
+        if (miniExif != null) Motion.fade(miniExif, !chromeVisible && !currentIsVideo() && !slideshow);
         placeOverlays();
     }
 
@@ -758,6 +954,16 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         int position = viewPager.getCurrentItem();
         if (galleryItems.isEmpty() || position < 0 || position >= galleryItems.size()) return;
         GalleryItem item = galleryItems.get(position);
+        if (GalleryVideo.isVideo(item.getFile())) { // P498: «Сегодня, 11:17» / «Видео · 0:42 · MP4»
+            long len = GalleryVideo.durationMs(item.getFile());
+            String when = GalleryUi.dayTime(item.getFile().getLastModified(), System.currentTimeMillis());
+            String sub = joinDot(Lang.t("Видео", "Video"), len > 0 ? GalleryVideo.clock(len) : null,
+                    GalleryFormat.extension(item.getFile().getDisplayName()).toUpperCase(Locale.ROOT));
+            if (chrome != null) chrome.bindMeta(when, sub, null, GalleryFormat.of(item, rawBases), false);
+            if (miniExif != null) miniExif.setText(sub);
+            if (paneLabel != null) paneLabel.setText(paneText(joinDot(when, sub), item.getFile().getDisplayName()));
+            return;
+        }
         exifDialogViewModel.updateModel(requireContext().getContentResolver(), item.getFile());
         ExifDialogModel m = exifDialogViewModel.getExifDataModel();
         GalleryFormat format = GalleryFormat.of(item, rawBases);

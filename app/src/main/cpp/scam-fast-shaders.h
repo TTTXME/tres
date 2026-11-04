@@ -3300,6 +3300,12 @@ void main() {
     vec4 center_norm = (center_quad - u_black_level) * norm;
     float center_max = max(max(center_norm.r, center_norm.g), max(center_norm.b, center_norm.a));
     float near_clip = smoothstep(0.70, 0.88, center_max);
+    // P497: the near-clip gate over the 3 x 3 quads around: a thin light (a fan's LED ring, 1 - 2 quads) blurred under the gate's
+    // threshold at its own centre point and kept the base's white there
+    for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+        vec4 qn = (texture(u_base_bayer, tex_coord + vec2(float(dx), float(dy)) * u_tex_size.zw) - u_black_level) * norm;
+        near_clip = max(near_clip, smoothstep(0.70, 0.88, max(max(qn.r, qn.g), max(qn.b, qn.a))));
+    }
 
     // Continuous morphological dilation over radius 3 in quad space
     float max_clip = 0.0;
@@ -3388,6 +3394,7 @@ uniform float u_white_level;
 uniform float u_ev_scale; // k = 1.0 / exposure_factor
 uniform int u_is_first_short;
 uniform float u_err_thresh;
+uniform vec3 u_wb; // P497: the white balance gains (the short frame's colour for the strict check)
 
 void main() {
     float mask = texture(u_input_mask, tex_coord).r;
@@ -3435,9 +3442,25 @@ void main() {
     vec3 us_raw = short3 * u_ev_scale;
     float bright_err = (max_base < 0.97) ? max(0.0, min(max(us_raw.r, max(us_raw.g, us_raw.b)), 2.0) - max_base) : 0.0;
 
-    // P497: over a clipped base a darker short frame contradicts it already at 0.35 (the sky's noise there ~0.1): the light, dotted
-    // top of a near wire's copy (0.6 - 0.9, SCA_20261104_073400) passed the scheme's 0.8 half way and left a faint stub
-    float err = max(dark_err * (max_base >= 0.97 ? max(1.0, u_err_thresh / 0.35) : 1.0), bright_err);
+    // P497: over a clipped base a darker short frame contradicts it already at 0.35 (the sky's noise there ~0.1) - in the channels the
+    // base measured (under 0.95): the light, dotted top of a near wire's copy (0.6 - 0.9, SCA_20261104_073400) is darker than the
+    // sky's measured R and B; a coloured light's rim is darker only in the clipped channel (sub-quad registration, an LED ring
+    // 0.1 - 0.3 under the clip there), the strict check on that channel refused it and left the base's white (the PC's fan rings)
+    // - for a near-neutral short frame only (white balanced): a coloured light's rim (an LED ring, the base 8x longer and smeared
+    // wider by the hand) is darker there by 0.4 - 0.6 and is the light's own colour, not a copy; the strict check refused the
+    // rings of a PC's fans (scam_burst-20261020-193420) and left the base's white
+    // its colour from the 3 x 3 quads around (the gained short frame's noise in a dark copy read as colour: a hairline came back)
+    vec3 avg3 = vec3(0.0);
+    vec2 sstep = vec2(1.0) / vec2(textureSize(u_short_bayer, 0));
+    for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+        vec4 qn = max(texture(u_short_bayer, short_tc + vec2(float(dx), float(dy)) * sstep) - u_black_level, vec4(0.0));
+        avg3 += vec3(qn.r, 0.5 * (qn.g + qn.b), qn.a);
+    }
+    vec3 us_wb = avg3 * u_wb;
+    float us_sat = (max(us_wb.r, max(us_wb.g, us_wb.b)) - min(us_wb.r, min(us_wb.g, us_wb.b))) / max(max(us_wb.r, max(us_wb.g, us_wb.b)), 1.0e-4);
+    // (lights 0.6 - 0.9; a wire's colour fringe 0.3 - 0.47 stays strict)
+    float strict_k = (max_base >= 0.97 ? 1.0 : 0.0) * (1.0 - smoothstep(0.5, 0.75, us_sat));
+    float err = max(dark_err * mix(1.0, max(1.0, u_err_thresh / 0.35), strict_k), bright_err);
 
     // Photometric threshold:
     // Real motion occurs when short frame has severe photometric loss (err >= u_err_thresh).
@@ -3809,7 +3832,7 @@ void main() {
             v[idx++] = val;
             sum_v += val;
             min_v = min(min_v, val);
-            n_bad += val < 0.5 ? 1 : 0;
+            n_bad += val < 0.35 ? 1 : 0; // clearly invalid (a copy's line 0.05 - 0.3; a light's rim ~0.4 is not one)
         }
     }
 
@@ -3899,13 +3922,14 @@ layout(binding = 1, rgba16f) uniform highp writeonly image2D u_output_extracted;
 
 uniform int u_width;
 uniform int u_height;
+uniform int u_row0; // P497: the first row (a row strip; 0 = the frame)
 uniform int u_cfa_pattern;
 uniform vec4 u_black_level;
 uniform float u_white_level;
 uniform vec4 u_wb_gains;
 
 void main() {
-    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, u_row0); // P497: a row strip's rows only
     if (pos.x >= u_width || pos.y >= u_height) return;
 
     vec4 quad = texelFetch(u_input_extracted, pos, 0);
@@ -5160,6 +5184,7 @@ layout(binding = 2) uniform highp sampler2D u_qpc_map;
 
 uniform int u_width;
 uniform int u_height;
+uniform int u_row0; // P497: the first row (a row strip; 0 = the frame)
 uniform vec4 u_black_level;
 uniform float u_threshold_offset;
 uniform int u_cfa_sensor_type;       // 0=Standard Bayer, 1=Quad Bayer, 2=Quad-Quad
@@ -5192,7 +5217,7 @@ vec4 get_hotpixel_bl(ivec2 p) {
 }
 
 void main() {
-    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, u_row0); // P497: a row strip's rows only
     if (pos.x >= u_width || pos.y >= u_height) return;
 
     vec4 bl = get_hotpixel_bl(pos);

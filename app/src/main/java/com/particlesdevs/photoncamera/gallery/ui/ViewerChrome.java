@@ -46,6 +46,10 @@ public final class ViewerChrome {
     /** P492: the histogram switch (a round icon button beside the HDR pill) and its icon. */
     public final View histButton;
     private final ImageView histIcon;
+    /** P498: «Избранное» (the heart) and «Ещё» (slideshow, set as, open with) at the right of the top row. */
+    public final View fav, more;
+    private final ImageView favIcon;
+    private boolean favOn;
     public final RecyclerView strip;
     public final Filmstrip filmstrip;
     public final LinearLayout buttons;
@@ -68,6 +72,12 @@ public final class ViewerChrome {
 
         /** P492: the histogram overlay on / off. */
         default void histogram() {}
+
+        /** P498: the shown photo into / out of the favourites. */
+        default void favourite() {}
+
+        /** P498: the «Ещё» sheet. */
+        default void more() {}
 
         void openPosition(int position);
     }
@@ -119,8 +129,20 @@ public final class ViewerChrome {
         histIcon = (ImageView) ((FrameLayout) histButton).getChildAt(0);
         histIcon.setColorFilter(GalleryUi.MUTED);
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
-        gp.leftMargin = GalleryUi.dp(c, 8);
+        gp.leftMargin = GalleryUi.dp(c, 6);
         row.addView(histButton, gp);
+        fav = disc(c, R.drawable.ui_ic_heart, Lang.t("В избранное", "Add to favourites"), v -> a.favourite());
+        fav.setTag("viewer_favourite");
+        favIcon = (ImageView) ((FrameLayout) fav).getChildAt(0);
+        favIcon.setColorFilter(GalleryUi.TEXT);
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
+        fp.leftMargin = GalleryUi.dp(c, 6);
+        row.addView(fav, fp);
+        more = disc(c, R.drawable.ui_ic_more, Lang.t("Ещё", "More"), v -> a.more());
+        more.setTag("viewer_more");
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
+        op.leftMargin = GalleryUi.dp(c, 6);
+        row.addView(more, op);
         top.addView(row);
 
         bottom = new LinearLayout(c);
@@ -159,6 +181,7 @@ public final class ViewerChrome {
         b.setFocusable(true);
         b.setClickable(true);
         b.setOnClickListener(click);
+        com.particlesdevs.photoncamera.ui.Motion.press(b);
         ImageView i = GalleryUi.icon(c, icon, GalleryUi.TEXT, 22);
         b.addView(i, new FrameLayout.LayoutParams(GalleryUi.dp(c, 22), GalleryUi.dp(c, 22), Gravity.CENTER));
         return b;
@@ -180,6 +203,7 @@ public final class ViewerChrome {
         b.setFocusable(true);
         b.setOnClickListener(click);
         b.setContentDescription(label);
+        com.particlesdevs.photoncamera.ui.Motion.press(b);
         b.addView(GalleryUi.icon(c, icon, color, 22));
         TextView t = GalleryUi.fitText(c, label, 10, color);
         t.setGravity(Gravity.CENTER);
@@ -193,6 +217,24 @@ public final class ViewerChrome {
     public void bindMeta(String title, String sub, @Nullable String route, GalleryFormat format, boolean ultraHdr) {
         metaTitle.setText(title);
         metaSub.setText(sub);
+    }
+
+    /** P498: the heart filled (pink) for a favourite; a change pops it. */
+    public void setFavourite(boolean on, boolean animate) {
+        boolean changed = on != favOn;
+        favOn = on;
+        favIcon.setImageResource(on ? R.drawable.ui_ic_heart_on : R.drawable.ui_ic_heart);
+        favIcon.setColorFilter(on ? FAV : GalleryUi.TEXT);
+        fav.setContentDescription(on ? Lang.t("Убрать из избранного", "Remove from favourites") : Lang.t("В избранное", "Add to favourites"));
+        if (changed && animate) com.particlesdevs.photoncamera.ui.Motion.pop(favIcon);
+    }
+
+    /** The favourites' pink (the grid's heart badge too). */
+    public static final int FAV = 0xFFFF6B81;
+
+    /** P498: a video page: no «Изменить» (the editor takes photos). */
+    public void setVideo(boolean video) {
+        edit.setVisibility(video ? View.GONE : View.VISIBLE);
     }
 
     /** P492: the histogram switch's state (accent when the overlay is on). */

@@ -18,10 +18,19 @@ import com.particlesdevs.photoncamera.util.Lang;
  */
 public final class SelectionBar {
     public final LinearLayout view;
-    public final View close, compare, share, delete;
+    public final View close, compare, share, delete, favourite;
     public final TextView count;
 
     public SelectionBar(Context c, Runnable onClose, Runnable onCompare, Runnable onShare, Runnable onDelete) {
+        this(c, onClose, onCompare, onShare, onDelete, null, null);
+    }
+
+    /**
+     * P498: with «Избранное» (the hearts of the selected photos on / off) and a tap on the count selecting every photo shown
+     * (or clearing the selection when all are selected).
+     */
+    public SelectionBar(Context c, Runnable onClose, Runnable onCompare, Runnable onShare, Runnable onDelete,
+                        @androidx.annotation.Nullable Runnable onFavourite, @androidx.annotation.Nullable Runnable onAll) {
         view = new LinearLayout(c);
         view.setOrientation(LinearLayout.HORIZONTAL);
         view.setGravity(Gravity.CENTER_VERTICAL);
@@ -29,7 +38,7 @@ public final class SelectionBar {
         int p = GalleryUi.dp(c, 6);
         view.setPadding(p, p, p, p);
         view.setContentDescription(Lang.t("Выбранные снимки", "Selected photos"));
-        close = GalleryUi.squareButton(c, R.drawable.ic_gallery_close, Lang.t("Снять выделение", "Clear the selection"), v -> onClose.run());
+        close = GalleryUi.squareButton(c, R.drawable.ui_ic_close, Lang.t("Снять выделение", "Clear the selection"), v -> onClose.run());
         close.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 14)));
         view.addView(close, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
         count = GalleryUi.fitText(c, "", 14, GalleryUi.accent(c));
@@ -41,11 +50,23 @@ public final class SelectionBar {
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cp.leftMargin = cp.rightMargin = GalleryUi.dp(c, 4);
         view.addView(count, cp);
-        compare = GalleryUi.actionButton(c, R.drawable.ic_gallery_compare, Lang.t("Сравнить", "Compare"), false, v -> onCompare.run());
-        share = GalleryUi.actionButton(c, R.drawable.ic_gallery_share, Lang.t("Поделиться", "Share"), false, v -> onShare.run());
-        delete = GalleryUi.actionButton(c, R.drawable.ic_gallery_delete, Lang.t("Удалить", "Delete"), true, v -> onDelete.run());
-        for (View b : new View[]{compare, share, delete})
+        if (onAll != null) {
+            count.setClickable(true);
+            count.setFocusable(true);
+            count.setOnClickListener(v -> onAll.run());
+            com.particlesdevs.photoncamera.ui.Motion.press(count);
+        }
+        compare = GalleryUi.actionButton(c, R.drawable.ui_ic_compare, Lang.t("Сравнить", "Compare"), false, v -> onCompare.run());
+        share = GalleryUi.actionButton(c, R.drawable.ui_ic_share, Lang.t("Поделиться", "Share"), false, v -> onShare.run());
+        delete = GalleryUi.actionButton(c, R.drawable.ui_ic_trash, Lang.t("Удалить", "Delete"), true, v -> onDelete.run());
+        favourite = onFavourite == null ? null : GalleryUi.actionButton(c, R.drawable.ui_ic_heart, Lang.t("Избранное", "Favourite"), false, v -> {
+            com.particlesdevs.photoncamera.ui.Motion.pop(((ViewGroup) v).getChildAt(0));
+            onFavourite.run();
+        });
+        for (View b : favourite == null ? new View[]{compare, share, delete} : new View[]{favourite, compare, share, delete}) {
+            com.particlesdevs.photoncamera.ui.Motion.press(b);
             view.addView(b, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
     }
 
     /** The count and the enabled actions for {@code n} selected photos. */
@@ -55,5 +76,14 @@ public final class SelectionBar {
         GalleryUi.setEnabledLook(compare, n == 2);
         GalleryUi.setEnabledLook(share, n > 0);
         GalleryUi.setEnabledLook(delete, n > 0);
+        if (favourite != null) GalleryUi.setEnabledLook(favourite, n > 0);
+    }
+
+    /** P498: the heart filled when every selected photo is a favourite (a tap then takes them out). */
+    public void bindFavourite(boolean allFavourite) {
+        if (favourite == null) return;
+        android.widget.ImageView i = (android.widget.ImageView) ((ViewGroup) favourite).getChildAt(0);
+        i.setImageResource(allFavourite ? R.drawable.ui_ic_heart_on : R.drawable.ui_ic_heart);
+        favourite.setContentDescription(allFavourite ? Lang.t("Убрать из избранного", "Remove from favourites") : Lang.t("В избранное", "Add to favourites"));
     }
 }
