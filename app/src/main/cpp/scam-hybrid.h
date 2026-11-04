@@ -6482,6 +6482,7 @@ class HybridGpu {
             if(!done)throw std::runtime_error("HYBRID GPU readback failed slot="+std::to_string(slot)+" offset="+std::to_string(offset)+" bytes="+std::to_string(n)+" total="+std::to_string(bytes)+" glError="+std::to_string(mapFailureError));
         }
     }
+    static GLint loc(GLuint program,const char* n){return glGetUniformLocation(program,n);}
     /** P500: every byte of [p, p + bytes) is zero (word-wise, stops at the first non-zero word). */
     static bool zeroBytes(const void* p,size_t bytes){
         const uint64_t* w=static_cast<const uint64_t*>(p);
@@ -6491,7 +6492,6 @@ class HybridGpu {
         for(size_t i=n*8;i<bytes;++i)if(c[i])return false;
         return true;
     }
-    static GLint loc(GLuint program,const char* n){return glGetUniformLocation(program,n);}
     // A pass may be split into dispatches of `chunk` rows (a multiple of the 8-row workgroup), flushed together: a single
     // dispatch that runs for seconds trips the kernel's GPU hang detection (the context is reset, every later map returns NULL),
     // many small flushed submissions cost ~1 ms each. The current program must be bound. flushEach (P29 native merge): every
