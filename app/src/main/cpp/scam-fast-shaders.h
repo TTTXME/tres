@@ -894,7 +894,7 @@ void main() {
 
     float inv_det = 1.0 / det;
 
-    vec2 cur_p = r_pt;
+    vec2 seed = vec2(0.0);
     if (u_coarse_range > 0) {
         int n = 2 * u_coarse_range + 1;
         int best = n * n / 2;
@@ -904,42 +904,49 @@ void main() {
             float v = coarse_cost[i];
             if (v < bc) { bc = v; best = i; }
         }
-        if (bc < 0.9 * c0) cur_p += vec2(float(best % n - u_coarse_range), float(best / n - u_coarse_range)) * u_coarse_scale;
+        if (bc < 0.9 * c0) seed = vec2(float(best % n - u_coarse_range), float(best / n - u_coarse_range)) * u_coarse_scale;
     }
-    bool converged = false;
+    // P497: one start, at the seed (zero without one); the frame's caller tracks it again from zero and keeps the homography with
+    // more inliers (kFastHomoPick) - a per-point choice mixed two solutions and broke the RANSAC (fog, 063920)
+    vec2 cur_p = r_pt;
+    {
+        vec2 q = r_pt + seed;
+        bool outside = false;
+        for (int iter = 0; iter < 12; ++iter) {
+            if (q.x < 6.0 || q.x >= float(u_guide_size.x - 6) ||
+                q.y < 6.0 || q.y >= float(u_guide_size.y - 6)) {
+                outside = true;
+                break;
+            }
 
-    for (int iter = 0; iter < 12; ++iter) {
-        if (cur_p.x < 6.0 || cur_p.x >= float(u_guide_size.x - 6) ||
-            cur_p.y < 6.0 || cur_p.y >= float(u_guide_size.y - 6)) {
-            return;
-        }
+            float bx = 0.0;
+            float by = 0.0;
+            p_idx = 0;
 
-        float bx = 0.0;
-        float by = 0.0;
-        p_idx = 0;
+            for (int dy = -4; dy <= 4; ++dy) {
+                for (int dx = -4; dx <= 4; ++dx) {
+                    vec2 p_cur = q + vec2(float(dx), float(dy));
+                    vec2 uv_cur = (p_cur + 0.5) * inv_size;
+                    float J_val = texture(u_cur_tex, uv_cur).r * 255.0;
+                    float diff = patch_I[p_idx] - J_val;
 
-        for (int dy = -4; dy <= 4; ++dy) {
-            for (int dx = -4; dx <= 4; ++dx) {
-                vec2 p_cur = cur_p + vec2(float(dx), float(dy));
-                vec2 uv_cur = (p_cur + 0.5) * inv_size;
-                float J_val = texture(u_cur_tex, uv_cur).r * 255.0;
-                float diff = patch_I[p_idx] - J_val;
+                    bx += diff * patch_Ix[p_idx];
+                    by += diff * patch_Iy[p_idx];
+                    p_idx++;
+                }
+            }
 
-                bx += diff * patch_Ix[p_idx];
-                by += diff * patch_Iy[p_idx];
-                p_idx++;
+            float delta_x = clamp((gyy * bx - gxy * by) * inv_det, -3.0, 3.0);
+            float delta_y = clamp((gxx * by - gxy * bx) * inv_det, -3.0, 3.0);
+
+            q += vec2(delta_x, delta_y);
+
+            if (delta_x * delta_x + delta_y * delta_y < 0.03) {
+                break;
             }
         }
-
-        float delta_x = clamp((gyy * bx - gxy * by) * inv_det, -3.0, 3.0);
-        float delta_y = clamp((gxx * by - gxy * bx) * inv_det, -3.0, 3.0);
-
-        cur_p += vec2(delta_x, delta_y);
-
-        if (delta_x * delta_x + delta_y * delta_y < 0.03) {
-            converged = true;
-            break;
-        }
+        if (outside) return;
+        cur_p = q;
     }
 
     float ssd = 0.0;
@@ -977,6 +984,21 @@ void main() {
         out_tracked[tid].error = mean_ssd;
         out_tracked[tid].pad0 = sqrt(max(ref_grad_sq, 1.0e-4));
         out_tracked[tid].pad1 = sqrt(max(cur_grad_sq, 0.0));
+    }
+}
+)FM";
+// P497: of a frame after the press, the homography from the coarse seed (in its slot) or from zero (the spare slot), whichever is
+// valid, then has more inliers; words 9 = inliers, 12 = valid (kFastHomoRansac's result)
+static const char* kFastHomoPick=R"FM(#version 310 es
+precision highp float;
+precision highp int;
+layout(local_size_x = 1) in;
+layout(std430, binding = 2) buffer Seeded { uint seeded[16]; };
+layout(std430, binding = 3) readonly buffer Zero { uint zero[16]; };
+void main() {
+    bool zv = zero[12] != 0u, sv = seeded[12] != 0u;
+    if ((zv && !sv) || (zv == sv && zero[9] > seeded[9])) {
+        for (int i = 0; i < 16; ++i) seeded[i] = zero[i];
     }
 }
 )FM";

@@ -594,7 +594,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint bCorners=g.buffer(576*16),bTracks=g.buffer(576*32),bCoarse=g.buffer(17*17*4);
     const size_t resStride=size_t((64+ssboAlign-1)/ssboAlign*ssboAlign);
     const int loopFrames=int(shorts.size()+donors.size()+longs.size());
-    const GLuint bResult=g.buffer(resStride*size_t(loopFrames+1));
+    const GLuint bResult=g.buffer(resStride*size_t(loopFrames+2)); // P497: + a spare slot (the unseeded homography)
     FastMergeGpu::check("objects");
     const auto objectsMade=Clock::now();
     // clears (§4.7): the accumulators and the accumulated frame weights to 0
@@ -861,7 +861,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const float shortMinInliers=std::getenv("SCAM_FM_SHORT_INLIERS")?float(std::atof(std::getenv("SCAM_FM_SHORT_INLIERS"))):0.5f;
     const float shortMaxShift=std::getenv("SCAM_FM_SHORT_SHIFT")?float(std::atof(std::getenv("SCAM_FM_SHORT_SHIFT"))):40.f;
     // ---- the per-frame loop (§5)
-    int validShorts=0,shortsDone=0;bool shortsRejected=false;std::string shortLog;
+    int validShorts=0,shortsDone=0;std::string shortLog;
     // P497: the reach (OUT px) of the output pass's hole fill (kFastOutput): 24 covers a near wire's refused copy (~16 px + rims)
     const int holeFill=std::getenv("SCAM_FM_HOLE_FILL")?std::atoi(std::getenv("SCAM_FM_HOLE_FILL")):24;
     double longWeightSum=0;std::string longLog;
@@ -935,16 +935,13 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         const uint16_t* next=k+1<loop.size()?input.frames[size_t(loop[k+1].f)].raw:nullptr;
         ShortFrame sf;
         const size_t slot=pendingMerges.size(); // P484: this frame's textures (slot 0 without a batch; short frames come first)
-        if(isShort&&!shortsRejected){
+        if(isShort){
             sf.f=f;sf.ev=lf.ev;sf.bayer=g.texture(GL_RGBA16F,w2,h2,false);sf.guide=g.texture(GL_RGBA16F,w2,h2,true);sf.cov=g.texture(GL_RGB10_A2,w2,h2,true);
             sf.flow=g.texture(GL_RGBA32F,gx[0],gy[0],lin32);sf.fGuide=g.fbo({sf.guide,sf.cov,pyrC[0]});
             g.u1i(A::pShortRecover,"u_width",w2);g.u1i(A::pShortRecover,"u_height",h2);g.u1i(A::pShortRecover,"u_cfa_pattern",cfa);
             g.u4f(A::pShortRecover,"u_black_level",blackSensor);g.u1f(A::pShortRecover,"u_white_level",input.white);
             g.u4f(A::pShortRecover,"u_wb_gains",wb[0],wb[1],wb[2],1.f);
             lutFrame=&fr;frontEnd(fr.raw,sf.bayer,sf.fGuide,sf.guide,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset,bayerCur);
-        } else if(isShort){ // the short frames are off (an earlier one failed): its upload staged already, skipped here
-            lutFrame=&fr;frontEnd(fr.raw,bayerCur,fGuideCur,guideCur,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset);
-            continue;
         } else {lutFrame=&fr;frontEnd(fr.raw,slotBayer[slot],slotGuideFbo[slot],guideCur,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset);}
         // global homography (§5.3): KLT of the base corners into the frame's 8-bit L1 guide, RANSAC on the GPU
         g.tex(A::pGuide8,"uInput",0,pyrC[1]);g.draw(A::pGuide8,fG8Cur,lw[1],lh[1],1);
@@ -967,6 +964,21 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER,2,bResult,GLintptr(resStride*size_t(k+1)),GLsizeiptr(64));
         g.dispatch(A::pRansac,1,1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        if(coarseRange>0){ // P497: tracked again from zero into the spare slot; the better homography stays in the frame's slot
+            const GLintptr spare=GLintptr(resStride*size_t(loopFrames+1));
+            g.u1i(A::pKlt,"u_coarse_range",0);
+            g.tex(A::pKlt,"u_ref_tex",0,g8Base);g.tex(A::pKlt,"u_cur_tex",1,g8Cur);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bCorners);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bTracks);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bCoarse);
+            g.dispatch(A::pKlt,(576+63)/64,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER,2,bResult,spare,GLsizeiptr(64));
+            g.dispatch(A::pRansac,1,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER,2,bResult,GLintptr(resStride*size_t(k+1)),GLsizeiptr(64));
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER,3,bResult,spare,GLsizeiptr(64));
+            g.dispatch(A::pHomoPick,1,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
         lap(2);
         if(isShort){
             // §5.3 / §5.8: the short frame's flow = the homography's, uv at the L0 tile centres (sh094 short branch: tile offset 0.5),
@@ -1001,10 +1013,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             const float motion=st[2]>0.01f?st[0]/st[2]:0.f,clip=st[2]>0.01f?st[1]/st[2]:0.f;
             char line[200];
             if(!(st[3]>0.5f)){
-                std::snprintf(line,sizeof(line),"; frame %d rejected (homography: inliers < 65 %% or motion > 15 px)",f);shortLog+=line;shortsRejected=true;
+                std::snprintf(line,sizeof(line),"; frame %d rejected (homography: inliers < 65 %% or motion > 15 px)",f);shortLog+=line;
             } else if(st[2]>0.01f&&(motion>0.35f||clip>clipGate)){
                 std::snprintf(line,sizeof(line),"; frame %d rejected by the safety gate (motion %.2f %%, clip %.2f %%, mask cells %.1f)",f,100.f*motion,100.f*clip,st[2]);
-                shortLog+=line;shortsRejected=true;
+                shortLog+=line;
             } else {
                 std::snprintf(line,sizeof(line),"; frame %d passed (motion %.2f %%, clip %.2f %%, mask cells %.1f)",f,100.f*motion,100.f*clip,st[2]);shortLog+=line;
                 // quarantine (0x179370..0x179820): cluster seed (mode 2, r 1), 20 geodesic dilations (mode 0, r 2), halo (mode 1, r 2)
@@ -1030,7 +1042,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
                 sf.valid=true;++validShorts;
                 shortFrames.push_back(sf);
             }
-            if(shortsRejected){validShorts=0;shortFrames.clear();} // "Disabling all short frames"
+            // P497: a rejected short frame is left out alone; the scheme disabled every short frame after one failure (an LED-lit
+            // room, scam_burst-20261020-193420: two good frames lost to the third's failed homography)
             glFlush();
             continue;
         }

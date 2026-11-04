@@ -135,10 +135,12 @@ public class SettingsSearchFragment extends Fragment {
                     path.isEmpty() ? title : path+" › "+title, entries);
         }
     }
+    // The index is handed over in memory, not in the arguments: its ~0.7 MB went into the saved state at every stop and the binder
+    // refused it (TransactionTooLargeException, the app died when sent to the background from the search, vivo 2026-11-03/04)
+    private static volatile ArrayList<Entry> sEntries;
     public static SettingsSearchFragment create(ArrayList<Entry> entries) {
-        SettingsSearchFragment fragment=new SettingsSearchFragment();
-        Bundle args=new Bundle(); args.putSerializable("entries", entries); fragment.setArguments(args);
-        return fragment;
+        sEntries=entries;
+        return new SettingsSearchFragment();
     }
     private String query="";
     private ArrayList<Entry> entries;
@@ -151,11 +153,13 @@ public class SettingsSearchFragment extends Fragment {
     private TextView label(String text, int size, int color) {
         TextView v=new TextView(requireContext()); v.setText(text);v.setTextSize(size);v.setTextColor(color);return v;
     }
-    @SuppressWarnings("unchecked")
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
-        entries=(ArrayList<Entry>)requireArguments().getSerializable("entries");
-        if(entries==null) entries=new ArrayList<>();
+        entries=sEntries;
+        if(entries==null) { // a process restored without the index: back to the settings page (it builds the index again)
+            entries=new ArrayList<>();
+            getParentFragmentManager().popBackStack();
+        }
         if(state!=null) query=state.getString("query", "");
         other=searchWords(getContext(), entries);
     }
