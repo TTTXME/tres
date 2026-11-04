@@ -81,8 +81,13 @@ public final class BottomChrome {
     static final float SIDE_DISC_RADIUS_DP = 13f;
     /** Corner radius of the lens strip (dp before the scale): a capsule (the concept's 999px), round ends. */
     public static final float STRIP_RADIUS_DP = 24f;
-    /** The concept's strip fill: the card colour at 85 % (rgba(26,31,34,.85)). */
-    public static final int STRIP_FILL = 0xD91A1F22;
+    /**
+     * The strip fill: the card colour at 74 % (owner, 2026-11-05: «что-то между тем что сейчас и А» - the shade's glass, a little
+     * more see-through than the old 85 % capsule, with {@link #STRIP_LINE}'s light hairline in place of the card line).
+     */
+    public static final int STRIP_FILL = 0xBD1A1F22;
+    /** The shade glass's light hairline around the lens strip and the zoom readout. */
+    public static final int STRIP_LINE = 0x38FFFFFF;
 
     /**
      * SIMPLE_UI (owner, 2026-10-18: «изучи концепт внимательно и сделай так же как у него»): the bottom rows as the concept
@@ -94,7 +99,7 @@ public final class BottomChrome {
         Context c = bar.getContext();
         float d = c.getResources().getDisplayMetrics().density;
         int accent = com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.accent(c);
-        int card = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.CARD, line = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.LINE;
+        int card = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.CARD;
         View gallery = bar.findViewById(R.id.galery_button_container), flip = bar.findViewById(R.id.flip_camera_button);
         View strip = bar.findViewById(R.id.aux_buttons_container);
         if (gallery != null) gallery.setBackground(tonalShape(card, 0, SIDE_RADIUS_DP * d * f, d));
@@ -105,7 +110,7 @@ public final class BottomChrome {
             // the concept's 4px padding came with the XML background: a new background without padding would drop it
             // (unless scaleTree had set it as the view's own), so the strip lost it at k = 1 only
             int ps = strip.getPaddingStart(), pt = strip.getPaddingTop(), pe = strip.getPaddingEnd(), pb = strip.getPaddingBottom();
-            strip.setBackground(tonalShape(STRIP_FILL, line, STRIP_RADIUS_DP * d * f, d));
+            strip.setBackground(glassShape(STRIP_FILL, STRIP_RADIUS_DP * d * f, d));
             strip.setPaddingRelative(ps, pt, pe, pb);
         }
         View thumb = bar.findViewById(R.id.gallery_image_button);
@@ -166,6 +171,15 @@ public final class BottomChrome {
         int g = Math.round(((base >> 8) & 0xFF) * (1 - a) + ((accent >> 8) & 0xFF) * a);
         int b = Math.round((base & 0xFF) * (1 - a) + (accent & 0xFF) * a);
         return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    /** The shade's glass: {@code fill} with a 0.5dp light hairline. */
+    private static android.graphics.drawable.GradientDrawable glassShape(int fill, float radiusPx, float density) {
+        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+        g.setColor(fill);
+        g.setStroke(Math.max(1, Math.round(density / 2)), STRIP_LINE);
+        g.setCornerRadius(radiusPx);
+        return g;
     }
 
     private static android.graphics.drawable.GradientDrawable tonalShape(int fill, int outline, float radiusPx, float density) {

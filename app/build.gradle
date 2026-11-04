@@ -251,6 +251,9 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "com.anggrayudi:storage:2.2.0"
     implementation 'me.zhanghai.android.libarchive:library:1.1.6'
+    // P504 (owner, 2026-11-05: «Поиск должен искать текст на фото … копировать текст с фото на любом языке»): Tesseract 5 OCR
+    // (Apache-2.0) with the tessdata_fast models in assets/tessdata
+    implementation 'com.github.adaptech-cz.Tesseract4Android:tesseract4android-openmp:4.8.0'
     //implementation 'com.microsoft.onnxruntime:onnxruntime-android:latest.release'
     //Leak Canary
     //Use this lib to detect memory leaks when debugging

@@ -20,9 +20,8 @@ ICONS = {
             'a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     # P495 (owner, 2026-11-03: «иконки перерисуй»): «Про» - a manual control's scale under its pointer
     'sliders': '<path d="M9.5 4.5h5L12 8z"/><path d="M12 11v9M4 15v5M8 13.5v6.5M16 13.5v6.5M20 15v5"/>',
-    # P495: «Ещё» - the quick sheet: its tiles sliding up
-    'apps': '<path d="M8.5 6.5L12 3.5l3.5 3"/><rect x="4" y="10" width="7" height="4.6" rx="1.6"/><rect x="13" y="10" width="7" height="4.6" rx="1.6"/>'
-            '<rect x="4" y="16.4" width="7" height="4.6" rx="1.6"/><rect x="13" y="16.4" width="7" height="4.6" rx="1.6"/>',
+    # P495: «Ещё»; owner 2026-11-05 «выглядит криво… замени на абсолютно другую»: a 3x3 grid of filled dots
+    'apps': '<circle cx="5.5" cy="5.5" r="1.15" fill="1"/><circle cx="12" cy="5.5" r="1.15" fill="1"/><circle cx="18.5" cy="5.5" r="1.15" fill="1"/><circle cx="5.5" cy="12" r="1.15" fill="1"/><circle cx="12" cy="12" r="1.15" fill="1"/><circle cx="18.5" cy="12" r="1.15" fill="1"/><circle cx="5.5" cy="18.5" r="1.15" fill="1"/><circle cx="12" cy="18.5" r="1.15" fill="1"/><circle cx="18.5" cy="18.5" r="1.15" fill="1"/>',
     'flip': '<path d="M3.5 9a2 2 0 0 1 2-2h2.2l1.5-2.2h5.6L16.3 7h2.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>'
             '<path d="M8.6 12.6a3.5 3.5 0 0 1 6.1-1.9M15.4 14.4a3.5 3.5 0 0 1-6.1 1.9"/><path d="M15.1 9v1.9h-1.9M8.9 18v-1.9h1.9"/>',
     'sun': '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4'
@@ -38,6 +37,18 @@ ICONS = {
     'wb': '<path d="M10 14V5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z"/><path d="M12 9v7"/>',
     'auto': '<circle cx="12" cy="12" r="9"/><path d="M8.6 16.2 12 7.6l3.4 8.6M9.8 13.3h4.4"/>',
     'chev': '<path d="m9 6 6 6-6 6"/>',
+    # P502 (owner, 2026-11-05: the gallery's new tabs and pages, «иконки тоже переделай под новый стиль»)
+    'photos': '<rect x="3.5" y="7" width="14" height="13" rx="2.6"/><path d="M7.5 4h10.5a2.5 2.5 0 0 1 2.5 2.5V16"/>'
+              '<path d="m4 17.5 4-4 3.2 3.2 2.3-2.3 4 4"/>',
+    'albums': '<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2.2"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="2.2"/>'
+              '<rect x="3.5" y="13" width="7.5" height="7.5" rx="2.2"/><path d="M13 16.8h7.5M16.8 13v7.5"/>',
+    'restore': '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/><path d="M12 15.5v-6M9.5 12 12 9.5l2.5 2.5"/>',
+    'jump': '<path d="m8 9.5 4-4 4 4M8 14.5l4 4 4-4"/>',
+    'zoom_in': '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6M11 8v6"/>',
+    'zoom_out': '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6"/>',
+    'video': '<rect x="3" y="6" width="13" height="12" rx="2.6"/><path d="m16 10.5 5-3v9l-5-3z"/>',
+    'cleanup': '<path d="M14.5 3.5 11 11.5"/><path d="M6.5 12.5h9.5l1.5 8h-12.5z"/><path d="M9.5 16.5v4M13 16.5v4"/>',
+    'tag': '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1.4 1.4 0 0 1 0 2l-6.7 6.7a1.4 1.4 0 0 1-2 0z"/><circle cx="8" cy="8" r="1.4"/>',
     'back': '<path d="m15 5-7 7 7 7"/>',
     'search': '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
     'grid': '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/>',

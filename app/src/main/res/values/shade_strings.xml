@@ -38,6 +38,7 @@
     <string name="shade_t_metering_std">Camera metering</string>
     <string name="shade_t_metering">Tone metering</string>
     <string name="shade_t_output">Resolution</string>
+    <string name="shade_t_resize">Resize</string>
     <string name="shade_t_downsampler">Downscale</string>
     <string name="shade_t_ultrahdr">UHDR</string>
     <string name="shade_t_watermark">Watermark</string>
@@ -73,6 +74,14 @@
         <item>1×</item>
         <item>1.5×</item>
         <item>2×</item>
+    </string-array>
+    <string-array name="shade_s_resize">
+        <item>Off</item>
+        <item>12 MP</item>
+        <item>16 MP</item>
+        <item>20 MP</item>
+        <item>Own MP</item>
+        <item>Own size</item>
     </string-array>
     <string-array name="shade_s_downsampler">
         <item>Lanczos</item>

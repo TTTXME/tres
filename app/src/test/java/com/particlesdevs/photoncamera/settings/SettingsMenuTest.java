@@ -1572,7 +1572,8 @@ public class SettingsMenuTest {
         // «Сохранение и форматы фото»; the 2× grid and downscaling with the size after the merge
         assertEquals(Arrays.asList("output_settings_screen","photo_size_screen","pref_wide169_key","watermark_screen","pref_file_name_pattern"),
                 keys(screen.findPreference("root_photo")));
-        assertEquals(Arrays.asList("pref_scam_hybrid_output","pref_crop_upscale"),keys(screen.findPreference("photo_size_expert")));
+        assertEquals(Arrays.asList("pref_scam_hybrid_output","pref_scam_hybrid_resize","pref_scam_hybrid_resize_mp","pref_scam_hybrid_resize_px",
+                "pref_crop_upscale"),keys(screen.findPreference("photo_size_expert")));
         assertEquals(Arrays.asList("pref_scam_hybrid_auto2x","pref_scam_hybrid_downsampler"),keys(screen.findPreference("adv_output")));
         assertEquals("photo_size_screen",((Preference)screen.findPreference("adv_output")).getParent().getKey());
         // «Основные настройки»: the reference app's rows (gallery, sounds, flicker, the viewfinder's brightness), then our pages; the

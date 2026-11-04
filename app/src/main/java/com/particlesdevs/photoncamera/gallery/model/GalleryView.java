@@ -37,6 +37,48 @@ public final class GalleryView {
     public enum Media { BOTH, PHOTOS, VIDEOS }
 
     static final String KEY_MEDIA = "media_kind";
+    /** P502: the filter sheet's «Статус» (favourites only) and «Время» (the years shown; none = every year). */
+    static final String KEY_FAV_ONLY = "filter_favourites", KEY_YEARS = "filter_years";
+
+    public static boolean favouritesOnly(Context c) {
+        return prefs(c).getBoolean(KEY_FAV_ONLY, false);
+    }
+
+    public static void setFavouritesOnly(Context c, boolean on) {
+        prefs(c).edit().putBoolean(KEY_FAV_ONLY, on).apply();
+    }
+
+    public static Set<Integer> years(Context c) {
+        Set<Integer> out = new java.util.TreeSet<>();
+        for (String y : prefs(c).getStringSet(KEY_YEARS, Collections.emptySet())) {
+            try { out.add(Integer.parseInt(y)); } catch (NumberFormatException ignored) { }
+        }
+        return out;
+    }
+
+    public static void setYears(Context c, Set<Integer> years) {
+        Set<String> s = new HashSet<>();
+        for (Integer y : years) s.add(String.valueOf(y));
+        prefs(c).edit().putStringSet(KEY_YEARS, s).apply();
+    }
+
+    /** The calendar year of a timestamp (ms, local time). */
+    public static int yearOf(long millis) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTimeInMillis(millis);
+        return cal.get(java.util.Calendar.YEAR);
+    }
+
+    /** P502: whether the filter sheet narrows the list (its chip shows; «Сбросить» clears it). */
+    public static boolean filtering(Context c) {
+        return type(c) != Type.ALL || media(c) != Media.BOTH || favouritesOnly(c) || !years(c).isEmpty();
+    }
+
+    /** P502: the filter sheet back to everything. */
+    public static void clearFilter(Context c) {
+        prefs(c).edit().putString(KEY_TYPE, Type.ALL.name()).putString(KEY_MEDIA, Media.BOTH.name()).putBoolean(KEY_FAV_ONLY, false)
+                .putStringSet(KEY_YEARS, Collections.emptySet()).apply();
+    }
 
     public static Media media(Context c) {
         try {
@@ -156,7 +198,7 @@ public final class GalleryView {
 
     /** Whether {@link #apply} changes anything (else the folder's own list is shown, as before P498). */
     public static boolean active(@Nullable Context c, boolean favouritesOnly) {
-        return favouritesOnly || !PENDING.isEmpty() || (c != null && (type(c) != Type.ALL || oldestFirst(c) || media(c) != Media.BOTH));
+        return favouritesOnly || !PENDING.isEmpty() || (c != null && (filtering(c) || oldestFirst(c)));
     }
 
     /**
@@ -168,11 +210,13 @@ public final class GalleryView {
         if (files == null) return out;
         Type t = c != null ? type(c) : Type.ALL;
         Media m = c != null ? media(c) : Media.BOTH;
-        Set<String> fav = favouritesOnly && c != null ? favourites(c) : null;
+        Set<String> fav = (favouritesOnly || c != null && favouritesOnly(c)) && c != null ? favourites(c) : null;
+        Set<Integer> years = c != null ? years(c) : Collections.emptySet();
         for (GalleryItem i : files) {
             if (i == null || i.getFile() == null || hidden(i.getFile())) continue;
             if (!matches(t, i.getFile().getDisplayName()) || !matches(m, i.getFile().getDisplayName())) continue;
             if (fav != null && !fav.contains(key(i.getFile()))) continue;
+            if (!years.isEmpty() && !years.contains(yearOf(i.getFile().getLastModified()))) continue;
             out.add(i);
         }
         if (c != null && oldestFirst(c)) Collections.reverse(out);

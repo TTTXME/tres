@@ -893,11 +893,13 @@ public class ScamProcessor extends ProcessorBase {
         // shot (sensor size) must not take (it rendered the SCAM HDR RGB at the 2x size, black).
         final Point hybridOut = hybridShot ? com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastOutputSize : null;
         processingParameters.hybridFinalSize = null;
-        if (hybridOut != null && (hybridOut.x != width || hybridOut.y != height)) {
-            // 12/16/20 MP from the 2x grid: resized on the GPU at the end of the pipeline (HybridFinalResize); the CPU
-            // resize below only remains as a fallback when the pipeline did not apply it.
+        // P503 «Уменьшить до» (any Sabre scale, 1X too): resized on the GPU at the end of the pipeline (HybridFinalResize); the CPU
+        // resize below only remains as a fallback when the pipeline did not apply it.
+        if (hybridOut != null) {
             final Point fin = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastFinalSize;
             if (fin != null && (long) fin.x * fin.y < (long) hybridOut.x * hybridOut.y) processingParameters.hybridFinalSize = new Point(fin.x, fin.y);
+        }
+        if (hybridOut != null && (hybridOut.x != width || hybridOut.y != height)) {
             final float sx = (float) hybridOut.x / width, sy = (float) hybridOut.y / height;
             processingParameters.rawSize = new Point(hybridOut.x, hybridOut.y);
             if (processingParameters.sensorPix != null)

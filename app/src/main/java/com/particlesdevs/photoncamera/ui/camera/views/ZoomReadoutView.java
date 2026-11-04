@@ -25,8 +25,10 @@ import java.util.Locale;
  */
 public class ZoomReadoutView extends View {
     public static final long HIDE_MS = 1300;
-    static final float HEIGHT_DP = 22f, SCALE_DP = 150f, PAD_DP = 10f, GAP_DP = 8f, VALUE_DP = 30f;
-    static final int FILL = 0xEB1A1F22, FAINT = 0xFF6C757C;
+    // owner, 2026-11-05 («эту шкалу тоже переделай под новый стиль», «между тем что сейчас и А»): the lens strip's glass, the value
+    // on a tonal accent chip, the module marks bright, the ticks fading towards the ends, the needle ringed in the glass colour
+    static final float HEIGHT_DP = 26f, SCALE_DP = 150f, PAD_DP = 3f, GAP_DP = 10f, VALUE_DP = 40f, END_DP = 12f;
+    static final int FILL = BottomChrome.STRIP_FILL, FAINT = 0xFF8B9096;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint value = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -43,7 +45,7 @@ public class ZoomReadoutView extends View {
         super(context, attrs);
         value.setTextSize(UiScale.spPx(context, 12));
         value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        value.setTextAlign(Paint.Align.RIGHT);
+        value.setTextAlign(Paint.Align.CENTER);
         value.setFontFeatureSettings("tnum");
         setVisibility(GONE);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -83,6 +85,11 @@ public class ZoomReadoutView extends View {
         return (Lang.ru() ? s.replace('.', ',') : s) + "×";
     }
 
+    /** A tick's alpha by its distance from the scale's end in {@link #END_DP} units: faint at the end, full from one unit in. */
+    static int edgeAlpha(float units) {
+        return Math.round(255 * (.25f + .75f * Math.max(0f, Math.min(1f, units))));
+    }
+
     /** Position of {@code z} on the scale, 0..1 (log). */
     float pos(float z) {
         double lo = Math.log(min), hi = Math.log(max);
@@ -101,36 +108,46 @@ public class ZoomReadoutView extends View {
         Context c = getContext();
         float h = getHeight(), w = getWidth(), d = UiScale.dpF(c, 1);
         int accent = ShadeStyle.accent(c);
-        // the pill
+        // the glass capsule
         rect.set(d / 2, d / 2, w - d / 2, h - d / 2);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(FILL);
         canvas.drawRoundRect(rect, h / 2, h / 2, paint);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(d);
-        paint.setColor(ShadeStyle.LINE);
+        paint.setStrokeWidth(Math.max(1f, d / 2));
+        paint.setColor(BottomChrome.STRIP_LINE);
         canvas.drawRoundRect(rect, h / 2, h / 2, paint);
-        // the value
-        value.setColor(accent);
-        Paint.FontMetrics fm = value.getFontMetrics();
-        float left = UiScale.dpF(c, PAD_DP);
-        canvas.drawText(label(zoom), left + UiScale.dpF(c, VALUE_DP), h / 2 - (fm.ascent + fm.descent) / 2, value);
-        // the scale: third-stop ticks, module marks, the needle
-        float x0 = left + UiScale.dpF(c, VALUE_DP + GAP_DP), sw = UiScale.dpF(c, SCALE_DP), cy = h / 2;
+        // the value on its tonal chip
+        float pad = UiScale.dpF(c, PAD_DP), chipW = UiScale.dpF(c, VALUE_DP);
+        rect.set(pad, pad, pad + chipW, h - pad);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(FAINT);
+        paint.setColor((accent & 0x00FFFFFF) | 0x2E000000);
+        canvas.drawRoundRect(rect, rect.height() / 2, rect.height() / 2, paint);
+        value.setColor(accent);
+        value.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = value.getFontMetrics();
+        canvas.drawText(label(zoom), rect.centerX(), h / 2 - (fm.ascent + fm.descent) / 2, value);
+        // the scale: third-stop ticks fading towards its ends, module marks, the needle
+        float x0 = pad + chipW + UiScale.dpF(c, GAP_DP), sw = UiScale.dpF(c, SCALE_DP), cy = h / 2;
         for (double z = min; z <= max * 1.0001; z *= Math.pow(2, 1 / 3.0)) {
-            float x = x0 + pos((float) z) * sw;
-            canvas.drawRect(x - d / 2, cy - 2 * d, x + d / 2, cy + 2 * d, paint);
+            float t = pos((float) z);
+            paint.setColor(FAINT);
+            paint.setAlpha(edgeAlpha(Math.min(t, 1 - t) * sw / UiScale.dpF(c, END_DP)));
+            float x = x0 + t * sw;
+            canvas.drawRect(x - d / 2, cy - 2.5f * d, x + d / 2, cy + 2.5f * d, paint);
         }
-        paint.setColor(ShadeStyle.MUTED);
+        paint.setColor(ShadeStyle.TEXT);
         for (float z : modules) {
             float x = x0 + pos(z) * sw;
-            canvas.drawRect(x - d / 2, cy - 4 * d, x + d / 2, cy + 4 * d, paint);
+            rect.set(x - .6f * d, cy - 5 * d, x + .6f * d, cy + 5 * d);
+            canvas.drawRoundRect(rect, d, d, paint);
         }
-        paint.setColor(accent);
         float nx = x0 + pos(zoom) * sw;
-        rect.set(nx - 1.5f * d, cy - 6 * d, nx + 1.5f * d, cy + 6 * d);
-        canvas.drawRoundRect(rect, 2 * d, 2 * d, paint);
+        paint.setColor(FILL | 0xFF000000);
+        rect.set(nx - 3.5f * d, cy - 9 * d, nx + 3.5f * d, cy + 9 * d);
+        canvas.drawRoundRect(rect, 3.5f * d, 3.5f * d, paint);
+        paint.setColor(accent);
+        rect.set(nx - 2f * d, cy - 7.5f * d, nx + 2f * d, cy + 7.5f * d);
+        canvas.drawRoundRect(rect, 2f * d, 2f * d, paint);
     }
 }

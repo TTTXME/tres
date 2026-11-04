@@ -178,9 +178,15 @@ public final class SettingsAvailability {
         // downsampler only brings a cropped shot to its photo size.
         final String stored = text("pref_scam_hybrid_output", "sensor").trim();
         final String output = "2x".equals(stored) ? "2x" : any(stored, "1.5x", "16", "20") ? "1.5x" : "sensor"; // (PreferenceKeys.outputMode)
-        if (key.equals("pref_scam_hybrid_downsampler"))
-            return Lang.t("Не используется: «Разрешение» 1.0×, 1.5× и 2.0× склеивает сразу в свой размер.",
-                    "Not used: “Resolution” 1.0×, 1.5× and 2.0× merge at their own size.");
+        // P503: «Уменьшить до» scales the photo down after the pipeline; its own values act with their mode only
+        final String resize = text("pref_scam_hybrid_resize", "off").trim();
+        if (key.equals("pref_scam_hybrid_downsampler") && resize.equals("off"))
+            return Lang.t("Только при «Уменьшить до» (Размер фото): без него фото остаётся в размере склейки.",
+                    "Only with “Resize to” (Photo size): without it the photo keeps the merged size.");
+        if (key.equals("pref_scam_hybrid_resize_mp") && !resize.equals("mp"))
+            return Lang.t("Только при «Уменьшить до» › «Свои мегапиксели».", "Only with “Resize to” › “Own megapixels”.");
+        if (key.equals("pref_scam_hybrid_resize_px") && !resize.equals("px"))
+            return Lang.t("Только при «Уменьшить до» › «Своё разрешение».", "Only with “Resize to” › “Own resolution”.");
         if (key.equals("pref_scam_hybrid_auto2x") && output.equals("sensor"))
             return Lang.t("Только при «Разрешение» 1.5× или 2× (Файл и размер › Размер фото).",
                     "Only with “Resolution” 1.5× or 2× (File and size › Photo size).");

@@ -381,8 +381,9 @@ public:
             const char* eglExt=eglQueryString(display,EGL_EXTENSIONS);
             nativeClientBuffer=eglExt&&std::strstr(eglExt,"EGL_ANDROID_get_native_client_buffer")!=nullptr;
             using namespace fastmerge;
-            // P501: the programs without array parameters on Mali (fastArrayFree)
-            arrayFree=renderer.find("Mali")!=std::string::npos||std::getenv("SCAM_FM_ARRAY_FREE");
+            // P501: the programs without array parameters on Mali (fastArrayFree); P505: on PowerVR too (its compiler refused
+            // sh000's median9(float v[9]); the variants are bit-exact, so this costs nothing on a driver that would compile them)
+            arrayFree=renderer.find("Mali")!=std::string::npos||renderer.find("PowerVR")!=std::string::npos||std::getenv("SCAM_FM_ARRAY_FREE");
             if(arrayFree)notes.push_back("FAST MERGE GPU: programs without array parameters ("+renderer+")");
             prog[pUnpack]=cs(kFastUnpackFused);prog[pUnpackBuf]=cs(kFastUnpackFusedBuf);prog[pGuide]=fs(kFastGuide);prog[pRef]=fs(kFastBaseRefColor);prog[pUnblock]=cs(kFastUnblocker);
             prog[pDown2]=fs(kFastGrayDown2);prog[pDown4]=fs(kFastGrayDown4);prog[pProducts]=cs(kFastGradProducts);prog[pGuide8]=fs(kFastPyrToGuide8);

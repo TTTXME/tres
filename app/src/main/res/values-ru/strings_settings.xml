@@ -4,6 +4,12 @@
 <resources>
     <string name="prefs_prefscreen_title">Настройки камеры</string>
     <string name="prefs_scam_hybrid_screen_summary">Шумодав, резкость, тон и склейка кадров</string>
+    <string name="prefs_scam_hybrid_resize_title">Уменьшить до</string>
+    <string name="prefs_scam_hybrid_resize_summary">%s. Уменьшает готовое фото до этого размера (в пропорциях кадра); размер не меньше склеенного оставляет фото как есть. Для 16 / 20 Мп с 12-мегапиксельного сенсора выберите «Разрешение» 1.5× или 2×.</string>
+    <string name="prefs_scam_hybrid_resize_mp_title">Свои мегапиксели</string>
+    <string name="prefs_scam_hybrid_resize_mp_hint">Мегапиксели фото, например 24 или 8.5</string>
+    <string name="prefs_scam_hybrid_resize_px_title">Своё разрешение</string>
+    <string name="prefs_scam_hybrid_resize_px_hint">Ширина x высота, в которые впишется фото (4000x3000), или длинная сторона (4000)</string>
     <string name="prefs_scam_hybrid_output_title">Разрешение</string>
     <string name="prefs_scam_hybrid_output_summary">%s. Сколько пикселей в фото. 2× — больше деталей, но обработка примерно вчетверо дольше.</string>
     <string name="prefs_scam_hybrid_processing_title">Режим обработки</string>
@@ -823,7 +829,7 @@
     <string name="prefs_mosaic_wb_title">Свой баланс белого</string>
     <string name="prefs_mosaic_wb_summary">Снимки в полном разрешении (50 / 200 Мп) и с зумом сенсора: наш расчёт баланса белого. Выкл. — баланс белого камеры.</string>
     <string name="prefs_film_data_credit_title">Данные плёночной симуляции</string>
-    <string name="prefs_film_data_credit_summary">Профили плёнок и бумаг: spektrafilm, автор Andrea Volpato, github.com/andreavolpato/spektrafilm, CC BY-SA 4.0 (преобразованы и изменены SCAMERA: двоичные массивы и производные LUT, см. assets/film/CHANGELOG.txt). Цветовая модель, DIR-компоненты и диффузионные фильтры — перенос spektrafilm (GPL-3.0); форматы 65 мм и IMAX 70 и рост размытия зерна с форматом — из spektrafilm OFX, автор Aedan Diez, github.com/chaert-s/spektrafilm-ofx (GPL-3.0, см. assets/film/NOTICE-spektrafilm-ofx.txt).</string>
+    <string name="prefs_film_data_credit_summary">Профили плёнок и бумаг: spektrafilm, автор Andrea Volpato, github.com/andreavolpato/spektrafilm, CC BY-SA 4.0 (преобразованы и изменены SCAMERA: двоичные массивы и производные LUT, см. assets/film/CHANGELOG.txt). Цветовая модель, DIR-компоненты и диффузионные фильтры — перенос spektrafilm (GPL-3.0); форматы 65 мм и IMAX 70 и рост размытия зерна с форматом — из spektrafilm OFX, автор Aedan Diez, github.com/chaert-s/spektrafilm-ofx (GPL-3.0, см. assets/film/NOTICE-spektrafilm-ofx.txt). Распознавание текста в галерее: Tesseract OCR и его модели tessdata_fast (Apache-2.0), github.com/tesseract-ocr, через Tesseract4Android от Adaptech (Apache-2.0).</string>
     <string name="prefs_ettr_title">Меньше шума в тенях (ETTR)</string>
     <string name="prefs_ettr_summary">Кадры снимаются светлее, а фото остаётся привычной яркости: в тенях меньше шума. В помещении и ночью обычно не действует.</string>
     <string name="shade_t_ettr">ETTR</string>

@@ -57,6 +57,14 @@
         <item>1.5× (≈28 МП)</item>
         <item>2.0× (≈50 МП)</item>
     </string-array>
+    <string-array name="scam_hybrid_resize_entries">
+        <item>Выкл. (размер склейки)</item>
+        <item>12 Мп</item>
+        <item>16 Мп</item>
+        <item>20 Мп</item>
+        <item>Свои мегапиксели</item>
+        <item>Своё разрешение</item>
+    </string-array>
     <string-array name="scam_hybrid_shasta_mode_entries">
         <item>Авто (проверка резкости)</item>
         <item>Всегда</item>

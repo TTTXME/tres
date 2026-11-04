@@ -166,13 +166,22 @@ public final class GallerySheets {
 
     /** «Папки галереи»: the chips switch, then one switch row per folder (folder icon, name, path). */
     public static LinearLayout folders(Context c, boolean chipsShown, List<Folder> folders, FolderToggle toggle) {
+        return folders(c, (Boolean) chipsShown, folders, toggle);
+    }
+
+    /** P502: {@code chipsShown} null: no chips row (the tabs replaced the folder chips; the «Фото» tab's folders only). */
+    public static LinearLayout folders(Context c, @Nullable Boolean chipsShown, List<Folder> folders, FolderToggle toggle) {
         LinearLayout s = frame(c);
-        s.addView(title(c, Lang.t("Папки галереи", "Gallery folders")));
-        s.addView(sub(c, Lang.t("Какие папки показывать в галерее", "Which folders the gallery shows")));
-        LinearLayout rows = column(c);
-        rows.addView(switchRow(c, R.drawable.ui_ic_layers, Lang.t("Показывать папки", "Show folders"),
-                Lang.t("Лента папок над сеткой", "The folder chips above the grid"), chipsShown, on -> toggle.toggled(null, on)));
-        s.addView(rows);
+        s.addView(title(c, chipsShown == null ? Lang.t("Папки во вкладке «Фото»", "Folders in «Photos»") : Lang.t("Папки галереи", "Gallery folders")));
+        s.addView(sub(c, chipsShown == null ? Lang.t("Какие папки показывает вкладка «Фото». Все папки есть в «Альбомах».",
+                "Which folders the «Photos» tab shows. Every folder is in «Albums».")
+                : Lang.t("Какие папки показывать в галерее", "Which folders the gallery shows")));
+        if (chipsShown != null) {
+            LinearLayout rows = column(c);
+            rows.addView(switchRow(c, R.drawable.ui_ic_layers, Lang.t("Показывать папки", "Show folders"),
+                    Lang.t("Лента папок над сеткой", "The folder chips above the grid"), chipsShown, on -> toggle.toggled(null, on)));
+            s.addView(rows);
+        }
         s.addView(GalleryUi.sectionLabel(c, Lang.t("Папки", "Folders")));
         LinearLayout list = column(c);
         for (Folder f : folders)
@@ -345,6 +354,93 @@ public final class GallerySheets {
             changed.run();
         }));
         return s;
+    }
+
+    /**
+     * P502 (owner, 2026-11-05: the reference video's «Фильтр» sheet): what the «Фото» tab shows - kind (photos / videos), format,
+     * status (favourites) and time (the library's years, several at once) - with «Сбросить» and «Готово». {@code changed} runs after
+     * every pick (the grid applies it at once, the sheet stays).
+     */
+    public static void showFilter(Context c, java.util.Collection<Integer> libraryYears, Runnable changed) {
+        LinearLayout s = frame(c);
+        s.addView(title(c, Lang.t("Фильтр", "Filter")));
+        GalleryView.Media media = GalleryView.media(c);
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Показывать", "Show")));
+        s.addView(segmented(c, new String[]{Lang.t("Фото и видео", "Photos and videos"), Lang.t("Только фото", "Photos only"),
+                Lang.t("Только видео", "Videos only")}, media.ordinal(), i -> {
+            GalleryView.setMedia(c, GalleryView.Media.values()[i]);
+            changed.run();
+        }));
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Формат", "Format")));
+        s.addView(segmented(c, new String[]{Lang.t("Все", "All"), "RAW", "JPEG", "HEIC", Lang.t("Видео", "Video")}, GalleryView.type(c).ordinal(), i -> {
+            GalleryView.setType(c, GalleryView.Type.values()[i]);
+            changed.run();
+        }));
+        s.addView(GalleryUi.sectionLabel(c, Lang.t("Статус", "Status")));
+        s.addView(segmented(c, new String[]{Lang.t("Все", "All"), "♥ " + Lang.t("Избранное", "Favourites")},
+                GalleryView.favouritesOnly(c) ? 1 : 0, i -> {
+                    GalleryView.setFavouritesOnly(c, i == 1);
+                    changed.run();
+                }));
+        if (!libraryYears.isEmpty()) {
+            s.addView(GalleryUi.sectionLabel(c, Lang.t("Время", "Time")));
+            android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(c);
+            scroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout row = new LinearLayout(c);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            scroll.addView(row);
+            java.util.Set<Integer> chosen = new java.util.TreeSet<>(GalleryView.years(c));
+            for (Integer y : libraryYears) {
+                TextView chip = GalleryUi.chip(c, String.valueOf(y), -1, chosen.contains(y));
+                com.particlesdevs.photoncamera.ui.Motion.press(chip);
+                chip.setOnClickListener(v -> {
+                    if (!chosen.remove(y)) chosen.add(y);
+                    restyle(chip, chosen.contains(y));
+                    com.particlesdevs.photoncamera.ui.Motion.pop(v);
+                    GalleryView.setYears(c, chosen);
+                    changed.run();
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.rightMargin = GalleryUi.dp(c, 8);
+                row.addView(chip, lp);
+            }
+            s.addView(scroll);
+        }
+        LinearLayout buttons = new LinearLayout(c);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bl.topMargin = GalleryUi.dp(c, 18);
+        s.addView(buttons, bl);
+        final com.google.android.material.bottomsheet.BottomSheetDialog[] dialog = new com.google.android.material.bottomsheet.BottomSheetDialog[1];
+        TextView reset = wideButton(c, Lang.t("Сбросить", "Reset"), false);
+        reset.setOnClickListener(v -> {
+            GalleryView.clearFilter(c);
+            changed.run();
+            if (dialog[0] != null) dialog[0].dismiss();
+        });
+        TextView done = wideButton(c, Lang.t("Готово", "Done"), true);
+        done.setOnClickListener(v -> {
+            if (dialog[0] != null) dialog[0].dismiss();
+        });
+        buttons.addView(reset, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        dp.leftMargin = GalleryUi.dp(c, 10);
+        buttons.addView(done, dp);
+        dialog[0] = show(c, s);
+    }
+
+    /** A wide 48dp button of a sheet's footer (the accent one filled). */
+    static TextView wideButton(Context c, String label, boolean accent) {
+        TextView b = GalleryUi.text(c, label, 15, accent ? GalleryUi.INK : GalleryUi.TEXT);
+        b.setGravity(android.view.Gravity.CENTER);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setMinHeight(GalleryUi.dp(c, 48));
+        int a = GalleryUi.accent(c);
+        b.setBackground(GalleryUi.pressable(GalleryUi.round(c, accent ? a : GalleryUi.CARD, accent ? a : GalleryUi.LINE, 999)));
+        b.setClickable(true);
+        b.setFocusable(true);
+        com.particlesdevs.photoncamera.ui.Motion.press(b);
+        return b;
     }
 
     /** One action of the viewer's «Ещё» sheet. */

@@ -156,7 +156,7 @@ public class BottomBarStyleTest {
             // SIMPLE_UI: the concept's containers - the card colour (the strip at 85 %), the gallery card 16dp corners
             int card = SettingsStyle.CARD;
             GradientDrawable stripBg = (GradientDrawable) strip.getBackground();
-            assertEquals(at + "strip: the card colour at 85 %", BottomChrome.STRIP_FILL, stripBg.getColor().getDefaultColor());
+            assertEquals(at + "strip: the card colour at 74 % (glass)", BottomChrome.STRIP_FILL, stripBg.getColor().getDefaultColor());
             GradientDrawable galleryBg = (GradientDrawable) row.galeryButtonContainer.getBackground();
             assertEquals(at + "gallery: the card", card, galleryBg.getColor().getDefaultColor());
             assertEquals(at + "gallery: 16dp corners", BottomChrome.SIDE_RADIUS_DP * density * s, galleryBg.getCornerRadius(), .5f);

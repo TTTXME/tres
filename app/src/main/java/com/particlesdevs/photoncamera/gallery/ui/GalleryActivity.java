@@ -324,5 +324,12 @@ public class GalleryActivity extends BaseActivity {
                 ((ImageLibraryFragment) fragment).handleImagesDeletedCallback(resultCode == Activity.RESULT_OK);
             }
         }
+        // P502: a restore / delete for good of «Недавно удаленные» that went through the system's dialog
+        if (requestCode == com.particlesdevs.photoncamera.gallery.files.GalleryTrash.REQUEST_TRASH_ACTION) {
+            NavHostFragment host = (NavHostFragment) getSupportFragmentManager().findFragmentById(R.id.gallery_navigation_host);
+            Fragment fragment = host != null && !host.getChildFragmentManager().getFragments().isEmpty()
+                    ? host.getChildFragmentManager().getFragments().get(0) : null;
+            if (fragment instanceof ImageLibraryFragment) ((ImageLibraryFragment) fragment).handleTrashResult(resultCode == Activity.RESULT_OK);
+        }
     }
 }

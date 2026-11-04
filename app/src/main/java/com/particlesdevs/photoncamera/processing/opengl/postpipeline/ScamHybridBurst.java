@@ -610,6 +610,53 @@ public final class ScamHybridBurst implements ScamTransport {
         if ("1.5x".equals(mode)) return new android.graphics.Point(Math.min(2 * w, Math.round(w * 1.5f / 4f) * 4), Math.min(2 * h, Math.round(h * 1.5f / 2f) * 2));
         return new android.graphics.Point(w, h);
     }
+    /**
+     * P503 (owner, 2026-11-05: «верни ресайз … до кастомного разрешения/количества мегапикселей помимо старых 12/16/20»): the
+     * photo size a w x h frame is scaled down to after the pipeline (pref_scam_hybrid_resize), null when off or unreadable.
+     * "12" / "16" / "20": the classic 4:3 sizes (4032x3024, 4608x3456, 5184x3888; the sensor size counts as its own class);
+     * "mp": {@code custom} megapixels; "px": {@code custom} as "W x H" (the photo fits in that box, either way round) or the long side.
+     * The caller keeps the merged size when this is not smaller (no upscale).
+     */
+    @androidx.annotation.Nullable
+    public static android.graphics.Point resizeTarget(@androidx.annotation.Nullable String mode, @androidx.annotation.Nullable String custom, int w, int h) {
+        if (mode == null || w <= 0 || h <= 0) return null;
+        switch (mode) {
+            case "12": case "16": case "20": {
+                android.graphics.Point t = megapixelSize(Integer.parseInt(mode), w, h);
+                return Math.abs((long) t.x * t.y - (long) w * h) < 0.1 * w * h ? new android.graphics.Point(w, h) : t;
+            }
+            case "mp": {
+                final double mp = firstNumbers(custom, 1).length == 1 ? firstNumbers(custom, 1)[0] : -1;
+                return mp >= 0.3 && mp <= 1000 ? megapixelSize(mp, w, h) : null;
+            }
+            case "px": {
+                final double[] n = firstNumbers(custom, 2);
+                if (n.length == 0 || n[0] < 64) return null;
+                final double longSide = Math.max(w, h), shortSide = Math.min(w, h);
+                double s = n[0] / longSide;
+                if (n.length == 2 && n[1] >= 64) s = Math.min(Math.max(n[0], n[1]) / longSide, Math.min(n[0], n[1]) / shortSide);
+                return new android.graphics.Point(Math.max(64, (int) Math.round(w * s / 2) * 2), Math.max(64, (int) Math.round(h * s / 2) * 2));
+            }
+            default: return null;
+        }
+    }
+    /** {@code megapixels} in the aspect of w x h: 4:3 widths on a 64 px step keep both sides on the 16 px JPEG MCU grid. */
+    static android.graphics.Point megapixelSize(double megapixels, int w, int h) {
+        final double aspect = (double) w / h, pixels = megapixels * 1_000_000.0;
+        final int step = Math.abs(aspect - 4.0 / 3.0) < 0.01 ? 64 : 16;
+        int tw = (int) Math.round(Math.sqrt(pixels * aspect) / step) * step;
+        int th = (int) Math.round(tw / aspect / 16) * 16;
+        return new android.graphics.Point(Math.max(64, tw), Math.max(64, th));
+    }
+    /** Up to {@code max} positive numbers of {@code text} ("4000x3000", "24", "12,5"). */
+    private static double[] firstNumbers(@androidx.annotation.Nullable String text, int max) {
+        if (text == null) return new double[0];
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+(?:[.,]\\d+)?").matcher(text);
+        double[] out = new double[max];
+        int n = 0;
+        while (n < max && m.find()) out[n++] = Double.parseDouble(m.group().replace(',', '.'));
+        return java.util.Arrays.copyOf(out, n);
+    }
     /** P501: header words 15 / 16: {@code ow} x {@code oh} unless it is the sensor grid or the 2x grid of {@code w} x {@code h}. */
     static int[] sabreWords(int w, int h, int ow, int oh) {
         final boolean grid = ow == w && oh == h || ow == 2 * w && oh == 2 * h;

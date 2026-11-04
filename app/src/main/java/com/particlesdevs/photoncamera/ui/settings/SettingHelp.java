@@ -50,6 +50,7 @@ public final class SettingHelp {
         EXACT.put("pref_scam_hybrid_output", R.string.help_output);
         EXACT.put("pref_wide169_key", R.string.help_wide169);
         EXACT.put("pref_crop_upscale", R.string.help_crop_upscale);
+        EXACT.put("pref_scam_hybrid_resize", R.string.help_resize);
         EXACT.put("pref_ultrahdr_key", R.string.help_ultrahdr);
         EXACT.put("pref_photo_color_space", R.string.help_colour_space);
         EXACT.put("watermark_screen", R.string.help_watermark);

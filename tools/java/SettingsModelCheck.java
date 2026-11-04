@@ -211,6 +211,11 @@ public class SettingsModelCheck {
         out.put("pref_scam_hybrid_output","2x");inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_dn_chroma_2x_keep");
         // P501: the Sabre scales merge at their own size: no downsampler (the old 16 / 20 MP read as 1.5x)
         for(String mp:new String[]{"1.5x","16","20"}){out.put("pref_scam_hybrid_output",mp);inactive(out,"pref_scam_hybrid_downsampler");active(out,"pref_scam_hybrid_dn_chroma_2x_keep");}
+        // P503: «Уменьшить до» brings the downsampler back; its own values act with their mode
+        active(out,"pref_scam_hybrid_resize");inactive(out,"pref_scam_hybrid_resize_mp");inactive(out,"pref_scam_hybrid_resize_px");
+        for(String r:new String[]{"12","16","20","mp","px"}){out.put("pref_scam_hybrid_resize",r);active(out,"pref_scam_hybrid_downsampler");}
+        out.put("pref_scam_hybrid_resize","mp");active(out,"pref_scam_hybrid_resize_mp");inactive(out,"pref_scam_hybrid_resize_px");
+        out.put("pref_scam_hybrid_resize","px");active(out,"pref_scam_hybrid_resize_px");inactive(out,"pref_scam_hybrid_resize_mp");
         Map<String,Object> scam=new HashMap<>();
         // «Цветовой метод»: inactive where a tuned / ISP matrix replaces it
         active(scam,"pref_color_method_key");

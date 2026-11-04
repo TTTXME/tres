@@ -98,7 +98,7 @@ public class LensButtonTest {
         assertEquals("2,8×", button.getText().toString());
         assertEquals("the active pill keeps the height", dp(LensButton.HEIGHT_DP * BottomChrome.scale(context)), button.getHeight());
         assertTrue("the active pill at least 46dp wide", button.getWidth() >= dp(LensButton.SELECTED_WIDTH_DP * BottomChrome.scale(context)));
-        assertEquals("a pill: corners half its height", button.getHeight() / 2f, dp(LensButton.CORNER_DP * BottomChrome.scale(context)), 1f);
+        assertEquals("a rounded rectangle: 15 of its 38dp", button.getHeight() * 15f / 38f, dp(LensButton.CORNER_DP * BottomChrome.scale(context)), 1f);
         button.setSelected(false);
         assertEquals("2,8", button.getText().toString());
         assertEquals("2,8×", button.fullLabel().toString());

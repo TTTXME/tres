@@ -133,6 +133,21 @@ public class ScamHybridBurstAnyResolutionTest {
         outputMode = "2x";
     }
 
+    /** P503: «Уменьшить до» - the classic sizes, own megapixels, own resolution (box either way round, or the long side). */
+    @Test public void resizeTargets() {
+        assertNull(ScamHybridBurst.resizeTarget("off", null, 4080, 3072));
+        assertEquals(new Point(4080, 3072), ScamHybridBurst.resizeTarget("12", null, 4080, 3072)); // the sensor is its own class
+        assertEquals(new Point(4608, 3472), ScamHybridBurst.resizeTarget("16", null, 8160, 6144));
+        assertEquals(new Point(5184, 3904), ScamHybridBurst.resizeTarget("20", null, 8160, 6144));
+        Point mp = ScamHybridBurst.resizeTarget("mp", "8,5", 8160, 6144);
+        assertEquals(8.5e6, (double) mp.x * mp.y, 0.3e6);
+        assertNull(ScamHybridBurst.resizeTarget("mp", "abc", 8160, 6144));
+        assertEquals(new Point(4000, 3012), ScamHybridBurst.resizeTarget("px", "4000", 8160, 6144));
+        assertEquals(new Point(2656, 2000), ScamHybridBurst.resizeTarget("px", "4000x2000", 8160, 6144));
+        assertEquals(new Point(2656, 2000), ScamHybridBurst.resizeTarget("px", "2000 x 4000", 8160, 6144));
+        assertEquals(new Point(3000, 4000), ScamHybridBurst.resizeTarget("px", "4000", 3060, 4080));
+    }
+
     @Test public void upTo16MegapixelsThe2xChoiceIsUnchanged() throws Exception {
         ScamHybridBurst b = burst(List.of(frame(64, 64, ByteBuffer.allocate(64 * 64 * 2))), parameters(64, 64));
         assertEquals(128, b.outputWidth());

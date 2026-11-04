@@ -4,6 +4,12 @@
 <resources>
     <string name="prefs_prefscreen_title">Camera settings</string>
     <string name="prefs_scam_hybrid_screen_summary">Noise reduction, sharpening, tone and the frame merge</string>
+    <string name="prefs_scam_hybrid_resize_title">Resize to</string>
+    <string name="prefs_scam_hybrid_resize_summary">%s. Scales the finished photo down to this size (in the frame\'s aspect); a size not smaller than the merged one leaves the photo as merged. For 16 / 20 MP from a 12 MP sensor choose Resolution 1.5× or 2×.</string>
+    <string name="prefs_scam_hybrid_resize_mp_title">Own megapixels</string>
+    <string name="prefs_scam_hybrid_resize_mp_hint">Megapixels of the photo, e.g. 24 or 8.5</string>
+    <string name="prefs_scam_hybrid_resize_px_title">Own resolution</string>
+    <string name="prefs_scam_hybrid_resize_px_hint">Width x height the photo fits in (4000x3000), or its long side (4000)</string>
     <string name="prefs_scam_hybrid_output_title">Resolution</string>
     <string name="prefs_scam_hybrid_output_summary">%s. How many pixels the photo has. 2×: more detail, but about four times slower to process.</string>
     <string name="prefs_scam_hybrid_processing_title">Processing mode</string>
@@ -823,7 +829,7 @@
     <string name="prefs_mosaic_wb_title">Own white balance</string>
     <string name="prefs_mosaic_wb_summary">Full-resolution (50 / 200 MP) and in-sensor zoom shots: our white-balance estimate. Off: the camera\'s white balance.</string>
     <string name="prefs_film_data_credit_title">Film simulation data</string>
-    <string name="prefs_film_data_credit_summary">Film and paper profiles: spektrafilm by Andrea Volpato, github.com/andreavolpato/spektrafilm, CC BY-SA 4.0 (converted and modified by SCAMERA: binary arrays and derived LUTs, see assets/film/CHANGELOG.txt). The colour model, the DIR couplers and the diffusion filters are ports of spektrafilm (GPL-3.0); the 65 mm and IMAX 70 formats and the grain blur\'s format scale come from spektrafilm OFX by Aedan Diez, github.com/chaert-s/spektrafilm-ofx (GPL-3.0, see assets/film/NOTICE-spektrafilm-ofx.txt).</string>
+    <string name="prefs_film_data_credit_summary">Film and paper profiles: spektrafilm by Andrea Volpato, github.com/andreavolpato/spektrafilm, CC BY-SA 4.0 (converted and modified by SCAMERA: binary arrays and derived LUTs, see assets/film/CHANGELOG.txt). The colour model, the DIR couplers and the diffusion filters are ports of spektrafilm (GPL-3.0); the 65 mm and IMAX 70 formats and the grain blur\'s format scale come from spektrafilm OFX by Aedan Diez, github.com/chaert-s/spektrafilm-ofx (GPL-3.0, see assets/film/NOTICE-spektrafilm-ofx.txt). Text recognition in the gallery: Tesseract OCR and its tessdata_fast models (Apache-2.0), github.com/tesseract-ocr, through Tesseract4Android by Adaptech (Apache-2.0).</string>
     <string name="prefs_ettr_title">Less shadow noise (ETTR)</string>
     <string name="prefs_ettr_summary">The frames are taken brighter while the photo keeps its usual brightness: less noise in the shadows. Usually no effect indoors and at night.</string>
     <string name="shade_t_ettr">ETTR</string>

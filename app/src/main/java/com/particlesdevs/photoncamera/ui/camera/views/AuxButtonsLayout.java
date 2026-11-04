@@ -410,7 +410,7 @@ public AuxButtonsLayout(Context context, @Nullable AttributeSet attrs) {
     @Override
     protected void dispatchDraw(android.graphics.Canvas canvas) {
         if (!pill.isEmpty()) {
-            final float r = pill.height() / 2f;
+            final float r = pill.height() * LensButton.CORNER_DP / LensButton.HEIGHT_DP; // the active lens's own corners
             canvas.drawRoundRect(pill, r, r, pillPaint);
         }
         super.dispatchDraw(canvas);

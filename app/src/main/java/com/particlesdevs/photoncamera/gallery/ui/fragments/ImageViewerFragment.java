@@ -291,6 +291,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_play, Lang.t("Слайд-шоу", "Slideshow"), this::startSlideshow));
         if (!video)
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_wallpaper, Lang.t("Установить как…", "Set as…"), () -> sendTo(item, Intent.ACTION_ATTACH_DATA)));
+        // P504: the text on the photo, to copy (OCR)
+        if (!video && com.particlesdevs.photoncamera.gallery.ocr.OcrIndex.indexable(item.getFile().getDisplayName()))
+            actions.add(new GallerySheets.Action(R.drawable.ui_ic_text, Lang.t("Текст на фото", "Text in the photo"),
+                    () -> com.particlesdevs.photoncamera.gallery.ui.TextSheet.show(c, item.getFile())));
         actions.add(new GallerySheets.Action(R.drawable.ui_ic_open, Lang.t("Открыть в другом приложении", "Open in another app"), () -> sendTo(item, Intent.ACTION_VIEW)));
         GallerySheets.showActions(c, Lang.t("Ещё", "More"), actions);
     }

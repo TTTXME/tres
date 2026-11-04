@@ -40,6 +40,16 @@ public final class GalleryUi {
 
     public static int dp(Context c, float v) { return SettingsStyle.dp(c, v); }
 
+    /**
+     * P502: how many times the portrait grid's columns fit across the screen now (1 in portrait, 2 on a phone held sideways):
+     * the column settings stay the portrait ones, a wide screen multiplies them (3 columns sideways gave cells as tall as the screen).
+     */
+    public static int widthFactor(Context c) {
+        android.util.DisplayMetrics m = c.getResources().getDisplayMetrics();
+        float widthDp = m.widthPixels / Math.max(.5f, m.density);
+        return Math.max(1, Math.round(widthDp / 420f));
+    }
+
     public static int accent(Context c) { return SettingsStyle.accent(c); }
 
     public static GradientDrawable card(Context c, int fill, float radius) {

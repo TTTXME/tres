@@ -789,8 +789,25 @@ public class PreferenceKeys {
         }
     }
 
+    /**
+     * The photo size of a w x h stream: the Sabre scale's merged size, scaled down to «Уменьшить до» (P503,
+     * pref_scam_hybrid_resize: off / 12 / 16 / 20 MP / own megapixels / own resolution) when that is smaller.
+     */
     public static android.graphics.Point hybridFinalSize(int w, int h) {
-        return hybridSabreSize(w, h, hybridOutputMode()); // P501: the merged size itself (no resize after the pipeline)
+        final android.graphics.Point merged = hybridSabreSize(w, h, hybridOutputMode());
+        final android.graphics.Point t = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.resizeTarget(
+                hybridResizeMode(), hybridResizeCustom(), w, h);
+        return t != null && t.x < merged.x && t.y < merged.y ? t : merged;
+    }
+    /** P503: «Уменьшить до» (pref_scam_hybrid_resize): "off", "12", "16", "20", "mp" (own megapixels) or "px" (own resolution). */
+    public static String hybridResizeMode() {
+        return hybridString("resize", "off");
+    }
+    /** P503: the own value of the «Уменьшить до» mode (pref_scam_hybrid_resize_mp / _px), null for the presets. */
+    @androidx.annotation.Nullable
+    public static String hybridResizeCustom() {
+        final String mode = hybridResizeMode();
+        return "mp".equals(mode) ? hybridString("resize_mp", "24") : "px".equals(mode) ? hybridString("resize_px", "4000x3000") : null;
     }
     /**
      * The worker tuning lines of the hybrid settings: {tuning name, pref_scam_hybrid_ suffix} (hybridTuningText writes them; the lab

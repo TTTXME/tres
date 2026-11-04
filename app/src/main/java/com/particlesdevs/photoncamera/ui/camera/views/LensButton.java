@@ -85,7 +85,8 @@ public class LensButton extends Button {
      * P185: every lens's height, the least width of a lens and of the active one, and the active pill's corner radius (half
      * its height: a pill) - dp before the scale.
      */
-    static final float HEIGHT_DP = 38f, WIDTH_DP = 34f, SELECTED_WIDTH_DP = 46f, CORNER_DP = 19f;   // SIMPLE_UI: the concept's .lens
+    // owner, 2026-11-05 («между тем что сейчас и А»): the active lens a 15dp rounded rectangle, between the old pill and A's squircle
+    static final float HEIGHT_DP = 38f, WIDTH_DP = 34f, SELECTED_WIDTH_DP = 46f, CORNER_DP = 15f;   // SIMPLE_UI: the concept's .lens
     private final float unit;
     /**
      * P181 (owner, 2026-10-16: «у нас модули выходят за границы экрана»): the strip's fit, MIN_FIT..1 - the tile's least

@@ -51,6 +51,12 @@ ANNOTATION = ('annotation description (a compile-time constant, so no Lang.t): s
               'lookup of ModuleSensorSettings / TunablePreferenceGenerator')
 LOOKUP = 'matcher: the Russian annotation descriptions, looked up to show them in the UI language'
 ALLOW = {
+    'com/particlesdevs/photoncamera/gallery/ui/fragments/ImageLibraryFragment.java': [
+        ('P502 folder matcher: the Russian name of the screen recordings folder sorts it into «Записи экрана»', None),
+    ],
+    'com/particlesdevs/photoncamera/gallery/model/GallerySearch.java': [
+        ('P502 search vocabulary: the Russian and English words of kinds and months find a file whatever the UI language', None),
+    ],
     'com/particlesdevs/photoncamera/settings/ShadeCatalog.java': [
         ('search synonyms (KEYWORDS): the Russian words keep finding a row whatever the UI language', [
             'denoise|шумодав|шумопод|noise|шум|despeckle', 'шум шумоподавление шумодав denoise noise',

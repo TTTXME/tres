@@ -114,6 +114,22 @@
         <item>1.5× (≈28 MP)</item>
         <item>2.0× (≈50 MP)</item>
     </string-array>
+    <string-array name="scam_hybrid_resize_entries">
+        <item>Off (the merged size)</item>
+        <item>12 MP</item>
+        <item>16 MP</item>
+        <item>20 MP</item>
+        <item>Own megapixels</item>
+        <item>Own resolution</item>
+    </string-array>
+    <string-array name="scam_hybrid_resize_values" translatable="false">
+        <item>off</item>
+        <item>12</item>
+        <item>16</item>
+        <item>20</item>
+        <item>mp</item>
+        <item>px</item>
+    </string-array>
     <string-array name="scam_hybrid_downsampler_entries" translatable="false">
         <item>Lanczos-3</item>
         <item>Bicubic</item>

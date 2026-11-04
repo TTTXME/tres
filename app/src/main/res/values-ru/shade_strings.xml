@@ -38,6 +38,7 @@
     <string name="shade_t_metering_std">Замер камеры</string>
     <string name="shade_t_metering">Замер для тона</string>
     <string name="shade_t_output">Разрешение</string>
+    <string name="shade_t_resize">Ресайз</string>
     <string name="shade_t_downsampler">Уменьшение</string>
     <string name="shade_t_ultrahdr">UHDR</string>
     <string name="shade_t_watermark">Водяной знак</string>
@@ -73,6 +74,14 @@
         <item>1×</item>
         <item>1.5×</item>
         <item>2×</item>
+    </string-array>
+    <string-array name="shade_s_resize">
+        <item>Выкл.</item>
+        <item>12 Мп</item>
+        <item>16 Мп</item>
+        <item>20 Мп</item>
+        <item>Свои Мп</item>
+        <item>Своё</item>
     </string-array>
     <string-array name="shade_s_downsampler">
         <item>Lanczos</item>

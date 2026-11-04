@@ -63,9 +63,12 @@ public final class SelectionBar {
             com.particlesdevs.photoncamera.ui.Motion.pop(((ViewGroup) v).getChildAt(0));
             onFavourite.run();
         });
-        for (View b : favourite == null ? new View[]{compare, share, delete} : new View[]{favourite, compare, share, delete}) {
+        View[] actions = favourite == null ? new View[]{compare, share, delete} : new View[]{favourite, compare, share, delete};
+        // (owner, 2026-11-05: the bottom bars «гораздо более компактными» - fixed buttons in a centred capsule, not the full width)
+        int each = GalleryUi.dp(c, Math.max(52, Math.min(72, (c.getResources().getConfiguration().screenWidthDp - 190) / actions.length)));
+        for (View b : actions) {
             com.particlesdevs.photoncamera.ui.Motion.press(b);
-            view.addView(b, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            view.addView(b, new LinearLayout.LayoutParams(each, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
     }
 

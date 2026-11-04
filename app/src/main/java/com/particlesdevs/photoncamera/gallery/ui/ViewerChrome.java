@@ -165,9 +165,14 @@ public final class ViewerChrome {
         delete = barButton(c, R.drawable.ui_ic_trash, Lang.t("Удалить", "Delete"), GalleryUi.WARN, v -> a.delete());
         delete.setTag("viewer_delete");
         info = barButton(c, R.drawable.ui_ic_info, Lang.t("Сведения", "Details"), v -> a.info());
+        // (owner, 2026-11-05: the bottom bars «гораздо более компактными» in both orientations - a centred capsule of 72dp buttons)
+        int widthDp = c.getResources().getConfiguration().screenWidthDp;
+        int each = GalleryUi.dp(c, Math.max(56, Math.min(72, (widthDp - 24) / 5)));
         for (View b : new View[]{share, edit, compare, delete, info})
-            buttons.addView(b, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        bottom.addView(buttons, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            buttons.addView(b, new LinearLayout.LayoutParams(each, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.gravity = Gravity.CENTER_HORIZONTAL;
+        bottom.addView(buttons, bp);
     }
 
     /** The concept's .back: a 44dp card disc with the line icon in the text colour. */

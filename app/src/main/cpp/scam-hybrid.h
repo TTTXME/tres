@@ -7015,19 +7015,23 @@ public:
     void prewarmLazy(const HybridTuning& tune,const std::function<void(int,int)>& progress){
         std::vector<std::pair<std::string,bool>> jobs; // source, standalone
         auto cells=[&](bool fine){return std::string(fine?"#define CELL_FINE 1\n":"")+cellsSource;};
-        jobs.push_back({cells(true),false});jobs.push_back({cells(false),false});
+        // P505: the CELL_FINE builds only when this tuning can use them (s61Fine > 0, not the app's default; merge() asks for them
+        // by k61c.y). The X200 Pro's Mali compiler died on them at every app start (prewarm workers, 6 tombstones a session).
+        const bool fineCells=tune.s61Fine>0.f;
+        if(fineCells)jobs.push_back({cells(true),false});
+        jobs.push_back({cells(false),false});
         const std::string chromaBody=std::string("#define RIM_STATS 1\n#define CHROMA_PASS 1\n")+mergeCommon()+kHybChroma;
         if(tune.bayerSplit>0&&chromaProgram)jobs.push_back({hybridBayerTileSource(chromaBody),false});
         if(!qzBody.empty())jobs.push_back({qzBody,false});
         if(tune.bayerQuads>0&&!qzQuadBody.empty()){
-            for(bool fine:{false,true})jobs.push_back({std::string(kHybCommon)+helpersPrefix+kHybHelpers+(fine?"#define CELL_FINE 1\n":"")+kHybQzQuadCells,true});
+            for(bool fine:{false,true})if(!fine||fineCells)jobs.push_back({std::string(kHybCommon)+helpersPrefix+kHybHelpers+(fine?"#define CELL_FINE 1\n":"")+kHybQzQuadCells,true});
             jobs.push_back({qzQuadBody,false});
             const int m=(std::getenv("SCAM_TEX_MAPS")?texMapsEnv():tune.texMaps)&31;
             if(m){
                 if(m&25)jobs.push_back({texReject(texRejSrc,m),false});
                 if(m&18)jobs.push_back({texDilate(texDilSrc,m),false});
                 if(m&8)jobs.push_back({texGuideS(texGuideSrc),false});
-                if(m&5)for(bool fine:{false,true})
+                if(m&5)for(bool fine:{false,true})if(!fine||fineCells)
                     jobs.push_back({std::string(kHybCommon)+helpersPrefix+kHybHelpers+(fine?"#define CELL_FINE 1\n":"")+texCellsSrc(kHybQzQuadCells,m),true});
                 if(m&14){
                     jobs.push_back({texReaders(qzQuadBody,m),false});
@@ -7043,7 +7047,9 @@ public:
         }
         int done=0;
         for(const auto& job:jobs){
-            try{compileName="prewarmLazy";if(GLuint p=compile(job.first.c_str(),job.second))glDeleteProgram(p);}
+            // P505: each job named in a crash report (the X200 Pro's tombstones all said «prewarmLazy»)
+            static char jobName[32];std::snprintf(jobName,sizeof jobName,"prewarmLazy#%d",done);
+            try{compileName=jobName;if(GLuint p=compile(job.first.c_str(),job.second))glDeleteProgram(p);}
             catch(const std::exception&){while(glGetError()!=GL_NO_ERROR){}}
             if(progress)progress(++done,int(jobs.size()));
         }

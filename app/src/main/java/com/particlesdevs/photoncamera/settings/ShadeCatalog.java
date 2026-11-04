@@ -87,6 +87,8 @@ public final class ShadeCatalog {
     public static final String ETTR = "pref_ettr";
     public static final String OUTPUT = "pref_scam_hybrid_output";
     private static final String DOWNSAMPLER = "pref_scam_hybrid_downsampler";
+    /** P503: «Ресайз» (pref_scam_hybrid_resize: off / 12 / 16 / 20 MP / own MP / own resolution). */
+    private static final String RESIZE = "pref_scam_hybrid_resize";
     /** Virtual entries, in catalog order. */
     public static final List<String> VIRTUAL = Collections.unmodifiableList(Arrays.asList(FLASH, TIMER, FORMAT, METERING_STD, SIZE, STYLE));
 
@@ -125,7 +127,7 @@ public final class ShadeCatalog {
      */
     public static final List<Group> GROUPS = Collections.unmodifiableList(Arrays.asList(
             new Group(R.string.shade_group_shoot, FLASH, TIMER, "pref_scam_hybrid_why_metering", ETTR),
-            new Group(R.string.shade_group_format, FORMAT, OUTPUT, DOWNSAMPLER, "pref_ultrahdr_key", "pref_wide169_key",
+            new Group(R.string.shade_group_format, FORMAT, OUTPUT, RESIZE, DOWNSAMPLER, "pref_ultrahdr_key", "pref_wide169_key",
                     "pref_show_watermark_key"),
             new Group(R.string.shade_group_hybrid, "pref_hdr_frames", "pref_scam_hybrid_bento", "pref_scam_hybrid_bento_frames",
                     "pref_scam_hybrid_shasta", "pref_scam_hybrid_zsl_frames", "pref_scam_hybrid_why_dn_factor",
@@ -158,6 +160,7 @@ public final class ShadeCatalog {
         CONCEPT_ICONS.put(FORMAT, R.drawable.ui_ic_format);
         CONCEPT_ICONS.put(OUTPUT, R.drawable.ui_ic_size);
         CONCEPT_ICONS.put(DOWNSAMPLER, R.drawable.ui_ic_size);
+        CONCEPT_ICONS.put(RESIZE, R.drawable.ui_ic_size);
         CONCEPT_ICONS.put("pref_show_grid_key", R.drawable.ui_ic_grid);
         CONCEPT_ICONS.put("pref_horizon", R.drawable.ui_ic_level);
         CONCEPT_ICONS.put("pref_ultrahdr_key", R.drawable.ui_ic_hdr);
@@ -219,6 +222,7 @@ public final class ShadeCatalog {
         spec(METERING_STD, R.string.shade_t_metering_std, R.array.shade_s_metering_std, R.drawable.ic_sheet_metering);
         spec("pref_scam_hybrid_why_metering", R.string.shade_t_metering, R.array.shade_s_why_metering, R.drawable.ic_shade_meter);
         spec(OUTPUT, R.string.shade_t_output, R.array.shade_s_output, R.drawable.settings_ic_zoom);
+        spec(RESIZE, R.string.shade_t_resize, R.array.shade_s_resize, R.drawable.ui_ic_size);
         spec(DOWNSAMPLER, R.string.shade_t_downsampler, R.array.shade_s_downsampler, R.drawable.ic_sheet_downsampler);
         spec("pref_ultrahdr_key", R.string.shade_t_ultrahdr, 0, R.drawable.settings_ic_hdr);
         // P494 (owner, 2026-11-03: the HDR tile «в положении выкл он должен полностью отключать длинные и сверхкороткие кадры»)
@@ -666,7 +670,7 @@ public final class ShadeCatalog {
      */
     public static final List<String> ADVANCED = Collections.unmodifiableList(Arrays.asList("pref_scam_hybrid_bento",
             "pref_scam_hybrid_bento_frames", "pref_scam_hybrid_shasta", "pref_scam_hybrid_zsl_frames",
-            "pref_scam_hybrid_why_dn_factor", "pref_scam_hybrid_why_ms_chroma", OUTPUT, DOWNSAMPLER,
+            "pref_scam_hybrid_why_dn_factor", "pref_scam_hybrid_why_ms_chroma", OUTPUT, RESIZE, DOWNSAMPLER,
             "pref_peak_method_key", "pref_face_detect_mode", "pref_tracking_af_mode", "pref_wide169_key",
             "pref_live_viewfinder_raw_key", "pref_show_afdata_key", "pref_show_watermark_key"));
 
@@ -701,6 +705,7 @@ public final class ShadeCatalog {
         switch (e.key) {
             case OUTPUT: return PreferenceKeys.hybridOutputMode();
             case DOWNSAMPLER: return PreferenceKeys.hybridDownsampler();
+            case RESIZE: return PreferenceKeys.hybridResizeMode();
             default: break;
         }
         Object v = PreferenceValue.get(prefs, e.key);
@@ -852,6 +857,12 @@ public final class ShadeCatalog {
     /** Icon of the current value, else of the setting. */
     @Nullable
     public Drawable icon(Entry e) {
+        // P502: «Разрешение» shows its scale («1X», «1.5X», «2X») as the icon
+        if (OUTPUT.equals(e.key)) {
+            String mode = PreferenceKeys.hybridOutputMode();
+            return new com.particlesdevs.photoncamera.ui.camera.views.settingsbar.TextIconDrawable(context,
+                    "2x".equals(mode) ? "2X" : "1.5x".equals(mode) ? "1.5X" : "1X");
+        }
         Integer concept = CONCEPT_ICONS.get(e.key);
         if (concept != null) return context.getDrawable(concept);
         int i = e.kind == LIST ? index(e) : -1;

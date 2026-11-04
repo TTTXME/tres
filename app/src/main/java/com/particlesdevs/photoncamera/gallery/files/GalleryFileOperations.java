@@ -41,6 +41,11 @@ public class GalleryFileOperations {
         return SELECTED_FOLDERS;
     }
 
+    /** P502: every folder with photos or videos found by the last scan (the «Альбомы» page), a copy. */
+    public static ArrayList<ImagesFolder> getAllFolders() {
+        return new ArrayList<>(ALL_FOLDERS);
+    }
+
     public static ArrayList<ImagesFolder> _fetchSelectedFolders(ContentResolver contentResolver) {
         FindAllFoldersWithImages(contentResolver);
         SELECTED_FOLDERS_IDS.clear();
@@ -180,7 +185,8 @@ public class GalleryFileOperations {
     public static void deleteImageFiles(Activity activity, List<ImageFile> toDelete, ImagesDeletedCallback deletedCallback) {
         List<Uri> toDeleteUriList = toDelete.stream().map(ImageFile::getFileUri).collect(Collectors.toList());
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && needsSystemDeleteRequest(activity, toDelete)) {
-            PendingIntent pi = MediaStore.createDeleteRequest(activity.getContentResolver(), toDeleteUriList);
+            // P502: into the system's trash («Недавно удаленные»: 30 days, the gallery's album puts it back); its dialog confirms
+            PendingIntent pi = MediaStore.createTrashRequest(activity.getContentResolver(), toDeleteUriList, true);
             try {
                 ActivityCompat.startIntentSenderForResult(activity, pi.getIntentSender(), REQUEST_PERM_DELETE, null, 0, 0, 0, null);
             } catch (IntentSender.SendIntentException e) {
@@ -188,7 +194,11 @@ public class GalleryFileOperations {
                 deletedCallback.deleted(false);
             }
         } else {
-            // before Android 11, or every file is this app's own (P345): deleted at once, no system dialog
+            // before Android 11, or every file is this app's own (P345): no system dialog; P502: into the trash on Android 11+
+            if (GalleryTrash.setOwnTrashed(activity, toDeleteUriList, true)) {
+                deletedCallback.deleted(true);
+                return;
+            }
             ContentResolver contentResolver = activity.getContentResolver();
             for (ImageFile file : toDelete) {
                 try {

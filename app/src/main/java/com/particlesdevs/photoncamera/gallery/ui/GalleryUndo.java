@@ -61,6 +61,16 @@ public final class GalleryUndo {
             GalleryMotion.rise(pill, false);
             IO.execute(() -> {
                 ContentResolver r = app.getContentResolver();
+                // P502: into the system's trash («Недавно удаленные», 30 days) where there is one; else deleted as before
+                java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
+                for (ImageFile f : files) uris.add(f.getFileUri());
+                if (com.particlesdevs.photoncamera.gallery.files.GalleryTrash.setOwnTrashed(app, uris, true)) {
+                    MAIN.post(() -> {
+                        GalleryView.unhide(files);
+                        vm.setUpdatePending(true);
+                    });
+                    return;
+                }
                 for (ImageFile f : files) {
                     try {
                         r.delete(f.getFileUri(), Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? null : MediaStore.MediaColumns._ID + "= ?",
