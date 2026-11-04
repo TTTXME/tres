@@ -185,6 +185,8 @@ public final class DevKeys {
         // viewfinder
         k.add(s(cap, "series_flush", false, Lang.t("Сброс очереди камеры перед серией после нажатия (как раньше; выкл — серия встаёт за видоискателем, без перезапуска камеры)",
                 "Flush the camera queue before the series after the shutter (as before; off: the series queues behind the viewfinder, no camera restart)")));
+        k.add(s(cap, "series_as_preview", true, Lang.t("Кадры серии с настройками видоискателя (без перестройки камеры между ними; выкл — как раньше)",
+                "Series frames with the viewfinder's settings (no camera pipeline switch between them; off: as before)")));
         k.add(s(vf, "mosaic_preview", true, Lang.t("Модуль, измеренный как мозаика, сразу показывает RAW-видоискатель", "A module measured as a mosaic starts on the RAW viewfinder")));
         k.add(n(vf, "vf_priority", "1", Lang.t("Высокий приоритет потока видоискателя (0 — обычный)", "High priority of the viewfinder thread (0: normal)")));
         // P314: the photo's tone per pixel by default (one pass, the AE on the CPU), the guided-filter chain of P301 as 2

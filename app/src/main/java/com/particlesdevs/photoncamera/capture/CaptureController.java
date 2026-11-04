@@ -8221,6 +8221,16 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, getSelectedFpsRange());
             } else {
                 captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                // P497: the series takes the repeating preview's settings (vendor keys included), its own exposure set below - a
+                // series unlike the preview made the HAL switch pipelines each way (vivo X200 Ultra: 0.3 s without a frame before
+                // and after it). scam_dev series_as_preview 0: the still template alone, as before
+                if (hybridZslRequested && mPreviewRequestBuilder != null && PreferenceKeys.scamDevSwitch("series_as_preview", true)) {
+                    try {
+                        Log.i("SCAM_CAPTURE", "series settings from the preview: " + ScamPreview.copySettings(mPreviewRequestBuilder.build(), captureBuilder) + " keys");
+                    } catch (RuntimeException e) {
+                        Log.w("SCAM_CAPTURE", "series settings from the preview failed", e);
+                    }
+                }
             }
             Antibanding.apply(captureBuilder, mCameraCharacteristics); // P411
             if (PreferenceKeys.isPortraitEnabled())

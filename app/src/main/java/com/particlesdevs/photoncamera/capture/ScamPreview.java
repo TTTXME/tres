@@ -194,6 +194,30 @@ public final class ScamPreview {
         return applied;
     }
 
+    /**
+     * P497 (owner, 2026-11-04: «там нет такой сильной задержки», the reference's series): every setting of the repeating preview
+     * request, its vendor keys too, copied onto a series request before the series' own (exposure, ISO, AE off, focus). The
+     * X200 Ultra's preview carries the stock profile (vivo scene mode, MAGIC, ~80 vivo.control keys) and the series did not: the
+     * HAL switched its pipeline each way, 304 ms without a frame before the series and 300 ms after it (PREVIEW_GAP), so the
+     * first short frame came 0.57 s after the press and the hand's drift (24 quads) broke its alignment. The reference sends a
+     * plain captureBurst whose settings match its plain preview. Returns the keys copied.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static int copySettings(CaptureRequest from, CaptureRequest.Builder to) {
+        int copied = 0;
+        for (CaptureRequest.Key key : from.getKeys()) {
+            try {
+                Object v = from.get(key);
+                if (v == null) continue;
+                to.set(key, v);
+                copied++;
+            } catch (RuntimeException unsupported) {
+                // a key this builder does not take: the template's value stays
+            }
+        }
+        return copied;
+    }
+
     public static void applySession(CaptureRequest.Builder builder) {
         // Stock places this in the session's global parameters as well as preview.
         builder.get(MAGIC); // Resolve the vendor key before changing the builder.

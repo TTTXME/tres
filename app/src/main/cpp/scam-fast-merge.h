@@ -591,7 +591,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     std::vector<std::function<void()>> pendingMerges; // the batch's merges, drawn in the loop's order
     auto flushMerges=[&]{if(pendingMerges.empty())return;for(auto& m:pendingMerges)m();pendingMerges.clear();glFlush();};
     // homography buffers: corners (576 x 16 B), tracks (576 x 32 B), one result slot per frame (bound by range, read at the end)
-    const GLuint bCorners=g.buffer(576*16),bTracks=g.buffer(576*32);
+    const GLuint bCorners=g.buffer(576*16),bTracks=g.buffer(576*32),bCoarse=g.buffer(17*17*4);
     const size_t resStride=size_t((64+ssboAlign-1)/ssboAlign*ssboAlign);
     const int loopFrames=int(shorts.size()+donors.size()+longs.size());
     const GLuint bResult=g.buffer(resStride*size_t(loopFrames+1));
@@ -948,6 +948,17 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         } else {lutFrame=&fr;frontEnd(fr.raw,slotBayer[slot],slotGuideFbo[slot],guideCur,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset);}
         // global homography (§5.3): KLT of the base corners into the frame's 8-bit L1 guide, RANSAC on the GPU
         g.tex(A::pGuide8,"uInput",0,pyrC[1]);g.draw(A::pGuide8,fG8Cur,lw[1],lh[1],1);
+        // P497: frames after the press (short, long) seed the KLT with a coarse translation of the 1/8 guides (+-8 px there = 64
+        // quads); the frames before it (the ring's, close in time) track from zero as before
+        const int coarseRange=(isShort||isLong)&&!std::getenv("SCAM_FM_NO_COARSE")?8:0;
+        if(coarseRange>0){
+            g.tex(A::pCoarseShift,"u_ref",0,pyrB[2]);g.tex(A::pCoarseShift,"u_cur",1,pyrC[2]);
+            g.u2i(A::pCoarseShift,"u_size",lw[2],lh[2]);g.u1i(A::pCoarseShift,"u_range",coarseRange);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bCoarse);
+            g.dispatch(A::pCoarseShift,((2*coarseRange+1)*(2*coarseRange+1)+63)/64,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+        g.u1i(A::pKlt,"u_coarse_range",coarseRange);g.u1f(A::pKlt,"u_coarse_scale",lscale[2]/lscale[1]);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bCoarse);
         g.tex(A::pKlt,"u_ref_tex",0,g8Base);g.tex(A::pKlt,"u_cur_tex",1,g8Cur);g.u2i(A::pKlt,"u_guide_size",lw[1],lh[1]);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bCorners);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bTracks);
         g.dispatch(A::pKlt,(576+63)/64,1);

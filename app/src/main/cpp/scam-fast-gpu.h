@@ -185,6 +185,7 @@ public:
                 pReject,pRejFilter,pDilate,pCyclops,pBlendEq,pAccum,pMergeB,pMergeA,pOutput,
                 pPass,pHlClipDilate,pHlGaussH,pHlGaussV,pHlValidate,pQuarDown,pQuarReduce,pQuarDilateH,pQuarDilateV,pHlCleanValid,pHlApplyValidity,pShortRecover,
                 pGuideQuad,pMergeQuad,pQpcEstimate,pQpcSmooth,pRawToGray,pHotPixel,pMergeQuadQuad,
+                pCoarseShift, // P497: the KLT seed of a frame after the press (coarse translation search)
                 pHlMaskOut, // P480: built on first use (hlMaskOutProgram), not at init: a burst without the highlight path never builds it
                 kProgs };
     GLuint prog[kProgs]{};
@@ -218,7 +219,7 @@ public:
             using namespace fastmerge;
             prog[pUnpack]=cs(kFastUnpackFused);prog[pUnpackBuf]=cs(kFastUnpackFusedBuf);prog[pGuide]=fs(kFastGuide);prog[pRef]=fs(kFastBaseRefColor);prog[pUnblock]=cs(kFastUnblocker);
             prog[pDown2]=fs(kFastGrayDown2);prog[pDown4]=fs(kFastGrayDown4);prog[pProducts]=cs(kFastGradProducts);prog[pGuide8]=fs(kFastPyrToGuide8);
-            prog[pCorners]=cs(kFastHomoCorners);prog[pKlt]=cs(kFastHomoKlt);prog[pRansac]=cs(kFastHomoRansac);prog[pFill]=cs(kFastHomoFillFlow);
+            prog[pCorners]=cs(kFastHomoCorners);prog[pKlt]=cs(kFastHomoKlt);prog[pRansac]=cs(kFastHomoRansac);prog[pFill]=cs(kFastHomoFillFlow);prog[pCoarseShift]=cs(kFastCoarseShift);
             prog[pUpsample]=cs(kFastUpsampleAlign);prog[pLk]=cs(kFastBlockLk);prog[pMedian]=fs(kFastMedianAlign);prog[pSparse]=fs(kFastAlignSparse);
             prog[pReject]=fs(kFastRejection);prog[pRejFilter]=rejFilterProgram(true);prog[pDilate]=fs(kFastDilateMask);prog[pCyclops]=fs(kFastCyclops);
             prog[pBlendEq]=fs(kFastBlendEq);prog[pAccum]=fs(kFastAccumWeight);prog[pMergeB]=fs(kFastMergeB);prog[pMergeA]=fs(kFastMergeA);

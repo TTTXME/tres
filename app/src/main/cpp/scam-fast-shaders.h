@@ -762,6 +762,35 @@ void main() {
 }
 )FM";
 // sh081: homo_track_klt (+0x78)
+// P497: a frame after the press (short, long) can lie 24 quads off the base (vivo X200 Ultra, a corridor: 0.57 s after the press),
+// beyond the single-level KLT's reach (its 9 x 9 patch, ~8 quads): one invocation per whole-pixel translation of the 1/8 guide
+// (L2) within +-u_range, its truncated relative difference over the overlap (scale-free: the guides of other exposures match)
+static const char* kFastCoarseShift=R"FM(#version 310 es
+precision highp float;
+precision highp int;
+layout(local_size_x = 64) in;
+uniform highp sampler2D u_ref;
+uniform highp sampler2D u_cur;
+uniform ivec2 u_size;
+uniform int u_range;
+layout(std430, binding = 0) writeonly buffer Cost { float cost[]; };
+void main() {
+    int id = int(gl_GlobalInvocationID.x);
+    int n = 2 * u_range + 1;
+    if (id >= n * n) return;
+    int dx = id % n - u_range, dy = id / n - u_range;
+    float s = 0.0, c = 0.0;
+    for (int y = u_range; y < u_size.y - u_range; y += 2) {
+        for (int x = u_range; x < u_size.x - u_range; x += 2) {
+            float a = texelFetch(u_ref, ivec2(x, y), 0).r;
+            float b = texelFetch(u_cur, ivec2(x + dx, y + dy), 0).r;
+            s += min(abs(a - b) / (a + b + 1.0e-3), 0.5);
+            c += 1.0;
+        }
+    }
+    cost[id] = s / max(c, 1.0);
+}
+)FM";
 static const char* kFastHomoKlt=R"FM(#version 310 es
 precision highp float;
 precision highp int;
@@ -794,6 +823,11 @@ layout(std430, binding = 0) readonly buffer RefCorners {
 layout(std430, binding = 1) writeonly buffer TrackedBuffer {
     TrackedPoint out_tracked[576];
 };
+
+// P497: the coarse translation's costs (kFastCoarseShift), u_coarse_range 0 = no seed (the frames before the press)
+layout(std430, binding = 2) readonly buffer CoarseCost { float coarse_cost[]; };
+uniform int u_coarse_range;
+uniform float u_coarse_scale; // guide (L1) pixels per coarse (L2) pixel
 
 float get_ref_px(int x, int y) {
     x = clamp(x, 0, u_guide_size.x - 1);
@@ -861,6 +895,17 @@ void main() {
     float inv_det = 1.0 / det;
 
     vec2 cur_p = r_pt;
+    if (u_coarse_range > 0) {
+        int n = 2 * u_coarse_range + 1;
+        int best = n * n / 2;
+        float bc = coarse_cost[best];
+        float c0 = bc;
+        for (int i = 0; i < n * n; ++i) {
+            float v = coarse_cost[i];
+            if (v < bc) { bc = v; best = i; }
+        }
+        if (bc < 0.9 * c0) cur_p += vec2(float(best % n - u_coarse_range), float(best / n - u_coarse_range)) * u_coarse_scale;
+    }
     bool converged = false;
 
     for (int iter = 0; iter < 12; ++iter) {
