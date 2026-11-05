@@ -151,7 +151,9 @@ def main():
         check(wall_gain < 1.5 and skin_gain < 1.35,
               'default HL stays moderate: wall x%.3f, protected skin x%.3f' % (wall_gain, skin_gain))
         check(max(np.ptp(v[0][0]) for v in measured_runs.values()) < 2e-4, 'neutral grey stays neutral at every HL strength')
-        check(max(v[2][1] for v in measured_runs.values()) < cs['off'][1] * 1.05 + 1e-3, 'near-white cast is not boosted')
+        # P519 (one to one with tonemap_final 4.2): the light-tone term has no chroma gate, a near-white's cast takes at most its gain
+        # (strength up to 1.5: x2.5) - never more than the term itself
+        check(max(v[2][1] for v in measured_runs.values()) < cs['off'][1] * 2.6 + 1e-3, 'near-white cast boosted no more than the light-tone term')
         check(np.array_equal(r['off'], r['hl-0.0-1.0']), 'HL strength0 is the off render bit for bit')
         warm = [p[0] for p in PATCHES].index('warm')
         ramp = [cs[f'hl-{s}-1.0'][warm] for s in (0., .25, .5, .75, 1., 1.5)]
