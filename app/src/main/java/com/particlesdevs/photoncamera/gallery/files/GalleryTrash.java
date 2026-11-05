@@ -127,7 +127,21 @@ public final class GalleryTrash {
     @Nullable
     public static PendingIntent trashRequest(Context c, List<Uri> uris, boolean trashed) {
         if (!supported() || uris.isEmpty()) return null;
-        return MediaStore.createTrashRequest(c.getContentResolver(), uris, trashed);
+        return safe(() -> MediaStore.createTrashRequest(c.getContentResolver(), uris, trashed));
+    }
+
+    /**
+     * P511 (Pixel 10 Pro XL, Android 17, 2026-11-04: the gallery crashed on «Удалить» - the system's request threw «Invalid Uri:
+     * content://media/external/images/media/24486», a row no longer there): the request null (nothing asked) instead of a crash.
+     */
+    @Nullable
+    static PendingIntent safe(java.util.function.Supplier<PendingIntent> request) {
+        try {
+            return request.get();
+        } catch (IllegalArgumentException | SecurityException e) {
+            Log.w("GalleryTrash", "system request: " + e);
+            return null;
+        }
     }
 
     /** Deletes for good: the app's own rows at once; another app's through the system's delete request. Returns whether it asked. */
@@ -144,7 +158,7 @@ public final class GalleryTrash {
             } else foreign.add(i.uri);
         }
         if (foreign.isEmpty() || !supported()) return false;
-        return send(a, MediaStore.createDeleteRequest(a.getContentResolver(), foreign));
+        return send(a, safe(() -> MediaStore.createDeleteRequest(a.getContentResolver(), foreign)));
     }
 
     /** Puts {@code items} back: the app's own at once; another app's through the system's request. Returns whether it asked. */

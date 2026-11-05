@@ -231,6 +231,16 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
         mRotationAnimator.start();
     }
 
+    /**
+     * P510 (owner's screenshot 2026-11-05, «Инфо» cut at the viewfinder's top): the layout follows the angle the canvas is turned
+     * by now, not the target - a box laid out for landscape but drawn upright (the turn not run yet, or a full turn) put its first
+     * line 6dp above its margin, under the viewfinder's edge.
+     */
+    private boolean drawnLandscape() {
+        final float a = ((mAnimatedOrientation % 360f) + 360f) % 360f;
+        return Math.abs(a - 90f) < 45f || Math.abs(a - 270f) < 45f;
+    }
+
     public void refresh() {
         drawOnCanvas(mHolder);
     }
@@ -272,7 +282,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
         float hudHeight = rowCount * lineSpacing;
         float hudWidth = 64f * mDensity;
 
-        boolean isLandscape = (mTargetOrientation == 90 || mTargetOrientation == 270);
+        boolean isLandscape = drawnLandscape();
 
         // Dynamic pivot calculation keeping exact 14dp left and 12dp top margins in all rotations
         float pivotX = marginSide + (isLandscape ? (hudHeight / 2f) : (hudWidth / 2f));
@@ -343,7 +353,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
         float w = 72f * mDensity;
         float h = 36f * mDensity;
 
-        boolean isLandscape = (mTargetOrientation == 90 || mTargetOrientation == 270);
+        boolean isLandscape = drawnLandscape();
 
         // Dynamic pivot calculation keeping exact 14dp right and 12dp top margins in all rotations
         float pivotX = canvas.getWidth() - marginSide - (isLandscape ? (h / 2f) : (w / 2f));

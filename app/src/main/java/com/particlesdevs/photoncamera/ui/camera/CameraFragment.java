@@ -246,10 +246,6 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                 };
         auxButtonsViewModel = new ViewModelProvider(this).get(AuxButtonsViewModel.class);
         surfaceView = cameraFragmentBinding.layoutViewfinder.surfaceView;
-        // P293 (owner, 2026-10-20: «кнопка LUT перекрыта статистикой»): the HUD (shutter, ISO, focus ...) starts below the LUT pill
-        cameraFragmentBinding.layoutViewfinder.lutPill.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            if (surfaceView != null) surfaceView.setHudTop(b - surfaceView.getTop() + 6f * v.getResources().getDisplayMetrics().density);
-        });
         textureView = cameraFragmentBinding.layoutViewfinder.texture;
     }
 
@@ -371,18 +367,16 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             if (sheetTrayCallback != null) cameraFragmentViewModel.getCameraFragmentModel().removeOnPropertyChangedCallback(sheetTrayCallback);
             sheetTrayCallback = new androidx.databinding.Observable.OnPropertyChangedCallback() {
                 @Override public void onPropertyChanged(androidx.databinding.Observable sender, int id) {
-                    if (id == com.particlesdevs.photoncamera.BR.sheetLevel && lutTray != null
-                            && cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN) lutTray.setOpen(false);
+                    if (id != com.particlesdevs.photoncamera.BR.sheetLevel) return;
+                    if (lutTray != null && cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN) lutTray.setOpen(false);
+                    showLutPill(panel);
                 }
             };
             cameraFragmentViewModel.getCameraFragmentModel().addOnPropertyChangedCallback(sheetTrayCallback);
             panel.setOnExpandedListener(open -> {
                 com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.setSideOn(bar, R.id.pro_button, open);
                 if (open && lutTray != null) lutTray.setOpen(false);
-                // P509: the LUT button (the viewfinder's bottom centre) gives way to the Pro panel floating there
-                final View lutPill = cameraFragmentBinding.layoutViewfinder.lutPill;
-                lutPill.animate().alpha(open ? 0f : 1f).setDuration(open ? 120 : 220).start();
-                lutPill.setEnabled(!open);
+                showLutPill(panel);
             });
             // P495 (owner, 2026-11-03): «Про» with the shade up lowers the shade and opens the Pro panel
             bar.findViewById(R.id.pro_button).setOnClickListener(v -> {
@@ -946,7 +940,20 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     }
 
     /**
-     * SIMPLE_UI §6: the LUT and lock pills sit 8 / 12dp under the viewfinder's top, or under the top bar where it lies over the
+     * P509 / P510 (owner, 2026-11-05: «кнопка LUT должна скрываться, когда открыта шторка»): the LUT button (the viewfinder's bottom
+     * centre) gives way to the Pro panel and to the shade at any level above HIDDEN, and comes back when both are gone.
+     */
+    private void showLutPill(com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel panel) {
+        if (cameraFragmentBinding == null) return;
+        final boolean shown = !panel.isExpanded() && cameraFragmentViewModel.getSheetLevel() == CameraFragmentModel.SHEET_HIDDEN;
+        final View pill = cameraFragmentBinding.layoutViewfinder.lutPill;
+        if (pill.isEnabled() == shown) return;
+        pill.setEnabled(shown);
+        pill.animate().alpha(shown ? 1f : 0f).setDuration(shown ? 220 : 120).start();
+    }
+
+    /**
+     * SIMPLE_UI §6: the lock pill and the HUD sit 12dp under the viewfinder's top, or under the top bar where it lies over the
      * viewfinder (a window too short for the 3:4 preview and both bars, e.g. 600 x 960dp), so it never hides them.
      */
     public static void placeViewfinderPills(com.particlesdevs.photoncamera.databinding.CameraFragmentBinding b) {
@@ -955,8 +962,13 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         b.layoutViewfinder.texture.getLocationInWindow(vf);
         int overlap = Math.max(0, bar[1] + b.layoutTopbar.getRoot().getHeight() - vf[1]);
         float d = b.getRoot().getResources().getDisplayMetrics().density;
-        setTopMargin(b.layoutViewfinder.lutPill, Math.round(8 * d) + overlap);
         setTopMargin(b.layoutViewfinder.lockPill, Math.round(12 * d) + overlap);
+        // P510 (owner's 31228 screenshot: «Инфо» under the shade): the HUD (shutter, ISO, focus ...) in the viewfinder's top-left
+        // corner again, under the top bar where it lies over the viewfinder - it followed the LUT pill (P293), which P509 moved down
+        // (the HUD's view may start above the preview: the margin counts from the preview's own top)
+        int[] hud = new int[2];
+        b.layoutViewfinder.surfaceView.getLocationInWindow(hud);
+        b.layoutViewfinder.surfaceView.setHudTop(Math.max(0, vf[1] - hud[1]) + Math.round(12 * d) + overlap);
     }
 
     private static void setTopMargin(View v, int margin) {

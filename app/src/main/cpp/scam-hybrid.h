@@ -6555,6 +6555,53 @@ class HybridGpu {
         }
     }
     static GLint loc(GLuint program,const char* n){return glGetUniformLocation(program,n);}
+    /**
+     * P511 (owner, 2026-11-05: Pixel 10 Pro XL, «в режиме качество всё ещё черные фото»; the same all-zero strips on a Pixel 7's Mali,
+     * both Android 17 beta, while the fast merge reads its result there): once per merge, at the first strip still zero after a
+     * glFinish, what every buffer of that bank holds (non-zero 32-bit words of its first 4 MB, the largest finite float) - where the
+     * zeros begin - and a self-test: a one-line compute shader writes i + 0.5 into a fresh SSBO, read back by a plain map.
+     */
+    std::string zeroProbe(int bank){
+        std::string s="HYBRID GPU ZERO PROBE (bank "+std::to_string(bank)+"):";
+        while(glGetError()!=GL_NO_ERROR){}
+        glFinish();
+        for(int slot=0;slot<kSlots-1;++slot){
+            const GLuint b=bankBuffer(slot,bank);const size_t cap=bank?bankCapacity[slot]:capacity[slot];
+            if(!b||!cap)continue;
+            const size_t n=std::min(cap,size_t(4)<<20)&~size_t(3);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER,b);
+            const void* m=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(n),GL_MAP_READ_BIT);
+            if(!m){s+=" s"+std::to_string(slot)+"=no map (GL "+std::to_string(glGetError())+")";continue;}
+            const uint32_t* w=static_cast<const uint32_t*>(m);size_t nz=0;float mx=0.f;
+            for(size_t i=0;i<n/4;++i)if(w[i]){++nz;float f;std::memcpy(&f,&w[i],4);if(std::isfinite(f))mx=std::max(mx,std::fabs(f));}
+            glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+            char t[96];std::snprintf(t,sizeof t," s%d=%zu/%zu max %.4g",slot,nz,n/4,double(mx));s+=t;
+        }
+        try{
+            static const char* kTest="#version 310 es\nlayout(local_size_x=64) in;\nlayout(std430,binding=0) buffer ProbeOut{float v[];};\n"
+                                     "void main(){v[gl_GlobalInvocationID.x]=float(gl_GlobalInvocationID.x)+0.5;}\n";
+            const GLuint prog=compile(kTest,true);
+            GLuint tb=0;glGenBuffers(1,&tb);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER,tb);
+            std::vector<float> zero(1024,0.f);
+            glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(zero.size()*4),zero.data(),GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,tb);
+            glUseProgram(prog);glDispatchCompute(16,1,1);glMemoryBarrier(GL_ALL_BARRIER_BITS);glFinish();
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER,tb);
+            int good=0;
+            if(const void* m=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(zero.size()*4),GL_MAP_READ_BIT)){
+                const float* v=static_cast<const float*>(m);
+                for(int i=0;i<1024;++i)if(v[i]==float(i)+0.5f)++good;
+                glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+                s+=" | self-test compute -> SSBO: "+std::to_string(good)+"/1024 right";
+            } else s+=" | self-test: no map (GL "+std::to_string(glGetError())+")";
+            glDeleteBuffers(1,&tb);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bankBuffer(0,bank));
+        }catch(const std::exception& e){s+=std::string(" | self-test failed: ")+e.what();}
+        while(glGetError()!=GL_NO_ERROR){}
+        return s;
+    }
+    bool zeroProbed=false;
     /** P500: every byte of [p, p + bytes) is zero (word-wise, stops at the first non-zero word). */
     static bool zeroBytes(const void* p,size_t bytes){
         const uint64_t* w=static_cast<const uint64_t*>(p);
@@ -6572,10 +6619,11 @@ class HybridGpu {
     void dispatchRows(GLuint program,int w2,int rows,int gz,int chunk,int pass,bool barrier=true,bool flushEach=false,int first=0){
         const GLint l=loc(program,"chunkU");
         const auto t0=std::chrono::steady_clock::now();
+        if(smallJobs)chunk=std::max(8,(chunk/4)&~7); // P511: a quarter of the rows per dispatch
         for(int r=first;r<rows;r+=chunk){
             glUniform1i(l,r);
             glDispatchCompute(GLuint((w2+7)/8),GLuint((std::min(chunk,rows-r)+7)/8),GLuint(std::max(gz,1)));
-            if(flushEach)glFlush();
+            if(flushEach||smallJobs)glFlush();
         }
         glFlush();
         if(barrier)glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -6635,6 +6683,7 @@ public:
     bool profilePasses=false;      // with profile: one report line per pass (profile 2; finds a pass that hangs)
     double passMs[8]{};            // flags, guide, cells, reject, dilate, merge, readback, mark
     std::string renderer,limits,compileMs;size_t maxStorageBlock=0;
+    bool smallJobs=false; // P511: PowerVR / Mali - short compute submissions (dispatchRows)
     int64_t maxGroupsX=0;          // GL_MAX_COMPUTE_WORK_GROUP_COUNT[0] (>= 65535): every dispatch's x extent / 8 must stay within it
     bool adrenoGpu=false;          // P364: the renderer is an Adreno (P377: the shared-memory reject / dilate only, P76 / P78)
     std::function<void(const std::string&)> trace;
@@ -6753,6 +6802,13 @@ public:
              else eglGetError();}
             const bool adreno=renderer.find("Adreno")!=std::string::npos;
             adrenoGpu=adreno;
+            // P511 (owner, 2026-11-05: Pixel 10 Pro XL «в режиме качество всё ещё черные фото»; Pixel 7 the same, both Android 17): the
+            // strips read back all zero - at first every one, later some (31222: strips 5, 7, 9, 11 held data, max 2.0) - while the
+            // fast merge's many small passes worked on the same phone: the driver drops a compute job that runs too long (its GPU at
+            // low clocks at the start) without a GL error. PowerVR / Mali: a quarter of the rows per dispatch, each its own submission.
+            smallJobs=renderer.find("PowerVR")!=std::string::npos||renderer.find("Mali")!=std::string::npos||std::getenv("SCAM_GPU_SMALL_JOBS");
+            if(std::getenv("SCAM_GPU_BIG_JOBS"))smallJobs=false;
+            if(smallJobs)limits+=" smallJobs";
             if(early)early("HYBRID GPU: context "+renderer+" "+limits+(adreno?"":"; compiling program by program"));
             auto timed=[&](const char* name,const char* body,bool standalone=false){
                 if(early&&!adreno)early(std::string("HYBRID GPU: compile ")+name);
@@ -7808,7 +7864,9 @@ public:
                 }catch(const std::exception&){}
                 while(glGetError()!=GL_NO_ERROR){}
                 if(trace)trace("HYBRID GPU readback: strip "+std::to_string(p.index)+" read as all zero"+(still?": still zero after a glFinish":": recovered after a glFinish"));
+                if(still&&!zeroProbed&&trace){zeroProbed=true;trace(zeroProbe(p.bank));} // P511: where the zeros begin
             }
+            if(!zeroProbed&&trace&&std::getenv("SCAM_ZERO_PROBE")){zeroProbed=true;trace(zeroProbe(p.bank));} // P511: the probe on demand (replays)
             if(wantEffective)getBuffer(bankBuffer(4,p.bank),4,effective.data()+size_t(p.oy0)*ow,size_t(p.rows2)*ow*4,waited);
             if(clipFlags){
                 flagStrip.resize(size_t(p.rows2)*ow);

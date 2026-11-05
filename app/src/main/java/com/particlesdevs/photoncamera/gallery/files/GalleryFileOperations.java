@@ -186,7 +186,11 @@ public class GalleryFileOperations {
         List<Uri> toDeleteUriList = toDelete.stream().map(ImageFile::getFileUri).collect(Collectors.toList());
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && needsSystemDeleteRequest(activity, toDelete)) {
             // P502: into the system's trash («Недавно удаленные»: 30 days, the gallery's album puts it back); its dialog confirms
-            PendingIntent pi = MediaStore.createTrashRequest(activity.getContentResolver(), toDeleteUriList, true);
+            PendingIntent pi = GalleryTrash.trashRequest(activity, toDeleteUriList, true); // P511: null for a row already gone
+            if (pi == null) {
+                deletedCallback.deleted(false);
+                return;
+            }
             try {
                 ActivityCompat.startIntentSenderForResult(activity, pi.getIntentSender(), REQUEST_PERM_DELETE, null, 0, 0, 0, null);
             } catch (IntentSender.SendIntentException e) {
