@@ -1296,8 +1296,12 @@ public final class ScamHybridBurst implements ScamTransport {
         while (m.find()) {
             try { mean = Double.parseDouble(m.group(1)); } catch (NumberFormatException ignored) { }
         }
-        return mean < NEAR_BLACK_MEAN;
+        // P514 (Pixel 10 Pro XL, build 31229: the even strips zero, the odd ones the buffers' uninitialised memory, «mean=7370149542.9»;
+        // the photo black and noise stripes): with zero strips a mean no merge reaches (or none at all) is a broken result too
+        return !(mean >= NEAR_BLACK_MEAN && mean <= GARBAGE_MEAN);
     }
+    /** P514: the mean (base-frame units; a white wall ~1, the ultrashort headroom a few tens at most) above which it is garbage. */
+    static final double GARBAGE_MEAN = 1e3;
     private static final java.util.regex.Pattern MEAN_LINE = java.util.regex.Pattern.compile("SCAM RGB: mean=(-?[0-9.]+)");
     /** P500: the mean (base-frame units) below which a merge with zero strips is a broken result, not a dark scene. */
     static final double NEAR_BLACK_MEAN = 1e-3;

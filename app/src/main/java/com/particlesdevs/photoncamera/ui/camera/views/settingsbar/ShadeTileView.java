@@ -182,7 +182,9 @@ public class ShadeTileView extends FrameLayout {
      * value line only for a changed setting (the name alone otherwise, the value is in the description and the toast).
      */
     private void applyColors() {
-        value.setVisibility(GONE); // P495 (concept G): the name only - a changed value shows as the accent fill (and in the toast)
+        // P515 (owner, 2026-11-05: «сделай чтобы было видно какое значение в данный момент у плитки как это было в старой шторке»):
+        // the value under the name again (P495 had the name only)
+        value.setVisibility(value.getText().length() > 0 ? VISIBLE : GONE);
         final int ink = active ? ShadeStyle.onAccent(accent) : ShadeStyle.TEXT;
         final int fill = active ? accent : ShadeStyle.TONAL;
         final int stroke = open && !active ? accent : 0;
@@ -245,8 +247,9 @@ public class ShadeTileView extends FrameLayout {
         int width = MeasureSpec.getSize(widthMeasureSpec);
         int inner = width - getPaddingLeft() - getPaddingRight() - 2 * com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), CARD_PADDING_DP);
         float k = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(getContext());
-        ShadeStyle.fit(name, inner, 11 * k, 9 * k, 8, 1);
-        ShadeStyle.fit(value, inner, 10 * k, 9 * k, 8, 1);
+        // P517: narrow tiles (up to 10 columns, P515) shrink the text further before an ellipsis
+        ShadeStyle.fit(name, inner, 11 * k, 9 * k, 6.5f, 1);
+        ShadeStyle.fit(value, inner, 10 * k, 9 * k, 6.5f, 1);
         // Content height at this width, at least the concept's 50dp card (a compact rectangle, wider than tall).
         super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
         int least = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), CARD_HEIGHT_DP) + getPaddingTop() + getPaddingBottom();

@@ -303,6 +303,10 @@ public class SettingsBarLayout extends LinearLayout {
         content.addView(head, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 46)));
 
+        gridRow = buildGridRow(context);
+        gridRow.setVisibility(GONE);
+        content.addView(gridRow, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         tiles = new RecyclerView(context);
         tiles.setLayoutManager(pagerLayout);
         tiles.setNestedScrollingEnabled(false);
@@ -418,14 +422,98 @@ public class SettingsBarLayout extends LinearLayout {
         refreshConfigName();
     }
 
+    /**
+     * P515: the edit mode's «Сетка»: columns and rows of a page, 1 - 10 each («вплоть до 10х10 сетки»), two compact steppers on
+     * one line («Столбцы − 4 +   Строки − 2 +»).
+     */
+    private LinearLayout gridRow;
+    private TextView gridColsValue, gridRowsValue;
+
+    private LinearLayout buildGridRow(Context context) {
+        ShadePager.load(catalog().prefs());
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(5), 0, dp(5), dp(8));
+        row.setTag("shade_grid");
+        gridColsValue = gridStepper(context, row, R.string.shade_grid_cols, "shade_grid_cols", d -> applyGrid(ShadePager.cols + d, ShadePager.rows));
+        gridRowsValue = gridStepper(context, row, R.string.shade_grid_rows, "shade_grid_rows", d -> applyGrid(ShadePager.cols, ShadePager.rows + d));
+        showGrid();
+        return row;
+    }
+
+    private interface GridStep {
+        void step(int delta);
+    }
+
+    /** One stepper: the name, «−», the value, «+» on a tonal pill. */
+    private TextView gridStepper(Context context, LinearLayout row, int title, String tag, GridStep step) {
+        LinearLayout pill = new LinearLayout(context);
+        pill.setOrientation(HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp(10), 0, 0, 0);
+        pill.setBackground(ShadeStyle.card(context, ShadeStyle.TONAL, 0, 18));
+        TextView label = new TextView(context);
+        label.setText(title);
+        label.setTextColor(ShadeStyle.MUTED);
+        label.setMaxLines(1);
+        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(label, 12.5f);
+        pill.addView(label, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView value = new TextView(context);
+        TextView minus = gridButton(context, "−", tag + "_minus", v -> step.step(-1));
+        TextView plus = gridButton(context, "+", tag + "_plus", v -> step.step(1));
+        value.setTextColor(ShadeStyle.TEXT);
+        value.setGravity(Gravity.CENTER);
+        value.setTag(tag);
+        value.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(value, 15f);
+        pill.addView(minus, new LayoutParams(dp(30), dp(40)));
+        pill.addView(value, new LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
+        pill.addView(plus, new LayoutParams(dp(30), dp(40)));
+        pill.setContentDescription(context.getString(title));
+        LayoutParams lp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        if (row.getChildCount() > 0) lp.setMarginStart(dp(6));
+        row.addView(pill, lp);
+        return value;
+    }
+
+    private TextView gridButton(Context context, String text, String tag, View.OnClickListener click) {
+        TextView b = new TextView(context);
+        b.setText(text);
+        b.setGravity(Gravity.CENTER);
+        b.setTextColor(ShadeStyle.accent(context));
+        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(b, 20f);
+        b.setBackground(ShadeStyle.ripple(context, 14));
+        b.setTag(tag);
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private void showGrid() {
+        gridColsValue.setText(String.valueOf(ShadePager.cols));
+        gridRowsValue.setText(String.valueOf(ShadePager.rows));
+        final String cols = getContext().getString(R.string.shade_grid_cols), rows = getContext().getString(R.string.shade_grid_rows);
+        ((View) gridColsValue.getParent()).setContentDescription(cols + " " + ShadePager.cols);
+        ((View) gridRowsValue.getParent()).setContentDescription(rows + " " + ShadePager.rows);
+    }
+
+    private void applyGrid(int c, int r) {
+        if (!ShadePager.setGrid(c, r)) return;
+        catalog().prefs().edit().putInt(ShadePager.KEY_COLS, ShadePager.cols).putInt(ShadePager.KEY_ROWS, ShadePager.rows).apply();
+        showGrid();
+        tiles.scrollToPosition(0);
+        tiles.requestLayout();
+        updatePagerDots();
+    }
+
     /** The tiles of the current page in reading order, 18 ms apart, on the entry spring. */
     private void enterTiles() {
         final java.util.List<View> page = new java.util.ArrayList<>();
-        final int first = pagerLayout.page() * ShadePager.PER_PAGE;
+        final int first = pagerLayout.page() * ShadePager.perPage();
         for (int i = 0; i < tiles.getChildCount(); i++) {
             final View v = tiles.getChildAt(i);
             final int pos = tiles.getChildAdapterPosition(v);
-            if (pos >= first && pos < first + ShadePager.PER_PAGE) page.add(v);
+            if (pos >= first && pos < first + ShadePager.perPage()) page.add(v);
         }
         page.sort((a, b) -> Integer.compare(tiles.getChildAdapterPosition(a), tiles.getChildAdapterPosition(b)));
         com.particlesdevs.photoncamera.ui.Motion.enter(page, 40, 18);
@@ -1105,6 +1193,7 @@ public class SettingsBarLayout extends LinearLayout {
         if (on) closeConfigMenu();
         styleEditButton(ShadeStyle.accent(getContext()));
         headGear.setVisibility(on ? GONE : VISIBLE);
+        gridRow.setVisibility(on ? VISIBLE : GONE);
         fullList.setVisibility(on ? GONE : VISIBLE);
         for (int i = 0; i < tiles.getChildCount(); i++) {
             View child = tiles.getChildAt(i);
@@ -1434,6 +1523,10 @@ public class SettingsBarLayout extends LinearLayout {
                 : pagerDots != null && pagerDots.getVisibility() == VISIBLE ? pagerDots : tiles;
         int peek = listScroll.getTop() + content.getTop() + last.getBottom()
                 + com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), 14);
+        if (contentBuilt && peek > 0 && peek != gridNeed) {
+            gridNeed = peek;
+            post(() -> applyMaxSheetHeight(Math.max(baseMaxSheetHeight, gridNeed)));
+        }
         if (contentBuilt && peek > 0 && peek != sheetPeekHeight) {
             sheetPeekHeight = peek;
             // This runs inside the behavior's onLayoutChild; set the peek after the pass.
@@ -1506,6 +1599,21 @@ public class SettingsBarLayout extends LinearLayout {
 
     /** The FULL height in pixels (a share of the viewfinder height). */
     public void setMaxSheetHeight(int px) {
+        if (px <= 0 || px == baseMaxSheetHeight) return;
+        baseMaxSheetHeight = px;
+        applyMaxSheetHeight(Math.max(px, gridNeed));
+    }
+
+    /**
+     * P515 (owner, 2026-11-05: «При сетке 10х10 шторка должна становиться выше чтобы сетка вмещалась нормально»): the panel down to
+     * its grid may need more than the 86 % of the viewfinder - the sheet then grows up to 95 % of the screen area it lives in.
+     */
+    private int baseMaxSheetHeight, gridNeed;
+
+    private void applyMaxSheetHeight(int px) {
+        final View parent = (View) getParent();
+        if (parent != null && parent.getHeight() > 0) px = Math.min(px, Math.round(parent.getHeight() * 0.95f));
+        px = Math.max(px, baseMaxSheetHeight);
         if (px <= 0 || px == maxSheetHeight) return;
         maxSheetHeight = px;
         BottomSheetBehavior<SettingsBarLayout> sheet = sheetBehavior();

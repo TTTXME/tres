@@ -7854,6 +7854,8 @@ public:
             // a failure of that read keeps the first one. The app takes a near-black result as a failed merge.
             if(zeroBytes(rgbDst,rgbBytes)){
                 bool still=true;
+                std::string glErr; // P514: what the passes left in the error queue (a refused dispatch writes nothing)
+                for(int i=0;i<4;++i){const GLenum e=glGetError();if(e==GL_NO_ERROR)break;glErr+=" GL error "+std::to_string(e);}
                 try{
                     glFinish();
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER,bankBuffer(3,p.bank));
@@ -7863,7 +7865,7 @@ public:
                     }
                 }catch(const std::exception&){}
                 while(glGetError()!=GL_NO_ERROR){}
-                if(trace)trace("HYBRID GPU readback: strip "+std::to_string(p.index)+" read as all zero"+(still?": still zero after a glFinish":": recovered after a glFinish"));
+                if(trace)trace("HYBRID GPU readback: strip "+std::to_string(p.index)+" read as all zero"+(still?": still zero after a glFinish":": recovered after a glFinish")+glErr);
                 if(still&&!zeroProbed&&trace){zeroProbed=true;trace(zeroProbe(p.bank));} // P511: where the zeros begin
             }
             if(!zeroProbed&&trace&&std::getenv("SCAM_ZERO_PROBE")){zeroProbed=true;trace(zeroProbe(p.bank));} // P511: the probe on demand (replays)

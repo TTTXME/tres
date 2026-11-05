@@ -905,6 +905,18 @@ public final class SettingsMigration {
             e.putInt(CONFIG_V33_REV, 1);
             markOnly = true;
         }
+        // P516 (owner, 2026-11-05: the stable config): the light tones' vibrance 0.25 again - a 0 P513 stored (its marker present
+        // before this pass) moves back once; a fresh install has P513 without the row
+        if (!values.containsKey(CONFIG_STABLE_REV)) {
+            final String key = ScamHybridKeys.PREFIX + "why_vibrance_hl_str";
+            final Object v = values.get(key);
+            if (values.containsKey(CONFIG_V33_REV) && v != null && isNumber(v, 0f)) {
+                ModuleProfiles.put(e, key, v instanceof String ? PreferenceNumber.format(0.25f, true) : (Object) 0.25f);
+                changed = true;
+            }
+            e.putInt(CONFIG_STABLE_REV, 1);
+            markOnly = true;
+        }
         // P407: the matrix saturation's default 1.25 (P405) -> 1.1 (the reference's chroma on the ISP matrix), a stored 1.25 once
         if (!values.containsKey(CCT_SAT_REV)) {
             final Object v = values.get(ScamHybridKeys.PREFIX + "why_cct_sat");
@@ -994,8 +1006,11 @@ public final class SettingsMigration {
             {"why_ae_target", 0.18f, 0.15f}, {"why_bright_thresh", 1f, 0.9f}, {"why_dark_thresh", 10f, 12.5f},
             {"why_dark_pixel_thresh", 22.5f, 22f}, {"why_hl_boost", 1f, 1.1f}, {"why_highlight_str", 2f, 2.1f},
             {"why_blend_smoothness", 1f, 0.45f}, {"why_macro_contrast", 1f, 1.1f}, {"why_classic_weight_ext_hl", 1f, 0.7f},
-            {"why_classic_weight_mid", 1f, 2f}, {"why_classic_weight_shadow", 1.5f, 1f}, {"why_vibrance_hl_str", 0.25f, 0f},
+            {"why_classic_weight_mid", 1f, 2f}, {"why_classic_weight_shadow", 1.5f, 1f},
             {"why_portrait_ae", 0.7f, 1f}, {"why_portrait_awb", 0.5f, 1f}, {"why_portrait_curve_on", false, true}};
+
+    /** P516: marker of the owner's stable config (2026-11-05): «Сочность в светах» 0.25 again after P513's 0. */
+    static final String CONFIG_STABLE_REV = "pref_scam_hybrid_config_stable_rev";
 
     /** P407: marker of the one-time move of the matrix saturation 1.25 to 1.1. */
     static final String CCT_SAT_REV = "pref_scam_hybrid_cct_sat_rev";

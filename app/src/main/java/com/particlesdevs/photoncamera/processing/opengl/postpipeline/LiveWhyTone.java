@@ -247,6 +247,7 @@ public final class LiveWhyTone {
     private float[][] whyVib;
     /** P419: the reference app's vibrance (WHY_VIBRANCE), as WhyCombine sets it; null: off. */
     private float[] vibWhy, vibSkin;
+    private float vibSkinHue;
     private float[] vib = new float[3];
     /** P393: the light-tone vibrance's shape for pale colour, as WhyCombine sets it. */
     private float[] vibHlShape = WhyTone.VIBRANCE_HL_SHAPE.clone();
@@ -579,6 +580,7 @@ public final class LiveWhyTone {
         whyVib = WhyTone.whyVibrance();
         vibWhy = WhyTone.whyVibranceOn() ? WhyTone.vibranceWhyUniform() : null;
         vibSkin = vibWhy != null ? WhyTone.vibranceSkinUniform() : null;
+        vibSkinHue = WhyTone.vibranceSkinHue();
         FusedCurve.GAMMA_TYPE[0] = gammaType;
         // P378 review: the lens' f-number (the sky's absolute EV), as Parameters reads it
         float[] apertures = camera != null ? camera.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) : null;
@@ -1111,6 +1113,7 @@ public final class LiveWhyTone {
         if (vibWhy != null) {   // P419, as the photo
             GLES20.glUniform4f(loc(p, "vibWhyU"), vibWhy[0], vibWhy[1], vibWhy[2], vibWhy[3]);
             GLES20.glUniform4f(loc(p, "vibSkinU"), vibSkin[0], vibSkin[1], vibSkin[2], vibSkin[3]);
+            set(p, "vibSkinHueU", vibSkinHue);   // P519
         }
         if (skyOnDraw) {
             // P378 review: the photo's sky term (WhyCombine) on the shown cells - the level share eased (0 backlit), the tops in this

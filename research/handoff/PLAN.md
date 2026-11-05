@@ -9905,3 +9905,25 @@ emulation), not tried on a phone
 ### P513 - the owner's config init35burial_v3_3 as the tone / light-shadow defaults: DONE IN W
 - XML defaults + code fallbacks: ae_target 0.15, bright_thresh 0.9, dark_thresh 12.5, dark_pixel_thresh 22, hl_boost 1.1, highlight_str 2.1, blend_smoothness 0.45, macro_contrast 1.1, classic weights ext_hl 0.7 / mid 2 / shadow 1, vibrance_hl_str 0; portrait_ae 1, portrait_awb 1, portrait curve on with v3_3's points (WhyTone.PORTRAIT_POINTS; ToneCurvePreference shows the XML's own default), deep shadows -10, extreme highlights +10; with a face ae_target +0.05, dark_pixel +0.5 (WhyTone.portraitOffsets, the config's portrait_offset_*; warmth / smoothness offsets not taken).
 - SettingsMigration CONFIG_V33 (+ CONFIG_V33_REV): a stored former default moves once, a hand value stays; a pre-P405 value goes through P405's row first. HybridSettingsTest checks the XML against both tables.
+
+### P514 - Pixel 10 Pro XL «Качество»: stripes of black and noise (build 31229 log_14): DONE (detection), cause open
+- ZERO PROBE: bank 0 slots 3 (outRgb) / 4 (eff) never written, inputs fine, compute -> SSBO self-test 1024/1024; bank 1 strips = uninitialised memory (SCAM RGB mean 7.4e9, max 9.2e14). So the SCAM merge's dispatches write nothing on this driver (Android 17 CP3A.261005.005; 30756 on CP3A.260905.009 worked).
+- ScamHybridBurst.blackResult: zero strips + a mean outside 1e-3 .. 1e3 (GARBAGE_MEAN) or none = broken -> the fast route (P501) for the session. readStrip logs the GL errors the passes left (" GL error N") on a zero strip.
+- Next: the owner's log with the GL error; the merge program's resource use vs PowerVR limits (blocks=35).
+
+### P515 - shade: the tiles' values again; own grid: DONE
+- ShadeTileView shows the value line (P495 hid it). ShadePager cols 1..10 x rows 1..10 (owner: «вплоть до 10х10») (pref_shade_grid_cols / _rows, default 4 x 2), a «Столбцы / Строки» row in the edit mode. OPPO: 5 x 3 -> 2 pages, back to 4 x 2.
+- The sheet grows past 86 % of the viewfinder when the panel down to its grid needs it (up to 95 % of its parent; SettingsBarLayout.applyMaxSheetHeight). Tile names / values shrink to 6.5sp, then an ellipsis (ShadeStyle.fit).
+
+### P516 - the owner's stable config as defaults: DONE
+- The only change against v3_3: «Сочность в светах» (why_vibrance_hl_str) 0.25 again; CONFIG_V33 lost its row; CONFIG_STABLE_REV moves a P513 0 back once.
+
+### P517 - viewfinder corners: DONE
+- ViewfinderFrame paints the corners in the theme's cameraFragmentBackground (settings_bg #101416), not black.
+
+### P518 - the LUT pill under the viewfinder, new icon: DONE
+- lut_pill moved to layout_main_bottombar (above pro_button; placeViewfinderPills centres it in the band between the viewfinder and the lens row, 10dp over it without a band); ui_ic_looks a colour swatch; always shown (owner: «можно не скрывать»). ScalingMatrixTest: under the viewfinder when the band fits it, above the lens row.
+- Pitfall: clipChildren=false on camera_container showed the HIDDEN sheet (it lies past its coordinator) - not used.
+
+### P519 - vibrance one to one with the reference (tonemap_final 4.1 - 4.4): DONE
+- WHY_VIBRANCE: our gates removed (the light-tone term's chroma gate, the sky term's blue-sky mask, the wrapped hue difference); the skin hue shift added (why_skin_hue_shift, -30..30 degrees, vibSkinHueU, photo and viewfinder). Our OKLab is the reference's (lin = orig x ae x gain, after the macro contrast). Defaults = the stable config's (sky 0.25, green 0.05, light tones 0.25, skin protection 1).

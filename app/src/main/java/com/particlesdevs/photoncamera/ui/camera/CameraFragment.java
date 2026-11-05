@@ -354,7 +354,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel panel =
                     (com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel) panelView;
             // SIMPLE_UI §1: the LUT pill and tray; Pro and the tray close each other
-            lutTray = new LutTray(cameraFragmentBinding.layoutViewfinder.lutPill, cameraFragmentBinding.lutTray,
+            lutTray = new LutTray(cameraFragmentBinding.layoutBottombar.lutPill, cameraFragmentBinding.lutTray,
                     cameraFragmentBinding.layoutViewfinder.texture, this::openLutSettings);
             lutTray.setPageOpener(this::openSettingsPage);
             // P293 (owner, 2026-10-20: «одновременно открытые шторка и меню фильтров налазят друг на друга»): the tray closes Pro
@@ -945,8 +945,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
      */
     private void showLutPill(com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel panel) {
         if (cameraFragmentBinding == null) return;
-        final boolean shown = !panel.isExpanded() && cameraFragmentViewModel.getSheetLevel() == CameraFragmentModel.SHEET_HIDDEN;
-        final View pill = cameraFragmentBinding.layoutViewfinder.lutPill;
+        // P518 (owner, 2026-11-05: «Кнопку lut можно не скрывать теперь»): under the viewfinder it covers nothing - always shown
+        final boolean shown = true;
+        final View pill = cameraFragmentBinding.layoutBottombar.lutPill;
         if (pill.isEnabled() == shown) return;
         pill.setEnabled(shown);
         pill.animate().alpha(shown ? 1f : 0f).setDuration(shown ? 220 : 120).start();
@@ -969,6 +970,21 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         int[] hud = new int[2];
         b.layoutViewfinder.surfaceView.getLocationInWindow(hud);
         b.layoutViewfinder.surfaceView.setHudTop(Math.max(0, vf[1] - hud[1]) + Math.round(12 * d) + overlap);
+        // P518: the LUT pill in the middle of the band between the viewfinder and the lens row; no band (a short window, 16:9):
+        // 10dp over the lens row, on the viewfinder's bottom as before
+        View lut = b.layoutBottombar.lutPill, pro = b.layoutBottombar.proButton;
+        int[] p = new int[2];
+        pro.getLocationInWindow(p);
+        int band = p[1] - (vf[1] + b.layoutViewfinder.texture.getHeight());
+        int h = lut.getHeight() > 0 ? lut.getHeight() : Math.round(28 * d);
+        setBottomMargin(lut, band >= h + Math.round(16 * d) ? (band - h) / 2 : Math.round(10 * d));
+    }
+
+    private static void setBottomMargin(View v, int margin) {
+        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+        if (lp == null || lp.bottomMargin == margin) return;
+        lp.bottomMargin = margin;
+        v.post(() -> v.setLayoutParams(lp));
     }
 
     private static void setTopMargin(View v, int margin) {

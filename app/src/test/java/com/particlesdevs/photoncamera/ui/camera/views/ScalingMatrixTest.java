@@ -185,7 +185,7 @@ public class ScalingMatrixTest {
             strip.setActiveId("1");
             binding.layoutViewfinder.texture.setAspectRatio(w, w * 4 / 3);
             // the LUT pill with a long name and the lock pill, both shown
-            TextView lut = binding.layoutViewfinder.lutPill, lock = binding.layoutViewfinder.lockPill;
+            TextView lut = binding.layoutBottombar.lutPill, lock = binding.layoutViewfinder.lockPill;
             lut.setText("Прохладная 160 · Pro-Mist");
             lut.setEllipsize(android.text.TextUtils.TruncateAt.END);
             CameraFragment.styleLockPill(lock);
@@ -228,7 +228,12 @@ public class ScalingMatrixTest {
             assertFalse(at + "Pro / shutter row" + geometry, overlap(pro, shutterRow));
             assertFalse(at + "Pro / top bar" + geometry, overlap(pro, topBar));
             assertFalse(at + "LUT pill / lock pill" + geometry, overlap(lutBox, lockBox));
-            assertTrue(at + "pills inside the viewfinder" + geometry, viewfinder.contains(lutBox) && viewfinder.contains(lockBox));
+            assertTrue(at + "lock pill inside the viewfinder" + geometry, viewfinder.contains(lockBox));
+            // P518: the LUT pill under the viewfinder, in the band above the lens row (Pro and «Ещё» beside it)
+            assertFalse(at + "LUT pill / lens row" + geometry, overlap(lutBox, lensRow));
+            assertTrue(at + "LUT pill above the lens row" + geometry, lutBox.bottom <= lensRow.top && lutBox.height() > 0);
+            if (at(binding.layoutBottombar.proButton).top - viewfinder.bottom >= lutBox.height() + dp(16))
+                assertTrue(at + "LUT pill under the viewfinder" + geometry, lutBox.top >= viewfinder.bottom);
             assertTrue(at + "rows inside the screen" + geometry, shutterRow.bottom <= h && lensRow.left >= 0 && lensRow.right <= w);
             assertEquals(at + "lock pill 20dp", dp(20), lockBox.height(), 1);
             oneLine(at + "lock pill", lock);

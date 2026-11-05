@@ -184,6 +184,7 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_skin_hue_center": return new double[]{25,65,0};
             case "pref_scam_hybrid_why_skin_luma_min": return new double[]{0.05,0.5,0};
             case "pref_scam_hybrid_why_skin_sat_shift": return new double[]{-0.5,0.5,0};
+            case "pref_scam_hybrid_why_skin_hue_shift": return new double[]{-30,30,0}; // P519: degrees, the reference's u_skin_hue_shift
             case "pref_scam_hybrid_why_cct_gain_r": return new double[]{0.7,1.3,0};
             case "pref_scam_hybrid_why_cct_gain_g": return new double[]{0.7,1.3,0};
             case "pref_scam_hybrid_why_cct_gain_b": return new double[]{0.7,1.3,0};

@@ -127,26 +127,6 @@
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintStart_toStartOf="parent" />
 
-            <!-- SIMPLE_UI §1: the LUT pill (LutTray styles it and opens the tray); P509 (owner, 2026-11-05): at the bottom of the
-                 viewfinder in its middle, the tray growing out of it. -->
-            <TextView
-                android:id="@+id/lut_pill"
-                android:layout_width="wrap_content"
-                android:layout_height="28dp"
-                android:layout_marginBottom="10dp"
-                android:maxWidth="200dp"
-                android:gravity="center_vertical"
-                android:fontFamily="sans-serif-medium"
-                android:maxLines="1"
-                android:text="LUT"
-                android:textSize="12sp"
-                android:clickable="true"
-                android:focusable="true"
-                app:layout_constraintBottom_toBottomOf="@+id/texture"
-                app:layout_constraintStart_toStartOf="@+id/texture"
-                app:layout_constraintEnd_toEndOf="@+id/texture"
-                tools:ignore="HardcodedText" />
-
             <!-- SIMPLE_UI §1: the focus / exposure lock pill (a long press), 20dp, top-right. -->
             <TextView
                 android:id="@+id/lock_pill"

@@ -195,7 +195,12 @@ public final class ShadeStyle {
             paint.setTextSize(sp * scaled);
             if (fits(text, paint, widthPx, maxLines)) break;
         }
-        setSp(view, Math.max(minSp, sp));
+        sp = Math.max(minSp, sp);
+        setSp(view, sp);
+        // P517 (owner, 2026-11-05: «убедись что названия не вылазят за пределы»): still too long at the smallest size - an ellipsis
+        // inside the view instead of letters cut by its edge
+        paint.setTextSize(sp * scaled);
+        if (!fits(text, paint, widthPx, maxLines)) view.setEllipsize(android.text.TextUtils.TruncateAt.END);
     }
 
     private static void setSp(TextView view, float sp) {

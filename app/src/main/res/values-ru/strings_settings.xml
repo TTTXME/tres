@@ -1082,6 +1082,8 @@
     <string name="prefs_scam_hybrid_why_skin_luma_min_summary">Яркость, с которой пиксель может считаться кожей. Больше — тёмные участки цвета кожи не берутся.</string>
     <string name="prefs_scam_hybrid_why_skin_sat_shift_title">Сдвиг насыщенности кожи</string>
     <string name="prefs_scam_hybrid_why_skin_sat_shift_summary">Насыщенность только кожи. Плюс — сочнее, минус — бледнее.</string>
+    <string name="prefs_scam_hybrid_why_skin_hue_shift_title">Сдвиг оттенка кожи</string>
+    <string name="prefs_scam_hybrid_why_skin_hue_shift_summary">Поворачивает оттенок только кожи, в градусах. Плюс — к жёлтому, минус — к красному.</string>
     <string name="prefs_scam_hybrid_why_cct_gain_r_title">Красный в матрице</string>
     <string name="prefs_scam_hybrid_why_cct_gain_r_summary">Усиление красного канала в цветовой матрице.</string>
     <string name="prefs_scam_hybrid_why_cct_gain_g_title">Зелёный в матрице</string>

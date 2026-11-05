@@ -228,4 +228,6 @@
     <string name="shade_t_hdr_frames">HDR</string>
     <string name="shade_t_portrait">Портрет</string>
     <string name="shade_t_face_mask">Маска лица</string>
+    <string name="shade_grid_cols">Столбцы</string>
+    <string name="shade_grid_rows">Строки</string>
 </resources>

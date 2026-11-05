@@ -426,6 +426,7 @@ public final class WhyCombine extends Node {
             if (whyVibrance) {
                 glProg.setVar("vibWhyU", WhyTone.vibranceWhyUniform());
                 glProg.setVar("vibSkinU", WhyTone.vibranceSkinUniform());
+                glProg.setVar("vibSkinHueU", WhyTone.vibranceSkinHue());   // P519
             }
             // P216: real Bento headroom above the capped clip - WhyCam 1.58's shoulder, the landing on the real ceiling and the
             // highlight detail (not when the full-size image is gone: InputBuffer is then the sharpened luma)

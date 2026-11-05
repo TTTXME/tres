@@ -25,12 +25,36 @@ import androidx.recyclerview.widget.SnapHelper;
 final class ShadePager {
     private ShadePager() {}
 
-    static final int COLS = 4, ROWS = 2, PER_PAGE = COLS * ROWS;
+    /**
+     * P515 (owner, 2026-11-05: «дай возможность настраивать сетку в шторке самостоятельно»): columns and rows of a page, set in
+     * the edit mode (pref_shade_grid_cols / _rows; 4 x 2 by default; «вплоть до 10х10 сетки»).
+     */
+    static final int COLS_MIN = 1, COLS_MAX = 10, ROWS_MIN = 1, ROWS_MAX = 10;
+    static final String KEY_COLS = "pref_shade_grid_cols", KEY_ROWS = "pref_shade_grid_rows";
+    static volatile int cols = 4, rows = 2;
+
+    static int perPage() {
+        return cols * rows;
+    }
+
+    /** The stored grid (clamped); false when it did not change. */
+    static boolean setGrid(int c, int r) {
+        c = Math.max(COLS_MIN, Math.min(COLS_MAX, c));
+        r = Math.max(ROWS_MIN, Math.min(ROWS_MAX, r));
+        if (c == cols && r == rows) return false;
+        cols = c;
+        rows = r;
+        return true;
+    }
+
+    static void load(android.content.SharedPreferences prefs) {
+        setGrid(prefs.getInt(KEY_COLS, 4), prefs.getInt(KEY_ROWS, 2));
+    }
     /** UIKit's sheet curve: the page settles on it. */
     private static final PathInterpolator SETTLE = new PathInterpolator(0.32f, 0.72f, 0f, 1f);
 
     static int pages(int items) {
-        return Math.max(1, (items + PER_PAGE - 1) / PER_PAGE);
+        return Math.max(1, (items + perPage() - 1) / perPage());
     }
 
     /** Pages of 4 x 2 cells; every tile laid out (a shade has a few dozen at most), the off-page ones beside the visible page. */
@@ -64,11 +88,11 @@ final class ShadePager {
             int h = 0;
             if (n > 0) {
                 final View v = recycler.getViewForPosition(0);
-                final int cw = (w - getPaddingLeft() - getPaddingRight()) / COLS;
+                final int cw = (w - getPaddingLeft() - getPaddingRight()) / cols;
                 v.measure(View.MeasureSpec.makeMeasureSpec(Math.max(1, cw), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
                 cellH = v.getMeasuredHeight();
                 recycler.recycleView(v);
-                h = cellH * (n > COLS ? ROWS : 1) + getPaddingTop() + getPaddingBottom();
+                h = cellH * Math.max(1, Math.min(rows, (n + cols - 1) / cols)) + getPaddingTop() + getPaddingBottom();
             }
             setMeasuredDimension(w, h);
         }
@@ -81,13 +105,13 @@ final class ShadePager {
                 return;
             }
             detachAndScrapAttachedViews(recycler);
-            final int pw = pageWidth(), cw = pw / COLS;
+            final int pw = pageWidth(), cw = pw / cols;
             scrollX = Math.max(0, Math.min(scrollX, (pages(n) - 1) * pw));
             for (int i = 0; i < n; i++) {
                 final View v = recycler.getViewForPosition(i);
                 addView(v);
                 v.measure(View.MeasureSpec.makeMeasureSpec(cw, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(cellH, View.MeasureSpec.EXACTLY));
-                final int page = i / PER_PAGE, r = (i % PER_PAGE) / COLS, c = i % COLS;
+                final int per = perPage(), page = i / per, r = (i % per) / cols, c = (i % per) % cols;
                 final int left = getPaddingLeft() + page * pw + c * cw - scrollX, top = getPaddingTop() + r * cellH;
                 layoutDecorated(v, left, top, left + cw, top + cellH);
             }
@@ -119,7 +143,7 @@ final class ShadePager {
         }
 
         @Override public void scrollToPosition(int position) {
-            scrollX = (position / PER_PAGE) * pageWidth();
+            scrollX = (position / perPage()) * pageWidth();
             requestLayout();
         }
 
@@ -130,12 +154,12 @@ final class ShadePager {
         }
 
         @Nullable @Override public PointF computeScrollVectorForPosition(int target) {
-            return new PointF(Math.signum((target / PER_PAGE) * pageWidth() - scrollX), 0);
+            return new PointF(Math.signum((target / perPage()) * pageWidth() - scrollX), 0);
         }
 
         /** The distance from the current scroll to the page of {@code position}. */
         int distanceTo(int position) {
-            return (position / PER_PAGE) * pageWidth() - scrollX;
+            return (position / perPage()) * pageWidth() - scrollX;
         }
     }
 
@@ -169,14 +193,14 @@ final class ShadePager {
 
         @Nullable @Override public View findSnapView(RecyclerView.LayoutManager lm) {
             if (!(lm instanceof Layout) || lm.getItemCount() == 0) return null;
-            return lm.findViewByPosition(Math.min(lm.getItemCount() - 1, ((Layout) lm).page() * PER_PAGE));
+            return lm.findViewByPosition(Math.min(lm.getItemCount() - 1, ((Layout) lm).page() * perPage()));
         }
 
         @Override public int findTargetSnapPosition(RecyclerView.LayoutManager lm, int vx, int vy) {
             if (!(lm instanceof Layout) || lm.getItemCount() == 0) return RecyclerView.NO_POSITION;
             final int last = pages(lm.getItemCount()) - 1;
             final int from = (int) Math.floor(((Layout) lm).progress());
-            return Math.max(0, Math.min(last, vx > 0 ? from + 1 : from)) * PER_PAGE;
+            return Math.max(0, Math.min(last, vx > 0 ? from + 1 : from)) * perPage();
         }
 
         @Nullable @Override protected RecyclerView.SmoothScroller createScroller(@NonNull RecyclerView.LayoutManager lm) {

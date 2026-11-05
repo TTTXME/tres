@@ -206,6 +206,7 @@ uniform vec3 vibU;                  // vibrance: overall, sky, green (0 = off)
 uniform vec4 vibWhyU;               // P419: saturated, light tones (the reference's strength), mid-tones, shadows
 uniform vec4 vibSkinU;              // P419: skin protection 0..1, the skin hue centre (radians, OKLab), its lower luminance (OKLab L), its
                                     // saturation shift
+uniform float vibSkinHueU;          // P519: the skin's hue shift in degrees (the reference's u_skin_hue_shift; 0 = none)
 #endif
 #if WHY_VIB == 1
 uniform vec4 whyVibU;               // P404: saturated, mid-tones, shadows, skin protection (0..1)
@@ -1455,31 +1456,29 @@ void main() {
     float vibHlK = 1.0;    // the light tones' share of the gain (P393: divided out of the mid rendition)
     {
         float cs = max(length(lab.yz), 0.0001);
+        // P519 (owner, 2026-11-05: «Возьми алгоритм его работы один в один»): tonemap_final 4.1 - 4.4 as the reference has it - the
+        // hue difference unwrapped, the sky / green / light-tone masks without our gates, the skin's hue and saturation shifts
         float dth = atan(lab.z, lab.y) - vibSkinU.y;
-        dth = mod(dth + 3.14159265, 6.2831853) - 3.14159265;
         float skinA = clamp(exp(-0.5 * dth * dth / (0.28 * 0.28)) * smoothstep(0.015, 0.040, cs) * (1.0 - smoothstep(0.18, 0.28, cs))
                             * smoothstep(vibSkinU.z - 0.06, vibSkinU.z + 0.06, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)), 0.0, 1.0);
         float boost = mix(vibU.x, vibWhyU.x, smoothstep(0.02, 0.09, cs));
-        if (abs(vibU.y) > 0.001 && lab.z < 0.0) {
-#if SKY == 1
-            boost += vibU.y * clamp(-lab.z / cs, 0.0, 1.0) * (skyNeutral > 0.0 ? mix(1.0, skyBlue(lab, cs) * skyMU.w, skyNeutral) : 1.0);
-#else
-            boost += vibU.y * clamp(-lab.z / cs, 0.0, 1.0);
-#endif
-        }
+        if (abs(vibU.y) > 0.001 && lab.z < 0.0) boost += vibU.y * clamp(-lab.z / cs, 0.0, 1.0);
         if (abs(vibU.z) > 0.001 && lab.y < 0.0) boost += vibU.z * clamp(-lab.y / cs, 0.0, 1.0);
         float hlT = 0.0;
-        if (abs(vibWhyU.y) > 0.001) {
-            vec4 hlShape = vibHlShape();
-            hlT = vibWhyU.y * smoothstep(0.60, 0.80, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x)) * smoothstep(hlShape.z, hlShape.w, cs);
-        }
+        if (abs(vibWhyU.y) > 0.001) hlT = vibWhyU.y * smoothstep(0.60, 0.80, lab.x) * (1.0 - smoothstep(0.88, 0.98, lab.x));
         if (abs(vibWhyU.z) > 0.001) boost += vibWhyU.z * smoothstep(0.15, 0.35, lab.x) * (1.0 - smoothstep(0.55, 0.75, lab.x));
         if (abs(vibWhyU.w) > 0.001) boost += vibWhyU.w * (1.0 - smoothstep(0.08, 0.25, lab.x));
         float skinMult = mix(1.0, 1.0 - 0.70 * skinA, vibSkinU.x);
         float gNoHl = max(0.0, 1.0 + boost * skinMult), g = max(0.0, 1.0 + (boost + hlT) * skinMult);
         vibHlK = gNoHl > 0.000001 ? g / gNoHl : 1.0;
         lab.yz *= g;
-        if (abs(vibSkinU.w) > 0.001) lab.yz *= max(0.0, 1.0 + vibSkinU.w * skinA);
+        if (skinA > 0.001) {
+            if (abs(vibSkinHueU) > 0.001) {
+                float rad = vibSkinHueU * 0.0174532925 * skinA;
+                lab.yz = vec2(lab.y * cos(rad) - lab.z * sin(rad), lab.y * sin(rad) + lab.z * cos(rad));
+            }
+            if (abs(vibSkinU.w) > 0.001) lab.yz *= max(0.0, 1.0 + vibSkinU.w * skinA);
+        }
     }
 #else
     float sat = max(length(lab.yz), 0.0001);

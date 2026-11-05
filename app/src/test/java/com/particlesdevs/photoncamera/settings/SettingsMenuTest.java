@@ -1617,7 +1617,7 @@ public class SettingsMenuTest {
                 "pref_scam_hybrid_colour_mix_blue_sat","colour_grading_screen","pref_scam_hybrid_colour_grade_highlights_hue"})
             assertNotNull(key,fine.findPreference(key));
         // P404 / P406: the skin's hue, saturation, mask; the two skin protections sit with the vibrance they hold back
-        assertEquals(Arrays.asList("pref_scam_hybrid_colour_skin_hue","pref_scam_hybrid_why_skin_sat_shift","pref_scam_hybrid_why_skin_hue_center",
+        assertEquals(Arrays.asList("pref_scam_hybrid_colour_skin_hue","pref_scam_hybrid_why_skin_sat_shift","pref_scam_hybrid_why_skin_hue_shift","pref_scam_hybrid_why_skin_hue_center",
                 "pref_scam_hybrid_why_skin_luma_min","pref_scam_hybrid_colour_skin_even"),keys(screen.findPreference("colour_skin_category")));
         // P419: the reference app's eight vibrance rows in its order - one light-tone, one shadow row, one skin protection
         assertEquals(Arrays.asList("pref_scam_hybrid_why_vibrance","pref_scam_hybrid_why_vibrance_saturated","pref_scam_hybrid_why_vibrance_sky",

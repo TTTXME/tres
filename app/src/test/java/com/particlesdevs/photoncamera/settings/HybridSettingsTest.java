@@ -1242,6 +1242,14 @@ public class HybridSettingsTest {
         prefs.edit().putString("pref_scam_hybrid_why_ae_target","0.18").commit();
         SettingsMigration.migrateScamHybrid(prefs,false);
         assertEquals("set again: stays",0.18,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_ae_target"),9),1e-6);
+        // P516: P513's 0 of the light tones' vibrance goes back to 0.25 once
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.CONFIG_V33_REV,1).putString("pref_scam_hybrid_why_vibrance_hl_str","0").commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        assertEquals(0.25,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_vibrance_hl_str"),9),1e-6);
+        prefs.edit().putString("pref_scam_hybrid_why_vibrance_hl_str","0").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("set again: stays",0.0,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_vibrance_hl_str"),9),1e-6);
     }
 
     @Test public void lookVibranceMovesIntoTheReferenceRowsOnce() {

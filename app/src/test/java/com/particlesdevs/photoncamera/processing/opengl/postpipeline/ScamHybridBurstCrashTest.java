@@ -222,6 +222,12 @@ public class ScamHybridBurstCrashTest {
                 + "SCAM RGB: mean=0.000016 max=2.005420" + (char) 10));
         assertFalse(ScamHybridBurst.blackResult("HYBRID GPU readback: strip 1 read as all zero: still zero after a glFinish" + (char) 10
                 + "SCAM RGB: mean=0.042182 max=8.901612" + (char) 10));
+        // P514: Pixel 10 Pro XL 31229: even strips zero, odd ones uninitialised memory - stripes of noise, not a photo
+        assertTrue(ScamHybridBurst.blackResult("HYBRID GPU readback: strip 0 read as all zero: still zero after a glFinish" + (char) 10
+                + "SCAM RGB: mean=7370149542.948844 max=920003134095360.000000" + (char) 10));
+        assertTrue(ScamHybridBurst.blackResult("HYBRID GPU readback: strip 0 read as all zero: still zero after a glFinish" + (char) 10
+                + "SCAM RGB: mean=nan max=inf" + (char) 10));
+        assertFalse("no zero strip: the mean alone decides nothing", ScamHybridBurst.blackResult("SCAM RGB: mean=7370149542.948844 max=9.0" + (char) 10));
     }
     /** P501: Pixel 10 Pro: a black SCAM merge sends the session to the fast route (the report names the route that merged). */
     @Test public void blackScamMergeSwitchesToTheFastRoute() {

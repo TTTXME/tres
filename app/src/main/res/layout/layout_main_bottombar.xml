@@ -122,6 +122,26 @@
                     android:importantForAccessibility="no"/>
         </LinearLayout>
 
+        <!-- SIMPLE_UI §1: the LUT pill (LutTray styles it and opens the tray). P518 (owner, 2026-11-05: «Кнопку вызова LUT убери на
+             серую область вниз»): under the viewfinder, in the middle of the band above the lens row, no longer over the picture. -->
+        <TextView
+                android:id="@+id/lut_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:maxWidth="200dp"
+                android:gravity="center_vertical"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:text="LUT"
+                android:textSize="12sp"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginBottom="10dp"
+                app:layout_constraintBottom_toTopOf="@id/pro_button"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                tools:ignore="HardcodedText" />
+
         <com.particlesdevs.photoncamera.ui.camera.views.AuxButtonsLayout
                 android:id="@+id/aux_buttons_container"
                 android:orientation="horizontal"

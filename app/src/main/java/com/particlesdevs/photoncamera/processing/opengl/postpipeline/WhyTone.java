@@ -480,7 +480,7 @@ public final class WhyTone {
 
     static float vibranceHl() {
         // P419: the visible «Сочность в светах» in the reference app's units (its config 0.25 = P407's factor 1), x the dev factor
-        return Math.max(0f, value("vibrance_hl", 1.0f) * value("vibrance_hl_str", 0f) / VIBRANCE_HL_STR);
+        return Math.max(0f, value("vibrance_hl", 1.0f) * value("vibrance_hl_str", VIBRANCE_HL_STR) / VIBRANCE_HL_STR);
     }
 
     /** P419: the default «Сочность в светах» (the reference app's config: pref_vibrance_hl_strength_key 0.25). */
@@ -507,6 +507,11 @@ public final class WhyTone {
     static float[] vibranceSkinUniform() {
         return new float[]{skinProtect(), (float) Math.toRadians(value("skin_hue_center", 41.2f)), value("skin_luma_min", 0.16f),
                 value("skin_sat_shift", 0f)};
+    }
+
+    /** P519: why/combine vibSkinHueU - the skin's hue shift in degrees (the reference's u_skin_hue_shift, 0 by default). */
+    static float vibranceSkinHue() {
+        return Math.max(-30f, Math.min(30f, value("skin_hue_shift", 0f)));
     }
 
     /** P419: «Защита кожи в сочности» 0..1 (the reference app's 1 by default), the one skin protection of the vibrance and the look. */

@@ -1083,6 +1083,8 @@
     <string name="prefs_scam_hybrid_why_skin_luma_min_summary">Brightness from which a pixel can count as skin. Higher: dark skin-coloured areas are not taken.</string>
     <string name="prefs_scam_hybrid_why_skin_sat_shift_title">Skin saturation shift</string>
     <string name="prefs_scam_hybrid_why_skin_sat_shift_summary">Saturation of skin alone. Plus: richer, minus: paler.</string>
+    <string name="prefs_scam_hybrid_why_skin_hue_shift_title">Skin hue shift</string>
+    <string name="prefs_scam_hybrid_why_skin_hue_shift_summary">Turns the hue of skin alone, in degrees. Plus: towards yellow, minus: towards red.</string>
     <string name="prefs_scam_hybrid_why_cct_gain_r_title">Matrix red</string>
     <string name="prefs_scam_hybrid_why_cct_gain_r_summary">Gain of the red channel in the colour matrix.</string>
     <string name="prefs_scam_hybrid_why_cct_gain_g_title">Matrix green</string>
