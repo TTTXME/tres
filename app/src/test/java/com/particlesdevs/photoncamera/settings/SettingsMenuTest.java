@@ -1561,14 +1561,18 @@ public class SettingsMenuTest {
         assertEquals(Arrays.asList("pref_fullres_hw_remosaic","pref_raw_stream_format","pref_cfa_key","raw_crop_screen"),keys(screen.findPreference("lens_raw_category")));
         assertEquals(Arrays.asList("pref_raw_black_from_data","pref_raw_lsc_mode","expert_sensor_screen"),keys(screen.findPreference("lens_levels_category")));
         assertEquals(Arrays.asList("pref_color_method_key","pref_dcp_profile_key","pref_scam_hybrid_why_ccm_profile","pref_scam_hybrid_why_ccm_override",
-                "pref_scam_hybrid_why_ccm_matrix","pref_scam_hybrid_why_dynamic_cct","pref_scam_hybrid_why_dynamic_cct_strength",
+                "pref_scam_hybrid_why_ccm_matrix","pref_scam_hybrid_why_cct_sat","pref_scam_hybrid_why_cct_gain_r","pref_scam_hybrid_why_cct_gain_g",
+                "pref_scam_hybrid_why_cct_gain_b","pref_scam_hybrid_why_ccm_sat","colour_calibration_screen","pref_scam_hybrid_colour_gamut",
+                "pref_scam_hybrid_why_dynamic_cct","pref_scam_hybrid_why_dynamic_cct_strength",
                 "pref_mosaic_wb_corrections","pref_scam_hybrid_mosaic_wb_mode"),keys(screen.findPreference("lens_colour_category")));
         assertEquals(Arrays.asList("pref_scam_hybrid_noise_photon","pref_scam_hybrid_noise_readout","pref_noise_model_profile_key",
                 "pref_noise_model_import_key","pref_noise_model_export_key","noise_model_note"),keys(screen.findPreference("lens_noise_category")));
         for(String gone:new String[]{"capture_settings_screen","colour_expert_category","expert_module_ids","noise_model_screen","capture_raw_levels_category"})
             assertNull(gone,screen.findPreference(gone));
         // the image tone rows of the former «Цвет камеры» with the image settings
-        assertNotNull(((androidx.preference.PreferenceGroup)screen.findPreference("colour_ccm_category")).findPreference("pref_scam_hybrid_colour_gamut"));
+        // P520 (owner, 2026-11-06: «Я не вижу у нас настроек насыщенности и тд для ccm»): the matrix's saturation, gains, calibration
+        // and gamut on the lens page's matrix section (P413's «Цвет» category gone)
+        assertNull(screen.findPreference("colour_ccm_category"));
         for(String key:new String[]{"pref_scam_hybrid_why_hl_soft","pref_scam_hybrid_why_hl_white"})
             assertNotNull(key,((androidx.preference.PreferenceGroup)screen.findPreference("scam_hybrid_recovery_category")).findPreference(key));
         // «Сохранение и форматы фото»; the 2× grid and downscaling with the size after the merge
@@ -1604,13 +1608,10 @@ public class SettingsMenuTest {
         assertEquals(Arrays.asList("film_lut_screen","film_sim_screen","lens_filter_screen"),keys(screen.findPreference("photo_style_film_category")));
         // «Цвет» in the reference app's order - vibrance, skin tones, the matrix, colour adaptation; our mixer and grading after
         PreferenceScreen fine=screen.findPreference("photo_processing_screen");
-        assertEquals(Arrays.asList("colour_sat_category","colour_skin_category","colour_ccm_category","colour_wb_category","colour_mixer_screen",
+        assertEquals(Arrays.asList("colour_sat_category","colour_skin_category","colour_wb_category","colour_mixer_screen",
                 "colour_grading_screen"),keys(fine));
         // P408 / P413: the reference app's matrix saturation and gains here, its matrix profile, own 3x3 matrix, Dynamic CCT and the
         // Quad / Tetra white balance on each lens's page; the colour gamut of the former «Цвет камеры» at the end
-        assertEquals(Arrays.asList("pref_scam_hybrid_why_cct_sat","pref_scam_hybrid_why_cct_gain_r","pref_scam_hybrid_why_cct_gain_g",
-                "pref_scam_hybrid_why_cct_gain_b","pref_scam_hybrid_why_ccm_sat","colour_calibration_screen","pref_scam_hybrid_colour_gamut"),
-                keys(screen.findPreference("colour_ccm_category")));
         assertNull(((androidx.preference.PreferenceGroup)screen.findPreference("colour_wb_category")).findPreference("pref_scam_hybrid_mosaic_wb_mode"));
         for(String key:new String[]{"pref_scam_hybrid_colour_tint","pref_scam_hybrid_colour_keep_warm","pref_scam_hybrid_colour_keep_cool",
                 "pref_scam_hybrid_why_vibrance","pref_scam_hybrid_why_vibrance_sky","pref_scam_hybrid_why_vibrance_hl_str","colour_mixer_screen",

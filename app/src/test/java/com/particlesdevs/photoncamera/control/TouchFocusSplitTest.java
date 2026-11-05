@@ -73,7 +73,9 @@ public class TouchFocusSplitTest {
     public void setUp() throws Exception {
         capture = mock(CaptureController.class);
         builder = newRequestBuilder();
+        builder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON);   // the preview template's automatic exposure
         capture.mPreviewRequestBuilder = builder;
+        capture.mPreviewAEMode = CameraMetadata.CONTROL_AE_MODE_ON;   // the session's automatic exposure
         capture.mSensorOrientation = 90;
         doAnswer(i -> { triggers.add(builder.get(CaptureRequest.CONTROL_AF_TRIGGER)); return null; }).when(capture).rebuildPreviewBuilder();
         doAnswer(i -> { triggers.add(builder.get(CaptureRequest.CONTROL_AF_TRIGGER)); return null; }).when(capture).rebuildPreviewBuilderOneShot();
@@ -199,6 +201,18 @@ public class TouchFocusSplitTest {
         assertEquals("the split square 35 % smaller", Math.round(120 * TouchFocus.SQUARE_SCALE * TouchFocus.SPLIT_SQUARE_SCALE),
                 square.getLayoutParams().width);
         assertEquals("the ring centred on the tap", 500f, ring.getX() + ring.getLayoutParams().width / 2f, 1f);
+    }
+
+    /** P521 (owner, 2026-11-06): ISO and shutter set in «Про» (the AE off) - a tap focuses, the exposure stays manual. */
+    @Test
+    public void aTapKeepsAManualExposure() {
+        builder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
+        touch.processTouchToFocus(500, 600);
+        idle();
+        assertTrue(same(region(500, 600, TouchFocus.SPLIT_RING_SCALE), af()));
+        assertEquals(Integer.valueOf(CameraMetadata.CONTROL_AE_MODE_OFF), builder.get(CaptureRequest.CONTROL_AE_MODE));
+        assertTrue("no metering written", builder.get(CaptureRequest.CONTROL_AE_REGIONS) == null
+                || builder.get(CaptureRequest.CONTROL_AE_REGIONS).length == 0 || !same(region(500, 600, TouchFocus.SPLIT_SQUARE_SCALE), ae()));
     }
 
     @Test

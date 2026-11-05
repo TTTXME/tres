@@ -437,6 +437,7 @@ public class TouchFocus {
             CameraCharacteristics characteristics = CaptureController.mCameraCharacteristics;
             if (builder == null || characteristics == null) return;
             lastAeRegion = ae;
+            if (manualExposure(builder)) return;   // P521: a manual exposure takes no metering
             if (maxRegions(characteristics, CameraCharacteristics.CONTROL_MAX_REGIONS_AE) <= 0) return;
             isTouchFocus = true;
             builder.set(CaptureRequest.CONTROL_AE_REGIONS, new MeteringRectangle[]{ae});
@@ -613,6 +614,12 @@ public class TouchFocus {
 
     // ------------------------------------------------------------------ sequence
 
+    /** P521: the preview runs a manual exposure («Про»: ISO and shutter both set, the AE off). */
+    static boolean manualExposure(CaptureRequest.Builder builder) {
+        Integer ae = builder.get(CaptureRequest.CONTROL_AE_MODE);
+        return ae != null && ae == CameraMetadata.CONTROL_AE_MODE_OFF;
+    }
+
     private void startFocusSequence(MeteringRectangle region, MeteringRectangle aeRegion) {
         CaptureRequest.Builder builder = captureController.mPreviewRequestBuilder;
         CameraCharacteristics characteristics = CaptureController.mCameraCharacteristics;
@@ -639,7 +646,11 @@ public class TouchFocus {
                     ? CameraMetadata.CONTROL_AF_MODE_AUTO : PreferenceKeys.getAfMode();
             int afMode = supportedMode(characteristics, CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES,
                     requestedAfMode, currentAfMode);
-            int aeMode = supportedMode(characteristics, CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES,
+            // P521 (owner, 2026-11-06, video: ISO and shutter fixed in «Про», a tap still changed the exposure): a manual exposure
+            // (the preview's AE off) stays manual - the tap focuses and leaves the exposure and its metering alone
+            final boolean manualExposure = manualExposure(builder);
+            int aeMode = manualExposure ? CameraMetadata.CONTROL_AE_MODE_OFF
+                    : supportedMode(characteristics, CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES,
                     Math.max(PreferenceKeys.getAeMode(), 1),
                     valueOr(builder.get(CaptureRequest.CONTROL_AE_MODE), CameraMetadata.CONTROL_AE_MODE_ON));
             Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
@@ -658,7 +669,7 @@ public class TouchFocus {
                 builder.set(CaptureRequest.CONTROL_AF_REGIONS, regions);
                 afRegionsWritten = true;
             }
-            if (maxRegions(characteristics, CameraCharacteristics.CONTROL_MAX_REGIONS_AE) > 0) {
+            if (!manualExposure && maxRegions(characteristics, CameraCharacteristics.CONTROL_MAX_REGIONS_AE) > 0) {
                 builder.set(CaptureRequest.CONTROL_AE_REGIONS, aeRegions);
                 aeRegionsWritten = true;
             }
@@ -983,7 +994,7 @@ public class TouchFocus {
             if (maxRegions(characteristics, CameraCharacteristics.CONTROL_MAX_REGIONS_AE) > 0)
                 builder.set(CaptureRequest.CONTROL_AE_REGIONS, regionsOr(captureController.mPreviewMeteringAE, zero));
             builder.set(CaptureRequest.CONTROL_AF_MODE, captureController.mPreviewAFMode);
-            builder.set(CaptureRequest.CONTROL_AE_MODE, captureController.mPreviewAEMode);
+            if (!manualExposure(builder)) builder.set(CaptureRequest.CONTROL_AE_MODE, captureController.mPreviewAEMode);   // P521
             builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE);
             captureController.rebuildPreviewBuilder();
         }

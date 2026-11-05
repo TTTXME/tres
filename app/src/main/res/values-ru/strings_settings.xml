@@ -1097,7 +1097,6 @@
     <!-- P406: SHDR in the reference app's grouping -->
     <string name="prefs_shdr_colour_title">Цвет</string>
     <string name="prefs_shdr_colour_summary">Сочность, кожа, матрица, баланс белого, микшер</string>
-    <string name="prefs_colour_ccm_category_title">Матрица цветокоррекции (CCM)</string>
     <string name="prefs_scam_hybrid_nr_merge_category_title">Шумодав склейки</string>
     <string name="prefs_scam_hybrid_merge_frames_category_title">Кадры серии</string>
     <string name="prefs_scam_hybrid_merge_align_category_title">Выравнивание</string>

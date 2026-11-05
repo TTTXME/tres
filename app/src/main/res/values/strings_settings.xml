@@ -1098,7 +1098,6 @@
     <!-- P406: SHDR in the reference app's grouping -->
     <string name="prefs_shdr_colour_title">Colour</string>
     <string name="prefs_shdr_colour_summary">Vibrance, skin, matrix, white balance, mixer</string>
-    <string name="prefs_colour_ccm_category_title">Colour correction matrix (CCM)</string>
     <string name="prefs_scam_hybrid_nr_merge_category_title">Merge denoise</string>
     <string name="prefs_scam_hybrid_merge_frames_category_title">Burst frames</string>
     <string name="prefs_scam_hybrid_merge_align_category_title">Alignment</string>

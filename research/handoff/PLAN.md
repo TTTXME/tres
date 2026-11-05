@@ -9927,3 +9927,9 @@ emulation), not tried on a phone
 
 ### P519 - vibrance one to one with the reference (tonemap_final 4.1 - 4.4): DONE
 - WHY_VIBRANCE: our gates removed (the light-tone term's chroma gate, the sky term's blue-sky mask, the wrapped hue difference); the skin hue shift added (why_skin_hue_shift, -30..30 degrees, vibSkinHueU, photo and viewfinder). Our OKLab is the reference's (lin = orig x ae x gain, after the macro contrast). Defaults = the stable config's (sky 0.25, green 0.05, light tones 0.25, skin protection 1).
+
+### P520 - the matrix's tuning on the lens page: DONE
+- Owner 2026-11-06 (screenshot of «Настройки линзы»: «Я не вижу у нас настроек насыщенности и тд для ccm»): colour_ccm_category's rows (why_cct_sat, cct_gain_r/g/b, why_ccm_sat, colour_calibration_screen, colour_gamut) moved into lens_colour_category after the own 3x3 matrix; «Цвет» lost the category. Keys unchanged (already per module).
+
+### P521 - a tap kept the manual exposure: DONE
+- Owner's video: ISO + shutter set in «Про», a tap brightened the preview. TouchFocus.startFocusSequence forced CONTROL_AE_MODE >= ON and the focus reset wrote mPreviewAEMode (the session's ON). Now a preview with AE off (manualExposure) keeps it: no AE mode / AE regions from the tap, the reset or the exposure square. TouchFocusSplitTest.aTapKeepsAManualExposure.
