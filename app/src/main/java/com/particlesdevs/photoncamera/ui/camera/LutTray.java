@@ -58,11 +58,8 @@ import java.util.Map;
  * a double tap on a tab's title puts that tab's settings back to their defaults (a tap on the hint line undoes it).
  */
 public final class LutTray {
-    /**
-     * The tray as a pane of dark glass (owner, 2026-10-27: «более красиво ... аля iOS / Mac OS»): a vertical gradient of the sheet
-     * colour at 95 %, a hairline edge lit a little more at the top, 24dp corners and a soft shadow.
-     */
-    static final int TRAY_FILL = 0xF214171B, TRAY_TOP = 0xF21E2228, TRAY_EDGE = 0x24FFFFFF, PILL_FILL = 0x9E0D0F12;
+    /** The LUT button's fill at rest (the tray itself: the shade's glass, ShadeStyle.sheet - P509). */
+    static final int PILL_FILL = 0x9E0D0F12;
     /** An unchosen chip: a faint glass fill with a faint edge. */
     static final int CHIP_FILL = 0x17FFFFFF, CHIP_LINE = 0x12FFFFFF;
     /** The warmth / tint tracks: cool -> warm, green -> magenta (as a photo editor shows them). */
@@ -134,10 +131,9 @@ public final class LutTray {
         UiScale.textFixed(pill, 12);
         tray.setOrientation(LinearLayout.VERTICAL);
         tray.setPadding(UiScale.dp(c, 12), UiScale.dp(c, 12), UiScale.dp(c, 12), UiScale.dp(c, 12));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{TRAY_TOP, TRAY_FILL});
-        bg.setStroke(Math.max(1, Math.round(c.getResources().getDisplayMetrics().density)), TRAY_EDGE);
-        bg.setCornerRadius(UiScale.dpF(c, 24));
-        tray.setBackground(bg);
+        // P509 (owner, 2026-11-05: «меню внутри под новый стиль»): the shade's glass panel (concept G: 18dp corners, a hairline edge,
+        // «Прозрачность шторки»)
+        tray.setBackground(ShadeStyle.sheet(c));
         tray.setElevation(UiScale.dpF(c, 18));
         tray.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         tray.setClickable(true);
@@ -193,7 +189,7 @@ public final class LutTray {
         tray.addView(pages, pgp);
         // LUT: the chips and the strength
         LinearLayout lutPage = page(c, TAB_LUT);
-        row = chipRow(c, lutPage, "lut_tray_luts", 17);
+        row = chipRow(c, lutPage, "lut_tray_luts", CARD_CORNER_DP);
         LinearLayout lr = new LinearLayout(c);
         lr.setOrientation(LinearLayout.HORIZONTAL);
         lr.setGravity(Gravity.CENTER_VERTICAL);
@@ -218,12 +214,12 @@ public final class LutTray {
         lutPage.addView(lr, lrp);
         // P228: the lens filters, with the chosen filter's strength, own parameter and fine controls
         LinearLayout filterPage = page(c, TAB_FILTER);
-        filterRow = chipRow(c, filterPage, "lut_tray_filters", 17);
+        filterRow = chipRow(c, filterPage, "lut_tray_filters", CARD_CORNER_DP);
         filterAdjust = new TrayAdjust(c, "lut_tray_filter_adjust");
         filterPage.addView(filterAdjust.view);
         // P281: the film simulation's stocks, with the chosen film's strength, grain, halation, softness, exposures, contrast
         LinearLayout filmPage = page(c, TAB_FILM);
-        filmRow = chipRow(c, filmPage, "lut_tray_films", 14);
+        filmRow = chipRow(c, filmPage, "lut_tray_films", CARD_CORNER_DP);
         filmAdjust = new TrayAdjust(c, "lut_tray_film_adjust");
         filmPage.addView(filmAdjust.view);
         for (TrayAdjust a : new TrayAdjust[]{filterAdjust, filmAdjust}) {
@@ -552,7 +548,7 @@ public final class LutTray {
             case TAB_LUT: {
                 final String chosen = PreferenceKeys.filmLut();
                 final int i = values.indexOf(chosen);
-                select(row, i, 17, open);
+                select(row, i, CARD_CORNER_DP, open);
                 bindLutState(chosen, open);
                 if (i >= 0) centre(row, row.getChildAt(i));
                 break;
@@ -560,7 +556,7 @@ public final class LutTray {
             case TAB_FILTER: {
                 final String chosen = PreferenceKeys.lensFilter();
                 final int i = filterValues.indexOf(chosen);
-                select(filterRow, i, 17, open);
+                select(filterRow, i, CARD_CORNER_DP, open);
                 bindFilterAdjust(chosen);
                 if (i >= 0) centre(filterRow, filterRow.getChildAt(i));
                 break;
@@ -568,7 +564,7 @@ public final class LutTray {
             case TAB_FILM: {
                 final String chosen = settings().getString(SettingsManager.SCOPE_GLOBAL, FilmSim.STOCK_KEY, "");
                 final int i = filmValues.indexOf(FilmSim.stock(chosen) == null ? "" : FilmSim.stock(chosen).id);
-                select(filmRow, i, 14, open);
+                select(filmRow, i, CARD_CORNER_DP, open);
                 bindFilmAdjust(chosen);
                 if (i >= 0) centre(filmRow, filmRow.getChildAt(i));
                 break;
@@ -696,18 +692,47 @@ public final class LutTray {
         return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(on ? 0x33000000 : 0x29FFFFFF), fill, mask);
     }
 
-    /** A one-line text chip (LUTs, filters), fully rounded; the chosen one in the accent with INK. */
-    private static TextView textChip(Context c, String label, boolean on, int accent) {
-        TextView t = text(c, label, 12.5f, on ? ShadeStyle.INK : ShadeStyle.TEXT);
+    /** P509: a card's thumbnail side (dp) and corner (dp); the card's own corner. */
+    static final int THUMB_DP = 58, THUMB_CORNER_DP = 13, CARD_CORNER_DP = 17;
+
+    /**
+     * P509 (owner, 2026-11-05: small pictures that say what a LUT, a film or a filter is - not live previews): a card with a still
+     * thumbnail ({@link LookThumbs}) and the name under it; chosen, it lies on the row's accent plate (the gliding selection) with
+     * its name in INK.
+     */
+    static LinearLayout thumbCard(Context c, String label, boolean on, int accent) {
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        final int pad = UiScale.dp(c, 4), side = UiScale.dp(c, THUMB_DP);
+        card.setPadding(pad, pad, pad, UiScale.dp(c, 5));
+        card.setBackground(chipBackground(c, on, accent, CARD_CORNER_DP));
+        card.setActivated(on);
+        android.widget.ImageView img = new android.widget.ImageView(c);
+        img.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        GradientDrawable ph = new GradientDrawable();
+        ph.setCornerRadius(UiScale.dpF(c, THUMB_CORNER_DP));
+        ph.setColor(CHIP_FILL);
+        img.setBackground(ph);
+        img.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        img.setClipToOutline(true);
+        img.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        card.addView(img, new LinearLayout.LayoutParams(side, side));
+        TextView t = text(c, label, 10.5f, on ? ShadeStyle.INK : ShadeStyle.TEXT);
         t.setGravity(Gravity.CENTER);
+        t.setSingleLine(true);
         t.setEllipsize(TextUtils.TruncateAt.END);
-        t.setMaxWidth(UiScale.dp(c, 150));
-        t.setPadding(UiScale.dp(c, 14), 0, UiScale.dp(c, 14), 0);
         t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        t.setBackground(chipBackground(c, on, accent, 17));
-        t.setActivated(on);
-        TrayMotion.pressable(t);
-        return t;
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(side, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.topMargin = UiScale.dp(c, 4);
+        card.addView(t, tp);
+        TrayMotion.pressable(card);
+        return card;
+    }
+
+    /** P509: the thumbnail of a {@link #thumbCard}. */
+    static android.widget.ImageView thumb(View card) {
+        return (android.widget.ImageView) ((ViewGroup) card).getChildAt(0);
     }
 
     /**
@@ -737,6 +762,8 @@ public final class LutTray {
     private static void recolour(View chip, boolean on, boolean animate) {
         if (chip instanceof TextView) {
             fade((TextView) chip, on ? ShadeStyle.INK : ShadeStyle.TEXT, animate);
+        } else if (chip instanceof ViewGroup && ((ViewGroup) chip).getChildCount() == 2 && ((ViewGroup) chip).getChildAt(0) instanceof android.widget.ImageView) {
+            fade((TextView) ((ViewGroup) chip).getChildAt(1), on ? ShadeStyle.INK : ShadeStyle.TEXT, animate); // P509: a thumbnail card
         } else if (chip instanceof ViewGroup && ((ViewGroup) chip).getChildCount() == 2) {
             ViewGroup g = (ViewGroup) chip;
             fade((TextView) g.getChildAt(0), on ? (ShadeStyle.INK & 0x00FFFFFF) | 0xB3000000 : ShadeStyle.MUTED, animate);
@@ -793,10 +820,10 @@ public final class LutTray {
         bar.setPadding(t / 2 + UiScale.dp(c, 2), 0, t / 2 + UiScale.dp(c, 2), 0);
     }
 
-    /** A chip's place in its row: {@code heightDp} high, 6dp after the previous. */
-    private static LinearLayout.LayoutParams chipParams(Context c, ViewGroup row, int heightDp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, UiScale.dp(c, heightDp));
-        if (row.getChildCount() > 0) lp.setMarginStart(UiScale.dp(c, 8));
+    /** P509: a thumbnail card's place in its row: its own size, 6dp after the previous. */
+    private static LinearLayout.LayoutParams thumbParams(Context c, ViewGroup row) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (row.getChildCount() > 0) lp.setMarginStart(UiScale.dp(c, 6));
         return lp;
     }
 
@@ -827,11 +854,12 @@ public final class LutTray {
             tray.animate().setListener(null);
             hideHintNow();
             rebuild();
-            // visible at once (the state), rising into place on a spring (the motion)
-            TrayMotion.appear(tray);
+            // visible at once (the state); P509: above the button, growing out of it on a spring (the motion)
+            placeAbovePill();
+            TrayMotion.appear(tray, pill);
         } else {
             main.removeCallbacks(hideHint);
-            TrayMotion.disappear(tray, () -> {
+            TrayMotion.disappear(tray, pill, () -> {
                 if (open) return;
                 TrayMotion.setShown(tray, false);
                 TrayMotion.rest(tray);
@@ -839,6 +867,30 @@ public final class LutTray {
             });
         }
         bindPill(true);
+    }
+
+    /** P509: the gap between the tray's bottom and the button's top. */
+    static final int ABOVE_PILL_DP = 10;
+
+    /**
+     * P509: the tray's bottom {@link #ABOVE_PILL_DP} above the LUT button (the button at the viewfinder's bottom centre stays in sight
+     * and closes the tray again): its bottom margin over its anchor (the Pro panel's bottom), never below the anchor.
+     */
+    private void placeAbovePill() {
+        if (!(tray.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) || !(tray.getParent() instanceof View)) return;
+        final View parent = (View) tray.getParent();
+        final View anchor = parent.findViewById(R.id.manual_mode);
+        if (anchor == null || pill.getHeight() == 0) return;
+        final int[] p = new int[2], b = new int[2];
+        parent.getLocationInWindow(p);
+        pill.getLocationInWindow(b);
+        final int want = b[1] - p[1] - UiScale.dp(tray.getContext(), ABOVE_PILL_DP);
+        final ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) tray.getLayoutParams();
+        final int margin = Math.max(0, anchor.getBottom() - want);
+        if (lp.bottomMargin != margin) {
+            lp.bottomMargin = margin;
+            tray.setLayoutParams(lp);
+        }
     }
 
     /** The current LUT's name, «LUT» with none. */
@@ -879,7 +931,7 @@ public final class LutTray {
         pillInk = fg;
         pillFill = fill;
         pill.setTextColor(fg);
-        android.graphics.drawable.Drawable icon = c.getDrawable(R.drawable.ui_ic_film);
+        android.graphics.drawable.Drawable icon = c.getDrawable(R.drawable.ui_ic_looks);
         if (icon != null) {
             icon = icon.mutate();
             int s = UiScale.dp(c, 16);
@@ -929,8 +981,9 @@ public final class LutTray {
         View selected = null;
         for (String value : values) {
             boolean on = value.equals(chosen);
-            // owner, 2026-10-19 («Убираем маленькие живые превью в видоискателе»): the chips are the names
-            TextView card = textChip(c, name(c, value), on, accent);
+            // owner, 2026-10-19 («Убираем маленькие живые превью в видоискателе»): no live previews; P509: a still thumbnail
+            LinearLayout card = thumbCard(c, name(c, value), on, accent);
+            LookThumbs.lut(thumb(card), value);
             card.setContentDescription(name(c, value));
             card.setOnClickListener(v -> { TrayMotion.tick(v); choose(value); });
             // P279: hold and drag a card to move it; the settings' strip shows the same order
@@ -938,10 +991,10 @@ public final class LutTray {
                 com.particlesdevs.photoncamera.settings.ItemOrder.store(com.particlesdevs.photoncamera.settings.ItemOrder.LUT_KEY, new ArrayList<>(values), from, to);
                 rebuild();
             });
-            row.addView(card, chipParams(c, row, 34));
+            row.addView(card, thumbParams(c, row));
             if (on) selected = card;
         }
-        select(row, values.indexOf(chosen), 17, false);
+        select(row, values.indexOf(chosen), CARD_CORNER_DP, false);
         rebuildFilters();
         rebuildFilms();
         // P319: the colour sliders follow the settings (also after the settings page changed them)
@@ -977,8 +1030,9 @@ public final class LutTray {
         java.util.Collections.addAll(filterValues, filterIds());
         for (String id : filterValues) {
             boolean on = id.equals(chosen);
-            // owner, 2026-10-19: no live previews of the lens filters - the chips are their names
-            TextView card = textChip(c, id.isEmpty() ? Lang.t(c, "Без фильтра", "No filter") : LensFilters.name(c, id), on, accent);
+            // owner, 2026-10-19: no live previews of the lens filters; P509: a still thumbnail of the filter on lights at night
+            LinearLayout card = thumbCard(c, id.isEmpty() ? Lang.t(c, "Без фильтра", "No filter") : LensFilters.name(c, id), on, accent);
+            LookThumbs.filter(thumb(card), id);
             card.setContentDescription(Lang.t(c, "Фильтр: ", "Filter: ") + LensFilters.name(c, id));
             card.setTag("lut_tray_filter_" + id);
             card.setOnClickListener(v -> { TrayMotion.tick(v); chooseFilter(id); });
@@ -987,10 +1041,10 @@ public final class LutTray {
                 com.particlesdevs.photoncamera.settings.ItemOrder.store(com.particlesdevs.photoncamera.settings.ItemOrder.FILTER_KEY, java.util.Arrays.asList(filterIds()), from, to);
                 rebuildFilters();
             });
-            filterRow.addView(card, chipParams(c, filterRow, 34));
+            filterRow.addView(card, thumbParams(c, filterRow));
             if (on) selected = card;
         }
-        select(filterRow, filterValues.indexOf(chosen), 17, false);
+        select(filterRow, filterValues.indexOf(chosen), CARD_CORNER_DP, false);
         bindFilterAdjust(chosen);
         centre(filterRow, selected);
     }
@@ -1181,36 +1235,25 @@ public final class LutTray {
             final String id = st == null ? "" : st.id;
             filmValues.add(id);
             final boolean on = id.equals(chosen);
-            LinearLayout card = new LinearLayout(c);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setGravity(Gravity.CENTER_VERTICAL);
-            card.setPadding(UiScale.dp(c, 12), 0, UiScale.dp(c, 12), 0);
-            card.setBackground(chipBackground(c, on, accent, 14));
-            card.setActivated(on);
-            TextView brand = text(c, st == null ? Lang.t(c, "Плёнка", "Film") : st.brand.toUpperCase(java.util.Locale.ROOT), 8.5f,
-                    on ? (ShadeStyle.INK & 0x00FFFFFF) | 0xB3000000 : ShadeStyle.MUTED);
-            brand.setLetterSpacing(.06f);
-            card.addView(brand);
-            TextView name = text(c, st == null ? Lang.t(c, "Нет", "None") : st.name, 12, on ? ShadeStyle.INK : ShadeStyle.TEXT);
-            name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-            card.addView(name);
+            // P509: a still thumbnail of the stock's colour and its name under it (the maker in the description)
+            LinearLayout card = thumbCard(c, st == null ? Lang.t(c, "Без плёнки", "No film") : st.name, on, accent);
+            LookThumbs.film(thumb(card), id);
             card.setContentDescription(st == null ? Lang.t(c, "Без плёнки", "No film") : st.brand + " " + st.name);
             card.setTag("lut_tray_film_" + id);
             card.setOnClickListener(v -> {
                 TrayMotion.tick(v);
                 settings().set(SettingsManager.SCOPE_GLOBAL, com.particlesdevs.photoncamera.processing.color.FilmSim.STOCK_KEY, id);
                 // in place: the pill glides to the stock, the row is not built again; its adjustments follow (the height too)
-                select(filmRow, filmValues.indexOf(id), 14, open);
+                select(filmRow, filmValues.indexOf(id), CARD_CORNER_DP, open);
                 resize(() -> bindFilmAdjust(id));
                 centre(filmRow, v);
                 bindPill();
                 bindTabs();
             });
-            TrayMotion.pressable(card);
-            filmRow.addView(card, chipParams(c, filmRow, 42));
+            filmRow.addView(card, thumbParams(c, filmRow));
             if (on) selected = card;
         }
-        select(filmRow, filmValues.indexOf(chosen), 14, false);
+        select(filmRow, filmValues.indexOf(chosen), CARD_CORNER_DP, false);
         bindFilmAdjust(chosen);
         centre(filmRow, selected);
     }
@@ -1234,7 +1277,7 @@ public final class LutTray {
         int i = filterValues.indexOf(id);
         if (open && i >= 0 && filterRow.getChildCount() == filterValues.size() && filterValues.equals(java.util.Arrays.asList(filterIds()))) {
             // in place: the pill glides to the filter, its adjustments follow (the height too)
-            select(filterRow, i, 17, true);
+            select(filterRow, i, CARD_CORNER_DP, true);
             resize(() -> bindFilterAdjust(id));
             centre(filterRow, filterRow.getChildAt(i));
         } else rebuildFilters();
@@ -1250,7 +1293,7 @@ public final class LutTray {
         int i = values.indexOf(value);
         if (open && i >= 0 && row.getChildCount() == values.size()) {
             // in place: the pill glides to the LUT, the strength row follows
-            select(row, i, 17, true);
+            select(row, i, CARD_CORNER_DP, true);
             bindLutState(value, true);
             centre(row, row.getChildAt(i));
         } else rebuild();

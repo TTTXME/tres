@@ -66,6 +66,14 @@ precision highp int;
 #define HL_LANDING 0
 // P216: real Bento headroom above WhyAe's capped clip (WhyCombine sets 1 when WhyAe's hr > 0; 0 = the shader before P216)
 #define HEADROOM_WIDE 0
+// P508 HL_LOCAL 1 (owner, 2026-11-05: «больше информации в светах, но так чтобы в остальных сценариях это ничего не испортило»; sun
+// scenes full of detail without artefacts, the sky not darker): the merge holds the short frames' light up to 20 x white in a
+// window or a sunlit wall, the tone takes it all to white. Where a pixel AND its neighbourhood are above white, its log contrast
+// against an edge-aware log mean of whyLow (5 x 5 taps hlLocalU.z low pixels apart, range sigma hlLocalU.y EV) darkens it by
+// hlLocalU.x of that contrast in L (~Y^(1/3)), at most 2 EV: the sea behind a white window shows. Darkening only (nothing to
+// brighten above white), so a smooth sky or a glow (log-linear / log-harmonic, its log mean is its own value) stays as it is; no
+// darkening beside a light 4 - 8 x brighter within the footprint (a sun's or lamp's core: no grey ring round it).
+#define HL_LOCAL 0
 // P314 POINT_FUSED 1 (the RAW viewfinder, LiveWhyTone; never the photo): with fU 1 the fused luma is the pixel's own guide
 // through the fusion's curve (FusedCurve: why/gf.glsl fusedAt with its P291 monotonic envelope, tabulated on the CPU after each
 // viewfinder AE run - the guided filter's value on a flat area) instead of WhyFused, and WhyColour is the viewfinder's linear
@@ -217,6 +225,9 @@ uniform float hrKneeU;              // shoulder knee x the tonemapper top; <= 0 
 uniform float hrRoomU;              // shoulder headroom x the top; <= 0 -> 0.4 (hdr_shoulder_headroom: 0.35)
 uniform float hrEaseU;              // P402: 1 - the shoulder's strength (hdr_shoulder_strength; 0 / unset = full, as before)
 uniform float hrDetailU;            // highlight detail: share of the full-size log contrast kept in OKLab L (0 = off)
+#endif
+#if HL_LOCAL == 1
+uniform vec4 hlLocalU;              // P508: amount, range sigma (EV), tap step (whyLow px), light guard (x the pixel; 0 -> 4)
 #endif
 uniform float hlWhiteU;             // path to white of saturated light entering the shoulder (0 = off)
 #if HL_NEUTRAL == 1
@@ -1896,10 +1907,12 @@ void main() {
         float wMid = max(1.0 - wSh - wHl, 0.0);
         post.yz += (gradeAU.xy * wSh + gradeAU.zw * wMid + gradeBU.xy * wHl) * (1.0 - skinU.x * skinW);
     }
-#elif LIGHT_WARM == 1
+#else
+#if LIGHT_WARM == 1
     if (look != 3 && inChroma > 0.000001) post.yz = lightWarm(post, hueDir, xy, size);
 #else
     if (look != 3 && inChroma > 0.000001) post.yz = length(post.yz) * hueDir;
+#endif
 #endif
     if (lRef > 0.0) {
         // Where the tone compresses (Bento roll-off, fusion darkening, AgX shoulder: L_base below the cube-root
@@ -1954,6 +1967,28 @@ void main() {
     // The kernel keeps a, b while the delta moves L. At a strong edge the colour is the B-spline mix of both sides, and
     // on the dark side the delta pulls L far down: the same a, b at a low L read as a saturated purple/green line. Scaling
     // a, b with L there (a uniform linear scale of the colour) keeps the hue and the relative chroma instead.
+#if HL_LOCAL == 1
+    if (hlLocalU.x > 0.0) {
+        float yP = yLow * ae;   // the low grid's (B-spline) luminance: not the full-size noise
+        if (yP > 0.9) {
+            ivec2 lastL = textureSize(WhyLow, 0) - ivec2(1);
+            ivec2 lc = f == 1 ? xy : ivec2(lbx, lby);
+            int st = max(int(hlLocalU.z + 0.5), 1);
+            float lp = log2(yP), inv = 1.0 / max(2.0 * hlLocalU.y * hlLocalU.y, 0.01);
+            float sw = 0.0, sl = 0.0, yMax = 0.0;
+            for (int dy = -2; dy <= 2; dy++)
+                for (int dx = -2; dx <= 2; dx++) {
+                    float yt = max(dot(texelFetch(WhyLow, clamp(lc + ivec2(dx, dy) * st, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
+                    float lt = log2(yt), d = lt - lp, w = exp(-d * d * inv);
+                    sw += w; sl += w * lt; yMax = max(yMax, yt);
+                }
+            float lm = sl / sw, guard = hlLocalU.w > 0.0 ? hlLocalU.w : 4.0;
+            float gate = smoothstep(0.9, 1.6, yP) * smoothstep(0.9, 1.6, exp2(lm)) * (1.0 - smoothstep(guard, 2.0 * guard, yMax / yP));
+            // a soft threshold of 0.15 EV: the noise's own contrast (a grey cloud, a frosted pane) stays as it was
+            post.x = clamp(post.x * exp2(hlLocalU.x * clamp(lp - lm + 0.15, -2.0, 0.0) * gate / 3.0), 0.0001, 1.0);
+        }
+    }
+#endif
     if (deltaChromaU > 0.0 && post.x < lBefore) post.yz *= mix(1.0, post.x / max(lBefore, 0.0001), clamp(deltaChromaU, 0.0, 1.0));
 #if HL_NEUTRAL == 1
     // P398 (owner, 2026-10-29, the ship's bridge against the reference app: «света почему-то получаются кремовые»): white frames,

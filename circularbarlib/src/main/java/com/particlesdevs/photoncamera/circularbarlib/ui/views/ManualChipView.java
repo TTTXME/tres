@@ -78,7 +78,7 @@ public class ManualChipView extends LinearLayout {
         state.setLetterSpacing(-.025f);
         state.setTextColor(UiTokens.MUTED);
         addView(state, lineParams(state, STATE_SP, UiTokens.dp(context, 1)));
-        background.setCornerRadius(UiTokens.dp(context, 14));
+        background.setCornerRadius(UiTokens.dp(context, 16)); // P509: a Material You tile on the glass
         setBackground(background);
         if (attrs != null) {
             TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.ManualChipView);
@@ -195,7 +195,7 @@ public class ManualChipView extends LinearLayout {
         int color = manual || iconAccent && !dim ? accent : UiTokens.MUTED;
         icon.setColorFilter(color, android.graphics.PorterDuff.Mode.SRC_IN);
         value.setTextColor(manual ? accent : UiTokens.TEXT);
-        background.setColor(manual ? UiTokens.chipBg(accent) : 0);
+        background.setColor(manual ? UiTokens.alpha(accent | 0xFF000000, .26f) : UiTokens.TONAL); // P509: tonal, the accent when manual
         if (chosen) background.setStroke(Math.round(1.5f * getResources().getDisplayMetrics().density), accent);
         else background.setStroke(0, 0);
         setAlpha(dim ? LOCKED_ALPHA : 1f);

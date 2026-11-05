@@ -129,6 +129,28 @@ public class WorkerWatchdogTest {
         assertTrue(log.get(0), log.get(0).startsWith("CLIENT WATCHDOG: no progress for 9") && log.get(0).contains("pass=merge done=1920/6144"));
     }
 
+    @Test public void aHungFastMergeIsStoppedAfterTwentySecondsAndRetriedOnTheOtherRoute() throws Exception {
+        // P509b (Pixel 10 Pro XL, PowerVR): the fast merge ticks for 2 s, then waits for the GPU for good
+        FakeWorker w = new FakeWorker(900_000, t -> beat("fast", 0, 0, Math.min(t, 2_000) / 500, 400, t > 2_000 ? t - 2_000 : -1));
+        WorkerWatchdog wd = watch(w, WorkerWatchdog.ACTIVE);
+        try {
+            wd.await(w, 3_600_000, s -> { });
+            fail("a hung fast merge must be stopped");
+        } catch (WorkerWatchdog.StalledException e) {
+            final long stoppedAfter = w.clock[0] - w.started;
+            assertTrue("stopped " + stoppedAfter, stoppedAfter >= 2_000 + 20_000 && stoppedAfter <= 2_000 + 20_000 + 6_000);
+            assertTrue(e.fastPass);
+            assertTrue(e.gpuFence);
+            assertTrue("a fast-route hang is retried on the SCAM route", ScamHybridBurst.conservativeRetry(e));
+        }
+        // other passes keep their 90 s
+        WorkerWatchdog other = watch(new FakeWorker(1, t -> null), WorkerWatchdog.ACTIVE);
+        other.onLine(beat("merge", 0, 10, 1, 400, -1));
+        assertEquals(90_000L, other.thresholdMs());
+        other.onLine(beat("fast", 0, 0, 2, 400, -1));
+        assertEquals(WorkerWatchdog.FAST_STALL_MS, other.thresholdMs());
+    }
+
     @Test public void aWorkerThatKeepsReportingSurvivesALongMerge() throws Exception {
         // 600 s of merge, a step every 30 s on average (slowest 35 s): never 90 s without progress
         FakeWorker w = new FakeWorker(600_000, t -> beat("merge", t / 30_000, 20, t / 30_000, 35_000, -1));

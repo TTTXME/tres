@@ -469,7 +469,8 @@ def shader_part(strict: bool) -> None:
     # P144: the tone operators (TONE_OP 1) alone and with P3 and the colour look
     variants = (('P3_OUT 0', {'P3_OUT': '0'}), ('P3_OUT 1', {'P3_OUT': '1'}), ('TONE_OP 1', {'TONE_OP': '1'}),
                 ('TONE_OP 1 + P3_OUT 1 + COLOUR_LOOK 1', {'TONE_OP': '1', 'P3_OUT': '1', 'COLOUR_LOOK': '1'}),
-                ('RIM_SMOOTH 1', {'RIM_SMOOTH': '1'}))   # P441: the photo's rim rules
+                ('RIM_SMOOTH 1', {'RIM_SMOOTH': '1'}),   # P441: the photo's rim rules
+                ('TONE_OP 1 + LIGHT_WARM 1 + HL_LOCAL 1', {'TONE_OP': '1', 'LIGHT_WARM': '1', 'HL_LOCAL': '1'}))   # P506 / P508
     for label, defines in variants:
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / 'combine.frag'

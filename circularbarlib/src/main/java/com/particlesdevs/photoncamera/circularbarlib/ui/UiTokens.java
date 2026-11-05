@@ -100,6 +100,31 @@ public final class UiTokens {
         return d;
     }
 
+    /** P509: the Material You tonal fill of a tile at rest (white at 9 % over the glass, the shade's ShadeStyle.TONAL). */
+    public static final int TONAL = 0x17FFFFFF;
+
+    /**
+     * P509 (owner, 2026-11-05: the Pro panel «под стиль нашей новой шторки»): the shade's glass plate (its ShadeStyle.sheet) - the
+     * sheet colour at the glass alpha («Прозрачность шторки» + 10 points, as the shade), a hairline light edge, {@code radiusDp}
+     * corners.
+     */
+    public static GradientDrawable glass(Context c, float radiusDp) {
+        int t = 40;
+        try {
+            Object v = android.preference.PreferenceManager.getDefaultSharedPreferences(c.getApplicationContext()).getAll().get("pref_shade_transparency");
+            if (v instanceof Number) t = ((Number) v).intValue();
+            else if (v != null) t = Math.round(Float.parseFloat(v.toString()));
+        } catch (RuntimeException ignored) {
+        }
+        t = Math.max(0, Math.min(80, t));
+        final float a = Math.max(.1f, 1f - t / 100f - .10f);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor((Math.round(255 * a) << 24) | 0x15191C);
+        d.setCornerRadius(dp(c, radiusDp));
+        d.setStroke(Math.max(1, Math.round(c.getResources().getDisplayMetrics().density * .5f)), 0x29FFFFFF);
+        return d;
+    }
+
     /** {@code color} with its alpha multiplied by {@code alpha}. */
     public static int alpha(int color, float alpha) {
         int a = Math.round(((color >>> 24) & 255) * Math.max(0f, Math.min(1f, alpha)));

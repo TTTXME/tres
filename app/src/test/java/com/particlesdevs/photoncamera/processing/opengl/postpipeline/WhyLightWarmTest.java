@@ -28,8 +28,9 @@ public class WhyLightWarmTest {
         assertTrue(shader.contains("#define LIGHT_WARM 0\n"));
         assertTrue(shader.contains("#if LIGHT_WARM == 1\nuniform vec4 lightWarmU;"));
         // the lock is untouched without the define
-        assertTrue(shader.contains("#elif LIGHT_WARM == 1\n    if (look != 3 && inChroma > 0.000001) post.yz = lightWarm(post, hueDir, xy, size);\n#else\n"
-                + "    if (look != 3 && inChroma > 0.000001) post.yz = length(post.yz) * hueDir;\n#endif"));
+        // nested #if, not #elif: tools/check_colour_output.py's preprocessor has no #elif (CI 531)
+        assertTrue(shader.contains("#else\n#if LIGHT_WARM == 1\n    if (look != 3 && inChroma > 0.000001) post.yz = lightWarm(post, hueDir, xy, size);\n#else\n"
+                + "    if (look != 3 && inChroma > 0.000001) post.yz = length(post.yz) * hueDir;\n#endif\n#endif"));
         // skin (under 60 deg) stays locked; the band reaches lower only near a light «Inpaint opposed» rebuilt
         assertTrue(shader.contains("smoothstep(mix(62.0, 40.0, near), mix(70.0, 50.0, near), h)"));
         assertTrue(shader.contains("#if HL_OPPOSED == 1\n    near = smoothstep(0.05, 0.35, textureLod(OppShare,"));

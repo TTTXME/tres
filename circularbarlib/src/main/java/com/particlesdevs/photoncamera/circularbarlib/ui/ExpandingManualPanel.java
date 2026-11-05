@@ -50,9 +50,9 @@ public class ExpandingManualPanel extends LinearLayout {
         dot = findViewById(R.id.manual_toggle_dot);
         toggleIcon = findViewById(R.id.manual_toggle_icon);
         Context c = getContext();
-        // SIMPLE_UI §3: the concept's cards - the sheet colour at 94 % (chips) and 96 % (ruler) with a line
-        tabs.setBackground(UiTokens.shape(c, CHIPS_FILL, UiTokens.LINE, 20));
-        scale.setBackground(UiTokens.shape(c, RULER_FILL, UiTokens.LINE, 18));
+        // P509 (owner, 2026-11-05: «Подменю про режима тоже перерисуй под стиль нашей новой шторки»): the shade's glass plates
+        tabs.setBackground(UiTokens.glass(c, 18));
+        scale.setBackground(UiTokens.glass(c, 18));
         toggle.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 20));
         GradientDrawable round = new GradientDrawable();
         round.setShape(GradientDrawable.OVAL);
@@ -61,7 +61,6 @@ public class ExpandingManualPanel extends LinearLayout {
         capText(R.id.manual_ruler_value, 13f);
         capText(R.id.manual_all_auto, 12.5f);
         setAccent(UiTokens.cameraAccent(c));
-        tabs.setPivotX(0);
         tabs.setVisibility(INVISIBLE);
         tabs.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         toggle.setOnClickListener(v -> setExpanded(!expanded, true));
@@ -120,9 +119,6 @@ public class ExpandingManualPanel extends LinearLayout {
         updateFrame();
     }
 
-    /** The concept's .chips and .ruler fills: rgba(21,25,28,.94) and rgba(21,25,28,.96). */
-    public static final int CHIPS_FILL = 0xF015191C, RULER_FILL = 0xF515191C;
-
     public boolean isExpanded() {
         return expanded;
     }
@@ -145,9 +141,11 @@ public class ExpandingManualPanel extends LinearLayout {
             return;
         }
         animator = ValueAnimator.ofFloat(progress, value ? 1 : 0);
-        // P495 (the app's Motion): opens on UIKit's sheet curve, closes quicker
-        animator.setDuration(value ? 280 : 180);
-        animator.setInterpolator(value ? SHEET : new DecelerateInterpolator());
+        // P509 (owner, 2026-11-05: «красивую анимацию в стиле iOS / macOS»): it grows out of «Про» on a damped spring (a small
+        // overshoot) and its tiles rise one after another; it goes back into the button on the exit curve, quicker
+        animator.setDuration(value ? OPEN.durationMs : 220);
+        animator.setInterpolator(value ? OPEN : EXIT);
+        if (value) riseTiles();
         animator.addUpdateListener(a -> {
             progress = (float) a.getAnimatedValue();
             updateFrame();
@@ -155,11 +153,21 @@ public class ExpandingManualPanel extends LinearLayout {
         animator.start();
     }
 
-    /** Collapsed = opacity 0 and scaleX .6 from the left; it takes no touches then. */
+    /** P509: how small the strip is collapsed into «Про». */
+    static final float FROM_BUTTON_SCALE = .3f;
+
+    /**
+     * Collapsed = opacity 0 and {@link #FROM_BUTTON_SCALE} towards «Про» (the bottom bar's left disc, under the strip's left end); it
+     * takes no touches then. The spring's overshoot (progress a little above 1) grows the strip a little past its size.
+     */
     private void updateFrame() {
         float p = Math.max(0, Math.min(1, progress));
-        tabs.setAlpha(p);
-        tabs.setScaleX(.6f + .4f * p);
+        tabs.setAlpha(Math.min(1f, p * 2.2f));
+        tabs.setPivotX(dp(30));
+        tabs.setPivotY(tabs.getHeight() + dp(40));
+        final float s = FROM_BUTTON_SCALE + (1f - FROM_BUTTON_SCALE) * Math.max(0f, progress);
+        tabs.setScaleX(s);
+        tabs.setScaleY(s);
         // The first animation frame has p=0. Later frames must restore visibility.
         tabs.setVisibility(expanded || p > 0 ? VISIBLE : INVISIBLE);
         if (endSlot != null) {
@@ -168,6 +176,45 @@ public class ExpandingManualPanel extends LinearLayout {
             endSlot.setVisibility(filled && !expanded && p == 0 ? VISIBLE : GONE);
         }
     }
+
+    /** P509: the tiles rise into the opening strip one after another (18 ms apart, as the shade's tiles). */
+    private void riseTiles() {
+        if (!(tabs instanceof ViewGroup)) return;
+        final ViewGroup g = (ViewGroup) tabs;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            final View t = g.getChildAt(i);
+            t.animate().cancel();
+            // its own alpha (a locked parameter's dim one) is where it ends; 0 only when a rise before was cut short
+            final float to = t.getAlpha() > 0f ? t.getAlpha() : 1f;
+            t.setTranslationY(dp(12));
+            t.setAlpha(0f);
+            t.animate().translationY(0f).alpha(to).setStartDelay(40L + 18L * i)
+                    .setDuration(320).setInterpolator(RISE).start();
+        }
+    }
+
+    /** P509: UIKit-like damped spring 0 -> 1: x(t) = 1 - e^(-z w t)(cos wd t + z w / wd sin wd t), the last frame exactly 1. */
+    static final class Spring implements android.animation.TimeInterpolator {
+        final float response, damping;
+        final long durationMs;
+
+        Spring(float response, float damping) {
+            this.response = response;
+            this.damping = damping;
+            this.durationMs = Math.max(120L, Math.round(1000.0 * Math.log(1000.0) / (damping * 2 * Math.PI / response)));
+        }
+
+        @Override public float getInterpolation(float f) {
+            if (f >= 1f) return 1f;
+            final double t = f * durationMs / 1000.0, w = 2 * Math.PI / response, z = damping, wd = w * Math.sqrt(1 - z * z);
+            return (float) (1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + z * w / wd * Math.sin(wd * t)));
+        }
+    }
+
+    /** P509: the opening spring (as the LUT tray's), the exit and the tiles' rise. */
+    static final Spring OPEN = new Spring(0.42f, 0.8f);
+    static final android.animation.TimeInterpolator EXIT = new android.view.animation.PathInterpolator(0.3f, 0f, 0.8f, 0.15f);
+    static final android.animation.TimeInterpolator RISE = new android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
 
     /** Whether the shade allows the panel on screen (the shade is HIDDEN). */
     private boolean shadeShown = true;

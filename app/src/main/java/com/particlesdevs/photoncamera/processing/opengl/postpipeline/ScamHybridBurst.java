@@ -799,7 +799,7 @@ public final class ScamHybridBurst implements ScamTransport {
     public String tuningOverride() {
         // P267: the remosaic and the mosaic DNG layout first (still after the user's tuning)
         return REMOSAIC_TUNING + (dngMosaic > 1 ? "dngMosaic 1\n" : "") + (conservative ? CONSERVATIVE_TUNING : "") + avoidedTuning()
-                + (scamMergeBlack && !avoidedSteps.contains(STEP_FAST) ? PreferenceKeys.FAST_TUNING : "") // P501
+                + (scamMergeBlack && !avoidedSteps.contains(STEP_FAST) && !fastRouteHung ? PreferenceKeys.FAST_TUNING : "") // P501
                 + sceneEvTuning(sceneEv)
                 + (strictTwoX ? "grid 2\nauto2x 0\n" : "") + seriesTuning() + (dcg ? dcgTuning(com.particlesdevs.photoncamera.capture.HybridPlan.bentoMode()) : "");
     }
@@ -1038,6 +1038,12 @@ public final class ScamHybridBurst implements ScamTransport {
      * (the retry too) takes the fast route; the GPU merge goes off only when that is black as well.
      */
     static volatile boolean scamMergeBlack;
+    /**
+     * P509b (Pixel 10 Pro XL, PowerVR, 31226: the fast merge hung in its GPU work, nothing saved): the watchdog stopped a worker in the
+     * fast merge pass - the retry and the later shots of this session leave the fast route out (not stored: the route worked there
+     * before, the hang may pass with the next start).
+     */
+    static volatile boolean fastRouteHung;
     /** P501: whether the worker report says the fast merge route made the result. */
     static boolean fastRouteMerged(String report) {
         return report != null && currentAttempt(report).contains("(fast merge)");
@@ -1109,7 +1115,7 @@ public final class ScamHybridBurst implements ScamTransport {
         if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
         if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
         if (avoidedSteps.contains(STEP_BAYER_SPLIT)) t.append("bayerSplit 0\n");
-        if (avoidedSteps.contains(STEP_FAST)) t.append("fastMerge 0\n");
+        if (avoidedSteps.contains(STEP_FAST) || fastRouteHung) t.append("fastMerge 0\n");
         return t.toString();
     }
 
@@ -1206,7 +1212,7 @@ public final class ScamHybridBurst implements ScamTransport {
         if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
         if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
         if (avoidedSteps.contains(STEP_BAYER_SPLIT)) t.append("bayerSplit 0\n");
-        if (avoidedSteps.contains(STEP_FAST)) t.append("fastMerge 0\n");
+        if (avoidedSteps.contains(STEP_FAST) || fastRouteHung) t.append("fastMerge 0\n");
         return t.toString();
     }
 
@@ -1477,6 +1483,10 @@ public final class ScamHybridBurst implements ScamTransport {
                     "SHDR: Sabre 2x merge failed; no sensor-grid or upscale fallback"), first);
             final String report = ScamNeuralClient.lastJobReport;
             final String why = String.valueOf(first.getMessage());
+            if (first instanceof WorkerWatchdog.StalledException && ((WorkerWatchdog.StalledException) first).fastPass) {
+                fastRouteHung = true; // P509b: the retry takes the SCAM merge
+                Log.w("SCAM_HDR", "Hybrid: the fast merge hung on this GPU: the SCAM merge route for this session");
+            }
             final boolean retry = conservativeRetry(first);
             if (BLACK_RESULT.equals(why) && !fastRouteMerged(report) && !avoidedSteps.contains(STEP_FAST)) {
                 scamMergeBlack = true; // P501: the retry and the later shots take the fast route
@@ -1546,7 +1556,9 @@ public final class ScamHybridBurst implements ScamTransport {
      */
     static boolean conservativeRetry(Exception failure) {
         if (failure instanceof ScamNeuralClient.WorkerTimeoutException) return false;
-        return !(failure instanceof WorkerWatchdog.StalledException && ((WorkerWatchdog.StalledException) failure).gpuFence);
+        // P509b: a hang in the fast merge route is retried on the other route (fastRouteHung) even when it waited for the GPU
+        return !(failure instanceof WorkerWatchdog.StalledException && ((WorkerWatchdog.StalledException) failure).gpuFence
+                && !((WorkerWatchdog.StalledException) failure).fastPass);
     }
 
     /** P179: the frames of {@code all} but the first that are not in {@code merged} are freed (a retry skips them). */

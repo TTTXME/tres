@@ -168,7 +168,7 @@ public final class ShadeCatalog {
         CONCEPT_ICONS.put("pref_motion_mode", R.drawable.ui_ic_motion);
         CONCEPT_ICONS.put("pref_camera_sounds_key", R.drawable.ui_ic_sound);
         CONCEPT_ICONS.put("pref_scam_hybrid_colour_mono", R.drawable.ui_ic_palette);
-        CONCEPT_ICONS.put("pref_film_lut", R.drawable.ui_ic_film);
+        CONCEPT_ICONS.put("pref_film_lut", R.drawable.ui_ic_looks); // P509: the same icon as the viewfinder button
         CONCEPT_ICONS.put("pref_lens_filter", R.drawable.ui_ic_lens);
         CONCEPT_ICONS.put("pref_face_detect_mode", R.drawable.ui_ic_face);
         CONCEPT_ICONS.put("pref_wide169_key", R.drawable.ui_ic_aspect);

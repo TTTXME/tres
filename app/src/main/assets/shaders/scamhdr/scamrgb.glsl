@@ -281,6 +281,8 @@ vec3 recoverPixel(){
         vec3 L = levelAt(p);
         vec3 rel = raw / max(L, vec3(1.0e-6));
         vec3 sat = L.g > 0.0 ? smoothstep(vec3(0.90), vec3(0.985), rel) : vec3(0.0);
+        // P508: above 1.03 .. 1.10 x the clip level a value was measured (short frames): no neutral blown core there (below)
+        float keepC = L.g > 0.0 ? 1.0 - smoothstep(1.03, 1.10, max(max(rel.r, rel.g), rel.b)) : 1.0;
         float fringe = defringeU == 0.0 ? 0.85 : defringeU;
         uint f = clipFlagsU != 0 ? uint(texelFetch(ClipFlags, p, 0).r * 255.0 + 0.5) : 0u;
         vec3 fl = vec3(uvec3(f, f >> 1, f >> 2) & uvec3(1u));
@@ -420,7 +422,12 @@ vec3 recoverPixel(){
                     float tMid = max(min(tc.r, tc.g), min(max(tc.r, tc.g), tc.b));
                     float left = tc.r == tLo ? c.r : (tc.g == tLo ? c.g : c.b);
                     float band = smoothstep(0.85, 1.0, tMid) * smoothstep(0.80, 0.95, left / max(max(max(c.r, c.g), c.b), 1.0e-6));
-                    r = mix(r, vec3(max(max(r.r, r.g), r.b)), max(full, band));
+                    // P508 (owner, 2026-11-05, «больше информации в светах»): the fast merge flags R, G, B where the merged value is
+                    // >= 0.94 of white - also where the short frames measured the light far above it (a window, a sunlit ceiling up to 16
+                    // x white). Such a value is no clip: the neutral of a blown core fades out from 1.03 .. 1.10 x the clip (the
+                    // censoring and the G lift stay - a mix of a clipped base frame and short-frame data is still a lower bound)
+                    float hdrO = smoothstep(1.03, 1.10, max(max(tc.r, tc.g), tc.b));
+                    r = mix(r, vec3(max(max(r.r, r.g), r.b)), max(full, band) * (1.0 - hdrO));
                     return mix(c, r, clamp(hlStrengthU, 0.0, 1.0));
                 }
                 return c;
@@ -500,7 +507,7 @@ vec3 recoverPixel(){
             vec3 mc = Lw / max(satB, vec3(1.0e-3));            // white-balanced clip of every censored channel, huge if not
             float mLow = min(min(mc.r, mc.g), mc.b);
             float rho = Ub > 1.0e-3 ? dot(ub, c) / (Ub * max(mLow, 1.0e-6)) : 1.0e3;
-            float blown = smoothstep(0.25, 0.75, rho) * clamp(2.0 - Ub, 0.0, 1.0);
+            float blown = smoothstep(0.25, 0.75, rho) * clamp(2.0 - Ub, 0.0, 1.0) * keepC;
             // the level: the mean of the measured channels' level with every bound kept (G of the window raised to R),
             // not of the prior estimate (its 8 / 32 / 128-px blocks would show as level steps) and not the highest bound
             // (a flat band at B's clip, a step at the lamp's cool top edge, the net's threads gone)
@@ -519,7 +526,7 @@ vec3 recoverPixel(){
         r.g = mix(r.g, max(r.g, mix(min(r.r, r.b), r.r, 1.0 - satR.r)), satR.g);
         // Every channel clipped: no colour left; neutral white at the brightest level, reached gradually as the
         // last channel approaches its clip (no grey plateau, no step).
-        float all3 = sat.r * sat.g * sat.b;
+        float all3 = sat.r * sat.g * sat.b * keepC;
         vec3 o = mix(r, vec3(max(max(max(r.r, r.g), r.b), top)), all3);
         // P368: a level that does not reach the pixel's own ceiling (the ultrashort clip moved below clipHiU) - the guard
         if (cs > 0.0) o = mix(o, vec3(max(max(o.r, o.g), o.b)), cs);

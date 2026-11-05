@@ -23,6 +23,13 @@ public final class WorkerWatchdog {
     public static final long MIN_STALL_MS = 90_000L;
     /** ... or this many times the slowest step seen so far (a merge whose strips take a minute each). */
     public static final int SLOWEST_FACTOR = 4;
+    /**
+     * P509b (Pixel 10 Pro XL, PowerVR, 31226: the fast merge hung 40 s+ in its GPU work): the fast merge route ticks at every stage
+     * boundary and takes 1 - 10 s whole, so in its pass ({@link #FAST_PASS}) twenty seconds without a tick (or 4 x its slowest step)
+     * is a hang; the merge is then retried without the fast route ({@link ScamHybridBurst}) instead of waiting 90 s.
+     */
+    public static final long FAST_STALL_MS = 20_000L;
+    public static final String FAST_PASS = "fast";
     /** The wait for the worker is sliced so that a stall is noticed within this. */
     static final long SLICE_MS = 1_000L;
     /** A slice that returns this much later than asked: the app did not run meanwhile ({@link #paused}). */
@@ -77,11 +84,18 @@ public final class WorkerWatchdog {
         /** It was waiting for the GPU (a hung GPU: ScamHybridBurst then skips its conservative retry, which would wait as long). */
         public final boolean gpuFence;
         public final long silentMs;
+        /** P509b: the worker hung in the fast merge route (the retry leaves that route out). */
+        public final boolean fastPass;
 
         StalledException(String message, boolean gpuFence, long silentMs) {
+            this(message, gpuFence, silentMs, false);
+        }
+
+        StalledException(String message, boolean gpuFence, long silentMs, boolean fastPass) {
             super(message);
             this.gpuFence = gpuFence;
             this.silentMs = silentMs;
+            this.fastPass = fastPass;
         }
     }
 
@@ -130,7 +144,12 @@ public final class WorkerWatchdog {
 
     /** The silence that makes the worker stuck: max(90 s, 4 x the slowest step so far). */
     public synchronized long thresholdMs() {
-        return thresholdMs(Math.max(workerSlowestMs, observedMs));
+        final long slowest = Math.max(workerSlowestMs, observedMs);
+        return inFastPass(last) ? Math.max(FAST_STALL_MS, SLOWEST_FACTOR * Math.max(0L, slowest)) : thresholdMs(slowest);
+    }
+
+    static boolean inFastPass(Beat last) {
+        return last != null && FAST_PASS.equals(last.pass);
     }
 
     static long thresholdMs(long slowestMs) {
@@ -182,7 +201,7 @@ public final class WorkerWatchdog {
         if (log != null) log.accept("CLIENT WATCHDOG: no progress for " + silent / 1000 + " s (threshold " + threshold / 1000 + " s) " + where
                 + "; the worker is stopped" + (gpu ? " (GPU hang: no conservative retry)" : ""));
         return new StalledException(Lang.t("Обработчик завис (нет хода " + silent / 1000 + " с); склейка остановлена",
-                "The merge worker stopped making progress (" + silent / 1000 + " s); the merge was stopped"), gpu, silent);
+                "The merge worker stopped making progress (" + silent / 1000 + " s); the merge was stopped"), gpu, silent, inFastPass(last));
     }
 
     /**

@@ -379,6 +379,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             panel.setOnExpandedListener(open -> {
                 com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.setSideOn(bar, R.id.pro_button, open);
                 if (open && lutTray != null) lutTray.setOpen(false);
+                // P509: the LUT button (the viewfinder's bottom centre) gives way to the Pro panel floating there
+                final View lutPill = cameraFragmentBinding.layoutViewfinder.lutPill;
+                lutPill.animate().alpha(open ? 0f : 1f).setDuration(open ? 120 : 220).start();
+                lutPill.setEnabled(!open);
             });
             // P495 (owner, 2026-11-03): «Про» with the shade up lowers the shade and opens the Pro panel
             bar.findViewById(R.id.pro_button).setOnClickListener(v -> {

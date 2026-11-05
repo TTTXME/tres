@@ -468,6 +468,16 @@ public final class WhyTone {
                 Math.max(0f, Math.min(1f, value("light_warm_chroma", 0.5f)))};
     }
 
+    /**
+     * P508 (owner, 2026-11-05: «больше информации в светах, но так чтобы в остальных сценариях это ничего не испортило»): why/combine
+     * HL_LOCAL's hlLocalU - where a pixel and its neighbourhood are above white, its log contrast against an edge-aware log mean
+     * darkens it by {amount} (a window's or a sunlit wall's detail the tone took to white): {amount, range sigma EV, tap step,
+     * light guard}. scam_dev hybrid_why_hl_local (0 = off, the shader as before).
+     */
+    static float[] hlLocal() {
+        return new float[]{Math.max(0f, Math.min(2f, value("hl_local", 0.8f))), 1.5f, 6f, 12f};
+    }
+
     static float vibranceHl() {
         // P419: the visible «Сочность в светах» in the reference app's units (its config 0.25 = P407's factor 1), x the dev factor
         return Math.max(0f, value("vibrance_hl", 1.0f) * value("vibrance_hl_str", VIBRANCE_HL_STR) / VIBRANCE_HL_STR);

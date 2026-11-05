@@ -195,6 +195,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
                                          std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags){
     using Clock=std::chrono::steady_clock;
     const auto started=Clock::now();
+    // P509b (Pixel 10 Pro XL, PowerVR, 31226: the merge hung 40 s+ behind «pass=prepare»): its own pass, a tick at every stage
+    // boundary and the GPU waits as fences, so the app's watchdog stops a hung fast merge early and retries without it
+    scam_progress::pass("fast");
     auto ms=[](Clock::time_point a,Clock::time_point b){return std::chrono::duration<double,std::milli>(b-a).count();};
     // SCAM_FM_DCG_TEST "knee,factor" (replays only: the two-zone path on a burst without measured zones): every frame gets the knee
     // and an LCG offset of factor x its offset
@@ -498,6 +501,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     std::vector<std::pair<GLuint,int>> stamps; // (query, stage that ends at it)
     auto syncAt=Clock::now();
     auto lap=[&](int k){
+        scam_progress::tick();
         if(syncProfile){glFinish();const auto t=Clock::now();if(k>=0)stageMs[size_t(k)]+=ms(syncAt,t);syncAt=t;return;}
         // P497 (owner, 2026-11-04: the viewfinder stutters while a shot is processed, every phone): a submission at every stage
         // boundary - the GPU lets the viewfinder's context in between submissions (Xiaomi 12X: single viewfinder draws of up to
@@ -736,7 +740,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         const int slot=ringNext;ringNext=(ringNext+1)%3;
         if(ringFence[slot]){
             const auto f0=Clock::now();
-            const GLenum w=glClientWaitSync(ringFence[slot],GL_SYNC_FLUSH_COMMANDS_BIT,GLuint64(5000000000ULL));
+            GLenum w;{scam_progress::FenceWait fw;w=glClientWaitSync(ringFence[slot],GL_SYNC_FLUSH_COMMANDS_BIT,GLuint64(5000000000ULL));}
             if(w==GL_TIMEOUT_EXPIRED||w==GL_WAIT_FAILED)throw std::runtime_error("FAST MERGE GPU: upload buffer still in use");
             glDeleteSync(ringFence[slot]);ringFence[slot]=nullptr;
             fenceMs+=ms(f0,Clock::now());
@@ -1319,7 +1323,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         const int slot=ringNext;ringNext=(ringNext+1)%3;
         if(ringFence[slot]){
             const auto f0=Clock::now();
-            const GLenum w=glClientWaitSync(ringFence[slot],GL_SYNC_FLUSH_COMMANDS_BIT,GLuint64(5000000000ULL));
+            GLenum w;{scam_progress::FenceWait fw;w=glClientWaitSync(ringFence[slot],GL_SYNC_FLUSH_COMMANDS_BIT,GLuint64(5000000000ULL));}
             if(w==GL_TIMEOUT_EXPIRED||w==GL_WAIT_FAILED)throw std::runtime_error("FAST MERGE GPU: upload buffer still in use");
             glDeleteSync(ringFence[slot]);ringFence[slot]=nullptr;
             fenceMs+=ms(f0,Clock::now());

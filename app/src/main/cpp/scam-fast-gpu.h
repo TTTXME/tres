@@ -5,6 +5,7 @@
 #include <EGL/eglext.h>
 #include <GLES3/gl31.h>
 #include <cstdio>
+#include "scam-progress.h" // P509b: the GPU waits as fences for the app's watchdog
 #include "scam-crash.h" // P500: the program being compiled is the crash site a driver crash names
 #ifdef __ANDROID__
 #include <android/hardware_buffer.h>
@@ -619,6 +620,7 @@ public:
     // the map, after a finish, or a staging copy into a fresh GL_DYNAMIC_READ buffer
     double mapMs=0,useMs=0,unmapMs=0; // readBuffer's time in the map, the caller's use of it, the unmap
     template<class F> void readBuffer(GLuint b,size_t bytes,const F& use){
+        scam_progress::FenceWait fw; // P509b: a hung GPU shows here as a fence
         const auto t0=std::chrono::steady_clock::now();
         const auto ah=ahbOf.find(b);
         if(ah!=ahbOf.end()){ // GPU work done first (the lock takes no fence of ours), then the cached view

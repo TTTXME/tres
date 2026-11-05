@@ -70,6 +70,51 @@ final class TrayMotion {
 
     /** The tray appears from below: lifted, scaled up a little and faded in; its rows follow one after another. */
     static void appear(ViewGroup tray) {
+        appear(tray, null);
+    }
+
+    /** P509: how small the tray starts when it grows out of its button (and ends when it goes back into it). */
+    static final float FROM_SOURCE_SCALE = .28f;
+
+    /**
+     * P509 (owner, 2026-11-05: «Подменю LUT должно открываться с красивой анимацией в стиле iOS / macOS»): the tray grows out of
+     * {@code source} (the LUT button under it) - its scale's pivot on the button's centre, from {@link #FROM_SOURCE_SCALE} to 1 on
+     * the spring with its small overshoot, faded in over the first 180 ms - as an iOS popover / a macOS menu-bar panel opens;
+     * its rows rise after it. {@code source} null: the lift of before.
+     */
+    static void appear(ViewGroup tray, @Nullable View source) {
+        if (source != null) {
+            final Object prev = tray.getTag(R_TAG_LIFT);
+            if (prev instanceof ValueAnimator) ((ValueAnimator) prev).cancel();
+            tray.animate().cancel();
+            setShown(tray, true);
+            if (!tray.isAttachedToWindow() || !ValueAnimator.areAnimatorsEnabled()) { rest(tray); return; }
+            pivotOn(tray, source);
+            // not laid out yet (its first opening): the pivot once it is
+            if (tray.getHeight() == 0) tray.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                    v.removeOnLayoutChangeListener(this);
+                    pivotOn(tray, source);
+                }
+            });
+            tray.setAlpha(0f);
+            tray.setTranslationY(0f);
+            tray.setScaleX(FROM_SOURCE_SCALE);
+            tray.setScaleY(FROM_SOURCE_SCALE);
+            tray.animate().alpha(1f).setDuration(180).setStartDelay(0).setInterpolator(EASE_OUT).setListener(null).start();
+            final ValueAnimator grow = ValueAnimator.ofFloat(0f, 1f);
+            grow.setDuration(OPEN.durationMs);
+            grow.setInterpolator(OPEN);
+            grow.addUpdateListener(a -> {
+                final float s = FROM_SOURCE_SCALE + (1f - FROM_SOURCE_SCALE) * (float) a.getAnimatedValue();
+                tray.setScaleX(s);
+                tray.setScaleY(s);
+            });
+            tray.setTag(R_TAG_LIFT, grow);
+            grow.start();
+            riseRows(tray, 60L);
+            return;
+        }
         final Context c = tray.getContext();
         final Object prev = tray.getTag(R_TAG_LIFT);
         if (prev instanceof ValueAnimator) ((ValueAnimator) prev).cancel(); // a leaving tray called back
@@ -102,14 +147,29 @@ final class TrayMotion {
         lift.start();
         // the sections rise with the pane, one after another but from its first frame (owner's video 2026-10-28: a pane that
         // came in before its sections read as an empty plate flashing)
-        final float rise = UiScale.dpF(c, 10);
+        riseRows(tray, 0L);
+    }
+
+    /** The tray's sections rise one after another (24 ms apart, after {@code delay}). */
+    private static void riseRows(ViewGroup tray, long delay) {
+        final float rise = UiScale.dpF(tray.getContext(), 10);
         for (int i = 0; i < tray.getChildCount(); i++) {
             final View child = tray.getChildAt(i);
             child.animate().cancel();
             child.setAlpha(0f);
             child.setTranslationY(rise);
-            child.animate().alpha(1f).translationY(0f).setStartDelay(24L * i).setDuration(300).setInterpolator(EASE_OUT).start();
+            child.animate().alpha(1f).translationY(0f).setStartDelay(delay + 24L * i).setDuration(300).setInterpolator(EASE_OUT).start();
         }
+    }
+
+    /** P509: the tray's pivot on {@code source}'s centre (in the tray's own coordinates, both in one window). */
+    static void pivotOn(View tray, View source) {
+        final int[] t = new int[2], s = new int[2];
+        final View parent = (View) tray.getParent();
+        parent.getLocationInWindow(t);
+        source.getLocationInWindow(s);
+        tray.setPivotX(s[0] + source.getWidth() / 2f - t[0] - tray.getLeft());
+        tray.setPivotY(s[1] + source.getHeight() / 2f - t[1] - tray.getTop());
     }
 
     /**
@@ -140,6 +200,39 @@ final class TrayMotion {
      * {@code gone} runs at its end unless it was opened again meanwhile.
      */
     static void disappear(ViewGroup tray, Runnable gone) {
+        disappear(tray, null, gone);
+    }
+
+    /** P509: {@code source} non-null - the tray goes back into its button: shrinks onto it (the exit curve, 260 ms) and fades. */
+    static void disappear(ViewGroup tray, @Nullable View source, Runnable gone) {
+        if (source != null && tray.getVisibility() == View.VISIBLE && tray.isAttachedToWindow() && ValueAnimator.areAnimatorsEnabled()) {
+            final Object lift = tray.getTag(R_TAG_LIFT);
+            if (lift instanceof ValueAnimator) ((ValueAnimator) lift).cancel();
+            for (int i = 0; i < tray.getChildCount(); i++) tray.getChildAt(i).animate().cancel();
+            pivotOn(tray, source);
+            final float s0 = tray.getScaleX();
+            final ValueAnimator shrink = ValueAnimator.ofFloat(0f, 1f);
+            shrink.setDuration(260);
+            shrink.setInterpolator(EXIT);
+            shrink.addUpdateListener(a -> {
+                final float s = s0 + (FROM_SOURCE_SCALE - s0) * (float) a.getAnimatedValue();
+                tray.setScaleX(s);
+                tray.setScaleY(s);
+            });
+            tray.setTag(R_TAG_LIFT, shrink);
+            shrink.start();
+            tray.animate().cancel();
+            tray.animate().alpha(0f).setDuration(200).setStartDelay(60).setInterpolator(EASE_IN)
+                    .setListener(new AnimatorListenerAdapter() {
+                        private boolean cancelled;
+                        @Override public void onAnimationCancel(Animator a) { cancelled = true; }
+                        @Override public void onAnimationEnd(Animator a) {
+                            tray.animate().setListener(null);
+                            if (!cancelled) gone.run();
+                        }
+                    }).start();
+            return;
+        }
         final Object lift = tray.getTag(R_TAG_LIFT);
         if (lift instanceof ValueAnimator) ((ValueAnimator) lift).cancel();
         for (int i = 0; i < tray.getChildCount(); i++) tray.getChildAt(i).animate().cancel();

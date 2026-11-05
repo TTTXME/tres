@@ -290,6 +290,8 @@ public final class WhyCombine extends Node {
             // P506: the own curve's light orange-yellows leave the hue lock (AgX has LIGHT_CHROMA for that)
             final float[] lightWarm = toneOp != com.particlesdevs.photoncamera.processing.color.ToneCurve.AGX ? WhyTone.lightWarm() : null;
             if (lightWarm != null && lightWarm[0] > 0f) glProg.setDefine("LIGHT_WARM", 1);
+            final float[] hlLocal = WhyTone.hlLocal();
+            if (hlLocal[0] > 0f) glProg.setDefine("HL_LOCAL", 1);   // P508: the photo only (the viewfinder has no whyLow grid)
             if (WhyTone.whyLayout()) glProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
             if (WhyTone.insetStrength() < 0.999f) glProg.setDefine("AGX_INSET", 1);   // P402: the inset's strength
             if (WhyTone.gammaType() != 0) glProg.setDefine("GAMMA_TYPE", WhyTone.gammaType());   // P404: the display standard
@@ -444,6 +446,7 @@ public final class WhyCombine extends Node {
             if (WhyTone.yellowHue() > 0f) glProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
             if (WhyTone.hlNeutral() > 0f) glProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
             if (lightWarm != null && lightWarm[0] > 0f) glProg.setVar("lightWarmU", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);   // P506
+            if (hlLocal[0] > 0f) glProg.setVar("hlLocalU", hlLocal[0], hlLocal[1], hlLocal[2], hlLocal[3]);   // P508
             glProg.setVar("chromaDnU", 0f);
             glProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             glProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));

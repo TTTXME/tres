@@ -191,7 +191,7 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
     }
 
     /** Sample {@code s} at w x h through {@code value} at full strength ("" = the sample itself). */
-    static int[] pixels(Context c, int s, int w, int h, String value) {
+    public static int[] pixels(Context c, int s, int w, int h, String value) {
         String key = s + "|" + w + "x" + h + "|" + value;
         synchronized (PIXELS) {
             int[] p = PIXELS.get(key);
