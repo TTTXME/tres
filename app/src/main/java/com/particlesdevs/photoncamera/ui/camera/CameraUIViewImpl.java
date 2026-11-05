@@ -164,6 +164,7 @@ public class CameraUIViewImpl implements CameraUIView {
     @Override
     public void updateBadges() {
         if (topbar != null) bindBadges(topbar);
+        cameraFragment.updateScreenFlash(); // P507: the torch from the top bar or the shade
     }
 
     /** SIMPLE_UI §1: the top bar from the settings (TopBar: torch, timer, Motion, format | size | DCG, the gear). */

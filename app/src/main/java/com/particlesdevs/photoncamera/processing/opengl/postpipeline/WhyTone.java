@@ -210,6 +210,11 @@ public final class WhyTone {
      * P349: the sun bloom round fully clipped cores (why/combine.glsl SUN_BLOOM): strength (0 = off) and the glow's radius as a
      * share of the frame's shorter side.
      */
+    /** P506: the luma range (display-linear) over which the sun bloom reaches a pixel: P349's 0.55 .. 0.85, near white (0.80 .. 0.95) without short frames. */
+    static float[] sunBloomGate() {
+        return ScamRgb.noShortBloom() ? new float[]{0.80f, 0.95f} : new float[]{0.55f, 0.85f};
+    }
+
     static float[] sunBloom() {
         return new float[]{Math.max(0f, Math.min(1f, value("sun_bloom", 1f))), Math.max(0.005f, value("sun_bloom_radius", 0.033f))};
     }
@@ -450,6 +455,17 @@ public final class WhyTone {
      */
     static float hlNeutral() {
         return Math.max(0f, Math.min(1f, value("hl_neutral", 1f)));
+    }
+
+    /**
+     * P506 (owner, 2026-11-05, sunsets beside the reference app: the sun's aureole peach-white, a milky veil round the glitter):
+     * why/combine LIGHT_WARM's lightWarmU - with the own curve / ACES / Uchimura the light tones of an orange-yellow colour keep the
+     * curve's own (yellower) hue and more chroma: {strength, display OKLab L from, to, chroma gain}. scam_dev hybrid_why_light_warm
+     * 0..1 (0 = off, the shader as before), hybrid_why_light_warm_chroma.
+     */
+    static float[] lightWarm() {
+        return new float[]{Math.max(0f, Math.min(1f, value("light_warm", 1f))), 0.6f, 0.9f,
+                Math.max(0f, Math.min(1f, value("light_warm_chroma", 0.5f)))};
     }
 
     static float vibranceHl() {

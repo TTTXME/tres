@@ -61,6 +61,7 @@ uniform float u_moire;   // P497: Quad colour moire suppression (0 = off)
 uniform float u_step;    // P501: OUT px per sensor px (the sabre_scale; the Quad filters' sensor offsets scaled, 1 = as before)
 ivec2 sc(int dx, int dy) { return ivec2(round(vec2(float(dx), float(dy)) * u_step)); }
 uniform int u_fill;       // P497: > 0 = the reach (OUT px) of the hole fill below (short frames merged), 0 = off
+uniform float u_quad_lift; // P506: > 0 = a Quad stream with short frames merged: the lattice round recovered lights notched
 layout(std430,binding=0) writeonly buffer Rgb{uint rgb[];};
 layout(std430,binding=1) writeonly buffer Flags{uint flags[];};
 layout(std430,binding=2) writeonly buffer Eff{float eff[];};
@@ -174,6 +175,29 @@ vec3 antiMoire(ivec2 p, vec3 v) {
     vec3 target = m * (dot(vw, L) / max(dot(m, L), 1.0e-6));
     return mix(vw, target, a) / wbg;
 }
+// P506 (owner, 2026-11-05, 2x ISZ sunset: «сетка вокруг блика»): in a Quad stream round a recovered light (glitter, the sun's
+// path) the 2 x 2 blocks alternate between a neutral recovered level (the green blocks the base clipped: 1.45 x white) and the
+// measured orange of the red / blue blocks between them (0.9): a dot lattice of period 4. Its sign: the pixels 2 px away on both
+// sides are of one phase (alike) and differ from this one, where an edge changes across those 4 px. Inside the base's clipped
+// mask such a pixel takes the period-4 notch of RGB ([1 2 2 2 1] / 8 along x and y); edges and the texture round them are kept
+vec3 quadDeLattice(ivec2 p, vec3 v) {
+    float mk = max(textureLod(u_hl_base, halfUv(p), 0.0).r, textureLod(u_hl_final, halfUv(p), 0.0).r);
+    float a = smoothstep(0.02, 0.15, mk) * u_quad_lift;
+    if (a <= 0.0) return v;
+    ivec2 lo = ivec2(0, u_acc_row0), hi = ivec2(u_size.x - 1, u_acc_row0 + textureSize(u_accum_color_r, 0).y - 1);
+    float y0 = dot(v, vec3(0.25, 0.5, 0.25));
+    float xm = lumaAt(p + sc(-2, 0), lo, hi), xp = lumaAt(p + sc(2, 0), lo, hi);
+    float ym = lumaAt(p + sc(0, -2), lo, hi), yp = lumaAt(p + sc(0, 2), lo, hi);
+    float ref = 0.25 * (xm + xp + ym + yp);
+    float lat = abs(y0 - ref) / max(max(y0, ref), 1.0e-4);           // this pixel against the opposite phase
+    float edge = (abs(xp - xm) + abs(yp - ym)) / max(2.0 * ref, 1.0e-4); // the change across 4 px (0 for a pure lattice)
+    a *= smoothstep(0.08, 0.2, lat) * (1.0 - smoothstep(1.0, 2.0, edge / max(lat, 1.0e-4)));
+    if (a <= 0.0) return v;
+    vec3 s = vec3(0.0);
+    for (int dy = -2; dy <= 2; ++dy) for (int dx = -2; dx <= 2; ++dx)
+        s += (abs(dx) == 2 ? 1.0 : 2.0) * (abs(dy) == 2 ? 1.0 : 2.0) * at(clamp(p + sc(dx, dy), lo, hi)); // no arrays (P500)
+    return mix(v, s / 64.0, a);
+}
 void main(){
     int q=int(gl_GlobalInvocationID.x);
     int yb=int(gl_GlobalInvocationID.y);
@@ -193,6 +217,7 @@ void main(){
             // a wire (SCA_20261104_073312, its top left corner) stayed the base's pink clip
             if(a>0.0){vec4 fv=fill(p,false);if(fv.a<=0.0)fv=fill(p,true);if(fv.a>0.0)v=mix(v,fv.rgb,a);}
         }
+        if(u_quad_lift>0.0)v=quadDeLattice(p,v);
         if(u_moire>0.0)v=deGrid(p,antiMoire(p,v));
         c[k]=v;
         float cf=b.z/max(b.w,1.0e-6);

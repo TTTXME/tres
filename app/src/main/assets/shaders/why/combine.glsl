@@ -123,6 +123,10 @@ precision highp int;
 // P398 (owner, 2026-10-29, the ship's bridge: «света почему-то получаются кремовые»): 1 = a pale colour lands on white at the top of
 // the tone (hlNeutralU; 0 = the shader before)
 #define HL_NEUTRAL 0
+// P506 (owner, 2026-11-05, sunsets beside the reference app: «блик и солнце на 1х тоже должны быть схожие»): 1 = with the own curve,
+// ACES or Uchimura (TONE_OP 1) the light tones of an orange-yellow scene colour leave the hue lock and keep their chroma (lightWarmU;
+// 0 = the shader before, token for token)
+#define LIGHT_WARM 0
 // P402 WHY_BASE 1 (WhyCombine sets it with the reference app's fusion layout, WhyTone.whyLayout): its base of the tone -
 // with headroom (clip > 1.05) the fused target_lin goes softly into the tonemapper's top above 0.7 of it (AgX 0.18 x 2^(max EV +
 // EV), ACES 3, the others 4) instead of up the ACES inverse's asymptote, and the gain is held in 0.05 .. 12 against an auto
@@ -221,6 +225,9 @@ uniform float hlNeutralU;          // P398: the share of a pale light tone's chr
 #if YELLOW_HUE == 1
 uniform float yellowHueU;           // P395: the orange-yellow scene hues turned towards yellow (0 / unset = off, 1 = up to 8 deg)
 #endif
+#if LIGHT_WARM == 1
+uniform vec4 lightWarmU;            // P506: x strength 0..1, y / z the display OKLab L ramp, w the chroma gain at full strength
+#endif
 #if LIGHT_CHROMA == 1
 uniform float lightChromaU;         // P393: the share of the mid-tone saturation a light tone keeps (0 = off, 1 = all of it)
 const vec2 LC_HUE_IN = vec2(56.0, 64.0);    // P393 review: the scene's OKLab hue (deg) where the term fades in
@@ -232,6 +239,7 @@ const float LC_TURN = 2.0;                  // the hue turn per share of the chr
 uniform sampler2D SunBloom;         // P349: the glow share of the fully clipped cores (scamhdr/suncore.glsl), linear filter
 uniform vec2 sunGridU;              // output uv -> SunBloom uv (its blocks cover a little more than the image)
 uniform float sunBloomU;            // strength 0..1
+uniform vec2 sunGateU;              // P506: the luma range the bloom reaches (unset: P349's 0.55 .. 0.85)
 #endif
 #if POINT_FUSED == 1
 uniform sampler2D FusedCurve;       // R32F n x 1: the fused display luma at log2 I = fusedCurveU.x + i / fusedCurveU.y
@@ -320,6 +328,31 @@ vec3 sceneLinear(ivec2 xy, ivec2 size) {
 }
 
 float max3(vec3 v) { return max(v.r, max(v.g, v.b)); }
+
+#if LIGHT_WARM == 1
+// P506: the own curve shapes each channel, so a sunset's glow, the sun's path on the water or a lamp's reflection (scene OKLab hue
+// 70 - 77 deg, chroma 0.07 - 0.09: R / G 1.44, B / G 0.65 unclipped round the sun) turns yellow in its light tones (hue 85 - 90),
+// as the reference app renders it (C 0.093 - 0.129, hue 89 - 90 at L 0.8 - 0.9); the hue lock held the scene's orange there, where
+// sRGB has the least chroma near white: a peach-white aureole and a milky veil round the glitter (C 0.066 / 0.090, hue 75). From
+// L lightWarmU.y to .z such a colour keeps the curve's own hue and lightWarmU.w more chroma (host replay of the owner's three
+// sunset bursts: C 0.097 / 0.128, hue 85). Skin (under 60 deg), greens, blues and pale colours (chroma under 0.03) stay locked;
+// the gain fades out over chroma 0.10 .. 0.16
+// Near a light «Inpaint opposed» rebuilt (HL_OPPOSED's OppShare: the sun, its path on the water) the band reaches down to 40 - 50 deg:
+// the glitter's rim, G clipped with R and B measured, is rebuilt at 64 deg (p10 18 - 48: pinkish) beside the water's 74, and with
+// the water yellow and the rim locked it read as a peach outline round the glitter (owner: «на воде осталась обводка вокруг блика»)
+vec2 lightWarm(vec3 post, vec2 hueDir, ivec2 xy, ivec2 size) {
+    float c = length(post.yz);
+    float h = degrees(atan(hueDir.y, hueDir.x));
+    float near = 0.0;
+#if HL_OPPOSED == 1
+    near = smoothstep(0.05, 0.35, textureLod(OppShare, (vec2(xy) + 0.5) / vec2(size) * oppGridU, 0.0).r);
+#endif
+    float w = clamp(lightWarmU.x, 0.0, 1.0) * smoothstep(mix(62.0, 40.0, near), mix(70.0, 50.0, near), h) * (1.0 - smoothstep(105.0, 120.0, h))
+              * smoothstep(lightWarmU.y, lightWarmU.z, post.x) * smoothstep(mix(0.03, 0.006, near), mix(0.05, 0.015, near), c);
+    // the chroma gain only for a moderate colour: an already saturated one (a yellow fringe, a lamp) is not pushed onto the gamut
+    return mix(c * hueDir, post.yz, w) * (1.0 + lightWarmU.w * w * (1.0 - smoothstep(0.10, 0.16, c)));
+}
+#endif
 
 // P393 (owner, 2026-10-29: «У нас что-то с желтыми цветом ... В последней паре более жёлтое фото наше», pairs against the reference
 // app on the X200 Ultra): P341's light-tone vibrance ramped in over OKLab L 0.45 .. 0.75 with its neutral gate open from chroma
@@ -1849,6 +1882,9 @@ void main() {
 #if COLOUR_LOOK == 1
     if (look != 3 && inChroma > 0.000001 && hueLockU != 2) {
         vec2 locked = length(post.yz) * hueDir;
+#if LIGHT_WARM == 1
+        if (hueLockU == 0) locked = lightWarm(post, hueDir, xy, size);
+#endif
         post.yz = hueLockU == 1 ? mix(post.yz, locked, clamp(-hueDir.y, 0.0, 1.0)) : locked;
     }
     // grading: OKLab offsets of shadows / mid-tones / highlights by display lightness (zones around 0.5 - balance / 4)
@@ -1860,6 +1896,8 @@ void main() {
         float wMid = max(1.0 - wSh - wHl, 0.0);
         post.yz += (gradeAU.xy * wSh + gradeAU.zw * wMid + gradeBU.xy * wHl) * (1.0 - skinU.x * skinW);
     }
+#elif LIGHT_WARM == 1
+    if (look != 3 && inChroma > 0.000001) post.yz = lightWarm(post, hueDir, xy, size);
 #else
     if (look != 3 && inChroma > 0.000001) post.yz = length(post.yz) * hueDir;
 #endif
@@ -2061,7 +2099,8 @@ void main() {
         float b = smoothstep(0.4, 0.9, m);
         if (b > 0.0 && sunBloomU > 0.0) {
             vec3 lin = pow(clamp(outRgb, 0.0, 1.0), vec3(1.0 / gammaInv));
-            float gate = smoothstep(0.55, 0.85, dot(lin, LUMA));
+            vec2 sg = sunGateU.y > sunGateU.x ? sunGateU : vec2(0.55, 0.85);
+            float gate = smoothstep(sg.x, sg.y, dot(lin, LUMA));
             vec3 top = mix(vec3(1.0, 0.93, 0.78), vec3(1.0), clamp(b * 1.5 - 0.5, 0.0, 1.0));
             top = max(top, lin / max(max3(lin), 0.000001));
             lin += (top - lin) * (b * gate * sunBloomU);

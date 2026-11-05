@@ -25,6 +25,17 @@ public final class ScamRgb extends Node {
      * frames clip is no sun) per block (~192 blocks on the shorter side), spread by a max-gaussian of the setting's
      * radius. A few hundred kB; WhyCombine closes it.
      */
+    /**
+     * P506 (owner, 2026-11-05, a setting sun at the sensor's shortest exposure beside the reference app: its sun a soft warm-white
+     * glow, ours a flat disc with a hard rim): a shot that took no short frames at all («us skipped (sensor floor)», Motion) has no
+     * bit 5 anywhere, so P366's rule left every core without the bloom; there a core clipped in every channel counts by itself, and
+     * WhyCombine's bloom touches only pixels already near white (WhyTone.sunBloomGate), so the water round a glitter stays as it was.
+     * scam_dev hybrid_sun_bloom_no_short 0: as before.
+     */
+    static boolean noShortBloom(){
+        return !ScamHybridBurst.lastBentoApplied&&PreferenceKeys.hybridSwitch("sun_bloom_no_short",true);
+    }
+
     private GLTexture sunBloom(GLTexture flags,Point size,int shorter){
         final float[] set=WhyTone.sunBloom();
         if(set[0]<=0f)return null;
@@ -39,6 +50,7 @@ public final class ScamRgb extends Node {
                 glProg.useAssetProgram("scamhdr/suncore",false);
                 glProg.setTexture("InputBuffer",flags);
                 glProg.setVar("blockU",block);
+                glProg.setVar("noShortU",noShortBloom()?1:0); // P506
                 glProg.drawBlocks(share);
             }
             final float radius=set[1]*shorter/block;
@@ -84,6 +96,7 @@ public final class ScamRgb extends Node {
             glProg.useAssetProgram("scamhdr/suncore_cs",true);
             glProg.setTexture("InputBuffer",source);
             glProg.setVar("blockU",block);
+            if(mode==0)glProg.setVar("noShortU",noShortBloom()?1:0); // P506
             if(mode==2){
                 if(flags!=null)glProg.setTexture("ClipFlags",flags);
                 glProg.setVar("clipFlagsU",flags!=null?1:0);
@@ -1334,6 +1347,7 @@ public final class ScamRgb extends Node {
                 // P393: a clipped channel of a coloured surface (sunlit leaves) also takes the local light's colour (Chroma8 / 32 / 128);
                 // scam_dev.txt "hybrid_highlight_opposed_local 0" = RawTherapee's reference alone, as before
                 glProg.setVar("oppLocalU",opposed&&PreferenceKeys.hybridSwitch("highlight_opposed_local",true)?1:0);
+                glProg.setVar("oppWarmU",opposed?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_opposed_warm",1f))):0f); // P506
                 // a failed measurement: chrominance 0 (RawTherapee's own result: its sum is always 0, see hlrecovery/opposed)
                 final float[] oc=oppChroma!=null?oppChroma:new float[3];
                 glProg.setVar("oppChromaU",oc[0],oc[1],oc[2]);

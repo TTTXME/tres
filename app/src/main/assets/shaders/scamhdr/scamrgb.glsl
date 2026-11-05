@@ -35,6 +35,11 @@ uniform sampler2D OppChroma;
 // P393: 1 = a clipped channel of a coloured surface also takes the local light's colour (Chroma8 / 32 / 128) fitted to the pixel's
 // bounds (below, in the opposed branch); 0 (unset) = RawTherapee's reference alone, as before
 uniform int oppLocalU;
+// P506 (owner, 2026-11-05, a setting sun and its path on the water beside the reference app: «на воде осталась обводка вокруг блика»):
+// 0..1 = where G alone (or G and R) clipped the colour goes towards the light's yellow-white as R nears its own clip - G up to
+// 0.88 R + 0.12 B (yellow, never lime after the colour matrix) and B up to 0.9 R - the reference app's rim, where «Inpaint opposed»
+// left a peach / pink band (G 1.19 under R 1.77) between the orange glow and the white core; 0 (unset) = as before
+uniform float oppWarmU;
 // 1 (SCAM Hybrid): the worker's signed values pass on. The merge keeps its noise signed and clips once; a per-pixel
 // max(0) here lifted the mean of every channel near zero by up to half its noise - x1.5 red along the frame edge of a dark
 // teal curtain, where fewer donors overlap (OPPO X8U 2026-10-07), and red mottling of dark saturated colours once the WHY
@@ -386,6 +391,13 @@ vec3 recoverPixel(){
                     // it) left its core lavender (lamp2324 without ultrashort frames: G 1.78 against R / B 1.86) - G comes up to
                     // the lower of R and B, as in the SCAM recovery
                     if (clipped.g) r.g = max(r.g, min(r.r, r.b));
+                    if (clipped.g && oppWarmU > 0.0) {
+                        float wY = clamp(oppWarmU, 0.0, 1.0) * smoothstep(0.55, 1.0, c.r / max(clipW.r, 1.0e-6));
+                        vec3 tY = r;
+                        tY.b = max(r.b, mix(r.b, 0.9 * r.r, wY));
+                        tY.g = max(r.g, 0.88 * r.r + 0.12 * tY.b);
+                        r = mix(r, tY, wY);
+                    }
                     // every channel at its clip holds no colour (owner's log 2026-10-28, vivo X200 Pro, a ceiling lamp on the base
                     // frame alone: the chrominance around it came from its lavender rim, chrominance 0.58 / -0.14 / 0.26, and filled
                     // the blown core pink): neutral at its brightest level, as the P368 guard; eased in from 0.85 of the clip in

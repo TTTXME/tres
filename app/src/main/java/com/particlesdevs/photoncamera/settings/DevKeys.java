@@ -324,6 +324,11 @@ public final class DevKeys {
                 "Merged RGB upload: repacked on the GPU (off: on the CPU, the same result; an A/B for Adreno 5xx)")));
         k.add(s(post, "hybrid_highlight_opposed", true, Lang.t("Пересветы без коротких кадров (одиночные кадры, «Спорт», отказ Bento): «Inpaint opposed» из RawTherapee (выкл — восстановление SCAM)",
                 "Highlights without ultrashort frames (single frames, Sport, Bento refused): RawTherapee's «Inpaint opposed» (off: the SCAM recovery)")));
+        // P506: «Inpaint opposed»'s rim of a G-clipped light towards yellow-white; the sun bloom in shots without short frames
+        k.add(n(post, "hybrid_highlight_opposed_warm", "1.0", Lang.t("Пересветы «Inpaint opposed»: кромка, где засвечен только зелёный, уходит в жёлто-белый (без розовой обводки блика); 0 — выкл.",
+                "«Inpaint opposed» highlights: the rim where only green clipped goes yellow-white (no pink outline round a glitter); 0 = off")));
+        k.add(s(post, "hybrid_sun_bloom_no_short", true, Lang.t("Свечение солнца в кадрах без коротких кадров (самая короткая выдержка, «Спорт»), только на почти белом",
+                "The sun bloom in shots without short frames (the sensor's shortest exposure, Sport), near white only")));
         // P393: a clipped channel of a coloured surface also takes the local light's colour (scamhdr/scamrgb oppLocalU)
         k.add(s(post, "hybrid_highlight_opposed_local", true, Lang.t("Пересветы без коротких кадров: клипнутый канал цветной поверхности (листва на солнце) по цвету соседних неклипнутых пикселей, а не только по общей поправке кадра (выкл — как раньше: жёлтые листья уходили в оранжевый и розовый)",
                 "Highlights without ultrashort frames: a clipped channel of a coloured surface (sunlit leaves) from the colour of the unclipped pixels around, not the frame's one correction alone (off: as before - yellow leaves went orange and pink)")));
@@ -493,6 +498,11 @@ public final class DevKeys {
         // P393: the light tones of a saturated colour keep its mid-tone chroma (why/combine.glsl LIGHT_CHROMA, AgX only)
         k.add(n(post, "hybrid_why_light_chroma", "1.0", Lang.t("Тон: насыщенные оранжево-жёлтые цвета в светах (листва на солнце) держат насыщенность полутонов, оттенок сдвигается к AgX только там, где sRGB его не удержит; кожа, зелень, синие, лампы, небо и бледные цвета как раньше; 0 — выкл., как раньше",
                 "Tone: saturated orange-yellow colours in the light tones (sunlit leaves) keep their mid-tone saturation, the hue moves towards AgX's only where sRGB cannot hold it; skin, greens, blues, lamps, the sky and pale colours as before; 0 = off, as before")));
+        // P506: the own curve's light orange-yellows out of the hue lock (why/combine LIGHT_WARM)
+        k.add(n(post, "hybrid_why_light_warm", "1.0", Lang.t("Тон (своя кривая): светлые оранжево-жёлтые тона (ореол солнца, дорожка на воде, фонари) берут жёлтый оттенок кривой вместо персикового; кожа, бледные и нейтральные цвета как раньше; 0 — выкл.",
+                "Tone (own curve): light orange-yellow tones (the sun's aureole, its path on the water, street lamps) take the curve's own yellow hue instead of peach; skin, pale and neutral colours as before; 0 = off")));
+        k.add(n(post, "hybrid_why_light_warm_chroma", "0.5", Lang.t("Тон (своя кривая): прибавка насыщенности таким тонам (0..1)",
+                "Tone (own curve): the chroma gain of those tones (0..1)")));
         k.add(n(post, "hybrid_why_hr_detail", "0.35", Lang.t("Тон, света Bento выше 4x: деталь светов", "Tone, Bento highlights above 4x: highlight detail")));
         k.add(n(post, "hybrid_texture_g0", null, Lang.t("Текстура: усиление полосы 0 (по умолчанию 1.5, на 8 Elite 1.35)", "Texture: gain of band 0 (default 1.5, 1.35 on the 8 Elite)")));
         k.add(n(post, "hybrid_texture_g1", "1.25", Lang.t("Текстура: усиление полосы 1", "Texture: gain of band 1")));

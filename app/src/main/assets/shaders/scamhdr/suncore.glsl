@@ -50,6 +50,7 @@ uniform vec3 clipHiU;
 uniform mat3 toRenderU;         // camera RGB -> the render's linear sRGB (WhyTone.colourMatrix x sensorToProPhoto)
 #endif
 uniform int blockU;             // MODE 0 / 2: block size, px
+uniform int noShortU;           // P506 MODE 0: 1 = the shot took no short frames (no bit 5 can be set): every fully clipped pixel counts
 uniform ivec2 dirU;             // MODE 1 / 3: the axis
 uniform float radiusU;          // MODE 1 / 3: R, texels
 uniform int finalU;             // MODE 3: 0 the first axis, 1 the second and the gate
@@ -67,7 +68,7 @@ void main() {
             if (p.x >= size.x || p.y >= size.y) continue;
             int f = int(texelFetch(InputBuffer, p, 0).r * 255.0 + 0.5);
             n++;
-            if ((f & 7) == 7 && (f & 32) != 0) c++;
+            if ((f & 7) == 7 && ((f & 32) != 0 || noShortU != 0)) c++;
         }
     }
     Output = vec4(n > 0 ? float(c) / float(n) : 0.0, 0.0, 0.0, 1.0);

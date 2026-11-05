@@ -287,6 +287,9 @@ public final class WhyCombine extends Node {
             if (lightChroma > 0f) glProg.setDefine("LIGHT_CHROMA", 1);
             if (WhyTone.yellowHue() > 0f) glProg.setDefine("YELLOW_HUE", 1);   // P395
             if (WhyTone.hlNeutral() > 0f) glProg.setDefine("HL_NEUTRAL", 1);   // P398
+            // P506: the own curve's light orange-yellows leave the hue lock (AgX has LIGHT_CHROMA for that)
+            final float[] lightWarm = toneOp != com.particlesdevs.photoncamera.processing.color.ToneCurve.AGX ? WhyTone.lightWarm() : null;
+            if (lightWarm != null && lightWarm[0] > 0f) glProg.setDefine("LIGHT_WARM", 1);
             if (WhyTone.whyLayout()) glProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
             if (WhyTone.insetStrength() < 0.999f) glProg.setDefine("AGX_INSET", 1);   // P402: the inset's strength
             if (WhyTone.gammaType() != 0) glProg.setDefine("GAMMA_TYPE", WhyTone.gammaType());   // P404: the display standard
@@ -343,6 +346,8 @@ public final class WhyCombine extends Node {
                 glProg.setTexture("SunBloom", sunBloom);
                 glProg.setVar("sunGridU", bloomSize.x / (float) (sunBloom.mSize.x * block), bloomSize.y / (float) (sunBloom.mSize.y * block));
                 glProg.setVar("sunBloomU", WhyTone.sunBloom()[0]);
+                final float[] sunGate = WhyTone.sunBloomGate();
+                glProg.setVar("sunGateU", sunGate[0], sunGate[1]);   // P506
             }
             if (oppShare != null) {
                 final int block = Math.max(1, pipeline.opposedShareBlock);
@@ -438,6 +443,7 @@ public final class WhyCombine extends Node {
             glProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones
             if (WhyTone.yellowHue() > 0f) glProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
             if (WhyTone.hlNeutral() > 0f) glProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
+            if (lightWarm != null && lightWarm[0] > 0f) glProg.setVar("lightWarmU", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);   // P506
             glProg.setVar("chromaDnU", 0f);
             glProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             glProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));

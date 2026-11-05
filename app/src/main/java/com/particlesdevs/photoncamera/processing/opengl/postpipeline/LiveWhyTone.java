@@ -231,6 +231,8 @@ public final class LiveWhyTone {
     private float vibHl;
     /** P393: the light tones' share of the mid-tone chroma (LIGHT_CHROMA), as WhyCombine sets it. */
     private float lightChroma;
+    /** P506: the own curve's light orange-yellows out of the hue lock (LIGHT_WARM), as WhyCombine sets it. */
+    private float[] lightWarm;
     /** P395: the orange-yellows turned towards yellow (yellowHueU), as WhyCombine sets it. */
     private float yellowHue;
     /** P398: a pale light tone towards white (hlNeutralU), as WhyCombine sets it. */
@@ -568,6 +570,7 @@ public final class LiveWhyTone {
         vibHlShape = WhyTone.vibranceHlShape();
         vibHl = WhyTone.vibranceHl();
         lightChroma = WhyTone.lightChroma();
+        lightWarm = WhyTone.lightWarm();
         yellowHue = WhyTone.yellowHue();
         hlNeutral = WhyTone.hlNeutral();
         whyBase = WhyTone.whyLayout();
@@ -1097,6 +1100,7 @@ public final class LiveWhyTone {
         set(p, "vibHlU", vibHl);
         // P393: the photo's light-tone chroma (LIGHT_CHROMA, AgX only; no location without the define)
         set(p, "lightChromaU", lightChroma);
+        if (lightWarm != null) GLES20.glUniform4f(loc(p, "lightWarmU"), lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);   // P506, as the photo
         set(p, "yellowHueU", yellowHue);   // P395, as the photo (no location without the define)
         set(p, "hlNeutralU", hlNeutral);   // P398, as the photo
         if (inset < 0.999f) set(p, "insetU", inset);   // P402, as the photo
@@ -1214,6 +1218,7 @@ public final class LiveWhyTone {
         if (toneOp != ToneCurve.AGX) defs.add(new String[]{"TONE_OP", "1"});
         // P393: the light tones of a saturated colour keep its mid-tone chroma, as the photo (AgX only)
         if (toneOp == ToneCurve.AGX && lightChroma > 0f) defs.add(new String[]{"LIGHT_CHROMA", "1"});
+        if (toneOp != ToneCurve.AGX && lightWarm != null && lightWarm[0] > 0f) defs.add(new String[]{"LIGHT_WARM", "1"});   // P506
         if (yellowHue > 0f) defs.add(new String[]{"YELLOW_HUE", "1"});   // P395, as the photo
         if (hlNeutral > 0f) defs.add(new String[]{"HL_NEUTRAL", "1"});   // P398, as the photo
         if (whyBase) defs.add(new String[]{"WHY_BASE", "1"});   // P402, as the photo

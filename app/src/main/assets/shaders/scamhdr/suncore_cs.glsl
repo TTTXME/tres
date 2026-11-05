@@ -19,6 +19,7 @@ uniform vec3 clipHiU;
 uniform mat3 toRenderU;
 #endif
 uniform int blockU;
+uniform int noShortU;          // P506: 1 = the shot took no short frames: a core clipped in every channel counts without bit 5
 layout(rgba32f, binding = 0) uniform highp writeonly image2D outCells;
 shared vec4 terms[256]; // per pixel: counted, in c, glow weight w, its saturation term (w <= 0: no glow)
 
@@ -43,7 +44,7 @@ void main() {
                 t.x = 1.0;
 #if MODE == 0
                 int f = int(texelFetch(InputBuffer, p, 0).r * 255.0 + 0.5);
-                if ((f & 7) == 7 && (f & 32) != 0) t.y = 1.0;
+                if ((f & 7) == 7 && ((f & 32) != 0 || noShortU != 0)) t.y = 1.0;
 #else
                 if (level) {
                     int f = clipFlagsU != 0 ? int(texelFetch(ClipFlags, p, 0).r * 255.0 + 0.5) : 0;

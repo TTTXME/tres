@@ -873,6 +873,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         if (lutTray != null) lutTray.bindPill();
         super.onResume();
         showFrozenViewfinder();
+        screenFlashShown = true; // P507
+        updateScreenFlash();
         updateSettingsBar();
         mSwipe.init();
         this.mCameraUIView.refresh(CaptureController.isProcessing);
@@ -1092,6 +1094,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
 
     @Override
     public void onPause() {
+        screenFlashShown = false; // P507: the system brightness back while the camera is not in front
+        updateScreenFlash();
         if (mSubjectFocus != null) {
             if (captureController != null) captureController.mSubjectFocus = null;
             mSubjectFocus.release();
@@ -1648,6 +1652,41 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         if (mCameraUIView != null) mCameraUIView.updateBadges();
     }
 
+    /** P507: the open lens faces the user (set from its characteristics). */
+    private boolean frontLens;
+    /** P507: the white screen over the viewfinder while the front lens's torch is on (null until first needed). */
+    private View screenFlash;
+    /** P507: between onResume and onPause. */
+    private boolean screenFlashShown;
+
+    /**
+     * P507 (owner, 2026-11-05: «на фронтальной камере при включении фонарика чтобы видоискатель становился белым и яркость становилась
+     * максимально возможной для того чтобы подсвечивать лицо»): with a front lens and the torch on (pref_ae_mode 0) a white frame
+     * round the live preview (owner: «Кнопки и видоискатель должны быть видны») and the window takes the highest brightness; anything else (torch off, a back lens, the
+     * fragment paused) gives the system brightness back and hides it. Called on every lens change, torch change and resume / pause.
+     */
+    public void updateScreenFlash() {
+        final android.app.Activity a = getActivity();
+        if (a == null || cameraFragmentBinding == null) return;
+        final boolean on = frontLens && screenFlashShown && PreferenceKeys.getAeMode() == 0;
+        final ViewGroup container = cameraFragmentBinding.cameraContainer;
+        if (on && screenFlash == null) {
+            // a white frame round a window over the live preview (ScreenFlashView): the viewfinder and every control stay visible
+            screenFlash = new com.particlesdevs.photoncamera.ui.camera.views.ScreenFlashView(a, cameraFragmentBinding.layoutViewfinder.texture);
+            final int at = container.indexOfChild(cameraFragmentBinding.layoutViewfinder.getRoot());
+            container.addView(screenFlash, at + 1, new ConstraintLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        if (screenFlash != null) screenFlash.setVisibility(on ? View.VISIBLE : View.GONE);
+        final android.view.WindowManager.LayoutParams lp = a.getWindow().getAttributes();
+        final float want = on ? android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+                : android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+        if (lp.screenBrightness != want) {
+            lp.screenBrightness = want;
+            a.getWindow().setAttributes(lp);
+        }
+    }
+
     public void showSnackBar(final String text) {
         com.particlesdevs.photoncamera.util.UiMessages.info(text);
     }
@@ -2187,7 +2226,11 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             surfaceView.clear();
             auxButtonsViewModel.setActiveId(PreferenceKeys.getCameraID());
             Boolean flashAvailable = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
-            ui().showFlashButton(flashAvailable != null && flashAvailable);
+            final Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            frontLens = facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT;
+            // P507: a front lens without a flash lights the face with the screen (updateScreenFlash): the torch stays available
+            ui().showFlashButton(flashAvailable != null && flashAvailable || frontLens);
+            updateScreenFlash();
             awbKelvin.setCharacteristics(characteristics);
             manualModeConsole.init(activity, characteristics);
             manualModeConsole.onResume();
