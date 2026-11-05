@@ -126,7 +126,8 @@ public final class ShadeCatalog {
      * «тон WHY» and Exposure Fusion are gone, Luma / Chroma are the multiscale engine's multipliers, «удлинение L» a 0-2 slider).
      */
     public static final List<Group> GROUPS = Collections.unmodifiableList(Arrays.asList(
-            new Group(R.string.shade_group_shoot, FLASH, TIMER, "pref_scam_hybrid_why_metering", ETTR),
+            new Group(R.string.shade_group_shoot, FLASH, TIMER, "pref_scam_hybrid_why_metering", ETTR, "pref_portrait_enabled",
+                    "pref_scam_hybrid_why_face_mask_on"),
             new Group(R.string.shade_group_format, FORMAT, OUTPUT, RESIZE, DOWNSAMPLER, "pref_ultrahdr_key", "pref_wide169_key",
                     "pref_show_watermark_key"),
             new Group(R.string.shade_group_hybrid, "pref_hdr_frames", "pref_scam_hybrid_bento", "pref_scam_hybrid_bento_frames",
@@ -227,6 +228,10 @@ public final class ShadeCatalog {
         spec("pref_ultrahdr_key", R.string.shade_t_ultrahdr, 0, R.drawable.settings_ic_hdr);
         // P494 (owner, 2026-11-03: the HDR tile «в положении выкл он должен полностью отключать длинные и сверхкороткие кадры»)
         spec("pref_hdr_frames", R.string.shade_t_hdr_frames, 0, R.drawable.settings_ic_hdr);
+        // P512 (owner, 2026-11-05: «Дай возможность вывода кнопки включения и отключения этого режима "Портрет" в видоискателе», «Маска
+        // лица тоже должна включаться и отключаться»): both switches as tiles of the shade (added from its catalogue)
+        spec("pref_portrait_enabled", R.string.shade_t_portrait, 0, R.drawable.settings_ic_face);
+        spec("pref_scam_hybrid_why_face_mask_on", R.string.shade_t_face_mask, 0, R.drawable.settings_ic_face);
         spec("pref_wide169_key", R.string.wide169, 0, R.drawable.settings_ic_ratio);
         spec("pref_show_watermark_key", R.string.shade_t_watermark, 0, R.drawable.settings_ic_water);
         spec("pref_scam_hybrid_bento", R.string.shade_t_bento, R.array.shade_s_bento, R.drawable.settings_ic_flash);

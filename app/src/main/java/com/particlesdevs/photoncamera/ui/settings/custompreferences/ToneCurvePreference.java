@@ -85,12 +85,16 @@ public class ToneCurvePreference extends Preference {
     @Override
     protected Object onGetDefaultValue(android.content.res.TypedArray a, int index) {
         String v = a.getString(index);
+        if (v != null) defaultPoints = v;   // runs inside super(): a field initialiser would overwrite it
         return v != null ? v : ToneCurve.SETTING_POINTS;
     }
 
+    /** P513: the XML's own default points (the portrait curve has its own), null = ToneCurve.SETTING_POINTS. */
+    @Nullable private String defaultPoints;
+
     /** The stored points (the setting's default when none). */
     public String points() {
-        return getPersistedString(ToneCurve.SETTING_POINTS);
+        return getPersistedString(defaultPoints != null ? defaultPoints : ToneCurve.SETTING_POINTS);
     }
 
     /** «Из файла…»: the settings screen opens the system picker and hands the result to {@link #load}. */

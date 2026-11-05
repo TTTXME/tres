@@ -5,6 +5,21 @@ precision highp sampler2D;
 #import portrait
 uniform mat3 portraitMapU;
 #endif
+// P512 FACE_MASK 1 (owner, 2026-11-05: «Сделай маску лица, чтобы мы могли отдельно настраивать обработку лица»): «Маска лица» of
+// «Портрет» - why/facemask.glsl's mask on the whyLow grid (the faces' ellipses times their skin colour, smoothed along the image's
+// edges), read bilinearly; inside it the face's exposure, contrast, saturation, warmth, tint, skin smoothing and detail (faceAU /
+// faceBU), or the mask itself shown in red (faceBU.w). FACE_AWB 1: «Нейтрализация скинтона (Face AWB)» - the whole frame's colour
+// shift that moves the skin towards its natural hue (PortraitSkin.faceAwb), not on the mask. Both off: the shader as before.
+#define FACE_MASK 0
+#if FACE_MASK == 1
+uniform sampler2D FaceMask;         // .r the mask (why/facemask.glsl), linear filter
+uniform vec4 faceAU;                // exposure (EV), contrast, saturation, warmth (-1 .. 1)
+uniform vec4 faceBU;                // tint (-1 .. 1), smoothing (0 .. 1), detail (-1 .. 1), show the mask (1)
+#endif
+#define FACE_AWB 0
+#if FACE_AWB == 1
+uniform vec2 faceAwbU;              // P512: OKLab a / L, b / L shift of the whole frame
+#endif
 // P305: the pixel coordinates (ivec2 xy) are highp too. A fragment shader's ints default to mediump, which Adreno runs as
 // fp16: the dither below took float(xy) and its phase 0.067 x + 0.0058 y in fp16, so instead of +-0.5 LSB noise it had 4..16
 // values in plates 1..4 px wide and 11..43 rows tall (wider and taller with x), which jpegli's dead-zone quantisation kept as
@@ -1401,6 +1416,12 @@ void main() {
     if (monoU != vec3(0.0)) lin = vec3(max(dot(lin, LUMA * monoU) / dot(LUMA, monoU), 0.0));
 #endif
     vec3 lab = toOklab(lin);
+#if FACE_MASK == 1
+    float faceM = textureLod(FaceMask, (vec2(xy) + 0.5) / vec2(size), 0.0).r;   // P512
+#endif
+#if FACE_AWB == 1
+    lab.yz += faceAwbU * lab.x;   // P512: a white balance led by the faces
+#endif
     // P370 (B2): the colour as the matrix made it where it lies outside sRGB (monochrome keeps its grey); a branch, so a pixel
     // with no such channel is the former one bit for bit
     float signedW = 0.0;
@@ -1930,6 +1951,9 @@ void main() {
         delta *= delta < 0.0 ? compression : compression * compression;
 #endif
     }
+#if FACE_MASK == 1
+    delta *= max(1.0 - faceBU.y * faceM, 0.0) * (1.0 + faceBU.z * faceM);   // P512: the skin's smoothing and detail
+#endif
     float lBefore = post.x;
 #if SKY == 1
     // P378 (M1): the clear sky's detail is not halved towards white (the clouds' tops: 1.8x flatter than the reference's)
@@ -1990,6 +2014,17 @@ void main() {
     }
 #endif
     if (deltaChromaU > 0.0 && post.x < lBefore) post.yz *= mix(1.0, post.x / max(lBefore, 0.0001), clamp(deltaChromaU, 0.0, 1.0));
+#if FACE_MASK == 1
+    // P512: the face's own tone and colour: exposure in L (~Y^(1/3)), contrast round L 0.62 (skin's place), saturation, warmth (b) and
+    // tint (a) in proportion to L; the mask shown in red on demand
+    if (faceM > 0.0) {
+        post.x = clamp(post.x * exp2(faceAU.x * faceM / 3.0), 0.0001, 1.0);
+        post.x = clamp(0.62 + (post.x - 0.62) * (1.0 + 0.5 * faceAU.y * faceM), 0.0001, 1.0);
+        post.yz *= max(1.0 + 0.6 * faceAU.z * faceM, 0.0);
+        post.yz += vec2(faceBU.x, faceAU.w) * (0.03 * faceM * post.x);
+        if (faceBU.w > 0.0) post = mix(post, vec3(post.x, 0.13, 0.06), 0.65 * faceM);
+    }
+#endif
 #if HL_NEUTRAL == 1
     // P398 (owner, 2026-10-29, the ship's bridge against the reference app: «света почему-то получаются кремовые»): white frames,
     // sills and a lamp lit by the sun by the windows are recovered light (half of them clipped in the base frames, the

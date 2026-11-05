@@ -170,7 +170,9 @@ public class SettingsMenuTest {
         PreferenceScreen root=inflate();root.onAttached();
         PreferenceScreen page=root.findPreference("portrait_screen");
         assertEquals("root_colour",page.getParent().getKey());
-        assertEquals(Arrays.asList("pref_portrait_enabled","pref_portrait_skin_warmth"),keys(page));
+        // P512: the face-found settings, the portrait curve and «Маска лица» after the two switches
+        assertEquals(Arrays.asList("pref_portrait_enabled","pref_portrait_skin_warmth","portrait_face_category","portrait_curve_category",
+                "portrait_mask_screen"),keys(page));
         TwoStatePreference enabled=page.findPreference("pref_portrait_enabled"),warmth=page.findPreference("pref_portrait_skin_warmth");
         assertNotNull(page.getIcon());assertNotNull(enabled.getIcon());assertNotNull(warmth.getIcon());
         assertFalse(enabled.isChecked());assertTrue(warmth.isChecked());assertFalse(warmth.isEnabled());

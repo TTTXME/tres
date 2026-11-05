@@ -882,6 +882,29 @@ public final class SettingsMigration {
             e.putInt(CONFIG_DEFAULTS_REV, 1);
             markOnly = true;
         }
+        // P513 (owner, 2026-11-05: «Обнови дефолтные настройки тонмапинга / светотени на такие»): as P405 - a stored former default
+        // moves to the config's once, a value chosen by hand stays
+        if (!values.containsKey(CONFIG_V33_REV)) {
+            for (Object[] row : CONFIG_V33) {
+                final String key = ScamHybridKeys.PREFIX + row[0];
+                final Object stored = values.get(key);
+                Object v = stored;
+                if (v == null) continue;
+                // a value P405 moved in this same pass (values is the snapshot before it) counts as P405's new default
+                if (!values.containsKey(CONFIG_DEFAULTS_REV))
+                    for (Object[] old : CONFIG_DEFAULTS)
+                        if (old[0].equals(row[0]) && old[1] instanceof Float && isNumber(v, (Float) old[1])) v = old[2];
+                if (row[1] instanceof Boolean) {
+                    if (row[1].equals(v)) { ModuleProfiles.put(e, key, row[2]); changed = true; }
+                } else if (isNumber(v, (Float) row[1])) {
+                    final float to = (Float) row[2];
+                    ModuleProfiles.put(e, key, stored instanceof String ? PreferenceNumber.format(to, true) : (Object) to);
+                    changed = true;
+                }
+            }
+            e.putInt(CONFIG_V33_REV, 1);
+            markOnly = true;
+        }
         // P407: the matrix saturation's default 1.25 (P405) -> 1.1 (the reference's chroma on the ISP matrix), a stored 1.25 once
         if (!values.containsKey(CCT_SAT_REV)) {
             final Object v = values.get(ScamHybridKeys.PREFIX + "why_cct_sat");
@@ -964,6 +987,16 @@ public final class SettingsMigration {
 
     /** P419: marker of the one-time move of the «Цвет» shadow / light vibrance into the reference app's vibrance rows. */
     static final String VIBRANCE_REV = "pref_scam_hybrid_vibrance_rev";
+    /** P513: marker of the one-time move of the former defaults to the owner's config init35burial_v3_3 (2026-11-05). */
+    static final String CONFIG_V33_REV = "pref_scam_hybrid_config_v33_rev";
+    /** P513: {key after pref_scam_hybrid_, the former default, the config's}. */
+    static final Object[][] CONFIG_V33 = {
+            {"why_ae_target", 0.18f, 0.15f}, {"why_bright_thresh", 1f, 0.9f}, {"why_dark_thresh", 10f, 12.5f},
+            {"why_dark_pixel_thresh", 22.5f, 22f}, {"why_hl_boost", 1f, 1.1f}, {"why_highlight_str", 2f, 2.1f},
+            {"why_blend_smoothness", 1f, 0.45f}, {"why_macro_contrast", 1f, 1.1f}, {"why_classic_weight_ext_hl", 1f, 0.7f},
+            {"why_classic_weight_mid", 1f, 2f}, {"why_classic_weight_shadow", 1.5f, 1f}, {"why_vibrance_hl_str", 0.25f, 0f},
+            {"why_portrait_ae", 0.7f, 1f}, {"why_portrait_awb", 0.5f, 1f}, {"why_portrait_curve_on", false, true}};
+
     /** P407: marker of the one-time move of the matrix saturation 1.25 to 1.1. */
     static final String CCT_SAT_REV = "pref_scam_hybrid_cct_sat_rev";
 

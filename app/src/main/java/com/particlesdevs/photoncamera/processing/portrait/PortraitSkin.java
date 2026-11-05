@@ -22,6 +22,10 @@ public final class PortraitSkin {
         public final int[] samples = new int[MAX_FACES];
         /** P473: per face, the median skin hue (OKLab degrees) and the mean skin a / L, b / L; NaN when the face was not measured. */
         public final float[] hue = new float[MAX_FACES], a = new float[MAX_FACES], b = new float[MAX_FACES];
+        /** P512: per face, the skin's mean linear luminance (OKLab L cubed) in the sample's units; NaN when not measured. */
+        public final float[] luma = new float[MAX_FACES];
+        /** P512: per face, the spread of the skin's a / L, b / L round its mean (its standard distance); NaN when not measured. */
+        public final float[] spread = new float[MAX_FACES];
         /** P473: the median b / L of the near-neutral background (yellow +, blue -); NaN with too few neutral pixels. */
         public float sceneB = Float.NaN;
         public int sceneSamples;
@@ -52,6 +56,8 @@ public final class PortraitSkin {
         java.util.Arrays.fill(out.hue, Float.NaN);
         java.util.Arrays.fill(out.a, Float.NaN);
         java.util.Arrays.fill(out.b, Float.NaN);
+        java.util.Arrays.fill(out.luma, Float.NaN);
+        java.util.Arrays.fill(out.spread, Float.NaN);
         if (pixels == null || boxes == null || channels < 3 || width <= 0 || height <= 0
                 || (long) width * height * channels > pixels.length || !Float.isFinite(strength) || strength <= 0f) return out;
         strength = Math.min(strength, 1f);
@@ -71,7 +77,7 @@ public final class PortraitSkin {
             final int y1 = Math.min(height, (int) Math.ceil(b * height - 0.5f));
             final int sx = Math.max(1, (x1 - x0 + 63) / 64), sy = Math.max(1, (y1 - y0 + 63) / 64);
             final double[] hist = new double[HUE_BINS];
-            double weight = 0, sumA = 0, sumB = 0;
+            double weight = 0, sumA = 0, sumB = 0, sumY = 0, sumAA = 0, sumBB = 0;
             int tested = 0, accepted = 0;
             for (int y = y0; y < y1; y += sy) {
                 for (int x = x0; x < x1; x += sx) {
@@ -94,6 +100,9 @@ public final class PortraitSkin {
                     weight += w;
                     sumA += w * aa / light;
                     sumB += w * ab / light;
+                    sumY += w * light * light * light;
+                    sumAA += w * (aa / light) * (aa / light);
+                    sumBB += w * (ab / light) * (ab / light);
                     accepted++;
                 }
             }
@@ -106,6 +115,9 @@ public final class PortraitSkin {
             out.hue[face] = hue;
             out.a[face] = (float) (sumA / weight);
             out.b[face] = (float) (sumB / weight);
+            out.luma[face] = (float) (sumY / weight);
+            out.spread[face] = (float) Math.sqrt(Math.max(0.0, sumAA / weight - out.a[face] * (double) out.a[face]
+                    + sumBB / weight - out.b[face] * (double) out.b[face]));
             confidence[face] = strength * (float) Math.min(1.0, weight / 24.0);
             final float delta = clamp(hue, 25f, 70f) - hue;
             final float turn = clamp((float) Math.toRadians(delta), -MAX_TURN, MAX_TURN);
@@ -131,6 +143,42 @@ public final class PortraitSkin {
         if (shift < 0f) shift = Math.max(shift, Math.min(0f, a * (float) Math.tan(Math.toRadians(52.0)) - b));
         else if (shift > 0f) shift = Math.min(shift, Math.max(0f, a * (float) Math.tan(Math.toRadians(48.0)) - b));
         return clamp(shift, -MAX_SHIFT, MAX_SHIFT);
+    }
+
+    /** P512: the measured faces' skin luminance, weighted by their samples; NaN without a measured face. */
+    public static float faceLuma(Result r) {
+        double sum = 0, weight = 0;
+        for (int i = 0; r != null && i < r.count; i++)
+            if (Float.isFinite(r.luma[i]) && r.luma[i] > 0f) { sum += r.samples[i] * (double) r.luma[i]; weight += r.samples[i]; }
+        return weight > 0 ? (float) (sum / weight) : Float.NaN;
+    }
+
+    /** P512: the natural skin hue Face AWB aims at (OKLab degrees; the five face scenes' skin sat at 44.6 - 54.4). */
+    public static final float SKIN_HUE = 50f;
+    /** P512: the largest Face AWB shift of the whole frame (OKLab a / L, b / L). */
+    public static final float MAX_AWB = 0.03f;
+
+    /**
+     * P512 «Нейтрализация скинтона (Face AWB)»: the whole frame's colour shift (OKLab a / L, b / L) that moves the measured skin
+     * {@code strength} of the way to the natural hue {@link #SKIN_HUE} at its own chroma - a white balance led by the faces, for
+     * the whole frame when a face is found (not the face mask). Nothing within 6 degrees of it (natural skin varies), at most
+     * {@link #MAX_AWB}; {0, 0} without a measured face.
+     */
+    public static float[] faceAwb(Result r, float strength) {
+        double a = 0, b = 0, weight = 0;
+        for (int i = 0; r != null && i < r.count; i++)
+            if (Float.isFinite(r.a[i]) && Float.isFinite(r.b[i])) { a += r.samples[i] * (double) r.a[i]; b += r.samples[i] * (double) r.b[i]; weight += r.samples[i]; }
+        if (weight <= 0 || !(strength > 0f)) return new float[]{0f, 0f};
+        a /= weight;
+        b /= weight;
+        final double c = Math.hypot(a, b), hue = Math.toDegrees(Math.atan2(b, a));
+        final double off = hue - SKIN_HUE, dead = 6.0;
+        if (Math.abs(off) <= dead) return new float[]{0f, 0f};
+        final double aim = Math.toRadians(SKIN_HUE + Math.signum(off) * dead);
+        double da = (c * Math.cos(aim) - a) * Math.min(strength, 1f), db = (c * Math.sin(aim) - b) * Math.min(strength, 1f);
+        final double n = Math.hypot(da, db);
+        if (n > MAX_AWB) { da *= MAX_AWB / n; db *= MAX_AWB / n; }
+        return new float[]{(float) da, (float) db};
     }
 
     /** P473: the weighted median b / L of near-neutral pixels (C / L under 0.10) outside every face box widened 1.3 times. */

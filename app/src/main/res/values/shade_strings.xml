@@ -227,4 +227,6 @@
         <item>As is</item>
     </string-array>
     <string name="shade_t_hdr_frames">HDR</string>
+    <string name="shade_t_portrait">Portrait</string>
+    <string name="shade_t_face_mask">Face mask</string>
 </resources>

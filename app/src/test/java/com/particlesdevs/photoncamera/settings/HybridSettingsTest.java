@@ -1184,7 +1184,11 @@ public class HybridSettingsTest {
         // P405: the XML's default of every row is the reference config's value of the table
         final String xml = new String(java.nio.file.Files.readAllBytes(new java.io.File(new java.io.File("src/main/res/xml/preferences.xml").isFile()
                 ? "src/main/res/xml/preferences.xml" : "app/src/main/res/xml/preferences.xml").toPath()), java.nio.charset.StandardCharsets.UTF_8);
-        for (Object[] row : SettingsMigration.CONFIG_DEFAULTS) {
+        final java.util.Set<Object> v33 = new java.util.HashSet<>();
+        for (Object[] row : SettingsMigration.CONFIG_V33) v33.add(row[0]);
+        for (Object[][] table : new Object[][][]{SettingsMigration.CONFIG_DEFAULTS, SettingsMigration.CONFIG_V33})
+        for (Object[] row : table) {
+            if (table == SettingsMigration.CONFIG_DEFAULTS && v33.contains(row[0])) continue;   // P513 moved it on
             final String key = "pref_scam_hybrid_" + row[0];
             final java.util.regex.Matcher m = java.util.regex.Pattern.compile("<[^>]*android:key=\"" + key + "\"[^>]*>").matcher(xml);
             assertTrue(key, m.find());
@@ -1225,6 +1229,19 @@ public class HybridSettingsTest {
                 .putString("pref_scam_hybrid_why_cct_sat","1").commit();
         SettingsMigration.migrateScamHybrid(prefs,false);
         assertEquals("the former 1.0","1.1",prefs.getString("pref_scam_hybrid_why_cct_sat",""));
+        // P513: the former defaults move to the owner's config v3_3 once (a pre-P405 one through P405's), a hand value stays
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putString("pref_scam_hybrid_why_ae_target","0.18").putString("pref_scam_hybrid_why_dark_thresh","15")
+                .putString("pref_scam_hybrid_why_hl_boost","1.3").putBoolean("pref_scam_hybrid_why_portrait_curve_on",false).commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        assertEquals(0.15,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_ae_target"),9),1e-6);
+        assertEquals(12.5,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_dark_thresh"),9),1e-6);
+        assertEquals("chosen by hand",1.3,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_hl_boost"),9),1e-6);
+        assertTrue(prefs.getBoolean("pref_scam_hybrid_why_portrait_curve_on",false));
+        assertEquals(1,prefs.getInt(SettingsMigration.CONFIG_V33_REV,0));
+        prefs.edit().putString("pref_scam_hybrid_why_ae_target","0.18").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("set again: stays",0.18,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_why_ae_target"),9),1e-6);
     }
 
     @Test public void lookVibranceMovesIntoTheReferenceRowsOnce() {

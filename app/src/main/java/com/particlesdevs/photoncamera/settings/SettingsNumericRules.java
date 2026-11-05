@@ -156,6 +156,17 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_sharp_rl1_damping": return new double[]{0,1,0};
             case "pref_scam_hybrid_why_sharp_rl2_damping": return new double[]{0,1,0};
             case "pref_scam_hybrid_why_sharp_rl3_damping": return new double[]{0,1,0};
+            // P512: «Портрет» - the face-found settings, the portrait curve and «Маска лица»
+            case "pref_scam_hybrid_why_portrait_ae": case "pref_scam_hybrid_why_portrait_awb": return new double[]{0,1,0};
+            case "pref_scam_hybrid_why_portrait_curve_lift": case "pref_scam_hybrid_why_portrait_curve_contrast":
+            case "pref_scam_hybrid_why_portrait_curve_shadow_contrast": case "pref_scam_hybrid_why_portrait_curve_highlight_contrast":
+            case "pref_scam_hybrid_why_portrait_curve_deep_shadows": case "pref_scam_hybrid_why_portrait_curve_extreme_highlights":
+            case "pref_scam_hybrid_why_face_contrast": case "pref_scam_hybrid_why_face_saturation": case "pref_scam_hybrid_why_face_warmth":
+            case "pref_scam_hybrid_why_face_tint": case "pref_scam_hybrid_why_face_detail": return new double[]{-100,100,1};
+            case "pref_scam_hybrid_why_portrait_curve_offset": return new double[]{-50,50,1};
+            case "pref_scam_hybrid_why_face_exposure": return new double[]{-2,2,0};
+            case "pref_scam_hybrid_why_face_smooth": case "pref_scam_hybrid_why_face_mask_skin": return new double[]{0,100,1};
+            case "pref_scam_hybrid_why_face_mask_size": return new double[]{50,150,1};
             case "pref_scam_hybrid_why_curve_lift": return new double[]{-100,100,1};
             case "pref_scam_hybrid_why_curve_contrast": return new double[]{-100,100,1};
             case "pref_scam_hybrid_why_curve_shadow_contrast": return new double[]{-100,100,1};

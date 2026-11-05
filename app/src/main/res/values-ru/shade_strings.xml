@@ -226,4 +226,6 @@
         <item>Как есть</item>
     </string-array>
     <string name="shade_t_hdr_frames">HDR</string>
+    <string name="shade_t_portrait">Портрет</string>
+    <string name="shade_t_face_mask">Маска лица</string>
 </resources>

@@ -100,7 +100,7 @@ public class ShadeCatalogTest {
                 assertTrue(key, e.isCurated());
             }
         }
-        assertEquals(25, curated); // P503 added «Ресайз»; P494 added «HDR» (the long / ultrashort frames); P356 added «ETTR»; P129: the route tile and the SCAM HDR group (frames, L boost, mosaic) are gone; «Кодек» (pref_photo_format) is part of the FORMAT choice now, no row of its own; P42 added «Лица» and «Трекинг»;
+        assertEquals(27, curated); // P512 added «Портрет» and «Маска лица»; P503 added «Ресайз»; P494 added «HDR» (the long / ultrashort frames); P356 added «ETTR»; P129: the route tile and the SCAM HDR group (frames, L boost, mosaic) are gone; «Кодек» (pref_photo_format) is part of the FORMAT choice now, no row of its own; P42 added «Лица» and «Трекинг»;
                                    // P64 removed «Кривая» (the Hybrid tone curve); P118 «Резкость» (sharp_mode) and «USM» with its group
         // The rows the owner dropped (answer 8) stay out.
         for (String gone : new String[]{"pref_scam_hybrid_why_tone", "pref_scamhdr_fusion_enabled", "pref_scam_tone_curve"})

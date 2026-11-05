@@ -175,7 +175,7 @@ public final class WhyCombine extends Node {
         final com.particlesdevs.photoncamera.processing.color.FilmLut lut = lutStrength > 0f && !lutName.isEmpty()
                 ? com.particlesdevs.photoncamera.processing.color.FilmChain.lut(com.particlesdevs.photoncamera.app.ScameraApp.getAppContext(), lutName) : null;
         int lutTexture = 0;
-        GLTexture hlA = null, hlB = null, sunBloom = null, oppShare = null, skyWith = null, skyWithout = null;
+        GLTexture hlA = null, hlB = null, sunBloom = null, oppShare = null, skyWith = null, skyWithout = null, faceTex = null;
         com.particlesdevs.photoncamera.processing.opengl.GLBuffer rimTiles = null;
         int[] rimBindings = null;
         GLTexture sceneY = null;
@@ -236,6 +236,10 @@ public final class WhyCombine extends Node {
                 hlA.close();
                 hlA = null;
             }
+            // P512: «Маска лица» of «Портрет» (a face found and its skin measured) on the whyLow grid, before the combine's defines
+            final boolean faceShot = r.portraitFace && st.portrait != null && st.portrait.count > 0;
+            final float[] faceMask = faceShot ? WhyTone.faceMask() : null;
+            if (faceMask != null) faceTex = faceMaskTexture(glProg, st.low, st.portrait, faceMask[8], faceMask[9]);
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly && sharp && st.factor > 1
                     && detail != 0f && st.detailRef != null && PreferenceKeys.hybridSwitch("why_edge_luma_cache", true)) {
                 sceneY = SceneLumaCache.prepare(glProg, pipeline, input, gainMap);
@@ -262,6 +266,14 @@ public final class WhyCombine extends Node {
             if (pipeline.p3Output) glProg.setDefine("P3_OUT", 1);
             if (colourOn) glProg.setDefine("COLOUR_LOOK", 1);
             if (st.portrait != null && st.portrait.corrected()) glProg.setDefine("PORTRAIT", 1);
+            // P512: «Маска лица» and Face AWB of «Портрет» (a face found and its skin measured)
+            if (faceTex != null) glProg.setDefine("FACE_MASK", 1);
+            float[] faceAwb = faceShot ? com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.faceAwb(st.portrait,
+                    Math.max(0f, Math.min(1f, WhyTone.value("portrait_awb", 0.5f)))) : null;
+            if (faceAwb != null && faceAwb[0] == 0f && faceAwb[1] == 0f) faceAwb = null;
+            if (faceAwb != null) glProg.setDefine("FACE_AWB", 1);
+            if (faceShot) Log.i("SCAM_PIPELINE", "Portrait: mask " + (faceMask != null ? java.util.Arrays.toString(faceMask) : "off")
+                    + ", Face AWB " + (faceAwb != null ? String.format(java.util.Locale.ROOT, "%+.4f %+.4f", faceAwb[0], faceAwb[1]) : "none"));
             // P144: ACES / Uchimura / the own curve instead of AgX (TONE_OP 0, the AgX shader, otherwise)
             if (toneOp != com.particlesdevs.photoncamera.processing.color.ToneCurve.AGX) glProg.setDefine("TONE_OP", 1);
             if (lut != null) glProg.setDefine("FILM_LUT", 1);
@@ -433,13 +445,19 @@ public final class WhyCombine extends Node {
             if (hlB != null) glProg.setVar("hlSoftU", hlSoft);
             glProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
             glProg.setVar("gammaInvU", 1f / WhyTone.gamma());
-            glProg.setVar("macroU", r.portraitFace ? 1f : WhyTone.value("macro_contrast", 1f));
+            glProg.setVar("macroU", r.portraitFace ? 1f : WhyTone.value("macro_contrast", 1.1f));
             if (st.portrait != null && st.portrait.corrected()) {
                 glProg.setVar("portraitCountU", st.portrait.count);
                 glProg.setVarVec4s("portraitFacesU", st.portrait.faces);
                 glProg.setVarVec4s("portraitAdjustU", st.portrait.adjust);
                 glProg.setVar("portraitMapU", new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1});
             }
+            if (faceTex != null) {   // P512
+                glProg.setTexture("FaceMask", faceTex);
+                glProg.setVar("faceAU", faceMask[0], faceMask[1], faceMask[2], faceMask[3]);
+                glProg.setVar("faceBU", faceMask[4], faceMask[5], faceMask[6], faceMask[7]);
+            }
+            if (faceAwb != null) glProg.setVar("faceAwbU", faceAwb[0], faceAwb[1]);   // P512
             glProg.setVar("vibU", WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f));
             glProg.setVar("vibHlU", WhyTone.vibranceHl());
             glProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones
@@ -462,7 +480,7 @@ public final class WhyCombine extends Node {
                 float[][] uchi = WhyTone.uchimuraUniforms();
                 glProg.setVar("uchiAU", uchi[0]);
                 glProg.setVar("uchiBU", uchi[1]);
-                glProg.setVarVec4s("curveU", WhyTone.curveSamples());
+                glProg.setVarVec4s("curveU", WhyTone.curveSamples(r.portraitFace));   // P512: the portrait curve with a face
                 glProg.setVar("curveBoostU", WhyTone.curveBoost(r.contrastC));   // P404: the flat scene's contrast on the own curve, as AgX's slope
             }
             glProg.setVar("ditherU", 1);
@@ -510,6 +528,7 @@ public final class WhyCombine extends Node {
             if (lutTexture != 0) android.opengl.GLES30.glDeleteTextures(1, new int[]{lutTexture}, 0);
             if (hlA != null) hlA.close();
             if (hlB != null) hlB.close();
+            if (faceTex != null) faceTex.close();
             if (sunBloom != null) sunBloom.close();
             if (oppShare != null) oppShare.close();
         }
@@ -540,6 +559,61 @@ public final class WhyCombine extends Node {
      * tones' chroma (LIGHT_CHROMA, lightChromaU 0 when {@code lightChroma}): the sky term holds it back under the mask, so the draw
      * without the sky term took it there and the ratio carried it.
      */
+    /**
+     * P512 «Маска лица»: why/facemask.glsl on the whyLow grid - the raw mask (the faces' ellipses times their skin colour within each
+     * face's spread) and two cross-bilateral passes along x and y (sigma 0.4 % of the width, at least 2 texels) that keep it off the
+     * beard's and the shadows' noise and on the face's outline; null when a pass fails (the photo is made without the mask).
+     */
+    static GLTexture faceMaskTexture(com.particlesdevs.photoncamera.processing.opengl.GLProg glProg, GLTexture low, com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.Result p,
+                                     float size, float follow) {
+        final int n = com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.MAX_FACES;
+        final float[] skin = new float[n * 4], light = new float[n];
+        for (int i = 0; i < p.count; i++) {
+            final boolean measured = Float.isFinite(p.a[i]) && Float.isFinite(p.b[i]);
+            skin[i * 4] = measured ? p.a[i] : 0f;
+            skin[i * 4 + 1] = measured ? p.b[i] : 0f;
+            skin[i * 4 + 2] = measured ? 1f : 0f;
+            skin[i * 4 + 3] = measured && Float.isFinite(p.spread[i]) ? p.spread[i] : 0.02f;
+            light[i] = measured && Float.isFinite(p.luma[i]) && p.luma[i] > 0f ? (float) Math.cbrt(p.luma[i]) : 0f;
+        }
+        final GLFormat rg = new GLFormat(GLFormat.DataType.FLOAT_16, 2);
+        GLTexture a = null, b = null;
+        try {
+            a = new GLTexture(low.mSize, rg, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            b = new GLTexture(low.mSize, rg, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            glProg.setDefine("MODE", 0);
+            glProg.useAssetProgram("why/facemask", false);
+            glProg.setTexture("InputBuffer", low);
+            glProg.setVar("faceCountU", p.count);
+            glProg.setVarVec4s("faceBoxU", p.faces);
+            glProg.setVarVec4s("faceSkinU", skin);
+            glProg.setVarFloats("faceLightU", light);
+            glProg.setVar("faceMaskU", size, follow);
+            glProg.drawBlocks(a);
+            final float sigma = Math.max(2f, 0.004f * low.mSize.x);
+            for (int pass = 0; pass < 2; pass++) {
+                glProg.setDefine("MODE", 1);
+                glProg.useAssetProgram("why/facemask", false);
+                glProg.setTexture("InputBuffer", pass == 0 ? a : b);
+                glProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+                glProg.setVar("sigmaU", sigma);
+                glProg.drawBlocks(pass == 0 ? b : a);
+            }
+            glProg.closed = true;
+            b.close();
+            b = null;
+            final GLTexture out = a;
+            a = null;
+            return out;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_PIPELINE", "Portrait: face mask skipped: " + e);
+            return null;
+        } finally {
+            if (a != null) a.close();
+            if (b != null) b.close();
+        }
+    }
+
     private void skyHdrRatio(PostPipeline pipeline, WhyTone.State st, WhyAe.Result r, GLTexture with, GLTexture without, boolean lightChroma) {
         final GLTexture colour = st.lowDn != null ? st.lowDn : st.low;
         if (lightChroma) glProg.setVar("lightChromaU", 0f);

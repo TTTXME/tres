@@ -506,6 +506,11 @@ public final class DevKeys {
         // P508: detail of the light above white (why/combine HL_LOCAL)
         k.add(n(post, "hybrid_why_hl_local", "0.8", Lang.t("Тон: деталь в светах выше белого (окно, стена на солнце): локальный контраст светов, только затемнение; ровное небо и свечение солнца не трогает; 0 — выкл.",
                 "Tone: detail in the light above white (a window, a sunlit wall): the highlights' local contrast, darkening only; a smooth sky and the sun's glow untouched; 0 = off")));
+        // P513: the portrait offsets with a face found (WhyTone.portraitOffsets)
+        k.add(n(post, "hybrid_why_portrait_off_ae_target", "0.05", Lang.t("Портрет: прибавка к цели AE, когда найдено лицо",
+                "Portrait: added to the AE target when a face is found")));
+        k.add(n(post, "hybrid_why_portrait_off_dark_pixel", "0.5", Lang.t("Портрет: прибавка к порогу тёмных пикселей, когда найдено лицо",
+                "Portrait: added to the dark-pixel threshold when a face is found")));
         k.add(n(post, "hybrid_why_hr_detail", "0.35", Lang.t("Тон, света Bento выше 4x: деталь светов", "Tone, Bento highlights above 4x: highlight detail")));
         k.add(n(post, "hybrid_texture_g0", null, Lang.t("Текстура: усиление полосы 0 (по умолчанию 1.5, на 8 Elite 1.35)", "Texture: gain of band 0 (default 1.5, 1.35 on the 8 Elite)")));
         k.add(n(post, "hybrid_texture_g1", "1.25", Lang.t("Текстура: усиление полосы 1", "Texture: gain of band 1")));

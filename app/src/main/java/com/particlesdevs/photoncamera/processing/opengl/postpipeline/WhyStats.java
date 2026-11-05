@@ -163,6 +163,7 @@ public final class WhyStats extends Node {
         final boolean legacy = com.particlesdevs.photoncamera.processing.opengl.PostGlMode.legacy();
         WhyAe.Settings settings = WhyTone.settings();
         settings.portraitFace = pipeline.mParameters.portraitEnabled && pipeline.mParameters.portraitFaceDetected;
+        if (settings.portraitFace) WhyTone.portraitOffsets(settings);   // P513
         settings.noiseS = pipeline.noiseS;
         settings.noiseO = pipeline.noiseO;
         // P501: the press's «Движение» ceiling or the camera's post-RAW gain of the shot (RawBoost), the larger
@@ -225,8 +226,11 @@ public final class WhyStats extends Node {
             int iso = pipeline.mParameters.iso, maxIso = maxAnalogIso(pipeline.mParameters);
             final String[] clampLine = new String[1];
             WhyAe.Settings settings = aeSettings(pipeline, WorkingTexture.mSize.x, WorkingTexture.mSize.y, st.inScale, clampLine);
-            if (settings.portraitFace && pipeline.mParameters.portraitSkinWarmth) {
+            // P512: the faces' skin is measured whenever a face is found - its luminance leads «Приоритет лиц в AE», its colour Face AWB
+            // and the face mask; the skin-tone correction itself stays with «Естественный цвет кожи»
+            if (settings.portraitFace) {
                 st.portrait = PortraitGpu.measure(glProg, st.low, pipeline.mParameters.portraitFaces);
+                if (st.portrait != null && !pipeline.mParameters.portraitSkinWarmth) java.util.Arrays.fill(st.portrait.adjust, 0f);
                 Log.i("SCAM_PIPELINE", "Portrait: face protection, skin faces=" + (st.portrait == null ? 0 : st.portrait.count));
             }
             final String dcgLog = settings.dcg ? " dcg(isoScale=" + settings.dcgIsoScale + ")" : "";
@@ -296,6 +300,7 @@ public final class WhyStats extends Node {
             if (gpu != null) {
                 final boolean early = sharpenIssued ? earlyIssued : earlySharpen != null && earlySharpen.runEarly(pipeline, WorkingTexture);
                 WhyAe.Result r = WhyAe.finish(gpu, settings, iso, maxIso);
+                WhyTone.facePriority(r, st.portrait);   // P512
                 st.ae = r;
                 pipeline.linearDisplayGain = r.ae;
                 Log.i("SCAM_PIPELINE", "WHY SMART_HDR_STAT " + r.describe() + " iso=" + iso + " maxIso=" + maxIso
@@ -336,6 +341,7 @@ public final class WhyStats extends Node {
             final boolean early = sharpenIssued ? earlyIssued : !legacy && earlySharpen != null && earlySharpen.runEarly(pipeline, WorkingTexture);
             WhyAe.Result r = half ? WhyAe.smartHdrHalf(pixels.asShortBuffer(), 4, lowSize.x, lowSize.y, settings, iso, maxIso)
                     : WhyAe.smartHdr(pixels.asFloatBuffer(), 4, lowSize.x, lowSize.y, settings, iso, maxIso);
+            WhyTone.facePriority(r, st.portrait);   // P512
             st.ae = r;
             // Ultra HDR and anything else downstream that reads the display gain: the mod's exposure.
             pipeline.linearDisplayGain = r.ae;

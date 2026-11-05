@@ -25,7 +25,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class WhyCombineUniformParityTest {
     /** What the viewfinder's frame has not (LiveWhyTone's class comment): headroom, landing, sun bloom, the full-size merge, clip flags. */
-    static final Set<String> PHOTO_ONLY = new HashSet<>(Arrays.asList("hrU", "hrKneeU", "hrRoomU", "hrEaseU", "hrDetailU", "hlSoftU", "sunBloomU", "sunGateU", "hlLocalU",
+    static final Set<String> PHOTO_ONLY = new HashSet<>(Arrays.asList("hrU", "hrKneeU", "hrRoomU", "hrEaseU", "hrDetailU", "hlSoftU", "sunBloomU", "sunGateU", "hlLocalU", "faceAU", "faceBU", "faceAwbU", "FaceMask",
             "sunGridU", "fullInputU", "WhyHl", "SunBloom", "oppGridU", "OppShare",
             // P394: reads the full-size merge (fullInputU), which the viewfinder's frame is not
             "edgeHoldU"));

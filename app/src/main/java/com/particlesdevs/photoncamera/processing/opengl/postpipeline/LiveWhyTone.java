@@ -553,14 +553,14 @@ public final class LiveWhyTone {
         refreshColourOn();
         lw = WhyTone.layerWeights();
         center = WhyTone.fusionCenter();
-        smooth = WhyTone.value("blend_smoothness", 1f);
+        smooth = WhyTone.value("blend_smoothness", 0.45f);
         gammaInv = 1f / WhyTone.gamma();
         toe = WhyTone.value("aces_toe", 0.05f);
         radius = WhyFusion.GF_RADIUS > 1 ? WhyFusion.GF_RADIUS >> 1 : 1;
         eps = WhyFusion.GF_EPS;
         mono = WhyTone.fusionMono();
         inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
-        macro = WhyTone.value("macro_contrast", 1f);
+        macro = WhyTone.value("macro_contrast", 1.1f);
         vib = new float[]{WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f)};
         hlWhite = Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f)));
         filmToe = WhyTone.value("film_toe", 0f);
@@ -1088,7 +1088,7 @@ public final class LiveWhyTone {
             float[][] uchi = WhyTone.uchimuraUniforms();
             GLES20.glUniform4f(loc(p, "uchiAU"), uchi[0][0], uchi[0][1], uchi[0][2], uchi[0][3]);
             GLES20.glUniform4f(loc(p, "uchiBU"), uchi[1][0], uchi[1][1], uchi[1][2], uchi[1][3]);
-            float[] curve = WhyTone.curveSamples();
+            float[] curve = WhyTone.curveSamples(settings.portraitFace);   // P512: the portrait curve with a face
             GLES20.glUniform4fv(loc(p, "curveU"), Math.min(64, curve.length / 4), curve, 0);
             set(p, "curveBoostU", WhyTone.curveBoost(r.contrastC));   // P404, as the photo
         }

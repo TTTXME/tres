@@ -92,8 +92,8 @@ public final class WhyTone {
      * the one bright layer 1.0 (the closest to the old set's shadows and mid-tones of the curves on a grid of strengths).
      */
     static float[] layerWeights() {
-        if (whyLayout()) return new float[]{value("classic_weight_ext_hl", 1f), value("classic_weight_mid", 1f), value("classic_weight_hl", 1f),
-                value("classic_weight_shadow", 1.5f)};
+        if (whyLayout()) return new float[]{value("classic_weight_ext_hl", 0.7f), value("classic_weight_mid", 2f), value("classic_weight_hl", 1f),
+                value("classic_weight_shadow", 1f)};
         return new float[]{value("weight_hl", LAYER_WEIGHTS[0]), value("weight_mid", LAYER_WEIGHTS[1]),
                 value("weight_dark2", LAYER_WEIGHTS[2]), value("weight_bright", LAYER_WEIGHTS[3])};
     }
@@ -117,7 +117,7 @@ public final class WhyTone {
     /** AE / Smart-HDR / AgX settings (defaults: WhyCam 2.85 X8U effective values, tone_port.md section 3). */
     static WhyAe.Settings settings() {
         WhyAe.Settings s = new WhyAe.Settings();
-        s.aeTarget = value("ae_target", 0.18f);
+        s.aeTarget = value("ae_target", 0.15f);
         s.maxBoost = value("ae_max_boost", 5.0f);
         s.minLimit = Math.min(value("ae_min_limit", 0.5f), s.maxBoost);
         s.hlOverflow = value("hl_overflow", 2.0f);
@@ -133,10 +133,10 @@ public final class WhyTone {
         s.noiseMax = nightVal;
         s.nightDim = value("night_dim", 1.0f);
         s.metering = Math.round(value("metering", 0f));
-        s.brightThresh = value("bright_thresh", 1f);
-        s.darkThresh = value("dark_thresh", 10f);
-        s.darkPixelThresh = value("dark_pixel_thresh", 22.5f);
-        s.hlBoost = value("hl_boost", 1f);
+        s.brightThresh = value("bright_thresh", 0.9f);
+        s.darkThresh = value("dark_thresh", 12.5f);
+        s.darkPixelThresh = value("dark_pixel_thresh", 22f);
+        s.hlBoost = value("hl_boost", 1.1f);
         s.contrastBoost = value("contrast_boost", 0.3f);
         s.shadowStr = Math.max(value("shadow_str", 2.0f), 0f);
         // P442: a night scene (median EV100 from night_ev_hi down to night_ev_lo) meters to night_ae_target and lifts its shadows
@@ -145,7 +145,7 @@ public final class WhyTone {
         s.nightEvLo = value("night_ev_lo", 5.0f);
         s.nightAeTarget = value("night_ae_target", 0.13f);
         s.nightShadowStr = Math.max(value("night_shadow_str", 1.5f), 0f);   // pushCurrentLut 0x80db8
-        s.highlightStr = value("highlight_str", 2f);
+        s.highlightStr = value("highlight_str", 2.1f);
         s.efEnabled = true;
         s.look = Math.round(value("agx_look", 4f));
         s.slope = value("agx_slope", 2.45f);
@@ -480,7 +480,7 @@ public final class WhyTone {
 
     static float vibranceHl() {
         // P419: the visible «Сочность в светах» in the reference app's units (its config 0.25 = P407's factor 1), x the dev factor
-        return Math.max(0f, value("vibrance_hl", 1.0f) * value("vibrance_hl_str", VIBRANCE_HL_STR) / VIBRANCE_HL_STR);
+        return Math.max(0f, value("vibrance_hl", 1.0f) * value("vibrance_hl_str", 0f) / VIBRANCE_HL_STR);
     }
 
     /** P419: the default «Сочность в светах» (the reference app's config: pref_vibrance_hl_strength_key 0.25). */
@@ -655,6 +655,81 @@ public final class WhyTone {
         final float slope = value("agx_slope", 2.45f), sp = value("agx_sp", 1.35f), tp = value("agx_tp", 2.0f),
                 minEv = value("agx_min_ev", -8.5f), maxEv = value("agx_max_ev", 3.5f), ev = value("agx_ev", 0f);
         return x -> com.particlesdevs.photoncamera.processing.color.ToneCurve.agxAt((float) x, slope, sp, tp, minEv, maxEv, ev);
+    }
+
+    /**
+     * P512 «Маска лица»: {exposure EV, contrast, saturation, warmth, tint, smoothing, detail, show, size, skin follow} from
+     * pref_scam_hybrid_why_face_* (percent settings / 100), or null when nothing would change (the shader keeps FACE_MASK 0).
+     */
+    static float[] faceMask() {
+        if (!PreferenceKeys.hybridSwitch("why_face_mask_on", true)) return null;   // «Маска лица» off
+        final float[] m = {clampF(value("face_exposure", 0f), -2f, 2f), clampF(value("face_contrast", 0f) / 100f, -1f, 1f),
+                clampF(value("face_saturation", 0f) / 100f, -1f, 1f), clampF(value("face_warmth", 0f) / 100f, -1f, 1f),
+                clampF(value("face_tint", 0f) / 100f, -1f, 1f), clampF(value("face_smooth", 0f) / 100f, 0f, 1f),
+                clampF(value("face_detail", 0f) / 100f, -1f, 1f), PreferenceKeys.hybridSwitch("why_face_mask_show", false) ? 1f : 0f,
+                clampF(value("face_mask_size", 100f) / 100f, 0.5f, 1.5f), clampF(value("face_mask_skin", 100f) / 100f, 0f, 1f)};
+        boolean any = m[7] > 0f;
+        for (int i = 0; i < 7; i++) any |= Math.abs(m[i]) > 1e-4f;
+        return any ? m : null;
+    }
+
+    private static float clampF(float v, float lo, float hi) {
+        return Float.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : 0f;
+    }
+
+    /** P513: the portrait curve's default points (the owner's reference config init35burial_v3_3, 2026-11-05). */
+    static final String PORTRAIT_POINTS = "0.0000:0.0000,0.0625:0.0147,0.1250:0.0349,0.1875:0.0642,0.2500:0.1108,0.3125:0.1870,0.3750:0.2822,0.4375:0.3900,0.5000:0.5100,0.5625:0.6362,0.6250:0.7587,0.6875:0.8677,0.7500:0.9524,0.8125:0.9996,0.8750:1.0000,0.9375:1.0000,1.0000:1.0000";
+
+    /**
+     * P513 (the owner's config init35burial_v3_3: the reference's portrait offsets, «portrait_offset_*»): with a face found the AE target
+     * +0.05 and the dark-pixel threshold +0.5 (the macro contrast already goes to 1.0 there, P473); scam_dev hybrid_why_portrait_off_*.
+     */
+    static void portraitOffsets(WhyAe.Settings s) {
+        s.aeTarget += value("portrait_off_ae_target", 0.05f);
+        s.darkPixelThresh += value("portrait_off_dark_pixel", 0.5f);
+    }
+
+    /**
+     * P512: the band of skin luminance (after the exposure) «Приоритет лиц в AE» leaves alone. The six face scenes of D:/burst/face:
+     * well exposed faces at 0.09 - 0.11 (whyLow, x ae), a bright one at 0.24, a backlit one at 0.017.
+     */
+    static final float FACE_LO = 0.09f, FACE_HI = 0.20f;
+
+    /**
+     * P512 (owner, 2026-11-05: the reference's «Приоритет лиц в AE», 0.70): with a face found, the exposure moves {@code priority}
+     * of the way (in stops) from the scene's towards the one that puts the measured skin into {@link #FACE_LO} .. {@link #FACE_HI}, at most one stop
+     * either way and never past the noise limit the scene's exposure respected; 0 = the scene's exposure as before.
+     */
+    static void facePriority(WhyAe.Result r, @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.Result p) {
+        if (r == null || !r.portraitFace || p == null) return;
+        final float priority = Math.max(0f, Math.min(1f, value("portrait_ae", 1f)));
+        final float face = com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.faceLuma(p);
+        if (priority <= 0f || !(face > 0f) || !(r.ae > 0f)) return;
+        final float factor = faceFactor(r.ae, face, priority);
+        float ae = r.ae * factor;
+        if (factor > 1f && r.maxGainByNoise > 0f) ae = Math.min(ae, Math.max(r.ae, r.maxGainByNoise));
+        android.util.Log.i("SCAM_PIPELINE", String.format(java.util.Locale.ROOT, "Portrait AE: skin %.4f x ae %.4f -> %.4f (priority %.2f, ae %.4f -> %.4f)",
+                face, r.ae, face * ae, priority, r.ae, ae));
+        r.ae = ae;
+    }
+
+    /** P512: the exposure factor: (the band's nearest edge / (skin x ae)) ^ priority within 1/2 .. 2; 1 inside the band. */
+    static float faceFactor(float ae, float face, float priority) {
+        final float now = Math.max(face * ae, 1e-6f), target = Math.max(FACE_LO, Math.min(FACE_HI, now));
+        return (float) Math.max(0.5, Math.min(2.0, Math.pow(target / now, priority)));
+    }
+
+    /**
+     * P512 «Портретная тоновая кривая»: with a face found and the portrait curve on, the curve and its modifiers of the portrait
+     * group (pref_scam_hybrid_why_portrait_curve_*) instead of the own curve's.
+     */
+    static float[] curveSamples(boolean face) {
+        if (!face || !PreferenceKeys.hybridSwitch("why_portrait_curve_on", true)) return curveSamples();
+        return curveModified(com.particlesdevs.photoncamera.processing.color.ToneCurve
+                .parse(PreferenceKeys.hybridString("why_portrait_curve_points", PORTRAIT_POINTS))
+                .samples(com.particlesdevs.photoncamera.processing.color.ToneCurve.SAMPLES), new float[]{value("portrait_curve_lift", 0f),
+                value("portrait_curve_contrast", 0f), value("portrait_curve_shadow_contrast", 0f), value("portrait_curve_highlight_contrast", 0f),
+                value("portrait_curve_deep_shadows", -10f), value("portrait_curve_extreme_highlights", 10f), value("portrait_curve_offset", 0f)});
     }
 
     /** The own curve's 256 samples (pref_scam_hybrid_why_curve_points, WhyCam's S when empty). */
