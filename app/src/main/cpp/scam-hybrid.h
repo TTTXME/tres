@@ -701,6 +701,14 @@ struct HybridTuning {
     // unchanged; the app sends 1)
     float baseDemosaicAlias=0.f;
     float baseDemosaicDetailLo=0.f,baseDemosaicDetailHi=0.01f;
+    // P523 (Ark X8U Quad bursts, moving people: pink stripes and dots that Ark renders neutral): the Quad / Tetra base demosaic
+    // damps an aliasing colour difference toward R - G = B - G = 0, which in sensor RGB is no neutral (R ~ 0.5 G before the white
+    // balance): magenta once balanced. baseDemosaicNeutral: the share of that damping that goes toward the camera neutral instead
+    // (wbR / wbB, else the base frame's grey world over its colour blocks); 0 = as before. Synthetic Quad / Tetra bursts with a
+    // sensor neutral of 0.48 / 1 / 0.65 (gen_mosaic_burst scene x that, 1 and 4 frames): false colour on the neutral bars
+    // 0.41 -> 0.07 (Quad) and 0.064 -> 0.018 (Tetra), on the neutral zone plate 0.097 -> 0.023, edges and background unchanged,
+    // aliased colour bars 0.37 -> 0.41 (their aliasing damped toward the neutral instead of toward magenta).
+    float baseDemosaicNeutral=1.f;
     float baseDemosaicBayerLo=1.3f,baseDemosaicBayerHi=2.5f; // Bayer: the base noise model holds there (flat sky ~1) // off: flat areas measured ~2, structure 20-50 (the base noise model reads low)
     // P269 (owner, 2026-10-19: «Посмотри как работает маска бенто в why кам и посмотри как можно улучшить нашу»): the
     // ultrashort frame's check of the mask reads it at the aligned position (bilinear between the 2x2 cells, as LMC 9.6 renders
@@ -1232,7 +1240,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("localAlign",nullptr,&t.localAlign)||set("laWin",nullptr,&t.laWin)||set("laStride",nullptr,&t.laStride)||set("laIters",nullptr,&t.laIters)
             ||set("laItersCoarse",nullptr,&t.laItersCoarse)||set("laMu",&t.laMu)||set("laKappa",&t.laKappa)||set("laMaxShift",&t.laMaxShift)
             ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
-            ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
+            ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
             ||set("caCorrect",nullptr,&t.caCorrect)||set("caMinShift",&t.caMinShift)
             // P29 native mosaic path
             ||set("mosaicNative2x",nullptr,&t.mosaicNative2x)||set("mosaicTetraWindow2x",nullptr,&t.mosaicTetraWindow2x)||set("mosaicPath",nullptr,&t.mosaicPath)||set("mosaicRemosaic",nullptr,&t.mosaicRemosaic)||set("mosaicWindow",nullptr,&t.mosaicWindow)||set("mosaicKernelScale",&t.mosaicKernelScale)
@@ -5255,6 +5263,7 @@ float natBaseFill(int c,vec2 O){
 #endif
 uniform vec4 natDemU; // x = share at F = 0, y = anisotropy, z = cone slope (1 / radius in sites), w = cells a side (3 Quad, 5 Tetra)
 uniform vec2 natDemD; // the structure / noise ratio from which (x) to which (y) the demosaic takes over
+uniform vec3 natDemN; // P523: x, y = the camera neutral R / G, B / G of the sites; z = share of the damping toward it
 bool natDemosaic(vec2 S,float g,out vec3 rgb,out float detail){
     int s=natV.x;
     ivec2 N=ivec2(floor(S+0.5));
@@ -5418,7 +5427,9 @@ bool natDemosaic(vec2 S,float g,out vec3 rgb,out float detail){
     }
     if(lw<=1.0e-6)return false;
     float G=lum/lw;
-    vec3 o=vec3(G+dR*damp,G,G+dB*damp);
+    // P523: the aliasing damping toward the camera neutral (share natDemN.z), not toward R = G = B of the sensor
+    float nz=natDemN.z*(1.0-damp)*max(G,0.0);
+    vec3 o=vec3(G+dR*damp+nz*(natDemN.x-1.0),G,G+dB*damp+nz*(natDemN.y-1.0));
     // the luma inside the greens' range (no overshoot at an edge); red and blue keep their colour difference to it (a clamp of
     // their own sites' range would bring the block aliasing back)
     if(hi[1]>=lo[1]){float Gc=clamp(o.y,lo[1],hi[1]);o+=vec3(Gc-o.y);}
@@ -5759,6 +5770,31 @@ struct HybridUsLocal {
         return top*(1.f-ay)+bot*ay;
     }
 };
+// P523: the camera neutral R / G, B / G of a colour-block mosaic's sites for the base demosaic's damping: wbR / wbB when given (the
+// camera's neutral, as AsShotNeutral), else the grey world of the base frame over its unclipped b x b colour blocks (every 4th
+// group of 2x2 blocks per axis), the block's colour from its parity and the CFA order of the blocks.
+inline std::array<float,2> hybridMosaicNeutral(const HybridInput& input,int b,const HybridTuning& t){
+    if(t.wbR>0.f&&t.wbB>0.f&&std::isfinite(t.wbR)&&std::isfinite(t.wbB))return {std::clamp(t.wbR,0.1f,10.f),std::clamp(t.wbB,0.1f,10.f)};
+    const uint16_t* raw=input.frames.empty()?nullptr:input.frames[0].raw;
+    if(!raw||b<1)return {1.f,1.f};
+    const int bw=input.w/b,bh=input.h/b,sx=input.cfa&1,sy=input.cfa>>1;
+    double sum[3]{},cnt[3]{};
+    for(int qy=0;qy+1<bh;qy+=4)for(int qx=0;qx+1<bw;qx+=4)for(int p=0;p<4;p++){ // every colour of a 2x2 group of blocks
+        const int bx=qx+(p&1),by=qy+(p>>1);
+        const int ph=(((by+sy)&1)<<1)|((bx+sx)&1),col=ph==0?0:ph==3?2:1;
+        double s=0;bool clip=false;
+        for(int j=0;j<b&&!clip;j++)for(int i=0;i<b;i++){
+            const int X=bx*b+i,Y=by*b+j,q=((Y&1)<<1)|(X&1);
+            const float v=(float(raw[size_t(Y)*input.w+X]&0x3FFF)-input.black[q])/std::max(input.white-input.black[q],1.f);
+            if(v>=0.98f){clip=true;break;}
+            s+=v;
+        }
+        if(!clip){sum[col]+=s;cnt[col]+=1.0;}
+    }
+    if(!(sum[0]>0.0&&sum[1]>0.0&&sum[2]>0.0))return {1.f,1.f};
+    const double g=sum[1]/cnt[1]; // the mean of each colour's unclipped blocks
+    return {float(std::clamp(sum[0]/cnt[0]/g,0.1,10.0)),float(std::clamp(sum[2]/cnt[2]/g,0.1,10.0))};
+}
 struct HybridMosaicNative {
     int block=2,W=0,H=0;                 // colour block b and size of the mosaic the merge reads (W = b x the binned width)
     std::vector<const uint16_t*> frames; // mosaic of frame k of the binned burst (same index), W x H sensor layout: the sensor RAW
@@ -5771,6 +5807,7 @@ struct HybridMosaicNative {
     float kernelScale=1.f;               // HybridTuning::mosaicKernelScale
     float ksG=1.f,ksRB=1.f;              // HybridTuning::mosaicKernelG / RB (distance multipliers per colour)
     float fillSupport=0.f;               // S5 R / B fill: minimum support relative to green (0 = off)
+    std::array<float,2> neutral{1.f,1.f}; // P523: the camera neutral R / G, B / G of the sites (hybridMosaicNeutral)
     float keyNoise=1.f;                  // the binned frames' noise model x this = the noise of one SENSOR site: the SNR keys of the kernel
                                          // curves (Sabre 6.1 / round 4, the night rule, the outlier gate) follow the sensor sites as on the
                                          // split and in S0, not the binned averages (nor T2's 2x2 means)
@@ -7697,6 +7734,7 @@ public:
                 glUniform4f(loc(mosaicProgram,"natDemU"),std::clamp(tune.baseDemosaic,0.f,1.f),std::clamp(tune.baseDemosaicAniso,0.f,2.f),
                             nb==4?1.f/2.6f:1.f/2.2f,nb==4?5.f:3.f);
                 glUniform2f(loc(mosaicProgram,"natDemD"),tune.baseDemosaicDetailLo,std::max(tune.baseDemosaicDetailHi,tune.baseDemosaicDetailLo+0.01f));
+                glUniform3f(loc(mosaicProgram,"natDemN"),nat->neutral[0],nat->neutral[1],std::clamp(tune.baseDemosaicNeutral,0.f,1.f)); // P523
             }
             glUseProgram(mergeMain);
             check("native uniforms");
@@ -16597,6 +16635,11 @@ inline std::vector<float> hybridReconstructMosaicNativeMerge(const HybridInput& 
     bin.mergedDng=false;bin.clipFlags=input.clipFlags;bin.grid=mb*k2;bin.mosaic=1;bin.subFrames=0;bin.strict2x=input.strict2x;
     HybridMosaicNative nat;nat.block=mb;nat.W=MW;nat.H=MH;nat.window=window;nat.fullWindow=fullWindow;nat.kernelScale=kernelScale;nat.ksG=ksG;nat.ksRB=ksRB;nat.fillSupport=fill;
     nat.rawGains=!t2;nat.gains=gain;nat.field=field;nat.widenRule=std::clamp(tune.mosaicNativeWiden,0,2);
+    if(tune.baseDemosaic>0.f&&tune.baseDemosaicNeutral>0.f){
+        nat.neutral=hybridMosaicNeutral(input,b,tune); // the sensor's colour blocks (Tetra T2 merges 2x2 sub-blocks)
+        report("HYBRID MOSAIC NATIVE: base demosaic neutral R/G "+std::to_string(nat.neutral[0])+" B/G "+std::to_string(nat.neutral[1])
+            +(tune.wbR>0.f&&tune.wbB>0.f?" (camera neutral)":" (grey world of the base's colour blocks)"));
+    }
     nat.widenMul=std::clamp(mb==4?tune.mosaicTetraWidenMul:tune.mosaicNativeWidenMul,1.f,8.f);
     nat.widenFrames=std::max(mb==4?tune.mosaicTetraWidenFrames:tune.mosaicNativeWidenFrames,0.01f);
     if(nat.widenRule==2)report("HYBRID MOSAIC NATIVE: base widening by accepted frames F: sigma x"+std::to_string(nat.widenMul)

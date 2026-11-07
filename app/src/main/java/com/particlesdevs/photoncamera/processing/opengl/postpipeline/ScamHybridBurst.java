@@ -175,6 +175,8 @@ public final class ScamHybridBurst implements ScamTransport {
     private final android.hardware.camera2.CameraCharacteristics shotCamera;
     /** P366: the base frame's EV100 for the worker (tuning usSceneEv, {@link #sceneEv100}); NaN when its exposure is unknown. */
     final float sceneEv;
+    /** P523: the camera neutral R / G, B / G of the RAW (the shot's white point) for the worker; null when unusable. */
+    final float[] neutral;
 
     /**
      * P27: one frame never costs the shot. A frame without a usable RAW, role or exposure, or whose payload is not plain 16-bit,
@@ -366,6 +368,7 @@ public final class ScamHybridBurst implements ScamTransport {
         base = best;
         // P366: the scene brightness of the merge's base frame (the ISO a DCG frame's noise model takes: its analog gain)
         sceneEv = sceneEv100(base.measuredExposure, Math.max(1, Math.round(base.measuredIso / dcgIsoScale)), p.aperture);
+        neutral = neutralOf(p.whitePoint);
         if (moment) Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "motion: base = frame %d, %.1f ms before the moment's frame (%d after it skipped)",
                 base.number, (anchor - base.timestamp) / 1e6, start));
         final double ref = product(base);
@@ -800,7 +803,7 @@ public final class ScamHybridBurst implements ScamTransport {
         // P267: the remosaic and the mosaic DNG layout first (still after the user's tuning)
         return REMOSAIC_TUNING + (dngMosaic > 1 ? "dngMosaic 1\n" : "") + (conservative ? CONSERVATIVE_TUNING : "") + avoidedTuning()
                 + (scamMergeBlack && !avoidedSteps.contains(STEP_FAST) && !fastRouteHung ? PreferenceKeys.FAST_TUNING : "") // P501
-                + sceneEvTuning(sceneEv)
+                + sceneEvTuning(sceneEv) + neutralTuning(neutral)
                 + (strictTwoX ? "grid 2\nauto2x 0\n" : "") + seriesTuning() + (dcg ? dcgTuning(com.particlesdevs.photoncamera.capture.HybridPlan.bentoMode()) : "");
     }
     /**
@@ -818,6 +821,20 @@ public final class ScamHybridBurst implements ScamTransport {
         if (exposureNs <= 0 || iso <= 0 || !(aperture > 0f) || !Float.isFinite(aperture)) return Float.NaN;
         final double t = exposureNs * 1e-9, n = aperture;
         return (float) (Math.log(n * n / t / (iso / 100.0)) / Math.log(2.0));
+    }
+    /**
+     * P523 (Ark X8U Quad bursts, moving people: pink stripes): the worker's Quad / Tetra base demosaic damps its aliasing colour
+     * toward the camera neutral (HybridTuning::baseDemosaicNeutral; without these lines the base frame's grey world). The white
+     * point is the RAW's neutral normalised to green; null when it is not one (unset, non-finite, outside 0.1..10).
+     */
+    static float[] neutralOf(float[] wp) {
+        if (wp == null || wp.length < 3 || !(wp[1] > 0f) || !Float.isFinite(wp[1])) return null;
+        final float r = wp[0] / wp[1], b = wp[2] / wp[1];
+        return r >= 0.1f && r <= 10f && b >= 0.1f && b <= 10f ? new float[]{r, b} : null;
+    }
+    /** P523: the neutral's lines for the worker (none when unknown). */
+    static String neutralTuning(float[] n) {
+        return n == null ? "" : String.format(Locale.ROOT, "wbR %.5f\nwbB %.5f\n", n[0], n[1]);
     }
     /** P366: the burst's EV100 line for the worker (none when unknown). */
     static String sceneEvTuning(float ev) {

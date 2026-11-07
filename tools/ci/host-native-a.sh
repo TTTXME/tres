@@ -15,6 +15,9 @@ g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_pref
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-prefetch
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_native_widen.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-native-widen
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-native-widen
+# P523: the Quad / Tetra base demosaic damps its aliasing colour toward the camera neutral (not magenta)
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_native_neutral.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-native-neutral
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-native-neutral
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_native_cull_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-native-cull-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-native-cull-gpu
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_us_cache_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-us-cache-gpu

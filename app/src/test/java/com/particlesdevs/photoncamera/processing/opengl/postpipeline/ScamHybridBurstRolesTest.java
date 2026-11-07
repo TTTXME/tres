@@ -129,6 +129,28 @@ public class ScamHybridBurstRolesTest {
         assertFalse(unknown.tuningOverride(), unknown.tuningOverride().contains("usSceneEv"));
     }
 
+    /** P523 (Ark X8U Quad bursts, moving people: pink stripes): the RAW's neutral goes to the worker for the Quad / Tetra base
+     *  demosaic; no usable white point, no line (the worker takes the base frame's grey world). */
+    @Test public void cameraNeutralGoesToTheWorker() throws Exception {
+        assertArrayEquals(new float[]{0.4787f, 0.6535f}, ScamHybridBurst.neutralOf(new float[]{0.4787f, 1f, 0.6535f}), 1e-6f);
+        assertArrayEquals(new float[]{0.5f, 0.25f}, ScamHybridBurst.neutralOf(new float[]{1f, 2f, 0.5f}), 1e-6f);
+        assertNull(ScamHybridBurst.neutralOf(new float[3]));
+        assertNull(ScamHybridBurst.neutralOf(null));
+        assertNull(ScamHybridBurst.neutralOf(new float[]{0.01f, 1f, 0.6f}));
+        assertNull(ScamHybridBurst.neutralOf(new float[]{Float.NaN, 1f, 0.6f}));
+        assertEquals("wbR 0.47870\nwbB 0.65350\n", ScamHybridBurst.neutralTuning(new float[]{0.4787f, 0.6535f}));
+        assertEquals("", ScamHybridBurst.neutralTuning(null));
+        List<ImageFrame> frames = new ArrayList<>();
+        for (int i = 0; i < 3; i++) frames.add(frame(ImageFrame.CaptureRole.NORMAL, 10_000_000L, 100));
+        Constructor<ScamHybridBurst> c = ScamHybridBurst.class.getDeclaredConstructor(List.class, Parameters.class, boolean.class);
+        c.setAccessible(true);
+        Parameters p = parameters(); p.whitePoint = new float[]{0.4787f, 1f, 0.6535f};
+        ScamHybridBurst b = c.newInstance(frames, p, false);
+        assertTrue(b.tuningOverride(), b.tuningOverride().contains("wbR 0.47870\nwbB 0.65350\n"));
+        ScamHybridBurst none = c.newInstance(new ArrayList<>(frames), parameters(), false);
+        assertFalse(none.tuningOverride(), none.tuningOverride().contains("wbR"));
+    }
+
     @Test public void longFramesDeliveredAtNAreMergedAsN() throws Exception {
         List<ImageFrame> frames = new ArrayList<>();
         for (int i = 0; i < 3; i++) frames.add(frame(ImageFrame.CaptureRole.NORMAL, 10_000_000L, 320));
