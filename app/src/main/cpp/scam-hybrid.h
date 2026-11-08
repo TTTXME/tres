@@ -753,6 +753,11 @@ struct HybridTuning {
     // P543: the Tetra merge's notch (kTetraNotch: 1/8 cycles / px in a narrow band, sigma 8; a single frame up; coverage 0.4 .. 0.8
     // of the 80th percentile): its strength, 0 = off (as before P543)
     float mosaicTetraLatticeNotch=1.f;
+    // P548 (owner, 2026-11-08: «Почини штрихи у фары на Tetra 2»): round a clipped light a Tetra sensor's RAW holds a diagonal
+    // checker of its 4x4 blocks (in the base frame alone too; its colour differs block by block, 28 frames accepted there): a per-colour
+    // notch at +-(1/8, 1/8) within this many px of a clipped pixel (the clipped ones left out of its estimate; full share to half the
+    // reach, none at 1.5x). 0 = off
+    float mosaicTetraNotchClipReach=32.f;
     // P544: the Tetra native merge's saturated sums (natSatU: (1 + it) den / (den + it) per colour and frame) where the donors' mean
     // robustness is below Hi (fully below Lo); 0 = off. Tetra burst 2: the 4 px checker's energy -86 % (a car far down the road) and
     // -83 % (cars by a sign); the fine detail 0.998 (Tetra 2), 0.999 (Tetra 1), the roof tiles 1.006 (before: the frames' weights).
@@ -1300,7 +1305,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("localAlign",nullptr,&t.localAlign)||set("laWin",nullptr,&t.laWin)||set("laStride",nullptr,&t.laStride)||set("laIters",nullptr,&t.laIters)
             ||set("laItersCoarse",nullptr,&t.laItersCoarse)||set("laMu",&t.laMu)||set("laKappa",&t.laKappa)||set("laMaxShift",&t.laMaxShift)
             ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
-            ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicTetraRadius",&t.baseDemosaicTetraRadius)||set("baseDemosaicSharpLo",&t.baseDemosaicSharpLo)||set("baseDemosaicSharpHi",&t.baseDemosaicSharpHi)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("mosaicAlongEdge",&t.mosaicAlongEdge)||set("mosaicAlongEdgeK",&t.mosaicAlongEdgeK)||set("mosaicTetraAlongEdgeK",&t.mosaicTetraAlongEdgeK)||set("mosaicClipShare",&t.mosaicClipShare)||set("mosaicBorderShare",&t.mosaicBorderShare)||set("baseDemosaicCover",nullptr,&t.baseDemosaicCover)||set("mosaicLatticeNotch",&t.mosaicLatticeNotch)||set("mosaicTetraLatticeNotch",&t.mosaicTetraLatticeNotch)||set("mosaicTetraFrameSat",&t.mosaicTetraFrameSat)||set("mosaicTetraFrameSatLo",&t.mosaicTetraFrameSatLo)||set("mosaicTetraFrameSatHi",&t.mosaicTetraFrameSatHi)||set("mosaicQuadFrameSat",&t.mosaicQuadFrameSat)||set("mosaicQuadFrameSatLo",&t.mosaicQuadFrameSatLo)||set("mosaicQuadFrameSatHi",&t.mosaicQuadFrameSatHi)||set("mosaicDezip",nullptr,&t.mosaicDezip)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
+            ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicTetraRadius",&t.baseDemosaicTetraRadius)||set("baseDemosaicSharpLo",&t.baseDemosaicSharpLo)||set("baseDemosaicSharpHi",&t.baseDemosaicSharpHi)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("mosaicAlongEdge",&t.mosaicAlongEdge)||set("mosaicAlongEdgeK",&t.mosaicAlongEdgeK)||set("mosaicTetraAlongEdgeK",&t.mosaicTetraAlongEdgeK)||set("mosaicClipShare",&t.mosaicClipShare)||set("mosaicBorderShare",&t.mosaicBorderShare)||set("baseDemosaicCover",nullptr,&t.baseDemosaicCover)||set("mosaicLatticeNotch",&t.mosaicLatticeNotch)||set("mosaicTetraLatticeNotch",&t.mosaicTetraLatticeNotch)||set("mosaicTetraNotchClipReach",&t.mosaicTetraNotchClipReach)||set("mosaicTetraFrameSat",&t.mosaicTetraFrameSat)||set("mosaicTetraFrameSatLo",&t.mosaicTetraFrameSatLo)||set("mosaicTetraFrameSatHi",&t.mosaicTetraFrameSatHi)||set("mosaicQuadFrameSat",&t.mosaicQuadFrameSat)||set("mosaicQuadFrameSatLo",&t.mosaicQuadFrameSatLo)||set("mosaicQuadFrameSatHi",&t.mosaicQuadFrameSatHi)||set("mosaicDezip",nullptr,&t.mosaicDezip)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
             ||set("caCorrect",nullptr,&t.caCorrect)||set("caMinShift",&t.caMinShift)
             // P29 native mosaic path
             ||set("mosaicNative2x",nullptr,&t.mosaicNative2x)||set("mosaicTetraWindow2x",nullptr,&t.mosaicTetraWindow2x)||set("mosaicPath",nullptr,&t.mosaicPath)||set("mosaicRemosaic",nullptr,&t.mosaicRemosaic)||set("mosaicWindow",nullptr,&t.mosaicWindow)||set("mosaicKernelScale",&t.mosaicKernelScale)
@@ -6129,6 +6134,121 @@ inline size_t hybridLatticeNotch(std::vector<float>& rgb,int W,int H,const std::
     size_t total=0;
     for(size_t c:changed)total+=c;
     return total;
+}
+// P548: the Tetra sensor's own diagonal checker round a clipped light (HybridTuning::mosaicTetraNotchClipReach): per colour, the
+// local complex amplitude at +-(1/8, 1/8) cycles / px of the high-pass (gaussian 3, both normalised by the unclipped pixels: a clipped
+// one is no sample of the glow) over a gaussian 4 px, taken off within reach of a clipped pixel (full to reach / 2, none from 1.5
+// reach; less where few unclipped pixels hold the estimate). Only the 64 px tiles near clipped ones, in connected groups, each read
+// from the input as it was. rgb and flags on the same grid. Returns the pixels changed.
+inline size_t hybridClipLatticeNotch(std::vector<float>& rgb,int W,int H,const std::vector<uint8_t>& flags,float reach){
+    if(!(reach>0.f)||W<16||H<16||flags.size()<size_t(W)*H||rgb.size()<size_t(W)*H*3)return 0;
+    const int T=64,tw=(W+T-1)/T,th=(H+T-1)/T,span=int(std::ceil(1.5f*reach))+2,tr=(span+T-1)/T,M=span+15;
+    std::vector<uint8_t> clipT(size_t(tw)*th,0),work(size_t(tw)*th,0);
+    for(int y=0;y<H;++y){const uint8_t* f=&flags[size_t(y)*W];for(int x=0;x<W;++x)if(f[x]&7u)clipT[size_t(y/T)*tw+x/T]=1;}
+    bool any=false;
+    for(int ty=0;ty<th;++ty)for(int tx=0;tx<tw;++tx){
+        if(!clipT[size_t(ty)*tw+tx])continue;
+        for(int j=std::max(0,ty-tr);j<=std::min(th-1,ty+tr);++j)for(int i=std::max(0,tx-tr);i<=std::min(tw-1,tx+tr);++i)work[size_t(j)*tw+i]=1;
+        any=true;
+    }
+    if(!any)return 0;
+    // groups of work tiles (4-connected), each processed over its bounding box with a margin
+    std::vector<int> label(size_t(tw)*th,-1);
+    struct Group{int tx0,ty0,tx1,ty1;std::vector<size_t> tiles;};
+    std::vector<Group> groups;
+    for(size_t t0=0;t0<work.size();++t0){
+        if(!work[t0]||label[t0]>=0)continue;
+        Group g{tw,th,-1,-1,{}};const int id=int(groups.size());
+        std::vector<size_t> stack{t0};label[t0]=id;
+        while(!stack.empty()){
+            const size_t t=stack.back();stack.pop_back();g.tiles.push_back(t);
+            const int tx=int(t%size_t(tw)),ty=int(t/size_t(tw));
+            g.tx0=std::min(g.tx0,tx);g.ty0=std::min(g.ty0,ty);g.tx1=std::max(g.tx1,tx);g.ty1=std::max(g.ty1,ty);
+            const int nx[4]={tx-1,tx+1,tx,tx},ny[4]={ty,ty,ty-1,ty+1};
+            for(int k=0;k<4;++k){
+                if(nx[k]<0||ny[k]<0||nx[k]>=tw||ny[k]>=th)continue;
+                const size_t u=size_t(ny[k])*tw+nx[k];
+                if(work[u]&&label[u]<0){label[u]=id;stack.push_back(u);}
+            }
+        }
+        groups.push_back(std::move(g));
+    }
+    auto blur=[](std::vector<float>& a,int w,int h,float sigma){
+        const int r=int(std::ceil(3.f*sigma));std::vector<float> k(size_t(2*r+1));float sum=0;
+        for(int i=-r;i<=r;++i){k[size_t(i+r)]=std::exp(-0.5f*float(i*i)/(sigma*sigma));sum+=k[size_t(i+r)];}
+        for(float& v:k)v/=sum;
+        std::vector<float> t(a.size());
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x){float acc=0;for(int i=-r;i<=r;++i)acc+=k[size_t(i+r)]*a[size_t(y)*w+std::clamp(x+i,0,w-1)];t[size_t(y)*w+x]=acc;}
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x){float acc=0;for(int i=-r;i<=r;++i)acc+=k[size_t(i+r)]*t[size_t(std::clamp(y+i,0,h-1))*w+x];a[size_t(y)*w+x]=acc;}
+    };
+    const float cs8[8]={1.f,0.70710678f,0.f,-0.70710678f,-1.f,-0.70710678f,0.f,0.70710678f};
+    const float sn8[8]={0.f,0.70710678f,1.f,0.70710678f,0.f,-0.70710678f,-1.f,-0.70710678f};
+    struct Out{int x0,y0,w,h;std::vector<float> rgb;std::vector<uint8_t> own,clip;std::vector<float> dist,mk,m3,m4;};
+    std::vector<Out> outs(groups.size());
+    auto parallel=[](size_t count,const std::function<void(size_t)>& fn){
+        const size_t threads=std::min<size_t>(count,std::max(1u,std::min(8u,std::thread::hardware_concurrency())));
+        std::atomic<size_t> next{0};
+        auto run=[&]{for(size_t k;(k=next.fetch_add(1))<count;)fn(k);};
+        std::vector<std::thread> pool;
+        for(size_t t=1;t<threads;++t)pool.emplace_back(run);
+        run();
+        for(auto& t:pool)t.join();
+    };
+    parallel(groups.size(),[&](size_t gi){
+        const Group& g=groups[gi];Out& o=outs[gi];
+        const int x0=std::max(0,g.tx0*T-M),y0=std::max(0,g.ty0*T-M),x1=std::min(W,(g.tx1+1)*T+M),y1=std::min(H,(g.ty1+1)*T+M);
+        const int w=x1-x0,h=y1-y0;const size_t n=size_t(w)*h;
+        o.x0=x0;o.y0=y0;o.w=w;o.h=h;o.rgb.assign(n*3,0.f);o.own.assign(n,0);o.clip.assign(n,0);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x)if(flags[size_t(y0+y)*W+x0+x]&7u)
+            for(int j=std::max(0,y-2);j<=std::min(h-1,y+2);++j)for(int i=std::max(0,x-2);i<=std::min(w-1,x+2);++i)o.clip[size_t(j)*w+i]=1;
+        // chamfer (1, 1.41) distance to the clipped pixels, in px
+        std::vector<float>& dist=o.dist;dist.resize(n);
+        for(size_t i=0;i<n;++i)dist[i]=o.clip[i]?0.f:1.0e9f;
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x){float& d=dist[size_t(y)*w+x];
+            if(x>0)d=std::min(d,dist[size_t(y)*w+x-1]+1.f);
+            if(y>0){d=std::min(d,dist[size_t(y-1)*w+x]+1.f);if(x>0)d=std::min(d,dist[size_t(y-1)*w+x-1]+1.4142f);if(x<w-1)d=std::min(d,dist[size_t(y-1)*w+x+1]+1.4142f);}}
+        for(int y=h-1;y>=0;--y)for(int x=w-1;x>=0;--x){float& d=dist[size_t(y)*w+x];
+            if(x<w-1)d=std::min(d,dist[size_t(y)*w+x+1]+1.f);
+            if(y<h-1){d=std::min(d,dist[size_t(y+1)*w+x]+1.f);if(x<w-1)d=std::min(d,dist[size_t(y+1)*w+x+1]+1.4142f);if(x>0)d=std::min(d,dist[size_t(y+1)*w+x-1]+1.4142f);}}
+        o.mk.resize(n);
+        for(size_t i=0;i<n;++i)o.mk[i]=o.clip[i]?0.f:1.f;
+        o.m3=o.mk;blur(o.m3,w,h,3.f);o.m4=o.mk;blur(o.m4,w,h,4.f);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x){
+            const size_t t=size_t((y0+y)/T)*tw+(x0+x)/T;
+            o.own[size_t(y)*w+x]=work[t]&&label[t]==int(gi);
+        }
+    });
+    parallel(groups.size()*3,[&](size_t job){
+        Out& o=outs[job/3];const int c=int(job%3),w=o.w,h=o.h,x0=o.x0,y0=o.y0;const size_t n=size_t(w)*h;
+        std::vector<float> v(n),a(n),hp(n),re(n),im(n),comp(n,0.f);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x)v[size_t(y)*w+x]=rgb[(size_t(y0+y)*W+x0+x)*3+c];
+        for(size_t i=0;i<n;++i)a[i]=v[i]*o.mk[i];
+        blur(a,w,h,3.f);
+        for(size_t i=0;i<n;++i)hp[i]=o.mk[i]>0.f?v[i]-a[i]/std::max(o.m3[i],1.0e-6f):0.f;
+        for(int dg=0;dg<2;++dg){
+            for(int y=0;y<h;++y)for(int x=0;x<w;++x){
+                const int ph=(((x0+x)+(dg?-(y0+y):(y0+y)))%8+8)%8;const size_t i=size_t(y)*w+x;
+                re[i]=hp[i]*cs8[ph];im[i]=-hp[i]*sn8[ph];
+            }
+            blur(re,w,h,4.f);blur(im,w,h,4.f);
+            for(int y=0;y<h;++y)for(int x=0;x<w;++x){
+                const int ph=(((x0+x)+(dg?-(y0+y):(y0+y)))%8+8)%8;const size_t i=size_t(y)*w+x;
+                comp[i]+=2.f*(re[i]*cs8[ph]-im[i]*sn8[ph])/std::max(o.m4[i],1.0e-6f);
+            }
+        }
+        for(size_t i=0;i<n;++i){
+            const float sh=o.clip[i]?0.f:std::clamp(1.5f-o.dist[i]/reach,0.f,1.f)*std::min(1.f,o.m4[i]/0.25f);
+            o.rgb[i*3+c]=v[i]-sh*comp[i];
+        }
+    });
+    size_t changed=0;
+    for(const Out& o:outs)for(int y=0;y<o.h;++y)for(int x=0;x<o.w;++x){
+        const size_t i=size_t(y)*o.w+x;
+        if(!o.own[i])continue;
+        float* p=&rgb[(size_t(o.y0+y)*W+o.x0+x)*3];
+        if(p[0]!=o.rgb[i*3]||p[1]!=o.rgb[i*3+1]||p[2]!=o.rgb[i*3+2]){p[0]=o.rgb[i*3];p[1]=o.rgb[i*3+1];p[2]=o.rgb[i*3+2];++changed;}
+    }
+    return changed;
 }
 struct HybridMosaicNative {
     int block=2,W=0,H=0;                 // colour block b and size of the mosaic the merge reads (W = b x the binned width)
@@ -15017,6 +15137,12 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 " lattice notch of the few-donor areas %zu px (%.2f %%), ",alongK,alongS,changed[0],100.0*double(changed[0])/all,changed[1],100.0*double(changed[1])/all);
             report(line+how+", "+std::to_string(int(millis(Clock::now()-t0)))+" ms");
         }else report("HYBRID MOSAIC NATIVE: post passes skipped (no coverage map at this size)");
+    }
+    if(native&&native->block==4&&tune.mosaicTetraNotchClipReach>0.f&&clipFlags&&clipFlags->size()==size_t(outW)*outH){ // P548
+        const auto t0=Clock::now();
+        const size_t n=hybridClipLatticeNotch(out,outW,outH,*clipFlags,tune.mosaicTetraNotchClipReach);
+        report("HYBRID MOSAIC NATIVE: clipped lights' Tetra checker (P548, reach "+std::to_string(int(tune.mosaicTetraNotchClipReach))+" px) "
+            +std::to_string(n)+" px, "+std::to_string(int(millis(Clock::now()-t0)))+" ms");
     }
     if(effStrip)report(effLine); // P440: made while the consumer finished
     else if(effMap){

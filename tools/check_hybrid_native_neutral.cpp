@@ -281,6 +281,51 @@ int main() {
     assert(fast.find("uniform vec4 natDemN;") != std::string::npos);
     assert(fast.find("float nz=natDemN.z*(1.0-damp)*max(G,0.0);") != std::string::npos);
     assert(fast.find("vec3 o=vec3(G+dR*damp+nz*(natDemN.x-1.0),G,G+dB*damp+nz*(natDemN.y-1.0));") != std::string::npos);
+    // P548: round a clipped light the Tetra sensor's diagonal checker, per colour, comes off within the reach; the light, the far
+    // field and a light-free frame stay as they were; the same result on any thread count (the groups read the input as it was)
+    {
+        HybridTuning d;
+        assert(d.mosaicTetraNotchClipReach == 32.f);
+        const int W = 320, H = 256;
+        std::vector<float> rgb(size_t(W) * H * 3);
+        std::vector<uint8_t> fl(size_t(W) * H, 0);
+        const float cx = 120.f, cy = 128.f;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                const float r = std::hypot(float(x) - cx, float(y) - cy);
+                float* p = &rgb[(size_t(y) * W + x) * 3];
+                if (r < 14.f) { p[0] = p[1] = p[2] = 1.f; fl[size_t(y) * W + x] = 7; continue; }
+                const float glow = 0.3f * std::exp(-(r - 14.f) / 20.f), ck = std::cos(6.2831853f * float(x + y) / 8.f);
+                p[0] = 0.05f + glow * (1.f + 0.25f * ck); p[1] = 0.05f + glow * (1.f - 0.15f * ck); p[2] = 0.05f + glow;
+                if (x > 250) { const float tex = 0.02f * std::cos(6.2831853f * (float(x) / 16.f + float(y) / 8.f)); p[0] += tex; p[1] += tex; p[2] += tex; }
+            }
+        const std::vector<float> in = rgb;
+        const size_t n = hybridClipLatticeNotch(rgb, W, H, fl, d.mosaicTetraNotchClipReach);
+        auto amp = [&](const std::vector<float>& a, int c, int x0, int x1, int y0, int y1) {
+            double re = 0, im = 0; int k = 0;
+            for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) {
+                const double t = 6.2831853 * double(x + y) / 8.0, v = a[(size_t(y) * W + x) * 3 + c];
+                re += v * std::cos(t); im += v * std::sin(t); k++;
+            }
+            return 2.0 * std::hypot(re, im) / k;
+        };
+        const double r0 = amp(in, 0, 136, 152, 120, 136), r1 = amp(rgb, 0, 136, 152, 120, 136), g0 = amp(in, 1, 136, 152, 120, 136), g1 = amp(rgb, 1, 136, 152, 120, 136);
+        assert(n > 0 && r1 < 0.2 * r0 && g1 < 0.2 * g0);
+        bool lightKept = true, farKept = true;
+        for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+            const size_t i = size_t(y) * W + x;
+            const float r = std::hypot(float(x) - cx, float(y) - cy);
+            for (int c = 0; c < 3; c++) {
+                if (fl[i] && rgb[i * 3 + c] != in[i * 3 + c]) lightKept = false;
+                if (r > 14.f + 1.5f * 32.f + 4.f && rgb[i * 3 + c] != in[i * 3 + c]) farKept = false;
+            }
+        }
+        assert(lightKept && farKept);
+        std::vector<float> none = in;
+        std::vector<uint8_t> noFl(size_t(W) * H, 0);
+        assert(hybridClipLatticeNotch(none, W, H, noFl, 32.f) == 0 && none == in);
+        std::printf("ok: P548 the clipped light's Tetra checker R %.4f -> %.4f, G %.4f -> %.4f, %zu px; the light and the far field unchanged\n", r0, r1, g0, g1, n);
+    }
     std::puts("check_hybrid_native_neutral: OK");
     return 0;
 }
