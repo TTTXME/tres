@@ -8564,6 +8564,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mImageSaver = new ImageSaver(cameraEventsListener);
             mImageSaver.iszAspect4x3 = mShutterIszAspect4x3;
             mImageSaver.manualWbAtPress = mShutterManualWb;
+            // P554 (owner, 2026-11-08, OPPO Find X8 Ultra: «ISZ все зелёные»): the press's Quad / Tetra white balance route (P408's
+            // viewfinder neutral, P315's sensor mode) reached only the FULLRES saver; every ring / Camera2 mosaic shot lost it and
+            // took P121's projection (0.491 / 0.524 for a viewfinder at 0.462 / 0.540: a white ceiling R/G 0.94, yellow-green)
+            mImageSaver.mosaicWbAtPress = mShutterMosaicWb;
             mImageSaver.dcgShot = dcgShotNow();
             // the shot's digital-zoom crop (after the drain: rawCropOfShot is in it) and camera, read by its processing, not the
             // next press's
