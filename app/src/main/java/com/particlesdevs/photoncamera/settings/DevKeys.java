@@ -149,6 +149,10 @@ public final class DevKeys {
         k.add(s(cap, "zoom_override", true, Lang.t("CONTROL_SETTINGS_OVERRIDE ZOOM в видоискателе (быстрее зум), где камера его объявляет", "CONTROL_SETTINGS_OVERRIDE ZOOM in the viewfinder (faster zoom) where listed")));
         k.add(s(cap, "cropped_raw", true, Lang.t("ISZ через поток CROPPED_RAW (Galaxy S24 Ultra, Xiaomi 17 Ultra)", "ISZ through the CROPPED_RAW stream (Galaxy S24 Ultra, Xiaomi 17 Ultra)")));
         k.add(s(cap, "isz_module", true, Lang.t("Модуль «2×» для камер с CROPPED_RAW", "The «2×» module for cameras with CROPPED_RAW")));
+        k.add(s(cap, "auto_raw10", true, Lang.t("Формат RAW «Авто»: RAW10, где камера его даёт и данные помещаются в 10 бит (16 бит только с включённым DCG). Выкл — сначала 16 бит, как до P560",
+                "RAW format «Auto»: RAW10 where the camera offers it and its data fits 10 bits (16-bit only with DCG on). Off: 16-bit first, as before P560")));
+        k.add(s(cap, "raw_white_plateau", true, Lang.t("Белый уровень по кадру: пересвет, упёршийся ниже заявленного белого, становится белым (P558). Выкл — заявленный белый",
+                "White level from the frame: a clip under the declared white becomes the white (P558). Off: the declared white")));
         k.add(s(cap, "raw_wide", true, Lang.t("RAW шире заявленного белого (14 бит DCG) берётся по своим значениям", "A RAW wider than the declared white (14-bit DCG) is taken at its own range")));
         k.add(s(cap, "vivo_qcom_roi", true, Lang.t("X300 Ultra: модули ISZ без ремозаика и кнопка DCG (forceSensorMode в сессии)", "X300 Ultra: ISZ modules without remosaic and the DCG button (session forceSensorMode)")));
         k.add(s(cap, "sensor_mode_pick", true, Lang.t("Режим сенсора модуля из таблицы камеры (SensorModeTable)", "The module's sensor mode from the camera's table (SensorModeTable)")));

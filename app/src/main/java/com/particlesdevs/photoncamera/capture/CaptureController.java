@@ -1845,17 +1845,17 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     /**
      * P560: «auto» takes RAW10 (first, RAW_SENSOR then RAW12 where the camera lists none) when RAW10 holds the camera's samples: its
-     * declared white fits 10 bits ({@link #raw10Fits}), and no 14-bit DCG mode streams under that white (Dcg14Mode: the vivo X300 /
-     * X200 Ultra, the Xiaomi 15 Ultra) - nor any vivo / iQOO camera, whose RAW_SENSOR carries samples wider than declared (P104 /
-     * P126: the X500 Pro Max's and X300 Ultra's 14 bit under a declared 1023). scam_dev.txt "auto_raw10 0": RAW_SENSOR first as
-     * before. RAW10 keeps the black where the HAL declares it on the OPPO Find X8 Ultra (its RAW16 drifted 64 -> 60.6 or lost it).
+     * declared white fits 10 bits ({@link #raw10Fits}) and the session asks for no 14-bit DCG frames (Dcg14Mode.requested: the
+     * switch turned on in our camera on the vivo X300 / X200 Ultra or the Xiaomi 15 Ultra, the Pixel 10 Pro's main) - every brand,
+     * vivo / iQOO too (owner, 2026-11-08: «Рав сенсор должен выбираться только в случае если используется DCG, из коробки у виво DCG
+     * не работает, только при активации у нас в камере»). The DCG switch restarts the session, so the format follows it.
+     * scam_dev.txt "auto_raw10 0": RAW_SENSOR first as before. RAW10 keeps the black where the HAL declares it on the OPPO Find X8
+     * Ultra (its RAW16 drifted 64 -> 60.6 or lost it).
      */
     static boolean autoRaw10(@Nullable Integer whiteLevel, @Nullable CameraCharacteristics c, @Nullable String cameraId) {
         if (!raw10Fits(whiteLevel) || !PreferenceKeys.scamDevSwitch("auto_raw10", true)) return false;
-        if (Build.MANUFACTURER.equalsIgnoreCase("vivo") || Build.BRAND.equalsIgnoreCase("vivo") || Build.BRAND.equalsIgnoreCase("iqoo"))
-            return false;
         try {
-            if (Dcg14Mode.available(c)) return false;
+            if (Dcg14Mode.requested(c)) return false;
         } catch (RuntimeException e) {
             return false;
         }
