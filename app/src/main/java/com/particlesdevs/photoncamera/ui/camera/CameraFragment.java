@@ -1056,32 +1056,42 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
      * until a new camera frame is drawn (MainRenderer.shownTimestamp or, RAW-only sessions, rawDraws moves), or 4 s; older than a
      * minute (real time, FrozenViewfinder) it is not shown.
      */
-    private android.graphics.Bitmap frozenVf;
-    private long frozenVfAtMs;
+    private volatile android.graphics.Bitmap frozenVf;
+    private volatile long frozenVfAtMs;
+    /** P551: one thread for the copies (a new one started per pause before), the bitmap reused while its size holds. */
+    private static android.os.Handler freezeHandler;
+    private android.graphics.Bitmap freezeBuffer;
+    private volatile int freezeGeneration;
+
+    private static synchronized android.os.Handler freezeHandler() {
+        if (freezeHandler == null) {
+            android.os.HandlerThread t = new android.os.HandlerThread("VfFreeze");
+            t.start();
+            freezeHandler = new android.os.Handler(t.getLooper());
+        }
+        return freezeHandler;
+    }
 
     private void freezeViewfinder() {
         frozenVf = null;
         final com.particlesdevs.photoncamera.ui.camera.views.viewfinder.GLPreview view = textureView;
         if (view == null || android.os.Build.VERSION.SDK_INT < 24 || view.getWidth() <= 0 || view.getHeight() <= 0) return;
         try {
-            final android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(Math.max(1, view.getWidth() / 2),
-                    Math.max(1, view.getHeight() / 2), android.graphics.Bitmap.Config.ARGB_8888);
-            final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-            final boolean[] ok = new boolean[1];
-            android.os.HandlerThread t = new android.os.HandlerThread("VfFreeze");
-            t.start();
+            final int w = Math.max(1, view.getWidth() / 2), h = Math.max(1, view.getHeight() / 2);
+            if (freezeBuffer == null || freezeBuffer.getWidth() != w || freezeBuffer.getHeight() != h)
+                freezeBuffer = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            final android.graphics.Bitmap bmp = freezeBuffer;
+            final int generation = ++freezeGeneration;
+            // P551: not waited for on the main thread (up to 80 ms per pause before): the copy lands when it is done; a resume
+            // before it shows no frozen frame
             android.view.PixelCopy.request(view, bmp, result -> {
-                ok[0] = result == android.view.PixelCopy.SUCCESS;
-                done.countDown();
-            }, new android.os.Handler(t.getLooper()));
-            boolean in = done.await(80, java.util.concurrent.TimeUnit.MILLISECONDS);
-            t.quitSafely();
-            if (in && ok[0]) {
-                frozenVf = bmp;
-                // the real time (deep sleep counted): uptime stops while the screen is off, an hour-old frame looked fresh
-                frozenVfAtMs = android.os.SystemClock.elapsedRealtime();
-            }
-        } catch (RuntimeException | InterruptedException e) {
+                if (result == android.view.PixelCopy.SUCCESS && generation == freezeGeneration) {
+                    // the real time (deep sleep counted): uptime stops while the screen is off, an hour-old frame looked fresh
+                    frozenVfAtMs = android.os.SystemClock.elapsedRealtime();
+                    frozenVf = bmp;
+                }
+            }, freezeHandler());
+        } catch (RuntimeException e) {
             Log.d(TAG, "viewfinder freeze failed: " + e);
         }
     }
@@ -1089,6 +1099,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     private void showFrozenViewfinder() {
         final android.graphics.Bitmap bmp = frozenVf;
         frozenVf = null;
+        if (bmp != null && bmp == freezeBuffer) freezeBuffer = null; // shown: the next pause copies into a new one (no tearing)
         if (cameraFragmentBinding == null) return;
         final android.widget.ImageView freeze = cameraFragmentBinding.layoutViewfinder.vfFreeze;
         if (freeze == null) return;
@@ -1269,7 +1280,16 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     }
 
     @SuppressLint("DefaultLocale")
+    /** P551: the HUD runnable at most every 50 ms (it was posted to the main thread for every preview frame, 30 - 60 Hz). */
+    private long lastScreenLogPostMs;
+    private Integer lastScreenLogAf;
+
     private void updateScreenLog(CaptureResult result) {
+        final long nowMs = android.os.SystemClock.uptimeMillis();
+        final Integer af = result.get(CaptureResult.CONTROL_AF_STATE);
+        if (nowMs - lastScreenLogPostMs < 50 && java.util.Objects.equals(af, lastScreenLogAf)) return; // an AF change always goes
+        lastScreenLogPostMs = nowMs;
+        lastScreenLogAf = af;
         surfaceView.post(() -> {
             int orientation = getCameraFragmentViewModel().getCameraFragmentModel().getOrientation();
             if (mHorizonIndicatorView != null) {

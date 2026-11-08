@@ -154,6 +154,8 @@ public final class LiveWhyTone {
     }
 
     private final HashMap<String, Integer> programs = new HashMap<>();
+    private final int[] gfProg = new int[3], abProg = new int[2];
+    private int gfProgGamma = Integer.MIN_VALUE;
     private final HashMap<Integer, HashMap<String, Integer>> locations = new HashMap<>();
     private int ones, dummy3d, lutTex;
     private boolean inited, failed;
@@ -287,6 +289,9 @@ public final class LiveWhyTone {
     /** A new GL context: everything made in the old one is gone with it. */
     public void onContextCreated() {
         programs.clear();
+        java.util.Arrays.fill(gfProg, 0);
+        java.util.Arrays.fill(abProg, 0);
+        gfProgGamma = Integer.MIN_VALUE;
         locations.clear();
         ones = dummy3d = lutTex = 0;
         inited = false;
@@ -386,7 +391,13 @@ public final class LiveWhyTone {
             final int hw = (lw2 + 1) / 2, hh = (lh2 + 1) / 2;
             for (int mode = 0; mode < 3; mode++) {
                 target(means[mode], hw, hh, GLES30.GL_RGBA32F, GLES20.GL_NEAREST);
-                int g = program("why/gf", gammaType != 0 ? new String[][]{{"MODE", String.valueOf(mode)}, {"GAMMA_TYPE", String.valueOf(gammaType)}} : new String[][]{{"MODE", String.valueOf(mode)}});
+                // P551: the ids looked up once per gamma type (a key string and define arrays per frame before)
+                if (gfProgGamma != gammaType || gfProg[mode] == 0) {
+                    if (gfProgGamma != gammaType) java.util.Arrays.fill(gfProg, 0);
+                    gfProgGamma = gammaType;
+                    gfProg[mode] = program("why/gf", gammaType != 0 ? new String[][]{{"MODE", String.valueOf(mode)}, {"GAMMA_TYPE", String.valueOf(gammaType)}} : new String[][]{{"MODE", String.valueOf(mode)}});
+                }
+                int g = gfProg[mode];
                 weights(g, em, aeNow);
                 texture(g, "InputBuffer", 0, low.id);
                 draw(means[mode]);
@@ -394,7 +405,8 @@ public final class LiveWhyTone {
             }
             for (int mode = 0; mode < 2; mode++) {
                 target(ab[mode], hw, hh, GLES30.GL_RGBA32F, GLES20.GL_NEAREST);
-                int a = program("why/ab", new String[][]{{"MODE", String.valueOf(mode)}});
+                if (abProg[mode] == 0) abProg[mode] = program("why/ab", new String[][]{{"MODE", String.valueOf(mode)}});
+                int a = abProg[mode];
                 use(a);
                 texture(a, "MeanII", 0, means[0].id);
                 texture(a, "MeanP", 1, means[1].id);

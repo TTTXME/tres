@@ -64,7 +64,11 @@ public final class ModuleProfiles {
         if(key.equals("user_camera_ids")||key.equals("hidden_camera_ids")||key.equals(PreferenceKeys.Key.CAMERA_MODE.mValue))return false;
         return key.startsWith("pref_") || key.startsWith("scamera_");
     }
-    private SharedPreferences file(String id){return manager.getContext().getSharedPreferences("module_profile_v2_"+id,0);}
+    private SharedPreferences file(String id){
+        // P551: a profile read while its debounced save is pending gets the save first (save cancels the pending one: no loop)
+        if(pendingSaveId!=null&&pendingSaveId.equals(id)){pendingSaveId=null;saveHandler.removeCallbacks(pendingSave);save(id);}
+        return manager.getContext().getSharedPreferences("module_profile_v2_"+id,0);
+    }
     public static void put(SharedPreferences.Editor e,String k,Object v){
         if(v instanceof Boolean)e.putBoolean(k,(Boolean)v);
         else if(v instanceof Integer)e.putInt(k,(Integer)v);
@@ -74,7 +78,16 @@ public final class ModuleProfiles {
         else if(v!=null)e.putString(k,v.toString());
     }
     private Map<String,Object> current(){Map<String,Object> out=new HashMap<>();prefs.getAll().forEach((k,v)->{if(isLocal(k))out.put(k,v);});return out;}
-    private void save(String id){write(file(id),current());meta.edit().putBoolean("exists_"+id,true).apply();}
+    private void save(String id){cancelPendingSave();write(file(id),current());meta.edit().putBoolean("exists_"+id,true).apply();}
+    /**
+     * P551: a local setting changed (a slider sends one per tick): the active profile is rewritten once the changes stop, not per
+     * tick (a getAll copy, a clear and a rewrite of the whole profile each time). Any other save (a module switch) writes it at once.
+     */
+    private final android.os.Handler saveHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private String pendingSaveId;
+    private final Runnable pendingSave=()->{synchronized(ModuleProfiles.this){if(pendingSaveId!=null){String id=pendingSaveId;pendingSaveId=null;save(id);}}};
+    private void saveSoon(String id){pendingSaveId=id;saveHandler.removeCallbacks(pendingSave);saveHandler.postDelayed(pendingSave,400);}
+    private void cancelPendingSave(){if(pendingSaveId!=null){pendingSaveId=null;saveHandler.removeCallbacks(pendingSave);}}
     private void write(SharedPreferences target,Map<String,?> values){SharedPreferences.Editor e=target.edit().clear();values.forEach((k,v)->put(e,k,v));e.apply();}
     public synchronized Map<String,?> snapshot(String id){
         if(PreferenceKeys.isPerLensSettingsOn()&&id.equals(active))return current();
@@ -94,7 +107,7 @@ public final class ModuleProfiles {
     private void restore(Map<String,?> values){
         values=BrandMigration.map(values); // P55: a profile written before the SCAM rename
         applying=true;
-        try {SharedPreferences.Editor e=prefs.edit();for(String k:prefs.getAll().keySet())if(isLocal(k))e.remove(k);values.forEach((k,v)->{if(isLocal(k))put(e,k,v);});e.commit();SettingsMigration.migrateMultiFrame(prefs);SettingsMigration.migrateScamHybrid(prefs,false);SettingsMigration.removeObsolete(prefs);}
+        try {SharedPreferences.Editor e=prefs.edit();for(String k:prefs.getAll().keySet())if(isLocal(k))e.remove(k);values.forEach((k,v)->{if(isLocal(k))put(e,k,v);});e.apply();/* P551: apply - the memory is updated at once (the migrations below read it), the file write leaves the main thread */SettingsMigration.migrateMultiFrame(prefs);SettingsMigration.migrateScamHybrid(prefs,false);SettingsMigration.removeObsolete(prefs);}
         finally{applying=false;}
         if(com.particlesdevs.photoncamera.app.ScameraApp.getSettings()!=null)com.particlesdevs.photoncamera.app.ScameraApp.getSettings().loadCache();
     }
@@ -113,7 +126,7 @@ public final class ModuleProfiles {
                 if(!ModuleRegistry.camera(next).equals(PreferenceKeys.getCameraID())) next=PreferenceKeys.getCameraID();
                 else next=FullResProfiles.profileFor(next); // P181: the module's FULLRES profile while FULLRES is on for it
                 if(!next.equals(active)){save(active);active=next;restore(snapshotStored(next));save(next);}
-            }else if(isLocal(key))save(active);
+            }else if(isLocal(key))saveSoon(active);
         }
         meta.edit().putString("active",active).apply();
     }

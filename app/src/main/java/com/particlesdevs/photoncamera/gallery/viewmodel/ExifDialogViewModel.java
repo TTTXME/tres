@@ -61,6 +61,48 @@ public class ExifDialogViewModel extends AndroidViewModel {
      * @param imageFile the image imageFile whose exif data is to be read
      */
     public void updateModel(ContentResolver contentResolver, MediaFile imageFile) {
+        Runnable apply = read(contentResolver, imageFile);
+        if (apply != null) apply.run();
+    }
+
+    /**
+     * P551: the viewer's swipe read the file (ExifInterface, LibRaw for camera RAWs, the header / bounds decode) on the main thread:
+     * read on the EXIF thread, the model set on the main thread, then {@code done} (the newest request only).
+     */
+    private final java.util.concurrent.ExecutorService exifExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ExifRead");
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        return t;
+    });
+    private final java.util.concurrent.atomic.AtomicInteger exifGeneration = new java.util.concurrent.atomic.AtomicInteger();
+
+    public void updateModelAsync(ContentResolver contentResolver, MediaFile imageFile, Runnable done) {
+        final int generation = exifGeneration.incrementAndGet();
+        exifExecutor.execute(() -> {
+            if (generation != exifGeneration.get()) return; // a newer page asked meanwhile
+            Runnable apply;
+            try {
+                apply = read(contentResolver, imageFile);
+            } catch (RuntimeException e) {
+                com.particlesdevs.photoncamera.util.Log.d("ExifDialogViewModel", "EXIF of " + imageFile.getDisplayName() + ": " + e);
+                return;
+            }
+            if (apply == null) return;
+            histoHandler.post(() -> {
+                if (generation != exifGeneration.get()) return;
+                apply.run();
+                done.run();
+            });
+        });
+    }
+
+    @Override
+    protected void onCleared() {
+        super.onCleared();
+        exifExecutor.shutdownNow();
+    }
+
+    private Runnable read(ContentResolver contentResolver, MediaFile imageFile) {
         ExifInterface exifInterface;
         InputStream inputStream;
         try {
@@ -68,7 +110,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
             exifInterface = new ExifInterface(inputStream);
         } catch (IOException e) {
             e.printStackTrace();
-            return;
+            return null;
         }
         String attr_make = exifInterface.getAttribute(ExifInterface.TAG_MAKE);
         String attr_model = exifInterface.getAttribute(ExifInterface.TAG_MODEL);
@@ -123,47 +165,56 @@ public class ExifDialogViewModel extends AndroidViewModel {
         String disp_focal = Rational.parseRational(attr_focal == null ? "NaN" : attr_focal).doubleValue() + "mm";
         String disp_iso = "ISO" + attr_iso;
 
-        exifDialogModel.setTitle(imageFile.getAbsolutePath());
-        exifDialogModel.setRes(attr_length + "x" + attr_width);
-        exifDialogModel.setDevice(attr_make + " " + attr_model);
-        exifDialogModel.setDate(getDateText(attr_date));
-        exifDialogModel.setExposure(disp_exp);
-        exifDialogModel.setIso(disp_iso);
-        exifDialogModel.setFnum(disp_fnum);
-        exifDialogModel.setFocal(disp_focal);
-        exifDialogModel.setFile_size((FileUtils.byteCountToDisplaySize((int) imageFile.getSize())));
-        exifDialogModel.setRes_mp(resolution_mp);
-        exifDialogModel.setMiniText(
-                imageFile.getDisplayName() + "\n" +
-                        disp_exp + " | " +
-                        disp_iso + " | " +
-                        disp_fnum + " | " +
-                        disp_focal + " | " +
-                        resolution_mp);
-        // P59b: the details sheet's values
-        exifDialogModel.setIsoValue(attr_iso == null ? null : "ISO " + attr_iso);
-        exifDialogModel.setShutterValue(attr_exp == null ? null : exposure);
-        exifDialogModel.setFnumValue(attr_fnum == null ? null : "f/" + com.particlesdevs.photoncamera.gallery.ui.GalleryUi.decimal(parseDouble(attr_fnum), 2));
-        double focalMm = attr_focal == null ? Double.NaN : Rational.parseRational(attr_focal).doubleValue();
-        exifDialogModel.setFocalValue(Double.isNaN(focalMm) ? null : com.particlesdevs.photoncamera.gallery.ui.GalleryUi.decimal(focalMm, 1)
-                + com.particlesdevs.photoncamera.util.Lang.t(" мм", " mm"));
-        String attr_35 = exifInterface.getAttribute(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM);
-        exifDialogModel.setFocal35Value(attr_35 == null || "0".equals(attr_35) ? null : attr_35 + com.particlesdevs.photoncamera.util.Lang.t(" мм", " mm"));
-        // P196: the phone as the file's EXIF names it («vivo X200 Ultra»), nothing when it has no Make / Model
-        exifDialogModel.setMakeModel(com.particlesdevs.photoncamera.gallery.ui.PhotoInfo.device(attr_make, attr_model));
-        exifDialogModel.setDescription(exifInterface.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION));
-        int width = (int) parseDouble(attr_width), height = (int) parseDouble(attr_length);
-        exifDialogModel.setWidth(Math.max(0, width));
-        exifDialogModel.setHeight(Math.max(0, height));
-        exifDialogModel.setResolutionValue(com.particlesdevs.photoncamera.gallery.ui.PhotoInfo.resolution(width, height));
-        exifDialogModel.setSizeBytes(imageFile.getSize());
-        exifDialogModel.notifyChange(); //important
+        final String f_length = attr_length, f_width = attr_width, f_make = attr_make, f_model = attr_model, f_date = attr_date,
+                f_iso = attr_iso, f_exp = attr_exp, f_fnum = attr_fnum, f_focal = attr_focal;
+        final String attr_35 = exifInterface.getAttribute(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM);
+        final String description = exifInterface.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION);
+        final String dateText = getDateText(attr_date);
         try {
             inputStream.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
+        // P551: the model is set on the main thread (the file was read on the viewer's EXIF thread, updateModelAsync)
+        final Runnable apply = () -> {
+            exifDialogModel.setTitle(imageFile.getAbsolutePath());
+            exifDialogModel.setRes(f_length + "x" + f_width);
+            exifDialogModel.setDevice(f_make + " " + f_model);
+            exifDialogModel.setDate(dateText);
+            exifDialogModel.setExposure(disp_exp);
+            exifDialogModel.setIso(disp_iso);
+            exifDialogModel.setFnum(disp_fnum);
+            exifDialogModel.setFocal(disp_focal);
+            exifDialogModel.setFile_size((FileUtils.byteCountToDisplaySize((int) imageFile.getSize())));
+            exifDialogModel.setRes_mp(resolution_mp);
+            exifDialogModel.setMiniText(
+                    imageFile.getDisplayName() + "\n" +
+                            disp_exp + " | " +
+                            disp_iso + " | " +
+                            disp_fnum + " | " +
+                            disp_focal + " | " +
+                            resolution_mp);
+            // P59b: the details sheet's values
+            exifDialogModel.setIsoValue(f_iso == null ? null : "ISO " + f_iso);
+            exifDialogModel.setShutterValue(f_exp == null ? null : exposure);
+            exifDialogModel.setFnumValue(f_fnum == null ? null : "f/" + com.particlesdevs.photoncamera.gallery.ui.GalleryUi.decimal(parseDouble(f_fnum), 2));
+            double focalMm = f_focal == null ? Double.NaN : Rational.parseRational(f_focal).doubleValue();
+            exifDialogModel.setFocalValue(Double.isNaN(focalMm) ? null : com.particlesdevs.photoncamera.gallery.ui.GalleryUi.decimal(focalMm, 1)
+                    + com.particlesdevs.photoncamera.util.Lang.t(" мм", " mm"));
+            exifDialogModel.setFocal35Value(attr_35 == null || "0".equals(attr_35) ? null : attr_35 + com.particlesdevs.photoncamera.util.Lang.t(" мм", " mm"));
+            // P196: the phone as the file's EXIF names it («vivo X200 Ultra»), nothing when it has no Make / Model
+            exifDialogModel.setMakeModel(com.particlesdevs.photoncamera.gallery.ui.PhotoInfo.device(f_make, f_model));
+            exifDialogModel.setDescription(description);
+            int width = (int) parseDouble(f_width), height = (int) parseDouble(f_length);
+            exifDialogModel.setWidth(Math.max(0, width));
+            exifDialogModel.setHeight(Math.max(0, height));
+            exifDialogModel.setResolutionValue(com.particlesdevs.photoncamera.gallery.ui.PhotoInfo.resolution(width, height));
+            exifDialogModel.setSizeBytes(imageFile.getSize());
+            exifDialogModel.notifyChange(); //important
+        };
+        return apply;
     }
+
 
     private static double parseDouble(String v) {
         if (v == null) return Double.NaN;
@@ -207,8 +258,14 @@ public class ExifDialogViewModel extends AndroidViewModel {
      * Updates the {@link Histogram.HistogramModel} view which is associated with ExifDialogModel
      * check for more detail {@link com.particlesdevs.photoncamera.gallery.binding.CustomBinding#updateHistogram(Histogram, Histogram.HistogramModel)}
      */
+    /** P551: one histogram (its thread and GL context) for the viewer, not a new one per page. */
+    private Histogram histogramWorker;
+    private int histogramGeneration;
+
     public void updateHistogramView(ImageFile imageFile) {
-        Histogram histogram = new Histogram(getApplication().getBaseContext(), null);
+        if (histogramWorker == null) histogramWorker = new Histogram(getApplication().getBaseContext(), null);
+        final Histogram histogram = histogramWorker;
+        final int generation = ++histogramGeneration;
         if (histoRunnable != null) {
             histoHandler.removeCallbacks(histoRunnable);
         }
@@ -224,7 +281,13 @@ public class ExifDialogViewModel extends AndroidViewModel {
                 .into(new CustomTarget<Bitmap>() {
                     @Override
                     public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
-                        exifDialogModel.setHistogramModel(histogram.analyze(resource));
+                        // P551: on the histogram's thread (a copy: Glide may recycle its bitmap), the newest page only
+                        final Bitmap copy = resource.copy(resource.getConfig() != null ? resource.getConfig() : Bitmap.Config.ARGB_8888, false);
+                        if (copy == null) return;
+                        histogram.analyzeAsync(copy, model -> {
+                            copy.recycle();
+                            if (generation == histogramGeneration) exifDialogModel.setHistogramModel(model);
+                        });
                     }
 
                     @Override
@@ -246,8 +309,4 @@ public class ExifDialogViewModel extends AndroidViewModel {
         return displayedDateFormat.format(photoDate == null ? new Date() : photoDate);
     }
 
-    @Override
-    protected void onCleared() {
-        super.onCleared();
-    }
 }

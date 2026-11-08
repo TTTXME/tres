@@ -47,6 +47,8 @@ public class ProcessingRing extends View {
     private final Path outline = new Path(), part = new Path();
     private final PathMeasure measure = new PathMeasure();
     private final RectF box = new RectF();
+    private int outlineW = -1, outlineH = -1;
+    private float outlineStroke = -1f, outlineLength;
     private float shown, stage, fade = 1f;
     private long startedAt;
     private boolean running, finishing;
@@ -215,8 +217,16 @@ public class ProcessingRing extends View {
         final float stroke = 2.6f * d;
         track.setStrokeWidth(stroke);
         line.setStrokeWidth(stroke);
-        box.set(stroke / 2f, stroke / 2f, getWidth() - stroke / 2f, getHeight() - stroke / 2f);
-        outline(outline, box, BottomChrome.SIDE_RADIUS_DP * d - stroke / 2f);
+        // P551: the outline and its measure only when the size or the stroke changes (every vsync while a shot is processed)
+        if (getWidth() != outlineW || getHeight() != outlineH || stroke != outlineStroke) {
+            outlineW = getWidth();
+            outlineH = getHeight();
+            outlineStroke = stroke;
+            box.set(stroke / 2f, stroke / 2f, getWidth() - stroke / 2f, getHeight() - stroke / 2f);
+            outline(outline, box, BottomChrome.SIDE_RADIUS_DP * d - stroke / 2f);
+            measure.setPath(outline, false);
+            outlineLength = measure.getLength();
+        }
         long now = SystemClock.elapsedRealtime();
         float target = target(now);
         if (target > shown) shown += Math.max((target - shown) * 0.16f, finishing ? 0.02f : 0f);
@@ -236,9 +246,8 @@ public class ProcessingRing extends View {
         track.setAlpha(Math.round(0x38 * Math.max(0f, fade)));
         line.setAlpha(alpha);
         canvas.drawPath(outline, track);
-        measure.setPath(outline, false);
         part.reset();
-        measure.getSegment(0, measure.getLength() * shown, part, true);
+        measure.getSegment(0, outlineLength * shown, part, true);
         canvas.drawPath(part, line);
         postInvalidateOnAnimation();
     }

@@ -139,9 +139,19 @@ public final class ShadeStyle {
     public static float sheetAlpha(Context c) {
         int t = TRANSPARENCY_DEFAULT;
         try {
-            Object v = android.preference.PreferenceManager.getDefaultSharedPreferences(c.getApplicationContext()).getAll().get(TRANSPARENCY_KEY);
-            if (v instanceof Number) t = ((Number) v).intValue();
-            else if (v != null) t = Math.round(Float.parseFloat(v.toString()));
+            // P551: the one key read (getAll copied every setting per call; the sheet and its cards ask on each open)
+            android.content.SharedPreferences p = android.preference.PreferenceManager.getDefaultSharedPreferences(c.getApplicationContext());
+            if (p.contains(TRANSPARENCY_KEY)) {
+                try {
+                    t = p.getInt(TRANSPARENCY_KEY, TRANSPARENCY_DEFAULT);
+                } catch (ClassCastException notInt) {
+                    try {
+                        t = Math.round(p.getFloat(TRANSPARENCY_KEY, TRANSPARENCY_DEFAULT));
+                    } catch (ClassCastException notFloat) {
+                        t = Math.round(Float.parseFloat(p.getString(TRANSPARENCY_KEY, String.valueOf(TRANSPARENCY_DEFAULT))));
+                    }
+                }
+            }
         } catch (RuntimeException ignored) {
         }
         t = Math.max(0, Math.min(80, t));

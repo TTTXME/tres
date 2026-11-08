@@ -52,6 +52,8 @@ final class LiveSceneMeter {
     private int aPosition, aTexCoord, uTexture;
     private boolean failed = false;
     private int frameCounter = 0;
+    private boolean pendingRead = false;
+    private final int[] prevFbo = new int[1], prevViewport = new int[4];
 
     private final ByteBuffer readback =
             ByteBuffer.allocateDirect(TILE * TILE * 4).order(ByteOrder.nativeOrder());
@@ -63,13 +65,21 @@ final class LiveSceneMeter {
      */
     void measure(java.nio.FloatBuffer pVertex, java.nio.FloatBuffer pTexCoord, int previewTexture) {
         if (failed) return;
+        if (pendingRead) { // P551: read the tile one frame after it was drawn - the GPU has finished it, no pipeline stall
+            pendingRead = false;
+            GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo);
+            readback.position(0);
+            GLES20.glReadPixels(0, 0, TILE, TILE, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readback);
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, prevFbo[0]);
+            publish();
+            return;
+        }
         if (++frameCounter < EVERY_N_FRAMES) return;
         frameCounter = 0;
 
         if (program == 0 && !init()) return;
 
-        int[] prevFbo = new int[1];
-        int[] prevViewport = new int[4];
         GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
         GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, prevViewport, 0);
 
@@ -90,19 +100,16 @@ final class LiveSceneMeter {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         // MainRenderer rebinds and enables its own attributes before the next draw.
 
-        readback.position(0);
-        GLES20.glReadPixels(0, 0, TILE, TILE, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readback);
-
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, prevFbo[0]);
         GLES20.glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-
-        publish();
+        pendingRead = true;
     }
 
     void onContextCreated() {
         program = fbo = tex = 0;
         failed = false;
         frameCounter = 0;
+        pendingRead = false;
     }
 
     private void publish() {

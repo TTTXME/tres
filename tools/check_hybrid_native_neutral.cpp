@@ -110,6 +110,7 @@ int main() {
     }
     // P529
     assert(d.mosaicLatticeNotch == 0.f); // P546: the Quad merge's saturated sums instead
+    assert(d.baseDemosaicTetraCover == 0.f && d.baseDemosaicCover == 1); // P549: Tetra keeps the merge's coverage, Quad goes toward 1
     assert(d.mosaicQuadFrameSat == 0.03f && d.mosaicQuadFrameSatLo == 0.8f && d.mosaicQuadFrameSatHi == 0.98f);
     {
         const int W = 192, H = 160;
@@ -263,7 +264,7 @@ int main() {
         chromaGiveBack(std::move(again));
     }
     // P534: a mostly clipped colour is flagged clipped (both native merge programs), 0.5 by default
-    assert(d.mosaicClipShare == 0.5f && d.mosaicTetraAlongEdgeK == 25.f);
+    assert(d.mosaicClipShare == 0.5f && d.mosaicTetraAlongEdgeK == 8.f && d.mosaicTetraAlongEdgeClipK == 25.f && d.mosaicTetraAlongEdgeClipReach == 16.f);
     {
         const std::string rule = "if(a.clipDen[c]>0.0&&a.clipDen[c]>=natClipShareU*(a.den[c]+a.clipDen[c]))cfl|=1u<<uint(c);}";
         const std::string generic = kHybMergeMosaic;
@@ -275,7 +276,7 @@ int main() {
         assert(fast.find(border) != std::string::npos && generic.find(border) != std::string::npos);
     }
     // the demosaic pass sets the coverage of its pixels
-    assert(fast.find("if(natDemN.w>0.5)eff[i]=mix(eff[i],1.0,t);") != std::string::npos);
+    assert(fast.find("if(natDemN.w>0.5)eff[i]=mix(eff[i],natDemN.w,t);") != std::string::npos);
 
     // the fast native merge: the damping goes toward natDemN (its share z), the old damping when z = 0
     assert(fast.find("uniform vec4 natDemN;") != std::string::npos);

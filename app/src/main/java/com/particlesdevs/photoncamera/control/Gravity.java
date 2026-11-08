@@ -13,7 +13,7 @@ public class Gravity {
     private final SensorEventListener mGravityTracker = new SensorEventListener() {
         @Override
         public void onSensorChanged(SensorEvent sensorEvent) {
-            mGravity = sensorEvent.values;
+            mGravity = sensorEvent.values.clone(); // P551: read from the main thread while the sensors' thread delivers
         }
 
         @Override
@@ -27,7 +27,7 @@ public class Gravity {
     }
 
     public void register() {
-        mSensorManager.registerListener(mGravityTracker, mGravitySensor, SensorManager.SENSOR_DELAY_FASTEST);
+        mSensorManager.registerListener(mGravityTracker, mGravitySensor, SensorManager.SENSOR_DELAY_FASTEST, SensorThread.handler()); // P551
     }
 
     public void unregister() {

@@ -43,6 +43,42 @@ public class Histogram extends View {
             glHistogram = new GLHistogram(256);
         });
     }
+    /**
+     * P551: the histogram off the main thread - computed on the histogram's thread and handed to {@code done} on the main thread
+     * ({@link #analyze} waited on the main thread polling every 10 ms). {@code bitmap} must stay valid: pass a copy.
+     */
+    public void analyzeAsync(Bitmap bitmap, java.util.function.Consumer<HistogramModel> done) {
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        histogramExecutor.execute(() -> {
+            final HistogramModel model = model(compute(bitmap));
+            main.post(() -> done.accept(model));
+        });
+    }
+
+    /** On the histogram's thread: its GL histogram of the bitmap. */
+    private int[][] compute(Bitmap bitmap) {
+        GLImage glImage = new GLImage(bitmap);
+        glHistogram.Ac = false;
+        int[][] out = glHistogram.Compute(glImage);
+        glImage.close();
+        return out;
+    }
+
+    private static HistogramModel model(int[][] colors) {
+        final int size = 256;
+        for (int i = 0; i < size; i++) {
+            colors[0][i] = (int) Math.sqrt(colors[0][i]);
+            colors[1][i] = (int) Math.sqrt(colors[1][i]);
+            colors[2][i] = (int) Math.sqrt(colors[2][i]);
+        }
+        int maxY = 0;
+        for (int i = 1; i < size - 1; i++) maxY = Math.max(maxY, Math.max(colors[0][i], Math.max(colors[1][i], colors[2][i])));
+        int m0 = Math.max(colors[0][0], Math.max(colors[1][0], colors[2][0]));
+        int ms = Math.max(colors[0][size - 1], Math.max(colors[1][size - 1], colors[2][size - 1]));
+        if (maxY < Math.max(m0, ms)) maxY = (maxY + Math.max(m0, ms)) / 2;
+        return new HistogramModel(size, colors, maxY);
+    }
+
     public HistogramModel analyze(Bitmap bitmap) {
         int size = 256;
         int[][][] colorsMap = new int[1][4][size];

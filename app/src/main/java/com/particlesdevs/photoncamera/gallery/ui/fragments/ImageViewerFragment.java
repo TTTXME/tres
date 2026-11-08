@@ -968,7 +968,15 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             if (paneLabel != null) paneLabel.setText(paneText(joinDot(when, sub), item.getFile().getDisplayName()));
             return;
         }
-        exifDialogViewModel.updateModel(requireContext().getContentResolver(), item.getFile());
+        // P551: the file read on the EXIF thread; the page's labels bound when it is done (if the page is still shown)
+        exifDialogViewModel.updateModelAsync(requireContext().getContentResolver(), item.getFile(), () -> {
+            if (viewPager == null || root == null || getContext() == null || viewPager.getCurrentItem() != position
+                    || position >= galleryItems.size() || galleryItems.get(position) != item) return;
+            bindExif(position, item);
+        });
+    }
+
+    private void bindExif(int position, GalleryItem item) {
         ExifDialogModel m = exifDialogViewModel.getExifDataModel();
         GalleryFormat format = GalleryFormat.of(item, rawBases);
         boolean uhdr = adapter != null && adapter.isHdrAvailable(position);

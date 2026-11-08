@@ -198,16 +198,19 @@ public class Gyro {
 
     private void registerSensors(int gyroDelayUs) {
         stampIterations = 0;
-        mSensorManager.registerListener(mGravityTracker, mGyroSensor, gyroDelayUs);
-        if (mRotationVectorSensor != null) {
-            mSensorManager.registerListener(mRotationVectorListener, mRotationVectorSensor, SensorManager.SENSOR_DELAY_FASTEST);
-        }
+        // the histories cleared before the listeners start (their events come on another thread)
         mYawHistory.clear();
         mPitchHistory.clear();
         mRollHistory.clear();
         mYawSum = 0f;
         mPitchSum = 0f;
         mRollSum = 0f;
+        // P551: delivered on the sensors' own thread, not the main looper (0.6 - 1 kHz of events competed with every UI animation)
+        mSensorManager.registerListener(mGravityTracker, mGyroSensor, gyroDelayUs, SensorThread.handler());
+        if (mRotationVectorSensor != null) {
+            mSensorManager.registerListener(mRotationVectorListener, mRotationVectorSensor, SensorManager.SENSOR_DELAY_FASTEST,
+                    SensorThread.handler());
+        }
     }
 
     public void unregister() {
@@ -409,16 +412,16 @@ public class Gyro {
         return (tripodShakiness < 25) && CameraMode.isStill(ScameraApp.getSettings().selectedMode);
     }
 
+    // P551: reused on the sensors' thread (one event at a time), no garbage per event
+    private final float[] rotationMatrix = new float[9], remappedRotationMatrix = new float[9], orientationAngles = new float[3];
+
     private void updateOrientationHistory() {
-        float[] rotationMatrix = new float[9];
         SensorManager.getRotationMatrixFromVector(rotationMatrix, mRotationVector);
 
-        float[] remappedRotationMatrix = new float[9];
         SensorManager.remapCoordinateSystem(rotationMatrix,
                 SensorManager.AXIS_X, SensorManager.AXIS_Z,
                 remappedRotationMatrix);
 
-        float[] orientationAngles = new float[3];
         SensorManager.getOrientation(remappedRotationMatrix, orientationAngles);
 
         float currentYaw = (float) Math.toDegrees(orientationAngles[0]);
