@@ -667,6 +667,7 @@ public class Parameters {
         // Same frame again (SCAM re-reads the reference metadata): reuse what it showed.
         if (buffer == blackFloorSource && block == blackFloorBlock && java.util.Objects.equals(stream, blackFloorStream)) {
             widenToSamples(blackFloorMax, blackFloorLow);
+            clipWhiteToPlateau(blackFloorPlateau); // P558
             if (floorOn && blackFloorEstimate != Float.MAX_VALUE) applyBlackFloor(blackFloorEstimate);
             return;
         }
@@ -704,6 +705,9 @@ public class Parameters {
         blackFloorStream = stream;
         blackFloorMax = max2;
         blackFloorLow = darkest;
+        // P558: the white from the frame's clip plateau (at the depth the samples resolved above)
+        blackFloorPlateau = clipPlateau(scan.values, scan.counted);
+        clipWhiteToPlateau(blackFloorPlateau);
         blackFloorEstimate = Float.MAX_VALUE;
         pedestalGone = false;
         pedestalRemembered = false;
@@ -817,6 +821,48 @@ public class Parameters {
         applyBlackFloor(estimate);
     }
 
+    /**
+     * P558: the value the frame clips on, 0 when its samples show no clip - RawPayloadCheck.clipPlateau's rule on a value histogram:
+     * at least 0.2 % of them (16 at least) within 0.1 % (2 DN at least) of the top value (the 4th largest sample: a few hot pixels
+     * above a clip are no plateau), and the band of three times that width under it holding fewer than half as many. A blown area
+     * piles up on one value; bright content, however flat, spreads with its noise.
+     */
+    static int clipPlateau(int[] values, long n) {
+        if (values == null || n < 16) return 0;
+        int top = 0, seen = 0;
+        for (int v = values.length - 1; v > 0; v--) {
+            seen += values[v];
+            if (seen >= 4) { top = v; break; }
+        }
+        if (top <= 0) return 0;
+        final int tol = Math.max(2, top / 1000);
+        long at = 0, below = 0;
+        for (int v = Math.max(0, top - 4 * tol); v <= Math.min(values.length - 1, top + tol); v++) {
+            if (v >= top - tol) at += values[v];
+            else below += values[v];
+        }
+        return at >= Math.max(16, n / 500) && 2 * below < at ? top : 0;
+    }
+
+    /**
+     * P558 (owner, 2026-11-08: «автоматическое определение уровня чёрного и белого ... на всех смартах»): a stream clipping under its
+     * declared white (a HAL clamp, a full well under the converter's range) left its blown areas short of 1: they were not flagged
+     * clipped and the white balance turned their equal channels pink. The frame's clip plateau, when under the white by more than
+     * its tolerance and above twice the black, is the shot's white (the user's override kept; scam_dev.txt "raw_white_plateau 0":
+     * as before). True when changed.
+     */
+    boolean clipWhiteToPlateau(int plateau) {
+        if (whiteOverride() || plateau <= 0 || !PreferenceKeys.scamDevSwitch("raw_white_plateau", true)) return false;
+        float black = 0f;
+        for (float b : blackLevel) black = Math.max(black, b);
+        final int tol = Math.max(2, whiteLevel / 1000);
+        if (plateau >= whiteLevel - tol || plateau <= 2f * black) return false;
+        Log.i(TAG, "RAW white level from data: the frame clips at " + plateau + " under the white " + whiteLevel + " (P558)");
+        whiteLevel = plateau;
+        levelSource += ", white = the frame's clip " + plateau;
+        return true;
+    }
+
     /** P386: no edge strip is wider than this share of its side (as RawCrop.MAX_BAND_DIVISOR). */
     static final int STRIP_DIVISOR = 8;
 
@@ -879,6 +925,9 @@ public class Parameters {
         final int[][] smallest, near;
         int padding, hits, max, max2;
         float lowest = Float.MAX_VALUE;
+        /** P558: the scanned samples by value (the clip plateau, {@link #clipPlateau}) and their count. */
+        final int[] values = new int[65536];
+        long counted;
 
         private BlockScan(int blocks) {
             means = new float[4][blocks];
@@ -929,6 +978,7 @@ public class Parameters {
                             for (int x = 0; x < bs; x += 4) {
                                 final int v = (bulk ? row[base + x * 2] : data.get(rowIndex * width + base + x * 2)) & 0xffff;
                                 sum += v;
+                                s.values[v]++;
                                 if (v <= nearZero) atZero++;
                                 if (v > s.max) { s.max2 = s.max; s.max = v; } else if (v > s.max2) s.max2 = v;
                                 pad |= v < paddingBelow; // a block on the border of the padding: its mean is half signal
@@ -939,6 +989,7 @@ public class Parameters {
                                 }
                             }
                             sums[bx] += sum;
+                            s.counted += bs / 4;
                             small[bx] = least;
                             nearCount[bx] += atZero;
                             padded[bx] |= pad;
@@ -1007,6 +1058,8 @@ public class Parameters {
     private String blackFloorStream;
     private int blackFloorMax;
     private float blackFloorLow = -1f;
+    /** P558: the clip plateau of the frame the floor was measured on (0: none). */
+    private int blackFloorPlateau;
     /** P386: the shot's RAW proved to have come without its black pedestal (refineBlackLevel), itself or by its stream's floor. */
     private boolean pedestalGone, pedestalRemembered;
     /** Where the black and white levels of the shot came from (diagnostics): bit depth, override / data floor / dynamic / static. */

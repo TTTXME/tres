@@ -36,10 +36,17 @@ if not ok:
     fails.append('define')
 # P553: a failed native Quad / Tetra merge is retried natively (safe GPU, fewer frames) before the split
 ladder = ('hybridNativeSafeLevel().load()==0' in src and 'for(int attempt=0;attempt<4;++attempt)' in src
-          and 'merging on the sub-frame split (mosaicPath 0) as the last resort' in src
-          and 'merging on the sub-frame split (mosaicPath 0) instead' not in src)
-print(('PASS' if ladder else 'FAIL') + ' native mosaic merge retried natively before the split (P553)')
+          and 'merging on the sub-frame split (mosaicPath 0)' not in src
+          and 'throw std::runtime_error("HYBRID MOSAIC NATIVE: every native retry failed ("+why+")");' in src)
+print(('PASS' if ladder else 'FAIL') + ' native mosaic merge retried natively, never the split (P553, P556)')
 if not ladder:
     fails.append('ladder')
+# P555: the normalised blocks as an image (written at image unit 0, read at texture unit 7) behind NAT_TEX, both programs built with it
+tex = (src.count('natTex?"#define NAT_TEX 1\\n":""') >= 2 and 'layout(rgba32ui,binding=0) writeonly uniform highp uimage2D nimg;' in src
+       and 'layout(binding=7) uniform highp usampler2D nnormT;' in src and 'glActiveTexture(GL_TEXTURE7);glBindTexture(GL_TEXTURE_2D,natNormTex)' in src
+       and 'GL_TEXTURE_MIN_FILTER,GL_NEAREST' in src and 'if(natTex)natNorm2=false;' in src)
+print(('PASS' if tex else 'FAIL') + ' native blocks image (NAT_TEX) wired in both programs (P555)')
+if not tex:
+    fails.append('nat tex')
 print('ssbo bindings check ' + ('FAIL' if fails else 'PASS'))
 sys.exit(1 if fails else 0)

@@ -502,7 +502,7 @@
     <string name="prefs_raw_crop_bottom_title">Снизу</string>
     <string name="prefs_raw_crop_side_summary">Пиксели сенсора, которые срезаются с этой стороны вертикального снимка, сверх полос.</string>
     <string name="prefs_raw_stream_format_title">Формат RAW-потока</string>
-    <string name="prefs_raw_stream_format_summary">%s. В каком виде камера отдаёт RAW. Авто — 16 бит, если есть, иначе RAW10 или RAW12.</string>
+    <string name="prefs_raw_stream_format_summary">%s. В каком виде камера отдаёт RAW. Авто — RAW10, если камера его даёт и данные помещаются в 10 бит, иначе 16 бит или RAW12.</string>
     <string name="prefs_expert_sensor_screen_title">RAW-метаданные</string>
     <string name="prefs_expert_sensor_screen_summary">Динамический уровень чёрного и белого</string>
     <string name="prefs_noise_model_note_summary">Выбранный профиль (кроме «Авто») заменяет шум камеры в склейке, в шумодаве SHDR, в выравнивании и в DNG.</string>

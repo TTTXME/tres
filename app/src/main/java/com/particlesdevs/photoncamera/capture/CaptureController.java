@@ -1169,6 +1169,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * Kept for the process: the next switch to that camera starts at the step that worked.
      */
     private static final java.util.Map<String, Integer> sRawFallback = new java.util.concurrent.ConcurrentHashMap<>();
+    /** P559 / P560: cameras whose session refused a packed RAW10 / RAW12 stream: they take RAW_SENSOR (the process). */
+    private static final java.util.Set<String> sRaw16 = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** P559 / P560: this session streams a packed RAW (RAW10 / RAW12). */
+    private volatile boolean mPickPacked;
     /**
      * A YUV session (no RAW stream) that failed to configure on a camera that never ran: 1 = the preview stream at a guaranteed
      * size (at most 1080p), 2 = the YUV stream as well (SafeStreamSizes).
@@ -1211,6 +1215,23 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     + (mImageReaderRaw == null ? "no reader" : "reader " + mImageReaderRaw.getWidth() + "x" + mImageReaderRaw.getHeight()
                     + " format " + mImageReaderRaw.getImageFormat()) + "); retry with "
                     + (safe == 0 ? "a preview of a guaranteed size" : "a YUV stream of a guaranteed size too"));
+            try { session.close(); } catch (Exception ignored) {}
+            final Handler handler = mBackgroundHandler;
+            if (handler == null) return false;
+            handler.post(() -> {
+                if (!isCameraResumed || mCameraDevice != device) return;
+                UpdateCameraCharacteristics(id);
+                createCameraPreviewSession(false);
+            });
+            return true;
+        }
+        // P559 / P560: a session that refused its packed RAW (the setting's, «auto»'s RAW10): once more with RAW_SENSOR (before any
+        // other step)
+        if ((mPickPacked || mTargetFormat == ImageFormat.RAW10 || mTargetFormat == ImageFormat.RAW12) && sRaw16.add(id)) {
+            mPickPacked = false;
+            mFallbackUndo = () -> sRaw16.remove(id);
+            Log.w(TAG, "camera " + id + ": the session failed with a packed RAW stream; retry with RAW_SENSOR (P559 / P560)");
+            if (mTargetFormat == ImageFormat.RAW10 || mTargetFormat == ImageFormat.RAW12) mTargetFormat = ImageFormat.RAW_SENSOR;
             try { session.close(); } catch (Exception ignored) {}
             final Handler handler = mBackgroundHandler;
             if (handler == null) return false;
@@ -1803,8 +1824,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * P365: "raw10" only where the camera's samples fit 10 bits ({@link #raw10Fits}): a lens of a wider white level keeps the auto
      * order, so nothing 12-bit is cut to 10.
      */
-    private static int resolveRawFormat(StreamConfigurationMap map, @Nullable Integer whiteLevel) {
+    private static int resolveRawFormat(StreamConfigurationMap map, @Nullable Integer whiteLevel, @Nullable CameraCharacteristics c,
+                                        @Nullable String cameraId) {
         String mode = PreferenceKeys.getRawStreamFormat();
+        // P560 (owner, 2026-11-08: «Ставь на всех смартфонах точно рав10 из коробки, кроме тех которые не поддерживают рав10»):
+        // «auto» is RAW10 wherever it holds the camera's samples (autoRaw10); a camera whose packed session failed takes RAW_SENSOR
+        if ("auto".equals(mode) && autoRaw10(whiteLevel, c, cameraId)) mode = "raw10";
+        if (cameraId != null && sRaw16.contains(cameraId) && ("raw10".equals(mode) || "raw12".equals(mode))) mode = "raw16";
         if ("raw10".equals(mode) && !raw10Fits(whiteLevel)) mode = "auto";
         int[] order;
         if ("raw10".equals(mode)) order = new int[]{ImageFormat.RAW10, ImageFormat.RAW_SENSOR, ImageFormat.RAW12};
@@ -1815,6 +1841,25 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (sizes != null && sizes.length > 0) return format;
         }
         return ImageFormat.RAW_SENSOR;
+    }
+
+    /**
+     * P560: «auto» takes RAW10 (first, RAW_SENSOR then RAW12 where the camera lists none) when RAW10 holds the camera's samples: its
+     * declared white fits 10 bits ({@link #raw10Fits}), and no 14-bit DCG mode streams under that white (Dcg14Mode: the vivo X300 /
+     * X200 Ultra, the Xiaomi 15 Ultra) - nor any vivo / iQOO camera, whose RAW_SENSOR carries samples wider than declared (P104 /
+     * P126: the X500 Pro Max's and X300 Ultra's 14 bit under a declared 1023). scam_dev.txt "auto_raw10 0": RAW_SENSOR first as
+     * before. RAW10 keeps the black where the HAL declares it on the OPPO Find X8 Ultra (its RAW16 drifted 64 -> 60.6 or lost it).
+     */
+    static boolean autoRaw10(@Nullable Integer whiteLevel, @Nullable CameraCharacteristics c, @Nullable String cameraId) {
+        if (!raw10Fits(whiteLevel) || !PreferenceKeys.scamDevSwitch("auto_raw10", true)) return false;
+        if (Build.MANUFACTURER.equalsIgnoreCase("vivo") || Build.BRAND.equalsIgnoreCase("vivo") || Build.BRAND.equalsIgnoreCase("iqoo"))
+            return false;
+        try {
+            if (Dcg14Mode.available(c)) return false;
+        } catch (RuntimeException e) {
+            return false;
+        }
+        return true;
     }
 
     /** P365: the camera's declared white level (SENSOR_INFO_WHITE_LEVEL) fits a RAW10 sample (known and at most 1023). */
@@ -3148,8 +3193,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
         if (isRawFormat(mTargetFormat)) {
             final Integer white = characteristics.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
-            int resolved = resolveRawFormat(map, white);
+            int resolved = resolveRawFormat(map, white, characteristics, physicalID);
             Log.i(TAG, "RAW stream format " + mTargetFormat + " -> " + resolved + " (setting " + PreferenceKeys.getRawStreamFormat()
+                    + ("auto".equals(PreferenceKeys.getRawStreamFormat()) && autoRaw10(white, characteristics, physicalID) ? ": RAW10 where it fits (P560)" : "")
                     + ", camera " + physicalID + ("raw10".equals(PreferenceKeys.getRawStreamFormat()) && !raw10Fits(white)
                     ? ", white level " + white + " is wider than RAW10: the auto order (P365)" : "") + ")");
             mTargetFormat = resolved;
@@ -3312,6 +3358,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             Log.i("SCAM_CAPTURE", "full resolution: viewfinder " + st + ", YUV " + preview + ", readers " + maxjpg);
         }
         clearZslPreviewFrames();
+        mPickPacked = false; // P559: set again by a picked sensor mode's packed reader below
         if(mImageReaderRaw != null)
             mImageReaderRaw.close();
         if (mImageReaderRawView != null) { mImageReaderRawView.close(); mImageReaderRawView = null; }
@@ -3352,7 +3399,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         } else if (modePick != null) {
             // P276: the row's size, also one StreamConfigurationMap does not list (usage 0: no CPU usage bits for the HAL's
             // stream validator, the planes still read on the CPU - the native FULLRES readers, WhyCam)
-            mTargetFormat = ImageFormat.RAW_SENSOR;
+            // P559 (owner, 2026-11-08: «Точно ли у нас работает переключатель рава на raw10? В Арк камере фиксированный уровень чёрного
+            // 64»): the picked mode took RAW_SENSOR whatever the setting resolved - the X8U's ISZ shots and viewfinder were RAW16
+            // (readers f20 in the owner's logs, «setting raw10» printed beside them), whose black its HAL delivers drifted (64 ->
+            // 60.6) or lost (P114 / P315): green shadows. The resolved packed format (RAW10 / RAW12: P388's RAW10 on the X8U) is kept;
+            // a mode whose session refuses it falls back to RAW_SENSOR once (retryConfigureFallback, sRaw16)
+            final boolean packed = (mTargetFormat == ImageFormat.RAW10 || mTargetFormat == ImageFormat.RAW12) && !sRaw16.contains(physicalID);
+            mPickPacked = packed;
+            if (!packed) mTargetFormat = ImageFormat.RAW_SENSOR;
+            else Log.i("SCAM_CAPTURE", "camera " + physicalID + " sensor mode pick: RAW stream format " + mTargetFormat + " (the setting's, P559)");
             target = modePick.size;
             this.target = target;
             mImageReaderRaw = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q

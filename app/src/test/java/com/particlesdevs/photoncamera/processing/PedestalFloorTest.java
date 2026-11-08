@@ -154,4 +154,26 @@ public class PedestalFloorTest {
         assertEquals(64f, p.black(2, frame(64, 1.5, 0, 8), W, H, W * 2, 1, declared)[0], 0f);
         assertEquals("the declared array is never changed", 64f, declared[0], 0f);
     }
+
+    /**
+     * P557 (OPPO Find X8 Ultra ISZ, owner 2026-11-08: «видоискатель всё равно зелёный»): the pedestal kept but drifted 64 -> 60.6:
+     * after two agreeing measurements the viewfinder subtracts the frames' floor as the photo does; a black that did not move and
+     * read noise of a high-ISO frame around it never lower it.
+     */
+    @Test
+    public void aDriftedBlackIsFollowedAndNoiseIsNot() throws Exception {
+        final float[] declared = {64, 64, 64, 64};
+        PedestalFloor p = new PedestalFloor();
+        final ByteBuffer drifted = frame(60, 0.8, 0, 11);
+        assertEquals("one measurement is not enough", 64f, p.black(1, drifted, W, H, W * 2, 1, declared, 1023f)[0], 0f);
+        Thread.sleep(PedestalFloor.INTERVAL_NS / 1_000_000L + 20);
+        final float b = p.black(1, drifted, W, H, W * 2, 1, declared, 1023f)[0];
+        assertTrue("the drifted floor (~62 = 60 + the dark half's 2 DN), not 64: " + b, b > 60f && b < 63f);
+        PedestalFloor q = new PedestalFloor();
+        for (int i = 0; i < 4; i++) {
+            final float k = q.black(2, frame(64, 4.0, 0, 20 + i), W, H, W * 2, 1, declared, 1023f)[0];
+            assertEquals("read noise of 4 DN around a black of 64 keeps it", 64f, k, 0f);
+            Thread.sleep(PedestalFloor.INTERVAL_NS / 1_000_000L + 20);
+        }
+    }
 }

@@ -25,6 +25,16 @@ public final class PedestalFloor {
     private long atNs = Long.MIN_VALUE;
     private float floor = Float.NaN;          // NaN: the pedestal is there (or not proven lost yet)
     private boolean logged;
+    /**
+     * P557 (owner, 2026-11-08, OPPO Find X8 Ultra ISZ: «видоискатель всё равно зелёный»): the black drifted below the declared one
+     * with its pedestal kept (64 declared, ~60.6 in the data; the photo's Parameters.refineBlackLevel takes its data floor, the
+     * viewfinder subtracted 64): 3.4 DN off every channel of a dim room, R and B (half of G) lost twice the share - green. The
+     * frames' third-lowest block mean when it lies more than a 10-bit DN under the declared black, as the photo; the lowest of the
+     * session (an upper bound of the true black), never above the declared one. NaN: none.
+     */
+    private float drift = Float.NaN, driftLow = Float.NaN;
+    private boolean driftLogged;
+    private int driftVotes;
 
     /**
      * The frame's floor when its samples prove the pedestal lost, NaN otherwise. {@code block}: the frame's colour block (1 for a
@@ -42,6 +52,16 @@ public final class PedestalFloor {
     }
 
     static float measure(ShortBuffer d, int w, int h, int rowPx, int block, float black, float white) {
+        return measure(d, w, h, rowPx, block, black, white, null);
+    }
+
+    /**
+     * {@link #measure(ShortBuffer, int, int, int, int, float, float)}; P557: {@code low} (length 1, or null) gets the third-lowest
+     * block mean plus 3 standard errors of its samples, over the four channels, whatever the proof says (NaN: too few blocks) - the
+     * drift floor ({@link #black}): a noisy dark block cannot pull it under a black that did not move.
+     */
+    static float measure(ShortBuffer d, int w, int h, int rowPx, int block, float black, float white, float[] low) {
+        if (low != null) low[0] = Float.NaN;
         final float below = black * 0.25f, nearZero = PedestalMemory.nearZero(white);
         if (!(below >= 1f)) return Float.NaN;
         final int b = Math.max(1, block), period = 2 * b, sx = w / period, sy = h / period;   // sites per channel
@@ -50,15 +70,17 @@ public final class PedestalFloor {
         int blocks = 0, hits = 0, nearBlocks = 0;
         float low1 = Float.MAX_VALUE, low2 = Float.MAX_VALUE, low3 = Float.MAX_VALUE;
         int m1 = Integer.MAX_VALUE, m2 = Integer.MAX_VALUE, m3 = Integer.MAX_VALUE;
+        // P557: the blocks' means less 3 standard errors of their own samples (read noise and texture): the drift floor's ranking
+        float d1 = Float.MAX_VALUE, d2 = Float.MAX_VALUE, d3 = Float.MAX_VALUE;
         for (int c = 0; c < 4; c++) {
             final int ox = (c & 1) * b, oy = (c >> 1) * b;
             for (int by = 0; by < bh; by++) for (int bx = 0; bx < bw; bx++) {
-                long sum = 0; int n = 0, least = Integer.MAX_VALUE, atZero = 0; boolean hit = false, allZero = true;
+                long sum = 0, sq = 0; int n = 0, least = Integer.MAX_VALUE, atZero = 0; boolean hit = false, allZero = true;
                 for (int j = 0; j < BLOCK; j += STEP) {
                     final int row = ((by * BLOCK + j) * period + oy) * rowPx;
                     for (int i = 0; i < BLOCK; i += STEP) {
                         final int v = d.get(row + (bx * BLOCK + i) * period + ox) & 0xFFFF;
-                        sum += v; n++;
+                        sum += v; sq += (long) v * v; n++;
                         hit |= v > 0 && v < below;
                         allZero &= v == 0;
                         if (v > 0 && v < least) least = v;
@@ -69,6 +91,10 @@ public final class PedestalFloor {
                 if (hit) hits++;
                 if (allZero) continue;
                 final float mean = sum / (float) n;
+                final float upper = mean + 3f * (float) Math.sqrt(Math.max(0.0, (double) sq / n - (double) mean * mean) / n);
+                if (upper < d1) { d3 = d2; d2 = d1; d1 = upper; }
+                else if (upper < d2) { d3 = d2; d2 = upper; }
+                else if (upper < d3) d3 = upper;
                 if (atZero >= 2 && mean <= 3f * nearZero) nearBlocks++;
                 if (mean < low1) { low3 = low2; low2 = low1; low1 = mean; }
                 else if (mean < low2) { low3 = low2; low2 = mean; }
@@ -78,6 +104,7 @@ public final class PedestalFloor {
                 else if (least < m3) m3 = least;
             }
         }
+        if (low != null && d3 != Float.MAX_VALUE) low[0] = d3;
         if (!(hits >= SHARE * blocks && low3 < black)) return Float.NaN;
         return low3 < 0.5f * black && m3 < low3 && m3 <= nearZero && nearBlocks >= 3 ? m3 : low3;
     }
@@ -89,14 +116,21 @@ public final class PedestalFloor {
 
     /** {@link #black(int, ByteBuffer, int, int, int, int, float[])} of a stream of white level {@code white}. */
     synchronized float[] black(int frameSession, ByteBuffer frame, int w, int h, int rowStride, int block, float[] black, float white) {
-        if (frameSession != session) { session = frameSession; votes = 0; floor = Float.NaN; atNs = Long.MIN_VALUE; logged = false; }
+        if (frameSession != session) { session = frameSession; votes = 0; floor = Float.NaN; atNs = Long.MIN_VALUE; logged = false; drift = Float.NaN; driftLow = Float.NaN; driftLogged = false; driftVotes = 0; }
         float declared = Float.MAX_VALUE;
         for (int i = 0; i < 4; i++) declared = Math.min(declared, black[i]);
         final long now = System.nanoTime();
         if (atNs == Long.MIN_VALUE || now - atNs >= INTERVAL_NS) { // the first frame of a session is measured at once
             atNs = now;
             final ShortBuffer d = frame.duplicate().order(ByteOrder.nativeOrder()).asShortBuffer();
-            final float f = measure(d, w, h, rowStride / 2, block, declared, white);
+            final float[] low = new float[1];
+            final float f = measure(d, w, h, rowStride / 2, block, declared, white, low);
+            final float margin = Math.max(1f, white / 1023f);
+            // as the pedestal's proof: two agreeing measurements of the session, then the lowest seen
+            if (!Float.isNaN(low[0]) && low[0] > 0f && low[0] < declared - margin) {
+                driftLow = Float.isNaN(driftLow) ? low[0] : Math.min(driftLow, low[0]);
+                if (++driftVotes >= VOTES) drift = driftLow;
+            } else if (Float.isNaN(drift)) { driftVotes = 0; driftLow = Float.NaN; }
             if (Float.isNaN(f)) { if (Float.isNaN(floor)) votes = 0; }
             else if (++votes >= VOTES) {
                 floor = Float.isNaN(floor) ? f : Math.min(floor, f);
@@ -104,7 +138,17 @@ public final class PedestalFloor {
                 PedestalMemory.remember(MosaicStream.key(), f, white, "viewfinder");
             }
         }
-        if (Float.isNaN(floor)) return black;
+        if (Float.isNaN(floor)) {
+            if (Float.isNaN(drift)) return black;
+            if (!driftLogged) {
+                driftLogged = true;
+                com.particlesdevs.photoncamera.util.Log.i("LiveRawFrame", "RAW viewfinder: black " + declared + " -> " + drift
+                        + " (the frames' floor under the declared black, as the photo, P557)");
+            }
+            final float[] out = new float[4];
+            for (int i = 0; i < 4; i++) out[i] = Math.max(0f, Math.min(black[i], drift));
+            return out;
+        }
         if (!logged) {
             logged = true;
             com.particlesdevs.photoncamera.util.Log.i("LiveRawFrame", "RAW viewfinder: the stream came without its black pedestal: black "

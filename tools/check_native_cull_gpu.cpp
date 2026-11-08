@@ -31,7 +31,7 @@ int main() {
     // Compile the production branch itself, and evaluate its original four tap weights independently.
     const std::string fast = kHybMergeMosaicFast;
     const auto first = fast.find("        if(skipSmall&&kD.z>=0.0&&kD.z<0.0001){");
-    const auto last = fast.find("\n#endif\n        uvec4 u=natBlock", first);
+    const auto last = fast.find("\n#endif\n#ifdef NAT_TEX\n        uvec4 u=inner?", first); // P555: the block read follows the culling
     if (first == std::string::npos || last == std::string::npos) return 2;
     const std::string branch = fast.substr(first, last - first);
     const auto kwFirst = fast.find("            float kw=exp2(kk*(dx*dx*P.x");

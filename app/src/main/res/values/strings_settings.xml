@@ -502,7 +502,7 @@
     <string name="prefs_raw_crop_bottom_title">Bottom</string>
     <string name="prefs_raw_crop_side_summary">Sensor pixels cut off this side of an upright photo, on top of the stripes.</string>
     <string name="prefs_raw_stream_format_title">RAW stream format</string>
-    <string name="prefs_raw_stream_format_summary">%s. How the camera delivers RAW. Auto: 16-bit if offered, otherwise RAW10 or RAW12.</string>
+    <string name="prefs_raw_stream_format_summary">%s. How the camera delivers RAW. Auto: RAW10 wherever the camera offers it and its data fits 10 bits, otherwise 16-bit or RAW12.</string>
     <string name="prefs_expert_sensor_screen_title">RAW metadata</string>
     <string name="prefs_expert_sensor_screen_summary">Dynamic black and white levels</string>
     <string name="prefs_noise_model_note_summary">The chosen profile (anything but Auto) replaces the camera noise in the merge, the SHDR denoise, the alignment and the DNG.</string>

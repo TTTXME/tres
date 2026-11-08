@@ -956,6 +956,9 @@ public class PreferenceKeys {
         if (nightScale > 0f && nightScale != 1f) out.append("s61NightScale ").append(Math.max(0.25f, Math.min(2f, nightScale))).append('\n');
         // P402 (owner, 2026-10-29: «dezipper нам также перенеси»): the reference app's dezipper - the base frame's weight up to
         // max(1, value - accepted donors) where the donors were rejected (worker dezipper; 0 = off, the merge program as before)
+        // P555: the fast native Quad / Tetra merge reads its normalised blocks through the texture cache (worker mosaicNatTex,
+        // default 1, output identical); scam_dev.txt "hybrid_mosaic_nat_tex 0" = the storage buffers as before
+        if (hybridValue("mosaic_nat_tex", 1f) == 0f) out.append("mosaicNatTex 0\n");
         final float dezipper = hybridValue("dezipper", 4.5f);
         if (dezipper > 0f) out.append("dezipper ").append(Math.max(0.5f, Math.min(15f, dezipper))).append('\n');
         // P335 (owner, 2026-10-25: Why's rejections and anti-zipper «улучшить и добавить нам»): the rejection's soft motion prior
