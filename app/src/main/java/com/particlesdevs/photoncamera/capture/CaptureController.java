@@ -1847,19 +1847,32 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * P560: «auto» takes RAW10 (first, RAW_SENSOR then RAW12 where the camera lists none) when RAW10 holds the camera's samples: its
      * declared white fits 10 bits ({@link #raw10Fits}) and the session asks for no 14-bit DCG frames (Dcg14Mode.requested: the
      * switch turned on in our camera on the vivo X300 / X200 Ultra or the Xiaomi 15 Ultra, the Pixel 10 Pro's main) - every brand,
-     * vivo / iQOO too (owner, 2026-11-08: «Рав сенсор должен выбираться только в случае если используется DCG, из коробки у виво DCG
+     * vivo / iQOO too, but not on a MediaTek SoC (P562: no RAW10 there, {@link #mediatek}) (owner, 2026-11-08: «Рав сенсор должен выбираться только в случае если используется DCG, из коробки у виво DCG
      * не работает, только при активации у нас в камере»). The DCG switch restarts the session, so the format follows it.
      * scam_dev.txt "auto_raw10 0": RAW_SENSOR first as before. RAW10 keeps the black where the HAL declares it on the OPPO Find X8
      * Ultra (its RAW16 drifted 64 -> 60.6 or lost it).
      */
     static boolean autoRaw10(@Nullable Integer whiteLevel, @Nullable CameraCharacteristics c, @Nullable String cameraId) {
         if (!raw10Fits(whiteLevel) || !PreferenceKeys.scamDevSwitch("auto_raw10", true)) return false;
+        // P562 (owner, 2026-11-08: «На смартфонах на мтк рав10 не поддерживается»): MediaTek HALs keep RAW_SENSOR
+        if (mediatek(Build.VERSION.SDK_INT >= 31 ? Build.SOC_MANUFACTURER : null, Build.HARDWARE, Build.BOARD)) return false;
         try {
             if (Dcg14Mode.requested(c)) return false;
         } catch (RuntimeException e) {
             return false;
         }
         return true;
+    }
+
+    /** P562: a MediaTek SoC (SOC_MANUFACTURER on Android 12+, else the hardware / board name: mt6989, mt6991 ...). */
+    static boolean mediatek(@Nullable String soc, @Nullable String hardware, @Nullable String board) {
+        if (soc != null && soc.toLowerCase(java.util.Locale.ROOT).contains("mediatek")) return true;
+        for (String n : new String[]{hardware, board}) {
+            if (n == null) continue;
+            final String l = n.toLowerCase(java.util.Locale.ROOT);
+            if (l.startsWith("mt6") || l.startsWith("mt8") || l.contains("mediatek")) return true;
+        }
+        return false;
     }
 
     /** P365: the camera's declared white level (SENSOR_INFO_WHITE_LEVEL) fits a RAW10 sample (known and at most 1023). */
