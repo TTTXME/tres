@@ -5055,7 +5055,9 @@ void main(){
 // is always 2x2 whole cells.
 static const char* kHybNatNorm=R"(
 layout(std430,binding=18) writeonly buffer NNorm{uvec4 nnorm[];};
+#ifdef NAT_NORM2
 layout(std430,binding=24) writeonly buffer NNorm2{uvec4 nnorm2[];}; // P545: the frames past the storage block (geo.w bit 31)
+#endif
 uniform int frameIdx;
 void main(){
     int f=frameIdx+int(gl_GlobalInvocationID.z);
@@ -5080,7 +5082,10 @@ void main(){
         uint bits=floatBitsToUint(clamp((u-black[cp])*inv[cp],-0.25,1.0));
         o[k]=(fl&1u)!=0u?0xFFFFFFFFu:(fl&2u)!=0u?(bits|0x40000000u):bits;
     }
-    if((geo.w&0x80000000u)!=0u)nnorm2[(geo.w&0x7FFFFFFFu)+uint(rb*BW+bx)]=o;else nnorm[geo.w+uint(rb*BW+bx)]=o;
+#ifdef NAT_NORM2
+    if((geo.w&0x80000000u)!=0u)nnorm2[(geo.w&0x7FFFFFFFu)+uint(rb*BW+bx)]=o;else
+#endif
+    nnorm[geo.w+uint(rb*BW+bx)]=o;
 }
 )";
 // kHybMergeMosaicFast (after kHybMergeCommon + kHybNatAccess; #define NAT_B = colour block 2 (Quad) | 4 (Tetra), NAT_R = window
@@ -5108,8 +5113,12 @@ float natRobust(int f,vec2 B0,int cx,int cy,int w2){
     return mix(mix(r00,r10,t.x),mix(r01,r11,t.x),t.y);
 }
 layout(std430,binding=18) readonly buffer NNorm{uvec4 nnorm[];};
+#ifdef NAT_NORM2
 layout(std430,binding=24) readonly buffer NNorm2{uvec4 nnorm2[];}; // P545: the frames past the storage block (geo.w bit 31)
 uvec4 natNormAt(uint w,uint i){return (w&0x80000000u)!=0u?nnorm2[(w&0x7FFFFFFFu)+i]:nnorm[w+i];}
+#else
+uvec4 natNormAt(uint w,uint i){return nnorm[w+i];} // P552: a GPU with 24 bindings (Adreno 750): no second buffer
+#endif
 uniform vec4 natK;     // as kHybMergeMosaic
 uniform int natRy1;
 uniform int natWidenU;
@@ -6573,6 +6582,9 @@ struct HybridFill { int shift=0,w=0,h=0;std::vector<float> v;std::atomic<int> re
 #include "scam-bayer-tile.h"
 #include "scam-native-tile.h"
 #include "scam-donor-sums.h"
+// P553: the native mosaic merge's retry level (hybridReconstructMosaicNative): 1 or more = the GPU built in its safest form (one
+// normalised-blocks buffer, no binding 24) for the retry after a failed native merge; 0 = as the GPU reports.
+inline std::atomic<int>& hybridNativeSafeLevel(){static std::atomic<int> level{0};return level;}
 class HybridGpu {
     EGLDisplay display=EGL_NO_DISPLAY;
     EGLContext context=EGL_NO_CONTEXT;
@@ -6776,6 +6788,7 @@ class HybridGpu {
     // P80: the base rows already in mochiBuf[0] (frame pointer and rows): the next bracketed frame of the shot reuses them
     const uint16_t* mochiBasePtr=nullptr;int mochiBaseR0=-1,mochiBaseR1=-1;
     size_t natNormCap=0,natNormCap2=0;
+    bool natNorm2=false; // P552: binding 24 exists (GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS > 24): P545's second buffer
     GLuint natFastProgram(int block,int r,bool marked,bool fill,bool baseFill=false,bool demosaic=false,bool usPass=false,bool usTol=false){
         const bool tetra=block==4;
         r=std::clamp(r,1,tetra?8:3);
@@ -6787,7 +6800,7 @@ class HybridGpu {
                  :demosaic?(nativeTileWanted?natFastDemTile: natFastDem)[tetra?1:0][r][fill?1:0]:baseFill?natFastFill[tetra?1:0][r][fill?1:0]:natFast[tetra?1:0][r][marked?1:0][fill?1:0];
         if(!p){
             const auto t0=std::chrono::steady_clock::now();
-            std::string body=std::string(usPass?"#define NAT_US_PASS 1\n":"")+(usTol?"#define NAT_US_TOL 1\n":"")+"#define NAT_B "+(tetra?"4":"2")+"\n#define NAT_R "+std::to_string(r)+"\n#define NAT_MARKED "+(marked?"1":"0")
+            std::string body=std::string(natNorm2?"#define NAT_NORM2 1\n":"")+(usPass?"#define NAT_US_PASS 1\n":"")+(usTol?"#define NAT_US_TOL 1\n":"")+"#define NAT_B "+(tetra?"4":"2")+"\n#define NAT_R "+std::to_string(r)+"\n#define NAT_MARKED "+(marked?"1":"0")
                 +"\n#define NAT_FILL "+(fill?"1":"0")+"\n#define NAT_BASEFILL "+(baseFill?"1":"0")+"\n#define NAT_DEMOSAIC "+(demosaic?"1":"0")+"\n"
                 +mergeCommon()+kHybNatAccess+mosaicFast();
             if(!std::getenv("SCAM_NO_NAT_CULL"))body="#define NAT_CULL 1\n#define NAT_CULL_TIGHT 1\n"+body;
@@ -7296,6 +7309,10 @@ public:
             {GLint64 ssbo=0;GLint tex=0,wg=0;glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&ssbo);glGetIntegerv(GL_MAX_TEXTURE_SIZE,&tex);
              glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT,1,&wg);maxStorageBlock=size_t(std::max<GLint64>(ssbo,0));
              GLint blocks=0,bindings=0;glGetIntegerv(GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS,&blocks);glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS,&bindings);
+             // P552 (owner, 2026-11-08, Adreno 750: «После 31236 у нас что-то сломалось у квад и тетра ремозаика»): P545's second
+             // normalised-blocks buffer is binding 24; a GPU with 24 bindings (0..23) failed to compile the native merge («'NNorm2' :
+             // binding exceeds limit») and every Quad / Tetra shot fell back to the split. It is built only where binding 24 exists.
+             natNorm2=bindings>24&&!std::getenv("SCAM_GPU_BINDINGS_24")&&hybridNativeSafeLevel().load()==0; // the variable: a host run as such a GPU; P553: a retry
              limits="ssbo="+std::to_string(ssbo/(1024*1024))+"MB tex="+std::to_string(tex)+" wgY="+std::to_string(wg)
                  +" blocks="+std::to_string(blocks)+" bindings="+std::to_string(bindings);
              GLint wgX=0;glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT,0,&wgX);maxGroupsX=std::max<GLint>(wgX,0);
@@ -7426,7 +7443,7 @@ public:
                 natMeanProgram=timed("natMean",(std::string(kHybNatAccess)+kHybNatMean).c_str());
                 natFlagsProgram=timed("natFlags",(std::string(kHybNatAccess)+kHybFlagRank+kHybNatFlags).c_str());
                 natMarkProgram=timed("natMark",kHybNatMark,true);
-                natNormProgram=timed("natNorm",(std::string(kHybNatAccess)+kHybNatNorm).c_str());
+                natNormProgram=timed("natNorm",(std::string(natNorm2?"#define NAT_NORM2 1\n":"")+kHybNatAccess+kHybNatNorm).c_str());
                 // the merge programs when merge() knows the window: kHybMergeMosaicFast (natFastProgram) or kHybMergeMosaic
                 glGenBuffers(2,natTable);
                 for(GLuint t:natTable){glBindBuffer(GL_UNIFORM_BUFFER,t);glBufferData(GL_UNIFORM_BUFFER,GLsizeiptr(size_t(kHybridGpuFrames)*16),nullptr,GL_DYNAMIC_DRAW);}
@@ -8423,7 +8440,7 @@ public:
             if(!nat)return 0;
             const int NW=nat->W,NH=nat->H,nb=nat->block;
             size_t ntotal=0;natNormBlocks=natNormBlocks2=0;
-            const size_t normCap=blockLimit/16;
+            const size_t normCap=natNorm2?blockLimit/16:std::numeric_limits<size_t>::max(); // P552: one buffer without binding 24
             for(int f=0;f<frames;++f){
                 const int r0=std::min(NH-nb,nb*row0[f]),r1=std::min(NH,nb*(row0[f]+rows[f]));
                 natRow0[f]=r0;natRows[f]=std::max(1,r1-r0);natOffsets[f]=GLuint(ntotal);ntotal+=size_t(natRows[f])*NW;
@@ -8744,9 +8761,11 @@ public:
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER,natNormBuf?natNormBuf:(glGenBuffers(1,&natNormBuf),natNormBuf));
                 if(natNormCap<natNormBlocks*16){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(natNormBlocks*16),nullptr,GL_DYNAMIC_DRAW);natNormCap=natNormBlocks*16;}
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER,18,natNormBuf);
-                glBindBuffer(GL_SHADER_STORAGE_BUFFER,natNormBuf2?natNormBuf2:(glGenBuffers(1,&natNormBuf2),natNormBuf2));
-                if(natNormCap2<std::max<size_t>(natNormBlocks2,1)*16){natNormCap2=std::max<size_t>(natNormBlocks2,1)*16;glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(natNormCap2),nullptr,GL_DYNAMIC_DRAW);}
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER,24,natNormBuf2);
+                if(natNorm2){ // P545 / P552: only where binding 24 exists
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER,natNormBuf2?natNormBuf2:(glGenBuffers(1,&natNormBuf2),natNormBuf2));
+                    if(natNormCap2<std::max<size_t>(natNormBlocks2,1)*16){natNormCap2=std::max<size_t>(natNormBlocks2,1)*16;glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(natNormCap2),nullptr,GL_DYNAMIC_DRAW);}
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,24,natNormBuf2);
+                }
                 glUseProgram(natNormProgram);
                 glUniform1i(loc(natNormProgram,"natMarkU"),natStripMode?1:0);
                 glUniform1i(loc(natNormProgram,"frameIdx"),0);
@@ -17376,12 +17395,35 @@ inline std::vector<float> hybridReconstructMosaicNativeMerge(const HybridInput& 
 inline std::vector<float> hybridReconstructMosaicNative(const HybridInput& input,int block,const HybridTuning& tune,const ScamAlignment& alignment,
                                                         const std::function<void(const std::string&)>& report,std::vector<uint16_t>* mergedDng,
                                                         std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags){
-    try{
-        return hybridReconstructMosaicNativeMerge(input,block,tune,alignment,report,mergedDng,effMap,statsOut,clipFlags);
-    } catch(const std::exception& error){
-        if(input.strict2x)throw;
-        report(std::string("HYBRID MOSAIC NATIVE: failed (")+error.what()+"); merging on the sub-frame split (mosaicPath 0) instead");
+    // P553 (owner, 2026-11-08: «исправь Tetra и Quad чтобы они никогда не переключались на упрощённую склейку»): a failed native
+    // merge is retried natively before anything else - 1: the GPU in its safest form (hybridNativeSafeLevel: one normalised-blocks
+    // buffer), all frames; 2: half the frames; 3: 4 frames. The split stays only behind a native merge that cannot run at all.
+    const int n=int(input.frames.size());
+    std::string why;
+    for(int attempt=0;attempt<4;++attempt){
+        HybridTuning t=tune;
+        if(attempt>=2){
+            t.mosaicFrames=attempt==2?std::max(4,std::min(tune.mosaicFrames,n)/2):4;
+            t.seriesFrames=0;
+            if(attempt==3&&t.mosaicFrames>=std::min(tune.mosaicFrames,n))break; // nothing smaller to try
+        }
+        hybridNativeSafeLevel().store(attempt>=1?1:0);
+        try{
+            // host checks only: the first N attempts fail as a native merge would
+            if(const char* f=std::getenv("SCAM_NATIVE_FAIL_ATTEMPTS"))if(attempt<std::atoi(f))throw std::runtime_error("forced failure (SCAM_NATIVE_FAIL_ATTEMPTS)");
+            auto out=hybridReconstructMosaicNativeMerge(input,block,t,alignment,report,mergedDng,effMap,statsOut,clipFlags);
+            hybridNativeSafeLevel().store(0);
+            if(attempt>0)report("HYBRID MOSAIC NATIVE: merged natively on retry "+std::to_string(attempt)+" (safe GPU"
+                +(attempt>=2?", at most "+std::to_string(t.mosaicFrames)+" frames":std::string())+")");
+            return out;
+        } catch(const std::exception& error){
+            hybridNativeSafeLevel().store(0);
+            why=error.what();
+            report(std::string("HYBRID MOSAIC NATIVE: failed (")+why+")"+(attempt<3?"; retried natively":""));
+        }
     }
+    if(input.strict2x)throw std::runtime_error("HYBRID MOSAIC NATIVE: every native retry failed ("+why+")");
+    report("HYBRID MOSAIC NATIVE: every native retry failed; merging on the sub-frame split (mosaicPath 0) as the last resort");
     return hybridReconstructMosaic(input,block,tune,alignment,report,mergedDng,effMap,statsOut,clipFlags);
 }
 
