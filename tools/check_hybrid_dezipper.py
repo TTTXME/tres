@@ -72,6 +72,11 @@ def main():
     check(all(stream.count(line) == 1 for line in p415), 'P415: the deep-shadow read term in noiseU, once')
     for line in p415:
         stream = stream.replace(line, '')
+    # P525: the demosaic writes its pixels' coverage, so Eff is read-write (the binding itself unchanged)
+    p525 = ('layout(std430,binding=4) buffer Eff{float eff[];}; // P525: the demosaic sets its pixels\' coverage\n',
+            'layout(std430,binding=4) writeonly buffer Eff{float eff[];};\n')
+    check(stream.count(p525[0]) == 1, 'P525: Eff read-write, once')
+    stream = stream.replace(*p525)
     got = hashlib.sha256(stream.encode()).hexdigest()
     check(got == MERGE_SOURCES, 'the merge program\'s sources unchanged without the dezipper (%s)' % got[:12])
     spec = re.search(r'inline std::string hybridPartialSpec\(.*?\n\}', SRC, re.S).group(0)

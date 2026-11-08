@@ -697,6 +697,10 @@ struct HybridTuning {
     // baseDemosaicAniso: how much the luma kernel follows the local edge direction (0 = round).
     float baseDemosaic=1.0f;
     float baseDemosaicAniso=0.6f;
+    // P547: the Tetra luma cone's radius in sites on structure (2.6 in flat areas; Quad 2.2), by the structure / noise ratio from
+    // baseDemosaicSharpLo to Hi. Moving subjects of Ark's Tetra bursts through the app chain, fine detail against Ark's JPEG:
+    // 0.586 -> 0.676 (bus), 0.920 -> 1.022 (palace, its trees), flat noise at Ark's or below; 1.6 / 1.4 grainier than Ark's
+    float baseDemosaicTetraRadius=1.8f,baseDemosaicSharpLo=1.5f,baseDemosaicSharpHi=4.f;
     // P335: Bayer base demosaic, share of the false-colour damping by the Gr / Gb step above its noise (0 = off, replays
     // unchanged; the app sends 1)
     float baseDemosaicAlias=0.f;
@@ -709,6 +713,62 @@ struct HybridTuning {
     // 0.41 -> 0.07 (Quad) and 0.064 -> 0.018 (Tetra), on the neutral zone plate 0.097 -> 0.023, edges and background unchanged,
     // aliased colour bars 0.37 -> 0.41 (their aliasing damped toward the neutral instead of toward magenta).
     float baseDemosaicNeutral=1.f;
+    // P525 (owner, 2026-11-07, X8U Quad ISZ bursts: «На quad модуле у нас так же сетка более видна ... на фаре не должно быть
+    // полос / сеток»): where the base demosaic took a moving subject (few accepted frames), its luma follows the 2x2 green blocks
+    // of the Quad lattice, and a slanted edge came out as beads (a moving car's headlight outline dotted). mosaicAlongEdge: the
+    // share of a smoothing along the edge (structure tensor of the result, +-1 / +-2 px on the tangent) there, by the demosaic's
+    // share (its pixels' coverage, baseDemosaicCover) and the edge's coherence; across the edge nothing is blurred,
+    // an oriented texture keeps its bars. 0 = off. Synthetic Quad, one frame (sensor neutral 0.48 / 1 / 0.65): edges
+    // 41.8 -> 43.0 dB (the merge's widened kernel alone 43.5), zone plate 22.5 / 22.4 dB and bars 20.6 / 20.8 dB kept (merge alone
+    // 20.1 / 19.2).
+    float mosaicAlongEdge=1.f;
+    float mosaicAlongEdgeK=3.f; // P531: its share 1 - smoothstep(1, 1 + K, eff) (eff in the merge's coverage units)
+    // P531 Tetra (block 4): K 25 - the moving subjects' edges of a Tetra merge get their 4 px teeth from partly accepted donors with
+    // residual shifts at any coverage (the real 4x4 bursts 20261107: a moving car's plate, eff 10..35). K 3 / 25 / 40 / 60: the
+    // car's teeth 0.162 / 0.151 / 0.145 / 0.141 (share of the edges' gradient at 4 / 8 px periods), the static palace's fine detail
+    // (clock face, owner: «деталь лучше на арке») -0.1 / -0.4 / -2.2 / -3.7 %; 25: the plate's teeth gone by eye, detail kept
+    float mosaicTetraAlongEdgeK=25.f;
+    // P534 (owner, 2026-11-07, Ark's Tetra car: «Тут у нас фиолетовый свет» - its daytime running lights): the native merge flags a
+    // colour clipped (clip flag bits 0..2) where its clipped samples hold at least this share of its kernel weight, not only where
+    // every sample clipped: the LED's G was 1.0 with a few unclipped samples at its blocks' edges, unflagged, and the app's
+    // highlight recovery took it as real - R and B above it after the white balance: a pink rim and a yellow core. 1 = as before.
+    float mosaicClipShare=0.5f;
+    // P535: the native merge's clip border bit (3) from this clipped share of a colour's kernel weight on (0 = any clipped sample,
+    // as before; the fast route's 2 %)
+    float mosaicBorderShare=0.02f;
+    // P525: the base demosaic sets the coverage of its pixels toward one frame (mix(cover, 1, share)): the effective-frame map the
+    // app's noise reduction reads said 4..20 frames on a moving subject that was one frame's demosaic (its noise left as a maze),
+    // and the along-edge pass finds the demosaic's pixels by it (1 - smoothstep(1, 4, coverage)). 0 = the coverage as before.
+    int baseDemosaicCover=1;
+    // P529 (owner, 2026-11-07, X8U Quad ISZ, 142152: «Тут у нас гораздо больше артефактов на ветках чем у Арк»): branches in the wind
+    // keep a few donors whose sub-pixel shifts are alike (frames next in time), so their 2 x 2 colour blocks do not average out
+    // as 30 frames' do: a diagonal checker of ~3 px over the twigs (none with one frame, none in static areas). Neither the
+    // kernel scales (-23..-28 % of the detail), stricter rejection nor a later base demosaic took it off. mosaicLatticeNotch:
+    // the share of a narrow-band removal of the luma at +-(0.3, 0.3) cycles / px (local complex amplitude, gaussian sigma 1.5 px,
+    // subtracted from R, G and B alike) where the coverage says few donors: 1 - smoothstep(0.2 Rs, 0.5 Rs, coverage) x
+    // smoothstep(1.2, 2.5, coverage), Rs = the frame's 80th percentile coverage. 0 = off. 142152 branches: the diagonal band's
+    // share of the HF energy 0.038 -> 0.017 (one frame 0.013, Ark's JPEG 0.024) at 6 % less HF. P546: off - the merge's own
+    // saturated sums (mosaicQuadFrameSat) take the checker off at its cause.
+    float mosaicLatticeNotch=0.f;
+    // P543: the Tetra merge's notch (kTetraNotch: 1/8 cycles / px in a narrow band, sigma 8; a single frame up; coverage 0.4 .. 0.8
+    // of the 80th percentile): its strength, 0 = off (as before P543)
+    float mosaicTetraLatticeNotch=1.f;
+    // P544: the Tetra native merge's saturated sums (natSatU: (1 + it) den / (den + it) per colour and frame) where the donors' mean
+    // robustness is below Hi (fully below Lo); 0 = off. Tetra burst 2: the 4 px checker's energy -86 % (a car far down the road) and
+    // -83 % (cars by a sign); the fine detail 0.998 (Tetra 2), 0.999 (Tetra 1), the roof tiles 1.006 (before: the frames' weights).
+    // P547: 0.03 - at 0.01 a far frame counted ~100x, its colour from sites well off its blocks: on a bus driving (Tetra burst 3)
+    // the colour smeared along the edges and paled (B/G 0.56 -> 0.65 on the yellow); 0.03 keeps it, the checker 0.009 / 0.008
+    float mosaicTetraFrameSat=0.03f;
+    float mosaicTetraFrameSatLo=0.8f,mosaicTetraFrameSatHi=0.98f;
+    // P546: the same for the Quad native merge (the P529 checker over branches in the wind: few donors of alike shifts). 142152
+    // through the app chain against the notch: the diagonal band's share 0.0003 -> 0.0014 (no notch, no sums 0.0075, Ark 0.0019),
+    // the fine detail of textured areas +1.8 % (140309 +1.5 %, 142001 and 142255 the same)
+    float mosaicQuadFrameSat=0.03f,mosaicQuadFrameSatLo=0.8f,mosaicQuadFrameSatHi=0.98f;
+    // P530 (owner, 2026-11-07: «У нас есть dezipper который должен устранять такие артефакты на ветках»): P402's dezipper on the
+    // native Quad / Tetra merge (it ran on the plain merge only): where the donors were rejected the base frame weighs up to
+    // max(1, dezipper - accepted donors), smoothly from 98 % of the donors accepted to 70 %; the coverage keeps the base's own
+    // weight. 0 = the native merge as before.
+    int mosaicDezip=1;
     float baseDemosaicBayerLo=1.3f,baseDemosaicBayerHi=2.5f; // Bayer: the base noise model holds there (flat sky ~1) // off: flat areas measured ~2, structure 20-50 (the base noise model reads low)
     // P269 (owner, 2026-10-19: «Посмотри как работает маска бенто в why кам и посмотри как можно улучшить нашу»): the
     // ultrashort frame's check of the mask reads it at the aligned position (bilinear between the 2x2 cells, as LMC 9.6 renders
@@ -1240,7 +1300,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("localAlign",nullptr,&t.localAlign)||set("laWin",nullptr,&t.laWin)||set("laStride",nullptr,&t.laStride)||set("laIters",nullptr,&t.laIters)
             ||set("laItersCoarse",nullptr,&t.laItersCoarse)||set("laMu",&t.laMu)||set("laKappa",&t.laKappa)||set("laMaxShift",&t.laMaxShift)
             ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
-            ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
+            ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicTetraRadius",&t.baseDemosaicTetraRadius)||set("baseDemosaicSharpLo",&t.baseDemosaicSharpLo)||set("baseDemosaicSharpHi",&t.baseDemosaicSharpHi)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("mosaicAlongEdge",&t.mosaicAlongEdge)||set("mosaicAlongEdgeK",&t.mosaicAlongEdgeK)||set("mosaicTetraAlongEdgeK",&t.mosaicTetraAlongEdgeK)||set("mosaicClipShare",&t.mosaicClipShare)||set("mosaicBorderShare",&t.mosaicBorderShare)||set("baseDemosaicCover",nullptr,&t.baseDemosaicCover)||set("mosaicLatticeNotch",&t.mosaicLatticeNotch)||set("mosaicTetraLatticeNotch",&t.mosaicTetraLatticeNotch)||set("mosaicTetraFrameSat",&t.mosaicTetraFrameSat)||set("mosaicTetraFrameSatLo",&t.mosaicTetraFrameSatLo)||set("mosaicTetraFrameSatHi",&t.mosaicTetraFrameSatHi)||set("mosaicQuadFrameSat",&t.mosaicQuadFrameSat)||set("mosaicQuadFrameSatLo",&t.mosaicQuadFrameSatLo)||set("mosaicQuadFrameSatHi",&t.mosaicQuadFrameSatHi)||set("mosaicDezip",nullptr,&t.mosaicDezip)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
             ||set("caCorrect",nullptr,&t.caCorrect)||set("caMinShift",&t.caMinShift)
             // P29 native mosaic path
             ||set("mosaicNative2x",nullptr,&t.mosaicNative2x)||set("mosaicTetraWindow2x",nullptr,&t.mosaicTetraWindow2x)||set("mosaicPath",nullptr,&t.mosaicPath)||set("mosaicRemosaic",nullptr,&t.mosaicRemosaic)||set("mosaicWindow",nullptr,&t.mosaicWindow)||set("mosaicKernelScale",&t.mosaicKernelScale)
@@ -2596,7 +2656,7 @@ layout(std430,binding=3) buffer Out{float outRgb[];};
 layout(std430,binding=6) buffer CFlags{uint cflags[];};
 #elif (defined(NAT_BASEFILL) && NAT_BASEFILL) || (defined(NAT_DEMOSAIC) && NAT_DEMOSAIC)
 layout(std430,binding=3) buffer Out{float outRgb[];};
-layout(std430,binding=4) writeonly buffer Eff{float eff[];};
+layout(std430,binding=4) buffer Eff{float eff[];}; // P525: the demosaic sets its pixels' coverage
 layout(std430,binding=6) writeonly buffer CFlags{uint cflags[];};
 #else
 layout(std430,binding=3) writeonly buffer Out{float outRgb[];};
@@ -4736,6 +4796,8 @@ float natRobust(int f,vec2 B0,int cx,int cy,int w2){
 uniform vec4 natK; // x = binned precision -> native precision, y / z = ks^2 of green / red-blue (WhyCam's distance multipliers per
                    // colour, mosaicKernelG / RB), w = minimum R / B support of the colour fill relative to green (0 = off)
 uniform int natRy1;    // end of the guide cell rows held in Cov (ry1: the strip's cells + 3, clamped to the frame)
+uniform float natClipShareU; // P534: a colour whose clipped kernel weight is at least this share of its weight is flagged clipped
+uniform float natBorderShareU; // P535: the clip border bit from this clipped share on (0 = any clipped sample)
 uniform int natWidenU; // 6.1 base widening: 0 = the split's rule b^2 F + b^2 - 1 < widenBelow, 1 = S0's rule F < widenBelow,
                        // 2 = smooth by F (any mode): sigma x mix(natWidenS.x, 1, smoothstep(0, natWidenS.y, F))
 uniform vec2 natWidenS;
@@ -4939,10 +5001,16 @@ void main(){
         // with the clipped samples at their clip level it is at least that mean (a brighter unclipped estimate, the
         // ultrashort's or a shorter frame's, stays).
         if(a.den[c]>1.0e-7){col[c]=a.num[c]/a.den[c];
-            if(a.clipDen[c]>0.0)col[c]=max(col[c],(a.num[c]+a.clipNum[c])/(a.den[c]+a.clipDen[c]));}
+            if(a.clipDen[c]>0.0)col[c]=max(col[c],(a.num[c]+a.clipNum[c])/(a.den[c]+a.clipDen[c]));
+            // P534: mostly clipped (a Tetra / Quad LED: a few unclipped samples at its blocks' edges always) - the value is the
+            // clip level, a lower bound: flagged, so the app's highlight recovery rebuilds it from the other colours
+            if(a.clipDen[c]>0.0&&a.clipDen[c]>=natClipShareU*(a.den[c]+a.clipDen[c]))cfl|=1u<<uint(c);}
         else if(a.clipDen[c]>0.0){col[c]=a.clipNum[c]/a.clipDen[c];cfl|=1u<<uint(c);}
         else col[c]=(natMarkU!=0&&wb>0.0)?natBaseFill(c,S):0.0;
-        if(a.clipDen[c]>0.0)cfl|=8u;
+        // P535: the clip border where the clipped share of the colour's weight is at least natBorderShareU (the fast route's 2 %):
+        // any clipped sample under the kernel made it follow the kernel's site set - 8 px steps around a Tetra LED, squares
+        // after the app's highlight recovery
+        if(a.clipDen[c]>0.0&&a.clipDen[c]>=natBorderShareU*(a.den[c]+a.clipDen[c]))cfl|=8u;
     }
     int i=row*ow+ox;
     outRgb[i*3]=col.x;outRgb[i*3+1]=col.y;outRgb[i*3+2]=col.z;
@@ -4974,6 +5042,7 @@ void main(){
 // is always 2x2 whole cells.
 static const char* kHybNatNorm=R"(
 layout(std430,binding=18) writeonly buffer NNorm{uvec4 nnorm[];};
+layout(std430,binding=24) writeonly buffer NNorm2{uvec4 nnorm2[];}; // P545: the frames past the storage block (geo.w bit 31)
 uniform int frameIdx;
 void main(){
     int f=frameIdx+int(gl_GlobalInvocationID.z);
@@ -4998,7 +5067,7 @@ void main(){
         uint bits=floatBitsToUint(clamp((u-black[cp])*inv[cp],-0.25,1.0));
         o[k]=(fl&1u)!=0u?0xFFFFFFFFu:(fl&2u)!=0u?(bits|0x40000000u):bits;
     }
-    nnorm[geo.w+uint(rb*BW+bx)]=o;
+    if((geo.w&0x80000000u)!=0u)nnorm2[(geo.w&0x7FFFFFFFu)+uint(rb*BW+bx)]=o;else nnorm[geo.w+uint(rb*BW+bx)]=o;
 }
 )";
 // kHybMergeMosaicFast (after kHybMergeCommon + kHybNatAccess; #define NAT_B = colour block 2 (Quad) | 4 (Tetra), NAT_R = window
@@ -5026,10 +5095,15 @@ float natRobust(int f,vec2 B0,int cx,int cy,int w2){
     return mix(mix(r00,r10,t.x),mix(r01,r11,t.x),t.y);
 }
 layout(std430,binding=18) readonly buffer NNorm{uvec4 nnorm[];};
+layout(std430,binding=24) readonly buffer NNorm2{uvec4 nnorm2[];}; // P545: the frames past the storage block (geo.w bit 31)
+uvec4 natNormAt(uint w,uint i){return (w&0x80000000u)!=0u?nnorm2[(w&0x7FFFFFFFu)+i]:nnorm[w+i];}
 uniform vec4 natK;     // as kHybMergeMosaic
 uniform int natRy1;
 uniform int natWidenU;
 uniform vec2 natWidenS; // as kHybMergeMosaic
+uniform float natClipShareU; // P534: as kHybMergeMosaic
+uniform float natBorderShareU; // P535: as kHybMergeMosaic
+uniform vec2 natDzU;    // P530: the dezipper on the native merge: x = HybridTuning::dezipper (0 = off), y = the donor frames merged
 uniform float rampKU;   // P309: as kHybChroma (the native base demosaic fades out over share 0..0.5 under the ramp)
 #if defined(NAT_US_PASS) && NAT_US_PASS
 uniform vec2 natUsU;      // P313: x = HybridTuning::mosaicUsFillShare
@@ -5078,14 +5152,14 @@ uvec4 natBlock(uvec4 geo,int bx,int by){
     int sx=(natReflB(tx>>1,natU.y>>2)<<1)|(tx&1),sy=(natReflB(ty>>1,natU.z>>2)<<1)|(ty&1);
     int rt=sy-(int(geo.y)>>1);
     int rb=(clamp(rt>>1,0,max((int(geo.z)>>2)-1,0))<<1)|(rt&1);
-    return nnorm[geo.w+uint(rb*BW+sx)];
+    return natNormAt(geo.w,uint(rb*BW+sx));
 }
 #else
 uvec4 natBlock(uvec4 geo,int bx,int by){
     int BW=natU.y>>1;
     int sx=natReflB(bx+cfaShift.x,BW),sy=natReflB(by+cfaShift.y,natU.z>>1);
     int rb=clamp(sy-(int(geo.y)>>1),0,max((int(geo.z)>>1)-1,0));
-    return nnorm[geo.w+uint(rb*BW+sx)];
+    return natNormAt(geo.w,uint(rb*BW+sx));
 }
 #endif
 float natVal(uint u,out bool ok,out bool cl){
@@ -5215,12 +5289,23 @@ void natFillC(inout vec3 num,inout vec3 den,vec3 cd,uvec4 geo,vec2 O,float g){
 }
 #endif
 // natSamples of kHybMergeMosaic (full window) on the blocks
+// P544 (owner, 2026-11-08: «Почини склейку Tetra, чтобы шахматки не было совсем»): a frame's say in a colour is the sum of its
+// kernel weights there - ~1 inside its own 4x4 block of that colour, ~100x less a block away. Where the donors sit shifted against
+// the base on a moving subject, the frames' blocks interleave and their shares of a colour alternate block by block: a 4 px checker
+// wherever their contents differ. natSatU > 0 (Tetra; Quad since P546): the merge also sums every frame with its weight per colour saturated,
+// (1 + natSatU) den / (den + natSatU) - a frame with fair support counts alike inside its block and beside it - and takes that sum
+// where the donors were rejected (their mean robustness here 0.9 .. 0.6 -> 0 .. 1); a static pixel (every donor taken) keeps the
+// sums of its sites' distances (the merge's sub-pixel detail). 0 = off.
+uniform float natSatU;
+uniform vec2 natSatG; // P544: the donors' mean robustness from which (y) to which (x) the saturated sums take over
+vec3 natSN=vec3(0.0),natSD=vec3(0.0);float natRs=0.0;
 void natFrame(inout Acc a,int f,vec2 O,float r,float cover,vec3 P){
     float g=fParam[f].x;
     int role=int(fParam[f].w);
     uvec4 geo=nGeo[clamp(f,0,127)];
     NatSums s=natTaps(geo,O,P,f!=0&&role!=5,role==3,false);
     vec3 num=s.nm*g,den=s.dn,cn=s.cn*g,cd=s.cd;
+    if(natSatU>0.0){vec3 k=(1.0+natSatU)/(den+vec3(natSatU));natSN+=r*num*k;natSD+=r*den*k;if(f!=0)natRs+=r;}
 #if NAT_FILL
     if(natK.w>0.0&&den.y>1.0e-7&&(den.x<natK.w*den.y||den.z<natK.w*den.y))natFillC(num,den,cd,geo,O,g);
 #endif
@@ -5263,7 +5348,8 @@ float natBaseFill(int c,vec2 O){
 #endif
 uniform vec4 natDemU; // x = share at F = 0, y = anisotropy, z = cone slope (1 / radius in sites), w = cells a side (3 Quad, 5 Tetra)
 uniform vec2 natDemD; // the structure / noise ratio from which (x) to which (y) the demosaic takes over
-uniform vec3 natDemN; // P523: x, y = the camera neutral R / G, B / G of the sites; z = share of the damping toward it
+uniform vec4 natDemN; // P523: x, y = the camera neutral R / G, B / G of the sites; z = share of the damping toward it; w: P525 cover
+uniform vec3 natDemR; // P547: the cone slope on structure (x) from the structure / noise ratio y to z (natDemU.z below y)
 bool natDemosaic(vec2 S,float g,out vec3 rgb,out float detail){
     int s=natV.x;
     ivec2 N=ivec2(floor(S+0.5));
@@ -5340,7 +5426,7 @@ bool natDemosaic(vec2 S,float g,out vec3 rgb,out float detail){
     // the cone along the edge: across a vertical structure (horizontal variation) narrower in x
     float st=natDemU.y*aniso;
     vec2 ax=vec2(1.0+2.0*st*wCol,1.0+2.0*st*wRow);
-    float k=natDemU.z;
+    float k=mix(natDemU.z,natDemR.x,smoothstep(natDemR.y,natDemR.z,detail));
     int R=int(ceil(1.0/k))+1;
     // two passes over the window: the greens alone, then red and blue sites by how far their green equivalent is from that green
     // (a site across an edge, whose block colour difference is the other side's, adds no zipper)
@@ -5553,6 +5639,9 @@ void main(){
         t*=smoothstep(natDemD.x,natDemD.y,detail); // flat areas keep the merge's smooth kernel (less noise); structure takes the demosaic
         int i=row*ow+ox;
         for(int c=0;c<3;c++)outRgb[i*3+c]=mix(outRgb[i*3+c],d[c],t);
+        // P525: the demosaic's share of the pixel is one frame's: its coverage (the effective map, the app's noise reduction, the
+        // along-edge pass) goes toward 1 by that share
+        if(natDemN.w>0.5)eff[i]=mix(eff[i],1.0,t);
         return;
     }
 #endif
@@ -5582,6 +5671,14 @@ void main(){
         natFrame(a,f,Ob*2.0+0.5,r,rw,natClamp(Pf*natK.x));
 #endif
     }
+    float wbCover=wb; // P530: the coverage keeps the base frame's own weight
+    if(natDzU.x>0.0&&wb>0.0){
+        // P530 (P402's dezipper on the native merge): where the donors were rejected (accepted below 98 % of them, fully under
+        // 70 %) the base weighs up to max(1, dezipper - accepted donors): a few partly accepted donors of alike shifts no longer
+        // print their colour blocks' lattice over a moving subject (branches in the wind)
+        float g=1.0-smoothstep(0.70,0.98,frames/max(natDzU.y,1.0));
+        wb*=mix(1.0,max(1.0,natDzU.x-frames),g);
+    }
     if(wb>0.0){
         vec3 Pb;
         if(natWidenU==2){float widen=mix(natWidenS.x,1.0,smoothstep(0.0,natWidenS.y,frames));Pb=P/(widen*widen);}
@@ -5600,6 +5697,10 @@ void main(){
         natFrame(a,0,S,wb,wb,natClamp(Pb*natK.x));
 #endif
     }
+    if(natSatU>0.0&&frameCount>1){ // P544: the saturated sums where the donors were rejected
+        float m=1.0-smoothstep(natSatG.x,natSatG.y,natRs/float(frameCount-1));
+        if(m>0.0){a.num=mix(a.num,natSN,m);a.den=mix(a.den,natSD,m);}
+    }
     vec3 col;uint cfl=0u;
     for(int c=0;c<3;c++){
         // P268 (owner, 2026-10-19: X200 Ultra 2x / wide crops, dark dots and ragged borders along every clipped highlight
@@ -5609,18 +5710,24 @@ void main(){
         // with the clipped samples at their clip level it is at least that mean (a brighter unclipped estimate, the
         // ultrashort's or a shorter frame's, stays).
         if(a.den[c]>1.0e-7){col[c]=a.num[c]/a.den[c];
-            if(a.clipDen[c]>0.0)col[c]=max(col[c],(a.num[c]+a.clipNum[c])/(a.den[c]+a.clipDen[c]));}
+            if(a.clipDen[c]>0.0)col[c]=max(col[c],(a.num[c]+a.clipNum[c])/(a.den[c]+a.clipDen[c]));
+            // P534: mostly clipped (a Tetra / Quad LED: a few unclipped samples at its blocks' edges always) - the value is the
+            // clip level, a lower bound: flagged, so the app's highlight recovery rebuilds it from the other colours
+            if(a.clipDen[c]>0.0&&a.clipDen[c]>=natClipShareU*(a.den[c]+a.clipDen[c]))cfl|=1u<<uint(c);}
         else if(a.clipDen[c]>0.0){col[c]=a.clipNum[c]/a.clipDen[c];cfl|=1u<<uint(c);}
 #if NAT_MARKED
         else col[c]=wb>0.0?NAT_FILL_MARK:0.0; // P204: natBaseFill in the NAT_BASEFILL pass
 #else
         else col[c]=0.0;
 #endif
-        if(a.clipDen[c]>0.0)cfl|=8u;
+        // P535: the clip border where the clipped share of the colour's weight is at least natBorderShareU (the fast route's 2 %):
+        // any clipped sample under the kernel made it follow the kernel's site set - 8 px steps around a Tetra LED, squares
+        // after the app's highlight recovery
+        if(a.clipDen[c]>0.0&&a.clipDen[c]>=natBorderShareU*(a.den[c]+a.clipDen[c]))cfl|=8u;
     }
     int i=row*ow+ox;
     outRgb[i*3]=col.x;outRgb[i*3+1]=col.y;outRgb[i*3+2]=col.z;
-    eff[i]=a.cover+wb;
+    eff[i]=a.cover+wbCover;
     if(mergeModeU.z!=0||rimU.x>0.0){
         if(m>0.0)cfl|=16u;
         if(a.usClip>0.0&&(cfl&7u)!=0u)cfl|=32u;
@@ -5794,6 +5901,234 @@ inline std::array<float,2> hybridMosaicNeutral(const HybridInput& input,int b,co
     if(!(sum[0]>0.0&&sum[1]>0.0&&sum[2]>0.0))return {1.f,1.f};
     const double g=sum[1]/cnt[1]; // the mean of each colour's unclipped blocks
     return {float(std::clamp(sum[0]/cnt[0]/g,0.1,10.0)),float(std::clamp(sum[2]/cnt[2]/g,0.1,10.0))};
+}
+// P531: the input rows of a band pass that reads the input as it was (hybridPureBands): the rows the pass wrote already (the R rows at
+// each end of an even band) come from their copies made before.
+struct HybridPureRows {
+    const float* rgb=nullptr;const float* saved=nullptr;const int* slot=nullptr;int W=0;
+    const float* operator()(int y) const {const int s=slot?slot[y]:-1;return s>=0?saved+size_t(s)*W*3:rgb+size_t(y)*W*3;}
+};
+// P531: bands of B rows of an in-place pass whose band b (work(b, row)) reads rows within R of it through row(y) and writes only its
+// own rows at its end: the even bands first (on all cores), then the odd ones, which read the even bands' R end rows from their copies.
+// The result is the pass on the input as it was, whatever the threads (the GPU's passes read the whole input: the same floats up to
+// its rounding).
+template<class Work> inline void hybridPureBands(std::vector<float>& rgb,int W,int H,int B,int R,const Work& work){
+    const int bands=(H+B-1)/B;
+    std::vector<int> slot(static_cast<size_t>(H),-1);
+    int rows=0;
+    for(int b=0;b<bands;b+=2){const int y0=b*B,y1=std::min(H,y0+B);for(int y=y0;y<y1;++y)if(y<y0+R||y>=y1-R)slot[size_t(y)]=rows++;}
+    std::vector<float> saved(size_t(rows)*W*3);
+    for(int y=0;y<H;++y)if(slot[size_t(y)]>=0)std::copy_n(&rgb[size_t(y)*W*3],size_t(W)*3,&saved[size_t(slot[size_t(y)])*W*3]);
+    const HybridPureRows direct{rgb.data(),nullptr,nullptr,W},kept{rgb.data(),saved.data(),slot.data(),W};
+    // (mergeRowBands takes rows: a band goes to the chunk holding its first row; below 64 rows it would run on one thread)
+    for(int parity=0;parity<2;++parity){
+        const int count=(bands+1-parity)/2;
+        mergeRowBands(count*B,[&](int r0,int r1){for(int k=(r0+B-1)/B;k*B<r1&&k<count;++k)work(2*k+parity,parity?kept:direct);});
+    }
+}
+// P525: the along-edge smoothing of the native merge's base demosaic (HybridTuning::mosaicAlongEdge) on the finished RGB (out,
+// shifted to the RGGB origin); eff: the merge's coverage per pixel in frames (unshifted: pixel (x, y) reads (x - dx, y - dy)), which
+// the base demosaic set toward 1 by its share (baseDemosaicCover): the share 1 - smoothstep(1, 1 + K, eff). Structure tensor: Sobel
+// of the luma, gaussian [1 4 6 4 1] / 16. P531: the CPU twin of ChromaMedianGpu::mosaicPost (bands of 64 rows, a 2s + 2-row halo,
+// hybridPureBands). s (P531, Tetra): the step of the gaussian's taps and of the taps along the edge (1 Quad; 2 Tetra: its 4 px
+// stairs). Returns the pixels changed.
+inline size_t hybridAlongEdge(std::vector<float>& rgb,int W,int H,const std::vector<float>& eff,int dx,int dy,float K,float strength,
+                              int s=1){
+    if(W<8||H<8||strength<=0.f||eff.size()<size_t(W)*H||rgb.size()<size_t(W)*H*3)return 0;
+    const float k=std::max(K,0.01f),st=std::min(strength,1.f);
+    auto share=[&](int x,int y){
+        const float F=eff[size_t(std::max(0,y-dy))*W+std::max(0,x-dx)]-1.f,u=std::clamp(F/k,0.f,1.f);
+        return st*(1.f-u*u*(3.f-2.f*u));
+    };
+    s=std::clamp(s,1,4);
+    const int B=64,R=2*s+2,bands=(H+B-1)/B;
+    std::vector<size_t> changed(static_cast<size_t>(bands),0);
+    hybridPureBands(rgb,W,H,B,R,[&](int b,const HybridPureRows& row){
+        const int y0=b*B,y1=std::min(H,y0+B);
+        bool any=false;
+        for(int y=y0;y<y1&&!any;++y)for(int x=0;x<W;++x)if(share(x,y)>1e-3f){any=true;break;}
+        if(!any)return;
+        // rows [ya, yb): the band and R rows each side (Sobel 1 + the 5-tap gaussian 2s, one spare)
+        const int ya=std::max(0,y0-R),yb=std::min(H,y1+R),n=yb-ya;
+        const size_t np=size_t(n)*W;
+        std::vector<float> L(np),j(np*3),t(np*3);
+        for(int r=0;r<n;++r){const float* p=row(ya+r);for(int x=0;x<W;++x)L[size_t(r)*W+x]=0.25f*p[3*x]+0.5f*p[3*x+1]+0.25f*p[3*x+2];}
+        for(int r=0;r<n;++r){ // Sobel, products interleaved (j11, j22, j12)
+            const float* up=&L[size_t(std::max(r-1,0))*W];const float* mid=&L[size_t(r)*W];const float* dn=&L[size_t(std::min(r+1,n-1))*W];
+            float* o=&j[size_t(r)*W*3];
+            for(int x=0;x<W;++x){
+                const int xl=x>0?x-1:0,xr=x<W-1?x+1:W-1;
+                const float gx=(up[xr]+2.f*mid[xr]+dn[xr])-(up[xl]+2.f*mid[xl]+dn[xl]);
+                const float gy=(dn[xl]+2.f*dn[x]+dn[xr])-(up[xl]+2.f*up[x]+up[xr]);
+                o[3*x]=gx*gx;o[3*x+1]=gy*gy;o[3*x+2]=gx*gy;
+            }
+        }
+        // gaussian [1 4 6 4 1] / 16 (sigma ~1), rows then columns, the three products at once
+        for(int r=0;r<n;++r){
+            const float* v=&j[size_t(r)*W*3];float* o=&t[size_t(r)*W*3];
+            for(int x=0;x<W;++x){
+                const int a=std::max(x-2*s,0),b1=std::max(x-s,0),c1=std::min(x+s,W-1),d=std::min(x+2*s,W-1);
+                for(int q=0;q<3;++q)o[3*x+q]=(v[3*a+q]+v[3*d+q]+4.f*(v[3*b1+q]+v[3*c1+q])+6.f*v[3*x+q])*(1.f/16.f);
+            }
+        }
+        for(int y=y0;y<y1;++y){
+            const int r=y-ya;
+            const float* a=&t[size_t(std::max(r-2*s,0))*W*3];const float* b2=&t[size_t(std::max(r-s,0))*W*3];const float* c=&t[size_t(r)*W*3];
+            const float* d2=&t[size_t(std::min(r+s,n-1))*W*3];const float* e=&t[size_t(std::min(r+2*s,n-1))*W*3];
+            float* o=&j[size_t(r)*W*3];
+            for(int x=0;x<W;++x)for(int q=0;q<3;++q)o[3*x+q]=(a[3*x+q]+e[3*x+q]+4.f*(b2[3*x+q]+d2[3*x+q])+6.f*c[3*x+q])*(1.f/16.f);
+        }
+        auto sample=[&](float fx,float fy,float* o){
+            fx=std::clamp(fx,0.f,float(W-1));fy=std::clamp(fy,0.f,float(H-1));
+            const int x0=std::min(int(fx),W-2),yA=std::min(int(fy),H-2);const float ax=fx-float(x0),ay=fy-float(yA);
+            const float* p00=row(yA)+size_t(x0)*3;const float* p01=p00+3;const float* p10=row(yA+1)+size_t(x0)*3;const float* p11=p10+3;
+            for(int q=0;q<3;++q)o[q]=(p00[q]*(1.f-ax)+p01[q]*ax)*(1.f-ay)+(p10[q]*(1.f-ax)+p11[q]*ax)*ay;
+        };
+        std::vector<float> band(rgb.begin()+std::ptrdiff_t(size_t(y0)*W*3),rgb.begin()+std::ptrdiff_t(size_t(y1)*W*3)); // the band's result
+        size_t count=0;
+        for(int y=y0;y<y1;++y)for(int x=0;x<W;++x){
+            const float sh=share(x,y);
+            if(sh<=1e-3f)continue;
+            const float* m=&j[(size_t(y-ya)*W+x)*3];
+            const float a11=m[0],a22=m[1],a12=m[2],tr=a11+a22;
+            if(!(tr>1e-12f))continue;
+            const float dxx=a11-a22,dxy=2.f*a12,mag2=dxx*dxx+dxy*dxy;
+            const float coh=mag2/(tr*tr); // ((l1 - l2) / (l1 + l2))^2
+            const float w=sh*std::clamp((coh-0.3f)/0.7f,0.f,1.f);
+            if(w<=1e-3f)continue;
+            // the gradient's direction theta: cos 2theta, sin 2theta = (dxx, dxy) / |.|; the tangent (-sin theta, cos theta)
+            const float inv=1.f/std::sqrt(mag2),c2=dxx*inv,s2=dxy*inv;
+            const float ct=std::sqrt(std::max(0.f,0.5f*(1.f+c2))),stv=std::copysign(std::sqrt(std::max(0.f,0.5f*(1.f-c2))),s2);
+            const float tx=-stv,ty=ct;
+            const float* c0=row(y)+size_t(x)*3;
+            float acc[3]={c0[0],c0[1],c0[2]},v[3],ws=1.f;
+            for(int q=1;q<=2;++q)for(int sg=-1;sg<=1;sg+=2){
+                const float wq=q==1?1.f:0.6f;
+                sample(float(x)+float(sg*q*s)*tx,float(y)+float(sg*q*s)*ty,v);
+                acc[0]+=wq*v[0];acc[1]+=wq*v[1];acc[2]+=wq*v[2];
+                ws+=wq;
+            }
+            float* o=&band[(size_t(y-y0)*W+x)*3];
+            for(int q=0;q<3;++q)o[q]=c0[q]+w*(acc[q]/ws-c0[q]);
+            ++count;
+        }
+        changed[size_t(b)]=count;
+        std::copy(band.begin(),band.end(),rgb.begin()+std::ptrdiff_t(size_t(y0)*W*3));
+    });
+    size_t n=0;
+    for(size_t c:changed)n+=c;
+    return n;
+}
+// P529: the notch's frequency (cycles / px on both axes, period 10 px: the phase from x mod 10, as the GPU's table) and its band of the
+// coverage: lowFrac .. highFrac of the static part of the frame (the 80th percentile of eff, every 13th pixel), from 2 frames up.
+constexpr float kLatticeNotchF=0.3f;
+constexpr int kLatticeNotchPeriod=10,kLatticeNotchR=6;
+// P543 (owner, 2026-11-07: «Пройдись по всем бурстам ... если найдёшь какие-либо артефакты - исправь»; Tetra burst 2, a car far
+// down the road): a Tetra merge's few-donor areas print the 4x4 colour blocks as a diagonal checker of 4 px squares (fundamental
+// at (+-1/8, +-1/8) cycles / px); the notch's spec per lattice: Quad 3/10 (sigma 1.5, radius 6, from 1.2 .. 2.5 frames up), Tetra
+// 1/8 (period 8, a single frame too: no lower gate). Arrays sized for the largest (period 10, radius 24).
+// 2026-11-08 (owner: «Найди признак решётки и убери шахматку без потери черепицы»): the Tetra checker sits exactly on (+-1/8, +-1/8)
+// (4 px squares on the 4x4 blocks); a diagonal texture near it does not (Tetra burst 1's roof tiles at (1/16, 1/8)). A narrow band
+// (sigma 8 px, radius 24: the response at the tiles exp(-(2 pi 0.0625 8)^2 / 2) = 0.007 of the checker's) takes the checker and
+// leaves the tiles; sigma 3 took them (-35 %). The coverage band 0.4 .. 0.8 of the 80th percentile (Tetra's few-donor areas reach
+// it: parked cars by a sign at 0.33). Replays through the app chain: the checker's energy -84 % (a car far down the road) and -79 %
+// (cars by the sign), the tiles 0.99, the whole frame's fine detail 0.99 (Tetra bursts 1, 2). The x - y phase of the grid is no
+// sign: on moving cars it follows the car (0 deg on one, 90 deg on another).
+struct LatticeNotchSpec { int period,num,R; float sigma,gateLo,gateHi,lowFrac,highFrac; };
+constexpr LatticeNotchSpec kQuadNotch{10,3,6,1.5f,1.2f,2.5f,0.2f,0.5f},kTetraNotch{8,1,24,8.f,-1.f,-0.5f,0.4f,0.8f};
+constexpr int kLatticeNotchPMax=10,kLatticeNotchRMax=24;
+inline std::array<float,2> hybridLatticeNotchRange(const std::vector<float>& eff,float lowFrac=0.2f,float highFrac=0.5f){
+    std::vector<float> sample;sample.reserve(eff.size()/13+1);
+    for(size_t i=0;i<eff.size();i+=13)sample.push_back(eff[i]);
+    if(sample.empty())return {1.f,1.5f};
+    std::nth_element(sample.begin(),sample.begin()+ptrdiff_t(sample.size()*8/10),sample.end());
+    const float Rs=std::max(sample[sample.size()*8/10],2.f),lo=lowFrac*Rs;
+    return {lo,std::max(highFrac*Rs,lo+0.5f)};
+}
+// cos / sin of 2 pi f k for k = 0 .. period - 1, and the separable gaussian (sigma 1.5 px, radius kLatticeNotchR)
+inline void hybridLatticeNotchTables(float* cosT,float* sinT,float* g,const LatticeNotchSpec& sp=kQuadNotch){
+    for(int k=0;k<sp.period;++k){
+        const double a=6.283185307179586*double((sp.num*k)%sp.period)/double(sp.period); // f = num / period
+        cosT[k]=float(std::cos(a));sinT[k]=float(std::sin(a));
+    }
+    const int R=sp.R;float sum=0;
+    for(int i=-R;i<=R;++i){g[i+R]=std::exp(-float(i*i)/(2.f*sp.sigma*sp.sigma));sum+=g[i+R];}
+    for(int i=0;i<2*R+1;++i)g[i]/=sum;
+}
+// P529: the native merge's lattice notch (HybridTuning::mosaicLatticeNotch) on the finished RGB (out, shifted to the RGGB origin):
+// the luma's local complex amplitude at +-(0.3, 0.3) cycles / px (separable gaussian, sigma 1.5 px) taken off R, G and B alike,
+// weighted by the coverage (eff, unshifted: pixel (x, y) reads (x - dx, y - dy)) between one frame and lo .. hi frames
+// (hybridLatticeNotchRange). P531: the CPU twin of ChromaMedianGpu::mosaicPost (bands of 64 rows, a 6-row halo, hybridPureBands).
+// Returns the pixels changed.
+inline size_t hybridLatticeNotch(std::vector<float>& rgb,int W,int H,const std::vector<float>& eff,int dx,int dy,float strength,
+                                  float lowFrac=-1.f,float highFrac=-1.f,const LatticeNotchSpec& sp=kQuadNotch){
+    if(lowFrac<0.f)lowFrac=sp.lowFrac;
+    if(highFrac<0.f)highFrac=sp.highFrac;
+    if(W<16||H<16||strength<=0.f||eff.size()<size_t(W)*H||rgb.size()<size_t(W)*H*3)return 0;
+    const std::array<float,2> range=hybridLatticeNotchRange(eff,lowFrac,highFrac);
+    const float lo=range[0],hi=range[1],st=std::min(strength,1.f);
+    auto smooth=[](float a,float b,float v){const float u=std::clamp((v-a)/(b-a),0.f,1.f);return u*u*(3.f-2.f*u);};
+    auto share=[&](int x,int y){
+        const float F=eff[size_t(std::max(0,y-dy))*W+std::max(0,x-dx)];
+        return st*(1.f-smooth(lo,hi,F))*smooth(sp.gateLo,sp.gateHi,F);
+    };
+    const int R=sp.R,P=sp.period;
+    const int B=64,bands=(H+B-1)/B;
+    float cosT[kLatticeNotchPMax],sinT[kLatticeNotchPMax],g[2*kLatticeNotchRMax+1];
+    hybridLatticeNotchTables(cosT,sinT,g,sp);
+    std::vector<size_t> changed(static_cast<size_t>(bands),0);
+    hybridPureBands(rgb,W,H,B,R,[&](int b,const HybridPureRows& row){
+        const int y0=b*B,y1=std::min(H,y0+B);
+        bool any=false;
+        for(int y=y0;y<y1&&!any;++y)for(int x=0;x<W;++x)if(share(x,y)>1e-3f){any=true;break;}
+        if(!any)return;
+        const int ya=std::max(0,y0-R),yb=std::min(H,y1+R),n=yb-ya;
+        const size_t np=size_t(n)*W;
+        // the luma times exp(-i 2 pi f (x +- y)) for the two diagonals: 4 planes (re, im of each), blurred by rows then columns
+        std::vector<float> Pl(np*4),T(np*4);
+        for(int r=0;r<n;++r){
+            const int y=ya+r;const float c2=cosT[y%P],s2=sinT[y%P];
+            const float* p=row(y);float* o=&Pl[size_t(r)*W*4];
+            for(int x=0;x<W;++x){
+                const float L=0.25f*p[3*x]+0.5f*p[3*x+1]+0.25f*p[3*x+2],c1=cosT[x%P],s1=sinT[x%P];
+                // exp(-i a) exp(-i b) and exp(-i a) exp(+i b), a = 2 pi f x, b = 2 pi f y
+                const float cp=c1*c2-s1*s2,sp=s1*c2+c1*s2,cm=c1*c2+s1*s2,sm=s1*c2-c1*s2;
+                o[4*x]=L*cp;o[4*x+1]=-L*sp;o[4*x+2]=L*cm;o[4*x+3]=-L*sm;
+            }
+        }
+        for(int r=0;r<n;++r){
+            const float* v=&Pl[size_t(r)*W*4];float* o=&T[size_t(r)*W*4];
+            for(int x=0;x<W;++x){
+                float a0=0,a1=0,a2=0,a3=0;
+                for(int q=-R;q<=R;++q){const int xx=std::clamp(x+q,0,W-1);const float w=g[q+R];a0+=w*v[4*xx];a1+=w*v[4*xx+1];a2+=w*v[4*xx+2];a3+=w*v[4*xx+3];}
+                o[4*x]=a0;o[4*x+1]=a1;o[4*x+2]=a2;o[4*x+3]=a3;
+            }
+        }
+        std::vector<float> band(rgb.begin()+std::ptrdiff_t(size_t(y0)*W*3),rgb.begin()+std::ptrdiff_t(size_t(y1)*W*3));
+        size_t count=0;
+        for(int y=y0;y<y1;++y){
+            const int r=y-ya;const float c2=cosT[y%P],s2=sinT[y%P];
+            for(int x=0;x<W;++x){
+                const float sh=share(x,y);
+                if(sh<=1e-3f)continue;
+                float a0=0,a1=0,a2=0,a3=0;
+                for(int q=-R;q<=R;++q){const int rr=std::clamp(r+q,0,n-1);const float* v=&T[(size_t(rr)*W+x)*4];const float w=g[q+R];a0+=w*v[0];a1+=w*v[1];a2+=w*v[2];a3+=w*v[3];}
+                const float c1=cosT[x%P],s1=sinT[x%P];
+                const float cp=c1*c2-s1*s2,sp=s1*c2+c1*s2,cm=c1*c2+s1*s2,sm=s1*c2-c1*s2;
+                // 2 Re(A exp(+i phase)) per diagonal
+                const float comp=2.f*(a0*cp-a1*sp)+2.f*(a2*cm-a3*sm);
+                float* o=&band[(size_t(y-y0)*W+x)*3];
+                const float d=sh*comp;
+                o[0]-=d;o[1]-=d;o[2]-=d;
+                ++count;
+            }
+        }
+        changed[size_t(b)]=count;
+        std::copy(band.begin(),band.end(),rgb.begin()+std::ptrdiff_t(size_t(y0)*W*3));
+    });
+    size_t total=0;
+    for(size_t c:changed)total+=c;
+    return total;
 }
 struct HybridMosaicNative {
     int block=2,W=0,H=0;                 // colour block b and size of the mosaic the merge reads (W = b x the binned width)
@@ -6300,7 +6635,7 @@ class HybridGpu {
     GLuint markListProgram=0,markSparseProgram=0,markListBuf=0;size_t markListCap=0;
     // P34: the fast native merge (kHybNatNorm + kHybMergeMosaicFast [block Quad / Tetra][window r][marked][fill], compiled when
     // first used) and the normalised 2x2 cells of the strip (binding 18, outside the slots: written and read on the GPU only, one bank)
-    GLuint natNormProgram=0,natFast[2][9][2][2]{},natNormBuf=0,natFieldBuf=0;
+    GLuint natNormProgram=0,natFast[2][9][2][2]{},natNormBuf=0,natNormBuf2=0,natFieldBuf=0;
     GLuint natFastFill[2][9][2]{}; // P204: the base-fill pass of a marked fast merge (block, half-width, R / B fill)
     GLuint natFastDem[2][9][2]{};  // P282: the base demosaic pass (block, half-width, R / B fill)
     GLuint natFastDemTile[2][9][2]{};
@@ -6311,7 +6646,7 @@ class HybridGpu {
     size_t mochiCap[6]{};
     // P80: the base rows already in mochiBuf[0] (frame pointer and rows): the next bracketed frame of the shot reuses them
     const uint16_t* mochiBasePtr=nullptr;int mochiBaseR0=-1,mochiBaseR1=-1;
-    size_t natNormCap=0;
+    size_t natNormCap=0,natNormCap2=0;
     GLuint natFastProgram(int block,int r,bool marked,bool fill,bool baseFill=false,bool demosaic=false,bool usPass=false,bool usTol=false){
         const bool tetra=block==4;
         r=std::clamp(r,1,tetra?8:3);
@@ -6411,6 +6746,7 @@ class HybridGpu {
             for(auto& byBlock:natFastUsTol)for(auto& byR:byBlock)for(auto& byMark:byR)for(GLuint program:byMark)if(program)glDeleteProgram(program); // P350
             if(natTable[0]||natTable[1])glDeleteBuffers(2,natTable);
             if(natNormBuf)glDeleteBuffers(1,&natNormBuf);
+            if(natNormBuf2)glDeleteBuffers(1,&natNormBuf2); // P545
             if(natFieldBuf)glDeleteBuffers(1,&natFieldBuf); // P268
             for(GLuint program:{mochiStatsProgram,mochiBlurProgram,mochiApplyProgram})if(program)glDeleteProgram(program); // P62
             for(GLuint b:mochiBuf)if(b)glDeleteBuffers(1,&b);
@@ -7716,7 +8052,14 @@ public:
                 glUniform1i(loc(mosaicProgram,"natWidenU"),nat->widenRule);
                 glUniform1i(loc(mosaicProgram,"natBilinU"),tune.mosaicRobustBilinear); // P188
                 glUniform2f(loc(mosaicProgram,"natWidenS"),nat->widenMul,nat->widenFrames);
+                { // P530: the dezipper on the native merge (the donor frames: the normal and bracketed ones merged)
+                    int donors=0;
+                    for(size_t f=1;f<in.role.size()&&f<in.weight.size();++f)if(in.role[f]!=5&&in.weight[f]>0.f)donors++;
+                    glUniform2f(loc(mosaicProgram,"natDzU"),tune.mosaicDezip!=0?std::max(tune.dezipper,0.f):0.f,float(std::max(donors,1)));
+                }
                 glUniform1f(loc(mosaicProgram,"rampKU"),bento?in.rampK:0.f); // P309
+                glUniform1f(loc(mosaicProgram,"natClipShareU"),std::clamp(tune.mosaicClipShare,0.01f,1.f)); // P534
+                glUniform1f(loc(mosaicProgram,"natBorderShareU"),std::clamp(tune.mosaicBorderShare,0.f,0.5f)); // P535
                 glUniform1i(loc(mosaicProgram,"natClampU"),nat->clampCov); // P34
                 const float us=std::max(0.3f,tune.bentoUsSigma),rs=std::max(0.3f,tune.rimSigma);
                 glUniform4f(loc(mosaicProgram,"kD"),tune.widenBelow,tune.widenMul,tune.kernelFloor,bento&&!natUs?1.f:0.f); // P313: off under the fill
@@ -7731,10 +8074,17 @@ public:
                 const float kg=std::clamp(nat->ksG,0.25f,4.f),krb=std::clamp(nat->ksRB,0.25f,4.f);
                 glUniform4f(loc(mosaicProgram,"natK"),1.f/(float(nb)*ks*float(nb)*ks),kg*kg,krb*krb,std::clamp(nat->fillSupport,0.f,1.f));
                 // P282: share, anisotropy, cone slope (radius 2.2 sites Quad, 2.6 Tetra), cells a side (3 Quad, 5 Tetra)
+                {const bool t4=nb==4;const float u=t4?tune.mosaicTetraFrameSat:nb==2?tune.mosaicQuadFrameSat:0.f,lo=t4?tune.mosaicTetraFrameSatLo:tune.mosaicQuadFrameSatLo,
+                     hi=t4?tune.mosaicTetraFrameSatHi:tune.mosaicQuadFrameSatHi;
+                 glUniform1f(loc(mosaicProgram,"natSatU"),std::max(u,0.f)); // P544
+                 glUniform2f(loc(mosaicProgram,"natSatG"),lo,std::max(hi,lo+0.01f));}
                 glUniform4f(loc(mosaicProgram,"natDemU"),std::clamp(tune.baseDemosaic,0.f,1.f),std::clamp(tune.baseDemosaicAniso,0.f,2.f),
                             nb==4?1.f/2.6f:1.f/2.2f,nb==4?5.f:3.f);
+                glUniform3f(loc(mosaicProgram,"natDemR"),nb==4?1.f/std::clamp(tune.baseDemosaicTetraRadius,1.f,3.5f):1.f/2.2f,
+                            tune.baseDemosaicSharpLo,std::max(tune.baseDemosaicSharpHi,tune.baseDemosaicSharpLo+0.01f)); // P547
                 glUniform2f(loc(mosaicProgram,"natDemD"),tune.baseDemosaicDetailLo,std::max(tune.baseDemosaicDetailHi,tune.baseDemosaicDetailLo+0.01f));
-                glUniform3f(loc(mosaicProgram,"natDemN"),nat->neutral[0],nat->neutral[1],std::clamp(tune.baseDemosaicNeutral,0.f,1.f)); // P523
+                glUniform4f(loc(mosaicProgram,"natDemN"),nat->neutral[0],nat->neutral[1],std::clamp(tune.baseDemosaicNeutral,0.f,1.f),
+                            tune.baseDemosaicCover>0?1.f:0.f); // P523, P525
             }
             glUseProgram(mergeMain);
             check("native uniforms");
@@ -7830,7 +8180,7 @@ public:
         int natFlagMode=0,natBlocks=0;
         std::vector<uint8_t> natClipBlock;
         std::vector<GLuint> natOffsets,natNormOff;std::vector<GLint> natRow0,natRows;
-        size_t natNormBlocks=0; // P34: blocks of the strip's normalised frames (kHybNatNorm)
+        size_t natNormBlocks=0,natNormBlocks2=0; // P34: blocks of the strip's normalised frames (kHybNatNorm); P545: binding 24 past the block
         std::vector<uint16_t> natFixed; // P197: the strip rows of a row-corrected frame (HybridMosaicNative::fixRows)
         if(nat){
             natOffsets.assign(frames,0);natNormOff.assign(frames,0);natRow0.assign(frames,0);natRows.assign(frames,1);
@@ -7943,11 +8293,16 @@ public:
         auto natPlan=[&]()->size_t{
             if(!nat)return 0;
             const int NW=nat->W,NH=nat->H,nb=nat->block;
-            size_t ntotal=0;natNormBlocks=0;
+            size_t ntotal=0;natNormBlocks=natNormBlocks2=0;
+            const size_t normCap=blockLimit/16;
             for(int f=0;f<frames;++f){
                 const int r0=std::min(NH-nb,nb*row0[f]),r1=std::min(NH,nb*(row0[f]+rows[f]));
                 natRow0[f]=r0;natRows[f]=std::max(1,r1-r0);natOffsets[f]=GLuint(ntotal);ntotal+=size_t(natRows[f])*NW;
-                natNormOff[f]=GLuint(natNormBlocks);natNormBlocks+=size_t(NW/2)*(natRows[f]/2);
+                const size_t n=size_t(NW/2)*(natRows[f]/2);
+                // P545 (tetra_3, 30 frames of 4080 px: 128 MB at the smallest strip on a 128 MB block): the frames that do not fit
+                // the block go to a second buffer, marked by bit 31 of their offset
+                if(natNormBlocks2==0&&natNormBlocks+n<=normCap){natNormOff[f]=GLuint(natNormBlocks);natNormBlocks+=n;}
+                else{natNormOff[f]=GLuint(natNormBlocks2)|0x80000000u;natNormBlocks2+=n;}
             }
             return ntotal;
         };
@@ -8000,8 +8355,8 @@ public:
                         if(slot[k]>slot[worst])worst=k;
                         sum+=uint64_t(slot[k])*((k==0||k==3||k==4||k==6||k==12||k==13)?2:1);
                     }
-                    const size_t normBytes=natFastOn?natNormBlocks*16:0; // P34: the normalised blocks (binding 18, one bank)
-                    sum+=normBytes;
+                    const size_t normBytes=natFastOn?std::max(natNormBlocks,natNormBlocks2)*16:0; // P34: the normalised blocks (bindings 18, 24; one bank)
+                    sum+=natFastOn?(natNormBlocks+natNormBlocks2)*16:0;
                     const bool overBlock=slot[worst]>blockLimit||normBytes>blockLimit,overMemory=gpuBudget>0&&sum>gpuBudget;
                     if(!overBlock&&!overMemory)break;
                     if(shrinkWhy.empty())shrinkWhy=std::string(overBlock?"storage slot "+std::to_string(slot[worst]>=normBytes?worst:18)+" "
@@ -8260,6 +8615,9 @@ public:
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER,natNormBuf?natNormBuf:(glGenBuffers(1,&natNormBuf),natNormBuf));
                 if(natNormCap<natNormBlocks*16){glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(natNormBlocks*16),nullptr,GL_DYNAMIC_DRAW);natNormCap=natNormBlocks*16;}
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER,18,natNormBuf);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER,natNormBuf2?natNormBuf2:(glGenBuffers(1,&natNormBuf2),natNormBuf2));
+                if(natNormCap2<std::max<size_t>(natNormBlocks2,1)*16){natNormCap2=std::max<size_t>(natNormBlocks2,1)*16;glBufferData(GL_SHADER_STORAGE_BUFFER,GLsizeiptr(natNormCap2),nullptr,GL_DYNAMIC_DRAW);}
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER,24,natNormBuf2);
                 glUseProgram(natNormProgram);
                 glUniform1i(loc(natNormProgram,"natMarkU"),natStripMode?1:0);
                 glUniform1i(loc(natNormProgram,"frameIdx"),0);
@@ -14605,6 +14963,61 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             +(stillSeen==0?", hand-held: x"+std::to_string(keepMedian):stillSeen==1?", still burst: whole":"")+") "
             +std::to_string(int(millis(Clock::now()-t0)))+" ms");
     }
+    // P525: the along-edge smoothing of the native base demosaic (moving Quad / Tetra subjects) and P529: the lattice notch of the
+    // few-donor areas, on the finished RGB. P531 (owner, 2026-11-07: «Делаем на ГПУ»): both on the GPU (the chroma median's context,
+    // ChromaMedianGpu::mosaicPost), the CPU twins where it is off (chromaGpu 0), too large or failed: the same floats up to rounding
+    const bool alongOn=native&&tune.baseDemosaic>0.f&&tune.baseDemosaicCover>0&&tune.mosaicAlongEdge>0.f;
+    // (the Quad notch's frequency (0.3) on a Tetra merge found no lattice and took 4..17 % of the fine detail, the real 4x4
+    // burst 20261107_110608; Tetra's along-edge taps step 2 px: its base demosaic's stairs are 4 px)
+    // P543: a Tetra merge takes its own notch (kTetraNotch: the 4x4 blocks' checker at 1/8 cycles / px), mosaicTetraLatticeNotch
+    const bool tetraNotch=native&&native->block==4;
+    const float notchStrength=tetraNotch?tune.mosaicTetraLatticeNotch:tune.mosaicLatticeNotch;
+    const LatticeNotchSpec& notchSpec=tetraNotch?kTetraNotch:kQuadNotch;
+    const bool notchOn=native&&(native->block==2||tetraNotch)&&notchStrength>0.f;
+    const int alongS=native&&native->block>=4?2:1;
+    if(alongOn||notchOn){
+        if(effective.size()>=size_t(outW)*outH){
+            const auto t0=Clock::now();
+            const int dx=(input.cfa&1)*grid,dy=(input.cfa>>1)*grid;
+            const float alongK=std::clamp(alongS>1?tune.mosaicTetraAlongEdgeK:tune.mosaicAlongEdgeK,0.01f,1000.f);
+            size_t changed[2]{0,0};
+            std::string how="cpu";
+            bool done=false;
+            if(tune.chromaGpu>0){
+                const uint64_t avail=hybridMemAvailable();
+                if(chromaGpuPossible(int64_t(outW)*outH)&&(avail==0||ChromaMedianGpu::postBytesFor(outW,outH)<avail/4)){
+                    try{
+                        const std::array<float,2> range=hybridLatticeNotchRange(effective,notchSpec.lowFrac,notchSpec.highFrac);
+                        const float notch[3]={range[0],range[1],notchOn?notchStrength:0.f};
+                        float cosT[kLatticeNotchPMax],sinT[kLatticeNotchPMax],g[2*kLatticeNotchRMax+1];
+                        hybridLatticeNotchTables(cosT,sinT,g,notchSpec);
+                        auto gpu=chromaTake();
+                        gpu->times.clear();
+                        try{
+                            gpu->mosaicPost(out,outW,outH,effective,dx,dy,alongOn?alongK:0.f,alongOn?tune.mosaicAlongEdge:0.f,alongS,notch,cosT,sinT,g,changed,
+                                            notchSpec.period,notchSpec.R,notchSpec.gateLo,notchSpec.gateHi);
+                        }catch(const std::exception& e){
+                            // rows written back already: the CPU twins would pass over them twice (and read them as their input)
+                            if(gpu->postCommitted>0){how=std::string("gpu failed after ")+std::to_string(gpu->postCommitted)+" rows, the rest left as merged ("+e.what()+")";done=true;}
+                            throw;
+                        }
+                        how="gpu:"+gpu->times+" ms";
+                        chromaKeep(std::move(gpu)); // the chroma median after the merge takes it again
+                        done=true;
+                    }catch(const std::exception& e){if(!done)how=std::string("cpu (")+e.what()+")";}
+                }else how="cpu (size)";
+            }
+            if(!done){
+                if(alongOn)changed[0]=hybridAlongEdge(out,outW,outH,effective,dx,dy,alongK,tune.mosaicAlongEdge,alongS);
+                if(notchOn)changed[1]=hybridLatticeNotch(out,outW,outH,effective,dx,dy,notchStrength,-1.f,-1.f,notchSpec);
+            }
+            const double all=std::max(1.0,double(outW)*outH);
+            char line[200];
+            std::snprintf(line,sizeof(line),"HYBRID MOSAIC NATIVE: post passes: along-edge smoothing (K %.0f, step %d) %zu px (%.2f %%),"
+                " lattice notch of the few-donor areas %zu px (%.2f %%), ",alongK,alongS,changed[0],100.0*double(changed[0])/all,changed[1],100.0*double(changed[1])/all);
+            report(line+how+", "+std::to_string(int(millis(Clock::now()-t0)))+" ms");
+        }else report("HYBRID MOSAIC NATIVE: post passes skipped (no coverage map at this size)");
+    }
     if(effStrip)report(effLine); // P440: made while the consumer finished
     else if(effMap){
         std::vector<float> sample;sample.reserve(effective.size()/7+1);
@@ -16472,7 +16885,11 @@ inline std::vector<float> hybridReconstructMosaicNativeMerge(const HybridInput& 
     // P80: the chroma median's GPU context builds during the merge. P219: only for a result the median takes on the GPU (ow x oh
     // below: Quad / T1 W x H, 4x that on the natively merged 2x grid, T2 a quarter), not for every 50 MP Quad merge
     const int k2Out=gridAsked==2&&!t2&&tune.mosaicNative2x!=0?2:1;
-    if(tune.chromaGpu>0&&chromaGpuPossible(t2?int64_t(W)*Ht/4:int64_t(W)*Ht*k2Out*k2Out)&&!(tune.mosaicChroma&&tune.chromaOverlap>0))chromaPrewarm(); // P364: none for the overlap
+    // P531: and for the post passes (hybridReconstruct's along-edge smoothing / lattice notch) with their programs
+    const bool postGpu=tune.chromaGpu>0&&((tune.baseDemosaic>0.f&&tune.baseDemosaicCover>0&&tune.mosaicAlongEdge>0.f)||tune.mosaicLatticeNotch>0.f||tune.mosaicTetraLatticeNotch>0.f)
+        &&chromaGpuPossible(int64_t(W)*Ht*k2Out*k2Out);
+    if(postGpu||(tune.chromaGpu>0&&chromaGpuPossible(t2?int64_t(W)*Ht/4:int64_t(W)*Ht*k2Out*k2Out)&&!(tune.mosaicChroma&&tune.chromaOverlap>0)))
+        chromaPrewarm(postGpu); // P364: none for the overlap
     // P73: Tetra T1 by day has its own scale (the Quad kernel in sensor px)
     const float kernelScale=std::clamp(mb==4&&tune.mosaicTetraKernelScale>0.f?tune.mosaicTetraKernelScale:tune.mosaicKernelScale,0.1f,4.f);
     const float ksG=std::clamp(tune.mosaicKernelG,0.25f,4.f),ksRB=std::clamp(tune.mosaicKernelRB,0.25f,4.f);

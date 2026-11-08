@@ -97,7 +97,27 @@ public final class WhyLumaSharpen extends Node {
 
     /** {@link #smoothedSource} of the shot: the scam_dev line is read only for a mosaic shot. */
     static boolean smoothedSource(int mosaicBlock) {
-        return smoothedSource(mosaicBlock, mosaicBlock > 1 && PreferenceKeys.scamDevSwitch("sharpen_r1", true));
+        return smoothedSource(mosaicBlock, mosaicBlock > 1 && PreferenceKeys.scamDevSwitch("sharpen_r1", true))
+                && !quadOnLattice(mosaicBlock, mosaicBlock == 2 && quadSwitch());
+    }
+
+    /**
+     * P542 (owner, 2026-11-07: «Убедись так же что детализация у нас не хуже [чем у Ark] и желательно чтобы она была даже лучше»):
+     * a Quad shot (block 2) is sharpened like a plain Bayer one - on Ya without its 2 px alternations (P337, why/sharp_r1 mode 3)
+     * instead of R1's 3x3 binomial - and its third RL stage (Gaussian 0.5) at QUAD_RL3_BOOST x the setting. The worker now takes
+     * the Quad site lattice out (P525 notch, P531 along-edge), so R1's smoothing only cost detail: host replays of Ark's Quad
+     * bursts through the app chain (Resolve, MsDenoise, this sharpening, combine) had 0.71 .. 0.88 of Ark's fine-detail energy,
+     * now 0.93 .. 1.13, the overshoot at strong edges at or below Ark's, flat-area noise at or below Ark's, the 2 px / 4 px lattice
+     * peaks at or below Ark's. Tetra (block 4) keeps R1. scam_dev "sharpen_quad 0" = the passes of before.
+     */
+    static final float QUAD_RL3_BOOST = 2f;
+
+    static boolean quadOnLattice(int mosaicBlock, boolean enabled) {
+        return mosaicBlock == 2 && enabled;
+    }
+
+    static boolean quadSwitch() {
+        return PreferenceKeys.scamDevSwitch("sharpen_quad", true);
     }
 
     /**
@@ -126,7 +146,8 @@ public final class WhyLumaSharpen extends Node {
     }
 
     static boolean latticeSource(int mosaicBlock, int w, int h) {
-        return r1Fits(w, h) && latticeSource(mosaicBlock, mosaicBlock <= 1 && PreferenceKeys.scamDevSwitch("sharpen_lattice", true));
+        final boolean quad = quadOnLattice(mosaicBlock, mosaicBlock == 2 && quadSwitch()); // P542
+        return r1Fits(w, h) && latticeSource(quad ? 1 : mosaicBlock, (mosaicBlock <= 1 || quad) && PreferenceKeys.scamDevSwitch("sharpen_lattice", true));
     }
 
     /** Amount factor at grid scale s: 1 at s <= 1, k at s >= 2, linear in between. */
@@ -381,6 +402,9 @@ public final class WhyLumaSharpen extends Node {
         final boolean r1 = smoothedSource(block, size.x, size.y);
         // P337: a plain Bayer shot reads Ya without its 2 px lattice (sharp_r1 mode 3), which comes back at its own level
         final boolean lattice = !r1 && latticeSource(block, size.x, size.y);
+        // P542: a Quad shot on the lattice source takes its third RL stage at QUAD_RL3_BOOST x
+        final boolean quadBoost = lattice && quadOnLattice(block, block == 2 && quadSwitch());
+        if (quadBoost) rl[2][2] *= QUAD_RL3_BOOST;
         GLTexture src = ya, residual = null;
         // P364: the full-grid passes below read their windows as 2 x 2 textureGather blocks (GATHER 1 of why/sharp_r1 mode 3,
         // why/sharp_box mode 0 and why/sharp_compose): the same taps in the same order; the old model of post_ab keeps the loops
@@ -518,7 +542,7 @@ public final class WhyLumaSharpen extends Node {
             glProg.drawBlocks(out);
             residual.close();
             obs = out;
-            stages.append(r1 ? " r1=B3(block " + block + ")" : " lattice=off-sharpened");
+            stages.append(r1 ? " r1=B3(block " + block + ")" : " lattice=off-sharpened" + (quadBoost ? " quad(rl3 x" + QUAD_RL3_BOOST + ")" : ""));
         } else if (block > 1) stages.append(r1Fits(size.x, size.y) ? " r1=off(block " : " r1=off(>100MP, block ").append(block).append(")");
         glProg.closed = true;
         if (ratio != null) ratio.close();

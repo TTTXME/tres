@@ -58,6 +58,20 @@ public class WhySharpenR1Test {
         assertFalse("scam_dev sharpen_r1 0", WhyLumaSharpen.smoothedSource(4, false));
     }
 
+    @Test public void quadShotsTakeTheLatticeSourceWithTheBoost() throws IOException {
+        // P542: Quad (block 2) leaves R1 for the lattice-free source while scam_dev sharpen_quad is on; Tetra keeps R1
+        assertTrue("Quad", WhyLumaSharpen.quadOnLattice(2, true));
+        assertFalse("scam_dev sharpen_quad 0", WhyLumaSharpen.quadOnLattice(2, false));
+        for (int block : new int[]{-1, 0, 1, 3, 4, 8}) assertFalse("block " + block, WhyLumaSharpen.quadOnLattice(block, true));
+        assertEquals(2f, WhyLumaSharpen.QUAD_RL3_BOOST, 0f);
+        final String java = read(SHARPEN);
+        assertTrue(java.contains("&& !quadOnLattice(mosaicBlock, mosaicBlock == 2 && quadSwitch());"));
+        assertTrue(java.contains("latticeSource(quad ? 1 : mosaicBlock, (mosaicBlock <= 1 || quad) && PreferenceKeys.scamDevSwitch(\"sharpen_lattice\", true))"));
+        assertTrue(java.contains("final boolean quadBoost = lattice && quadOnLattice(block, block == 2 && quadSwitch());"));
+        assertTrue(java.contains("if (quadBoost) rl[2][2] *= QUAD_RL3_BOOST;"));
+        assertTrue(read("src/main/java/com/particlesdevs/photoncamera/settings/DevKeys.java").contains("\"sharpen_quad\", true"));
+    }
+
     @Test public void bayerShotsSharpenWithoutTheirLattice() throws IOException {
         // P337: block <= 1 takes the lattice-free source unless switched off; a mosaic shot keeps R1 (B3), never both
         for (int block : new int[]{-1, 0, 1}) {

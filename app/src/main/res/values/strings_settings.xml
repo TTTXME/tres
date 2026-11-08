@@ -439,6 +439,8 @@
     <string name="prefs_scam_hybrid_highlight_defringe_summary">Removes colour fringes at clipped highlights. Higher: stronger; lower: weaker; 0: off.</string>
     <string name="prefs_scam_hybrid_highlight_band_title">Dotted line on clipped edges</string>
     <string name="prefs_scam_hybrid_highlight_band_summary">Smooths the coloured dotted line on clipped edges. Higher: stronger; lower: weaker; 0: off.</string>
+    <string name="prefs_scam_hybrid_highlight_glow_title">White glow around clipped lights</string>
+    <string name="prefs_scam_hybrid_highlight_glow_summary">Clipped white lights (the sun, headlights, LEDs, lamps) and the brightest area around them stay white: no coloured ring or rim, for example a yellow ring around the sun or a pink one around a headlight on a red car. Coloured lights and surfaces keep their colour. Higher: stronger; 0: off.</string>
     <string name="prefs_scam_hybrid_why_bracket_denoise_title">Highlight frame denoise</string>
     <string name="prefs_scam_hybrid_why_bracket_denoise_summary">Denoise of the brightest areas (the short highlight frame). Higher: cleaner; lower: more detail; 0: off.</string>
     <string name="prefs_scam_hybrid_why_hl_white_title">Bright colour to white</string>

@@ -1229,7 +1229,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             return Lang.t(c, "снимок сделан в режиме «Спорт», а в нём эта настройка не действует.",
                     "the shot was taken in Sport mode, where this setting has no effect.");
         // the clip band reads the per-pixel clip flags, which the merge sent only with the recovery on at the shot
-        if (effective.equals(HYBRID + "highlight_band") && !recoveryAt(shot))
+        if ((effective.equals(HYBRID + "highlight_band") || effective.equals(HYBRID + "highlight_glow")) && !recoveryAt(shot))
             return Lang.t(c, "при съёмке «Восстановление светов по каналам» было 0: в серии нет попиксельных флагов клипа.",
                     "“Per-channel highlight recovery” was 0 at the shot: the burst holds no per-pixel clip flags.");
         final Map<String, Object> values = new HashMap<>(shot);

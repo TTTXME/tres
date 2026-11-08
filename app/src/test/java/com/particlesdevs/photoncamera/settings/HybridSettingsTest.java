@@ -504,7 +504,8 @@ public class HybridSettingsTest {
             assertNotNull(op,new SettingsAvailability(o).reason("pref_scam_hybrid_why_ccm_sat"));
         }
         // the colour prior, the defringe and the clip band of the highlights: inside the per-channel recovery only
-        String[] trio={"pref_scam_hybrid_highlight_chroma","pref_scam_hybrid_highlight_defringe","pref_scam_hybrid_highlight_band"};
+        String[] trio={"pref_scam_hybrid_highlight_chroma","pref_scam_hybrid_highlight_defringe","pref_scam_hybrid_highlight_band",
+                "pref_scam_hybrid_highlight_glow"};
         Map<String,Object> h=new HashMap<>();
         for(String k:trio)assertNull(k,new SettingsAvailability(h).reason(k));
         h.put("pref_scam_hybrid_highlight_recovery","0");

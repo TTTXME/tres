@@ -262,6 +262,7 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_ccm_sat": return new double[]{0,1.5,0};
             case "pref_scam_hybrid_highlight_defringe": return new double[]{0,1,0};
             case "pref_scam_hybrid_highlight_band": return new double[]{0,1,0};
+            case "pref_scam_hybrid_highlight_glow": return new double[]{0,1,0};
             case "pref_scamhdr_chroma_radius": return new double[]{1,12,1};
             case "pref_scamhdr_post_chroma": case "pref_scamhdr_post_luma": return new double[]{0,2,0};
             case "pref_watermark_size": return new double[]{3,20,0};

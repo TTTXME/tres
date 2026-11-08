@@ -34,6 +34,16 @@ uniform int radiusU;                // window radius in output pixels (3 at 1x, 
 uniform int zoneU;                  // how far the band reaches past the flagged pixels, output pixels; <= 0 -> 2
 uniform float strengthU;            // 0..1; <= 0 -> pass-through
 uniform int clipHiUnflaggedU;       // P58, as in scamhdr/scamrgb: inside the Bento mask bit 3 is no clip edge (0 = unset)
+// P537 (owner, 2026-11-07, Ark's Tetra car: the pink rim round a white daytime running light on red paint, «Сделай отдельной
+// настройкой, по умолчанию включено»): the glow of a near-white clipped light takes the light's colour, as Ark's. Within
+// glowRadiusU of a pixel with a clipped mean (flag bits 0-2), a pixel dimmer than the light - its luminance from 5 .. 25 % of
+// the light's brightest up to 50 .. 75 % (as bright as the light: the light itself or a flare ghost by it, whose colour the
+// recovery set) - goes to the light's colour (the brightest pixels within the radius, luminance^4 weighted; white for a
+// near-white light, saturation < 0.05 .. 0.15) at its own luminance, fading out from a quarter of the radius to it (the nearest
+// clipped mean on the taps). A coloured light (its saturation 0.15 .. 0.3) keeps its glow, the dark surface round the light
+// stays. 0 = off (unset).
+uniform float glowU;                // 0..1
+uniform int glowRadiusU;            // output pixels (6 at 1x, 12 on the Sabre 2x grid)
 #define BAND_MASK 0
 #if BAND_MASK == 1
 uniform sampler2D BandMask;         // P479: scamhdr/clipmask (the windows' columns), the ClipFlags size
@@ -51,7 +61,8 @@ uint flagAt(ivec2 p) {
 void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
     vec4 c = texelFetch(InputBuffer, xy, 0);
-    if (strengthU <= 0.0) { Output = c; return; }
+    float glowS = glowRadiusU > 0 ? clamp(glowU, 0.0, 1.0) : 0.0;
+    if (strengthU <= 0.0 && glowS <= 0.0) { Output = c; return; }
     ivec2 last = textureSize(InputBuffer, 0) - ivec2(1);
     int r = radiusU > 0 ? radiusU : 3;
     uint own = flagAt(xy);
@@ -66,6 +77,10 @@ void main() {
     bool reach = zone;
     for (int dx = -r; dx <= r && !reach; dx += rs)
         reach = (uint(texelFetch(BandMask, ivec2(clamp(xy.x + dx, 0, last.x), xy.y), 0).r * 255.0 + 0.5) & 2u) != 0u;
+    bool glowNear = false;
+    int gs = max(1, (glowRadiusU + 2) / 3);
+    for (int dx = -glowRadiusU; dx <= glowRadiusU && !glowNear && glowS > 0.0; dx += gs)
+        glowNear = (uint(texelFetch(BandMask, ivec2(clamp(xy.x + dx, 0, last.x), xy.y), 0).r * 255.0 + 0.5) & 4u) != 0u;
 #else
     for (int dy = -z; dy <= z && !zone; dy++)
         for (int dx = -z; dx <= z && !zone; dx++)
@@ -75,8 +90,14 @@ void main() {
     for (int dy = -r; dy <= r && !reach; dy += rs)
         for (int dx = -r; dx <= r && !reach; dx += rs)
             reach = (flagAt(clamp(xy + ivec2(dx, dy), ivec2(0), last)) & 15u) != 0u;
+    bool glowNear = false;
+    int gs = max(1, (glowRadiusU + 2) / 3);
+    for (int dy = -glowRadiusU; dy <= glowRadiusU && !glowNear && glowS > 0.0; dy += gs)
+        for (int dx = -glowRadiusU; dx <= glowRadiusU && !glowNear; dx += gs)
+            glowNear = (flagAt(clamp(xy + ivec2(dx, dy), ivec2(0), last)) & 7u) != 0u;
 #endif
-    if (!reach) { Output = c; return; }
+    if (strengthU <= 0.0) { reach = false; zone = false; }  // the band itself off: the glow alone
+    if (!reach && !glowNear) { Output = c; return; }
     vec3 sum = vec3(0.0);
     float n = 0.0, top = 0.0, low = 1.0e30, lowM = 1.0e30;
     const vec3 W = vec3(0.2126, 0.7152, 0.0722);
@@ -124,8 +145,37 @@ void main() {
     }
     float ll = dot(light, W);
     float lightSat = (max(max(light.r, light.g), light.b) - min(min(light.r, light.g), light.b)) / max(max(max(light.r, light.g), light.b), 1.0e-30);
-    float wf0 = ll > 0.0 && l > 1.0e-6 ? clamp(strengthU, 0.0, 1.0) * (1.0 - smoothstep(0.2, 0.4, lightSat)) : 0.0;
-    if (w <= 0.0 && wf0 <= 0.0) { Output = c; return; }
+    float wf0 = reach && ll > 0.0 && l > 1.0e-6 ? clamp(strengthU, 0.0, 1.0) * (1.0 - smoothstep(0.2, 0.4, lightSat)) : 0.0;
+    // P537: the glow's light and its weight here
+    float wg = 0.0;
+    vec3 glowTarget = vec3(0.0);
+    if (glowNear && l > 1.0e-6) {
+        vec3 gl = vec3(0.0);
+        float gTop = 0.0, gDist = 1.0e30;   // the nearest clipped mean on the taps: the glow fades out toward the radius
+        for (int dy = -glowRadiusU; dy <= glowRadiusU; dy += gs) {
+            for (int dx = -glowRadiusU; dx <= glowRadiusU; dx += gs) {
+                ivec2 q = clamp(xy + ivec2(dx, dy), ivec2(0), last);
+                if ((flagAt(q) & 7u) != 0u) gDist = min(gDist, length(vec2(float(dx), float(dy))));
+                vec3 v = max(texelFetch(InputBuffer, q, 0).rgb, vec3(0.0));
+                float lv = dot(v, W);
+                gTop = max(gTop, lv);
+                float lv2 = lv * lv;
+                gl += (lv2 * lv2) * v;
+            }
+        }
+        float gll = dot(gl, W);
+        if (gll > 0.0 && gTop > 1.0e-6) {
+            float gSat = (max(max(gl.r, gl.g), gl.b) - min(min(gl.r, gl.g), gl.b)) / max(max(max(gl.r, gl.g), gl.b), 1.0e-30);
+            // the glow is dimmer than its light: 5 .. 25 % of it and up, and below 50 .. 75 % (as bright as the light: part of the
+            // light or a flare ghost by it, the recovery's colour stays)
+            float rel = l / gTop;
+            wg = glowS * (1.0 - smoothstep(0.15, 0.3, gSat)) * smoothstep(0.05, 0.25, rel) * (1.0 - smoothstep(0.5, 0.75, rel))
+               * (1.0 - smoothstep(0.25 * float(glowRadiusU), float(glowRadiusU), gDist));
+            // a near-white light (saturation below 0.05 .. 0.15) is white: its tint is the recovery's guess from the surroundings
+            glowTarget = mix(gl, vec3(gll), 1.0 - smoothstep(0.05, 0.15, gSat)) * (l / gll);
+        }
+    }
+    if (w <= 0.0 && wf0 <= 0.0 && wg <= 0.0) { Output = c; return; }
     // The dark side's colour: the mean of the window pixels within 2x of its darkest luminance. For the fringe model by
     // the brightest channel (a fringe is dark in luminance, B weighs 0.07, but not in B), plus 1 % of the base white so
     // that a dark noisy side averages more than its single darkest pixel.
@@ -177,5 +227,6 @@ void main() {
             col = mix(col, lineCol, wf0 * smoothstep(0.04, 0.15, pP.y - e.y));
         }
     }
+    col = mix(col, glowTarget, wg);                         // P537
     Output = vec4(col, c.a);
 }

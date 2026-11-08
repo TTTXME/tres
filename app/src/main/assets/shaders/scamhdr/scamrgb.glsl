@@ -120,7 +120,7 @@ vec3 ceilingGuard(vec3 c, float share) {
 // prior where no level has any. The former smoothsteps of the bilinearly interpolated weights (and the narrow neutral
 // fade at 0.6..1 x the chroma limit) switched the prior along iso-lines of the block grid: axis-aligned rounded
 // rectangles of different colour inside a clipped lamp (vivo X200 Ultra 2026-10-07; tools/check_highlight_recovery.py).
-vec4 localLight(ivec2 o) {
+vec4 localLight(ivec2 o, bool fade) {
     if (chromaU == 0) return vec4(1.0, 1.0, 1.0, 0.0);
     int b = max(blockU, 1);
     // integer base + fraction: float pixel coordinates above 2048 lose precision on Adreno
@@ -159,7 +159,9 @@ vec4 localLight(ivec2 o) {
     // Whether the prior fits the clipped pixel itself is tested there (main: consistency with its unclipped channels).
     float limit = chromaLimitU > 0.0 ? chromaLimitU : 0.35;
     float dev = max(max(abs(q.r - 1.0), abs(q.g - 1.0)), abs(q.b - 1.0));
-    q = mix(q, vec3(1.0), smoothstep(limit, 2.5 * limit, dev));
+    // P541: the blanket border defringe takes the light's own colour unfaded (fade false): a strongly coloured light's border
+    // pixels went to the neutral prior, a white lattice over a red signal
+    if (fade) q = mix(q, vec3(1.0), smoothstep(limit, 2.5 * limit, dev));
     q.g = max(q.g, min(q.r, q.b));                          // never a magenta prior: that is what clipping fakes
     return vec4(q, level);
 }
@@ -246,6 +248,39 @@ vec3 purpleFringe(vec3 c) {
     return mix(c, vec3(dot(c, LUMA)), w);
 }
 
+// P541 (owner, 2026-11-07: «если найдёшь какие-либо артефакты - исправь»; Ark burst 142514): inside a saturated coloured light
+// (a red pedestrian signal's LEDs, R near its clip, G and B far below) the pixels whose kernels caught a few clipped R samples
+// carry only the border bit, and the blanket border defringe below gave them the local light's colour - neutral there, the
+// prior fades for a strongly coloured block - at a third of their brightness: a white lattice over the red figure. Such a pixel is
+// part of the light when a bright unflagged neighbour (at least ~half its level) has its chromaticity: 0 .. 1, how much it is.
+float colouredLightInterior(ivec2 p, vec3 c, vec3 g) {
+    float cs = c.r + c.g + c.b;
+    float hi = max(max(c.r, c.g), c.b);
+    if (cs <= 0.0 || hi <= 0.0 || clipFlagsU == 0) return 0.0;
+    float sat = (hi - min(min(c.r, c.g), c.b)) / hi;
+    float s = smoothstep(0.4, 0.6, sat);
+    if (s <= 0.0) return 0.0;
+    vec3 cn = c / cs;
+    ivec2 last = textureSize(InputBuffer, 0) - ivec2(1);
+    float best = 0.0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            ivec2 q = clamp(p + ivec2(dx, dy), ivec2(0), last);
+            if (uint(texelFetch(ClipFlags, q, 0).r * 255.0 + 0.5) != 0u) continue;
+            vec3 v = texelFetch(InputBuffer, q, 0).rgb;
+            v = max(vec3(isnan(v.r) || isinf(v.r) ? 0.0 : v.r, isnan(v.g) || isinf(v.g) ? 0.0 : v.g,
+                         isnan(v.b) || isinf(v.b) ? 0.0 : v.b), vec3(0.0)) * g / max(whitePoint, vec3(1.0e-6));
+            float vs = v.r + v.g + v.b;
+            if (vs <= 0.0) continue;
+            vec3 d = abs(v / vs - cn);
+            float m = (1.0 - smoothstep(0.04, 0.10, max(max(d.r, d.g), d.b)))
+                    * smoothstep(0.35, 0.6, max(max(v.r, v.g), v.b) / hi);
+            best = max(best, m);
+        }
+    return s * best;
+}
+
 vec3 recoverPixel(){
     ivec2 p=clamp(ivec2(gl_FragCoord.xy)+cropOffset,ivec2(0),textureSize(InputBuffer,0)-1);
     vec4 sites=texture(GainMap,vec2(p)*inverseSize);
@@ -288,6 +323,7 @@ vec3 recoverPixel(){
         vec3 fl = vec3(uvec3(f, f >> 1, f >> 2) & uvec3(1u));
         if (fringe > 0.0 && (f & 8u) != 0u) {
             float w = 0.0;
+            bool blanket = false;   // P541
             if ((f & 7u) != 0u && (f & 7u) != 7u) {
                 vec3 s = mix(vec3(1.0), sat, fl);           // unflagged channels do not hold the defringe back
                 // A flagged channel far below its clip is a real dim colour, not a mix with saturated samples: with
@@ -305,10 +341,12 @@ vec3 recoverPixel(){
                 // bit 6, and the whole recovered area (bit 3 at weight 1 - m) took 85 % of the near-neutral local light: a
                 // sunlit yellow wall came out flat cream-white (the owner's «засвет», vivo X200 Ultra 2026-10-29)
                 w = (f & 16u) != 0u ? bentoEdge(p) : 1.0;
+                w *= 1.0 - colouredLightInterior(p, c, gains);   // P541
+                blanket = true;
             }
             w *= clamp(fringe, 0.0, 1.0);
             if (w > 0.0) {
-                vec3 q = localLight(ivec2(gl_FragCoord.xy)).rgb;
+                vec3 q = localLight(ivec2(gl_FragCoord.xy), !blanket).rgb;
                 c = mix(c, q * dot(c, vec3(1.0 / 3.0)), w);
             }
         }
@@ -352,7 +390,7 @@ vec3 recoverPixel(){
                     // meets both lower bounds (below). Only ever raised; the neutral terms below (every channel at its clip, the clip
                     // band) are unchanged, so a blown lamp or sun still goes white.
                     if (oppLocalU != 0 && chromaU != 0) {
-                        vec3 qK = max(localLight(ivec2(gl_FragCoord.xy)).rgb, vec3(1.0e-4));
+                        vec3 qK = max(localLight(ivec2(gl_FragCoord.xy), true).rgb, vec3(1.0e-4));
                         vec3 uK = vec3(not(clipped));
                         vec3 cl = vec3(clipped);
                         float nK = uK.r + uK.g + uK.b;
@@ -453,7 +491,7 @@ vec3 recoverPixel(){
         // A clipped channel is a lower bound. Its estimate scales a prior chromaticity to the unclipped channels (G of a
         // white highlight from R and B), and only ever raises it: a saturated single colour (neon, laser) keeps its
         // clipped channel because the estimate from its dark channels is lower.
-        vec4 light = localLight(ivec2(gl_FragCoord.xy));
+        vec4 light = localLight(ivec2(gl_FragCoord.xy), true);
         vec3 q = light.rgb;
         // Local ceiling: the brightest white-balanced clip level here, or the level of the bright surroundings when
         // they are brighter (a base-frame clip inside Bento content). Estimates stop at it and an all-clipped pixel
@@ -540,8 +578,33 @@ vec3 recoverPixel(){
     return mix(c,vec3(max(c.r,max(c.g,c.b))),t);
 }
 
+// P539 (owner, 2026-11-07: «Ореол вокруг солнца это артефакт ... Кольца вокруг солнца быть не должно, в целом обводок и
+// артефактов вокруг ярких объектов быть не должно»): a near-white light's surroundings within the last part of the range go to
+// white as Ark's, at their own luminance - from 0.7 of the lowest white-balanced base clip to it, by the brightest channel. Its
+// colour there is the clip's, not the light's: a band where G alone clipped (G lifted to the measured R, B lower: a yellow ring
+// round the sun) and the measured warm glow just outside it (R / B 1.14) were a ring. A coloured surface or light keeps its
+// colour (saturation 0.2 .. 0.35: a blue sky, a sunlit yellow wall, a neon, a tail light). With the glow setting
+// (pref_scam_hybrid_highlight_glow); 0 = off (unset).
+uniform float hlWhiteU;
+vec3 hlWhite(vec3 o) {
+    ivec2 p = clamp(ivec2(gl_FragCoord.xy) + cropOffset, ivec2(0), textureSize(InputBuffer, 0) - 1);
+    vec4 sites = texture(GainMap, vec2(p) * inverseSize);
+    vec3 gains = vec3(sites.r, (sites.g + sites.b) * .5, sites.a);
+    gains /= max(dot(gains, vec3(1.0 / 3.0)), 1e-6);
+    vec3 base = (clipLoU.g > 0.0 ? clipLoU : (clipHiU.g > 0.0 ? clipHiU : vec3(1.0))) * gains / max(whitePoint, vec3(1e-6));
+    float lo = min(min(base.r, base.g), base.b);
+    vec3 v = max(o, vec3(0.0));
+    float mx = max(max(v.r, v.g), v.b);
+    if (mx <= 0.0 || lo <= 0.0) return o;
+    float sat = (mx - min(min(v.r, v.g), v.b)) / mx;
+    float w = clamp(hlWhiteU, 0.0, 1.0) * smoothstep(0.7, 1.0, mx / lo) * (1.0 - smoothstep(0.2, 0.35, sat));
+    float y = dot(v, vec3(0.2126, 0.7152, 0.0722));
+    return mix(o, vec3(y), w);
+}
+
 void main(){
     vec3 o = recoverPixel();
     if (purpleU > 0.0 && hlModeU == 1) o = purpleFringe(o);
+    if (hlWhiteU > 0.0 && hlModeU == 1) o = hlWhite(o);
     Output = o;
 }

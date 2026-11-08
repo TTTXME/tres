@@ -27,6 +27,11 @@ Checks:
 - pixels without flags further than 2 x the clip-band radius are passed through (white balance only).
 Scene D (P337), the vivo X200 Ultra backlit sea of 2026-10-25 (no ultrashort, white point 0.428 / 1 / 0.604): the sun's rim
 with G clipped and R / B measured (R 1.38 x G after WB) is not pink; a blue sky with G clipped keeps its B/R.
+Scene E (P537), Ark's Tetra car of 2026-11-07: a white daytime running light (every channel clipped) on red paint with its
+light on the paint round it (pink: the red paint lit); with the glow setting on the glow round it is near-white, the paint further away and a
+red tail light's own glow keep their colour; with it off the output is the band's alone.
+Scene F (P539): the sun's rim where G alone clipped (lifted to the measured R: yellow) and its warm glow go white with the
+setting (scamrgb hlWhiteU); a sunlit yellow wall and a bright blue sky near the clip keep their colour.
 Usage: check_highlight_neutral.py [--shaders DIR] [--report]
 """
 from pathlib import Path
@@ -86,7 +91,7 @@ def read(t):
     return np.frombuffer(t.read(), np.float16).reshape(t.height, t.width, 4)[..., :3].astype(np.float32)
 
 
-def recover(raw, flags, wp, lo, hi):
+def recover(raw, flags, wp, lo, hi, glow=0.0, mask=False):
     """ScamRgb.Run, per-channel branch with clip flags and the chroma statistics (scale 1)."""
     h, w = flags.shape
     inp = texture(raw.astype(np.float32))
@@ -107,11 +112,21 @@ def recover(raw, flags, wp, lo, hi):
     scam = draw(program('scamhdr/scamrgb.glsl'), (w, h),
                 {'InputBuffer': inp, 'GainMap': gm, 'ClipFlags': ft, 'Chroma8': c8, 'Chroma32': c32, 'Chroma128': c128},
                 dict(common, hlModeU=1, hlStrengthU=1.0, chromaU=1, blockU=block, chromaLimitU=0.35, defringeU=0.85,
-                     signedU=1))
-    band = draw(program('scamhdr/clipband.glsl'), (w, h), {'InputBuffer': scam, 'ClipFlags': ft},
-                {'radiusU': 3, 'zoneU': 2, 'strengthU': 1.0})
+                     signedU=1, hlWhiteU=glow))
+    bu = {'radiusU': 3, 'zoneU': 2, 'strengthU': 1.0, 'glowU': glow, 'glowRadiusU': 6 if glow > 0 else 0}
+    extra = []
+    if mask:  # ScamRgb's P479 path: scamhdr/clipmask's columns, clipband with BAND_MASK 1
+        bm = draw(program('scamhdr/clipmask.glsl'), (w, h), {'ClipFlags': ft}, bu)
+        name = 'scamhdr/clipband.glsl#mask'
+        if name not in _progs:
+            src = (SH / 'scamhdr/clipband.glsl').read_text(encoding='utf-8').replace('#define BAND_MASK 0', '#define BAND_MASK 1')
+            _progs[name] = ctx.program(vertex_shader=VS, fragment_shader='#version 430\n' + src)
+        band = draw(_progs[name], (w, h), {'InputBuffer': scam, 'ClipFlags': ft, 'BandMask': bm}, bu)
+        extra.append(bm)
+    else:
+        band = draw(program('scamhdr/clipband.glsl'), (w, h), {'InputBuffer': scam, 'ClipFlags': ft}, bu)
     out = read(band)
-    for t in (inp, gm, ft, c8, c32, c128, scam, band):
+    for t in [inp, gm, ft, c8, c32, c128, scam, band] + extra:
         t.release()
     return out
 
@@ -336,6 +351,82 @@ blue_out = out[erode(BLUE, 3)]
 check(abs(np.median(blue_out[:, 2] / blue_out[:, 0]) / np.median(blue_in[:, 2] / blue_in[:, 0]) - 1) < 0.03,
       'blue sky with G clipped keeps its colour: B/R %.3f -> %.3f' % (np.median(blue_in[:, 2] / blue_in[:, 0]),
                                                                        np.median(blue_out[:, 2] / blue_out[:, 0])))
+
+# ------------------------------------------------------------------ scene E (P537): a white LED's glow on red paint
+WPE = np.array([0.516, 1.0, 0.607], np.float32)
+H, W = 64, 96
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+paint = np.array([0.20, 0.156, 0.16], np.float32)                         # white-balanced red paint (the car's rim R / G 1.28)
+
+
+def lamp_scene(light):
+    """light: white-balanced colour of the lamp (its clipped core); the paint round it lit by a gaussian (sigma 3 px) of it"""
+    core = (np.abs(yy - 32) < 4) & (np.abs(xx - 40) < 14)
+    g = blur1d(blur1d(core.astype(np.float32), 3.0, 0), 3.0, 1)
+    wb = paint[None, None, :] * (1.0 + 8.0 * g[..., None] * np.asarray(light, np.float32)[None, None, :])  # the paint lit by it
+    wb[core] = 1.5 * np.asarray(light, np.float32)                         # just past the clip (the LED: 1.0 - 2.0)
+    r = np.minimum(wb * WPE, 1.0)
+    f = np.zeros((H, W), np.uint8)
+    for c in range(3):
+        f[r[..., c] >= 0.999] |= 1 << c
+    f[dilate((f & 7) != 0, 1) & ((f & 7) == 0)] |= 8
+    return r, f, core
+
+
+raw, flags, core = lamp_scene((1.0, 1.0, 1.0))
+off = recover(raw, flags, WPE, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
+on = recover(raw, flags, WPE, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), glow=1.0)
+ring = dilate(core, 3) & ~core
+lum = off @ LUM
+bright = ring & (lum >= 0.25 * lum[core].max())                          # the lit paint next to the lamp
+c_off, c_on = chroma(off[bright]).mean(), chroma(on[bright]).mean()
+check(bright.sum() > 20 and c_off > 0.015 and c_on < 0.6 * c_off,
+      'P537 white LED on red paint: the lit paint next to it %.3f -> %.3f chroma (%d px), below 60 %%'
+      % (c_off, c_on, bright.sum()))
+far = ~dilate(core, 9)
+check(np.abs(on[far] - off[far]).max() < 1e-3, 'P537 the paint further than the glow radius is unchanged: max %.2e'
+      % np.abs(on[far] - off[far]).max())
+dark = ring & (lum < 0.05 * lum[core].max())
+if dark.any():
+    check(np.abs(on[dark] - off[dark]).max() < 2e-3, 'P537 the dark paint next to the light keeps its colour: max %.2e'
+          % np.abs(on[dark] - off[dark]).max())
+masked = recover(raw, flags, WPE, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), glow=1.0, mask=True)
+check(np.abs(masked - on).max() < 1e-6, 'P537 the clip-mask path (BAND_MASK 1) = the 2-D taps: max %.2e' % np.abs(masked - on).max())
+raw, flags, core = lamp_scene((1.0, 0.12, 0.10))                          # a red tail light: R clipped, its glow red
+off = recover(raw, flags, WPE, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
+on = recover(raw, flags, WPE, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), glow=1.0)
+ring = dilate(core, 5) & ~dilate(core, 1)
+c_off, c_on = chroma(off[ring]).mean(), chroma(on[ring]).mean()
+check(abs(c_on / c_off - 1) < 0.05, 'P537 a red tail light keeps its glow: chroma %.3f -> %.3f' % (c_off, c_on))
+
+# ------------------------------------------------------------------ scene F (P539): no ring round the sun
+# The sun of scene D's white point with an ultrashort-free rim: G clipped, R measured above B (a yellow band once G is lifted to R)
+# and a warm glow just outside (R / B 1.14, measured); next to it a sunlit yellow wall and a bright blue sky near the clip.
+H, W = 96, 192
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+r_sun = np.hypot(yy - 48, xx - 48)
+wbF = np.zeros((H, W, 3), np.float32)
+wbF[:] = np.array([0.55, 0.62, 0.80], np.float32)                         # the sky round the sun (balanced)
+glowF = np.clip(1.0 - (r_sun - 14) / 16, 0, 1)[..., None]
+wbF = wbF * (1 - glowF) + glowF * np.array([1.30, 1.20, 1.14], np.float32)  # warm glow up to the clip
+wbF[r_sun < 14] = (2.0, 2.0, 2.0)
+WALL = (xx >= 112) & (xx < 144) & (yy >= 24) & (yy < 72)
+wbF[WALL] = (0.95, 0.80, 0.30)                                            # a sunlit yellow wall near the clip
+SKY = (xx >= 156) & (xx < 188) & (yy >= 24) & (yy < 72)
+wbF[SKY] = (0.40, 0.62, 0.95)                                             # a bright blue sky near the clip
+raw = np.minimum(wbF * WPD, 1.0)
+flags = np.zeros((H, W), np.uint8)
+for c in range(3):
+    flags[raw[..., c] >= 0.999] |= 1 << c
+flags[dilate((flags & 7) != 0, 1) & ((flags & 7) == 0)] |= 8
+off = recover(raw, flags, WPD, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
+on = recover(raw, flags, WPD, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), glow=1.0)
+ringF = (r_sun >= 12) & (r_sun < 26)
+c_off, c_on = chroma(off[ringF]).max(), chroma(on[ringF]).max()
+check(c_off > 0.02 and c_on < 0.35 * c_off, 'P539 no ring round the sun: max chroma round it %.3f -> %.3f' % (c_off, c_on))
+for name, m in (('yellow wall', WALL), ('blue sky', SKY)):
+    a, b = chroma(off[erode(m, 2)]).mean(), chroma(on[erode(m, 2)]).mean()
+    check(abs(b / a - 1) < 0.02, 'P539 a %s near the clip keeps its colour: chroma %.3f -> %.3f' % (name, a, b))
 
 if REPORT:
     try:

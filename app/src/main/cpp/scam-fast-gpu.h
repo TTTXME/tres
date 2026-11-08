@@ -53,6 +53,16 @@ uniform int u_rows;       // rows of this band
 uniform int u_acc_row0;   // the accumulators' first row (row strips; 0 = the whole frame)
 uniform vec3 u_inv_wb;    // 1 / the white balance gains of the merge
 uniform float u_clip;
+// P540 (owner, 2026-11-07: «засветы ... без артефактов»): > 0 = 0.94 x the lowest gain of the valid short frames. Where they
+// carried the light (the final mask, or any value above the base frames' 1) the merge holds measured light up to their clip:
+// flagged there at >= 1 (as before) the app recovered real data channel by channel (lime speckle in a sunlit gilded arch, white
+// blocks in a tail light's glint, Ark burst 140421). There a channel is flagged only at the short frames' own clip.
+uniform float u_clip_short;
+bool clipAt(float x, bool shortData) {
+    if (u_clip_short <= 0.0) return x >= u_clip;
+    if (x >= u_clip_short) return true;
+    return !shortData && x >= u_clip && x <= 1.02;
+}
 uniform highp sampler2D u_hl_base;  // P497: the base's clipped mask (HALF)
 uniform highp sampler2D u_hl_final; // P497: the final mask (HALF, the short frames' validity applied)
 uniform highp sampler2D u_base_bayer; // P497: the base frame's Bayer quads (HALF, sensor units)
@@ -223,10 +233,11 @@ void main(){
         c[k]=v;
         float cf=b.z/max(b.w,1.0e-6);
         uint f=0u;
-        if(v.r>=u_clip)f|=1u;
-        if(v.g>=u_clip)f|=2u;
-        if(v.b>=u_clip)f|=4u;
-        if(cf>0.02&&cf<0.98)f|=8u;
+        bool sd=u_clip_short>0.0&&textureLod(u_hl_final,halfUv(p),0.0).r>0.5;
+        if(clipAt(v.r,sd))f|=1u;
+        if(clipAt(v.g,sd))f|=2u;
+        if(clipAt(v.b,sd))f|=4u;
+        if(cf>0.02&&cf<0.98&&!(sd&&max(v.r,max(v.g,v.b))>1.02))f|=8u; // P540: not over the short frames' measured light
         fl|=f<<(8u*uint(k));
     }
     int o=(yb*u_size.x+q*4)*3/2;

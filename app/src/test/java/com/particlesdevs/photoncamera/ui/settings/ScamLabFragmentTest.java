@@ -390,10 +390,11 @@ public class ScamLabFragmentTest {
             assertNull(k, ScamLabFragment.inert(context, k, k, off, f));
             assertTrue(k, ScamLabFragment.forced(k, Collections.emptyMap(), tree).isEmpty());
         }
-        final String band = H + "highlight_band";
-        assertTrue(ScamLabFragment.forced(band, off, tree).isEmpty());
-        assertNotNull(ScamLabFragment.inert(context, band, band, off, new HashMap<>()));
-        assertNull(ScamLabFragment.inert(context, band, band, Collections.emptyMap(), new HashMap<>()));
+        for (String band : new String[]{H + "highlight_band", H + "highlight_glow"}) { // P537: the glow as the band
+            assertTrue(band, ScamLabFragment.forced(band, off, tree).isEmpty());
+            assertNotNull(band, ScamLabFragment.inert(context, band, band, off, new HashMap<>()));
+            assertNull(band, ScamLabFragment.inert(context, band, band, Collections.emptyMap(), new HashMap<>()));
+        }
     }
 
     /**

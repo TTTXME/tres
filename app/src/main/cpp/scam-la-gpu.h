@@ -379,7 +379,10 @@ float px(int x,int y){return texelFetch(v,ivec2(clamp(x,0,size.x-1),clamp(y,0,si
 void main(){
     uint tid=gl_LocalInvocationIndex;
     int cx=int(gl_WorkGroupID.x),cy=int(gl_WorkGroupID.y);
-    int sx=cx*size.x/cells.x+8,ex=(cx+1)*size.x/cells.x-8,sy=cy*size.y/cells.y+8,ey=(cy+1)*size.y/cells.y-8;
+    // P532: the 8 px margin inside a cell only where a cell is 32 px or more: on a smaller L0 (a Tetra 12 MP crop's 510 x 384, cells of
+    // 21 x 16 px) it left no rows at all - no corners, every frame refused by the alignment - a quarter of the cell there
+    int cwx=size.x/cells.x,cwy=size.y/cells.y,mx=cwx>=32?8:max(1,cwx/4),my=cwy>=32?8:max(1,cwy/4);
+    int sx=cx*size.x/cells.x+mx,ex=(cx+1)*size.x/cells.x-mx,sy=cy*size.y/cells.y+my,ey=(cy+1)*size.y/cells.y-my;
     float best=-1.0;vec2 bp=vec2(0.0);
     for(int y=sy+int(gl_LocalInvocationID.y)*2;y<ey;y+=16){
         for(int x=sx+int(gl_LocalInvocationID.x)*2;x<ex;x+=16){

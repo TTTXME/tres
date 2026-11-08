@@ -1340,6 +1340,8 @@ public final class ScamRgb extends Node {
                 glProg.setVar("chromaLimitU",chromaLimit);
                 float defringe=PreferenceKeys.hybridValue("highlight_defringe",0.85f);
                 glProg.setVar("defringeU",defringe>0f?defringe:-1f);
+                // P539: a near-white light's surroundings at the top of the range go white (no ring round the sun), with the glow setting
+                glProg.setVar("hlWhiteU",Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_glow",1f))));
                 // P399: the lens's purple fringe against a bright light goes neutral; scam_dev.txt "hybrid_highlight_purple 0" = as before
                 // P493: 0 when the fringe net runs instead (P399 is inside it)
                 glProg.setVar("purpleU",p399);
@@ -1377,17 +1379,21 @@ public final class ScamRgb extends Node {
             // Clip band: the dashed orange/blue line where a slanted clip edge alternates between clipped-mean and
             // unclipped-sample colours (assets/shaders/scamhdr/clipband.glsl). pref_scam_hybrid_highlight_band 0..1.
             final float band=perChannel&&flagsTex!=null?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_band",1f))):0f;
+            // P537: the glow of a near-white clipped light takes the light's colour (Ark's white daytime running lights), in the same
+            // pass (assets/shaders/scamhdr/clipband.glsl, glowU). pref_scam_hybrid_highlight_glow 0..1, on by default.
+            final float glow=perChannel&&flagsTex!=null?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_glow",1f))):0f;
+            final boolean bandPass=band>0f||glow>0f;
             // P187: the input (RGBA16F like a main, chanprep and scamrgb were its only readers) takes main2's place for the band
             // pass: no 1.6 GB main2 is made next to it. Its sampler becomes a main's (GL_LINEAR); the band pass writes every
             // pixel of it, as it would of a new main2.
             boolean inputIsMain2=false;
-            if(early&&band>0f&&!largeTwoX&&p.main2==null&&p.lazyMain2!=null&&input.mainFormat()){
+            if(early&&bandPass&&!largeTwoX&&p.main2==null&&p.lazyMain2!=null&&input.mainFormat()){
                 input.setFilter(GL_LINEAR);
                 p.main2=input;p.lazyMain2=null;input=null;
                 inputIsMain2=true;
             }
             GLTexture unbanded=null;
-            if(band>0f){
+            if(bandPass){
                 // P479 (speed): the band's two flag windows as a vertical pass (scamhdr/clipmask, R8) and clipband's horizontal
                 // taps - the same pixels; one R8 texture of the frame for the pass (none above 100 MP, scam_dev.txt "clipband_mask
                 // 0", the old GL model or a GL failure: the 2-D taps as before)
@@ -1400,6 +1406,7 @@ public final class ScamRgb extends Node {
                         glProg.setTexture("ClipFlags",flagsTex);
                         glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
                         glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                        glProg.setVar("glowRadiusU",glow>0f?6*s:0);
                         glProg.drawBlocks(bandMask);glProg.closed=true;
                     }catch(RuntimeException failure){
                         com.particlesdevs.photoncamera.util.Log.w("SCAM_PIPELINE","clip band mask: "+failure+", the 2-D taps");
@@ -1416,6 +1423,7 @@ public final class ScamRgb extends Node {
                 glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
                 glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
                 glProg.setVar("strengthU",band);
+                glProg.setVar("glowU",glow);glProg.setVar("glowRadiusU",glow>0f?6*s:0);
                 glProg.drawBlocks(banded);glProg.closed=true;
                 if(bandMask!=null)bandMask.close();
                 unbanded=WorkingTexture;
@@ -1451,7 +1459,7 @@ public final class ScamRgb extends Node {
             if(hybrid)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","scamrgb input "+(signed?"signed (clamped after the noise reduction or the WHY colour averages)":"clamped per pixel (post_ab_clamp)"));
             if(perChannel)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight recovery per channel: chroma="
                     +chromaLog
-                    +" limit="+chromaLimit+" band="+band+" clipGuard k="+usWhite+(early?" early release"+(inputIsMain2?" (input as main2)":""):"")
+                    +" limit="+chromaLimit+" band="+band+" glow="+glow+" clipGuard k="+usWhite+(early?" early release"+(inputIsMain2?" (input as main2)":""):"")
                     +" gpu ms="+(System.currentTimeMillis()-gpuStart));
         }catch(RuntimeException|Error failure){
             if(largeTwoX){

@@ -439,6 +439,8 @@
     <string name="prefs_scam_hybrid_highlight_defringe_summary">Убирает цветную кайму у засветов. Больше — сильнее, меньше — слабее; 0 — выкл.</string>
     <string name="prefs_scam_hybrid_highlight_band_title">Пунктир на кромке засветов</string>
     <string name="prefs_scam_hybrid_highlight_band_summary">Сглаживает цветной пунктир на краях засветов. Больше — сильнее, меньше — слабее; 0 — выкл.</string>
+    <string name="prefs_scam_hybrid_highlight_glow_title">Белое свечение вокруг засветов</string>
+    <string name="prefs_scam_hybrid_highlight_glow_summary">Пересвеченные белые источники (солнце, фары, светодиоды, лампы) и самая яркая зона вокруг них остаются белыми, без цветных колец и обводок. Например, без жёлтого кольца вокруг солнца или розовой каймы у фары на красной машине. Цветные источники и поверхности сохраняют цвет. Больше — сильнее; 0 — выкл.</string>
     <string name="prefs_scam_hybrid_why_bracket_denoise_title">Шумодав кадров светов</string>
     <string name="prefs_scam_hybrid_why_bracket_denoise_summary">Шумодав самых ярких участков (короткий кадр светов). Больше — чище, меньше — детальнее; 0 — выкл.</string>
     <string name="prefs_scam_hybrid_why_hl_white_title">Яркий цвет в белый</string>

@@ -392,6 +392,9 @@ public final class DevKeys {
                 "Sharpening of mosaic shots (ISZ Quad / Tetra, FULLRES up to 100 MP) on the 3x3-smoothed luma: the mosaic lattice is hardly lifted. Off: the sharpening of Bayer shots")));
         k.add(s(post, "sharpen_lattice", true, Lang.t("Резкость снимков Bayer без 2-пиксельной решётки склейки: сетка на воде и ровных текстурах не усиливается. Выкл — как раньше",
                 "Sharpening of Bayer shots without the merge's 2 px lattice: no mesh lifted on water and flat texture. Off: as before")));
+        // P542: WhyLumaSharpen.quadSwitch - Quad shots on the lattice-free source with the third RL stage x2
+        k.add(s(post, "sharpen_quad", true, Lang.t("Резкость Quad-снимков как у Bayer (без 2-пиксельной решётки) и сильнее третья ступень RL: больше мелких деталей. Выкл — сглаженная яркость (R1), как раньше",
+                "Quad shots sharpened like Bayer ones (without the 2 px lattice) with a stronger third RL stage: more fine detail. Off: the smoothed luma (R1), as before")));
         // P212h (A5 = M5): the gain clamp of the WHY exposure from the merged image's noise
         k.add(n(post, "ae_clamp_stack", "1", Lang.t("Яркость фото: предел усиления по шуму — по числу склеенных кадров N (карта склейки, N^0.4). 1: FULLRES, 2: все снимки, 0: по одному кадру",
                 "Photo brightness: the noise gain clamp from the merged N frames (the merge's frame map, N^0.4). 1: FULLRES, 2: every shot, 0: one frame")));

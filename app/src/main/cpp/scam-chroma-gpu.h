@@ -172,18 +172,174 @@ void main(){
 }
 )";
 
+// P531 (owner, 2026-11-07: «Делаем на ГПУ»): the native merge's post passes on the GPU, in this context (scam-hybrid.h's
+// hybridAlongEdge and hybridLatticeNotch are their CPU twins: the same steps and sums in the same order, borders clamped to the image;
+// the CPU's bands read the input as it was, hybridPureBands). Buffers: rgb (in / out alternately), eff (unshifted: pixel (x, y)
+// reads (x - off.x, y - off.y)), T0 / T1 (vec2 each: the tensor products or the notch's four sums), cnt (changed pixels).
+static const char* kPostGlslCommon = R"(
+layout(local_size_x=8,local_size_y=8) in;
+layout(std430,binding=0) readonly buffer Src{float src[];};
+layout(std430,binding=2) readonly buffer Eff{float eff[];};
+layout(std430,binding=5) buffer Cnt{uint cnt[];};
+uniform ivec2 off;
+uniform ivec4 stripU; // x: the image row of the strip's row 0, y: the first eff row uploaded, z / w: the strip's rows it owns [z, w)
+shared uint groupCount;
+float lumaAt(int x,int y){int i=3*(y*size.x+x);return 0.25*src[i]+0.5*src[i+1]+0.25*src[i+2];}
+float effAt(int x,int y){return eff[(max(0,stripU.x+y-off.y)-stripU.y)*size.x+max(0,x-off.x)];}
+bool owned(int y){return y>=stripU.z&&y<stripU.w;}
+void countStart(){if(gl_LocalInvocationIndex==0u)groupCount=0u;barrier();}
+void countEnd(bool changed,int slot){
+    if(changed)atomicAdd(groupCount,1u);
+    barrier();
+    if(gl_LocalInvocationIndex==0u&&groupCount>0u)atomicAdd(cnt[slot],groupCount);
+}
+)";
+// along-edge 1: the Sobel products (gx^2, gy^2, gx gy) of the luma, the rows' gaussian [1 4 6 4 1] / 16 -> T0 (j11, j22), T1.x (j12)
+static const char* kPostGlslAlongRows = R"(
+layout(std430,binding=3) writeonly buffer T0{vec2 t0[];};
+layout(std430,binding=4) writeonly buffer T1{vec2 t1[];};
+vec3 sobel(int x,int y){
+    int xl=max(x-1,0),xr=min(x+1,size.x-1),yu=max(y-1,0),yd=min(y+1,size.y-1);
+    float gx=(lumaAt(xr,yu)+2.0*lumaAt(xr,y)+lumaAt(xr,yd))-(lumaAt(xl,yu)+2.0*lumaAt(xl,y)+lumaAt(xl,yd));
+    float gy=(lumaAt(xl,yd)+2.0*lumaAt(x,yd)+lumaAt(xr,yd))-(lumaAt(xl,yu)+2.0*lumaAt(x,yu)+lumaAt(xr,yu));
+    return vec3(gx*gx,gy*gy,gx*gy);
+}
+uniform int alongS; // the taps' step (1 Quad, 2 Tetra)
+void main(){
+    int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
+    if(x>=size.x||y>=size.y)return;
+    int k=alongS;
+    vec3 a=sobel(max(x-2*k,0),y),b=sobel(max(x-k,0),y),c=sobel(x,y),d=sobel(min(x+k,size.x-1),y),e=sobel(min(x+2*k,size.x-1),y);
+    vec3 o=(a+e+4.0*(b+d)+6.0*c)*(1.0/16.0);
+    int i=y*size.x+x;
+    t0[i]=o.xy;t1[i]=vec2(o.z,0.0);
+}
+)";
+// along-edge 2: the columns' gaussian, the coherence and the tangent; 1 + 2 x 2 bilinear taps along the edge (weights 1, 0.6)
+static const char* kPostGlslAlongApply = R"(
+layout(std430,binding=1) writeonly buffer Dst{float dst[];};
+layout(std430,binding=3) readonly buffer T0{vec2 t0[];};
+layout(std430,binding=4) readonly buffer T1{vec2 t1[];};
+uniform vec2 alongU; // x: K (the share 1 - smoothstep(1, 1 + K, eff)), y: the strength
+uniform int alongS;  // the taps' step (1 Quad, 2 Tetra)
+vec3 tensorAt(int x,int y){int i=clamp(y,0,size.y-1)*size.x+x;return vec3(t0[i],t1[i].x);}
+vec3 rgbAt(int x,int y){int i=3*(y*size.x+x);return vec3(src[i],src[i+1],src[i+2]);}
+uniform int imageH;
+// fx, fy in image px (the CPU's rounding), read in the strip
+vec3 bilinear(float fx,float fy){
+    fx=clamp(fx,0.0,float(size.x-1));fy=clamp(fy,0.0,float(imageH-1));
+    int x0=min(int(fx),size.x-2),y0=min(int(fy),imageH-2);float ax=fx-float(x0),ay=fy-float(y0);
+    int r=y0-stripU.x;
+    return (rgbAt(x0,r)*(1.0-ax)+rgbAt(x0+1,r)*ax)*(1.0-ay)+(rgbAt(x0,r+1)*(1.0-ax)+rgbAt(x0+1,r+1)*ax)*ay;
+}
+void main(){
+    countStart();
+    int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
+    bool inside=x<size.x&&y<size.y,changed=false;
+    if(inside){
+        vec3 c0=rgbAt(x,y),o=c0;
+        float u=clamp((effAt(x,y)-1.0)/alongU.x,0.0,1.0),sh=alongU.y*(1.0-u*u*(3.0-2.0*u));
+        if(sh>1.0e-3){
+            int k=alongS;
+            vec3 m=(tensorAt(x,y-2*k)+tensorAt(x,y+2*k)+4.0*(tensorAt(x,y-k)+tensorAt(x,y+k))+6.0*tensorAt(x,y))*(1.0/16.0);
+            float tr=m.x+m.y;
+            if(tr>1.0e-12){
+                float dxx=m.x-m.y,dxy=2.0*m.z,mag2=dxx*dxx+dxy*dxy;
+                float w=sh*clamp((mag2/(tr*tr)-0.3)/0.7,0.0,1.0);
+                if(w>1.0e-3){
+                    float inv=1.0/sqrt(mag2),c2=dxx*inv,s2=dxy*inv;
+                    float ct=sqrt(max(0.0,0.5*(1.0+c2))),st=sqrt(max(0.0,0.5*(1.0-c2)))*(s2<0.0?-1.0:1.0);
+                    vec2 t=vec2(-st,ct);
+                    vec3 acc=c0;float ws=1.0;
+                    for(int q=1;q<=2;q++)for(int sg=-1;sg<=1;sg+=2){
+                        float wq=q==1?1.0:0.6;
+                        acc+=wq*bilinear(float(x)+float(sg*q*k)*t.x,float(stripU.x+y)+float(sg*q*k)*t.y);
+                        ws+=wq;
+                    }
+                    o=c0+w*(acc/ws-c0);
+                    changed=owned(y);
+                }
+            }
+        }
+        int i=3*(y*size.x+x);
+        dst[i]=o.x;dst[i+1]=o.y;dst[i+2]=o.z;
+    }
+    countEnd(changed,0);
+}
+)";
+// notch 1: the rows' gaussian of the luma times exp(-i 2 pi f (x +- y)) (re, im of both diagonals) -> T0, T1
+static const char* kPostGlslNotchRows = R"(
+layout(std430,binding=3) writeonly buffer T0{vec2 t0[];};
+layout(std430,binding=4) writeonly buffer T1{vec2 t1[];};
+uniform float cosT[10];
+uniform float sinT[10];
+uniform float gN[49];
+uniform ivec2 notchPR; // P543: the lattice's period (10 Quad, 8 Tetra) and the gaussian's radius (6, 24)
+void main(){
+    int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
+    if(x>=size.x||y>=size.y)return;
+    int gy=stripU.x+y,P=notchPR.x,R=notchPR.y;
+    float c2=cosT[gy%P],s2=sinT[gy%P];
+    vec4 a=vec4(0.0);
+    for(int q=-R;q<=R;q++){
+        int xx=clamp(x+q,0,size.x-1);
+        float L=lumaAt(xx,y),c1=cosT[xx%P],s1=sinT[xx%P];
+        float cp=c1*c2-s1*s2,sp=s1*c2+c1*s2,cm=c1*c2+s1*s2,sm=s1*c2-c1*s2;
+        a+=gN[q+R]*vec4(L*cp,-L*sp,L*cm,-L*sm);
+    }
+    int i=y*size.x+x;
+    t0[i]=a.xy;t1[i]=a.zw;
+}
+)";
+// notch 2: the columns' gaussian, 2 Re(A exp(+i phase)) of both diagonals off R, G and B alike by the coverage's share
+static const char* kPostGlslNotchApply = R"(
+layout(std430,binding=1) writeonly buffer Dst{float dst[];};
+layout(std430,binding=3) readonly buffer T0{vec2 t0[];};
+layout(std430,binding=4) readonly buffer T1{vec2 t1[];};
+uniform float cosT[10];
+uniform float sinT[10];
+uniform float gN[49];
+uniform ivec2 notchPR; // P543: period, radius
+uniform vec2 notchG;   // P543: the share's lower gate in frames (Quad 1.2 .. 2.5; Tetra -1 .. -0.5: from a single frame)
+uniform vec3 notchU; // lo, hi frames, the strength
+float sstep(float a,float b,float v){float u=clamp((v-a)/(b-a),0.0,1.0);return u*u*(3.0-2.0*u);}
+void main(){
+    countStart();
+    int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
+    bool inside=x<size.x&&y<size.y,changed=false;
+    if(inside){
+        int i=3*(y*size.x+x);
+        vec3 o=vec3(src[i],src[i+1],src[i+2]);
+        float F=effAt(x,y),sh=notchU.z*(1.0-sstep(notchU.x,notchU.y,F))*sstep(notchG.x,notchG.y,F);
+        if(sh>1.0e-3){
+            int P=notchPR.x,R=notchPR.y;
+            vec4 a=vec4(0.0);
+            for(int q=-R;q<=R;q++){int k=clamp(y+q,0,size.y-1)*size.x+x;a+=gN[q+R]*vec4(t0[k],t1[k]);}
+            int gy=stripU.x+y;
+            float c1=cosT[x%P],s1=sinT[x%P],c2=cosT[gy%P],s2=sinT[gy%P];
+            float cp=c1*c2-s1*s2,sp=s1*c2+c1*s2,cm=c1*c2+s1*s2,sm=s1*c2-c1*s2;
+            float comp=2.0*(a.x*cp-a.y*sp)+2.0*(a.z*cm-a.w*sm);
+            o-=vec3(sh*comp);
+            changed=owned(y);
+        }
+        dst[i]=o.x;dst[i+1]=o.y;dst[i+2]=o.z;
+    }
+    countEnd(changed,1);
+}
+)";
 class ChromaMedianGpu {
     EGLDisplay display = EGL_NO_DISPLAY;
     EGLContext context = EGL_NO_CONTEXT;
     EGLSurface surface = EGL_NO_SURFACE;
     GLuint pRatio = 0, pMedian = 0, pBoxF = 0, pBoxV2 = 0, pSign = 0, pBlend = 0, pSmooth = 0;
-    enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kSlots };
+    GLuint pAlongRows = 0, pAlongApply = 0, pNotchRows = 0, pNotchApply = 0; // P531 (mosaicPost; built by ensurePost)
+    enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kPostA, kPostB, kPostEff, kPostT0, kPostT1, kPostCnt, kSlots };
     GLuint buf[kSlots]{};
     int w = 0, h = 0;
     void cleanup() noexcept {
         if (display == EGL_NO_DISPLAY) return;
         if (context != EGL_NO_CONTEXT && eglMakeCurrent(display, surface, surface, context)) {
-            for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth}) if (p) glDeleteProgram(p);
+            for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth, pAlongRows, pAlongApply, pNotchRows, pNotchApply}) if (p) glDeleteProgram(p);
             glDeleteBuffers(kSlots, buf);
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
@@ -196,10 +352,10 @@ class ChromaMedianGpu {
         const GLenum e = glGetError();
         if (e != GL_NO_ERROR) throw std::runtime_error(std::string("CHROMA GPU ") + where + " GL error=" + std::to_string(e));
     }
-    static GLuint compile(const char* defs, const char* body) {
-        const char* sources[] = {"#version 310 es\n", defs, kChromaGlslCommon, body};
+    static GLuint compile(const char* defs, const char* body, const char* common2 = "") {
+        const char* sources[] = {"#version 310 es\n", defs, kChromaGlslCommon, common2, body};
         GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
-        glShaderSource(shader, 4, sources, nullptr);
+        glShaderSource(shader, 5, sources, nullptr);
         glCompileShader(shader);
         GLint ok = 0;
         glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
@@ -286,10 +442,134 @@ public:
     // P80: the context may be built on one thread (chromaPrewarm, during the merge) and used on another: release() on the first,
     // acquire() on the second (a context is current on one thread at a time); the destructor makes it current where it runs.
     void release() { eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT); }
-    void acquire() { if (!eglMakeCurrent(display, surface, surface, context)) throw std::runtime_error("CHROMA GPU: context not current"); }
+    void acquire() {
+        if (!eglMakeCurrent(display, surface, surface, context))
+            throw std::runtime_error("CHROMA GPU: context not current (EGL error " + std::to_string(eglGetError()) + ")");
+    }
     ChromaMedianGpu(const ChromaMedianGpu&) = delete;
     ChromaMedianGpu& operator=(const ChromaMedianGpu&) = delete;
     ~ChromaMedianGpu() { cleanup(); }
+    // P531: the post passes' programs (on the prewarm's thread when chromaPrewarm(true) built the context, else on first use)
+    void ensurePost() {
+        if (pNotchApply) return;
+        pAlongRows = compile("", kPostGlslAlongRows, kPostGlslCommon);
+        pAlongApply = compile("", kPostGlslAlongApply, kPostGlslCommon);
+        pNotchRows = compile("", kPostGlslNotchRows, kPostGlslCommon);
+        pNotchApply = compile("", kPostGlslNotchApply, kPostGlslCommon);
+        check("post programs");
+    }
+    // P531: rows of a strip of mosaicPost (its own rows; kPostHalo more each side: the notch after the along-edge pass reads up to 24 + 3 rows)
+    static constexpr int kPostStrip = 1024, kPostHalo = 32; // P543: the Tetra notch reads 24 + 3 rows
+    int postStrip = kPostStrip; // (the checks run more strips)
+    int postCommitted = 0;      // rows mosaicPost wrote back into rgb (a failure after some: the caller must not run the CPU twins)
+    // GPU memory of mosaicPost (B): per pixel of a strip with its halo rgb twice 24, eff 4, T0 / T1 16
+    static size_t postBytesFor(int w, int h) { return size_t(w) * size_t(std::min(h, kPostStrip) + 2 * kPostHalo) * 44; }
+    // P531: hybridAlongEdge (alongK > 0: K, alongStrength, the taps' step alongS) and then hybridLatticeNotch (notch = lo, hi, strength; strength > 0) on rgb
+    // (W x H x 3, in place), eff W x H unshifted by (dx, dy); changed[0], [1]: the pixels each changed. In strips of up to kPostStrip
+    // rows (a storage block holds a strip: Mali's and Mesa's are 128 MB) with kPostHalo rows each side: the rows a strip owns read
+    // only rows of its own (the image's borders are the strip's there). The post buffers are freed after (the context may stay for
+    // the chroma median: chromaKeep).
+    void mosaicPost(std::vector<float>& rgb, int width, int height, const std::vector<float>& eff, int dx, int dy, float alongK,
+                    float alongStrength, int alongS, const float* notch, const float* cosT, const float* sinT, const float* gN, size_t* changed,
+                    int notchPeriod = 10, int notchR = 6, float notchGateLo = 1.2f, float notchGateHi = 2.5f) {
+        if (notchPeriod < 2 || notchPeriod > 10 || notchR < 1 || notchR > 24) throw std::runtime_error("POST GPU: notch spec");
+        const int W = width, H = height;
+        auto t = Clock::now();
+        if (W < 8 || H < 8 || eff.size() < size_t(W) * H || rgb.size() < size_t(W) * H * 3) throw std::runtime_error("POST GPU: sizes");
+        GLint64 maxBlock = 0;
+        glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxBlock);
+        int strip = std::min(H, std::max(postStrip, 64));
+        if (maxBlock > 0) strip = std::min<int64_t>(strip, maxBlock / (int64_t(W) * 12) - 2 * kPostHalo);
+        if (strip < 64 && strip < H) throw std::runtime_error("POST GPU: a strip larger than a storage block");
+        const bool along = alongK > 0.f && alongStrength > 0.f, notchOn = notch && notch[2] > 0.f;
+        if (changed) changed[0] = changed[1] = 0;
+        postCommitted = 0;
+        if (!along && !notchOn) return;
+        ensurePost();
+        times += " post programs " + std::to_string(int(ms(t))); t = Clock::now();
+        const size_t cap = size_t(W) * size_t(std::min(H, strip + 2 * kPostHalo));
+        alloc(kPostA, cap * 12); alloc(kPostB, cap * 12); alloc(kPostEff, (cap + size_t(W) * kPostHalo) * 4); alloc(kPostT0, cap * 8); alloc(kPostT1, cap * 8);
+        alloc(kPostCnt, 16);
+        const GLuint zero[4] = {0, 0, 0, 0};
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 16, zero);
+        check("post buffers");
+        auto read = [&](int slot, size_t off, void* outp, size_t bytes) {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[slot]);
+            constexpr size_t kChunk = size_t(32) << 20;
+            for (size_t o = 0; o < bytes; o += kChunk) {
+                const size_t n = std::min(kChunk, bytes - o);
+                const void* m = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, GLintptr(off + o), GLsizeiptr(n), GL_MAP_READ_BIT);
+                if (!m) throw std::runtime_error("POST GPU readback failed");
+                std::memcpy(static_cast<char*>(outp) + o, m, n);
+                if (!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER)) throw std::runtime_error("POST GPU storage invalidated");
+            }
+        };
+        // a strip's last kPostHalo rows go back after the next strip's upload (it reads them as they were)
+        std::vector<float> pending;
+        int pendingY = -1;
+        double upMs = 0, passMs = 0, readMs = 0;
+        for (int y0 = 0; y0 < H; y0 += strip) {
+            const int y1 = std::min(H, y0 + strip), ga = std::max(0, y0 - kPostHalo), gb = std::min(H, y1 + kPostHalo), rows = gb - ga;
+            const int e0 = std::max(0, ga - dy), e1 = std::max(e0 + 1, std::min(H, gb - std::min(dy, 0)));
+            auto u = Clock::now();
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kPostA]);
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(size_t(rows) * W * 12), rgb.data() + size_t(ga) * W * 3);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kPostEff]);
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(size_t(e1 - e0) * W * 4), eff.data() + size_t(e0) * W);
+            check("post upload");
+            if (pendingY >= 0) { std::copy(pending.begin(), pending.end(), rgb.begin() + std::ptrdiff_t(size_t(pendingY) * W * 3)); postCommitted = y0; }
+            glFinish(); upMs += ms(u); u = Clock::now();
+            w = W; h = rows;
+            int cur = kPostA, other = kPostB;
+            auto common = [&](GLuint p) {
+                glUseProgram(p);
+                bind(0, cur); bind(1, other); bind(2, kPostEff); bind(3, kPostT0); bind(4, kPostT1); bind(5, kPostCnt);
+                glUniform2i(glGetUniformLocation(p, "off"), dx, dy);
+                glUniform4i(glGetUniformLocation(p, "stripU"), ga, e0, y0 - ga, y1 - ga);
+            };
+            if (along) {
+                const int k = std::clamp(alongS, 1, 4);
+                common(pAlongRows);
+                glUniform1i(glGetUniformLocation(pAlongRows, "alongS"), k);
+                run(pAlongRows);
+                common(pAlongApply);
+                glUniform1i(glGetUniformLocation(pAlongApply, "alongS"), k);
+                glUniform2f(glGetUniformLocation(pAlongApply, "alongU"), std::max(alongK, 0.01f), std::min(alongStrength, 1.f));
+                glUniform1i(glGetUniformLocation(pAlongApply, "imageH"), H);
+                run(pAlongApply);
+                std::swap(cur, other);
+            }
+            if (notchOn) {
+                for (GLuint p : {pNotchRows, pNotchApply}) {
+                    common(p);
+                    glUniform1fv(glGetUniformLocation(p, "cosT"), notchPeriod, cosT);
+                    glUniform1fv(glGetUniformLocation(p, "sinT"), notchPeriod, sinT);
+                    glUniform1fv(glGetUniformLocation(p, "gN"), 2 * notchR + 1, gN);
+                    glUniform2i(glGetUniformLocation(p, "notchPR"), notchPeriod, notchR);
+                    if (p == pNotchApply) glUniform2f(glGetUniformLocation(p, "notchG"), notchGateLo, notchGateHi);
+                    if (p == pNotchApply) glUniform3f(glGetUniformLocation(p, "notchU"), notch[0], notch[1], std::min(notch[2], 1.f));
+                    run(p);
+                }
+                std::swap(cur, other);
+            }
+            check("post passes");
+            glFinish(); passMs += ms(u); u = Clock::now();
+            const int keep = y1 < H ? std::min(kPostHalo, y1 - y0) : 0, direct = y1 - y0 - keep;
+            if (direct) postCommitted = std::max(postCommitted, y0 + 1); // (a failed map may have left part of these rows written)
+            read(cur, size_t(y0 - ga) * W * 12, rgb.data() + size_t(y0) * W * 3, size_t(direct) * W * 12);
+            pending.resize(size_t(keep) * W * 3);
+            if (keep) read(cur, size_t(y0 + direct - ga) * W * 12, pending.data(), size_t(keep) * W * 12);
+            pendingY = keep ? y0 + direct : -1;
+            readMs += ms(u);
+        }
+        GLuint counts[4]{};
+        read(kPostCnt, 0, counts, 16);
+        if (changed) { changed[0] = counts[0]; changed[1] = counts[1]; }
+        for (int slot : {kPostA, kPostB, kPostEff, kPostT0, kPostT1}) alloc(slot, 16);
+        check("post readback");
+        times += " post upload " + std::to_string(int(upMs)) + " passes " + std::to_string(int(passMs)) + " readback "
+                 + std::to_string(int(readMs)) + " (" + std::to_string((H + strip - 1) / strip) + " strips)";
+    }
     // GPU memory of one call (B): rgb 12, ratios / medians / wide ratios 3 x 8, scalars 3 x 4 per pixel
     static size_t bytesFor(int w, int h) { return size_t(w) * h * 48; }
     void process(std::vector<float>& rgb, int width, int height, int block, const std::vector<float>* osc) {
@@ -413,20 +693,38 @@ struct ChromaGpuSlot {
     }
 };
 inline ChromaGpuSlot& chromaGpuSlot() { static ChromaGpuSlot slot; return slot; }
-inline void chromaPrewarm() {
+inline void chromaPrewarm(bool post = false) {
     ChromaGpuSlot& s = chromaGpuSlot();
     if (s.ahead.valid()) return;
     try {
-        s.ahead = std::async(std::launch::async, [] { auto g = std::make_unique<ChromaMedianGpu>(); g->release(); return g; });
+        s.ahead = std::async(std::launch::async, [post] {
+            auto g = std::make_unique<ChromaMedianGpu>();
+            if (post) g->ensurePost(); // P531: the native merge's post passes
+            g->release();
+            return g;
+        });
     } catch (const std::exception&) {}
 }
 // The prewarmed context (or a new one), current on this thread.
 inline std::unique_ptr<ChromaMedianGpu> chromaTake() {
     ChromaGpuSlot& s = chromaGpuSlot();
     std::unique_ptr<ChromaMedianGpu> g;
-    if (s.ahead.valid()) { g = s.ahead.get(); g->acquire(); }   // a failed build rethrows here
-    else g = std::make_unique<ChromaMedianGpu>();
+    if (s.ahead.valid()) {
+        g = s.ahead.get();                                     // a failed build rethrows here
+        // P531: a context the display lost meanwhile (Mesa's eglTerminate of the merge's context ends every context of the
+        // default display, Android's counts its eglInitialize calls) is built again here
+        try { g->acquire(); } catch (const std::exception&) { g.reset(); g = std::make_unique<ChromaMedianGpu>(); }
+    } else g = std::make_unique<ChromaMedianGpu>();
     return g;
+}
+// P531: a context put back for a later take (the chroma median after the post passes), not torn down
+inline void chromaKeep(std::unique_ptr<ChromaMedianGpu> g) {
+    if (!g) return;
+    g->times.clear();
+    g->release();
+    std::promise<std::unique_ptr<ChromaMedianGpu>> p;
+    chromaGpuSlot().ahead = p.get_future();
+    p.set_value(std::move(g));
 }
 inline void chromaGiveBack(std::unique_ptr<ChromaMedianGpu> g) {
     if (!g) return;

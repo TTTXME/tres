@@ -336,7 +336,8 @@ public final class SettingsAvailability {
                     "AgX look “Custom” only (For experts › SHDR › Why tone › AgX and ACES curves): the other looks set these values themselves.");
         // ScamRgb: the colour prior, the defringe and the clip band act only inside the per-channel recovery (perChannel needs a
         // strength above 0; the merge sends the band's clip flags only then)
-        if (any(key, "pref_scam_hybrid_highlight_chroma", "pref_scam_hybrid_highlight_defringe", "pref_scam_hybrid_highlight_band")
+        if (any(key, "pref_scam_hybrid_highlight_chroma", "pref_scam_hybrid_highlight_defringe", "pref_scam_hybrid_highlight_band",
+                "pref_scam_hybrid_highlight_glow")
                 && PreferenceNumber.read(values.get("pref_scam_hybrid_highlight_recovery"), 100) <= 0)
             return Lang.t("Включите «Восстановление светов по каналам».", "Turn on “Per-channel highlight recovery”.");
         // why/combine: clarity and the flat-area protection scale the WHY detail delta, which is off at a detail strength of 0
