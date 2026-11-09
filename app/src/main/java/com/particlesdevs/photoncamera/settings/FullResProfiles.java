@@ -81,7 +81,11 @@ public final class FullResProfiles {
 
     private static String tag(String camera, boolean tele200) {
         VivoSdkFullRes.Profile p = VivoSdkFullRes.offered(camera) ? VivoSdkFullRes.profile(camera, tele200) : null;
-        return p == null ? "" : String.valueOf(megapixels(p.size.getWidth(), p.size.getHeight()));
+        if (p == null) { // P575: a nubia camera's full-size row (8192x6144 -> 50, the tele's 9248x6944 -> 60)
+            final int mp = com.particlesdevs.photoncamera.capture.NubiaFullRes.megapixels(camera);
+            return mp > 0 ? String.valueOf(mp) : "";
+        }
+        return String.valueOf(megapixels(p.size.getWidth(), p.size.getHeight()));
     }
 
     /** FULLRES is offered for {@code camera}: the vivo profiles, or the camera the FULLRES button last showed itself for. */

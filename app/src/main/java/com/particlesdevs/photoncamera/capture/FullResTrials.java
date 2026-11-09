@@ -249,6 +249,7 @@ public final class FullResTrials {
         if (p == null || cameraId == null) return null;
         try {
             if (OppoNativeFullRes.family()) return OppoNativeFullRes.status(p, cameraId, OppoNativeFullRes.stamp()); // P214j
+            if (NubiaFullRes.device()) return NubiaFullRes.status(p, cameraId, NubiaFullRes.stamp()); // P575
             return VivoNativeFullRes.status(p, VivoNativeFullRes.phone(), cameraId, VivoNativeFullRes.stamp(),
                     VivoSdkFullRes.hardwareRemosaicOn());
         } catch (RuntimeException e) {
@@ -260,7 +261,8 @@ public final class FullResTrials {
     public static void retry(@Nullable String cameraId) {
         final SharedPreferences p = prefs();
         if (p == null || cameraId == null) return;
-        final int removed = VivoNativeFullRes.clearFailures(p, cameraId) + OppoNativeFullRes.clearFailures(p, cameraId);
+        final int removed = VivoNativeFullRes.clearFailures(p, cameraId) + OppoNativeFullRes.clearFailures(p, cameraId)
+                + NubiaFullRes.clearFailures(p, cameraId);
         com.particlesdevs.photoncamera.util.Log.i(TAG, "camera " + cameraId + ": FULLRES trials forgotten (" + removed
                 + " keys); its rows are tried again from the first");
     }
@@ -271,7 +273,9 @@ public final class FullResTrials {
         if (p == null || cameraId == null) return "";
         try {
             final String vivo = dump(p, VivoNativeFullRes.base(cameraId)), oppo = dump(p, OppoNativeFullRes.base(cameraId));
-            return vivo.isEmpty() ? oppo : oppo.isEmpty() ? vivo : vivo + " " + oppo;
+            final String two = vivo.isEmpty() ? oppo : oppo.isEmpty() ? vivo : vivo + " " + oppo;
+            final String nubia = dump(p, NubiaFullRes.base(cameraId)); // P575
+            return nubia.isEmpty() ? two : two.isEmpty() ? nubia : two + " " + nubia;
         } catch (RuntimeException e) {
             return "";
         }

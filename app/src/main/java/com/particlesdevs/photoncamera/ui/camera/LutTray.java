@@ -13,7 +13,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -29,6 +28,9 @@ import com.particlesdevs.photoncamera.settings.ParamHelp;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 import com.particlesdevs.photoncamera.settings.SettingsManager;
 import com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle;
+import com.particlesdevs.photoncamera.ui.controls.IosMotion;
+import com.particlesdevs.photoncamera.ui.controls.IosSegmented;
+import com.particlesdevs.photoncamera.ui.controls.IosSlider;
 import com.particlesdevs.photoncamera.ui.settings.PageReset;
 import com.particlesdevs.photoncamera.ui.settings.custompreferences.FilmSimPreference;
 import com.particlesdevs.photoncamera.ui.settings.custompreferences.LensFilterPreference;
@@ -77,7 +79,7 @@ public final class LutTray {
     private final TextView pill;
     private final LinearLayout tray;
     private final LinearLayout row;
-    private final SeekBar strength;
+    private final IosSlider strength;
     private final TextView strengthValue;
     @Nullable private final SurfaceView preview;
     private final Runnable openAll;
@@ -88,7 +90,7 @@ public final class LutTray {
     private final LinearLayout filterRow;
     /** P281: the film simulation's stocks (FilmSim). */
     private final LinearLayout filmRow;
-    private final TrayMotion.ChipRow tabs;
+    private final IosSegmented tabs;
     private final LinearLayout pages;
     private final TextView all, hint;
     private final TrayAdjust filterAdjust, filmAdjust;
@@ -104,7 +106,7 @@ public final class LutTray {
      * _tint, -100..100); the RAW viewfinder shows them at once, the photo always.
      */
     static final String WARMTH_KEY = ParamHelp.WARMTH_KEY, TINT_KEY = ParamHelp.TINT_KEY;
-    private final SeekBar warmth, tint;
+    private final IosSlider warmth, tint;
     private final TextView warmthValue, tintValue;
     @Nullable private Runnable onOpen;
     private boolean open;
@@ -114,7 +116,19 @@ public final class LutTray {
     @Nullable private GradientDrawable pillBg;
     private int pillFill, pillInk;
 
+    /**
+     * P574 (the approved concept: the LUT button in the top row): the button is a round icon (no name on it) - white, the accent
+     * while a LUT / filter / film is on, on an accent tint while the tray is open; the tray stays at the viewfinder's bottom.
+     */
+    private final boolean iconOnly;
+
     public LutTray(TextView pill, LinearLayout tray, @Nullable SurfaceView preview, Runnable openAll) {
+        this(pill, tray, preview, openAll, false);
+    }
+
+    /** {@code iconOnly}: the top row's round LUT button (P574) instead of the named pill. */
+    public LutTray(TextView pill, LinearLayout tray, @Nullable SurfaceView preview, Runnable openAll, boolean iconOnly) {
+        this.iconOnly = iconOnly;
         this.pill = pill;
         this.tray = tray;
         this.preview = preview;
@@ -123,12 +137,14 @@ public final class LutTray {
         int accent = ShadeStyle.accent(c);
         // the pill
         pill.setOnClickListener(v -> setOpen(!open));
-        pill.setCompoundDrawablePadding(UiScale.dp(c, 5));
-        pill.setPaddingRelative(UiScale.dp(c, 8), 0, UiScale.dp(c, 10), 0);
-        ViewGroup.LayoutParams plp = pill.getLayoutParams();
-        plp.height = UiScale.dp(c, 28);
-        pill.setLayoutParams(plp);
-        UiScale.textFixed(pill, 12);
+        if (!iconOnly) {
+            pill.setCompoundDrawablePadding(UiScale.dp(c, 5));
+            pill.setPaddingRelative(UiScale.dp(c, 8), 0, UiScale.dp(c, 10), 0);
+            ViewGroup.LayoutParams plp = pill.getLayoutParams();
+            plp.height = UiScale.dp(c, 28);
+            pill.setLayoutParams(plp);
+            UiScale.textFixed(pill, 12);
+        }
         tray.setOrientation(LinearLayout.VERTICAL);
         tray.setPadding(UiScale.dp(c, 12), UiScale.dp(c, 12), UiScale.dp(c, 12), UiScale.dp(c, 12));
         // P509 (owner, 2026-11-05: «меню внутри под новый стиль»): the shade's glass panel (concept G: 18dp corners, a hairline edge,
@@ -143,21 +159,16 @@ public final class LutTray {
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setTag("lut_tray_head");
-        tabs = new TrayMotion.ChipRow(c, accent, UiScale.dpF(c, 13));
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        // P574 (the approved concept): the shared segmented control - a grey thumb gliding on a spring, the chosen title in the accent
+        tabs = new IosSegmented(c);
         tabs.setTag("lut_tray_tabs");
-        GradientDrawable track = new GradientDrawable();
-        track.setCornerRadius(UiScale.dpF(c, 15));
-        track.setColor(CHIP_FILL);
-        track.setStroke(Math.max(1, UiScale.dp(c, 1)), CHIP_LINE);
-        tabs.setBackground(track);
-        tabs.setPadding(UiScale.dp(c, 2), UiScale.dp(c, 2), UiScale.dp(c, 2), UiScale.dp(c, 2));
+        tabs.setColours(accent, 0x3D767680, 0xFF636366);
         final String[] titles = tabTitles = new String[]{"LUT", Lang.t(c, "Фильтр", "Filter"), Lang.t(c, "Плёнка", "Film"), Lang.t(c, "Цвет", "Colour")};
+        tabs.setItems(titles);
         for (int i = 0; i < titles.length; i++) {
             final int t = i;
-            TextView chip = text(c, titles[i], 12.5f, ShadeStyle.TEXT);
-            chip.setGravity(Gravity.CENTER);
-            chip.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            TextView chip = (TextView) tabs.getChildAt(i);
+            chip.setMaxLines(1);
             chip.setTag("lut_tray_tab_" + TAB_IDS[i]);
             chip.setContentDescription(titles[i]);
             // a tap on the shown tab does nothing (the second tap of a double tap)
@@ -169,10 +180,9 @@ public final class LutTray {
             // P382 (owner, 2026-10-28): a double tap on a tab's title puts the tab's settings back to their defaults; the first tap
             // switches to it as a single tap does
             com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(chip, () -> resetTab(t), TrayMotion.press());
-            tabs.addView(chip, new LinearLayout.LayoutParams(0, UiScale.dp(c, 28), 1f));
         }
         head.addView(tabs, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        all = text(c, Lang.t(c, "Все ›", "All ›"), 12, accent);
+        all = text(c, Lang.t(c, "Все ›", "All ›"), 14, accent);
         all.setTag("lut_tray_all");
         all.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
         all.setPaddingRelative(UiScale.dp(c, 10), UiScale.dp(c, 6), UiScale.dp(c, 4), UiScale.dp(c, 6));
@@ -194,20 +204,15 @@ public final class LutTray {
         lr.setOrientation(LinearLayout.HORIZONTAL);
         lr.setGravity(Gravity.CENTER_VERTICAL);
         lr.setTag("lut_tray_strength");
-        TextView label = text(c, Lang.t(c, "Сила", "Strength"), 12, ShadeStyle.MUTED);
-        label.setMinWidth(UiScale.dp(c, 64));
+        TextView label = sliderLabel(c, Lang.t(c, "Сила", "Strength"));
         helpOnHold(label, label.getText().toString(), FilmLut.STRENGTH_KEY);
         lr.addView(label);
-        strength = new SeekBar(c);
-        strength.setMax(100);
-        styleSlider(c, strength, accent, null);
+        // P574: the shared slider (a double tap: the settings' 100 %)
+        strength = slider(c, 0, 100, 1, 100);
         strength.setContentDescription(Lang.t(c, "Сила LUT", "LUT strength"));
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         lr.addView(strength, slp);
-        strengthValue = text(c, "", 12, ShadeStyle.TEXT);
-        strengthValue.setMinWidth(UiScale.dp(c, 54));
-        strengthValue.setGravity(Gravity.END);
-        strengthValue.setFontFeatureSettings("tnum");
+        strengthValue = valueLabel(c);
         lr.addView(strengthValue);
         LinearLayout.LayoutParams lrp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lrp.topMargin = UiScale.dp(c, 4);
@@ -228,9 +233,9 @@ public final class LutTray {
         }
         // P319: the colour's warmth and tint
         LinearLayout colourPage = page(c, TAB_COLOUR);
-        warmthValue = text(c, "", 12, ShadeStyle.TEXT);
+        warmthValue = valueLabel(c);
         warmth = colourSlider(c, colourPage, Lang.t(c, "Тепло", "Warmth"), WARMTH_KEY, warmthValue, "lut_tray_warmth", WARMTH_TRACK);
-        tintValue = text(c, "", 12, ShadeStyle.TEXT);
+        tintValue = valueLabel(c);
         tint = colourSlider(c, colourPage, Lang.t(c, "Оттенок", "Tint"), TINT_KEY, tintValue, "lut_tray_tint", TINT_TRACK);
         // the description of a parameter held (owner, 2026-10-28: «добавь описание для параметров по длинному зажатию»)
         hint = text(c, "", 12.5f, ShadeStyle.TEXT);
@@ -252,20 +257,19 @@ public final class LutTray {
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hlp.topMargin = UiScale.dp(c, 8);
         tray.addView(hint, hlp);
-        strength.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
+        // P357: a double tap puts the default back (the settings' 100 %) - the slider's own (P574)
+        strength.setListener(new IosSlider.Listener() {
+            @Override public void onValue(IosSlider s, float v, boolean user) {
+                final int p = Math.round(v);
                 strengthValue.setText(p + " %");
-                if (user) settings().set(SettingsManager.SCOPE_GLOBAL, FilmLut.STRENGTH_KEY, String.valueOf(p));
+                if (!user) return;
+                settings().set(SettingsManager.SCOPE_GLOBAL, FilmLut.STRENGTH_KEY, String.valueOf(p));
+                if (!s.isTracking()) { bindPill(); bindTabs(); } // a double tap, the keyboard, TalkBack
             }
-            @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) { bindPill(); bindTabs(); }
-        });
-        // P357: a double tap puts the default back (the settings' 100 %)
-        com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(strength, () -> {
-            strength.setProgress(100);
-            settings().set(SettingsManager.SCOPE_GLOBAL, FilmLut.STRENGTH_KEY, "100");
-            bindPill();
-            bindTabs();
+            @Override public void onTracking(IosSlider s, boolean on) {
+                track(strengthValue, on);
+                if (!on) { bindPill(); bindTabs(); }
+            }
         });
         TrayMotion.setShown(tray, false);
         bindPill();
@@ -379,12 +383,8 @@ public final class LutTray {
         tab = t;
         lastTab = t;
         if (from != t) hideHintNow();
-        for (int i = 0; i < tabs.getChildCount(); i++) {
-            TextView chip = (TextView) tabs.getChildAt(i);
-            chip.setActivated(i == t);
-            fade(chip, i == t ? ShadeStyle.INK : ShadeStyle.TEXT, animate && from >= 0);
-            if (i == t) tabs.moveTo(chip, animate && from >= 0);
-        }
+        tabs.setSelected(t, animate && from >= 0);
+        for (int i = 0; i < tabs.getChildCount(); i++) tabs.getChildAt(i).setActivated(i == t);
         bindTabs();
         all.setVisibility(t == TAB_COLOUR ? View.INVISIBLE : View.VISIBLE);
         final View in = pages.getChildAt(t);
@@ -409,7 +409,7 @@ public final class LutTray {
         hint.setVisibility(View.GONE);
     }
 
-    /** A tab whose section is on (a LUT, a filter, a film, a colour shift) carries a small dot, INK on the pill, accent off it. */
+    /** A tab whose section is on (a LUT, a filter, a film, a colour shift) carries a small dot in the accent. */
     private void bindTabs() {
         Context c = tray.getContext();
         final boolean[] on = {
@@ -425,7 +425,7 @@ public final class LutTray {
             }
             // the dot right after the title (a compound drawable sits at the tab's edge, half off the selected pill)
             android.text.SpannableString t = new android.text.SpannableString(tabTitles[i] + " ");
-            t.setSpan(new DotSpan(i == tab ? ShadeStyle.INK : ShadeStyle.accent(c), UiScale.dpF(c, 2.5f), UiScale.dpF(c, 4)),
+            t.setSpan(new DotSpan(ShadeStyle.accent(c), UiScale.dpF(c, 2.5f), UiScale.dpF(c, 4)),
                     t.length() - 1, t.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             chip.setText(t);
         }
@@ -570,46 +570,38 @@ public final class LutTray {
                 break;
             }
             default:
-                warmth.setProgress(colourValue(WARMTH_KEY) + 100);
-                tint.setProgress(colourValue(TINT_KEY) + 100);
+                setColour(warmth, warmthValue, colourValue(WARMTH_KEY));
+                setColour(tint, tintValue, colourValue(TINT_KEY));
         }
     }
 
     /** P319: a «label · slider · value» row of a -100..100 colour setting, written as the settings page writes it. */
-    private SeekBar colourSlider(Context c, LinearLayout parent, String label, String key, TextView value, String tag, int[] track) {
+    private IosSlider colourSlider(Context c, LinearLayout parent, String label, String key, TextView value, String tag, int[] track) {
         LinearLayout r = new LinearLayout(c);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setTag(tag);
-        TextView l = text(c, label, 12, ShadeStyle.MUTED);
-        l.setMinWidth(UiScale.dp(c, 64));
+        TextView l = sliderLabel(c, label);
         helpOnHold(l, label, key);
         r.addView(l);
-        SeekBar bar = new SeekBar(c);
-        bar.setMax(200);
-        styleSlider(c, bar, 0, track);
+        // P574 (the approved concept): the shared slider, the accent from the left as every slider of the camera screen (the old
+        // cool -> warm track is gone); the neutral middle is its default (a double tap) and is felt (the slider's tick)
+        IosSlider bar = slider(c, -100, 100, 1, 0);
         bar.setContentDescription(label);
         r.addView(bar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        value.setMinWidth(UiScale.dp(c, 54));
-        value.setGravity(Gravity.END);
-        value.setFontFeatureSettings("tnum");
         r.addView(value);
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                value.setText(signed(p - 100));
-                if (user) {
-                    settings().set(SettingsManager.SCOPE_GLOBAL, key, String.valueOf(p - 100));
-                    if (p == 100) TrayMotion.tick(s); // the neutral middle is felt
-                }
+        bar.setListener(new IosSlider.Listener() {
+            @Override public void onValue(IosSlider s, float v, boolean user) {
+                final int p = Math.round(v);
+                value.setText(signed(p));
+                if (!user) return;
+                settings().set(SettingsManager.SCOPE_GLOBAL, key, String.valueOf(p));
+                if (!s.isTracking()) bindTabs();
             }
-            @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) { bindTabs(); }
-        });
-        // P357: a double tap puts the default (0) back
-        com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(bar, () -> {
-            bar.setProgress(100);
-            settings().set(SettingsManager.SCOPE_GLOBAL, key, "0");
-            bindTabs();
+            @Override public void onTracking(IosSlider s, boolean on) {
+                LutTray.track(value, on);
+                if (!on) bindTabs();
+            }
         });
         // a long press on the slider: what it does
         bar.setOnLongClickListener(x -> {
@@ -620,6 +612,50 @@ public final class LutTray {
         });
         parent.addView(r, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return bar;
+    }
+
+    /** A colour slider and its value at {@code v} (the settings' state, not a user's move). */
+    private static void setColour(IosSlider bar, TextView value, int v) {
+        bar.setValue(v);
+        value.setText(signed(v));
+    }
+
+    /**
+     * P574: the camera screen's slider (the shared IosSlider: accent fill, glass knob while held, rubber band, double tap =
+     * {@code def}) on {@code min..max} in {@code step}.
+     */
+    static IosSlider slider(Context c, float min, float max, float step, float def) {
+        IosSlider s = new IosSlider(c);
+        s.setRange(min, max, step);
+        s.setDefaultValue(def);
+        s.setAccent(ShadeStyle.accent(c));
+        return s;
+    }
+
+    /** P574: a slider row's name (the concept: 13sp, muted, a fixed column so the sliders line up). */
+    static TextView sliderLabel(Context c, CharSequence label) {
+        TextView l = text(c, label, 13, ShadeStyle.MUTED);
+        l.setMinWidth(UiScale.dp(c, 72));
+        l.setMaxWidth(UiScale.dp(c, 110));
+        l.setPaddingRelative(UiScale.dp(c, 4), 0, UiScale.dp(c, 8), 0);
+        return l;
+    }
+
+    /** P574: a slider row's value (the concept: 13sp semibold, tabular figures, in the accent, at the row's end). */
+    static TextView valueLabel(Context c) {
+        TextView v = text(c, "", 13, ShadeStyle.accent(c));
+        v.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        v.setMinWidth(UiScale.dp(c, 52));
+        v.setGravity(Gravity.END);
+        v.setFontFeatureSettings("tnum");
+        return v;
+    }
+
+    /** P574: the value lifts (bigger) while the knob is held and pops once when the finger leaves (IosMotion). */
+    static void track(TextView value, boolean held) {
+        final int accent = ShadeStyle.accent(value.getContext());
+        if (held) IosMotion.lift(value, true, accent, accent);
+        else IosMotion.pop(value);
     }
 
     static String signed(int v) {
@@ -782,44 +818,6 @@ public final class LutTray {
         a.start();
     }
 
-    /**
-     * An iOS-like slider: a 4dp rounded track (the accent over a faint line, or {@code track}'s colours across the whole length for
-     * the warmth / tint, whose value is the thumb's place) and a white 20dp thumb with a hairline edge.
-     */
-    static void styleSlider(Context c, SeekBar bar, int accent, @Nullable int[] track) {
-        float r = UiScale.dpF(c, 2);
-        GradientDrawable back = track != null ? new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, track) : new GradientDrawable();
-        if (track == null) back.setColor(0x33FFFFFF);
-        back.setCornerRadius(r);
-        GradientDrawable fill = new GradientDrawable();
-        fill.setColor(track != null ? 0x00000000 : accent);
-        fill.setCornerRadius(r);
-        android.graphics.drawable.ClipDrawable clip = new android.graphics.drawable.ClipDrawable(fill, Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL);
-        android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{back, clip});
-        layers.setId(0, android.R.id.background);
-        layers.setId(1, android.R.id.progress);
-        int h = UiScale.dp(c, 4);
-        layers.setLayerHeight(0, h);
-        layers.setLayerHeight(1, h);
-        layers.setLayerGravity(0, Gravity.CENTER_VERTICAL);
-        layers.setLayerGravity(1, Gravity.CENTER_VERTICAL);
-        bar.setProgressDrawable(layers);
-        bar.setProgressTintList(null);
-        bar.setProgressBackgroundTintList(null);
-        GradientDrawable thumb = new GradientDrawable();
-        thumb.setShape(GradientDrawable.OVAL);
-        thumb.setColor(0xFFFFFFFF);
-        thumb.setStroke(Math.max(1, UiScale.dp(c, 1) / 2), 0x33000000);
-        int t = UiScale.dp(c, 20);
-        thumb.setSize(t, t);
-        bar.setThumb(thumb);
-        bar.setThumbTintList(null);
-        bar.setThumbOffset(t / 2);
-        bar.setSplitTrack(false);
-        bar.setMinimumHeight(UiScale.dp(c, 32));
-        bar.setPadding(t / 2 + UiScale.dp(c, 2), 0, t / 2 + UiScale.dp(c, 2), 0);
-    }
-
     /** P509: a thumbnail card's place in its row: its own size, 6dp after the previous. */
     private static LinearLayout.LayoutParams thumbParams(Context c, ViewGroup row) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -877,6 +875,8 @@ public final class LutTray {
      * and closes the tray again): its bottom margin over its anchor (the Pro panel's bottom), never below the anchor.
      */
     private void placeAbovePill() {
+        // P574: the top row's button is far above: the tray keeps its place at the viewfinder's bottom (it grows out of the button)
+        if (iconOnly) return;
         if (!(tray.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) || !(tray.getParent() instanceof View)) return;
         final View parent = (View) tray.getParent();
         final View anchor = parent.findViewById(R.id.manual_mode);
@@ -922,6 +922,10 @@ public final class LutTray {
         boolean on = !value.isEmpty() && PreferenceKeys.filmLutStrength() > 0f || filterOn || film != null;
         int accent = ShadeStyle.accent(c);
         String label = value.isEmpty() ? (film != null ? film.stock.name : "LUT") : (film != null ? film.stock.name + " · " : "") + name(c, value);
+        if (iconOnly) {
+            bindIcon(c, on, accent, animate, label + (filterOn ? " · " + filterShort(c, filter) : ""));
+            return;
+        }
         pill.setText(filterOn ? label + " · " + filterShort(c, filter) : label);
         pill.setEllipsize(TextUtils.TruncateAt.END);
         int fg = open ? ShadeStyle.INK : on ? accent : 0xFFFFFFFF;
@@ -931,12 +935,10 @@ public final class LutTray {
         pillInk = fg;
         pillFill = fill;
         pill.setTextColor(fg);
-        android.graphics.drawable.Drawable icon = c.getDrawable(R.drawable.ui_ic_looks);
+        android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.ui_ic_looks, fg); // P570
         if (icon != null) {
-            icon = icon.mutate();
             int s = UiScale.dp(c, 16);
             icon.setBounds(0, 0, s, s);
-            icon.setTint(fg);
         }
         pill.setCompoundDrawablesRelative(icon, null, null, null);
         GradientDrawable bg = new GradientDrawable();
@@ -956,7 +958,7 @@ public final class LutTray {
                 bg.setColor(TrayMotion.mix(fromFill, fill, k));
                 int ink = TrayMotion.mix(fromFg, fg, k);
                 pill.setTextColor(ink);
-                if (icons[0] != null) icons[0].setTint(ink);
+                if (icons[0] != null) com.particlesdevs.photoncamera.ui.Icons.recolour(c, R.drawable.ui_ic_looks, icons[0], ink);
             });
             a.start();
             // the pill gives a little and springs back
@@ -967,6 +969,53 @@ public final class LutTray {
         }
         pill.setContentDescription(Lang.t(c, "Плёнка (LUT): ", "Film (LUT): ") + name(c, value)
                 + (filterOn ? Lang.t(c, ", фильтр: ", ", filter: ") + LensFilters.name(c, filter) : ""));
+        pill.setActivated(open);
+    }
+
+    /**
+     * P574: the top row's round LUT button (the concept's 40dp item): open, the accent icon on the accent's tint; a LUT, filter or
+     * film on, the accent icon; else white. Its description names what is on.
+     */
+    private void bindIcon(Context c, boolean on, int accent, boolean animate, String what) {
+        final int fg = open || on ? accent : ShadeStyle.TEXT;
+        final int fill = open ? (accent & 0x00FFFFFF) | 0x29000000 : 0x00000000;
+        final int fromFg = pillInk, fromFill = pillFill;
+        final boolean fade = animate && pillBg != null && (fromFg != fg || fromFill != fill);
+        pillInk = fg;
+        pillFill = fill;
+        pill.setText("");
+        pill.setCompoundDrawablesRelative(null, null, null, null);
+        final GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(fade ? fromFill : fill);
+        final android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.ui_ic_looks, fade ? fromFg : fg);
+        final android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(
+                icon != null ? new android.graphics.drawable.Drawable[]{bg, icon} : new android.graphics.drawable.Drawable[]{bg});
+        if (icon != null) {
+            final int s = UiScale.dp(c, 22);
+            layers.setLayerSize(1, s, s);
+            layers.setLayerGravity(1, Gravity.CENTER);
+        }
+        pill.setBackground(layers);
+        pillBg = bg;
+        if (fade) {
+            final android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+            a.setDuration(200);
+            a.setInterpolator(TrayMotion.EASE_OUT);
+            a.addUpdateListener(v -> {
+                if (pillBg != bg) return; // a newer bind took over
+                final float k = (float) v.getAnimatedValue();
+                bg.setColor(TrayMotion.mix(fromFill, fill, k));
+                if (icon != null) com.particlesdevs.photoncamera.ui.Icons.recolour(c, R.drawable.ui_ic_looks, icon, TrayMotion.mix(fromFg, fg, k));
+            });
+            a.start();
+            // the button gives a little and springs back (no cancel(): the button's turn with the phone may be running)
+            pill.setScaleX(.9f);
+            pill.setScaleY(.9f);
+            pill.animate().scaleX(1f).scaleY(1f).setDuration(TrayMotion.RELEASE.durationMs).setStartDelay(0).setInterpolator(TrayMotion.RELEASE).start();
+        }
+        pill.setContentDescription(Lang.t(c, "LUT и плёнка: ", "LUT and film: ") + (on ? what : Lang.t(c, "выкл.", "off")));
+        androidx.core.view.ViewCompat.setStateDescription(pill, open ? Lang.t(c, "открыто", "open") : null);
         pill.setActivated(open);
     }
 
@@ -998,8 +1047,8 @@ public final class LutTray {
         rebuildFilters();
         rebuildFilms();
         // P319: the colour sliders follow the settings (also after the settings page changed them)
-        warmth.setProgress(colourValue(WARMTH_KEY) + 100);
-        tint.setProgress(colourValue(TINT_KEY) + 100);
+        setColour(warmth, warmthValue, colourValue(WARMTH_KEY));
+        setColour(tint, tintValue, colourValue(TINT_KEY));
         bindLutState(chosen, false);
         // the chosen chip scrolled to the centre
         centre(row, selected);
@@ -1010,7 +1059,7 @@ public final class LutTray {
     /** The strength row for the LUT {@code chosen}. */
     private void bindLutState(String chosen, boolean animate) {
         int s = Math.round(PreferenceKeys.filmLutStrength() * 100);
-        strength.setProgress(s);
+        strength.setValue(s);
         strengthValue.setText(s + " %");
         // without a LUT the strength has nothing to act on: dimmed
         View strengthRow = (View) strength.getParent();

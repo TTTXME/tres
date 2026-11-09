@@ -119,6 +119,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
     private long mToneKey = Long.MIN_VALUE, mToneAtNs, mToneReused;
     /** P319: the VF_RAW line every 2 s while the tone draws: new toned frames, reused redraws, frames the hand-off dropped. */
     private long mVfRawAtNs, mVfRawToned, mVfRawReused, mVfRawDropped0;
+    /** P573: new RAW frames drawn (a re-tone of the same frame - its rotation or look changed - counts in toned, not here). */
+    private long mVfRawFresh, mVfFreshVersion = Long.MIN_VALUE;
     /** P319: a tone older than this is drawn again even for the same frame (a stalled stream falls back as before). */
     static final long TONE_REUSE_NS = 300_000_000L;
     /**
@@ -274,6 +276,14 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                 }
                 if (rawActive) drawRawFiltered(peaking);
             }
+            if (rawActive) {
+                final long version = ((long) com.particlesdevs.photoncamera.processing.LiveRawFrame.currentSession() << 32)
+                        ^ (com.particlesdevs.photoncamera.processing.LiveRawFrame.getVersion() & 0xffffffffL);
+                if (version != mVfFreshVersion) {
+                    mVfFreshVersion = version;
+                    mVfRawFresh++;
+                }
+            }
             fusedFailedNow = fused && mWhyTone.fusedFailed();
             if (fusedFailedNow) {
                 // P365: P314's programs are asked for (their background compile), this frame takes the fall-back below
@@ -285,12 +295,12 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                 if (mVfRawAtNs != 0) {
                     final double s = (now - mVfRawAtNs) / 1e9;
                     // P365: the passes of the tone and the camera thread's copies per frame (LiveRawFrame.copyStats)
-                    Log.i("VF_RAW", String.format(java.util.Locale.ROOT, "toned %.1f/s reused %.1f/s dropped %.1f/s tone %dx%d passes=%d %s",
-                            mVfRawToned / s, mVfRawReused / s, (dropped - mVfRawDropped0) / s, tone[0], tone[1], mVfRawPasses,
+                    Log.i("VF_RAW", String.format(java.util.Locale.ROOT, "fresh %.1f/s toned %.1f/s reused %.1f/s dropped %.1f/s tone %dx%d passes=%d %s",
+                            mVfRawFresh / s, mVfRawToned / s, mVfRawReused / s, (dropped - mVfRawDropped0) / s, tone[0], tone[1], mVfRawPasses,
                             com.particlesdevs.photoncamera.processing.LiveRawFrame.copyStats()));
                 }
                 mVfRawAtNs = now;
-                mVfRawToned = mVfRawReused = 0;
+                mVfRawToned = mVfRawReused = mVfRawFresh = 0;
                 mVfRawDropped0 = dropped;
             }
             if (rawActive && mFusedLogged != mVfRawPasses) {

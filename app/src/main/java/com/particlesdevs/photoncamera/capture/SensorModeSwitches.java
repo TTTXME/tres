@@ -13,6 +13,7 @@ public final class SensorModeSwitches {
     public static boolean sensorPreset(String slot) {
         SharedPreferences prefs = ScameraApp.getSettingsManagerStatic().getDefaultPreferences();
         if (ModuleRegistry.sensorMode(slot) != 0 || ModuleRegistry.sensorCrop(slot)) return true;
+        if (NubiaFullRes.iszModule(slot)) return true; // P575: the nubia «2×» (a module with its own sensor-mode row)
         if (pixelBase(ModuleRegistry.camera(slot)) != null) return true;
         String source = ModuleRegistry.duplicateOf(slot);
         if (source == null || !ModuleRegistry.slots().contains(source) || !ModuleRegistry.visible(source)
@@ -26,6 +27,10 @@ public final class SensorModeSwitches {
     public static void onModuleSelected(String slot) {
         if ((VivoQcomModes.device() || VivoNativeFullRes.device() || OppoNativeFullRes.device()) && PixelPro10.fullResOn()
                 && !VivoSdkFullRes.offered(ModuleRegistry.camera(slot)))
+            PixelPro10.setFullRes(false);
+        // P575: a nubia module whose camera has no FULLRES row (the front, a failed row) leaves the size switch at 12 Мп
+        if (NubiaFullRes.device() && PixelPro10.fullResOn() && NubiaFullRes.known(ModuleRegistry.camera(slot))
+                && !NubiaFullRes.offered(ModuleRegistry.camera(slot)))
             PixelPro10.setFullRes(false);
         if (!sensorPreset(slot)) return;
         Dcg14Mode.setMode(Dcg14Mode.OFF);

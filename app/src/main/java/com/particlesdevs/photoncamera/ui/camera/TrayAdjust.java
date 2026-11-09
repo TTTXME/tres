@@ -7,7 +7,6 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -94,7 +93,8 @@ final class TrayAdjust {
 
     final LinearLayout view;
     private final TrayMotion.ChipRow chips;
-    private final SeekBar bar;
+    /** P574: the shared slider (IosSlider) on the parameter's own range and step. */
+    private final com.particlesdevs.photoncamera.ui.controls.IosSlider bar;
     private final TextView value;
     /** The slider's row; P381: over it, at its height, a choice's options (the row kept INVISIBLE holds the height). */
     private final LinearLayout sliderRow;
@@ -131,18 +131,11 @@ final class TrayAdjust {
         LinearLayout r = sliderRow = new LinearLayout(c);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        bar = new SeekBar(c);
+        bar = LutTray.slider(c, 0, 1, 0, Float.NaN);
         bar.setTag(tag + "_seek");
-        LutTray.styleSlider(c, bar, ShadeStyle.accent(c), null);
         r.addView(bar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        value = new TextView(c);
+        value = LutTray.valueLabel(c);
         value.setTag(tag + "_value");
-        value.setTextColor(ShadeStyle.TEXT);
-        value.setMaxLines(1);
-        UiScale.textFixed(value, 12);
-        value.setMinWidth(UiScale.dp(c, 54));
-        value.setGravity(Gravity.END);
-        value.setFontFeatureSettings("tnum");
         r.addView(value);
         // P381: the slider's line holds the slider's row and, over it at its height (the frame measures them both and the
         // options' scroll takes the frame's height), a choice's options
@@ -162,22 +155,22 @@ final class TrayAdjust {
         optionScroll.addView(options, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         line.addView(optionScroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         view.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
+        bar.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
+            @Override public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider s, float v, boolean user) {
                 final Param q = now;
                 if (q == null) return;
+                final int p = q.progress(v);
                 value.setText(q.text(p));
                 if (!user) return;
-                if (p == q.progress(q.def)) TrayMotion.tick(s); // the default is felt
-                if (q.live) q.write.accept(q.value(p));
+                // the default's tick is the slider's own; a live parameter is written as it moves, every one when let go
+                if (q.live || !s.isTracking()) q.write.accept(q.value(p));
+                if (!s.isTracking() && onChange != null) onChange.run(); // a double tap, the keyboard, TalkBack
             }
-            @Override public void onStartTrackingTouch(SeekBar s) {
-                s.getParent().requestDisallowInterceptTouchEvent(true);
-            }
-            @Override public void onStopTrackingTouch(SeekBar s) {
+            @Override public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider s, boolean on) {
+                LutTray.track(value, on);
                 final Param q = now;
-                if (q == null) return;
-                q.write.accept(q.value(s.getProgress()));
+                if (on || q == null) return;
+                q.write.accept(q.value(q.progress(s.getValue())));
                 if (onChange != null) onChange.run();
             }
         });
@@ -186,14 +179,6 @@ final class TrayAdjust {
             if (q == null || q.help == null || onHelp == null) return false;
             onHelp.accept(q.title, q.help);
             return true;
-        });
-        com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(bar, () -> {
-            final Param q = now;
-            if (q == null) return;
-            bar.setProgress(q.progress(q.def), true);
-            value.setText(q.text(q.progress(q.def)));
-            q.write.accept(q.def);
-            if (onChange != null) onChange.run();
         });
     }
 
@@ -275,8 +260,11 @@ final class TrayAdjust {
             return;
         }
         final int pr = p.progress(p.read.get());
-        bar.setMax(p.steps());
-        bar.setProgress(pr, animate && view.isAttachedToWindow());
+        // P574: another parameter (another range) at once; the same one glides to a value changed elsewhere
+        final boolean same = was == p && animate;
+        bar.setRange(p.min, p.max, p.step);
+        bar.setDefaultValue(p.def);
+        if (same) bar.setValue(p.value(pr)); else bar.setValueNow(p.value(pr));
         value.setText(p.text(pr));
         bar.setContentDescription(p.title);
     }

@@ -327,19 +327,75 @@ void main(){
     countEnd(changed,1);
 }
 )";
+// P571 (owner, 2026-11-09: «Сетку сделай такой же как на качестве и даже лучше»): the fast route's Quad lattice - its 2 / 4 px
+// periodic part of the luma where the merge has few frames (the base's own Quad interpolation; nubia burst, dark wall: peaks 4.9 /
+// 5.9 x the background at 0.5 cycles / px against the quality route's 2.4 / 3.2). Per pixel: r = Y - box4(Y) (a 4 x 4 box passes no
+// 4-periodic part, so r holds it), clipped at 2.5 sigma of its own (sigma = 1.2533 x the 32 x 32 mean of |r|: edges do not leak into
+// the estimate), averaged per phase (x mod 4, y mod 4) over 8 x 8 samples of its phase (a 32 x 32 window); that pattern less its own
+// 4 x 4 mean is taken off R, G and B alike. Window ends as scipy's uniform_filter with mode 'nearest' (each phase plane clamped
+// to its own samples). One pass per MODE; the strip's rows: image rows strip.x + row, the image strip.y rows high.
+static const char* kQuadLatticeGlsl = R"(
+layout(local_size_x=8,local_size_y=8) in;
+layout(std430,binding=0) readonly buffer Src{float src[];};
+layout(std430,binding=1) writeonly buffer Dst{float dst[];};
+layout(std430,binding=2) buffer Aux{float aux[];};
+uniform ivec2 strip;  // x: the image row of the strip's row 0, y: the image's height
+uniform float clipK;
+int rowOf(int gy){gy=clamp(gy,0,strip.y-1);return clamp(gy-strip.x,0,size.y-1);}
+int phaseX(int x,int d){int p=x&3,n=(size.x-p+3)>>2;return p+4*clamp((x>>2)+d,0,n-1);}
+int phaseY(int gy,int d){int p=gy&3,n=(strip.y-p+3)>>2;return rowOf(p+4*clamp((gy>>2)+d,0,n-1));}
+void main(){
+    int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
+    if(x>=size.x||y>=size.y)return;
+    int gy=strip.x+y,i=y*size.x+x;
+#if MODE==1
+    dst[i]=0.25*src[3*i]+0.5*src[3*i+1]+0.25*src[3*i+2];
+#elif MODE==2
+    float m=0.0;
+    for(int dy=-2;dy<=1;dy++){int yy=rowOf(gy+dy);for(int dx=-2;dx<=1;dx++)m+=src[yy*size.x+clamp(x+dx,0,size.x-1)];}
+    float r=src[i]-m*0.0625;
+    dst[i]=r;aux[i]=abs(r);
+#elif MODE==3
+    float m=0.0;
+    for(int dx=-16;dx<=15;dx++)m+=src[y*size.x+clamp(x+dx,0,size.x-1)];
+    dst[i]=m;
+#elif MODE==4
+    float m=0.0;
+    for(int dy=-16;dy<=15;dy++)m+=src[rowOf(gy+dy)*size.x+x];
+    float sg=clipK*1.2533*m*(1.0/1024.0);
+    dst[i]=clamp(aux[i],-sg,sg);
+#elif MODE==5
+    float m=0.0;
+    for(int d=-4;d<=3;d++)m+=src[y*size.x+phaseX(x,d)];
+    dst[i]=m*0.125;
+#elif MODE==6
+    float m=0.0;
+    for(int d=-4;d<=3;d++)m+=src[phaseY(gy,d)*size.x+x];
+    dst[i]=m*0.125;
+#elif MODE==7
+    float m=0.0;
+    for(int dy=-2;dy<=1;dy++){int yy=rowOf(gy+dy);for(int dx=-2;dx<=1;dx++)m+=src[yy*size.x+clamp(x+dx,0,size.x-1)];}
+    float l=src[i]-m*0.0625;
+    dst[3*i]=aux[3*i]-l;dst[3*i+1]=aux[3*i+1]-l;dst[3*i+2]=aux[3*i+2]-l;
+#endif
+}
+)";
 class ChromaMedianGpu {
     EGLDisplay display = EGL_NO_DISPLAY;
     EGLContext context = EGL_NO_CONTEXT;
     EGLSurface surface = EGL_NO_SURFACE;
     GLuint pRatio = 0, pMedian = 0, pBoxF = 0, pBoxV2 = 0, pSign = 0, pBlend = 0, pSmooth = 0;
     GLuint pAlongRows = 0, pAlongApply = 0, pNotchRows = 0, pNotchApply = 0; // P531 (mosaicPost; built by ensurePost)
-    enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kPostA, kPostB, kPostEff, kPostT0, kPostT1, kPostCnt, kSlots };
+    GLuint pQl[8]{}; // P571: quadLattice's passes 1..7 (built by ensureQuadLattice)
+    enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kPostA, kPostB, kPostEff, kPostT0, kPostT1, kPostCnt, kQA, kQB, kQ1, kQ2, kQ3, kSlots };
     GLuint buf[kSlots]{};
     int w = 0, h = 0;
+    int stripRow0 = 0; // P571: the image row of the current quadLattice strip's row 0
     void cleanup() noexcept {
         if (display == EGL_NO_DISPLAY) return;
         if (context != EGL_NO_CONTEXT && eglMakeCurrent(display, surface, surface, context)) {
             for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth, pAlongRows, pAlongApply, pNotchRows, pNotchApply}) if (p) glDeleteProgram(p);
+            for (GLuint p : pQl) if (p) glDeleteProgram(p);
             glDeleteBuffers(kSlots, buf);
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
@@ -449,6 +505,75 @@ public:
     ChromaMedianGpu(const ChromaMedianGpu&) = delete;
     ChromaMedianGpu& operator=(const ChromaMedianGpu&) = delete;
     ~ChromaMedianGpu() { cleanup(); }
+    // P571: the fast route's Quad lattice off the luma (kQuadLatticeGlsl) on rgb (W x H x 3, in place), in strips of up to 1024 rows
+    // with 40 rows of halo each side (the passes reach 2 + 16 + 16 + 2 rows): every owned row reads the image as it was (the
+    // originals of the rows above a strip are kept before its rows are written back). Returns the passes' times.
+    static constexpr int kQlHalo = 40;
+    int qlStrip = 1024; // (the checks run more strips)
+    std::string quadLattice(std::vector<float>& rgb, int W, int H, float clipK = 2.5f) {
+        if (W < 16 || H < 16 || rgb.size() < size_t(W) * H * 3) throw std::runtime_error("QUAD LATTICE GPU: sizes");
+        auto t0 = Clock::now();
+        if (!pQl[7]) {
+            for (int m = 1; m <= 7; ++m) pQl[m] = compile(("#define MODE " + std::to_string(m) + "\n").c_str(), kQuadLatticeGlsl);
+            check("quad lattice programs");
+        }
+        GLint64 maxBlock = 0;
+        glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxBlock);
+        int strip = std::min(H, std::max(qlStrip, 64));
+        if (maxBlock > 0) strip = std::min<int64_t>(strip, maxBlock / (int64_t(W) * 12) - 2 * kQlHalo);
+        if (strip < 64 && strip < H) throw std::runtime_error("QUAD LATTICE GPU: a strip larger than a storage block");
+        const size_t cap = size_t(W) * size_t(std::min(H, strip + 2 * kQlHalo));
+        alloc(kQA, cap * 12); alloc(kQB, cap * 12); alloc(kQ1, cap * 4); alloc(kQ2, cap * 4); alloc(kQ3, cap * 4);
+        check("quad lattice buffers");
+        std::vector<float> saved(size_t(kQlHalo) * W * 3), in;
+        const double prep = ms(t0);
+        double upMs = 0, passMs = 0, readMs = 0;
+        int strips = 0;
+        auto pass = [&](int m, int s, int d, int a) {
+            glUseProgram(pQl[m]);
+            bind(0, s); bind(1, d); bind(2, a);
+            glUniform2i(glGetUniformLocation(pQl[m], "strip"), stripRow0, H);
+            glUniform1f(glGetUniformLocation(pQl[m], "clipK"), clipK);
+            run(pQl[m]);
+        };
+        for (int y0 = 0; y0 < H; y0 += strip, ++strips) {
+            const int y1 = std::min(H, y0 + strip), ga = std::max(0, y0 - kQlHalo), gb = std::min(H, y1 + kQlHalo), rows = gb - ga, top = y0 - ga;
+            auto u = Clock::now();
+            in.resize(size_t(rows) * W * 3);
+            if (top > 0) std::memcpy(in.data(), saved.data() + size_t(kQlHalo - top) * W * 3, size_t(top) * W * 12);
+            std::memcpy(in.data() + size_t(top) * W * 3, rgb.data() + size_t(y0) * W * 3, size_t(gb - y0) * W * 12);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kQA]);
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(in.size() * 4), in.data());
+            check("quad lattice upload");
+            upMs += ms(u); u = Clock::now();
+            w = W; h = rows; stripRow0 = ga;
+            pass(1, kQA, kQ1, kQ3);   // Y -> Q1
+            pass(2, kQ1, kQ2, kQ3);   // r -> Q2, |r| -> Q3
+            pass(3, kQ3, kQ1, kQ3);   // the rows' sums of |r| -> Q1
+            pass(4, kQ1, kQ3, kQ2);   // r clipped -> Q3 (aux = r)
+            pass(5, kQ3, kQ1, kQ2);   // the phase rows' means -> Q1
+            pass(6, kQ1, kQ2, kQ3);   // the phase means L -> Q2
+            pass(7, kQ2, kQB, kQA);   // rgb - (L - box4 L) -> QB
+            check("quad lattice passes");
+            glFinish(); passMs += ms(u); u = Clock::now();
+            const int keep = std::min(kQlHalo, y1);
+            std::memcpy(saved.data() + size_t(kQlHalo - keep) * W * 3, rgb.data() + size_t(y1 - keep) * W * 3, size_t(keep) * W * 12);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kQB]);
+            const size_t off = size_t(top) * W * 12, bytes = size_t(y1 - y0) * W * 12;
+            constexpr size_t kChunk = size_t(32) << 20;
+            for (size_t o = 0; o < bytes; o += kChunk) {
+                const size_t n = std::min(kChunk, bytes - o);
+                const void* m = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, GLintptr(off + o), GLsizeiptr(n), GL_MAP_READ_BIT);
+                if (!m) throw std::runtime_error("QUAD LATTICE GPU readback failed");
+                std::memcpy(reinterpret_cast<char*>(rgb.data() + size_t(y0) * W * 3) + o, m, n);
+                if (!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER)) throw std::runtime_error("QUAD LATTICE GPU storage invalidated");
+            }
+            readMs += ms(u);
+        }
+        for (int sl : {kQA, kQB, kQ1, kQ2, kQ3}) alloc(sl, 16);
+        return "programs " + std::to_string(int(prep)) + " upload " + std::to_string(int(upMs)) + " passes " + std::to_string(int(passMs))
+            + " readback " + std::to_string(int(readMs)) + " (" + std::to_string(strips) + " strips) ms";
+    }
     // P531: the post passes' programs (on the prewarm's thread when chromaPrewarm(true) built the context, else on first use)
     void ensurePost() {
         if (pNotchApply) return;

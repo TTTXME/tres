@@ -584,6 +584,18 @@ public final class LiveRawFrame {
     }
 
     /**
+     * P573 (owner, 2026-11-09: «при включенном Tetra видоискатель так сильно тормозит», log + screen recording on the X200 Ultra's
+     * 3.7x Tetra module): a Tetra frame handed over as its ZSL ring slot (P365) is drawn where it is, the mosaic itself - the
+     * camera thread took its cell means on every frame (VF_RAW "copy vf=11 ms pinned=0" against 1.8 ms and pinned=1 for the 1x
+     * Bayer frame of the same phone), on all of the bin's threads 30 times a second. rawdevelop_fs draws the mosaic one colour
+     * per 2 x 2 of its cell means (getFastColor): the same picture (P314), with no CPU pass and no copy. A frame that is copied
+     * anyway (no slot, packed, the pinned views full) keeps P314's cell means. scam_dev vf_tetra_ring 0: cell means as before.
+     */
+    static boolean drawsMosaicInPlace(int block, boolean pin, int format, int w, int stride, boolean wanted) {
+        return wanted && pin && block == 4 && format == android.graphics.ImageFormat.RAW_SENSOR && stride == w * 2;
+    }
+
+    /**
      * The hand-off of one frame; true when {@code plane} itself became the frame (P365 {@code pin}: a ring view kept pinned), false
      * when it was copied or not taken. {@code startNs}: when the caller began (P365: the copy time of a published frame).
      */
@@ -597,7 +609,8 @@ public final class LiveRawFrame {
         // P314: and a smaller Quad / Tetra frame by its cell means (binsCellMeans); the large frames' bins stay as they were
         final int bin = block == 2 || block == 4 ? block : 1, cell = bin == 1 ? 2 : bin;
         final int cap = maxLongSide;
-        final boolean cellMeans = !means && binsCellMeans(w, h, bin, cap);
+        final boolean cellMeans = !means && binsCellMeans(w, h, bin, cap) && !drawsMosaicInPlace(bin, pin, format, w, stride,
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_tetra_ring", true));
         if (!means && (cellMeans || (cap != -1 && (long) w * h >= QUAD_BIN_PIXELS && w % (cell * 2) == 0 && h % (cell * 2) == 0))) {
             final long now = System.nanoTime();
             if (now - quadAtNs < paceNs(cellMeans, (long) w * h, lastBinNs)) return false;

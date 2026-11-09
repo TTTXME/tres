@@ -116,22 +116,48 @@ public final class PhotoMatrix {
     @Nullable
     public static com.particlesdevs.photoncamera.gallery.dng.DngColor dngWhite(@Nullable android.hardware.camera2.CameraCharacteristics c) {
         if (c == null) return null;
-        final double[] cm1 = rows(c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_COLOR_TRANSFORM1));
-        double[] cm2 = rows(c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_COLOR_TRANSFORM2));
-        if (cm1 == null) return null;
+        double[] cm1 = rows(c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_COLOR_TRANSFORM1));
+        final android.hardware.camera2.params.ColorSpaceTransform cm2Tag = c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_COLOR_TRANSFORM2);
+        double[] cm2 = rows(cm2Tag);
         double[] cc1 = rows(c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_CALIBRATION_TRANSFORM1));
         double[] cc2 = rows(c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_CALIBRATION_TRANSFORM2));
         final Integer ill1 = c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT1);
         final Byte ill2 = c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT2);
-        final int i1 = ill1 != null ? ill1 : 21, i2 = ill2 != null ? ill2 : i1;
+        int i1 = ill1 != null ? ill1 : 21, i2 = ill2 != null ? ill2 : i1;
+        // P580: the photo's rules (Parameters.ReCalcColor): an all-zero / non-finite matrix is none; an unknown illuminant (0) or an
+        // unusable ColorMatrix2 makes a single-illuminant profile
+        if (cm1 == null && cm2 != null) cm1 = cm2;
+        if (cm1 == null) return null;
+        if (cc1 == null) cc1 = cc2;
+        if (i1 == 0 || i2 == 0 || cm2Tag != null && cm2 == null) {
+            i2 = i1;
+            cm2 = null;
+            cc2 = null;
+        }
         if (cm2 == null) cm2 = cm1;
         if (cc2 == null) cc2 = cc1;
         return com.particlesdevs.photoncamera.gallery.dng.DngColor.forCamera(cm1, cm2, cc1, cc2, i1, i2);
     }
 
+    /**
+     * P580 (CCM audit): a camera matrix tag that says something - present, every element finite and not all of them zero (a bad
+     * HAL reports zeros for a calibration it lacks; a rational over 0 is NaN / inf). A singular one passes (its own fallbacks).
+     */
+    public static boolean usableMatrix(@Nullable android.hardware.camera2.params.ColorSpaceTransform m) {
+        if (m == null) return false;
+        boolean any = false;
+        for (int r = 0; r < 3; r++)
+            for (int c = 0; c < 3; c++) {
+                final float v = m.getElement(c, r).floatValue();
+                if (!Float.isFinite(v)) return false;
+                any |= v != 0f;
+            }
+        return any;
+    }
+
     @Nullable
     private static double[] rows(@Nullable android.hardware.camera2.params.ColorSpaceTransform m) {
-        if (m == null) return null;
+        if (!usableMatrix(m)) return null;
         final double[] out = new double[9];
         for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) out[r * 3 + c] = m.getElement(c, r).doubleValue();
         return out;

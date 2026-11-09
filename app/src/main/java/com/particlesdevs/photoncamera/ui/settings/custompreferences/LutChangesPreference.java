@@ -93,7 +93,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         page.addView(FilmLutPreference.groupTitle(c, Lang.t(c, "Что меняется", "What changes"), SettingsStyle.accent(c)));
         box = new FrameLayout(c);
         box.setTag("lut_changes");
-        box.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 18));
+        box.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));   // P574: a #2C2C2E card, 24dp, no outline
         int pad = UiTokens.dp(c, 12);
         box.setPadding(pad, pad, pad, pad);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -116,16 +116,15 @@ public class LutChangesPreference extends Preference implements SharedPreference
     public static View noteView(Context c, CharSequence text) {
         LinearLayout n = new LinearLayout(c);
         n.setOrientation(LinearLayout.HORIZONTAL);
-        n.setBackground(UiTokens.shape(c, 0xFF232A2E, 0, 18));
+        n.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 20));   // P574: the settings' card colour
         n.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, 12), UiTokens.dp(c, 14), UiTokens.dp(c, 12));
         ImageView i = new ImageView(c);
-        i.setImageResource(R.drawable.ui_ic_info);
-        i.setImageTintList(ColorStateList.valueOf(SettingsStyle.accent(c)));
+        i.setImageResource(R.drawable.ui_ic_info); // P570: the colour icon as it is
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(UiTokens.dp(c, 20), UiTokens.dp(c, 20));
         ip.setMarginEnd(UiTokens.dp(c, 10));
         ip.topMargin = UiTokens.dp(c, 1);
         n.addView(i, ip);
-        TextView t = SettingsStyle.text(c, text, 13, UiTokens.MUTED);
+        TextView t = SettingsStyle.text(c, text, 13, SettingsStyle.SUMMARY);
         t.setLineSpacing(UiTokens.dp(c, 2), 1f);
         n.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return n;
@@ -167,7 +166,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
     }
 
     private static TextView line(Context c, String text) {
-        return SettingsStyle.text(c, text, 13, UiTokens.MUTED);
+        return SettingsStyle.text(c, text, 13, SettingsStyle.SECTION);
     }
 
     private View details(Context c, String value, FilmLut lut, float k) {
@@ -178,7 +177,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         int gap = UiTokens.dp(c, 10);
         // what it imitates
         String desc = (k < .5f ? Lang.t(c, "Слегка. ", "Slightly. ") : "") + FilmLutPreference.description(c, value, lut);
-        TextView d = SettingsStyle.text(c, desc, 13, UiTokens.TEXT);
+        TextView d = SettingsStyle.text(c, desc, 13, SettingsStyle.ROW_TITLE);
         d.setLineSpacing(UiTokens.dp(c, 2), 1f);
         col.addView(d);
         // the chips
@@ -191,7 +190,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
             s.append(t.value(c));
             s.setSpan(new ForegroundColorSpan(accent), start, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             s.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), start, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            TextView chip = SettingsStyle.text(c, s, 12, UiTokens.TEXT);
+            TextView chip = SettingsStyle.text(c, s, 12, SettingsStyle.ROW_TITLE);
             chip.setPadding(UiTokens.dp(c, 9), UiTokens.dp(c, 4), UiTokens.dp(c, 9), UiTokens.dp(c, 4));
             chip.setBackground(UiTokens.shape(c, 0xFF232A2E, 0, 999));
             chips.addView(chip);
@@ -211,7 +210,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         String[] names = {Lang.t(c, "тени", "shadows"), Lang.t(c, "середина", "middle"), Lang.t(c, "света", "lights")};
         int[] gravity = {Gravity.START, Gravity.CENTER_HORIZONTAL, Gravity.END};
         for (int i = 0; i < 3; i++) {
-            TextView a = SettingsStyle.text(c, names[i], 10, UiTokens.MUTED);
+            TextView a = SettingsStyle.text(c, names[i], 10, SettingsStyle.SECTION);
             a.setMaxLines(1);
             axis.addView(a, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, gravity[i]));
         }
@@ -222,7 +221,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         TextView reading = SettingsStyle.text(c, Lang.t(c,
                 "Линия выше пунктира — эта часть снимка станет светлее, ниже — темнее. Цветные линии показывают сдвиг оттенка.",
                 "Above the dashed line that part of the photo gets lighter, below it darker. The coloured lines show the tint shift."),
-                12.5f, UiTokens.MUTED);
+                12.5f, SettingsStyle.SECTION);
         reading.setLineSpacing(UiTokens.dp(c, 2), 1f);
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         rp.setMarginStart(UiTokens.dp(c, 12));
@@ -230,7 +229,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         col.addView(curveBox, top(c, gap));
         // the key colours
         col.addView(SettingsStyle.text(c, Lang.t(c, "Ключевые цвета: слева — до, справа — после", "Key colours: before on the left, after on the right"),
-                12, UiTokens.MUTED), top(c, gap));
+                12, SettingsStyle.SECTION), top(c, gap));
         LinearLayout sw = new LinearLayout(c);
         sw.setOrientation(LinearLayout.HORIZONTAL);
         sw.setTag("lut_swatches");
@@ -252,7 +251,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
             pair.addView(before, new LinearLayout.LayoutParams(0, UiTokens.dp(c, 28), 1f));
             pair.addView(after, new LinearLayout.LayoutParams(0, UiTokens.dp(c, 28), 1f));
             cell.addView(pair, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, UiTokens.dp(c, 28)));
-            TextView n = SettingsStyle.text(c, keyNames[i], 10.5f, UiTokens.MUTED);
+            TextView n = SettingsStyle.text(c, keyNames[i], 10.5f, SettingsStyle.SECTION);
             n.setPadding(0, UiTokens.dp(c, 4), 0, 0);
             n.setMaxLines(1);
             cell.addView(n);
@@ -267,7 +266,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         how.setMinHeight(UiTokens.dp(c, 32));
         how.setGravity(Gravity.CENTER_VERTICAL);
         how.setTag("lut_how");
-        TextView howText = SettingsStyle.text(c, howText(c), 12, UiTokens.MUTED);
+        TextView howText = SettingsStyle.text(c, howText(c), 12, SettingsStyle.SECTION);
         howText.setLineSpacing(UiTokens.dp(c, 3), 1f);
         Runnable paint = () -> {
             how.setText((howOpen ? "▾ " : "▸ ") + Lang.t(c, "Как это определяется", "How it is worked out"));

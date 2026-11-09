@@ -42,6 +42,7 @@ AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'   # Workers AI free plan: 
 AI_INPUT_LIMIT = 12000      # characters of commit messages sent to the model
 CHANGELOG_ITEMS = 6
 CHANGELOG_FILE = 'CHANGELOG.md'
+CHANGELOG_EN_FILE = 'CHANGELOG.en.md'   # the owner's English copy (2026-11-09: «Нужен и в посте»)
 CHANGELOG_SECTIONS = 5      # at most this many new CHANGELOG.md sections in one post
 MESSAGE_LIMIT = 4000        # a Telegram text message allows 4096 visible characters
 # A failed or cut GitHub request (IncompleteRead is an HTTPException, not an OSError) must not stop the post
@@ -183,6 +184,29 @@ def new_changelog(base, head):
         return now[:1]
     known = {heading for heading, _ in changelog_sections(before)}
     return [s for s in now if s[0] not in known][:CHANGELOG_SECTIONS]
+
+
+def english_sections(sections, head):
+    """The CHANGELOG.en.md sections at commit <head> that match <sections> (the Russian ones): by the heading's date, a
+    Russian section's place among that day's sections of the whole Russian file with the English one at the same place;
+    a day whose two files hold a different number of sections (the English copy lags) gets none."""
+    if not sections or not head:
+        return []
+    def by_day(all_sections):
+        days = {}
+        for heading, items in all_sections:
+            days.setdefault(heading.split(' — ', 1)[0].strip(), []).append((heading, items))
+        return days
+    english = by_day(changelog_sections(repo_file(CHANGELOG_EN_FILE, head)))
+    russian = by_day(changelog_sections(repo_file(CHANGELOG_FILE, head)))
+    out = []
+    for heading, _ in sections:
+        day = heading.split(' — ', 1)[0].strip()
+        ru, en = russian.get(day, []), english.get(day, [])
+        place = next((n for n, (h, _) in enumerate(ru) if h == heading), -1)
+        if place >= 0 and len(ru) == len(en):
+            out.append(en[place])
+    return out
 
 
 def md_inline(text):
@@ -372,9 +396,10 @@ def build_caption(apk, digest, changes, settings=None, since=''):
     return caption
 
 
-def changelog_post(apk, digest, sections, settings, since=''):
-    """(caption, [reply texts]) with the owner's CHANGELOG.md sections: in the caption when they fit, else in up to
-    3 replies to the post (a caption holds 1024 characters, a message 4096)."""
+def changelog_post(apk, digest, sections, settings, since='', english=()):
+    """(caption, [reply texts]) with the owner's CHANGELOG.md sections, then their English copy (CHANGELOG.en.md) when
+    there is one: in the caption when they fit, else in up to 3 replies to the post (a caption holds 1024 characters, a
+    message 4096)."""
     lang = settings['lang']
     head = f'<b>{html.escape(build_title(apk))}</b>'
     if settings['header']:
@@ -385,6 +410,10 @@ def changelog_post(apk, digest, sections, settings, since=''):
     for heading, items in sections:
         title = heading.split(' — ', 1)[1] if ' — ' in heading else heading   # "2026-10-20 (2) — title"
         lines += ([''] if lines else []) + [f'<b>{md_inline(title)}</b>']
+        lines += ['• ' + md_inline(item if len(item) <= 3000 else item[:3000].rstrip() + '…') for item in items]
+    for i, (heading, items) in enumerate(english):
+        title = heading.split(' — ', 1)[1] if ' — ' in heading else heading
+        lines += ([''] + (['🇬🇧'] if i == 0 else []) + [f'<b>{md_inline(title)}</b>'])
         lines += ['• ' + md_inline(item if len(item) <= 3000 else item[:3000].rstrip() + '…') for item in items]
     caption = '\n'.join([head, '', f'<i>{label}:</i>', *lines, *tail])
     if visible_length(caption) <= CAPTION_LIMIT:
@@ -410,7 +439,7 @@ def make_post(args, digest, settings):
     rng = build_range(args)
     sections = new_changelog(rng[0], rng[1])
     if sections:
-        return changelog_post(args.apk, digest, sections, settings, rng[2])
+        return changelog_post(args.apk, digest, sections, settings, rng[2], english_sections(sections, rng[1]))
     print('::notice::No new CHANGELOG.md section since the previous build: the commits are retold')
     changes, since = make_changes(args, settings['lang'], rng)
     return build_caption(args.apk, digest, changes, settings, since), []

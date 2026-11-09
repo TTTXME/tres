@@ -72,29 +72,30 @@
 
     <!--
         The app's alert dialogs (owner, 2026-10-28: «исправь стиль всех таких меню которые выбиваются из нашего стиля
-        приложения»): the settings card (settings_card, a faint settings_line outline, 24dp corners), a white 20sp medium
-        title, muted 15sp body text, sentence-case buttons - «Отмена» a quiet text button, the confirm an accent pill like a
-        chosen chip, a side action in accent text - and the settings' accent radio in lists. Every colour is explicit: the
+        приложения»; P574, 2026-11-09: the look of the camera's own sheets): the rows' card (dialog_card #2C2C2E, no outline,
+        30dp corners), a white 18sp medium title, 15sp body text in white at 70 %, sentence-case buttons - «Отмена» a grey
+        capsule, the confirm an accent capsule with dark ink, a side action in accent text - and the accent tick in lists. Every colour is explicit: the
         dialog stays dark on a light system theme and on the dynamic-colour accent overlays. DialogStyle.builder takes it
         with the Material builder; the base theme's alertDialogTheme gives it to the androidx dialogs built elsewhere (the
         preference library's backup, restore and reset), with the same card as the window background.
     -->
     <style name="AlertDialogTheme" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="alertDialogStyle">@style/Scamera.Dialog</item>
+        <item name="android:windowAnimationStyle">@style/Scamera.DialogMotion</item>
         <item name="android:windowBackground">@drawable/dialog_window</item>
         <item name="android:backgroundDimAmount">0.6</item>
         <item name="dialogCornerRadius">@dimen/dialog_radius</item>
         <item name="android:dialogCornerRadius" tools:targetApi="p">@dimen/dialog_radius</item>
         <item name="dialogPreferredPadding">24dp</item>
-        <item name="colorSurface">@color/settings_card</item>
-        <item name="colorSurfaceContainerHigh">@color/settings_card</item>
-        <item name="android:colorBackground">@color/settings_card</item>
+        <item name="colorSurface">@color/dialog_card</item>
+        <item name="colorSurfaceContainerHigh">@color/dialog_card</item>
+        <item name="android:colorBackground">@color/dialog_card</item>
         <item name="colorOnSurface">@color/settings_text</item>
         <item name="colorOnSurfaceVariant">@color/settings_muted</item>
-        <item name="android:textColorPrimary">@color/settings_text</item>
-        <item name="android:textColorSecondary">@color/settings_muted</item>
+        <item name="android:textColorPrimary">@color/settings_row_title</item>
+        <item name="android:textColorSecondary">@color/dialog_body</item>
         <item name="android:textColorHint">@color/settings_muted</item>
-        <item name="android:textColorAlertDialogListItem">@color/settings_text</item>
+        <item name="android:textColorAlertDialogListItem">@color/settings_row_title</item>
         <item name="colorControlNormal">@color/settings_muted</item>
         <item name="colorControlHighlight">@color/settings_ripple</item>
         <item name="android:colorControlHighlight">@color/settings_ripple</item>
@@ -114,7 +115,7 @@
 
     <!-- The dialog: the Material 3 layout with the app's list rows; the background insets are dialog_window's. -->
     <style name="Scamera.Dialog" parent="MaterialAlertDialog.Material3">
-        <item name="backgroundTint">@color/settings_card</item>
+        <item name="backgroundTint">@color/dialog_card</item>
         <item name="shapeAppearance">@style/ShapeAppearance.Scamera.Dialog</item>
         <item name="backgroundInsetStart">@dimen/dialog_inset_horizontal</item>
         <item name="backgroundInsetEnd">@dimen/dialog_inset_horizontal</item>
@@ -139,11 +140,11 @@
         <item name="android:paddingTop">24dp</item>
     </style>
 
-    <!-- As the settings page header: 20sp, medium, the text colour; long titles wrap instead of being cut. -->
+    <!-- P574: 18sp medium white (the sheets' titles); long titles wrap instead of being cut. -->
     <style name="Scamera.Dialog.Title" parent="MaterialAlertDialog.Material3.Title.Text">
         <item name="android:textAppearance">@style/TextAppearance.Scamera.DialogTitle</item>
-        <item name="android:textColor">@color/settings_text</item>
-        <item name="android:textSize">20sp</item>
+        <item name="android:textColor">@color/settings_row_title</item>
+        <item name="android:textSize">18sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:singleLine">false</item>
@@ -153,17 +154,17 @@
     </style>
 
     <style name="TextAppearance.Scamera.DialogTitle" parent="">
-        <item name="android:textSize">20sp</item>
-        <item name="android:textColor">@color/settings_text</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textColor">@color/settings_row_title</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="fontFamily">sans-serif-medium</item>
         <item name="android:textAllCaps">false</item>
     </style>
 
-    <!-- The message: the app font, 15sp, the muted text colour, with room between the lines. -->
+    <!-- The message: the app font, 15sp, P574 white at 70 %, with room between the lines. -->
     <style name="Scamera.Dialog.Body" parent="MaterialAlertDialog.Material3.Body.Text">
         <item name="android:textAppearance">@style/TextAppearance.Scamera.DialogBody</item>
-        <item name="android:textColor">@color/settings_muted</item>
+        <item name="android:textColor">@color/dialog_body</item>
         <item name="android:textSize">15sp</item>
         <item name="android:fontFamily">@font/open_sans</item>
         <item name="android:lineSpacingExtra">3sp</item>
@@ -172,16 +173,17 @@
 
     <style name="TextAppearance.Scamera.DialogBody" parent="">
         <item name="android:textSize">15sp</item>
-        <item name="android:textColor">@color/settings_muted</item>
+        <item name="android:textColor">@color/dialog_body</item>
         <item name="android:fontFamily">@font/open_sans</item>
         <item name="fontFamily">@font/open_sans</item>
     </style>
 
-    <!-- «Отмена»: a quiet text button in the text colour, sentence case. -->
+    <!-- «Отмена»: a quiet button in white, sentence case; P574 a grey capsule (the concept's secondary action). -->
     <style name="Scamera.Dialog.Button" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="backgroundTint">@color/dialog_quiet_fill</item>
         <item name="android:textAppearance">@style/TextAppearance.Scamera.DialogButton</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">15sp</item>
         <item name="android:letterSpacing">0</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textColor">@color/dialog_quiet_text</item>
@@ -191,14 +193,15 @@
         <item name="android:minWidth">64dp</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
-        <item name="android:paddingLeft">12dp</item>
-        <item name="android:paddingRight">12dp</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
         <item name="android:layout_marginStart">4dp</item>
         <item name="android:layout_marginLeft">4dp</item>
     </style>
 
     <!-- A side action (neutral, at the start): accent text. -->
     <style name="Scamera.Dialog.Button.Side">
+        <item name="backgroundTint">@android:color/transparent</item>
         <item name="android:textColor">@color/dialog_link_text</item>
         <item name="android:layout_marginStart">0dp</item>
         <item name="android:layout_marginLeft">0dp</item>
@@ -208,7 +211,7 @@
     <style name="Scamera.Dialog.Button.Confirm" parent="Widget.Material3.Button">
         <item name="android:textAppearance">@style/TextAppearance.Scamera.DialogButton</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">15sp</item>
         <item name="android:letterSpacing">0</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textColor">@color/dialog_positive_text</item>
@@ -219,8 +222,8 @@
         <item name="android:minWidth">88dp</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
-        <item name="android:paddingLeft">18dp</item>
-        <item name="android:paddingRight">18dp</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
         <item name="android:layout_marginStart">8dp</item>
         <item name="android:layout_marginLeft">8dp</item>
         <item name="android:lines">1</item>
@@ -229,7 +232,7 @@
     </style>
 
     <style name="TextAppearance.Scamera.DialogButton" parent="">
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">15sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="fontFamily">sans-serif-medium</item>
         <item name="android:textAllCaps">false</item>
@@ -241,14 +244,22 @@
         A fallback for anything still built on the framework's android.app.AlertDialog (the app builds none: DialogStyle);
         OEM ROMs may restyle the framework dialog, so this is only the closest the framework theme gets.
     -->
+    <!-- P572 (owner, 2026-11-09: «Добавь красивые анимации везде где это уместно как в IOS и MacOS»): the dialogs come in as an
+         iOS alert (a small zoom-out with a fade) and leave with a quick fade -->
+    <style name="Scamera.DialogMotion" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/motion_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/motion_dialog_exit</item>
+    </style>
+
     <style name="AlertDialogTheme.Framework" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowAnimationStyle">@style/Scamera.DialogMotion</item>
         <item name="android:windowBackground">@drawable/dialog_window</item>
         <item name="android:backgroundDimAmount">0.6</item>
         <item name="android:dialogCornerRadius" tools:targetApi="p">@dimen/dialog_radius</item>
-        <item name="android:colorBackground">@color/settings_card</item>
-        <item name="android:textColorPrimary">@color/settings_text</item>
-        <item name="android:textColorSecondary">@color/settings_muted</item>
-        <item name="android:textColorAlertDialogListItem">@color/settings_text</item>
+        <item name="android:colorBackground">@color/dialog_card</item>
+        <item name="android:textColorPrimary">@color/settings_row_title</item>
+        <item name="android:textColorSecondary">@color/dialog_body</item>
+        <item name="android:textColorAlertDialogListItem">@color/settings_row_title</item>
         <item name="android:colorAccent">?attr/colorPrimary</item>
         <item name="android:colorControlActivated">?attr/colorPrimary</item>
         <item name="android:colorControlNormal">@color/settings_muted</item>

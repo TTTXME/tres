@@ -137,7 +137,8 @@ public class FullResZslTest {
         assertTrue("50 MP, stills beyond the ring's free slots", CaptureController.pressArenaWanted(false, 8192L * 6144, 14));
         assertFalse("all of it in the ring's memfd already", CaptureController.pressArenaWanted(true, 8192L * 6144, 14));
         assertFalse("12 MP: the merge never moves it", CaptureController.pressArenaWanted(false, 4096L * 3072, 14));
-        assertFalse("beyond an arena's 64 frames", CaptureController.pressArenaWanted(false, 8192L * 6144, 65));
+        assertTrue("65 frames (P578)", CaptureController.pressArenaWanted(false, 8192L * 6144, 65));
+        assertFalse("beyond an arena's 128 frames", CaptureController.pressArenaWanted(false, 8192L * 6144, 129));
         prefs.when(() -> PreferenceKeys.scamDevSwitch(eq("fullres_press_arena"), anyBoolean())).thenReturn(false);
         assertFalse("scam_dev fullres_press_arena 0: as before P235", CaptureController.pressArenaWanted(false, 8192L * 6144, 14));
     }

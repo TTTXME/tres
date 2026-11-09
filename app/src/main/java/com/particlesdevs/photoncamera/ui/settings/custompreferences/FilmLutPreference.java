@@ -259,7 +259,7 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
         samples = new LinearLayout(c);
         samples.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < LutSamples.COUNT; i++) {
-            TextView b = SettingsStyle.text(c, LutSamples.name(c, i), 12.5f, UiTokens.TEXT);
+            TextView b = SettingsStyle.text(c, LutSamples.name(c, i), 12.5f, SettingsStyle.ROW_TITLE);
             b.setGravity(Gravity.CENTER);
             b.setMinHeight(UiTokens.dp(c, 34));
             b.setPadding(UiTokens.dp(c, 12), 0, UiTokens.dp(c, 12), 0);
@@ -299,11 +299,12 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
     }
 
     /** The concept's .gt: 11.5sp, 600, upper case, the accent. */
+    /** A group's title on the custom pages: P574 12sp semibold, upper case, white at 55 % (the settings' section titles; was the accent). */
     static TextView groupTitle(Context c, String text, int accent) {
-        TextView t = SettingsStyle.text(c, text.toUpperCase(java.util.Locale.ROOT), 11.5f, accent);
-        t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        t.setLetterSpacing(.09f);
-        t.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 4), UiTokens.dp(c, 6), 0);
+        TextView t = SettingsStyle.text(c, text.toUpperCase(java.util.Locale.ROOT), 12, SettingsStyle.SECTION);
+        t.setTypeface(SettingsStyle.semibold());
+        t.setLetterSpacing(.08f);
+        t.setPadding(UiTokens.dp(c, 16), UiTokens.dp(c, 4), UiTokens.dp(c, 16), 0);
         return t;
     }
 
@@ -314,8 +315,8 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
         for (int i = 0; i < samples.getChildCount(); i++) {
             TextView b = (TextView) samples.getChildAt(i);
             boolean on = i == sample;
-            b.setBackground(UiTokens.shape(c, on ? accent : UiTokens.CARD, on ? accent : UiTokens.LINE, 999));
-            b.setTextColor(on ? UiTokens.INK : UiTokens.TEXT);
+            b.setBackground(UiTokens.shape(c, on ? accent : SettingsStyle.ROW, on ? accent : 0, 999));
+            b.setTextColor(on ? UiTokens.INK : SettingsStyle.ROW_TITLE);
             b.setSelected(on);
         }
     }
@@ -358,12 +359,12 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
             });
             thumb.setClipToOutline(true);
             card.addView(thumb, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round((cardW - UiTokens.dp(c, 8)) * .75f)));
-            TextView name = SettingsStyle.text(c, displayName(c, value), 12, UiTokens.TEXT);
+            TextView name = SettingsStyle.text(c, displayName(c, value), 12, SettingsStyle.ROW_TITLE);
             name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
             name.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 5), UiTokens.dp(c, 3), 0);
             name.setMaxLines(2);
             card.addView(name);
-            TextView hint = SettingsStyle.text(c, hint(c, value), 10.5f, UiTokens.MUTED);
+            TextView hint = SettingsStyle.text(c, hint(c, value), 10.5f, SettingsStyle.SECTION);
             hint.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 3), UiTokens.dp(c, 3), 0);
             hint.setMaxLines(2);
             card.addView(hint);
@@ -408,8 +409,8 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 6));
-        GradientDrawable bg = UiTokens.shape(c, UiTokens.CARD, 0, 14);
-        bg.setStroke(UiTokens.dp(c, on ? 2 : 1), on ? accent : UiTokens.LINE);
+        GradientDrawable bg = UiTokens.shape(c, SettingsStyle.ROW, 0, 14);
+        if (on) bg.setStroke(UiTokens.dp(c, 2), accent);   // P574: no outline but the chosen one\'s
         card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), bg, null));
         card.setFocusable(true);
         return card;
@@ -423,13 +424,12 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
         tile.setMinimumHeight(UiTokens.dp(c, 120));
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(UiTokens.dp(c, 14));
-        bg.setStroke(UiTokens.dp(c, 1), UiTokens.LINE, UiTokens.dp(c, 5), UiTokens.dp(c, 4));
+        bg.setStroke(UiTokens.dp(c, 1), SettingsStyle.HAIRLINE, UiTokens.dp(c, 5), UiTokens.dp(c, 4));
         tile.setBackground(bg);
         ImageView i = new ImageView(c);
-        i.setImageResource(icon);
-        i.setImageTintList(ColorStateList.valueOf(UiTokens.MUTED));
+        com.particlesdevs.photoncamera.ui.Icons.set(i, icon, SettingsStyle.SECTION); // P570: a colour icon keeps its colours
         tile.addView(i, new LinearLayout.LayoutParams(UiTokens.dp(c, 24), UiTokens.dp(c, 24)));
-        TextView t = SettingsStyle.text(c, text, 10.5f, UiTokens.MUTED);
+        TextView t = SettingsStyle.text(c, text, 10.5f, SettingsStyle.SECTION);
         t.setGravity(Gravity.CENTER);
         t.setPadding(UiTokens.dp(c, 4), UiTokens.dp(c, 5), UiTokens.dp(c, 4), 0);
         tile.addView(t);

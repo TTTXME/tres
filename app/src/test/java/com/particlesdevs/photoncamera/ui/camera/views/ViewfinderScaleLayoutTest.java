@@ -263,17 +263,16 @@ public class ViewfinderScaleLayoutTest {
             assertTrue(at + "handle over the lens strip" + geometry, handleBox.bottom <= stripBox.top);
 
             // The other controls at their dp places.
-            View gear = binding.layoutTopbar.settingsButton, badges = binding.layoutTopbar.topbarBadges;
-            Rect gearBox = at(gear), badgeBox = at(badges);
-            // SIMPLE_UI §1: the top bar's concept dp times k (UiScale), the gear pinned inside the row's padding, the pill card
-            // clear of it, the bar the concept's 64dp.
+            // P574: the top row's 40dp x k items, centred (the gear went to the bottom row)
+            View badge = binding.layoutTopbar.formatButton, lutButton = binding.layoutTopbar.lutButton;
+            Rect badgeBox = at(badge), lutBox = at(lutButton);
             float tk = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(binding.getRoot().getContext());
             View tbRow = binding.layoutTopbar.getRoot();
-            assertEquals(at + "gear 44dp x k", 44 * tk * density, gearBox.width(), 1.5f);
-            assertEquals(at + "gear square", gearBox.width(), gearBox.height());
-            assertEquals(at + "gear at the row's end", w - tbRow.getPaddingRight(), gearBox.right);
-            assertTrue(at + "pill card clear of the gear", badgeBox.right <= gearBox.left);
-            assertEquals(at + "pill card 40dp x k", 40 * tk * density, badgeBox.height(), 1.5f);
+            assertEquals(at + "LUT 40dp x k", 40 * tk * density, lutBox.width(), 1.5f);
+            assertEquals(at + "LUT round", lutBox.width(), lutBox.height());
+            assertEquals(at + "format badge 40dp x k", 40 * tk * density, badgeBox.height(), 1.5f);
+            assertTrue(at + "format badge before LUT", badgeBox.right <= lutBox.left);
+            assertTrue(at + "inside the row", badgeBox.left >= tbRow.getPaddingLeft() && lutBox.right <= w - tbRow.getPaddingRight());
             assertEquals(at + "top bar 64dp x k", 64 * tk * density, topBar.height(), 1.5f);
             assertTrue(at + "preview under the top bar", at(binding.cameraContainer).top >= topBar.bottom);
             View gallery = row.findViewById(R.id.galery_button_container), shutter = row.findViewById(R.id.shutter_button_container),
@@ -286,8 +285,9 @@ public class ViewfinderScaleLayoutTest {
             assertEquals(at + "flip 54dp x scale", dp(54 * s), flipBox.width(), 2);
             assertEquals(at + "shutter 78dp x scale", dp(78 * s), shutterBox.width(), 2);
             assertEquals(at + "shutter a fifth of the width", w / 5f, shutterBox.width(), w * .02f);
-            assertEquals(at + "gallery 22dp x scale from the left", dp(22 * s), galleryBox.left, 2);
-            assertEquals(at + "flip 22dp x scale from the right", dp(22 * s), w - flipBox.right, 2);
+            // P574 (the approved concept: the gallery and the switch 52px in): the row's 22dp and the items' own 24dp
+            assertEquals(at + "gallery 46dp x scale from the left", dp(46 * s), galleryBox.left, 2);
+            assertEquals(at + "flip 46dp x scale from the right", dp(46 * s), w - flipBox.right, 2);
             assertEquals(at + "shutter centred", w / 2f, shutterBox.exactCenterX(), 1f);
             assertEquals(at + "gallery, shutter, flip on one line", shutterBox.centerY(), galleryBox.centerY(), 1);
             assertEquals(at + "gallery, shutter, flip on one line", shutterBox.centerY(), flipBox.centerY(), 1);

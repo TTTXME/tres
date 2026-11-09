@@ -65,6 +65,12 @@ public final class MosaicStream {
         return block;
     }
 
+    /**
+     * The block this session's own frames agreed on (three confident agreeing frames), 0 before: not the stored block, which a
+     * row that failed once would otherwise keep reporting (P575: «Попробовать снова» / a firmware update must test it afresh).
+     */
+    public static synchronized int sessionVerdict() { return votes >= 3 ? voteBlock : 0; }
+
     /** Tests. */
     static synchronized void reset() { KNOWN.clear(); block = 0; key = ""; votes = voteBlock = measured = 0; }
 }

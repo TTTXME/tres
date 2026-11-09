@@ -129,7 +129,7 @@ public class ProfilesPreference extends Preference {
         saved.setTag("profiles_saved");
         if (files == null || files.length == 0) {
             TextView none = SettingsStyle.text(c, Lang.t(c, "Пока ничего не сохранено: «Сохранить текущие как…» ниже.",
-                    "Nothing saved yet: «Save the current as…» below."), 13, UiTokens.MUTED);
+                    "Nothing saved yet: «Save the current as…» below."), 13, SettingsStyle.SECTION);
             none.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, 14), UiTokens.dp(c, 14), UiTokens.dp(c, 14));
             saved.addView(none);
         } else {
@@ -139,7 +139,7 @@ public class ProfilesPreference extends Preference {
                 String base = ConfigState.base(file);
                 if (saved.getChildCount() > 0) saved.addView(divider(c));
                 TextView load = SettingsStyle.text(c, base.equals(active) ? Lang.t(c, "Сейчас", "Now") : Lang.t(c, "Загрузить", "Load"), 13,
-                        base.equals(active) ? UiTokens.MUTED : accent);
+                        base.equals(active) ? SettingsStyle.SECTION : accent);
                 LinearLayout panel = panel(c, file, accent);
                 View r = row(c, base, file, load, "profile_" + base, () -> toggle(panel));
                 saved.addView(r);
@@ -176,11 +176,11 @@ public class ProfilesPreference extends Preference {
         panel.setVisibility(View.GONE);
         panel.setTag("profile_panel_" + ConfigState.base(file));
         panel.addView(SettingsStyle.text(c, Lang.t(c, "Текущие настройки заменятся, камера перезапустится.",
-                "The current settings are replaced, the camera restarts."), 12.5f, UiTokens.MUTED));
+                "The current settings are replaced, the camera restarts."), 12.5f, SettingsStyle.SECTION));
         LinearLayout buttons = new LinearLayout(c);
         buttons.setPadding(0, UiTokens.dp(c, 10), 0, 0);
         buttons.addView(button(c, Lang.t(c, "Загрузить", "Load"), true, accent, "profile_load", () -> done(actions.load(file))));
-        View del = button(c, Lang.t(c, "Удалить файл", "Delete the file"), false, SettingsStyle.WARN, "profile_delete", () -> {
+        View del = button(c, Lang.t(c, "Удалить файл", "Delete the file"), false, SettingsStyle.RED, "profile_delete", () -> {
             if (!actions.delete(file)) {
                 done(Lang.t(c, "Не удалось удалить «" + file + "»", "Could not delete «" + file + "»"));
                 return;
@@ -217,13 +217,13 @@ public class ProfilesPreference extends Preference {
     private static LinearLayout card(Context c) {
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 18));
+        card.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));   // P574: a #2C2C2E card, 24dp, no outline
         return card;
     }
 
     private static View divider(Context c) {
         View line = new View(c);
-        line.setBackgroundColor(UiTokens.LINE);
+        line.setBackgroundColor(SettingsStyle.HAIRLINE);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, UiTokens.dp(c, .5f)));
         lp.setMarginStart(UiTokens.dp(c, 62));
         line.setLayoutParams(lp);
@@ -243,15 +243,14 @@ public class ProfilesPreference extends Preference {
         FrameLayout tile = new FrameLayout(c);
         tile.setBackgroundResource(R.drawable.settings_icon_tile);
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.ui_ic_layers);
-        icon.setImageTintList(ColorStateList.valueOf(UiTokens.TEXT));
+        icon.setImageResource(R.drawable.ui_ic_layers); // P570: the colour icon as it is
         tile.addView(icon, new FrameLayout.LayoutParams(UiTokens.dp(c, 22), UiTokens.dp(c, 22), Gravity.CENTER));
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(UiTokens.dp(c, 36), UiTokens.dp(c, 36));
         tp.setMarginEnd(UiTokens.dp(c, 12));
         row.addView(tile, tp);
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
-        TextView t = SettingsStyle.text(c, title, 14.5f, UiTokens.TEXT);
+        TextView t = SettingsStyle.text(c, title, 14.5f, SettingsStyle.ROW_TITLE);
         t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
         texts.addView(t);
         if (sub != null) {

@@ -34,6 +34,9 @@ import java.util.function.Consumer;
  * with a one-line explanation, the summary «Сохранится: …» and the note; selecting does not close it. It is a UI over the
  * existing pref_save_raw_key and photo codec (FormatChoice): (X, Нет) -> X, (X, + RAW) -> RAW + X, (any, Только RAW) -> RAW;
  * «Только RAW» keeps the last photo choice so «+ RAW» restores it. «Размер фото» - the three sizes as radio rows.
+ * P574 (the approved concept): one sheet with the tabs «Формат | Размер» (the shared segmented control), the choices as the shared
+ * segmented control (a grey thumb gliding, the chosen label in the accent) updated in place, «Сохранится» a tinted card, the sizes
+ * as rows with a trailing accent tick; the sheet a solid dark card (less glass).
  */
 public final class CameraSheets {
     private CameraSheets() {}
@@ -104,22 +107,24 @@ public final class CameraSheets {
     }
 
     /** The see-through camera sheet with the grab and the title; returns {dialog body}: add the content to the body. */
-    static LinearLayout frame(Context c, CharSequence title) {
+    static LinearLayout frame(Context c, @Nullable CharSequence title) {
         LinearLayout body = new LinearLayout(c);
         body.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor((ShadeStyle.SHEET_FILL & 0x00FFFFFF) | (Math.round(255 * ShadeStyle.sheetAlpha(c)) << 24));
-        float r = UiScale.dpF(c, 28);
+        // P574: the concept's solid sheet (#1C1C1E), no see-through glass over the picture
+        bg.setColor(SHEET);
+        float r = UiScale.dpF(c, 32);
         bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         body.setBackground(bg);
         int side = UiScale.dp(c, 14);
         body.setPadding(side, UiScale.dp(c, 10), side, UiScale.dp(c, 16));
         View grab = new View(c);
-        grab.setBackground(SettingsStyle.shape(c, 0xFF4A5057, 0, 2));
-        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(UiScale.dp(c, 40), UiScale.dp(c, 4));
+        grab.setBackground(SettingsStyle.shape(c, 0x4DFFFFFF, 0, 2.5f));
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(UiScale.dp(c, 36), UiScale.dp(c, 5));
         gp.gravity = Gravity.CENTER_HORIZONTAL;
-        gp.bottomMargin = UiScale.dp(c, 10);
+        gp.bottomMargin = UiScale.dp(c, 12);
         body.addView(grab, gp);
+        if (title == null) return body;
         TextView t = new TextView(c);
         t.setText(title);
         t.setTextColor(ShadeStyle.TEXT);
@@ -130,53 +135,48 @@ public final class CameraSheets {
         return body;
     }
 
-    /** A group title: 11.5sp, 600, caps, letter-spaced, in the accent (the concept's .gt). */
+    /** P574: the concept's sheet and row colours (#1C1C1E, #2C2C2E) and its «Сохранится» card (the accent's dark tint). */
+    static final int SHEET = 0xFF1C1C1E, ROW = 0xFF2C2C2E;
+
+    /** A group title: 12sp, 600, caps, letter-spaced, muted (P574: the concept's «ФОТО», «RAW (DNG)»). */
     static TextView groupTitle(Context c, CharSequence text) {
         TextView t = new TextView(c);
         t.setText(text);
         t.setAllCaps(true);
-        t.setLetterSpacing(.09f);
-        t.setTextColor(ShadeStyle.accent(c));
+        t.setLetterSpacing(.08f);
+        t.setTextColor(0x8CFFFFFF);
         t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        UiScale.textFixed(t, 11.5f);
-        t.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 4), 0, UiScale.dp(c, 6));
+        UiScale.textFixed(t, 12f);
+        t.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 4), 0, UiScale.dp(c, 8));
         return t;
     }
 
     /**
-     * A segmented control (the concept's .seg: a card with a line, 4dp padding and gaps, 42dp buttons with 12dp corners,
-     * the chosen one filled with the accent in INK, 13.5sp 600); {@code disabled}: dimmed, no taps.
+     * P574: a segmented control - the shared IosSegmented (a capsule track, the grey thumb gliding to the chosen segment, its label
+     * in the accent); each segment is tagged {@code seg_i}; {@code disabled}: dimmed, no taps. {@code pick} hears the index.
      */
-    static LinearLayout segmented(Context c, List<String> labels, int selected, boolean disabled, java.util.function.IntConsumer pick) {
-        LinearLayout seg = new LinearLayout(c);
-        seg.setOrientation(LinearLayout.HORIZONTAL);
-        int p = UiScale.dp(c, 4);
-        seg.setPadding(p, p, p, p);
-        seg.setBackground(SettingsStyle.shape(c, ShadeStyle.CARD, ShadeStyle.LINE, UiScale.dpF(c, 16) / c.getResources().getDisplayMetrics().density));
-        int accent = ShadeStyle.accent(c);
-        for (int i = 0; i < labels.size(); i++) {
-            final int index = i;
-            TextView b = new TextView(c);
-            b.setText(labels.get(i));
-            b.setGravity(Gravity.CENTER);
-            b.setMaxLines(1);
-            b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-            UiScale.textFixed(b, 13.5f);
-            boolean on = i == selected && !disabled;
-            b.setTextColor(on ? ShadeStyle.INK : ShadeStyle.TEXT);
-            b.setBackground(on ? SettingsStyle.shape(c, accent, 0, UiScale.dpF(c, 12) / c.getResources().getDisplayMetrics().density)
-                    : ShadeStyle.ripple(c, 12));
-            b.setAlpha(disabled ? .35f : 1f);
-            b.setEnabled(!disabled);
-            b.setSelected(on);
+    static com.particlesdevs.photoncamera.ui.controls.IosSegmented segmented(Context c, List<String> labels, int selected, boolean disabled,
+                                                                           java.util.function.IntConsumer pick) {
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented seg = new com.particlesdevs.photoncamera.ui.controls.IosSegmented(c);
+        seg.setColours(ShadeStyle.accent(c), 0x3D767680, 0xFF636366);
+        seg.setItems(labels.toArray(new CharSequence[0]));
+        for (int i = 0; i < seg.getChildCount(); i++) {
+            TextView b = (TextView) seg.getChildAt(i);
             b.setTag("seg_" + i);
-            b.setOnClickListener(v -> pick.accept(index));
-            Motion.press(b);   // P495
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, UiScale.dp(c, 42), 1f);
-            if (i > 0) lp.setMarginStart(p);
-            seg.addView(b, lp);
+            b.setMaxLines(1);
+            UiScale.textFixed(b, 14f);
+            b.setMinHeight(UiScale.dp(c, 36));
         }
+        seg.setSelected(selected, false);
+        seg.setListener((s, index) -> pick.accept(index));
+        setDisabled(seg, disabled);
         return seg;
+    }
+
+    /** P574: a segmented control dimmed and without taps ({@code off}), or back. */
+    static void setDisabled(ViewGroup seg, boolean off) {
+        seg.setAlpha(off ? .35f : 1f);
+        for (int i = 0; i < seg.getChildCount(); i++) seg.getChildAt(i).setEnabled(!off);
     }
 
     static TextView line(Context c, CharSequence text, float sp, int color) {
@@ -214,6 +214,82 @@ public final class CameraSheets {
         return d;
     }
 
+    /** P574: what the «Размер» tab of the combined sheet shows and does (the open camera's sizes, read again after a pick). */
+    public interface SizeSource {
+        int current();
+
+        boolean full();
+
+        boolean max();
+
+        /** A size chosen (the caller applies it and says what happened). */
+        void pick(int size);
+
+        /** A size this lens lacks was tapped. */
+        default void refuse(CharSequence why) {}
+
+        /** P214h: a size off by the camera's trials (dimmed; its tap goes to {@link #pick}, which explains). */
+        default boolean dead(int size) { return false; }
+    }
+
+    /** The tabs of the combined sheet. */
+    public static final int TAB_FORMAT = 0, TAB_SIZE = 1;
+
+    /**
+     * P574 (the approved concept): one sheet for the top row's «JPEG / 12 Мп» badge - the tabs «Формат | Размер» (the shared
+     * segmented control) over the format's choices or the size rows; {@code tab} the one shown first. A choice never closes it.
+     */
+    public static BottomSheetDialog formatAndSize(Context c, List<FormatChoice> offered, FormatChoice current, PhotoFormat storedCodec,
+                                                  Consumer<FormatChoice> apply, SizeSource sizes, int tab) {
+        LinearLayout body = frame(c, null);
+        List<String> titles = new ArrayList<>();
+        titles.add(Lang.t(c, "Формат", "Format"));
+        titles.add(Lang.t(c, "Размер", "Size"));
+        LinearLayout formatPage = formatContent(c, offered, current, storedCodec, apply);
+        LinearLayout sizePage = new LinearLayout(c);
+        sizePage.setOrientation(LinearLayout.VERTICAL);
+        sizePage.setTag("size_page");
+        Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            sizePage.removeAllViews();
+            sizePage.addView(sizeCard(c, sizes.current(), sizes.full(), sizes.max(), size -> {
+                sizes.pick(size);
+                // the tick follows what the camera took (a size it refused keeps the old one)
+                sizePage.post(fill[0]);
+            }, sizes::refuse, sizes::dead));
+            TextView foot = line(c, Lang.t(c, "Какие размеры есть, зависит от объектива: выберите другой на зуме, чтобы увидеть его размеры.",
+                    "The sizes depend on the lens: choose another one on the zoom to see its sizes."), 12.5f, 0x80FFFFFF);
+            foot.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 10), UiScale.dp(c, 6), 0);
+            sizePage.addView(foot);
+        };
+        fill[0].run();
+        final int[] shownTab = {tab};
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented tabs = segmented(c, titles, tab, false, t -> {
+            if (t == shownTab[0]) return;   // a tap on the shown tab: no new page
+            shownTab[0] = t;
+            formatPage.setVisibility(t == TAB_FORMAT ? View.VISIBLE : View.GONE);
+            sizePage.setVisibility(t == TAB_SIZE ? View.VISIBLE : View.GONE);
+            View in = t == TAB_FORMAT ? formatPage : sizePage;
+            if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+                in.setAlpha(0f);
+                in.setTranslationX(UiScale.dpF(c, 16) * (t == TAB_SIZE ? 1 : -1));
+                in.animate().alpha(1f).translationX(0f).setDuration(240).setInterpolator(TrayMotion.EASE_OUT).start();
+            }
+        });
+        tabs.setTag("format_size_tabs");
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.bottomMargin = UiScale.dp(c, 12);
+        body.addView(tabs, tp);
+        formatPage.setVisibility(tab == TAB_FORMAT ? View.VISIBLE : View.GONE);
+        sizePage.setVisibility(tab == TAB_SIZE ? View.VISIBLE : View.GONE);
+        body.addView(formatPage);
+        body.addView(sizePage);
+        BottomSheetDialog d = SettingsStyle.sheet(c, body);
+        enterRows(body);
+        d.show();
+        return d;
+    }
+
     /** The choice itself («Фото», «RAW (DNG)», «Сохранится», the note): the camera's sheet and the settings' «Формат файла» page. */
     public static LinearLayout formatContent(Context c, List<FormatChoice> offered, FormatChoice current, PhotoFormat storedCodec,
                                              Consumer<FormatChoice> apply) {
@@ -224,45 +300,68 @@ public final class CameraSheets {
         List<PhotoFormat> photos = new ArrayList<>();
         for (PhotoFormat f : PHOTO) if (offered.contains(choice(f, RAW_NONE))) photos.add(f);
         if (!photos.contains(state.photo)) state.photo = photos.isEmpty() ? PhotoFormat.JPEG : photos.get(0);
-        Runnable[] render = new Runnable[1];
-        render[0] = () -> {
-            content.removeAllViews();
-            List<String> names = new ArrayList<>();
-            for (PhotoFormat f : photos) names.add(photoName(f));
+        // P574: built once and updated in place (the segmented controls' thumbs glide to a new choice)
+        List<String> names = new ArrayList<>();
+        for (PhotoFormat f : photos) names.add(photoName(f));
+        List<String> raws = new ArrayList<>();
+        for (int m = 0; m < 3; m++) raws.add(rawName(c, m));
+        TextView pd = line(c, "", 13, ShadeStyle.MUTED);
+        pd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 8), UiScale.dp(c, 6), UiScale.dp(c, 14));
+        pd.setTag("format_photo_line");
+        TextView rd = line(c, "", 13, ShadeStyle.MUTED);
+        rd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 8), UiScale.dp(c, 6), UiScale.dp(c, 14));
+        TextView sum = line(c, "", 16, ShadeStyle.accent(c));
+        sum.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        sum.setTag("format_summary");
+        Runnable[] update = new Runnable[1];
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented[] photoSeg = new com.particlesdevs.photoncamera.ui.controls.IosSegmented[1];
+        content.addView(groupTitle(c, Lang.t(c, "Фото", "Photo")));
+        photoSeg[0] = segmented(c, names, photos.indexOf(state.photo), state.raw == RAW_ONLY, i -> {
+            state.photo = photos.get(i);
+            store(state, offered, apply);
+            update[0].run();
+        });
+        content.addView(photoSeg[0]);
+        content.addView(pd);
+        content.addView(groupTitle(c, "RAW (DNG)"));
+        content.addView(segmented(c, raws, state.raw, false, m -> {
+            state.raw = m;
+            store(state, offered, apply);
+            update[0].run();
+        }));
+        content.addView(rd);
+        content.addView(savedCard(c, sum));
+        content.addView(note(c, Lang.t(c, "Не знаете, что выбрать — JPEG без RAW. RAW нужен для обработки в Lightroom или RawTherapee.",
+                "Not sure? JPEG without RAW. RAW is for editing in Lightroom or RawTherapee.")));
+        update[0] = () -> {
             boolean rawOnly = state.raw == RAW_ONLY;
-            content.addView(groupTitle(c, Lang.t(c, "Фото", "Photo")));
-            content.addView(segmented(c, names, photos.indexOf(state.photo), rawOnly, i -> {
-                state.photo = photos.get(i);
-                store(state, offered, apply);
-                render[0].run();
-            }));
-            TextView pd = line(c, rawOnly ? Lang.t(c, "Не сохраняется: выбрано «Только RAW»", "Not saved: «RAW only» is chosen")
-                    : photoLine(c, state.photo), 12.5f, ShadeStyle.MUTED);
-            pd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 6), UiScale.dp(c, 6), UiScale.dp(c, 12));
-            pd.setTag("format_photo_line");
-            content.addView(pd);
-            content.addView(groupTitle(c, "RAW (DNG)"));
-            List<String> raws = new ArrayList<>();
-            for (int m = 0; m < 3; m++) raws.add(rawName(c, m));
-            content.addView(segmented(c, raws, state.raw, false, m -> {
-                state.raw = m;
-                store(state, offered, apply);
-                render[0].run();
-            }));
-            TextView rd = line(c, rawLine(c, state.raw), 12.5f, ShadeStyle.MUTED);
-            rd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 6), UiScale.dp(c, 6), UiScale.dp(c, 12));
-            content.addView(rd);
-            TextView sum = line(c, android.text.Html.fromHtml(Lang.t(c, "Сохранится: ", "Saved: ") + "<b><font color='#"
-                    + String.format("%06X", ShadeStyle.accent(c) & 0xFFFFFF) + "'>" + summary(state.photo, state.raw) + "</font></b>",
-                    android.text.Html.FROM_HTML_MODE_LEGACY), 13, ShadeStyle.MUTED);
-            sum.setTag("format_summary");
-            sum.setPadding(UiScale.dp(c, 6), 0, UiScale.dp(c, 6), UiScale.dp(c, 12));
-            content.addView(sum);
-            content.addView(note(c, Lang.t(c, "Не знаете, что выбрать — JPEG без RAW. RAW нужен для обработки в Lightroom или RawTherapee.",
-                    "Not sure? JPEG without RAW. RAW is for editing in Lightroom or RawTherapee.")));
+            setDisabled(photoSeg[0], rawOnly);
+            pd.setText(rawOnly ? Lang.t(c, "Не сохраняется: выбрано «Только RAW»", "Not saved: «RAW only» is chosen") : photoLine(c, state.photo));
+            rd.setText(rawLine(c, state.raw));
+            sum.setText(summary(state.photo, state.raw));
+            sum.setContentDescription(Lang.t(c, "Сохранится: ", "Saved: ") + summary(state.photo, state.raw));
         };
-        render[0].run();
+        update[0].run();
         return content;
+    }
+
+    /** P574: the concept's «Сохранится» card - the label on the left, {@code value} (the summary, in the accent) on the right. */
+    static View savedCard(Context c, TextView value) {
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setMinimumHeight(UiScale.dp(c, 48));
+        card.setPadding(UiScale.dp(c, 16), UiScale.dp(c, 8), UiScale.dp(c, 16), UiScale.dp(c, 8));
+        int accent = ShadeStyle.accent(c);
+        card.setBackground(SettingsStyle.shape(c, com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.tone(SHEET, accent, .26f), 0,
+                UiScale.dpF(c, 16) / c.getResources().getDisplayMetrics().density));
+        card.addView(line(c, Lang.t(c, "Сохранится", "Saved"), 14, 0xCCFFFFFF), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        value.setGravity(Gravity.END);
+        card.addView(value);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = UiScale.dp(c, 12);
+        card.setLayoutParams(lp);
+        return card;
     }
 
     /** Stores the state's choice when this phone offers it (AVIF without its encoder, HEIC before Android 9: not offered). */
@@ -277,10 +376,9 @@ public final class CameraSheets {
         n.setOrientation(LinearLayout.HORIZONTAL);
         int ph = UiScale.dp(c, 14), pv = UiScale.dp(c, 12);
         n.setPadding(ph, pv, ph, pv);
-        n.setBackground(SettingsStyle.shape(c, 0xFF232A2E, 0, UiScale.dpF(c, 18) / c.getResources().getDisplayMetrics().density));
+        n.setBackground(SettingsStyle.shape(c, ROW, 0, UiScale.dpF(c, 16) / c.getResources().getDisplayMetrics().density)); // P574
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.ui_ic_info);
-        icon.setImageTintList(ColorStateList.valueOf(ShadeStyle.accent(c)));
+        icon.setImageResource(R.drawable.ui_ic_info); // P570: the colour icon as it is
         int s = UiScale.dp(c, 20);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(s, s);
         ip.setMarginEnd(UiScale.dp(c, 10));
@@ -332,7 +430,9 @@ public final class CameraSheets {
                                         @Nullable String normalSize) {
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(SettingsStyle.shape(c, ShadeStyle.CARD, ShadeStyle.LINE, UiScale.dpF(c, 20) / c.getResources().getDisplayMetrics().density));
+        // P574: the concept's grouped rows (#2C2C2E, 24dp corners, no line round them)
+        card.setBackground(SettingsStyle.shape(c, ROW, 0, UiScale.dpF(c, 24) / c.getResources().getDisplayMetrics().density));
+        card.setClipToOutline(true);
         card.setTag("size_sheet");
         String[][] rows = {
                 // P319: the lens's own normal size, not a fixed «12»
@@ -350,27 +450,33 @@ public final class CameraSheets {
             if (!available && !off) continue;
             LinearLayout row = new LinearLayout(c);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            int ph = UiScale.dp(c, 14), pv = UiScale.dp(c, 12);
+            int ph = UiScale.dp(c, 16), pv = UiScale.dp(c, 12);
             row.setPadding(ph, pv, ph, pv);
-            row.setMinimumHeight(UiScale.dp(c, 58));
-            row.setBackground(ShadeStyle.ripple(c, 20));
+            row.setMinimumHeight(UiScale.dp(c, 60));
+            row.setBackground(ShadeStyle.ripple(c, 0));
             row.setAlpha(available && !off ? 1f : .45f);
             row.setTag("size_" + size);
-            View radio = radio(c, size == current, accent);
-            int rs = UiScale.dp(c, 22);
-            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(rs, rs);
-            rp.setMarginEnd(UiScale.dp(c, 12));
-            row.addView(radio, rp);
             LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
-            TextView t = line(c, rows[i][0], 14.5f, ShadeStyle.TEXT);
+            TextView t = line(c, rows[i][0], 16f, ShadeStyle.TEXT);
+            t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             texts.addView(t);
             // P217 / P267: without our remosaic a FULLRES shot is saved as its merged mosaic DNG only
             final boolean binned = i > 0 && available && !off && !ourRemosaic();
             texts.addView(line(c, off ? Lang.t(c, "Режимы не сработали · подробнее", "Its modes failed · details")
                     : binned ? Lang.t(c, "«Наш ремозаик» выключен: сохранится только DNG", "«Our remosaic» is off: only the DNG is saved")
-                    : available ? rows[i][1] : Lang.t(c, "Нет на этом объективе", "Not on this lens"), 12.5f, ShadeStyle.MUTED));
+                    : available ? rows[i][1] : Lang.t(c, "Нет на этом объективе", "Not on this lens"), 13f, ShadeStyle.MUTED));
             row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            // P574: the chosen size's trailing tick in the accent (the concept, iOS' list choice) instead of a radio circle
+            View tick = check(c, size == current, accent);
+            int ts = UiScale.dp(c, 20);
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ts, ts);
+            tp.setMarginStart(UiScale.dp(c, 12));
+            row.addView(tick, tp);
+            row.setSelected(size == current);
+            // the subtitle too: TalkBack hears why a size is unavailable (the row's own description hides its children)
+            row.setContentDescription(rows[i][0] + ", " + ((TextView) texts.getChildAt(1)).getText());
+            androidx.core.view.ViewCompat.setStateDescription(row, size == current ? Lang.t(c, "выбрано", "selected") : null);
             row.setOnClickListener(v -> {
                 if (!available && !off) {
                     if (refuse != null) refuse.accept(Lang.t(c, size + " Мп — нет на этом объективе", size + " MP: not on this lens"));
@@ -396,6 +502,17 @@ public final class CameraSheets {
         } catch (RuntimeException e) {
             return true;
         }
+    }
+
+    /** P574: the chosen row's tick (the shared menu's tick in the accent); a row not chosen keeps the room for it. */
+    static View check(Context c, boolean on, int accent) {
+        ImageView v = new ImageView(c);
+        v.setImageResource(R.drawable.ios_menu_check);
+        v.setColorFilter(accent);
+        v.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+        v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        v.setSelected(on);
+        return v;
     }
 
     /** The concept's .radio: a 22dp ring (2dp), the accent ring and a 10dp dot when on. */

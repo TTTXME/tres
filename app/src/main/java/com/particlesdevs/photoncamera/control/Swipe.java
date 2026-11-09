@@ -22,6 +22,7 @@ public class Swipe {
     private final CameraFragment cameraFragment;
     private final CaptureController captureController;
     private GestureDetector gestureDetector;
+    private Router router;
     private ManualModeConsole manualModeConsole;
     private CameraFragmentViewModel cameraFragmentViewModel;
 
@@ -71,33 +72,8 @@ public class Swipe {
 
             @Override
             public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
-                if (e1 == null) return false;
-                float diffY = e2.getY() - e1.getY();
-                float diffX = e2.getX() - e1.getX();
-                // SIMPLE_UI §1: a horizontal swipe (|dx| > 60dp and > 1.5 |dy|) steps the LUT
-                float horizontal = 60 * cameraFragment.getResources().getDisplayMetrics().density;
-                if (Math.abs(diffX) > 1.5f * Math.abs(diffY)) {
-                    if (Math.abs(diffX) > horizontal && Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
-                        if (diffX > 0) {
-                            Log.d(TAG, "Right");
-                            SwipeRight();
-                        } else {
-                            Log.d(TAG, "Left");
-                            SwipeLeft();
-                        }
-                        return true;
-                    }
-                } else if (Math.abs(diffY) > Math.abs(diffX) && Math.abs(diffY) > SWIPE_THRESHOLD && Math.abs(velocityY) > SWIPE_VELOCITY_THRESHOLD) {
-                    if (diffY > 0) {
-                        Log.d(TAG, "Bottom");//it swipes from top to bottom
-                        SwipeDown();
-                    } else {
-                        Log.d(TAG, "Top");//it swipes from bottom to top
-                        SwipeUp();
-                    }
-                    return true;
-                }
-                return false;
+                // P574: the routing (the shade, the top row's sheet, the LUT steps) is the Router's
+                return router.fling(e1, e2, velocityX, velocityY);
             }
         });
         android.view.ScaleGestureDetector scaleDetector = new android.view.ScaleGestureDetector(cameraFragment.getContext(),
@@ -114,7 +90,20 @@ public class Swipe {
                         return true;
                     }
                 });
+        router = new Router(cameraFragment.getResources().getDisplayMetrics().density, new Router.Host() {
+            @Override public int sheetLevel() { return cameraFragmentViewModel.getSheetLevel(); }
+            @Override public boolean shadeSettling() { return cameraFragment.isShadeSettling(); }
+            @Override public boolean lutOpen() { return cameraFragment.lutTray != null && cameraFragment.lutTray.isOpen(); }
+            @Override public boolean topRowOpen() { return cameraFragment.isTopRowSheetShowing(); }
+            @Override public float topZoneBottom() { return cameraFragment.topRowZoneBottom(); }
+            @Override public void openTopRow() { cameraFragment.openTopRowSheet(); }
+            @Override public void closeTopRow() { cameraFragment.closeTopRowSheet(); }
+            @Override public void sheetUp() { SwipeUp(); }
+            @Override public void sheetDown() { SwipeDown(); }
+            @Override public void stepLut(int direction) { if (direction < 0) SwipeRight(); else SwipeLeft(); }
+        });
         View.OnTouchListener touchListener = (view, motionEvent) -> {
+            router.observe(motionEvent);
             // No pinch zoom under the FULL sheet's scrim.
             if (cameraFragmentViewModel.getSheetLevel() == CameraFragmentModel.SHEET_FULL) return gestureDetector.onTouchEvent(motionEvent);
             if (motionEvent.getPointerCount() > 1) Log.d(TAG, "pinch touch pointers=" + motionEvent.getPointerCount() + " action=" + motionEvent.getActionMasked());
@@ -218,4 +207,90 @@ public class Swipe {
         b.layoutViewfinder.lutWipe.wipe(b.layoutViewfinder.texture, direction, change);
     }
 
+
+    /**
+     * P574 (owner, 2026-11-09: «верхняя и нижняя шторка в открытом состоянии закрываются противоположными жестами и при этом не
+     * возникает никаких ошибок»): what a fling on the camera screen does.
+     * <ul>
+     *   <li>A fling after a second finger came down (a pinch) does nothing.</li>
+     *   <li>The top row's sheet up: a fling up closes it, nothing else runs (its own window takes the touches anyway).</li>
+     *   <li>Horizontal (|dx| > 60dp and > 1.5 |dy|): the next / previous LUT (SIMPLE_UI §1).</li>
+     *   <li>Up (|dy| > 100 px): the quick-settings shade one level up, as before.</li>
+     *   <li>Down: with the shade HIDDEN and settled, the LUT tray closed and the swipe starting in the top zone (the top bar and
+     *   the viewfinder's upper half), the top row's sheet opens; else the shade one level down, as before (at HIDDEN a no-op).</li>
+     * </ul>
+     * Taps (focus), long presses (tracking, the lock) and pinches are no flings; the exposure sun and the bottom controls take
+     * their own touches.
+     */
+    public static final class Router {
+        /** What the router reads and does on the camera screen. */
+        public interface Host {
+            int sheetLevel();
+
+            /** The shade is moving (dragged or settling). */
+            boolean shadeSettling();
+
+            boolean lutOpen();
+
+            boolean topRowOpen();
+
+            /** The touch view's y below which a swipe down no longer starts in the top zone. */
+            float topZoneBottom();
+
+            void openTopRow();
+
+            void closeTopRow();
+
+            void sheetUp();
+
+            void sheetDown();
+
+            /** -1 the previous LUT (a swipe right), 1 the next. */
+            void stepLut(int direction);
+        }
+
+        static final int SWIPE_THRESHOLD = 100, SWIPE_VELOCITY_THRESHOLD = 100;
+        private final float density;
+        private final Host host;
+        private boolean multiTouch;
+
+        public Router(float density, Host host) {
+            this.density = density;
+            this.host = host;
+        }
+
+        /** Every touch of the gesture: a second finger makes it a pinch (no fling acts then). */
+        public void observe(MotionEvent e) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) multiTouch = false;
+            if (e.getPointerCount() > 1) multiTouch = true;
+        }
+
+        public boolean fling(@androidx.annotation.Nullable MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+            if (e1 == null || multiTouch) return false;
+            final float dy = e2.getY() - e1.getY(), dx = e2.getX() - e1.getX();
+            if (host.topRowOpen()) {
+                if (dy < 0 && Math.abs(dy) > Math.abs(dx)) host.closeTopRow();
+                return true;
+            }
+            if (Math.abs(dx) > 1.5f * Math.abs(dy)) {
+                if (Math.abs(dx) > 60 * density && Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
+                    host.stepLut(dx > 0 ? -1 : 1);
+                    return true;
+                }
+                return false;
+            }
+            if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > SWIPE_THRESHOLD && Math.abs(velocityY) > SWIPE_VELOCITY_THRESHOLD) {
+                if (dy < 0) {
+                    host.sheetUp();
+                } else if (host.sheetLevel() == CameraFragmentModel.SHEET_HIDDEN && !host.shadeSettling() && !host.lutOpen()
+                        && e1.getY() <= host.topZoneBottom()) {
+                    host.openTopRow();
+                } else {
+                    host.sheetDown();
+                }
+                return true;
+            }
+            return false;
+        }
+    }
 }

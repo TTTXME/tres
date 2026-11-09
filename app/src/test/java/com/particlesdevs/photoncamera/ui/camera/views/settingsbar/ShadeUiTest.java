@@ -697,7 +697,7 @@ public class ShadeUiTest {
         rows.build(into, java.util.Collections.emptyList(), java.util.Collections.singletonList(rl3));
         final View card = rows.rowView(rl3);
         assertNotNull(card);
-        final android.widget.SeekBar bar = seekBar(card);
+        final com.particlesdevs.photoncamera.ui.controls.IosSlider bar = seekBar(card);
         assertNotNull(bar);
         into.measure(View.MeasureSpec.makeMeasureSpec(dp(360), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(dp(2000), View.MeasureSpec.AT_MOST));
         into.layout(0, 0, dp(360), into.getMeasuredHeight());
@@ -710,11 +710,12 @@ public class ShadeUiTest {
         assertEquals("the phone's factory value", 1.5f, ((Number) picks.get(picks.size() - 1)).floatValue(), 1e-6f);
     }
 
-    private static android.widget.SeekBar seekBar(View v) {
-        if (v instanceof android.widget.SeekBar) return (android.widget.SeekBar) v;
+    // P574: the row's slider is the shared IosSlider (was a SeekBar)
+    private static com.particlesdevs.photoncamera.ui.controls.IosSlider seekBar(View v) {
+        if (v instanceof com.particlesdevs.photoncamera.ui.controls.IosSlider) return (com.particlesdevs.photoncamera.ui.controls.IosSlider) v;
         if (!(v instanceof ViewGroup)) return null;
         for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) {
-            final android.widget.SeekBar b = seekBar(((ViewGroup) v).getChildAt(i));
+            final com.particlesdevs.photoncamera.ui.controls.IosSlider b = seekBar(((ViewGroup) v).getChildAt(i));
             if (b != null) return b;
         }
         return null;

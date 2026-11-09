@@ -90,17 +90,17 @@ public class FullResFramesTest {
             assertFalse(key, ModuleProfiles.isGlobal(key));
             assertFalse("an explicit count acts in «Движение» too", MotionMode.replaces(key.substring(PreferenceKeys.HYBRID_PREFIX.length())));
         }
-        assertArrayEquals(new double[]{0, 64, 1}, SettingsNumericRules.bounds(F50), 0);
+        assertArrayEquals("P578: 65", new double[]{0, 65, 1}, SettingsNumericRules.bounds(F50), 0);
         assertArrayEquals(new double[]{3, 64, 1}, SettingsNumericRules.bounds(F200), 0);
         // the XML rows: the same bounds, defaults 12 (P203) and 4 (64 is the visible hard limit)
         String xml = new String(Files.readAllBytes(src("src/main/res/xml/preferences.xml").toPath()), StandardCharsets.UTF_8);
-        for (String[] row : new String[][]{{F50, "12", "0"}, {F200, "4", "3"}}) {
+        for (String[] row : new String[][]{{F50, "12", "0", "65"}, {F200, "4", "3", "64"}}) {
             Matcher m = Pattern.compile("<[^<]*android:key=\"" + row[0] + "\"[^>]*/>").matcher(xml);
             assertTrue(row[0], m.find());
             String line = m.group();
             assertTrue(line, line.contains("android:defaultValue=\"" + row[1] + "\""));
             assertTrue(line, line.contains("app:minValue=\"" + row[2] + "\""));
-            assertTrue(line, line.contains("app:maxValue=\"64\""));
+            assertTrue(line, line.contains("app:maxValue=\"" + row[3] + "\""));
         }
         assertEquals("P203: 12 N by default", 12, PreferenceKeys.getFullRes50Frames());
         assertEquals(4, PreferenceKeys.getFullRes200Frames());
@@ -124,14 +124,14 @@ public class FullResFramesTest {
         }
         assertEquals(25, PreferenceKeys.getFullRes50Frames());
         prefs.edit().putString(F50, "99").putString(F200, "1").commit();
-        assertEquals("stored values clamped", 64, PreferenceKeys.getFullRes50Frames());
+        assertEquals("stored values clamped", 65, PreferenceKeys.getFullRes50Frames());
         assertEquals(3, PreferenceKeys.getFullRes200Frames());
     }
 
     @Test
     public void aDevOverrideIsClampedToTheHardLimits() throws Exception {
         devFile("hybrid_fullres50_frames 100\nhybrid_fullres200_frames 2\n");
-        assertEquals(64, PreferenceKeys.getFullRes50Frames());
+        assertEquals(65, PreferenceKeys.getFullRes50Frames());
         assertEquals(3, PreferenceKeys.getFullRes200Frames());
         devFile("hybrid_fullres50_frames -5\nhybrid_fullres200_frames 70\n");
         assertEquals(0, PreferenceKeys.getFullRes50Frames());

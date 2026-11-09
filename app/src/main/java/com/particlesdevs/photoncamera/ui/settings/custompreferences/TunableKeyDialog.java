@@ -54,11 +54,11 @@ public class TunableKeyDialog {
         body.addView(label(c, Lang.t(c, "Тип ключа", "Key type")));
         LinearLayout typeRow = new LinearLayout(c);
         typeRow.setOrientation(LinearLayout.HORIZONTAL);
-        TextView typeHint = SettingsStyle.text(c, "", 13, SettingsStyle.MUTED);
+        TextView typeHint = SettingsStyle.text(c, "", 13, SettingsStyle.SECTION);
         typeHint.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 4), 0);
         List<TextView> pills = new ArrayList<>();
         for (String t : types) {
-            TextView pill = SettingsStyle.text(c, t, 15, SettingsStyle.TEXT);
+            TextView pill = SettingsStyle.text(c, t, 15, SettingsStyle.ROW_TITLE);
             pill.setGravity(Gravity.CENTER);
             pill.setPadding(SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 13), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 13));
             pill.setTag("vendor_type_" + t);
@@ -71,10 +71,10 @@ public class TunableKeyDialog {
             for (TextView pill : pills) {
                 boolean on = pill.getText().toString().equals(chosenType[0]);
                 pill.setSelected(on);
-                pill.setTextColor(on ? accent : SettingsStyle.TEXT);
+                pill.setTextColor(on ? accent : SettingsStyle.ROW_TITLE);
                 pill.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
-                pill.setBackground(SettingsStyle.shape(c, on ? SettingsStyle.tint(accent, .16f) : SettingsStyle.FIELD,
-                        on ? 0 : SettingsStyle.LINE, 14));
+                pill.setBackground(SettingsStyle.shape(c, on ? SettingsStyle.pillFill(accent) : SettingsStyle.ROW,
+                        on ? 0 : SettingsStyle.HAIRLINE, 14));
             }
             typeHint.setText(typeHint(c, chosenType[0]));
         };
@@ -87,8 +87,8 @@ public class TunableKeyDialog {
 
         body.addView(label(c, Lang.t(c, "Тип значения", "Value type")));
         final String[] valueType = {existing != null && existing.valueType != null ? existing.valueType : "Integer"};
-        TextView valueTypeRow = SettingsStyle.text(c, valueType[0], 17, SettingsStyle.TEXT);
-        valueTypeRow.setBackground(SettingsStyle.shape(c, SettingsStyle.FIELD, SettingsStyle.LINE, 14));
+        TextView valueTypeRow = SettingsStyle.text(c, valueType[0], 17, SettingsStyle.ROW_TITLE);
+        valueTypeRow.setBackground(SettingsStyle.shape(c, SettingsStyle.ROW, 0, 12));
         valueTypeRow.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 14), SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 14));
         valueTypeRow.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, android.R.drawable.arrow_down_float, 0);
         valueTypeRow.setTag("vendor_value_type");
@@ -106,12 +106,12 @@ public class TunableKeyDialog {
         value.setHint(Lang.t(c, "массив — через запятую: 1,0,2", "an array: comma separated, 1,0,2"));
         body.addView(value, fieldParams(c));
 
-        TextView save = button(c, Lang.t(c, "Сохранить", "Save"), SettingsStyle.INK, accent, 0);
+        TextView save = SettingsStyle.capsule(c, Lang.t(c, "Сохранить", "Save"), accent);   // P574: the sheets' capsules
         save.setTag("sheet_save");
         body.addView(save, new LinearLayout.LayoutParams(-1, -2));
         TextView delete = null;
         if (!isNew) {
-            delete = button(c, Lang.t(c, "Удалить", "Delete"), SettingsStyle.WARN, SettingsStyle.FIELD, SettingsStyle.LINE);
+            delete = SettingsStyle.quietCapsule(c, Lang.t(c, "Удалить", "Delete"), SettingsStyle.RED);
             delete.setTag("vendor_delete");
             LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(-1, -2);
             dp.topMargin = SettingsStyle.dp(c, 10);
@@ -172,19 +172,13 @@ public class TunableKeyDialog {
     }
 
     private static TextView label(Context c, String text) {
-        TextView t = SettingsStyle.text(c, text, 13, SettingsStyle.MUTED);
+        TextView t = SettingsStyle.text(c, text, 13, SettingsStyle.SECTION);
         t.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 6), 0, SettingsStyle.dp(c, 8));
         return t;
     }
 
     private static EditText field(Context c, String value, String tag) {
-        EditText e = new EditText(c);
-        e.setSingleLine(true);
-        e.setTextSize(17);
-        e.setTextColor(SettingsStyle.TEXT);
-        e.setHintTextColor(SettingsStyle.MUTED);
-        e.setBackground(SettingsStyle.shape(c, SettingsStyle.FIELD, SettingsStyle.LINE, 14));
-        e.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 14), SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 14));
+        EditText e = SettingsStyle.field(new EditText(c));
         e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         e.setText(value);
         e.setTag(tag);
@@ -195,15 +189,5 @@ public class TunableKeyDialog {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.bottomMargin = SettingsStyle.dp(c, 12);
         return p;
-    }
-
-    private static TextView button(Context c, String text, int color, int fill, int stroke) {
-        TextView b = SettingsStyle.text(c, text, 16, color);
-        b.setTypeface(null, Typeface.BOLD);
-        b.setGravity(Gravity.CENTER);
-        b.setPadding(0, SettingsStyle.dp(c, 15), 0, SettingsStyle.dp(c, 15));
-        b.setBackground(SettingsStyle.shape(c, fill, stroke, 16));
-        b.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        return b;
     }
 }

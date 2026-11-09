@@ -4,29 +4,34 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Shader;
-import android.graphics.Typeface;
-import android.view.GestureDetector;
-import android.view.MotionEvent;
-import android.view.View;
-import android.view.ViewConfiguration;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.accessibility.AccessibilityNodeInfo;
+import android.text.TextUtils;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
+import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.gallery.ui.GalleryUi;
+import com.particlesdevs.photoncamera.ui.controls.IosMotion;
+import com.particlesdevs.photoncamera.ui.controls.IosSlider;
+import com.particlesdevs.photoncamera.ui.settings.SettingsStyle;
 import com.particlesdevs.photoncamera.util.Lang;
 
 /**
  * P351: one slider row of the editor in the gallery's look - the label at the left, the value at the right (accent when it is
- * not the default), the track under them (a bipolar slider fills from its middle). A horizontal drag anywhere on the row moves
- * the value by the drag (the whole width = the whole range; a vertical move scrolls the panel instead), a double tap puts the
- * default back. {@link Listener#changed} while dragging, {@link Listener#committed} when let go (one undo step).
- * P360: the thumb grows and takes the accent while dragged, a value bubble rises over it, and a double tap glides the value
- * back to the default (the picture follows) instead of jumping.
+ * not the default), the track under them (a bipolar slider fills from its middle). A double tap puts the default back.
+ * {@link Listener#changed} while dragging, {@link Listener#committed} when let go (one undo step).
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the settings' slider row - the
+ * label (15sp) and the value in its pill (the accent on its dark tone at the default, the theme's opposite when changed; it lifts
+ * while the knob is held and pops when let go: IosMotion), the shared slider under them (IosSlider: the relative drag, the glass knob,
+ * the rubber band, a tap jumps, a double tap goes to the default, all on springs). A colour scale keeps its gradient track; a bipolar
+ * slider shows no fill from the left end (its middle is the default: a small mark there), so the pill tells a change.
  */
-public final class EditSlider extends View {
+public final class EditSlider extends LinearLayout {
     public interface Listener {
         void changed(float value);
 
@@ -37,62 +42,86 @@ public final class EditSlider extends View {
         String of(float value);
     }
 
-    private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG), track = new Paint(Paint.ANTI_ALIAS_FLAG),
-            fill = new Paint(Paint.ANTI_ALIAS_FLAG), thumb = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final GestureDetector taps;
-    private final int slop;
+    private final TextView title, pill;
+    private final Track slider;
+    private final int accent;
     private String label;
-    private float min, max, def, step, value;
+    private float def;
+    private float step;
     private boolean bipolar;
     @Nullable private Listener listener;
     @Nullable private Format format;
-    @Nullable private int[] gradient;
-    private float downX, downY, downValue;
-    private boolean dragging;
-    /** P360: 0 at rest, 1 while dragged (the thumb, the bubble). */
-    private float press;
-    @Nullable private android.animation.ValueAnimator pressAnim, glide;
-    private final Paint bubble = new Paint(Paint.ANTI_ALIAS_FLAG), bubbleText = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final android.graphics.RectF bubbleBox = new android.graphics.RectF();
-    private final android.animation.ArgbEvaluator argb = new android.animation.ArgbEvaluator();
+    /** The value when the finger went down: the release commits only a change. */
+    private float downValue;
 
     public EditSlider(Context c) {
         super(c);
-        slop = ViewConfiguration.get(c).getScaledTouchSlop();
-        text.setTextSize(GalleryUi.dp(c, 13.5f));
-        text.setTypeface(Typeface.DEFAULT);
-        track.setColor(0xFF3A4048);
-        track.setStrokeWidth(GalleryUi.dp(c, 3));
-        track.setStrokeCap(Paint.Cap.ROUND);
-        fill.setColor(GalleryUi.accent(c));
-        fill.setStrokeWidth(GalleryUi.dp(c, 3));
-        fill.setStrokeCap(Paint.Cap.ROUND);
-        thumb.setColor(GalleryUi.TEXT);
-        bubble.setColor(GalleryUi.accent(c));
-        bubbleText.setColor(GalleryUi.INK);
-        bubbleText.setTextSize(GalleryUi.dp(c, 12.5f));
-        bubbleText.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        bubbleText.setTextAlign(Paint.Align.CENTER);
-        setFocusable(true);
-        setClickable(true);
-        taps = new GestureDetector(c, new GestureDetector.SimpleOnGestureListener() {
+        accent = GalleryUi.accent(c);
+        setOrientation(VERTICAL);
+        setClipChildren(false);
+        setClipToPadding(false);
+        setPadding(GalleryUi.dp(c, 18), GalleryUi.dp(c, 8), GalleryUi.dp(c, 18), GalleryUi.dp(c, 2));
+        LinearLayout head = new LinearLayout(c);
+        head.setOrientation(HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setMinimumHeight(GalleryUi.dp(c, 28));
+        title = GalleryUi.text(c, "", 15, GalleryUi.TEXT);
+        title.setMaxLines(1);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        head.addView(title, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        pill = GalleryUi.text(c, "", 14, accent);
+        pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pill.setFontFeatureSettings("tnum");
+        pill.setGravity(Gravity.CENTER);
+        pill.setMaxLines(1);
+        pill.setMinWidth(GalleryUi.dp(c, 44));
+        pill.setPadding(GalleryUi.dp(c, 11), 0, GalleryUi.dp(c, 11), 0);
+        pill.setBackgroundResource(R.drawable.settings_value_pill);
+        pill.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LayoutParams pp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, GalleryUi.dp(c, 26));
+        pp.setMarginStart(GalleryUi.dp(c, 10));
+        head.addView(pill, pp);
+        addView(head, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        slider = new Track(c);
+        slider.setAccent(accent);
+        slider.setListener(new IosSlider.Listener() {
             @Override
-            public boolean onDoubleTap(MotionEvent e) {
-                glideTo(def);
-                return true;
+            public void onValue(IosSlider s, float v, boolean fromUser) {
+                paintPill();
+                if (!fromUser || listener == null) return;
+                listener.changed(v);
+                // a step by the keyboard or the accessibility actions: no finger to let go, one undo step each
+                if (!s.isTracking()) listener.committed();
+            }
+
+            @Override
+            public void onTracking(IosSlider s, boolean tracking) {
+                IosMotion.lift(pill, tracking, pill.getCurrentTextColor(), pill.getCurrentTextColor());
+                if (tracking) {
+                    downValue = s.getValue();
+                    return;
+                }
+                IosMotion.pop(pill);
+                if (listener != null && s.getValue() != downValue) listener.committed();
             }
         });
+        LayoutParams sp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GalleryUi.dp(c, 36));
+        sp.topMargin = GalleryUi.dp(c, 2);
+        addView(slider, sp);
     }
 
     public EditSlider setup(String label, float min, float max, float def, float step, boolean bipolar) {
         this.label = label;
-        this.min = min;
-        this.max = max;
         this.def = def;
         this.step = step;
         this.bipolar = bipolar;
-        setContentDescription(label);
-        invalidate();
+        title.setText(label);
+        slider.setRange(min, max, step);
+        slider.setDefaultValue(def);
+        slider.setValueNow(def);
+        slider.setContentDescription(label);
+        slider.bipolar(bipolar, (def - min) / Math.max(1e-6f, max - min));
+        paintPill();
         return this;
     }
 
@@ -103,69 +132,38 @@ public final class EditSlider extends View {
 
     public EditSlider format(@Nullable Format f) {
         format = f;
-        invalidate();
+        paintPill();
         return this;
     }
 
     /** A colour track (a hue or temperature scale) instead of the plain one. */
     public EditSlider gradient(@Nullable int[] colours) {
-        gradient = colours;
-        invalidate();
+        slider.gradient(colours);
         return this;
     }
 
     public float value() {
-        return value;
+        return slider.getValue();
     }
 
-    /** Sets the value (snapped); {@code notify}: tells the listener. */
+    /** Sets the value (snapped); {@code notify}: tells the listener. The knob glides there when the row is on screen. */
     public void set(float v, boolean notify) {
-        float s = step > 0 ? Math.round(v / step) * step : v;
-        s = Math.max(min, Math.min(max, s));
-        if (s == value) return;
-        value = s;
-        invalidate();
-        if (notify && listener != null) listener.changed(value);
+        float before = slider.getValue();
+        slider.setValue(v);
+        if (slider.getValue() == before) return;
+        paintPill();
+        if (notify && listener != null) listener.changed(slider.getValue());
     }
 
-    /** P360: the value glides to {@code target} (~0.24 s; the listener sees each step), then one commit. */
-    private void glideTo(float target) {
-        if (glide != null) glide.cancel();
-        if (Math.abs(target - value) < 1e-6f) {
-            if (listener != null) listener.committed();
-            return;
-        }
-        final android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(value, target);
-        a.setDuration(EditMotion.MEDIUM);
-        a.setInterpolator(EditMotion.MOVE);
-        a.addUpdateListener(x -> set((Float) x.getAnimatedValue(), true));
-        a.addListener(new android.animation.AnimatorListenerAdapter() {
-            private boolean cancelled;
-
-            @Override public void onAnimationCancel(android.animation.Animator animation) {
-                cancelled = true;
-            }
-
-            @Override public void onAnimationEnd(android.animation.Animator animation) {
-                if (cancelled) return;
-                set(target, true);
-                if (listener != null) listener.committed();
-            }
-        });
-        glide = a;
-        a.start();
-    }
-
-    /** P360: the drag look (thumb, bubble) eases in / out. */
-    private void pressTo(float to) {
-        if (pressAnim != null) pressAnim.cancel();
-        pressAnim = EditMotion.fraction(press, to, to > press ? 160 : 220, to > press ? EditMotion.ENTER : EditMotion.MOVE, f -> {
-            press = f;
-            invalidate();
-        });
+    /** The value pill: its text, the accent on its dark tone at the default, the theme's opposite when changed (the settings' pill). */
+    private void paintPill() {
+        float value = slider.getValue();
+        pill.setText(valueText());
+        SettingsStyle.paintPill(pill, Math.abs(value - def) > 1e-6f, accent);
     }
 
     String valueText() {
+        float value = slider.getValue();
         if (format != null) return format.of(value);
         if (step >= 1f) {
             int i = Math.round(value);
@@ -175,134 +173,90 @@ public final class EditSlider extends View {
         return bipolar && value > 0 ? "+" + t : t;
     }
 
-    @Override
-    protected void onMeasure(int w, int h) {
-        setMeasuredDimension(getDefaultSize(GalleryUi.dp(getContext(), 240), w), GalleryUi.dp(getContext(), 54));
-    }
-
-    @Override
-    protected void onDraw(Canvas canvas) {
-        Context c = getContext();
-        int pad = GalleryUi.dp(c, 18);
-        float w = getWidth(), top = GalleryUi.dp(c, 20);
-        // P360: the label and value give way to the bubble while dragged
-        final int textAlpha = Math.round(255 * (1f - .75f * press));
-        text.setColor(GalleryUi.TEXT);
-        text.setAlpha(textAlpha);
-        text.setTextAlign(Paint.Align.LEFT);
-        canvas.drawText(label != null ? label : "", pad, top, text);
-        boolean changed = Math.abs(value - def) > 1e-6f;
-        text.setColor(changed ? GalleryUi.accent(c) : GalleryUi.MUTED);
-        text.setAlpha(textAlpha);
-        text.setTextAlign(Paint.Align.RIGHT);
-        canvas.drawText(valueText(), w - pad, top, text);
-        text.setAlpha(255);
-        float y = GalleryUi.dp(c, 38), x0 = pad, x1 = w - pad;
-        if (gradient != null) {
-            track.setShader(new LinearGradient(x0, y, x1, y, gradient, null, Shader.TileMode.CLAMP));
-            track.setAlpha(255);
-        } else {
-            track.setShader(null);
-        }
-        canvas.drawLine(x0, y, x1, y, track);
-        float tv = x0 + (x1 - x0) * (value - min) / Math.max(1e-6f, max - min);
-        float from = x0 + (x1 - x0) * ((bipolar ? def : min) - min) / Math.max(1e-6f, max - min);
-        if (gradient == null && changed) canvas.drawLine(Math.min(from, tv), y, Math.max(from, tv), y, fill);
-        if (bipolar) canvas.drawCircle(from, y, GalleryUi.dp(c, 2), track);
-        thumb.setColor((Integer) argb.evaluate(press, GalleryUi.TEXT, GalleryUi.accent(c)));
-        if (press > 0f) {
-            // a soft halo under the thumb
-            thumb.setAlpha(Math.round(60 * press));
-            canvas.drawCircle(tv, y, GalleryUi.dp(c, 9 + 7 * press), thumb);
-            thumb.setAlpha(255);
-        }
-        canvas.drawCircle(tv, y, GalleryUi.dp(c, 7.5f + 2f * press), thumb);
-        if (press > 0.02f) {
-            // the value bubble over the thumb, rising and growing in with the press
-            final String t = valueText();
-            final float bw = bubbleText.measureText(t) + GalleryUi.dp(c, 18), bh = GalleryUi.dp(c, 22);
-            final float cx = Math.max(bw / 2, Math.min(w - bw / 2, tv)), cy = GalleryUi.dp(c, 14) + (1f - press) * GalleryUi.dp(c, 6);
-            final float k = .7f + .3f * press;
-            bubbleBox.set(cx - bw / 2 * k, cy - bh / 2 * k, cx + bw / 2 * k, cy + bh / 2 * k);
-            bubble.setAlpha(Math.round(255 * press));
-            canvas.drawRoundRect(bubbleBox, bh / 2, bh / 2, bubble);
-            bubbleText.setAlpha(Math.round(255 * press));
-            bubbleText.setTextSize(GalleryUi.dp(c, 12.5f) * k);
-            canvas.drawText(t, cx, cy - (bubbleText.descent() + bubbleText.ascent()) / 2, bubbleText);
-        }
-    }
-
-    @Override
-    public boolean onTouchEvent(MotionEvent e) {
-        taps.onTouchEvent(e);
-        float trackW = Math.max(1, getWidth() - 2 * GalleryUi.dp(getContext(), 18));
-        switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                downX = e.getX();
-                downY = e.getY();
-                downValue = value;
-                dragging = false;
-                return true;
-            case MotionEvent.ACTION_MOVE:
-                float dx = e.getX() - downX, dy = e.getY() - downY;
-                if (!dragging) {
-                    if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) {
-                        getParent().requestDisallowInterceptTouchEvent(false);
-                        return false;
-                    }
-                    if (Math.abs(dx) > slop) {
-                        dragging = true;
-                        if (glide != null) glide.cancel();
-                        downValue = value;
-                        downX = e.getX();
-                        getParent().requestDisallowInterceptTouchEvent(true);
-                        pressTo(1f);
-                    }
-                    return true;
-                }
-                set(downValue + (e.getX() - downX) / trackW * (max - min), true);
-                return true;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                if (dragging) {
-                    dragging = false;
-                    pressTo(0f);
-                    if (listener != null) listener.committed();
-                }
-                return true;
-            default:
-                return true;
-        }
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfo(info);
-        info.setText(label + ", " + valueText());
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
-    }
-
-    @Override
-    public boolean performAccessibilityAction(int action, @Nullable android.os.Bundle args) {
-        float s = Math.max(step, (max - min) / 20f);
-        if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
-            set(value + s, true);
-            if (listener != null) listener.committed();
-            sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_SELECTED);
-            return true;
-        }
-        if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
-            set(value - s, true);
-            if (listener != null) listener.committed();
-            sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_SELECTED);
-            return true;
-        }
-        return super.performAccessibilityAction(action, args);
-    }
-
     /** «Сброс двойным касанием» for the help text. */
     static String hint() {
         return Lang.t("Двойное касание — сброс", "Double tap resets");
+    }
+
+    /**
+     * The shared slider with the editor's two tracks: a colour scale (its gradient under the knob, no fill) and a bipolar one (the
+     * plain track with a mark at its default in the middle, no fill from the left end). Both are drawn under the shared knob.
+     */
+    static final class Track extends IosSlider {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF rect = new RectF();
+        @Nullable private int[] colours;
+        @Nullable private LinearGradient shader;
+        private int shaderWidth;
+        private boolean centred;
+        private float centreK;
+        private int accent;
+
+        Track(Context c) {
+            super(c);
+        }
+
+        @Override
+        public void setAccent(int colour) {
+            accent = colour;
+            apply();
+        }
+
+        void bipolar(boolean on, float k) {
+            centred = on;
+            centreK = k;
+            apply();
+        }
+
+        void gradient(@Nullable int[] c) {
+            colours = c;
+            shader = null;
+            apply();
+        }
+
+        private boolean own() {
+            return colours != null || centred;
+        }
+
+        /** The shared drawing takes the plain track and the fill; this one hides them for its own tracks. */
+        private void apply() {
+            super.setAccent(own() ? accent & 0x00FFFFFF : accent);
+            setTrackColour(own() ? 0 : 0x5C787880);
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            if (own()) {
+                float d = getResources().getDisplayMetrics().density;
+                float cy = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom()) / 2f;
+                float x0 = getPaddingLeft(), x1 = getWidth() - getPaddingRight(), r = 3 * d;
+                rect.set(x0, cy - r, x1, cy + r);
+                paint.setStyle(Paint.Style.FILL);
+                if (colours != null) {
+                    int w = Math.round(x1 - x0);
+                    if (shader == null || shaderWidth != w) {
+                        shader = new LinearGradient(x0, 0, x1, 0, colours, null, Shader.TileMode.CLAMP);
+                        shaderWidth = w;
+                    }
+                    paint.setShader(shader);
+                    paint.setColor(0xFFFFFFFF);
+                } else {
+                    paint.setShader(null);
+                    paint.setColor(0x5C787880);
+                }
+                c.drawRoundRect(rect, r, r, paint);
+                paint.setShader(null);
+                if (centred) {
+                    // the default's mark: the knob's own travel (inset by its radius) at the default's place
+                    float knobR = 14 * d;
+                    float x = x0 + knobR + centreK * Math.max(1f, x1 - x0 - 2 * knobR);
+                    paint.setColor(colours != null ? 0xCCFFFFFF : 0x99FFFFFF);
+                    rect.set(x - d, cy - 6 * d, x + d, cy + 6 * d);
+                    c.drawRoundRect(rect, d, d, paint);
+                }
+            }
+            super.onDraw(c);
+        }
     }
 }

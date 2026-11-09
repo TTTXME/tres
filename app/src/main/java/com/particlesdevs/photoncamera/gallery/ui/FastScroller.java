@@ -2,7 +2,6 @@ package com.particlesdevs.photoncamera.gallery.ui;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -47,10 +46,11 @@ public final class FastScroller extends FrameLayout {
         thumb.setAlpha(0f);
         thumb.setContentDescription(Lang.t("Быстрая прокрутка", "Fast scroll"));
         addView(thumb, new LayoutParams(GalleryUi.dp(c, 6), GalleryUi.dp(c, 52), Gravity.END | Gravity.TOP));
-        bubble = GalleryUi.text(c, "", 14, GalleryUi.INK);
-        bubble.setTypeface(Typeface.DEFAULT_BOLD);
+        // P579: the day under the finger in the camera's dark capsule (its light edge), as the toasts
+        bubble = GalleryUi.text(c, "", 14, GalleryUi.TEXT);
+        bubble.setTypeface(GalleryUi.semibold());
         bubble.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 9), GalleryUi.dp(c, 14), GalleryUi.dp(c, 9));
-        bubble.setBackground(GalleryUi.round(c, GalleryUi.accent(c), GalleryUi.accent(c), 999));
+        bubble.setBackground(GalleryUi.bar(c, 999));
         bubble.setElevation(GalleryUi.dp(c, 4));
         bubble.setVisibility(View.GONE);
         LayoutParams bp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END | Gravity.TOP);

@@ -915,6 +915,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 if (mVivoSdkRawSession == null) plainColour(result);
                 if (mLastPreviewResultMs == 0) markModuleGood();
                 mLastPreviewResultMs = android.os.SystemClock.elapsedRealtime();
+                // P575: the nubia row's reported mode; one that never shows fails over (posted: not inside the result callback)
+                final String nubiaWhy = NubiaFullRes.watchResult(physicalID, result);
+                if (nubiaWhy != null) {
+                    final SensorModePick.Pick nubiaPick = SensorModePick.session();
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (nubiaPick != null && SensorModePick.session() == nubiaPick) retryWithoutRequestedSensorMode(mCaptureSession, nubiaWhy);
+                    });
+                }
                 // Restarts count as successful only after a second of frames: one result per new session reset the count and the
                 // stall restarts never stopped (Xiaomi 13 Ultra, 14 restarts in a row, 2026-10-10)
                 if (mPreviewSessionStartMs > 0 && mLastPreviewResultMs - mPreviewSessionStartMs > 1000) mStallRestarts = 0;
@@ -2603,6 +2611,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             handler.removeCallbacks(mStallCheck);
             return;
         }
+        // P575: a nubia row's session (FULLRES or the «2×») that never gave a frame: the row is not used, the normal session opens
+        if (mLastPreviewResultMs == 0 && NubiaFullRes.device() && SensorModePick.session() != null
+                && retryWithoutRequestedSensorMode(mCaptureSession, "no preview frame for " + noFrame + " ms")) {
+            mPreviewSessionStartMs = 0;
+            handler.removeCallbacks(mStallCheck);
+            return;
+        }
         // P230: a DCG route's session (Xiaomi 15 Ultra op mode 0x9203, X200 Ultra Telegram) that never gave a frame: DCG off
         if (mLastPreviewResultMs == 0 && retryWithoutDcgRoute(mCaptureSession, "no preview frame for " + noFrame + " ms")) {
             mPreviewSessionStartMs = 0;
@@ -3270,6 +3285,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         SensorModePick.session(physicalID, modePick);
         if (modePick != null) Log.i("SCAM_CAPTURE", "camera " + physicalID + ": the module's sensor mode " + modePick
                 + " (SensorModeTable, P276)");
+        // P575: a nubia session watches the mode its results report (the picked row proves itself; a normal one logs its own)
+        NubiaFullRes.watchSession(physicalID, modePick);
+        if (modePick != null && NubiaFullRes.device())
+            Log.i("SCAM_CAPTURE", "nubia " + (modePick.fullRes ? "FULLRES (the size switch)" : "ISZ / module row") + " camera " + physicalID
+                    + ": sensor mode row " + modePick.mode + " " + modePick.size + ", " + SensorModePick.QCOM_KEY
+                    + " on the session and every request, no ISP stream (RAW viewfinder), merge block "
+                    + SensorModePick.declaredBlock(SensorModeBand.table(characteristics), modePick.mode) + " (P575)");
         ArrayList<Size> allTargets = getAllTargets();
         // P108: every request of the full-resolution session in MAXIMUM_RESOLUTION pixel mode (VendorTagUtils.builderSessionApply)
         if (mFullResSession) useMaximumResolutionKey = true;
@@ -3645,7 +3667,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             final boolean forcedMode = vivoQcomIsz || SensorModePick.session() != null
                     || com.particlesdevs.photoncamera.settings.ModuleRegistry.sensorMode(com.particlesdevs.photoncamera.settings.ModuleRegistry.active()) > 0;
             mIspSurfaceOff = photoMode && !isBurstSession && !mIsRecordingVideo && !sdkFullRes && mVivoSdkRawSession == null
-                    && isRawFormat(mTargetFormat) && !mLiveRawRejected && (ispSurface == 2 || ispSurface == 0 && forcedMode);
+                    && isRawFormat(mTargetFormat) && !mLiveRawRejected && (ispSurface == 2 || ispSurface == 0 && forcedMode
+                    // P575 (owner: «Фулрез на Нубии работает при ... отключении ISP превью»): a nubia row runs without it
+                    || ispSurface == 1 && SensorModePick.session() != null && NubiaFullRes.device());
             if (mIspSurfaceOff) {
                 mIspPreviewOff = true;
                 Log.i("SCAM_CAPTURE", "camera " + physicalID + ": no ISP stream in the session (" + (ispSurface == 2 ? "the module's setting"
@@ -4082,6 +4106,16 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private boolean retryWithoutRequestedSensorMode(@Nullable CameraCaptureSession session, String why) {
         // P276: a module's picked SensorModeTable row the camera refused goes back to Auto (said once, the camera reopens)
         final SensorModePick.Pick pick = SensorModePick.session();
+        if (pick != null && pick.fullRes) {
+            // P575: the nubia size switch's row failed: noted for this firmware (the 50 Мп size dims), FULLRES off, the normal session
+            final String note = NubiaFullRes.failed(physicalID, pick.mode, why);
+            PixelPro10.setFullRes(false);
+            SensorModePick.session(null, null);
+            if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
+            showError(note);
+            new Handler(Looper.getMainLooper()).post(this::restartCamera);
+            return true;
+        }
         if (pick != null) {
             final String slot = com.particlesdevs.photoncamera.settings.ModuleRegistry.active();
             ScameraApp.getSettingsManagerStatic().getDefaultPreferences().edit().putString(SensorModePick.prefKey(slot), "-1").apply();
@@ -4096,7 +4130,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final boolean dcg = Dcg14Mode.on();
         try {
             String slot = com.particlesdevs.photoncamera.settings.ModuleRegistry.active();
-            if (!dcg && !SensorModeSwitches.sensorPreset(slot)) return false;
+            // P575: the nubia «2×» has its own pick branch above (its row refused); an error without the pick recovers quietly
+            if (!dcg && (!SensorModeSwitches.sensorPreset(slot) || NubiaFullRes.iszModule(slot))) return false;
             if (!SensorModeSwitches.selectPlain()) {
                 Dcg14Mode.setMode(Dcg14Mode.OFF);
                 showError(Lang.t("Режим сенсора отклонён; выберите обычный модуль", "Sensor mode refused; choose a plain module"));
@@ -5582,6 +5617,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 final VivoQcomIsz.StreamCheck iszCheck = mIszCheck;
                 if (iszCheck != null && measured != null) onIszFrames(iszCheck, measured);
                 updateStreamCrop(true);
+                // P575: a nubia row declared a mosaic (its full size beside the binned one) whose frames are a plain Bayer is the
+                // HAL's remosaic: not used (FULLRES off / the module on Auto, with a notice), the normal session opens
+                // (this session's own verdict: a stored block 1 of the row would fail every retry at once)
+                if (NubiaFullRes.device() && com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict() == 1
+                        && SensorModePick.session() != null
+                        && SensorModePick.sessionBlock(c) > 1
+                        && retryWithoutRequestedSensorMode(mCaptureSession, "the frames are remosaicked by the HAL (plain Bayer, no mosaic)")) return;
                 // P188 (owner, 2026-10-17: «Нам нужен фулрез без ремозаика»): a native FULLRES row whose frames are a plain Bayer
                 // was remosaicked by the HAL (X300 Ultra main camera, 50 MP row 2): that row counts as failed and the next start
                 // tries the next row of the table, instead of shooting the HAL's remosaic
@@ -7025,9 +7067,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         return com.particlesdevs.photoncamera.util.ShotArena.create(ringFrames + stills, frameBytes);
     }
 
-    /** P235: a press arena is made for a burst above 16 MP (the merge's moveIntoArena) not in one memfd, of at most 64 frames. */
+    /** P235: a press arena is made for a burst above 16 MP (the merge's moveIntoArena) not in one memfd, of at most 128 frames (ShotArena, P578). */
     static boolean pressArenaWanted(boolean oneMemfd, long pixels, int frames) {
-        return !oneMemfd && pixels > ScamHybridBurst.CLASSIC_INPUT_PIXELS && frames > 0 && frames <= 64
+        return !oneMemfd && pixels > ScamHybridBurst.CLASSIC_INPUT_PIXELS && frames > 0 && frames <= 128
                 && PreferenceKeys.scamDevSwitch("fullres_press_arena", true);
     }
 
@@ -7083,7 +7125,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // P179: the plain session that shows the viewfinder while a 200 MP shot is merged holds a small ring (no shot is taken
         // then; the merge needs the memory)
         if (PixelPro10.fullResSuspended() || fullResMergeRunning()) return Math.min(SUSPENDED_RING, PreferenceKeys.getZslBufferCountValue());
-        return PreferenceKeys.getZslBufferCountValue();
+        // P578 (owner, 2026-11-09: up to 65 frames in the merge): the ring holds at least the merge's N, so a long merge is not cut
+        // to the buffer's 50 (ZslRing.create still keeps it within the memory budget)
+        return Math.max(PreferenceKeys.getZslBufferCountValue(), Math.min(100, PreferenceKeys.getHybridZslFrames()));
     }
 
     /** P179: ring slots of the plain session during a 200 MP merge. */

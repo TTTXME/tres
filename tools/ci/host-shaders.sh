@@ -76,6 +76,9 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_look.
 # P370: the same with the signed hue on (signedHueU 1, the shipped default); the other GL checks render both themselves
 SIGNED_HUE=1 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_output.py --gl --strict
 SIGNED_HUE=1 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_look.py
+# P577: every colour row at its range ends as the photo ships it (WHY_VIBRANCE 1), the monochrome kept grey with Face AWB
+SIGNED_HUE=0 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_params.py
+SIGNED_HUE=1 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_colour_params.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ccm_gamut.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ccm_chain.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_tone_ops.py

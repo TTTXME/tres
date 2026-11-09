@@ -42,8 +42,9 @@ final class FileNameDialog {
 
         final TextView preview = new TextView(context);
         preview.setPadding(Math.round(14 * dp), Math.round(10 * dp), Math.round(14 * dp), Math.round(10 * dp));
-        preview.setBackground(SettingsStyle.shape(context, SettingsStyle.SHEET, 0, 14));
-        preview.setTextColor(SettingsStyle.MUTED);
+        // P574: on the dialog's #2C2C2E card, the preview and the chips a step lighter (#3A3A3C), no outlines; quiet text white 55 %
+        preview.setBackground(SettingsStyle.shape(context, SettingsStyle.CARD_NESTED, 0, 12));
+        preview.setTextColor(SettingsStyle.SECTION);
         preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         final LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -98,7 +99,7 @@ final class FileNameDialog {
     private static TextView label(Context context, String text, int gap) {
         final TextView t = new TextView(context);
         t.setText(text);
-        t.setTextColor(SettingsStyle.MUTED);
+        t.setTextColor(SettingsStyle.SECTION);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         t.setPadding(0, 2 * gap, 0, gap);
         return t;
@@ -120,9 +121,9 @@ final class FileNameDialog {
         t.setGravity(Gravity.CENTER);
         t.setMinWidth(Math.round(48 * dp));
         t.setPadding(Math.round(14 * dp), Math.round(9 * dp), Math.round(14 * dp), Math.round(9 * dp));
-        // an unselected chip of the settings: a pill with a faint outline
-        t.setBackground(SettingsStyle.shape(context, 0, SettingsStyle.LINE, 18));
-        t.setTextColor(SettingsStyle.TEXT);
+        t.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x1FFFFFFF),
+                SettingsStyle.shape(context, SettingsStyle.CARD_NESTED, 0, 18), null));
+        t.setTextColor(SettingsStyle.ROW_TITLE);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         t.setClickable(true);
         t.setFocusable(true);

@@ -2,7 +2,6 @@ package com.particlesdevs.photoncamera.gallery.ui;
 
 import android.content.ContentResolver;
 import android.content.Context;
-import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -122,18 +121,18 @@ public final class GalleryUndo {
         MAIN.postDelayed(p.commit, WINDOW_MS);
     }
 
-    /** The pill: «Удалено: 3 снимка» and the accent «Вернуть». */
+    /** The pill: «Удалено: 3 снимка» and the accent «Вернуть»; P579: the dark capsule with its light edge (the camera's toasts). */
     static LinearLayout pill(Context c, String text, Runnable undo) {
         LinearLayout p = new LinearLayout(c);
         p.setOrientation(LinearLayout.HORIZONTAL);
         p.setGravity(Gravity.CENTER_VERTICAL);
-        p.setBackground(GalleryUi.round(c, 0xF21B2023, GalleryUi.LINE, 999));
+        p.setBackground(GalleryUi.bar(c, 999));
         p.setPadding(GalleryUi.dp(c, 18), GalleryUi.dp(c, 4), GalleryUi.dp(c, 6), GalleryUi.dp(c, 4));
         p.setElevation(GalleryUi.dp(c, 6));
         TextView t = GalleryUi.text(c, text, 14, GalleryUi.TEXT);
         p.addView(t);
         TextView back = GalleryUi.text(c, Lang.t("Вернуть", "Undo"), 14, GalleryUi.accent(c));
-        back.setTypeface(Typeface.DEFAULT_BOLD);
+        back.setTypeface(GalleryUi.semibold());
         back.setGravity(Gravity.CENTER);
         back.setMinHeight(GalleryUi.dp(c, 40));
         back.setPadding(GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 14), 0);

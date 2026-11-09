@@ -2,7 +2,6 @@ package com.particlesdevs.photoncamera.gallery.ui;
 
 import android.content.Context;
 import android.graphics.Outline;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,10 +34,13 @@ import java.util.List;
  * поставь кнопку удалить, а вместо ещё сведения» - no «Ещё» menu any more).
  * The filmstrip of P59b stays built for the swipe position but is not shown (the concept has none). Built here so the
  * fragment and the 360dp layout test share them.
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the camera's look over a photo -
+ * round buttons (the back 40dp, the three beside the meta 36dp) and one bottom capsule as dark bars (rgba(20, 20, 22, .9) with a 0.5dp light edge; less glass than before),
+ * white line icons with 60 % white labels, «Удалить» in the red, the HDR pill a dark capsule with the accent when on.
  */
 public final class ViewerChrome {
-    /** The concept's .vbar: the card colour at 92 %. */
-    static final int BAR_FILL = 0xEB1A1F22;
+    /** The concept's .vbar; P579: the camera's dark bar (rgba(20, 20, 22, .9)). */
+    static final int BAR_FILL = GalleryUi.BAR;
     public final LinearLayout top, bottom;
     public final View back;
     public final TextView metaTitle, metaSub;
@@ -88,60 +90,62 @@ public final class ViewerChrome {
         top.setOrientation(LinearLayout.VERTICAL);
         top.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 14), GalleryUi.dp(c, 12), GalleryUi.dp(c, 24));
         top.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xCC000000, 0x00000000}));
+                new int[]{0x99000000, 0x00000000}));
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         back = disc(c, R.drawable.ui_ic_back, Lang.t("Назад к сетке", "Back to the grid"), v -> a.back());
-        row.addView(back, new LinearLayout.LayoutParams(GalleryUi.dp(c, 44), GalleryUi.dp(c, 44)));
+        row.addView(back, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
         LinearLayout meta = new LinearLayout(c);
         meta.setOrientation(LinearLayout.VERTICAL);
         meta.setGravity(Gravity.CENTER_VERTICAL);
         metaTitle = GalleryUi.fitText(c, "", 15, GalleryUi.TEXT);
-        metaTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        metaSub = GalleryUi.fitText(c, "", 12.5f, GalleryUi.MUTED);
+        metaTitle.setTypeface(GalleryUi.semibold());
+        metaTitle.setShadowLayer(GalleryUi.dp(c, 3), 0, 0, 0x66000000);
+        metaSub = GalleryUi.fitText(c, "", 13, 0xB3FFFFFF);
+        metaSub.setShadowLayer(GalleryUi.dp(c, 3), 0, 0, 0x66000000);
         meta.addView(metaTitle, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sp.topMargin = GalleryUi.dp(c, 3);
         meta.addView(metaSub, sp);
         LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        mp.leftMargin = GalleryUi.dp(c, 10);
+        mp.setMarginStart(GalleryUi.dp(c, 12));
         row.addView(meta, mp);
         // the Ultra HDR switch: a pill at the right of the top row (Ultra HDR photos only)
         hdrPill = GalleryUi.text(c, "", 12.5f, accent);
-        hdrPill.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        hdrPill.setTypeface(GalleryUi.semibold());
         hdrPill.setGravity(Gravity.CENTER);
-        hdrPill.setMinHeight(GalleryUi.dp(c, 32));
+        hdrPill.setMinHeight(GalleryUi.dp(c, 36));
         hdrPill.setPadding(GalleryUi.dp(c, 12), 0, GalleryUi.dp(c, 12), 0);
-        hdrPill.setBackground(GalleryUi.pressable(GalleryUi.round(c, GalleryUi.CARD, GalleryUi.LINE, 16)));
+        hdrPill.setBackground(GalleryUi.pressable(GalleryUi.bar(c, 18)));
         hdrPill.setClickable(true);
         hdrPill.setFocusable(true);
         hdrPill.setOnClickListener(v -> a.hdr());
         hdrPill.setTag("viewer_hdr");
         hdrPill.setVisibility(View.GONE);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hp.leftMargin = GalleryUi.dp(c, 8);
+        hp.setMarginStart(GalleryUi.dp(c, 8));
         row.addView(hdrPill, hp);
         // P492 (owner, 2026-11-03: «добавь кнопку вывода гистограммы, при активации гистограмма должна отображаться постоянно пока ты не
         // деактивируешь»): a pill beside the HDR one; on, the histogram stays over every photo until it is switched off
         histButton = disc(c, R.drawable.gallery_ic_histogram, Lang.t("Гистограмма", "Histogram"), v -> a.histogram());
         histButton.setTag("viewer_histogram");
         histIcon = (ImageView) ((FrameLayout) histButton).getChildAt(0);
-        histIcon.setColorFilter(GalleryUi.MUTED);
-        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
-        gp.leftMargin = GalleryUi.dp(c, 6);
+        setHistogram(false); // P570: off, tonal mono
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36)); // the meta keeps its room
+        gp.setMarginStart(GalleryUi.dp(c, 6));
         row.addView(histButton, gp);
         fav = disc(c, R.drawable.ui_ic_heart, Lang.t("В избранное", "Add to favourites"), v -> a.favourite());
         fav.setTag("viewer_favourite");
         favIcon = (ImageView) ((FrameLayout) fav).getChildAt(0);
-        favIcon.setColorFilter(GalleryUi.TEXT);
-        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
-        fp.leftMargin = GalleryUi.dp(c, 6);
+        com.particlesdevs.photoncamera.ui.Icons.own(favIcon); // P570: the colour heart
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36)); // the meta keeps its room
+        fp.setMarginStart(GalleryUi.dp(c, 6));
         row.addView(fav, fp);
         more = disc(c, R.drawable.ui_ic_more, Lang.t("Ещё", "More"), v -> a.more());
         more.setTag("viewer_more");
-        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
-        op.leftMargin = GalleryUi.dp(c, 6);
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36)); // the meta keeps its room
+        op.setMarginStart(GalleryUi.dp(c, 6));
         row.addView(more, op);
         top.addView(row);
 
@@ -156,8 +160,8 @@ public final class ViewerChrome {
         bottom.addView(strip, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         buttons = new LinearLayout(c);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setBackground(GalleryUi.round(c, BAR_FILL, GalleryUi.LINE, 22));
-        buttons.setPadding(GalleryUi.dp(c, 3), GalleryUi.dp(c, 5), GalleryUi.dp(c, 3), GalleryUi.dp(c, 5));
+        buttons.setBackground(GalleryUi.bar(c, 26));
+        buttons.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 4), GalleryUi.dp(c, 4), GalleryUi.dp(c, 4));
         share = barButton(c, R.drawable.ui_ic_share, Lang.t("Поделиться", "Share"), v -> a.share());
         edit = barButton(c, R.drawable.ui_ic_edit, Lang.t("Изменить", "Edit"), v -> a.edit());
         compare = barButton(c, R.drawable.ui_ic_compare, Lang.t("Сравнить", "Compare"), v -> a.compare());
@@ -175,12 +179,11 @@ public final class ViewerChrome {
         bottom.addView(buttons, bp);
     }
 
-    /** The concept's .back: a 44dp card disc with the line icon in the text colour. */
+    /** The concept's .back; P579: a 40dp round dark bar (its light edge) with a white line icon, over the photo. */
     private static View disc(Context c, int icon, String description, View.OnClickListener click) {
         FrameLayout b = new FrameLayout(c);
-        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        android.graphics.drawable.GradientDrawable d = GalleryUi.bar(c, 20);
         d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        d.setColor(GalleryUi.CARD);
         b.setBackground(GalleryUi.pressable(d));
         b.setContentDescription(description);
         b.setFocusable(true);
@@ -188,11 +191,12 @@ public final class ViewerChrome {
         b.setOnClickListener(click);
         com.particlesdevs.photoncamera.ui.Motion.press(b);
         ImageView i = GalleryUi.icon(c, icon, GalleryUi.TEXT, 22);
+        com.particlesdevs.photoncamera.ui.Icons.ink(i, icon, GalleryUi.TEXT); // P579: white (tonal mono for a colour icon)
         b.addView(i, new FrameLayout.LayoutParams(GalleryUi.dp(c, 22), GalleryUi.dp(c, 22), Gravity.CENTER));
         return b;
     }
 
-    /** A button of the concept's .vbar: the line icon over a 10sp label, both in the text colour. */
+    /** A button of the concept's .vbar: the line icon over a 10.5sp label (P579: a white icon, the label at 60 % white). */
     private static View barButton(Context c, int icon, String label, View.OnClickListener click) {
         return barButton(c, icon, label, GalleryUi.TEXT, click);
     }
@@ -203,14 +207,16 @@ public final class ViewerChrome {
         b.setOrientation(LinearLayout.VERTICAL);
         b.setGravity(Gravity.CENTER);
         b.setPadding(0, GalleryUi.dp(c, 8), 0, GalleryUi.dp(c, 8));
-        b.setBackground(GalleryUi.pressable(GalleryUi.round(c, android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT, 16)));
+        b.setBackground(GalleryUi.pressable(GalleryUi.round(c, android.graphics.Color.TRANSPARENT, 0, 22)));
         b.setClickable(true);
         b.setFocusable(true);
         b.setOnClickListener(click);
         b.setContentDescription(label);
         com.particlesdevs.photoncamera.ui.Motion.press(b);
-        b.addView(GalleryUi.icon(c, icon, color, 22));
-        TextView t = GalleryUi.fitText(c, label, 10, color);
+        ImageView i = GalleryUi.icon(c, icon, color, 22);
+        com.particlesdevs.photoncamera.ui.Icons.ink(i, icon, color);
+        b.addView(i);
+        TextView t = GalleryUi.fitText(c, label, 10.5f, color == GalleryUi.TEXT ? 0xB3FFFFFF : color);
         t.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = GalleryUi.dp(c, 3);
@@ -229,7 +235,7 @@ public final class ViewerChrome {
         boolean changed = on != favOn;
         favOn = on;
         favIcon.setImageResource(on ? R.drawable.ui_ic_heart_on : R.drawable.ui_ic_heart);
-        favIcon.setColorFilter(on ? FAV : GalleryUi.TEXT);
+        com.particlesdevs.photoncamera.ui.Icons.own(favIcon); // P570: the pink heart, the filled red one for a favourite
         fav.setContentDescription(on ? Lang.t("Убрать из избранного", "Remove from favourites") : Lang.t("В избранное", "Add to favourites"));
         if (changed && animate) com.particlesdevs.photoncamera.ui.Motion.pop(favIcon);
     }
@@ -244,7 +250,10 @@ public final class ViewerChrome {
 
     /** P492: the histogram switch's state (accent when the overlay is on). */
     public void setHistogram(boolean on) {
-        histIcon.setColorFilter(on ? GalleryUi.accent(histIcon.getContext()) : GalleryUi.MUTED);
+        com.particlesdevs.photoncamera.ui.Icons.state(histIcon, on, GalleryUi.accent(histIcon.getContext()), GalleryUi.TEXT); // P570
+        // P579: on, the accent (tonal mono for a colour icon) - the camera's toggles are the accent when on
+        if (on && com.particlesdevs.photoncamera.ui.Icons.colour(histIcon))
+            histIcon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(GalleryUi.accent(histIcon.getContext())));
         androidx.core.view.ViewCompat.setStateDescription(histButton, on ? Lang.t("включено", "on") : Lang.t("выключено", "off"));
     }
 
@@ -252,7 +261,7 @@ public final class ViewerChrome {
     public void bindHdr(boolean ultraHdr, boolean on) {
         hdrPill.setVisibility(ultraHdr ? View.VISIBLE : View.GONE);
         hdrPill.setText(on ? Lang.t("HDR: вкл.", "HDR: on") : Lang.t("HDR: выкл.", "HDR: off"));
-        hdrPill.setTextColor(on ? GalleryUi.accent(hdrPill.getContext()) : GalleryUi.MUTED);
+        hdrPill.setTextColor(on ? GalleryUi.accent(hdrPill.getContext()) : 0xB3FFFFFF);
         hdrPill.setContentDescription("Ultra HDR");
         androidx.core.view.ViewCompat.setStateDescription(hdrPill, on ? Lang.t("включено", "on") : Lang.t("выключено", "off"));
     }

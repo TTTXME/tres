@@ -115,7 +115,7 @@ public class DialogStyleTest {
         return (GradientDrawable) inner;
     }
 
-    @Test public void theDialogThemeHas24dpCornersAndNoAllCapsButtons() {
+    @Test public void theDialogThemeHas30dpCornersAndNoAllCapsButtons() {
         Context base = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.Theme_Scamera_BaseApp);
         // every androidx / Material dialog takes the app's theme; the framework's only a fallback in the same look
         assertEquals(R.style.AlertDialogTheme, resource(base, androidx.appcompat.R.attr.alertDialogTheme));
@@ -123,25 +123,25 @@ public class DialogStyleTest {
         assertEquals(R.style.AlertDialogTheme_Framework, resource(base, android.R.attr.alertDialogTheme));
 
         Context dialog = new ContextThemeWrapper(base, R.style.AlertDialogTheme);
-        assertEquals(dp(24), dimension(dialog, androidx.appcompat.R.attr.dialogCornerRadius), .5f);
-        assertEquals(dp(24), dimension(dialog, android.R.attr.dialogCornerRadius), .5f);
+        assertEquals(dp(30), dimension(dialog, androidx.appcompat.R.attr.dialogCornerRadius), .5f);   // P574: the concept's alert
+        assertEquals(dp(30), dimension(dialog, android.R.attr.dialogCornerRadius), .5f);
         for (int attr : new int[]{androidx.appcompat.R.attr.buttonBarPositiveButtonStyle, androidx.appcompat.R.attr.buttonBarNegativeButtonStyle,
                 androidx.appcompat.R.attr.buttonBarNeutralButtonStyle, androidx.appcompat.R.attr.buttonBarButtonStyle})
             assertFalse("no ALL-CAPS buttons", allCaps(dialog, resource(dialog, attr)));
         assertFalse("no ALL-CAPS title", allCaps(dialog, resource(dialog, com.google.android.material.R.attr.materialAlertDialogTitleTextStyle)));
 
         Context framework = new ContextThemeWrapper(base, R.style.AlertDialogTheme_Framework);
-        assertEquals(dp(24), dimension(framework, android.R.attr.dialogCornerRadius), .5f);
+        assertEquals(dp(30), dimension(framework, android.R.attr.dialogCornerRadius), .5f);
         assertFalse(allCaps(framework, resource(framework, android.R.attr.buttonBarButtonStyle)));
 
-        // the card: the settings card colour with a faint outline, 24dp corners, the same in both window backgrounds
+        // P574: the card - the rows' colour #2C2C2E, no outline, 30dp corners, the same in both window backgrounds
         GradientDrawable surface = (GradientDrawable) dialog.getDrawable(R.drawable.dialog_surface);
-        assertEquals(dp(24), surface.getCornerRadius(), .5f);
-        assertEquals(SettingsStyle.CARD, surface.getColor().getDefaultColor());
+        assertEquals(dp(30), surface.getCornerRadius(), .5f);
+        assertEquals(SettingsStyle.ROW, surface.getColor().getDefaultColor());
         for (Context c : new Context[]{dialog, framework}) {
             Drawable window = c.getDrawable(resource(c, android.R.attr.windowBackground));
             assertTrue(String.valueOf(window), window instanceof InsetDrawable);
-            assertEquals(dp(24), ((GradientDrawable) ((InsetDrawable) window).getDrawable()).getCornerRadius(), .5f);
+            assertEquals(dp(30), ((GradientDrawable) ((InsetDrawable) window).getDrawable()).getCornerRadius(), .5f);
         }
     }
 
@@ -152,17 +152,17 @@ public class DialogStyleTest {
                 .setNegativeButton("Cancel", (x, w) -> clicks.add("cancel"))
                 .setPositiveButton("Reset", (x, w) -> clicks.add("reset")).show();
         idle();
-        assertEquals(dp(24), card(d).getCornerRadius(), .5f);
-        assertEquals(SettingsStyle.CARD, card(d).getColor().getDefaultColor());
+        assertEquals(dp(30), card(d).getCornerRadius(), .5f);
+        assertEquals(SettingsStyle.ROW, card(d).getColor().getDefaultColor());
         TextView title = d.findViewById(androidx.appcompat.R.id.alertTitle);
         assertEquals("Reset this page?", title.getText().toString());
-        assertEquals(sp(20), title.getTextSize(), .5f);
-        assertEquals(SettingsStyle.TEXT, title.getCurrentTextColor());
+        assertEquals(sp(18), title.getTextSize(), .5f);
+        assertEquals(SettingsStyle.ROW_TITLE, title.getCurrentTextColor());
         assertFalse(title.isAllCaps());
         TextView body = d.findViewById(android.R.id.message);
         assertEquals("Every setting goes back to its default.", body.getText().toString());
         assertEquals(sp(15), body.getTextSize(), .5f);
-        assertEquals(SettingsStyle.MUTED, body.getCurrentTextColor());
+        assertEquals("P574: white at 70 %", 0xB3FFFFFF, body.getCurrentTextColor());
 
         MaterialButton reset = (MaterialButton) d.getButton(DialogInterface.BUTTON_POSITIVE);
         MaterialButton cancel = (MaterialButton) d.getButton(DialogInterface.BUTTON_NEGATIVE);
@@ -173,7 +173,8 @@ public class DialogStyleTest {
         assertEquals(0xFF17141F, reset.getCurrentTextColor());
         assertEquals("a pill: half the height round", 22f, reset.getShapeAppearanceModel().getTopLeftCornerSize().getCornerSize(
                 new android.graphics.RectF(0, 0, 120, 44)), .01f);
-        assertEquals("«Cancel»: a quiet text button", SettingsStyle.TEXT, cancel.getCurrentTextColor());
+        assertEquals("«Cancel»: a quiet grey capsule in white", SettingsStyle.TEXT, cancel.getCurrentTextColor());
+        assertEquals(0x4D767680, cancel.getBackgroundTintList().getDefaultColor());
         assertEquals(LAVENDER, auto.getCurrentTextColor());
 
         cancel.performClick();
@@ -199,9 +200,9 @@ public class DialogStyleTest {
         layout(single);
         CheckedTextView row = (CheckedTextView) list.getChildAt(1);
         assertTrue(row.isChecked());
-        assertEquals(SettingsStyle.TEXT, row.getCurrentTextColor());
+        assertEquals(SettingsStyle.ROW_TITLE, row.getCurrentTextColor());
         assertEquals(sp(16), row.getTextSize(), .5f);
-        assertNotNull("the radio", row.getCompoundDrawablesRelative()[0]);
+        assertNotNull("P574: the accent tick at the row's end", row.getCompoundDrawablesRelative()[2]);
         assertNull("no second check mark", row.getCheckMarkDrawable());
         single.dismiss();
 
@@ -210,7 +211,7 @@ public class DialogStyleTest {
         layout(plain);
         TextView item = (TextView) plain.getListView().getChildAt(0);
         assertEquals("1×", item.getText().toString());
-        assertEquals(SettingsStyle.TEXT, item.getCurrentTextColor());
+        assertEquals(SettingsStyle.ROW_TITLE, item.getCurrentTextColor());
         plain.dismiss();
     }
 
@@ -227,21 +228,21 @@ public class DialogStyleTest {
         AlertDialog d = new AlertDialog.Builder(activity).setTitle("Attention!").setMessage("Reset?")
                 .setPositiveButton("Yes", null).setNegativeButton("Cancel", null).show();
         idle();
-        assertEquals(dp(24), card(d).getCornerRadius(), .5f);
+        assertEquals(dp(30), card(d).getCornerRadius(), .5f);
         MaterialButton yes = (MaterialButton) d.getButton(DialogInterface.BUTTON_POSITIVE);
         assertFalse(yes.isAllCaps());
         assertEquals(LAVENDER, yes.getBackgroundTintList().getDefaultColor());
-        assertEquals(SettingsStyle.TEXT, ((TextView) d.findViewById(androidx.appcompat.R.id.alertTitle)).getCurrentTextColor());
+        assertEquals(SettingsStyle.ROW_TITLE, ((TextView) d.findViewById(androidx.appcompat.R.id.alertTitle)).getCurrentTextColor());
     }
 
     @Test public void fieldsAndBoxesInADialogAreTheSettingsOnes() {
         android.widget.EditText field = DialogStyle.field(new android.widget.EditText(activity));
-        assertEquals(SettingsStyle.TEXT, field.getCurrentTextColor());
-        assertEquals(SettingsStyle.MUTED, field.getCurrentHintTextColor());
+        assertEquals(SettingsStyle.ROW_TITLE, field.getCurrentTextColor());
+        assertEquals(SettingsStyle.SECTION, field.getCurrentHintTextColor());
         assertTrue(field.getBackground() instanceof GradientDrawable);
         android.widget.CheckBox box = DialogStyle.check(new android.widget.CheckBox(activity));
         assertEquals(LAVENDER, box.getButtonTintList().getColorForState(new int[]{android.R.attr.state_checked}, 0));
-        assertEquals(SettingsStyle.MUTED, box.getButtonTintList().getDefaultColor());
+        assertEquals(SettingsStyle.CHEVRON, box.getButtonTintList().getDefaultColor());
         android.widget.LinearLayout body = DialogStyle.body(activity, field, box);
         assertEquals(2, body.getChildCount());
         assertEquals("aligned with the title", Math.round(dp(24)), body.getPaddingLeft());

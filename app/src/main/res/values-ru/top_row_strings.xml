@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P574: the camera screen's top row («Верхняя строка» sheet). -->
+<resources>
+    <string name="top_row_edit">Изменить верхнюю строку (свайп вниз)</string>
+</resources>

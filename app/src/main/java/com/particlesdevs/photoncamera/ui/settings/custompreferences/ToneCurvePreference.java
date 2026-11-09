@@ -217,19 +217,13 @@ public class ToneCurvePreference extends Preference {
     /** «Сохранить»: the name (a free «Кривая_N» offered), then a .txt in the folder; the same name replaces that file. */
     private void saveSheet(Context c, ToneCurveView graph) {
         LinearLayout body = SettingsStyle.sheetBody(c, Lang.t(c, "Сохранить кривую", "Save the curve"), null);
-        TextView where = SettingsStyle.text(c, Lang.t(c, "Папка: ", "Folder: ") + files().folder(), 13, SettingsStyle.MUTED);
+        TextView where = SettingsStyle.text(c, Lang.t(c, "Папка: ", "Folder: ") + files().folder(), 13, SettingsStyle.SECTION);
         where.setPadding(SettingsStyle.dp(c, 4), 0, SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 10));
         where.setTag("curve_folder");
         body.addView(where);
-        EditText field = new EditText(c);
-        field.setSingleLine(true);
-        field.setTextSize(17);
-        field.setTextColor(SettingsStyle.TEXT);
-        field.setHintTextColor(SettingsStyle.MUTED);
+        EditText field = SettingsStyle.field(new EditText(c));   // P574: the sheets' field
         field.setHint(Lang.t(c, "Название", "Name"));
-        field.setBackground(SettingsStyle.shape(c, SettingsStyle.FIELD, SettingsStyle.LINE, 14));
-        int p16 = SettingsStyle.dp(c, 16), p14 = SettingsStyle.dp(c, 14);
-        field.setPadding(p16, p14, p16, p14);
+        int p14 = SettingsStyle.dp(c, 14);
         field.setText(freeName(c));
         field.selectAll();
         field.setImeOptions(EditorInfo.IME_ACTION_DONE);
@@ -302,7 +296,7 @@ public class ToneCurvePreference extends Preference {
         templates.setGravity(Gravity.CENTER);
         int tp = SettingsStyle.dp(c, 12);
         templates.setPadding(tp, tp, tp, tp);
-        templates.setBackground(SettingsStyle.shape(c, SettingsStyle.tint(SettingsStyle.accent(c), .12f), 0, 16));
+        templates.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(SettingsStyle.accent(c)), 0, 16));
         templates.setOnClickListener(v -> {
             d.dismiss();
             ToneCurveCompare.pickTemplate(c, SettingsStyle.accent(c), this::load);
@@ -311,7 +305,7 @@ public class ToneCurvePreference extends Preference {
         tlp.bottomMargin = SettingsStyle.dp(c, 10);
         body.addView(templates, body.indexOfChild(scroll), tlp);
         TextView empty = SettingsStyle.text(c, Lang.t(c, "Сохранённых кривых пока нет. Папка: ", "No saved curves yet. Folder: ")
-                + files().folder(), 14, SettingsStyle.MUTED);
+                + files().folder(), 14, SettingsStyle.SECTION);
         empty.setPadding(SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 12));
         empty.setTag("curve_empty");
         for (String name : files().list()) {
@@ -331,7 +325,7 @@ public class ToneCurvePreference extends Preference {
                     "Open the folder: curves put into it show up here"), 14, SettingsStyle.accent(c));
             open.setGravity(Gravity.CENTER);
             open.setPadding(SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 12));
-            open.setBackground(SettingsStyle.shape(c, 0, SettingsStyle.LINE, 16));
+            open.setBackground(SettingsStyle.shape(c, SettingsStyle.ROW, 0, 16));   // P574: a #2C2C2E row, no outline
             open.setTag("curve_open_folder");
             open.setOnClickListener(v -> {
                 d.dismiss();
@@ -345,7 +339,7 @@ public class ToneCurvePreference extends Preference {
         pick.setTypeface(null, Typeface.BOLD);
         pick.setGravity(Gravity.CENTER);
         pick.setPadding(0, SettingsStyle.dp(c, 14), 0, SettingsStyle.dp(c, 14));
-        pick.setBackground(SettingsStyle.shape(c, SettingsStyle.tint(SettingsStyle.accent(c), .12f), 0, 16));
+        pick.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(SettingsStyle.accent(c)), 0, 16));
         pick.setTag("curve_import");
         pick.setOnClickListener(v -> {
             d.dismiss();
@@ -362,12 +356,12 @@ public class ToneCurvePreference extends Preference {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8));
         row.setMinimumHeight(SettingsStyle.dp(c, 60));
-        row.setBackground(SettingsStyle.shape(c, 0, 0, 14));
+        row.setBackground(SettingsStyle.shape(c, SettingsStyle.ROW, 0, 16));
         row.setTag("curve_row_" + name);
         ToneCurveThumb thumb = new ToneCurveThumb(c, curve);
         row.addView(thumb, new LinearLayout.LayoutParams(SettingsStyle.dp(c, 58), SettingsStyle.dp(c, 44)));
         String shownName = name.toLowerCase(Locale.ROOT).endsWith(".txt") ? name.substring(0, name.length() - 4) : name;
-        TextView label = SettingsStyle.text(c, shownName, 16, SettingsStyle.TEXT);
+        TextView label = SettingsStyle.text(c, shownName, 16, SettingsStyle.ROW_TITLE);
         label.setPadding(SettingsStyle.dp(c, 14), 0, SettingsStyle.dp(c, 8), 0);
         label.setSingleLine(true);
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -375,18 +369,17 @@ public class ToneCurvePreference extends Preference {
         // the bin: one tap turns it into «Удалить», the second deletes the file and folds the row out
         FrameLayout binSlot = new FrameLayout(c);
         ImageView bin = new ImageView(c);
-        bin.setImageResource(R.drawable.settings_ic_delete);
-        bin.setColorFilter(SettingsStyle.WARN, PorterDuff.Mode.SRC_IN);
+        bin.setImageResource(R.drawable.settings_ic_delete); // P570: the red colour bin as it is
         int p10 = SettingsStyle.dp(c, 10);
         bin.setPadding(p10, p10, p10, p10);
         bin.setContentDescription(Lang.t(c, "Удалить кривую", "Delete the curve"));
         bin.setTag("curve_bin_" + name);
         binSlot.addView(bin, new FrameLayout.LayoutParams(SettingsStyle.dp(c, 44), SettingsStyle.dp(c, 44), Gravity.CENTER));
-        TextView confirm = SettingsStyle.text(c, Lang.t(c, "Удалить", "Delete"), 13.5f, SettingsStyle.WARN);
+        TextView confirm = SettingsStyle.text(c, Lang.t(c, "Удалить", "Delete"), 13.5f, SettingsStyle.RED);
         confirm.setTypeface(null, Typeface.BOLD);
         confirm.setGravity(Gravity.CENTER);
         confirm.setPadding(SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 8));
-        confirm.setBackground(SettingsStyle.shape(c, 0x26FFB4A8, 0, 12));
+        confirm.setBackground(SettingsStyle.shape(c, 0x26FF453A, 0, 12));
         confirm.setVisibility(View.GONE);
         confirm.setTag("curve_delete_" + name);
         binSlot.addView(confirm, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
@@ -412,11 +405,7 @@ public class ToneCurvePreference extends Preference {
     }
 
     private static TextView accentButton(Context c, CharSequence label) {
-        TextView t = SettingsStyle.text(c, label, 16, SettingsStyle.INK);
-        t.setTypeface(null, Typeface.BOLD);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(0, SettingsStyle.dp(c, 15), 0, SettingsStyle.dp(c, 15));
-        t.setBackground(SettingsStyle.shape(c, SettingsStyle.accent(c), 0, 16));
+        TextView t = SettingsStyle.capsule(c, label, SettingsStyle.accent(c));   // P574: the sheets' accent capsule
         t.setTag("sheet_save");
         return t;
     }
@@ -488,22 +477,22 @@ public class ToneCurvePreference extends Preference {
             this.on = on;
             int accent = SettingsStyle.accent(c);
             panel.removeAllViews();
-            panel.setBackground(SettingsStyle.shape(c, SettingsStyle.FIELD, 0, 14));
+            panel.setBackground(SettingsStyle.shape(c, SettingsStyle.PAGE, 0, 16));   // P574: a well on the #2C2C2E card
             panel.setClipChildren(false);
             panel.setClipToPadding(false);
             LinearLayout head = new LinearLayout(c);
             head.setGravity(Gravity.CENTER_VERTICAL);
             prev = arrow(c, "‹", "tone_curve_prev", Lang.t(c, "Предыдущая точка", "Previous point"));
             next = arrow(c, "›", "tone_curve_next", Lang.t(c, "Следующая точка", "Next point"));
-            label = SettingsStyle.text(c, "", 14, SettingsStyle.TEXT);
+            label = SettingsStyle.text(c, "", 14, SettingsStyle.ROW_TITLE);
             label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             label.setGravity(Gravity.CENTER);
             label.setTag("tone_curve_point_label");
-            delete = SettingsStyle.text(c, Lang.t(c, "Удалить", "Delete"), 13.5f, SettingsStyle.WARN);
+            delete = SettingsStyle.text(c, Lang.t(c, "Удалить", "Delete"), 13.5f, SettingsStyle.RED);
             delete.setTypeface(null, Typeface.BOLD);
             delete.setGravity(Gravity.CENTER);
             delete.setPadding(SettingsStyle.dp(c, 12), 0, SettingsStyle.dp(c, 12), 0);
-            delete.setBackground(SettingsStyle.shape(c, 0x26FFB4A8, 0, 12));
+            delete.setBackground(SettingsStyle.shape(c, 0x26FF453A, 0, 12));
             delete.setTag("tone_curve_delete");
             int h = SettingsStyle.dp(c, 34);
             head.addView(prev, new LinearLayout.LayoutParams(h, h));
@@ -613,7 +602,7 @@ public class ToneCurvePreference extends Preference {
         private void addSlider(LinearLayout panel, CharSequence title, TextView value, SeekBar bar) {
             LinearLayout row = new LinearLayout(c);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView t = SettingsStyle.text(c, title, 14.5f, SettingsStyle.TEXT);
+            TextView t = SettingsStyle.text(c, title, 14.5f, SettingsStyle.ROW_TITLE);
             row.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(value, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -634,7 +623,7 @@ public class ToneCurvePreference extends Preference {
     private static TextView pill(Context c, int accent, String tag) {
         TextView t = SettingsStyle.text(c, "", 13.5f, accent);
         t.setBackgroundResource(R.drawable.settings_pill);
-        t.setBackgroundTintList(ColorStateList.valueOf(SettingsStyle.tint(accent, .18f)));
+        t.setBackgroundTintList(ColorStateList.valueOf(SettingsStyle.pillFill(accent)));
         t.setFontFeatureSettings("tnum");
         t.setGravity(Gravity.CENTER);
         t.setMinWidth(SettingsStyle.dp(c, 44));
@@ -649,7 +638,7 @@ public class ToneCurvePreference extends Preference {
         s.setMax(STEPS);
         s.setProgressTintList(ColorStateList.valueOf(accent));
         s.setThumbTintList(ColorStateList.valueOf(accent));
-        s.setProgressBackgroundTintList(ColorStateList.valueOf(0xFF4A5058));
+        s.setProgressBackgroundTintList(ColorStateList.valueOf(0x5C787880));   // P574: the sliders' empty track
         s.setTag(tag);
         return s;
     }
@@ -659,7 +648,7 @@ public class ToneCurvePreference extends Preference {
         TextView t = SettingsStyle.text(c, glyph, 22, accent);
         t.setTypeface(null, Typeface.BOLD);
         t.setGravity(Gravity.CENTER);
-        t.setBackground(SettingsStyle.shape(c, SettingsStyle.tint(accent, .12f), 0, 12));
+        t.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(accent), 0, 12));
         t.setTag(tag);
         t.setContentDescription(description);
         return t;
@@ -675,7 +664,7 @@ public class ToneCurvePreference extends Preference {
         t.setTypeface(null, Typeface.BOLD);
         t.setGravity(Gravity.CENTER);
         t.setPadding(0, SettingsStyle.dp(c, 10), 0, SettingsStyle.dp(c, 10));
-        t.setBackground(SettingsStyle.shape(c, SettingsStyle.tint(accent, .12f), 0, 12));
+        t.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(accent), 0, 12));
         t.setTag(tag);
         t.setOnClickListener(v -> click.run());
         return t;

@@ -467,6 +467,50 @@ public class LiveRawFrameTest {
         } finally { unhookFrees(); }
     }
 
+    /**
+     * P573 (owner, 2026-11-09: the Tetra viewfinder stuttered; VF_RAW "copy vf=11 ms pinned=0"): a Tetra frame handed over as its
+     * ring slot is drawn where it is, the mosaic itself (block 4, full size, no cell means, no copy); the same frame copied out of
+     * the camera's buffer keeps P314's cell means, and so does a Quad (block 2) slot.
+     */
+    @Test public void aTetraRingSlotIsDrawnAsTheMosaicWithoutCellMeans() {
+        hookFrees(0);
+        LiveRawFrame.pendingNs = Long.MAX_VALUE;
+        LiveRawFrame.setMaxLongSide(0);
+        LiveRawFrame.setEnabled(true);
+        try {
+            final int w = 16, h = 8;
+            ByteBuffer v = ByteBuffer.allocateDirect(w * h * 2).order(java.nio.ByteOrder.nativeOrder());
+            for (int i = 0; i < w * h; i++) v.putShort(i * 2, (short) (100 + i));
+            v.clear();
+            LiveRawFrame.Meta m = meta(w, h, w * 2, android.graphics.ImageFormat.RAW_SENSOR);
+            m.block = 4;
+            m.white = 1023;
+            LiveRawFrame.publishRef(v, m);
+            assertEquals("kept pinned: no copy", 1, LiveRawFrame.pinnedViews());
+            LiveRawFrame.Frame f = LiveRawFrame.acquire();
+            assertEquals(w, f.width);
+            assertEquals(h, f.height);
+            assertEquals(4, f.cfaBlock);
+            assertFalse("the mosaic itself, not its cell means", f.cellMean);
+            v.putShort(6, (short) 777);
+            assertEquals("the frame is the slot", 777, f.buffer.getShort(6));
+            assertFalse("off: as before", LiveRawFrame.drawsMosaicInPlace(4, true, android.graphics.ImageFormat.RAW_SENSOR, w, w * 2, false));
+            assertFalse("a copied frame", LiveRawFrame.drawsMosaicInPlace(4, false, android.graphics.ImageFormat.RAW_SENSOR, w, w * 2, true));
+            assertFalse("Quad keeps its cell means", LiveRawFrame.drawsMosaicInPlace(2, true, android.graphics.ImageFormat.RAW_SENSOR, w, w * 2, true));
+            assertFalse("padded rows are copied", LiveRawFrame.drawsMosaicInPlace(4, true, android.graphics.ImageFormat.RAW_SENSOR, w, w * 2 + 64, true));
+            assertFalse("packed", LiveRawFrame.drawsMosaicInPlace(4, true, android.graphics.ImageFormat.RAW10, w, w * 2, true));
+            // the same frame out of the camera's buffer: P314's cell means
+            ByteBuffer copied = ByteBuffer.allocateDirect(w * h * 2).order(java.nio.ByteOrder.nativeOrder());
+            for (int i = 0; i < w * h; i++) copied.putShort(i * 2, (short) 200);
+            copied.clear();
+            LiveRawFrame.publish(copied, w, h, w * 2, 3, 1023, new float[]{64, 64, 64, 64}, new float[]{2, 1, 1.5f}, null, null, 1, 1, null, 4,
+                    100, 6400, true, 0, 0, android.graphics.ImageFormat.RAW_SENSOR);
+            f = LiveRawFrame.acquire();
+            assertEquals(w / 4, f.width);
+            assertTrue(f.cellMean);
+        } finally { LiveRawFrame.setMaxLongSide(0); unhookFrees(); }
+    }
+
     /** P365: a slot the viewfinder cannot draw as it is (packed, padded rows, a bad parameter) is copied from the view and freed. */
     @Test public void aRingSlotThatIsNotPlainIsCopiedAndFreedAtOnce() {
         hookFrees(0);

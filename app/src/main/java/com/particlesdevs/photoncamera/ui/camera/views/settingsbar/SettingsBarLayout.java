@@ -34,7 +34,6 @@ import android.view.ViewParent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -117,7 +116,9 @@ public class SettingsBarLayout extends LinearLayout {
     private final LinearLayout sliderCard;
     private final TextView sliderTitle;
     private final TextView sliderPill;
-    private final SeekBar sliderBar;
+    private final com.particlesdevs.photoncamera.ui.controls.IosSlider sliderBar;
+    /** P574: the entry the card's slider shows (a new tile: set at once; the same one changed elsewhere: glides). */
+    @Nullable private String sliderBound;
     /** FULL rows: the curated groups and the pinned settings outside them. */
     private final LinearLayout fullList;
 
@@ -131,6 +132,8 @@ public class SettingsBarLayout extends LinearLayout {
     private final List<String> extraRows = new ArrayList<>();
     @Nullable private String openSlider;
     private boolean sliderTracking;
+    /** The slider card's step when the finger started: a release on it writes nothing. */
+    private int sliderTrackedFrom;
     private float iconRotation;
     private boolean refreshPosted;
     /** Edit mode: tiles wobble, «×» unpins, a press-drag reorders. */
@@ -375,33 +378,37 @@ public class SettingsBarLayout extends LinearLayout {
         sliderPill = ShadeRows.valuePill(context, accent);
         sliderTop.addView(sliderPill);
         sliderCard.addView(sliderTop);
-        sliderBar = new SeekBar(context);
+        // P574 (owner, 2026-11-09: «Ползунки … сделай ближе к IOS и сделай красивую отпрыгивающую анимацию»): the shared slider -
+        // its knob springs, the band stretches past the ends, a double tap puts the setting's default back; the pill follows it
+        sliderBar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(context);
         sliderBar.setTag("shade_slider_card_bar");
-        sliderBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        sliderBar.setAccent(accent);
+        sliderBar.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
             @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider s, float progress, boolean fromUser) {
                 ShadeCatalog.Entry e = openSliderEntry();
-                if (fromUser && e != null) sliderPill.setText(ShadeCatalog.formatNumber(e, ShadeRows.valueAt(e, progress)));
+                if (!fromUser || e == null) return;
+                sliderPill.setText(ShadeCatalog.formatNumber(e, ShadeRows.valueAt(e, Math.round(progress))));
+                // no touch tracked (a double tap, the keyboard, TalkBack): the value is the user's at once
+                if (!s.isTracking()) {
+                    com.particlesdevs.photoncamera.ui.controls.IosMotion.pop(sliderPill);
+                    apply(e, ShadeRows.valueAt(e, Math.round(progress)));
+                }
             }
 
             @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-                sliderTracking = true;
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
+            public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider s, boolean tracking) {
+                final int a = ShadeStyle.accent(getContext());
+                com.particlesdevs.photoncamera.ui.controls.IosMotion.lift(sliderPill, tracking, a, a);
+                if (tracking) {
+                    sliderTracking = true;
+                    sliderTrackedFrom = Math.round(s.getValue());
+                    return;
+                }
                 sliderTracking = false;
+                com.particlesdevs.photoncamera.ui.controls.IosMotion.pop(sliderPill);
                 ShadeCatalog.Entry e = openSliderEntry();
-                if (e != null) apply(e, ShadeRows.valueAt(e, seekBar.getProgress()));
-            }
-        });
-        // P357: a double tap on the bar puts the setting's default back
-        com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(sliderBar, () -> {
-            ShadeCatalog.Entry e = openSliderEntry();
-            if (e != null && e.kind == ShadeCatalog.SLIDER && e.defaultValue instanceof Number) {
-                apply(e, ((Number) e.defaultValue).floatValue());
-                bindSliderCard();
+                if (e != null && Math.round(s.getValue()) != sliderTrackedFrom) apply(e, ShadeRows.valueAt(e, Math.round(s.getValue())));
             }
         });
         LayoutParams barParams = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
@@ -417,7 +424,7 @@ public class SettingsBarLayout extends LinearLayout {
         content.addView(fullList, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         styleEditButton(accent);
-        headGear.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
+        com.particlesdevs.photoncamera.ui.Icons.tint(headGear, R.drawable.ui_ic_gear, ShadeStyle.TEXT); // P570
         configChip.setAccent(accent);
         refreshConfigName();
     }
@@ -760,8 +767,7 @@ public class SettingsBarLayout extends LinearLayout {
         row.setBackground(ShadeStyle.pressable(c, sheetCard(c), 0, 14));
         row.setTag("shade_all_settings");
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.ui_ic_gear);
-        icon.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
+        com.particlesdevs.photoncamera.ui.Icons.set(icon, R.drawable.ui_ic_gear, ShadeStyle.TEXT); // P570
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         int is = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 20);
         LayoutParams ip = new LayoutParams(is, is);
@@ -796,8 +802,7 @@ public class SettingsBarLayout extends LinearLayout {
         row.setBackground(ShadeStyle.pressable(c, ShadeStyle.CARD, ShadeStyle.LINE, 20));
         row.setTag("shade_more");
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.ic_shade_plus);
-        icon.setImageTintList(ColorStateList.valueOf(accent));
+        com.particlesdevs.photoncamera.ui.Icons.set(icon, R.drawable.ic_shade_plus, accent); // P570
         LayoutParams ip = new LayoutParams(dp(26), dp(26));
         ip.setMarginEnd(dp(14));
         row.addView(icon, ip);
@@ -1152,14 +1157,12 @@ public class SettingsBarLayout extends LinearLayout {
         sliderBar.setContentDescription(e.title);
         int accent = ShadeStyle.accent(getContext());
         sliderPill.setTextColor(accent);
-        sliderBar.setProgressTintList(ColorStateList.valueOf(accent));
-        sliderBar.setThumbTintList(ColorStateList.valueOf(accent));
-        sliderBar.setProgressBackgroundTintList(ColorStateList.valueOf(0xFF4A5058));
+        sliderBar.setAccent(accent);
         if (sliderTracking) return;
         float v = catalog().number(e);
         sliderPill.setText(ShadeCatalog.formatNumber(e, v));
-        sliderBar.setMax(ShadeRows.steps(e));
-        sliderBar.setProgress(ShadeRows.progressOf(e, v));
+        ShadeRows.bindSlider(sliderBar, e, v, !e.key.equals(sliderBound));
+        sliderBound = e.key;
     }
 
     /** A lens switch ends the edit mode and closes the slider card (owner's answer 11). */

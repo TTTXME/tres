@@ -61,9 +61,13 @@ final class CameraIdSheet {
         final String source = ModuleRegistry.duplicateOf(slot);
         final LinearLayout body = SettingsStyle.sheetBody(c, c.getString(R.string.camera_id_title, label), null);
         body.setTag("camera_id_sheet");
-        final TextView subtitle = SettingsStyle.text(c, c.getString(R.string.camera_id_subtitle, label), 13.5f, SettingsStyle.MUTED);
+        final TextView subtitle = SettingsStyle.text(c, c.getString(R.string.camera_id_subtitle, label), 13.5f, SettingsStyle.SECTION);
         subtitle.setPadding(SettingsStyle.dp(c, 4), 0, SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 12));
+        subtitle.setLineSpacing(SettingsStyle.dp(c, 2), 1f);
         body.addView(subtitle);
+        // P574: the choices in one #2C2C2E card with hairlines, the chosen one ticked in the accent at its end
+        final LinearLayout list = SettingsStyle.card(c, 16);
+        body.addView(list, new LinearLayout.LayoutParams(-1, -2));
         final BottomSheetDialog sheet = SettingsStyle.sheet(c, body);
         final Runnable chosen = () -> { sheet.dismiss(); done.run(); };
 
@@ -73,19 +77,19 @@ final class CameraIdSheet {
         if (source == null) {
             final boolean on = manual.isEmpty();
             known = on;
-            body.addView(option(c, "camera_id_auto", c.getString(R.string.camera_id_auto, prefs.getString("module_auto_" + slot, slot)),
+            list.addView(option(c, "camera_id_auto", c.getString(R.string.camera_id_auto, prefs.getString("module_auto_" + slot, slot)),
                     c.getString(R.string.camera_id_auto_sub), on, accent, () -> { ModuleActions.assign(c, slot, ""); chosen.run(); }));
         } else {
             final String id = ModuleRegistry.camera(source);
             final boolean on = manual.equals(id);
             known = on;
-            body.addView(option(c, "camera_id_source", c.getString(R.string.camera_id_source, ModuleRegistry.label(source), id),
+            list.addView(option(c, "camera_id_source", c.getString(R.string.camera_id_source, ModuleRegistry.label(source), id),
                     c.getString(R.string.camera_id_source_sub), on, accent, () -> { ModuleActions.assign(c, slot, id); chosen.run(); }));
         }
         for (Camera cam : cameras) {
             final boolean on = !known && !manual.isEmpty() && manual.equals(cam.id);
             known |= on;
-            body.addView(option(c, "camera_id_" + cam.id, cam.text, on ? cam.sub + "\n" + c.getString(R.string.module_id_chosen) : cam.sub,
+            list.addView(option(c, "camera_id_" + cam.id, cam.text, on ? cam.sub + "\n" + c.getString(R.string.module_id_chosen) : cam.sub,
                     on, accent, () -> { ModuleActions.assign(c, slot, cam.id); chosen.run(); }));
         }
         // a typed id: the field, its check as it is typed, and the save
@@ -104,11 +108,11 @@ final class CameraIdSheet {
             block.setVisibility(View.VISIBLE);
             block.findViewWithTag("camera_id_field").requestFocus();
         });
-        body.addView(row);
+        list.addView(row);
         body.addView(block, new LinearLayout.LayoutParams(-1, -2));
         // an original's own ID: «Авто» brings SCAMERA's choice back (a copy has no Auto: its camera is its source's)
         if (source == null && !manual.isEmpty()) {
-            final TextView note = SettingsStyle.text(c, c.getString(R.string.camera_id_chosen_note), 12.5f, SettingsStyle.MUTED);
+            final TextView note = SettingsStyle.text(c, c.getString(R.string.camera_id_chosen_note), 12.5f, SettingsStyle.SECTION);
             note.setPadding(SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 6), 0);
             body.addView(note);
         }
@@ -117,19 +121,16 @@ final class CameraIdSheet {
         return sheet;
     }
 
-    /** A radio row (≥ 52 dp): the current one tinted. {@code pick} null: the row's click is set by the caller. */
+    /** A row of the card (≥ 52 dp): the current one ticked at its end (P574). {@code pick} null: the row's click is set by the caller. */
     private static View option(Context c, String tag, CharSequence text, @Nullable CharSequence sub, boolean on, int accent, @Nullable Runnable pick) {
         final LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 11), SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 11));
+        row.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 11), SettingsStyle.dp(c, 14), SettingsStyle.dp(c, 11));
         row.setMinimumHeight(SettingsStyle.dp(c, 52));
-        row.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x1FFFFFFF),
-                SettingsStyle.shape(c, on ? SettingsStyle.tint(accent, .10f) : 0, 0, 14), SettingsStyle.shape(c, 0xFFFFFFFF, 0, 14)));
-        row.addView(SettingsStyle.radio(c, on, accent), new LinearLayout.LayoutParams(SettingsStyle.dp(c, 24), SettingsStyle.dp(c, 24)));
+        row.setBackground(SettingsStyle.pressable(c));
         final LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
-        texts.setPadding(SettingsStyle.dp(c, 14), 0, 0, 0);
-        final TextView title = SettingsStyle.text(c, text, 16, SettingsStyle.TEXT);
+        final TextView title = SettingsStyle.text(c, text, 16, SettingsStyle.ROW_TITLE);
         texts.addView(title);
         if (sub != null && sub.length() > 0) {
             final TextView s = SettingsStyle.text(c, sub, 12.5f, SettingsStyle.SUMMARY);
@@ -139,6 +140,10 @@ final class CameraIdSheet {
             texts.addView(s, lp);
         }
         row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        final LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(SettingsStyle.dp(c, 24), SettingsStyle.dp(c, 24));
+        tp.setMarginStart(SettingsStyle.dp(c, 10));
+        row.addView(SettingsStyle.radio(c, on, accent), tp);
+        row.setSelected(on);
         row.setTag(tag);
         row.setFocusable(true);
         row.setContentDescription(sub == null ? text : text + ". " + sub);
@@ -150,24 +155,20 @@ final class CameraIdSheet {
     private static LinearLayout manualBlock(Context c, String slot, String start, int accent, Runnable chosen) {
         final LinearLayout block = new LinearLayout(c);
         block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 4), 0);
+        block.setPadding(0, SettingsStyle.dp(c, 12), 0, 0);
         block.setVisibility(start.isEmpty() ? View.GONE : View.VISIBLE);
         block.setTag("camera_id_manual_block");
-        final EditText field = DialogStyle.field(new EditText(c));
+        final EditText field = SettingsStyle.field(new EditText(c));   // P574: the sheet's field (#2C2C2E, 12dp)
         field.setSingleLine(true);
         field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         field.setHint(c.getString(R.string.camera_id_hint));
         field.setTag("camera_id_field");
         block.addView(field, new LinearLayout.LayoutParams(-1, -2));
-        final TextView status = SettingsStyle.text(c, "", 13, SettingsStyle.MUTED);
+        final TextView status = SettingsStyle.text(c, "", 13, SettingsStyle.SECTION);
         status.setTag("camera_id_status");
         status.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 12));
         block.addView(status, new LinearLayout.LayoutParams(-1, -2));
-        final TextView save = SettingsStyle.text(c, c.getString(R.string.camera_id_save), 16, SettingsStyle.INK);
-        save.setTypeface(null, android.graphics.Typeface.BOLD);
-        save.setGravity(Gravity.CENTER);
-        save.setPadding(0, SettingsStyle.dp(c, 15), 0, SettingsStyle.dp(c, 15));
-        save.setBackground(SettingsStyle.shape(c, accent, 0, 16));
+        final TextView save = SettingsStyle.capsule(c, c.getString(R.string.camera_id_save), accent);
         save.setTag("camera_id_save");
         block.addView(save, new LinearLayout.LayoutParams(-1, -2));
         final CameraIdCheck.Result[] now = {null};
@@ -179,7 +180,7 @@ final class CameraIdSheet {
             save.setAlpha(saves ? 1f : .4f);
             save.setText(c.getString(r.state == CameraIdCheck.State.UNKNOWN ? R.string.camera_id_save_anyway : R.string.camera_id_save));
             status.setText(statusText(c, r));
-            status.setTextColor(r.state == CameraIdCheck.State.INVALID || r.state == CameraIdCheck.State.UNKNOWN ? SettingsStyle.WARN : SettingsStyle.MUTED);
+            status.setTextColor(r.state == CameraIdCheck.State.INVALID || r.state == CameraIdCheck.State.UNKNOWN ? SettingsStyle.WARN : SettingsStyle.SECTION);
         };
         field.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }

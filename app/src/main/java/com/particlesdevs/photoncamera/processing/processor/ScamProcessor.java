@@ -102,6 +102,8 @@ public class ScamProcessor extends ProcessorBase {
     /** The shot's digital-zoom crop and camera at the press (ImageSaver.zoomResidual / cameraIdAtPress; null id: the open one). */
     public float ownedZoomResidual = 1f;
     private float zoomResidual = 1f;
+    /** P576: this shot's crop window (SabreCrop), null when its frames are merged whole. */
+    private SabreCrop.Plan sabrePlan;
     public String ownedCameraId;
     private String cameraIdAtPress;
     /** The shot's capture plan (ImageSaver.planNote) for MergeStamp; null: none. */
@@ -154,6 +156,7 @@ public class ScamProcessor extends ProcessorBase {
         this.mosaicWb = ownedMosaicWb;
         ownedMosaicWb = null;
         this.zoomResidual = ownedZoomResidual;
+        this.sabrePlan = null;
         ownedZoomResidual = 1f;
         // the crop the processing of this shot reads (the cropShot decision, the mosaic statistic): SCAM_PROCESSING is one thread
         com.particlesdevs.photoncamera.control.ZoomController.beginProcessing(zoomResidual);
@@ -679,6 +682,15 @@ public class ScamProcessor extends ProcessorBase {
                     com.particlesdevs.photoncamera.processing.MergeProgress.listener =
                             share -> progress(com.particlesdevs.photoncamera.processing.ProcessingProgress.merge(share));
                     com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.beginShot(hybridShot); // P277: «Сохранять снимки для лаборатории»
+                    // P576: a crop shot's frames cut to the crop's window (the levels and the colour above stay the whole frame's),
+                    // merged on the Sabre grid its photo needs
+                    if (hybridShot) {
+                        processingStage = "Sabre crop window";
+                        sabrePlan = SabreCrop.cut(images, processingParameters, zoomResidual,
+                                !(saveRAW == 2 && alignAlgorithm != 2), gpuMaxSide);
+                        if (sabrePlan != null) { width = processingParameters.rawSize.x; height = processingParameters.rawSize.y; }
+                        processingStage = "Hybrid merge";
+                    }
                     try {
                         scamOwnedOutput = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.process(
                                 ScameraApp.getAppContext(), images, processingParameters, saveRAW >= 1 && alignAlgorithm != 2);
@@ -917,8 +929,10 @@ public class ScamProcessor extends ProcessorBase {
         // film's grain, scatter and halation. Before the lab's snapshot, which keeps it: a lab render of the uncropped field sizes
         // the film's effects as the photo had them, then and now alike.
         final float zoomCrop = zoomResidual;
+        // P576: a window's photo keeps only the remaining crop of the merged window (about 1)
+        final SabreCrop.Plan window = sabrePlan;
         processingParameters.filmFrameScale = com.particlesdevs.photoncamera.processing.opengl.postpipeline.FilmHalation.filmFrameScale(
-                zoomCrop, iszAspect4x3, processingParameters.rawSize);
+                window != null ? window.remaining() : zoomCrop, iszAspect4x3, processingParameters.rawSize);
         if (hybridShot) com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.snapshot(processingParameters, String.valueOf(processingParameters.physicalID)); // P277
         PostPipeline pipeline = new PostPipeline();
         openPipeline = pipeline;
@@ -1010,7 +1024,9 @@ public class ScamProcessor extends ProcessorBase {
         // after the resize to the photo size and never brought back - the switch changed nothing. On, the crop comes first
         // (on the merge's full image, the 2x grid's detail kept) and the cropped image goes to the photo size, up if need be.
         // P369: zoomCrop is the shot's, read before the pipeline
-        final Point cropTarget = img != null && zoomCrop > 1.005f && PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;
+        // P576: a window's photo size is its plan's (the uncropped photo's), in the bitmap's orientation
+        final Point cropTarget = img == null || !(zoomCrop > 1.005f) ? null : window != null ? SabreCrop.target(img.getWidth(), img.getHeight(), window)
+                : PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;
         if (img != null && cropTarget == null && hybridFinal != null && (long) hybridFinal.x * hybridFinal.y < (long) img.getWidth() * img.getHeight()) {
             final double s = Math.sqrt((double) hybridFinal.x * hybridFinal.y / ((double) img.getWidth() * img.getHeight()));
             final int tw = Math.max(2, (int) Math.round(img.getWidth() * s)) & ~1, th = Math.max(2, (int) Math.round(img.getHeight() * s)) & ~1;
@@ -1031,7 +1047,26 @@ public class ScamProcessor extends ProcessorBase {
                 }
             }
         }
-        if (img != null && zoomCrop > 1.005f) {
+        if (img != null && window != null) {
+            // P576: the merged window's remaining crop (centred, at most a colour period a side of the sensor)
+            processingStage = "Sabre crop: remaining crop";
+            final int baseWidth = img.getWidth(), baseHeight = img.getHeight();
+            final Rect rest = SabreCrop.cropRect(baseWidth, baseHeight, window);
+            if (rest != null) {
+                final Bitmap cut = com.particlesdevs.photoncamera.processing.heif.TenBitBitmaps.crop(img, rest.left, rest.top, rest.width(), rest.height());
+                if (cut != img) { img.recycle(); img = cut; }
+                if (gm != null) try {
+                    gm = gm.croppedTo(rest, baseWidth, baseHeight);
+                } catch (RuntimeException | OutOfMemoryError failure) {
+                    Log.e(TAG, "Sabre crop: gain-map crop failed, SDR output", failure);
+                    gm.bitmap.recycle();
+                    gm = null;
+                }
+            }
+            Log.i("SCAM_HDR", "Sabre crop (P576): merged window " + baseWidth + "x" + baseHeight + (rest == null ? " kept whole"
+                    : " cropped to " + rest.width() + "x" + rest.height() + " at " + rest.left + "," + rest.top)
+                    + (cropTarget == null ? " (no upscale)" : ", photo " + cropTarget.x + "x" + cropTarget.y));
+        } else if (img != null && zoomCrop > 1.005f) {
             processingStage = "digital zoom crop";
             img = com.particlesdevs.photoncamera.control.ZoomController.crop(img, zoomCrop);
             if (gm != null) gm = gm.croppedBy(zoomCrop);
@@ -1039,7 +1074,10 @@ public class ScamProcessor extends ProcessorBase {
         if (cropTarget != null && (cropTarget.x != img.getWidth() || cropTarget.y != img.getHeight())) {
             processingStage = "crop to the photo size " + img.getWidth() + "x" + img.getHeight() + " -> " + cropTarget.x + "x" + cropTarget.y;
             try {
-                final Bitmap scaled = com.particlesdevs.photoncamera.processing.ml.ScamPostDownscale.scaleTo(img, cropTarget.x, cropTarget.y);
+                // P576: a window merged above the photo's size goes down with the output's downsampler (as an uncropped 2x shot)
+                final Bitmap scaled = window != null && cropTarget.x <= img.getWidth() && cropTarget.y <= img.getHeight()
+                        ? com.particlesdevs.photoncamera.processing.ml.ScamPostDownscale.resizeTo(img, cropTarget.x, cropTarget.y, PreferenceKeys.hybridDownsampler())
+                        : com.particlesdevs.photoncamera.processing.ml.ScamPostDownscale.scaleTo(img, cropTarget.x, cropTarget.y);
                 if (scaled != img) { img.recycle(); img = scaled; }
                 if (gm != null) gm = gm.resizedFor(img.getWidth(), img.getHeight());
                 Log.i("SCAM_HDR", "crop " + zoomCrop + "x brought to the photo size " + img.getWidth() + "x" + img.getHeight() + " (P226)");

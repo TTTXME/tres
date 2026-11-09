@@ -235,6 +235,27 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent" />
 
+        <!-- P574 (the approved concept): the top grabber over the top row - a tap or a drag down opens the «Верхняя строка» sheet
+             (CameraFragment.attachTopGrabber); a swipe down from the top zone of the viewfinder does the same (Swipe.Router). -->
+        <FrameLayout
+                android:id="@+id/top_row_grabber"
+                android:layout_width="56dp"
+                android:layout_height="12dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/top_row_edit"
+                app:layout_constraintTop_toTopOf="@id/layout_topbar"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+            <View
+                    android:id="@+id/top_row_grip"
+                    android:layout_width="36dp"
+                    android:layout_height="4dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"/>
+        </FrameLayout>
+
         <!-- The FULL sheet's scrim over the top bar (outside camera_container); see shade_scrim. -->
         <View
                 android:id="@+id/shade_scrim_top"

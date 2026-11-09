@@ -266,10 +266,11 @@ public final class WhyCombine extends Node {
             if (pipeline.p3Output) glProg.setDefine("P3_OUT", 1);
             if (colourOn) glProg.setDefine("COLOUR_LOOK", 1);
             if (st.portrait != null && st.portrait.corrected()) glProg.setDefine("PORTRAIT", 1);
-            // P512: «Маска лица» and Face AWB of «Портрет» (a face found and its skin measured)
+            // P512: «Маска лица» and Face AWB of «Портрет» (a face found and its skin measured); P577: Face AWB's default the XML's 1
+            // (P513; the code's 0.5 was left from before it)
             if (faceTex != null) glProg.setDefine("FACE_MASK", 1);
             float[] faceAwb = faceShot ? com.particlesdevs.photoncamera.processing.portrait.PortraitSkin.faceAwb(st.portrait,
-                    Math.max(0f, Math.min(1f, WhyTone.value("portrait_awb", 0.5f)))) : null;
+                    Math.max(0f, Math.min(1f, WhyTone.value("portrait_awb", 1f)))) : null;
             if (faceAwb != null && faceAwb[0] == 0f && faceAwb[1] == 0f) faceAwb = null;
             if (faceAwb != null) glProg.setDefine("FACE_AWB", 1);
             if (faceShot) Log.i("SCAM_PIPELINE", "Portrait: mask " + (faceMask != null ? java.util.Arrays.toString(faceMask) : "off")

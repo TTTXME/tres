@@ -116,7 +116,7 @@ public class ShadeCatalogView extends LinearLayout {
         field.setPadding(dp(14), 0, dp(4), 0);
         ImageView glass = new ImageView(context);
         glass.setImageResource(R.drawable.ui_ic_search);
-        glass.setColorFilter(ShadeStyle.MUTED);
+        com.particlesdevs.photoncamera.ui.Icons.ink(glass, R.drawable.ui_ic_search, ShadeStyle.MUTED); // P570: tonal mono
         glass.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         field.addView(glass, new LayoutParams(dp(20), dp(20)));
         search = new EditText(context);
@@ -354,7 +354,8 @@ public class ShadeCatalogView extends LinearLayout {
             h.itemView.setBackground(divided);
             ((RecyclerView.LayoutParams) h.itemView.getLayoutParams()).bottomMargin = last ? dp(6) : 0;
             h.icon.setImageDrawable(catalog.settingIcon(e));
-            h.icon.setImageTintList(ColorStateList.valueOf(accent));
+            if (catalog.colourIcon(e)) com.particlesdevs.photoncamera.ui.Icons.own(h.icon); // P570: a colour icon keeps its colours
+            else h.icon.setImageTintList(ColorStateList.valueOf(accent));
             h.title.setText(e.title);
             String crumb = e.crumb();
             h.crumb.setText(crumb);

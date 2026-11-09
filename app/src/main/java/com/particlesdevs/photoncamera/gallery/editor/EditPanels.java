@@ -2,7 +2,6 @@ package com.particlesdevs.photoncamera.gallery.editor;
 
 import android.content.Context;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,6 +23,9 @@ import java.util.Locale;
  * P351: the tool panels of the editor's tabs, built in code in the gallery's look (GalleryUi): slider rows bound to the
  * state's {@link Param}s, chips for sub-sections and choices, the curve editor. {@link #refresh} puts the state's values back
  * into every bound control after undo / redo / reset / a style.
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the sliders are the shared slider
+ * rows (EditSlider), a choice of a few (the curve's channel, the colour sections, the grading wheels, colour / B&W) the shared
+ * segmented control, the long lists (aspect ratios, styles) capsule chips - the accent with dark ink when chosen, #2C2C2E otherwise.
  */
 final class EditPanels {
     interface Host {
@@ -168,17 +170,25 @@ final class EditPanels {
     }
 
     TextView chip(String text, boolean on, View.OnClickListener click) {
-        TextView t = GalleryUi.text(c, text, 13.5f, on ? GalleryUi.INK : GalleryUi.TEXT);
+        TextView t = GalleryUi.text(c, text, 14, on ? GalleryUi.INK : GalleryUi.TEXT);
         t.setGravity(Gravity.CENTER);
         t.setMinHeight(GalleryUi.dp(c, 36));
         t.setPadding(GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 14), 0);
-        t.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        t.setBackground(GalleryUi.pressable(GalleryUi.round(c, on ? GalleryUi.accent(c) : GalleryUi.CARD, on ? GalleryUi.accent(c) : GalleryUi.LINE, 999)));
-        t.setSelected(on);
+        GalleryUi.paintChip(t, on);
         t.setClickable(true);
         t.setFocusable(true);
         t.setOnClickListener(click);
+        com.particlesdevs.photoncamera.ui.Motion.press(t);
         return t;
+    }
+
+    /** P579: a choice of a few as the shared segmented control, 18dp from the panel's sides; {@code pick} hears a tap's index. */
+    View segments(String[] names, int on, java.util.function.IntConsumer pick) {
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented seg = GalleryUi.segmented(c, names, on, pick);
+        LinearLayout box = new LinearLayout(c);
+        box.setPadding(GalleryUi.dp(c, 18), GalleryUi.dp(c, 8), GalleryUi.dp(c, 18), GalleryUi.dp(c, 6));
+        box.addView(seg, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return box;
     }
 
     /** A horizontally scrolling row of chips. */
@@ -187,10 +197,10 @@ final class EditPanels {
         sv.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 6), GalleryUi.dp(c, 14), GalleryUi.dp(c, 6));
+        row.setPadding(GalleryUi.dp(c, 18), GalleryUi.dp(c, 8), GalleryUi.dp(c, 18), GalleryUi.dp(c, 6));
         for (TextView t : chips) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = GalleryUi.dp(c, 8);
+            lp.setMarginEnd(GalleryUi.dp(c, 8));
             row.addView(t, lp);
         }
         sv.addView(row);
@@ -211,6 +221,11 @@ final class EditPanels {
             l.addView(slider(p, label(p)));
         l.addView(section(Lang.t("Кривая", "Curve")));
         LinearLayout curveBox = column(c);
+        // P579: the channel on the shared segmented control, built once (a pick rebuilds the curve under it, the thumb glides)
+        l.addView(segments(new String[]{"RGB", Lang.t("Красный", "Red"), Lang.t("Зелёный", "Green"), Lang.t("Синий", "Blue")}, curveChannel, ch -> {
+            curveChannel = ch;
+            buildCurve(curveBox);
+        }));
         l.addView(curveBox);
         buildCurve(curveBox);
         for (Param p : new Param[]{Param.CURVE_HIGHLIGHTS, Param.CURVE_LIGHTS, Param.CURVE_DARKS, Param.CURVE_SHADOWS,
@@ -221,17 +236,7 @@ final class EditPanels {
 
     private void buildCurve(LinearLayout box) {
         box.removeAllViews();
-        String[] names = {"RGB", Lang.t("Красный", "Red"), Lang.t("Зелёный", "Green"), Lang.t("Синий", "Blue")};
         int[] colours = {0xFFFFFFFF, 0xFFFF5A5F, 0xFF4CD964, 0xFF4A8CFF};
-        List<TextView> chips = new ArrayList<>();
-        for (int i = 0; i < 4; i++) {
-            final int ch = i;
-            chips.add(chip(names[i], i == curveChannel, v -> {
-                curveChannel = ch;
-                buildCurve(box);
-            }));
-        }
-        box.addView(chipRow(chips));
         CurveView cv = new CurveView(c);
         cv.set(host.state().curves[curveChannel], colours[curveChannel]);
         cv.setListener((pts, done) -> {
@@ -260,16 +265,11 @@ final class EditPanels {
     }
 
     private void buildColourSections(LinearLayout tabs, LinearLayout body, String[] names) {
-        tabs.removeAllViews();
-        List<TextView> chips = new ArrayList<>();
-        for (int i = 0; i < names.length; i++) {
-            final int k = i;
-            chips.add(chip(names[i], i == colourSection, v -> {
-                colourSection = k;
-                buildColourSections(tabs, body, names);
-            }));
-        }
-        tabs.addView(chipRow(chips));
+        // P579: the sections on the shared segmented control, built once; a pick rebuilds the body under it
+        if (tabs.getChildCount() == 0) tabs.addView(segments(names, colourSection, k -> {
+            colourSection = k;
+            buildColourSections(tabs, body, names);
+        }));
         body.removeAllViews();
         switch (colourSection) {
             case 1: mixer(body); break;
@@ -323,44 +323,42 @@ final class EditPanels {
 
     private void grading(LinearLayout body) {
         String[] names = {Lang.t("Тени", "Shadows"), Lang.t("Средние", "Midtones"), Lang.t("Света", "Highlights"), Lang.t("Общий", "Global")};
-        List<TextView> chips = new ArrayList<>();
-        for (int w = 0; w < 4; w++) {
-            final int k = w;
-            chips.add(chip(names[w], w == gradeWheel, v -> {
-                gradeWheel = k;
-                body.removeAllViews();
-                grading(body);
-            }));
-        }
-        body.addView(chipRow(chips));
-        body.addView(slider(Param.grade(gradeWheel, 0), Lang.t("Тон", "Hue")));
-        body.addView(slider(Param.grade(gradeWheel, 1), Lang.t("Насыщенность", "Saturation")));
-        body.addView(slider(Param.grade(gradeWheel, 2), Lang.t("Яркость", "Luminance")));
-        body.addView(slider(Param.GRADE_BLEND, label(Param.GRADE_BLEND)));
-        body.addView(slider(Param.GRADE_BALANCE, label(Param.GRADE_BALANCE)));
+        LinearLayout wheel = column(c);
+        body.addView(segments(names, gradeWheel, k -> {
+            gradeWheel = k;
+            gradingSliders(wheel);
+        }));
+        body.addView(wheel);
+        gradingSliders(wheel);
+    }
+
+    private void gradingSliders(LinearLayout wheel) {
+        wheel.removeAllViews();
+        wheel.addView(slider(Param.grade(gradeWheel, 0), Lang.t("Тон", "Hue")));
+        wheel.addView(slider(Param.grade(gradeWheel, 1), Lang.t("Насыщенность", "Saturation")));
+        wheel.addView(slider(Param.grade(gradeWheel, 2), Lang.t("Яркость", "Luminance")));
+        wheel.addView(slider(Param.GRADE_BLEND, label(Param.GRADE_BLEND)));
+        wheel.addView(slider(Param.GRADE_BALANCE, label(Param.GRADE_BALANCE)));
     }
 
     private void mono(LinearLayout body) {
-        boolean on = host.state().mono();
-        List<TextView> chips = new ArrayList<>();
-        chips.add(chip(Lang.t("Цвет", "Colour"), !on, v -> {
-            host.state().set(Param.MONO, 0f);
+        LinearLayout bands = column(c);
+        body.addView(segments(new String[]{Lang.t("Цвет", "Colour"), Lang.t("Ч/Б", "B&W")}, host.state().mono() ? 1 : 0, k -> {
+            host.state().set(Param.MONO, k == 1 ? 1f : 0f);
             host.changed(true);
-            body.removeAllViews();
-            mono(body);
+            monoBands(bands);
         }));
-        chips.add(chip(Lang.t("Ч/Б", "B&W"), on, v -> {
-            host.state().set(Param.MONO, 1f);
-            host.changed(true);
-            body.removeAllViews();
-            mono(body);
-        }));
-        body.addView(chipRow(chips));
-        if (!on) return;
+        body.addView(bands);
+        monoBands(bands);
+    }
+
+    private void monoBands(LinearLayout bands) {
+        bands.removeAllViews();
+        if (!host.state().mono()) return;
         for (int b = 0; b < 8; b++) {
             EditSlider s = slider(Param.bw(b), bandName(b));
             s.gradient(new int[]{0xFF202020, BAND_COLOURS[b], 0xFFF0F0F0});
-            body.addView(s);
+            bands.addView(s);
         }
     }
 

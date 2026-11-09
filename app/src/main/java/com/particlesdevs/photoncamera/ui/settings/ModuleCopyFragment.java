@@ -17,6 +17,8 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
     private final List<String> ids=new ArrayList<>();
     private String source;
     private final ArrayList<String> path=new ArrayList<>();
+    /** P574: the source's pull-down menu while it is open (its items tagged "option_" + the module id). */
+    android.widget.PopupWindow sourceMenu;
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         PreferenceManager pm=new PreferenceManager(requireContext());pm.setSharedPreferencesName("module_copy_catalog");
@@ -80,11 +82,12 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
     @Override protected void render(){
         PreferenceGroup group=current();boolean home=path.isEmpty();page(home?Lang.t(getContext(),"Копирование настроек","Copy settings"):String.valueOf(group.getTitle()),home?null:Lang.t(getContext(),"Выбор параметров для копирования","Choose the parameters to copy"));
         if(home){
-            caption(Lang.t(getContext(),"Источник","Source"));LinearLayout sourceCard=card(),r=row();r.setPadding(dp(14),dp(12),dp(14),dp(12));r.setMinimumHeight(dp(48));ImageView camera=icon("▣");camera.setPadding(0,0,dp(12),0);r.addView(camera,new LinearLayout.LayoutParams(dp(38),dp(26)));r.addView(text(Lang.t(getContext(),"Источник: ","Source: ")+label(source),15,TEXT),new LinearLayout.LayoutParams(0,-2,1));r.addView(text("⌄",20,MUTED));r.setTag("source_module");
-            r.setOnClickListener(v->DialogStyle.builder(requireContext()).setTitle(Lang.t(getContext(),"Источник","Source")).setItems(ids.stream().map(this::label).toArray(String[]::new),(d,i)->{source=ids.get(i);targets.remove(source);render();}).show());sourceCard.addView(r);
+            caption(Lang.t(getContext(),"Источник","Source"));LinearLayout sourceCard=card(),r=row();r.setPadding(dp(14),dp(12),dp(14),dp(12));r.setMinimumHeight(dp(48));ImageView camera=icon("▣");camera.setPadding(0,0,dp(12),0);r.addView(camera,new LinearLayout.LayoutParams(dp(38),dp(26)));r.addView(text(Lang.t(getContext(),"Источник: ","Source: ")+label(source),15,TEXT),new LinearLayout.LayoutParams(0,-2,1));ImageView down=chevron();down.setRotation(90);down.setColorFilter(accent);r.addView(down,new LinearLayout.LayoutParams(dp(16),dp(20)));r.setTag("source_module");
+            // P574: the source in the pull-down menu at its row (was a list dialog)
+            r.setOnClickListener(v->sourceMenu=DialogStyle.track(com.particlesdevs.photoncamera.ui.controls.IosMenu.show(v,Lang.t(getContext(),"Источник","Source"),ids.stream().map(this::label).toArray(String[]::new),ids.toArray(new String[0]),ids.indexOf(source),i->{source=ids.get(i);targets.remove(source);render();})));sourceCard.addView(r);
             caption(Lang.t(getContext(),"Целевые модули","Target modules"));LinearLayout line=null;int index=0;
             for(String id:ids){if(id.equals(source))continue;if(index++%2==0){line=row();body.addView(line,space(-1,-2,8));}
-                boolean on=targets.contains(id);LinearLayout chip=row();chip.setPadding(dp(2),dp(2),dp(8),dp(2));chip.setBackground(shape(on?((accent&0xFFFFFF)|0x28000000):CARD,on?accent:LINE,12));
+                boolean on=targets.contains(id);LinearLayout chip=row();chip.setPadding(dp(2),dp(2),dp(8),dp(2));chip.setBackground(shape(on?SettingsStyle.pillFill(accent):CARD,0,16));   // P574: the accent's dark tone when chosen, no outlines
                 Runnable choose=()->{if(targets.contains(id))targets.remove(id);else targets.add(id);render();};chip.addView(mark(on?2:0,label(id),choose),new LinearLayout.LayoutParams(dp(36),dp(40)));chip.addView(text(label(id),13,on?accent:TEXT),new LinearLayout.LayoutParams(0,-2,1));chip.setOnClickListener(v->choose.run());chip.setTag("target_"+id);
                 LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);if(index%2==1)lp.rightMargin=dp(10);line.addView(chip,lp);
             }
@@ -99,7 +102,7 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
                 Set<String> keys=new HashSet<>();collect(p,keys);final int childIndex=i;
                 LinearLayout r=row();r.setPadding(dp(2),0,dp(12),0);r.setMinimumHeight(dp(44));long count=keys.stream().filter(selected::contains).count();
                 View check=mark(count==0?0:(count==keys.size()?2:1),p.getTitle()+Lang.t(getContext(),", выбрано "+count+" из "+keys.size(),", selected "+count+" of "+keys.size()),()->toggle(keys));check.setEnabled(!keys.isEmpty());check.setAlpha(keys.isEmpty()?.35f:1);check.setTag("group_check_"+p.getKey());r.addView(check,new LinearLayout.LayoutParams(dp(46),dp(44)));
-                TextView title=text(String.valueOf(p.getTitle()),14,TEXT);title.setPadding(dp(4),dp(8),dp(4),dp(8));r.addView(title,new LinearLayout.LayoutParams(0,-2,1));r.addView(text("›",23,MUTED));r.setTag("group_"+p.getKey());r.setOnClickListener(v->{path.add(String.valueOf(childIndex));render();((ScrollView)body.getParent()).scrollTo(0,0);});
+                TextView title=text(String.valueOf(p.getTitle()),14,TEXT);title.setPadding(dp(4),dp(8),dp(4),dp(8));r.addView(title,new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams chev=new LinearLayout.LayoutParams(dp(16),dp(20));chev.rightMargin=dp(4);r.addView(chevron(),chev);r.setTag("group_"+p.getKey());r.setOnClickListener(v->{path.add(String.valueOf(childIndex));render();((ScrollView)body.getParent()).scrollTo(0,0);});
                 if(list.getChildCount()>0)divider(list);list.addView(r);
             }
             note(Lang.t(getContext(),"Общие параметры помечены внутри групп","Shared parameters are marked inside the groups"));

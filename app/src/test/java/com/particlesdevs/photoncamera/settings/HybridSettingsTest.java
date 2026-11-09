@@ -173,7 +173,7 @@ public class HybridSettingsTest {
         manager.set("default_scope","pref_scam_hybrid_noise_photon","2,5");
         manager.set("default_scope","pref_scam_hybrid_zsl_frames","99");
         assertEquals(2.5f,PreferenceKeys.routeInternalValue("noise_photon",1f),0f);
-        assertEquals(44,PreferenceKeys.getScamZslFrames());
+        assertEquals("P578: clamped to the new maximum", 65,PreferenceKeys.getScamZslFrames());
         // "hybrid_<key>" always names a hybrid setting, in any profile.
         manager.set("default_scope","pref_scam_hybrid_bento_factor","12");
         assertEquals(12f,PreferenceKeys.routeInternalValue("hybrid_bento_factor",8f),0f);

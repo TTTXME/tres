@@ -6,7 +6,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.CompoundButton;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -89,10 +88,13 @@ public class TunableKeyPreference extends Preference {
     public void onBindViewHolder(@NonNull PreferenceViewHolder holder) {
         super.onBindViewHolder(holder);
         View widget = holder.findViewById(R.id.switchWidget);
-        if (widget instanceof CompoundButton) {
-            CompoundButton sw = (CompoundButton) widget;
+        if (widget instanceof com.particlesdevs.photoncamera.ui.controls.IosSwitch) {
+            // P574: the settings' switch; a recycled row shows this key's state at once
+            com.particlesdevs.photoncamera.ui.controls.IosSwitch sw = (com.particlesdevs.photoncamera.ui.controls.IosSwitch) widget;
             sw.setOnCheckedChangeListener(null);
-            sw.setChecked(enabled);
+            if (sw.getTag(R.id.settings_bound_preference) != this) sw.setCheckedNow(enabled);
+            else sw.setChecked(enabled);
+            sw.setTag(R.id.settings_bound_preference, this);
             sw.setContentDescription(getTitle());
             sw.setOnCheckedChangeListener((button, on) -> {
                 List<VendorTagUtils.TunableKey> keys = TunableKeyManager.loadKeys(getContext(), sensorId);

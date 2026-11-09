@@ -30,37 +30,34 @@ public final class MessageHistorySheet {
         List<MessageLog.Entry> entries = UiMessages.history(c);
         LinearLayout body = SettingsStyle.sheetBody(c, Lang.t(c, "Последние сообщения", "Recent messages"), null);
         if (entries.isEmpty()) {
-            TextView none = SettingsStyle.text(c, Lang.t(c, "Сообщений пока нет.", "No messages yet."), 14, SettingsStyle.MUTED);
-            none.setPadding(SettingsStyle.dp(c, 4), 0, SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8));
-            body.addView(none);
+            TextView none = SettingsStyle.text(c, Lang.t(c, "Сообщений пока нет.", "No messages yet."), 15, SettingsStyle.SECTION);
+            none.setGravity(android.view.Gravity.CENTER);
+            none.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 12));
+            body.addView(none, new LinearLayout.LayoutParams(-1, -2));
         }
         long now = System.currentTimeMillis();
-        for (int i = 0; i < entries.size(); i++) {
-            if (i > 0) {
-                View line = new View(c);
-                line.setBackgroundColor(SettingsStyle.LINE);
-                body.addView(line, new LinearLayout.LayoutParams(-1, Math.max(1, SettingsStyle.dp(c, 1) / 2)));
-            }
-            body.addView(row(c, entries.get(i), now));
-        }
+        // P574: the messages in one #2C2C2E card with hairlines; «Скопировать» a grey capsule, «Очистить» a red-text one
+        LinearLayout card = SettingsStyle.card(c, 16);
+        for (int i = 0; i < entries.size(); i++) card.addView(row(c, entries.get(i), now));
+        if (!entries.isEmpty()) body.addView(card, new LinearLayout.LayoutParams(-1, -2));
         BottomSheetDialog[] dialog = new BottomSheetDialog[1];
         if (!entries.isEmpty()) {
             LinearLayout actions = new LinearLayout(c);
             actions.setPadding(0, SettingsStyle.dp(c, 14), 0, 0);
-            TextView copy = SettingsStyle.chip(c, Lang.t(c, "Скопировать", "Copy"));
+            TextView copy = SettingsStyle.quietCapsule(c, Lang.t(c, "Скопировать", "Copy"), SettingsStyle.ROW_TITLE);
             copy.setTag("messages_copy");
             copy.setOnClickListener(v -> {
                 ClipboardManager clip = (ClipboardManager) c.getSystemService(Context.CLIPBOARD_SERVICE);
                 if (clip != null) clip.setPrimaryClip(ClipData.newPlainText("SCAMERA", plain(entries, now)));
             });
-            TextView clear = SettingsStyle.chip(c, Lang.t(c, "Очистить", "Clear"));
+            TextView clear = SettingsStyle.quietCapsule(c, Lang.t(c, "Очистить", "Clear"), SettingsStyle.RED);
             clear.setTag("messages_clear");
             clear.setOnClickListener(v -> {
                 UiMessages.clearHistory(c);
                 if (dialog[0] != null) dialog[0].dismiss();
             });
-            actions.addView(copy);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            actions.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
             lp.setMarginStart(SettingsStyle.dp(c, 10));
             actions.addView(clear, lp);
             body.addView(actions);
@@ -73,10 +70,10 @@ public final class MessageHistorySheet {
     private static View row(Context c, MessageLog.Entry e, long now) {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 9), SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 9));
+        row.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 11), SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 11));
         TextView meta = SettingsStyle.text(c, meta(c, e, now), 12, e.error ? SettingsStyle.WARN : SettingsStyle.SUMMARY);
         meta.setPadding(0, 0, 0, SettingsStyle.dp(c, 4));
-        TextView text = SettingsStyle.text(c, e.text, 14, SettingsStyle.TEXT);
+        TextView text = SettingsStyle.text(c, e.text, 14, SettingsStyle.ROW_TITLE);
         text.setTextIsSelectable(true);
         text.setLineSpacing(0, 1.15f);
         row.addView(meta);

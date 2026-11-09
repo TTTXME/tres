@@ -82,7 +82,7 @@ public final class ToneCurveCompare {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setTag("tone_curve_compare");
-        TextView title = SettingsStyle.text(c, Lang.t(c, "Сравнить:", "Compare:"), 13, SettingsStyle.MUTED);
+        TextView title = SettingsStyle.text(c, Lang.t(c, "Сравнить:", "Compare:"), 13, SettingsStyle.SECTION);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
         tp.setMarginEnd(SettingsStyle.dp(c, 6));
         row.addView(title, tp);
@@ -108,8 +108,8 @@ public final class ToneCurveCompare {
     private static void paint(Context c, TextView chip, int i) {
         boolean on = shown(c, i);
         chip.setSelected(on);
-        chip.setBackground(SettingsStyle.shape(c, on ? (COLOURS[i] & 0x00FFFFFF) | 0x33000000 : SettingsStyle.FIELD,
-                on ? COLOURS[i] : SettingsStyle.LINE, 100));
+        chip.setBackground(SettingsStyle.shape(c, on ? (COLOURS[i] & 0x00FFFFFF) | 0x33000000 : SettingsStyle.PAGE,
+                on ? COLOURS[i] : 0, 100));
     }
 
     /** Names of the templates: the S-curve, the straight line and the operators. */

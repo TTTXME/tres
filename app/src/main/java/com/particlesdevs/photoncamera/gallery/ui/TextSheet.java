@@ -12,7 +12,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.particlesdevs.photoncamera.gallery.files.MediaFile;
@@ -55,7 +54,9 @@ public final class TextSheet {
         text.setLineSpacing(0, 1.25f);
         int p = GalleryUi.dp(c, 14);
         text.setPadding(p, p, p, p);
-        text.setBackground(GalleryUi.round(c, GalleryUi.CARD, GalleryUi.LINE, 16));
+        text.setBackground(GalleryUi.card(c, GalleryUi.CARD, 24)); // P579: a #2C2C2E card, 24dp corners
+        p = GalleryUi.dp(c, 16);
+        text.setPadding(p, p, p, p);
         text.setMinHeight(GalleryUi.dp(c, 96));
         final String[] result = {""};
         final int[] run = {0};
@@ -87,10 +88,16 @@ public final class TextSheet {
                 });
             });
         };
-        s.addView(GallerySheets.segmented(c, labels.toArray(new String[0]), 0, index -> {
+        // P579: the language a row of a card with the shared pull-down menu (it was a row of chips that scrolled sideways)
+        LinearLayout language = GalleryUi.group(c, 16);
+        language.addView(GallerySheets.menuRow(c, Lang.t("Язык", "Language"), labels.toArray(new String[0]), 0, index -> {
             chosen[0] = index;
             read[0].run();
-        }));
+        }, "ocr_language"));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = GalleryUi.dp(c, 10);
+        lp.bottomMargin = GalleryUi.dp(c, 4);
+        s.addView(language, lp);
         s.addView(status);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tp.topMargin = GalleryUi.dp(c, 4);
@@ -111,7 +118,7 @@ public final class TextSheet {
             if (result[0].isEmpty()) return;
             ClipboardManager cm = (ClipboardManager) c.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText(Lang.t("Текст с фото", "Text from the photo"), result[0]));
-            Toast.makeText(c, Lang.t("Текст скопирован", "Text copied"), Toast.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(c, Lang.t("Текст скопирован", "Text copied"));
         });
         share.setOnClickListener(v -> {
             if (result[0].isEmpty()) return;

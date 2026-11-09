@@ -13,11 +13,9 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
-import androidx.appcompat.widget.SwitchCompat;
 
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.settings.ShadeCatalog;
@@ -91,6 +89,7 @@ final class ShadeRows {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(dp(6), dp(22), dp(6), dp(10));
         into.addView(label, lp);
+        final List<RowCard> group = new java.util.ArrayList<>();
         for (String key : keys) {
             ShadeCatalog.Entry e = catalog.entry(key);
             if (e == null || rows.containsKey(key)) continue;
@@ -102,6 +101,31 @@ final class ShadeRows {
             rp.bottomMargin = dp(10);
             into.addView(row.card, rp);
             rows.put(key, row);
+            group.add(row.card);
+        }
+        groupCards(group);
+    }
+
+    /**
+     * P574 (the approved concept's «Для опытных» list): a section's rows are one card - 24dp outer corners, square inside, a
+     * hairline of the sheet between rows - instead of separate cards with a stroke.
+     */
+    private void groupCards(List<RowCard> cards) {
+        final int n = cards.size(), line = Math.max(1, Math.round(context.getResources().getDisplayMetrics().density * .5f));
+        final float r = 24 * context.getResources().getDisplayMetrics().density;
+        for (int i = 0; i < n; i++) {
+            final RowCard card = cards.get(i);
+            final float top = i == 0 ? r : 0, bottom = i == n - 1 ? r : 0;
+            final float[] radii = {top, top, top, top, bottom, bottom, bottom, bottom};
+            final android.graphics.drawable.GradientDrawable fill = new android.graphics.drawable.GradientDrawable();
+            fill.setColor(ShadeStyle.CARD);
+            fill.setCornerRadii(radii);
+            final android.graphics.drawable.GradientDrawable mask = new android.graphics.drawable.GradientDrawable();
+            mask.setColor(0xFFFFFFFF);
+            mask.setCornerRadii(radii);
+            card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x29FFFFFF), fill, mask));
+            final ViewGroup.LayoutParams lp = card.getLayoutParams();
+            if (lp instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) lp).bottomMargin = i == n - 1 ? dp(10) : line;
         }
     }
 
@@ -223,10 +247,12 @@ final class ShadeRows {
             card.setAlpha(reason == null ? 1f : ShadeStyle.DIMMED);
             android.graphics.drawable.Drawable d = catalog.settingIcon(entry);
             icon.setImageDrawable(d);
-            icon.setImageTintList(ColorStateList.valueOf(accent));
+            if (catalog.colourIcon(entry)) com.particlesdevs.photoncamera.ui.Icons.own(icon); // P570: a colour icon keeps its colours
+            else icon.setImageTintList(ColorStateList.valueOf(accent));
             boolean pinned = actions.pinned(entry.key);
+            // P570: pinned, the red pin; else the grey one in tonal mono
             pin.setImageResource(pinned ? R.drawable.ic_sheet_pin_on : R.drawable.ic_sheet_pin);
-            pin.setImageTintList(ColorStateList.valueOf(pinned ? accent : ShadeStyle.MUTED));
+            if (pinned) com.particlesdevs.photoncamera.ui.Icons.own(pin); else com.particlesdevs.photoncamera.ui.Icons.mono(pin, ShadeStyle.MUTED);
             pin.setContentDescription(context.getString(pinned ? R.string.shade_unpin : R.string.shade_pin, entry.shortTitle));
             pin.setSelected(pinned);
             bindValue();
@@ -369,20 +395,17 @@ final class ShadeRows {
     }
 
     private final class ToggleRow extends Row {
-        final SwitchCompat toggle;
+        final com.particlesdevs.photoncamera.ui.controls.IosSwitch toggle;
 
         ToggleRow(ShadeCatalog.Entry entry, boolean showPath) {
             super(entry, showPath);
-            toggle = new SwitchCompat(context);
+            // P574: the shared switch (green, the knob on a spring); the card takes the tap
+            toggle = new com.particlesdevs.photoncamera.ui.controls.IosSwitch(context);
             toggle.setClickable(false);
             toggle.setFocusable(false);
             toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            int[][] states = {{android.R.attr.state_checked}, {}};
-            toggle.setThumbTintList(new ColorStateList(states, new int[]{0xFFFFFFFF, 0xFF9AA0A7}));
-            toggle.setTrackTintList(new ColorStateList(states, new int[]{accent, 0xFF3A3E45}));
             header.addView(toggle, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             addPin();
-            card.setBackground(ShadeStyle.pressable(context, ShadeStyle.CARD, ShadeStyle.LINE, 20));
             card.setOnClickListener(v -> actions.pick(entry, !catalog.on(entry)));
             card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override
@@ -404,8 +427,10 @@ final class ShadeRows {
 
     private final class SliderRow extends Row {
         final TextView pill;
-        final SeekBar bar;
-        boolean tracking;
+        final com.particlesdevs.photoncamera.ui.controls.IosSlider bar;
+        boolean tracking, bound;
+        /** The step the finger started from: a release on it writes nothing. */
+        int trackedFrom;
 
         SliderRow(ShadeCatalog.Entry entry, boolean showPath) {
             super(entry, showPath);
@@ -416,30 +441,28 @@ final class ShadeRows {
             addPin();
             bar = slider(context, entry, accent);
             bar.setContentDescription(entry.title);
-            bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            bar.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
                 @Override
-                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                    if (fromUser) pill.setText(ShadeCatalog.formatNumber(entry, valueAt(entry, progress)));
+                public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider s, float progress, boolean fromUser) {
+                    if (!fromUser) return;
+                    pill.setText(ShadeCatalog.formatNumber(entry, valueAt(entry, Math.round(progress))));
+                    // no touch tracked (a double tap, the keyboard, TalkBack): the value is the user's at once
+                    if (!s.isTracking()) {
+                        com.particlesdevs.photoncamera.ui.controls.IosMotion.pop(pill);
+                        actions.pick(entry, valueAt(entry, Math.round(progress)));
+                    }
                 }
 
                 @Override
-                public void onStartTrackingTouch(SeekBar seekBar) {
-                    tracking = true;
-                }
-
-                @Override
-                public void onStopTrackingTouch(SeekBar seekBar) {
-                    tracking = false;
-                    actions.pick(entry, valueAt(entry, seekBar.getProgress()));
+                public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider s, boolean on) {
+                    com.particlesdevs.photoncamera.ui.controls.IosMotion.lift(pill, on, accent, accent);
+                    tracking = on;
+                    if (on) { trackedFrom = Math.round(s.getValue()); return; }
+                    com.particlesdevs.photoncamera.ui.controls.IosMotion.pop(pill);
+                    if (Math.round(s.getValue()) != trackedFrom) actions.pick(entry, valueAt(entry, Math.round(s.getValue())));
                 }
             });
-            // P357: a double tap on the bar puts the default back
-            if (entry.defaultValue instanceof Number)
-                com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(bar, () -> {
-                    actions.pick(entry, ((Number) entry.defaultValue).floatValue());
-                    bindValue();
-                });
-            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38));
             bp.topMargin = dp(6);
             card.addView(bar, bp);
         }
@@ -449,7 +472,8 @@ final class ShadeRows {
             if (tracking) return;
             float v = catalog.number(entry);
             pill.setText(ShadeCatalog.formatNumber(entry, v));
-            bar.setProgress(progressOf(entry, v));
+            bindSlider(bar, entry, v, !bound);
+            bound = true;
         }
     }
 
@@ -458,24 +482,34 @@ final class ShadeRows {
     static TextView valuePill(Context context, int accent) {
         TextView pill = new TextView(context);
         pill.setTextColor(accent);
-        pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        pill.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
+        pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        pill.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         pill.setFontFeatureSettings("tnum");
         pill.setPadding(ShadeStyle.dp(context, 11), ShadeStyle.dp(context, 3), ShadeStyle.dp(context, 11), ShadeStyle.dp(context, 3));
-        pill.setBackground(ShadeStyle.card(context, ShadeStyle.tint(accent, .18f), 0, 100));
+        pill.setBackground(ShadeStyle.card(context, ShadeStyle.tint(accent, .28f), 0, 100));
         pill.setSingleLine(true);
         pill.setEllipsize(TextUtils.TruncateAt.END);
         return pill;
     }
 
-    static SeekBar slider(Context context, ShadeCatalog.Entry entry, int accent) {
-        SeekBar bar = new SeekBar(context);
-        bar.setMax(steps(entry));
-        bar.setProgressTintList(ColorStateList.valueOf(accent));
-        bar.setThumbTintList(ColorStateList.valueOf(accent));
-        bar.setProgressBackgroundTintList(ColorStateList.valueOf(0xFF4A5058));
+    /** P574: the shared slider on the entry's step grid (its value is the step index, as the old bar's progress). */
+    static com.particlesdevs.photoncamera.ui.controls.IosSlider slider(Context context, ShadeCatalog.Entry entry, int accent) {
+        com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(context);
+        bar.setRange(0, steps(entry), 1);
+        bar.setAccent(accent);
         bar.setTag("shade_slider_" + entry.key);
         return bar;
+    }
+
+    /**
+     * P574: {@code bar} shows {@code entry} at {@code value}; {@code now}: at once (a new entry, a first bind), else the knob glides
+     * there (the value changed elsewhere). A double tap goes to the entry's default.
+     */
+    static void bindSlider(com.particlesdevs.photoncamera.ui.controls.IosSlider bar, ShadeCatalog.Entry entry, float value, boolean now) {
+        bar.setRange(0, steps(entry), 1);
+        bar.setDefaultValue(entry.defaultValue instanceof Number ? progressOf(entry, ((Number) entry.defaultValue).floatValue()) : Float.NaN);
+        if (now) bar.setValueNow(progressOf(entry, value));
+        else bar.setValue(progressOf(entry, value));
     }
 
     static int steps(ShadeCatalog.Entry e) {

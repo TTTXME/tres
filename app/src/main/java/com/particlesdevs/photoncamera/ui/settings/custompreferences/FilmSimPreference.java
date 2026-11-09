@@ -14,7 +14,6 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -210,7 +209,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         final LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < names.length; i++) {
-            final TextView b = SettingsStyle.text(c, names[i], 12.5f, UiTokens.TEXT);
+            final TextView b = SettingsStyle.text(c, names[i], 12.5f, SettingsStyle.ROW_TITLE);
             b.setGravity(Gravity.CENTER);
             b.setMinHeight(UiTokens.dp(c, 34));
             b.setPadding(UiTokens.dp(c, 14), 0, UiTokens.dp(c, 14), 0);
@@ -236,8 +235,8 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         for (int i = 0; i < row.getChildCount(); i++) {
             final TextView b = (TextView) row.getChildAt(i);
             final boolean sel = i == on;
-            b.setBackground(UiTokens.shape(c, sel ? accent : UiTokens.CARD, sel ? accent : UiTokens.LINE, 999));
-            b.setTextColor(sel ? UiTokens.INK : UiTokens.TEXT);
+            b.setBackground(UiTokens.shape(c, sel ? accent : SettingsStyle.ROW, sel ? accent : 0, 999));
+            b.setTextColor(sel ? UiTokens.INK : SettingsStyle.ROW_TITLE);
             b.setSelected(sel);
         }
     }
@@ -308,7 +307,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
                     names[i] = FilmSim.diffusionName(c, ids[i]);
                     if (ids[i].equals(diffusion)) on = i;
                 }
-                final TextView label = SettingsStyle.text(c, Lang.t(c, "Диффузия", "Diffusion"), 14.5f, UiTokens.TEXT);
+                final TextView label = SettingsStyle.text(c, Lang.t(c, "Диффузия", "Diffusion"), 14.5f, SettingsStyle.ROW_TITLE);
                 label.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 2), UiTokens.dp(c, 6), UiTokens.dp(c, 6));
                 content.addView(label);
                 final String help = com.particlesdevs.photoncamera.settings.ParamHelp.of(c, FilmSim.DIFFUSION_KEY);
@@ -360,7 +359,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
 
     /** P487: a group's caption (the reference page's COUPLERS / CALIBRATION / SCATTER ... headings). */
     private void caption(Context c, String s) {
-        final TextView t = SettingsStyle.text(c, s.toUpperCase(Locale.ROOT), 11, UiTokens.MUTED);
+        final TextView t = SettingsStyle.text(c, s.toUpperCase(Locale.ROOT), 11, SettingsStyle.SECTION);
         t.setLetterSpacing(.08f);
         t.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 16), UiTokens.dp(c, 6), 0);
         content.addView(t);
@@ -373,7 +372,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
 
     /** P487: with its default {@code def} (shown when nothing is stored). */
     private void choice(Context c, String key, String title, String[] ids, String[] names, String tag, String def) {
-        final TextView label = SettingsStyle.text(c, title, 14.5f, UiTokens.TEXT);
+        final TextView label = SettingsStyle.text(c, title, 14.5f, SettingsStyle.ROW_TITLE);
         label.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 10), UiTokens.dp(c, 6), UiTokens.dp(c, 6));
         content.addView(label);
         final String help = com.particlesdevs.photoncamera.settings.ParamHelp.of(c, key);
@@ -396,7 +395,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
      */
     private boolean amountSwitch(Context c, String key, String title, String onValue, String tag) {
         final boolean on = value(key) > 0f;
-        final TextView label = SettingsStyle.text(c, title, 14.5f, UiTokens.TEXT);
+        final TextView label = SettingsStyle.text(c, title, 14.5f, SettingsStyle.ROW_TITLE);
         label.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 2), UiTokens.dp(c, 6), UiTokens.dp(c, 6));
         content.addView(label);
         final LinearLayout[] row = new LinearLayout[1];
@@ -520,7 +519,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
     }
 
     private void note(Context c, String s) {
-        final TextView t = SettingsStyle.text(c, s, 12, UiTokens.MUTED);
+        final TextView t = SettingsStyle.text(c, s, 12, SettingsStyle.SECTION);
         t.setLineSpacing(UiTokens.dp(c, 3), 1);
         t.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 10), UiTokens.dp(c, 6), 0);
         content.addView(t);
@@ -541,20 +540,20 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
             final LinearLayout card = new LinearLayout(c);
             card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(UiTokens.dp(c, 12), UiTokens.dp(c, 10), UiTokens.dp(c, 12), UiTokens.dp(c, 10));
-            final GradientDrawable bg = UiTokens.shape(c, UiTokens.CARD, 0, 14);
-            bg.setStroke(UiTokens.dp(c, on ? 2 : 1), on ? accent : UiTokens.LINE);
+            final GradientDrawable bg = UiTokens.shape(c, SettingsStyle.ROW, 0, 14);
+            if (on) bg.setStroke(UiTokens.dp(c, 2), accent);   // P574: no outline but the chosen one\'s
             card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), bg, null));
-            final TextView brand = SettingsStyle.text(c, text[i][0].toUpperCase(Locale.ROOT), 10.5f, on ? accent : UiTokens.MUTED);
+            final TextView brand = SettingsStyle.text(c, text[i][0].toUpperCase(Locale.ROOT), 10.5f, on ? accent : SettingsStyle.SECTION);
             brand.setLetterSpacing(.06f);
             card.addView(brand);
-            final TextView name = SettingsStyle.text(c, text[i][1], 15, UiTokens.TEXT);
+            final TextView name = SettingsStyle.text(c, text[i][1], 15, SettingsStyle.ROW_TITLE);
             name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
             name.setPadding(0, UiTokens.dp(c, 4), 0, 0);
             name.setMaxLines(2);
             card.addView(name);
             final View gap = new View(c);
             card.addView(gap, new LinearLayout.LayoutParams(1, 0, 1));
-            final TextView kind = SettingsStyle.text(c, text[i][2], 10.5f, UiTokens.MUTED);
+            final TextView kind = SettingsStyle.text(c, text[i][2], 10.5f, SettingsStyle.SECTION);
             kind.setMaxLines(2);
             card.addView(kind);
             card.setMinimumHeight(UiTokens.dp(c, 108));
@@ -607,9 +606,9 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         final LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, 10), UiTokens.dp(c, 14), UiTokens.dp(c, 6));
-        row.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 14));
+        row.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));   // P574: a #2C2C2E card, 24dp, no outline
         final LinearLayout head = new LinearLayout(c);
-        final TextView t = SettingsStyle.text(c, title, 14.5f, UiTokens.TEXT);
+        final TextView t = SettingsStyle.text(c, title, 14.5f, SettingsStyle.ROW_TITLE);
         head.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         final TextView value = SettingsStyle.text(c, "", 14, accent);
         head.addView(value);
@@ -620,31 +619,34 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         // P487: three decimals below a step of 0.01 (the DIR gammas)
         final java.util.function.Function<Float, String> storedText = x -> step * scale < 1
                 ? String.format(Locale.ROOT, step * scale < .0099f ? "%.3f" : "%.2f", x * scale) : String.valueOf(Math.round(x * scale));
-        final SeekBar bar = new SeekBar(c);
+        // P574: the shared slider (was a Material SeekBar); a whole step per position as before
+        final com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(c);
         bar.setTag("film_" + key);
-        bar.setMax(Math.max(1, Math.round((max - min) / step)));
-        bar.setProgress(Math.round((Math.max(min, Math.min(max, v)) - min) / step));
-        bar.setProgressTintList(ColorStateList.valueOf(accent));
-        bar.setThumbTintList(ColorStateList.valueOf(accent));
+        bar.setContentDescription(title);
+        bar.setAccent(accent);
+        bar.setRange(0, Math.max(1, Math.round((max - min) / step)), 1);
+        bar.setValueNow(Math.round((Math.max(min, Math.min(max, v)) - min) / step));
         final java.util.function.IntFunction<String> text = p -> {
             final float x = min + p * step;
             // P380: a value of no sign (the diffusion's grade) without a plus
             return (step < 1 ? String.format(Locale.ROOT, step < .0099f ? "%.3f" : step < .1f ? (min < 0 ? "%+.2f" : "%.2f") : (min < 0 ? "%+.1f" : "%.1f"), x)
                     : String.valueOf(Math.round(x))) + unit;
         };
-        value.setText(text.apply(bar.getProgress()));
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) { value.setText(text.apply(p)); }
-            @Override public void onStartTrackingTouch(SeekBar s) { s.getParent().requestDisallowInterceptTouchEvent(true); }
-            @Override public void onStopTrackingTouch(SeekBar s) {
-                final float x = min + s.getProgress() * step;
-                store(key, storedText.apply(x));
+        value.setText(text.apply(Math.round(bar.getValue())));
+        // stored when the finger leaves (a key or an accessibility step at once), as the SeekBar stored on its stop
+        bar.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
+            @Override public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider s, float p, boolean user) {
+                value.setText(text.apply(Math.round(p)));
+                if (user && !s.isTracking()) store(key, storedText.apply(min + Math.round(p) * step));
+            }
+            @Override public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider s, boolean tracking) {
+                if (!tracking) store(key, storedText.apply(min + Math.round(s.getValue()) * step));
             }
         });
-        row.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, UiTokens.dp(c, 36)));
+        row.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         // P357: a double tap puts the default back
         final Runnable reset = () -> {
-            bar.setProgress(Math.round((def - min) / step));
+            bar.setValue(Math.round((def - min) / step));
             final SharedPreferences p = getSharedPreferences();
             if (clear && p != null) p.edit().remove(key).apply();
             else store(key, storedText.apply(def));
@@ -667,12 +669,12 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
     static void showHelp(Context c, CharSequence title, String text) {
         final LinearLayout body = SettingsStyle.sheetBody(c, title, null);
         body.setTag("film_param_help");
-        final TextView t = SettingsStyle.text(c, text, 15, UiTokens.TEXT);
+        final TextView t = SettingsStyle.text(c, text, 15, SettingsStyle.ROW_TITLE);
         t.setLineSpacing(0, 1.15f);
         t.setPadding(UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 8));
         body.addView(t);
         final TextView tip = SettingsStyle.text(c, Lang.t(c, "Двойное касание ползунка возвращает значение по умолчанию.",
-                "A double tap on the slider puts the default back."), 13, UiTokens.MUTED);
+                "A double tap on the slider puts the default back."), 13, SettingsStyle.SECTION);
         tip.setPadding(UiTokens.dp(c, 4), 0, UiTokens.dp(c, 4), UiTokens.dp(c, 4));
         body.addView(tip);
         SettingsStyle.sheet(c, body).show();

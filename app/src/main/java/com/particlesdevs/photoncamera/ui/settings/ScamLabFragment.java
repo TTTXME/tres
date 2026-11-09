@@ -21,7 +21,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
-import androidx.appcompat.widget.SwitchCompat;
 import androidx.preference.EditTextPreference;
 import androidx.preference.ListPreference;
 import androidx.preference.Preference;
@@ -353,12 +352,11 @@ public class ScamLabFragment extends ModuleConceptFragment {
         sub.setLineSpacing(dp(3), 1);
         labels.addView(sub, space(-1, -2, 6));
         r.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-        SwitchCompat toggle = new SwitchCompat(requireContext());
+        // P574 (owner, 2026-11-09: «Сделай все такие переключатели в одном стиле»): the app's one switch
+        com.particlesdevs.photoncamera.ui.controls.IosSwitch toggle = new com.particlesdevs.photoncamera.ui.controls.IosSwitch(requireContext());
         toggle.setTag(ScamLab.PREF);
         toggle.setContentDescription(head.getText());
-        toggle.setChecked(ScamLab.wanted());
-        toggle.setThumbTintList(ColorStateList.valueOf(0xFFFFFFFF));
-        toggle.setTrackTintList(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{accent, 0xFF606570}));
+        toggle.setCheckedNow(ScamLab.wanted());
         r.addView(toggle, new LinearLayout.LayoutParams(dp(56), dp(48)));
         c.addView(r);
         toggle.setOnCheckedChangeListener((v, on) -> prefs().edit().putBoolean(ScamLab.PREF, on).apply());
@@ -620,7 +618,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
                     else compare.setSingle(m == 1 ? r.a.photo : r.b.photo, m == 1 ? aText : bText);
                     for (int k = 0; k < 3; k++) {
                         b[k].setTextColor(k == m ? 0xFF15131D : accent);
-                        b[k].setBackground(shape(k == m ? accent : BG, k == m ? 0 : 0xFF626974, 10));
+                        b[k].setBackground(shape(k == m ? accent : SettingsStyle.CARD_NESTED, 0, 16));
                     }
                 });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, i == 0 ? 1.6f : 1f);
@@ -1980,11 +1978,11 @@ public class ScamLabFragment extends ModuleConceptFragment {
         apply[0] = () -> {
             for (int i = 0; i < buttons.length; i++) {
                 buttons[i].setTextColor(showMode == i ? 0xFF15131D : accent);
-                buttons[i].setBackground(shape(showMode == i ? accent : BG, showMode == i ? 0 : 0xFF626974, 10));
+                buttons[i].setBackground(shape(showMode == i ? accent : SettingsStyle.CARD_NESTED, 0, 16));
             }
             for (int i = 0; i < 2; i++) {
                 sideButtons[i].setTextColor(showSide == i ? 0xFF15131D : accent);
-                sideButtons[i].setBackground(shape(showSide == i ? accent : BG, showSide == i ? 0 : 0xFF626974, 10));
+                sideButtons[i].setBackground(shape(showSide == i ? accent : SettingsStyle.CARD_NESTED, 0, 16));
             }
             sides.setVisibility(showMode == 3 ? View.VISIBLE : View.GONE);
             kindScroll.setVisibility(showMode == 4 ? View.VISIBLE : View.GONE);
@@ -2194,12 +2192,11 @@ public class ScamLabFragment extends ModuleConceptFragment {
         switch (spec.kind) {
             case Spec.SWITCH: {
                 head.addView(reset);
-                SwitchCompat toggle = new SwitchCompat(requireContext());
+                // P574: the app's one switch
+                com.particlesdevs.photoncamera.ui.controls.IosSwitch toggle = new com.particlesdevs.photoncamera.ui.controls.IosSwitch(requireContext());
                 toggle.setTag("lab_value_" + name + "_" + spec.key);
-                toggle.setChecked(value instanceof Boolean ? (Boolean) value
+                toggle.setCheckedNow(value instanceof Boolean ? (Boolean) value
                         : value == null && spec.dev ? spec.devSwitchDefault() : "1".equals(String.valueOf(value)));
-                toggle.setThumbTintList(ColorStateList.valueOf(0xFFFFFFFF));
-                toggle.setTrackTintList(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{accent, 0xFF606570}));
                 toggle.setOnCheckedChangeListener((v, on) -> set.accept(on));
                 head.addView(toggle, new LinearLayout.LayoutParams(dp(56), dp(40)));
                 break;
@@ -2233,7 +2230,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 field.setSingleLine(true);
                 field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
                 field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
-                field.setBackground(shape(BG, 0xFF626974, 10));
+                field.setBackground(shape(SettingsStyle.CARD_NESTED, 0, 12));   // P574: a field on the card, no outline
                 field.setPadding(dp(10), dp(10), dp(10), dp(10));
                 field.setOnEditorActionListener((v, action, event) -> {
                     if (action != android.view.inputmethod.EditorInfo.IME_ACTION_DONE
@@ -2271,7 +2268,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
                         | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
                 field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
-                field.setBackground(shape(BG, 0xFF626974, 10));
+                field.setBackground(shape(SettingsStyle.CARD_NESTED, 0, 12));   // P574: a field on the card, no outline
                 field.setPadding(dp(10), dp(10), dp(10), dp(10));
                 field.setOnEditorActionListener((v, action, event) -> {
                     if (action != android.view.inputmethod.EditorInfo.IME_ACTION_DONE
@@ -2299,28 +2296,30 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 final float min = spec.min, max = spec.max, step = spec.step;
                 float start;
                 try { start = Float.parseFloat(String.valueOf(value)); } catch (NumberFormatException e) { start = Float.parseFloat(String.valueOf(spec.def)); }
-                final SeekBar bar = new SeekBar(requireContext());
+                // P574: the shared slider (was a Material SeekBar); a whole step per position as before
+                final com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(requireContext());
                 bar.setTag("lab_value_" + name + "_" + spec.key);
-                bar.setMax(Math.max(1, Math.round((max - min) / step)));
-                bar.setProgress(Math.round((start - min) / step));
-                bar.setProgressTintList(ColorStateList.valueOf(accent));
-                bar.setThumbTintList(ColorStateList.valueOf(accent));
-                bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                    @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) { shown.setText(spec.number(min + progress * step)); }
-                    @Override public void onStartTrackingTouch(SeekBar sb) {
-                        dragging = true;
-                        sb.getParent().requestDisallowInterceptTouchEvent(true);
+                bar.setContentDescription(spec.title);
+                bar.setAccent(accent);
+                bar.setRange(0, Math.max(1, Math.round((max - min) / step)), 1);
+                bar.setValueNow(Math.round((start - min) / step));
+                bar.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
+                    @Override public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider sb, float progress, boolean fromUser) {
+                        shown.setText(spec.number(min + Math.round(progress) * step));
+                        // a key or an accessibility step: no finger to wait for
+                        if (fromUser && !sb.isTracking()) set.accept(spec.number(min + Math.round(progress) * step));
                     }
-                    @Override public void onStopTrackingTouch(SeekBar sb) {
+                    @Override public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider sb, boolean tracking) {
+                        if (tracking) { dragging = true; return; }
                         dragging = false;
-                        set.accept(spec.number(min + sb.getProgress() * step));
+                        set.accept(spec.number(min + Math.round(sb.getValue()) * step));
                         // P294: the redraw a stage asked for during the drag (set renders only when the value changed)
                         if (redrawWaiting) render();
                     }
                 });
                 // P357: a double tap puts the shot's value back (as «как снято» does)
                 if (!isShot) com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(bar, () -> set.accept(atShot));
-                r.addView(bar, space(-1, dp(36), 6));
+                r.addView(bar, space(-1, -2, 6));
                 LinearLayout ends = row();
                 ends.addView(text(spec.number(min), 11, MUTED), new LinearLayout.LayoutParams(0, -2, 1));
                 ends.addView(text(spec.number(max), 11, MUTED));

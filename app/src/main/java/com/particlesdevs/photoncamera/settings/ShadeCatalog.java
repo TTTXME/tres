@@ -876,6 +876,25 @@ public final class ShadeCatalog {
         return e.treeIcon != null ? e.treeIcon.newDrawable(res).mutate() : null;
     }
 
+    /** P570: the setting's own icon ({@link #settingIcon}) is one of the colour icons (tools/icons; ui/Icons). */
+    public boolean colourIcon(Entry e) {
+        Integer concept = CONCEPT_ICONS.get(e.key);
+        if (concept != null) return com.particlesdevs.photoncamera.ui.Icons.colour(context, concept);
+        if (e.icon != 0) return com.particlesdevs.photoncamera.ui.Icons.colour(context, e.icon);
+        return e.treeIcon != null; // the settings tree's icons are the colour icons
+    }
+
+    /** P570: the value's icon ({@link #icon}) is one of the colour icons. */
+    public boolean colourValueIcon(Entry e) {
+        if (OUTPUT.equals(e.key)) return false;
+        Integer concept = CONCEPT_ICONS.get(e.key);
+        if (concept != null) return com.particlesdevs.photoncamera.ui.Icons.colour(context, concept);
+        int i = e.kind == LIST ? index(e) : -1;
+        if (e.valueIcons != null && i >= 0 && i < e.valueIcons.length) return com.particlesdevs.photoncamera.ui.Icons.colour(context, e.valueIcons[i]);
+        if (e.icon != 0) return com.particlesdevs.photoncamera.ui.Icons.colour(context, e.icon);
+        return e.treeIcon != null;
+    }
+
     /** The setting's own icon (catalog rows): the icon of its first value for the camera controls. */
     @Nullable
     public Drawable settingIcon(Entry e) {

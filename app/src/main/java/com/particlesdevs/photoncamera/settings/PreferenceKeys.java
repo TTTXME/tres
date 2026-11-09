@@ -963,6 +963,8 @@ public class PreferenceKeys {
         if (hybridValue("fast_mosaic_chroma", 1f) == 0f) out.append("fastMosaicChroma 0\n");
         // P566: the fast route's Quad site response in the unpack (worker fastSiteGain, default 1); "hybrid_fast_site_gain 0" = the QPC alone
         if (hybridValue("fast_site_gain", 1f) == 0f) out.append("fastSiteGain 0\n");
+        // P571: the fast route's Quad lattice off the luma after its merge (worker fastQuadLattice, default 1)
+        if (hybridValue("fast_quad_lattice", 1f) == 0f) out.append("fastQuadLattice 0\n");
         // P568: the Quad native merge with shared-memory tiles (worker mosaicNatTile: 0 off, 1 always, 2 the faster measured once per GPU)
         final float natTile = hybridValue("mosaic_nat_tile", 2f);
         if (natTile != 2f) out.append("mosaicNatTile ").append(Math.round(Math.max(0f, Math.min(2f, natTile)))).append('\n');
@@ -1153,17 +1155,17 @@ public class PreferenceKeys {
     public static boolean isHybridMosaicRemosaic() {
         return hybridSwitch("mosaic_remosaic", true);
     }
-    /** The hybrid's N frames from the ZSL ring (pref_scam_hybrid_zsl_frames, 4..44, default 20). */
+    /** The hybrid's N frames from the ZSL ring (pref_scam_hybrid_zsl_frames, 4..65, default 20; P578: was 44). */
     public static int getHybridZslFrames() {
         return Math.round(hybridValue("zsl_frames", 20f));
     }
     /**
      * P190 (owner, 2026-10-17: «дай возможность ставить столько кадров для 50/200мп сколько я хочу»): frames of a FULLRES 50 MP
-     * shot, pref_scam_hybrid_fullres50_frames 0..64 (P203: default 12 N); 0 = auto (as {@link #getHybridZslFrames}, «Движение»
+     * shot, pref_scam_hybrid_fullres50_frames 0..65 (P203: default 12 N; P578: was 64); 0 = auto (as {@link #getHybridZslFrames}, «Движение»
      * included). An explicit count applies in «Движение» too. Clamped here as well: a scam_dev.txt override is not.
      */
     public static int getFullRes50Frames() {
-        return Math.max(0, Math.min(64, Math.round(hybridValue("fullres50_frames", 12f))));
+        return Math.max(0, Math.min(65, Math.round(hybridValue("fullres50_frames", 12f))));
     }
     /**
      * P202 (owner, 2026-10-17: «давай дадим выбор ZSL или PSL»): a FULLRES 50 MP shot takes its N from the ZSL ring (on, P198) or

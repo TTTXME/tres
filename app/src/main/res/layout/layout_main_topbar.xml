@@ -13,178 +13,209 @@
                 type="com.particlesdevs.photoncamera.ui.camera.model.CameraFragmentModel"/>
     </data>
 
-    <!-- SIMPLE_UI §1 top bar (concept, 392dp; TopBar scales every size by UiScale): torch, timer (seconds badge), Motion as
-         44dp icon buttons: on, a card pill with the accent icon and a label (torch, Motion) or a card circle with the seconds badge (timer); then one pill card [format | photo size | DCG];
-         the gear, the only settings entry of the camera screen. No route badge and no manual summary: the Pro strip shows
-         the values, so the bar never grows. TopBar steps the bar down (tighter gaps, smaller circles, 12sp) when it does not fit. -->
+    <!-- P574 (the approved concept, owner 2026-11-09: «Отлично, реализуем»): the top row as one centred group of 40dp items, 16dp
+         apart (TopBar scales every size by UiScale and steps the gaps down when they do not fit): the format badge («JPEG» over
+         «12 Мп», the format and size sheet), the torch, the timer with its seconds badge, LUT (the LUT and film tray), DCG where
+         the module has it - the default of the stored row (TopRow, edited in the «Верхняя строка» sheet), which orders and shows
+         these items. Off: a white glyph on nothing; on: the accent on the accent's tint. The gear and Sport went to the
+         bottom row. Every item turns with the phone (bindRotate). -->
     <LinearLayout
             android:id="@+id/topbar_row"
             android:layout_width="match_parent"
             android:layout_height="64dp"
             android:minHeight="64dp"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:gravity="center"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
             android:clipChildren="false"
             tools:visibility="visible">
 
+        <!-- The format badge: the format over the photo size (the concept's «JPEG / 12,6 Мп»). -->
         <LinearLayout
-                android:id="@+id/torch_button"
+                android:id="@+id/format_button"
                 android:layout_width="wrap_content"
-                android:layout_height="44dp"
-                android:minWidth="44dp"
-                android:orientation="horizontal"
+                android:layout_height="40dp"
+                android:minWidth="40dp"
+                android:orientation="vertical"
                 android:gravity="center"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
                 android:clickable="true"
                 android:focusable="true"
-                android:onClick="@{top_bar_click_listener}">
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
 
-            <ImageView
-                    android:id="@+id/torch_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ui_ic_flash"
-                    android:importantForAccessibility="no"/>
-
-            <!-- Shown while the button is on (concept: «topbar_torch»), at the first fit level only. -->
             <TextView
-                    android:id="@+id/torch_label"
-                    style="@style/Scamera.TopBarLabel"
-                    android:text="@string/topbar_torch"/>
+                    android:id="@+id/format_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:includeFontPadding="false"
+                    android:importantForAccessibility="no"
+                    tools:text="JPEG"/>
+
+            <TextView
+                    android:id="@+id/size_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:includeFontPadding="false"
+                    android:importantForAccessibility="no"
+                    tools:text="12 Мп"/>
         </LinearLayout>
 
         <FrameLayout
+                android:id="@+id/torch_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="16dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/torch_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ui_ic_flash"
+                    android:importantForAccessibility="no"/>
+        </FrameLayout>
+
+        <FrameLayout
                 android:id="@+id/timer_button"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="4dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="16dp"
                 android:clipChildren="false"
                 android:clickable="true"
                 android:focusable="true"
-                android:onClick="@{top_bar_click_listener}">
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
 
             <ImageView
                     android:id="@+id/timer_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ui_ic_timer"
                     android:importantForAccessibility="no"/>
 
-            <!-- The seconds badge (concept: right 1, bottom 3, 18 x 16, 10sp bold ink on the accent, a 2dp black ring). -->
+            <!-- The seconds badge (the concept: right 0, bottom 2, 15dp high, 10sp heavy, ink on the accent). -->
             <TextView
                     android:id="@+id/timer_badge"
                     android:layout_width="wrap_content"
-                    android:layout_height="16dp"
-                    android:minWidth="18dp"
+                    android:layout_height="15dp"
+                    android:minWidth="15dp"
                     android:layout_gravity="bottom|end"
-                    android:layout_marginEnd="1dp"
-                    android:layout_marginBottom="3dp"
+                    android:layout_marginBottom="2dp"
                     android:paddingStart="3dp"
                     android:paddingEnd="3dp"
                     android:gravity="center"
                     android:textSize="10sp"
                     android:textStyle="bold"
                     android:maxLines="1"
+                    android:includeFontPadding="false"
                     android:visibility="gone"
                     android:importantForAccessibility="no"/>
         </FrameLayout>
 
-        <LinearLayout
-                android:id="@+id/motion_mode_button"
-                android:layout_width="wrap_content"
-                android:layout_height="44dp"
-                android:minWidth="44dp"
-                android:layout_marginStart="4dp"
-                android:orientation="horizontal"
+        <!-- The LUT and film tray's button (LutTray draws it: a round icon). -->
+        <TextView
+                android:id="@+id/lut_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="16dp"
                 android:gravity="center"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
                 android:clickable="true"
                 android:focusable="true"
-                android:onClick="@{top_bar_click_listener}">
+                bindRotate="@{uimodel}"/>
 
-            <ImageView
-                    android:id="@+id/motion_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ui_ic_motion"
-                    android:importantForAccessibility="no"/>
-
-            <!-- Shown while the button is on (concept: «topbar_motion»), at the first fit level only. -->
-            <TextView
-                    android:id="@+id/motion_label"
-                    style="@style/Scamera.TopBarLabel"
-                    android:text="@string/topbar_motion"/>
-        </LinearLayout>
-
-        <Space
-                android:id="@+id/topbar_spacer"
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1"
-                android:minWidth="0dp"/>
-
-        <!-- One pill card, two (three) buttons divided by 1dp lines: format | photo size (| DCG where the module has it). -->
-        <LinearLayout
-                android:id="@+id/topbar_badges"
+        <TextView
+                android:id="@+id/dcg_badge"
                 android:layout_width="wrap_content"
                 android:layout_height="40dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginStart="4dp"
-                android:contentDescription="@string/topbar_group">
-
-            <TextView
-                    android:id="@+id/format_badge"
-                    style="@style/Scamera.TopBarPillText"
-                    android:onClick="@{top_bar_click_listener}"
-                    tools:text="JPEG"/>
-
-            <View
-                    android:id="@+id/topbar_divider"
-                    android:layout_width="1dp"
-                    android:layout_height="18dp"
-                    android:background="@color/settings_line"/>
-
-            <TextView
-                    android:id="@+id/size_badge"
-                    style="@style/Scamera.TopBarPillText"
-                    android:onClick="@{top_bar_click_listener}"
-                    tools:text="12 Мп"/>
-
-            <View
-                    android:id="@+id/dcg_divider"
-                    android:layout_width="1dp"
-                    android:layout_height="18dp"
-                    android:background="@color/settings_line"
-                    android:visibility="gone"/>
-
-            <TextView
-                    android:id="@+id/dcg_badge"
-                    style="@style/Scamera.TopBarPillText"
-                    android:text="@string/topbar_dcg"
-                    android:visibility="gone"
-                    android:onClick="@{top_bar_click_listener}"/>
-        </LinearLayout>
-
-        <!-- The only settings entry of the camera screen. -->
-        <ImageButton
-                android:id="@+id/settings_button"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="4dp"
-                android:minWidth="0dp" android:minHeight="0dp"
+                android:minWidth="40dp"
+                android:layout_marginStart="16dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:gravity="center"
+                android:text="@string/topbar_dcg"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
                 android:onClick="@{top_bar_click_listener}"
-                android:background="@null"
-                android:src="@drawable/ui_ic_gear"
-                android:scaleType="fitCenter"
-                android:padding="10dp"
-                android:contentDescription="@string/sheet_all_settings"
-                android:tooltipText="@string/sheet_all_settings"
+                bindRotate="@{uimodel}"/>
+
+
+        <!-- P574: items the «Верхняя строка» sheet can add (TopRow; hidden until the row holds them): the grid, the level, Ultra HDR. -->
+        <FrameLayout
+                android:id="@+id/grid_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="16dp"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/grid_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ui_ic_grid"
+                    android:importantForAccessibility="no"/>
+        </FrameLayout>
+
+        <FrameLayout
+                android:id="@+id/horizon_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="16dp"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/horizon_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ui_ic_level"
+                    android:importantForAccessibility="no"/>
+        </FrameLayout>
+
+        <TextView
+                android:id="@+id/uhdr_button"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:minWidth="40dp"
+                android:layout_marginStart="16dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:gravity="center"
+                android:text="@string/shade_t_ultrahdr"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:onClick="@{top_bar_click_listener}"
                 bindRotate="@{uimodel}"/>
 
     </LinearLayout>

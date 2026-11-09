@@ -354,8 +354,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel panel =
                     (com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel) panelView;
             // SIMPLE_UI §1: the LUT pill and tray; Pro and the tray close each other
-            lutTray = new LutTray(cameraFragmentBinding.layoutBottombar.lutPill, cameraFragmentBinding.lutTray,
-                    cameraFragmentBinding.layoutViewfinder.texture, this::openLutSettings);
+            // P574 (the approved concept): the tray's button is the top row's round LUT item
+            lutTray = new LutTray(cameraFragmentBinding.layoutTopbar.lutButton, cameraFragmentBinding.lutTray,
+                    cameraFragmentBinding.layoutViewfinder.texture, this::openLutSettings, true);
             lutTray.setPageOpener(this::openSettingsPage);
             // P293 (owner, 2026-10-20: «одновременно открытые шторка и меню фильтров налазят друг на друга»): the tray closes Pro
             // and the quick sheet; the sheet, at any level reached in any way (finger, «Ещё», a swipe, the model), closes the tray
@@ -387,10 +388,22 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             });
             com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.setSideOn(bar, R.id.pro_button, panel.isExpanded());
         }
-        // P495 (owner, 2026-11-03): «Ещё» again lowers the shade
-        bar.findViewById(R.id.more_button).setOnClickListener(v -> cameraFragmentViewModel.setSheetLevel(
+        // P495 (owner, 2026-11-03): «Ещё» again lowers the shade; P574: «Ещё» is the bottom grabber now (a tap as a swipe up)
+        final View more = bar.findViewById(R.id.more_button);
+        more.setOnClickListener(v -> cameraFragmentViewModel.setSheetLevel(
                 cameraFragmentViewModel.getSheetLevel() == CameraFragmentModel.SHEET_HIDDEN ? CameraFragmentModel.SHEET_PEEK : CameraFragmentModel.SHEET_HIDDEN));
+        // the 56 x 18 dp grabber answers to 48dp; TalkBack hears what a tap does at the sheet's level (open, or close it again)
+        TouchTargets.ensure(more, Math.round(48 * more.getResources().getDisplayMetrics().density));
+        bindMoreButton(more);
+        if (moreButtonCallback != null) cameraFragmentViewModel.getCameraFragmentModel().removeOnPropertyChangedCallback(moreButtonCallback);
+        moreButtonCallback = new androidx.databinding.Observable.OnPropertyChangedCallback() {
+            @Override public void onPropertyChanged(androidx.databinding.Observable sender, int id) {
+                if (id == com.particlesdevs.photoncamera.BR.sheetLevel) bindMoreButton(more);
+            }
+        };
+        cameraFragmentViewModel.getCameraFragmentModel().addOnPropertyChangedCallback(moreButtonCallback);
         placeMessageBand(cameraFragmentBinding);
+        attachTopGrabber();
     }
 
     /**
@@ -406,7 +419,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         band.setLayoutParams(lp);
         com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(band, 12);
         View.OnLayoutChangeListener place = (v, l, t, r, b, ol, ot, or, ob) -> {
-            View strip = bar.findViewById(R.id.aux_buttons_container), pro = bar.findViewById(R.id.pro_button);
+            View strip = bar.findViewById(R.id.aux_buttons_container), pro = null; // P574: the strip is the top of the bottom controls
             if (strip == null || band.getHeight() == 0 && band.getVisibility() == View.VISIBLE) return;
             int[] at = new int[2], bandAt = new int[2];
             int top = Integer.MAX_VALUE;
@@ -738,6 +751,106 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     private MessageCard messageCard;
     /** SIMPLE_UI §1: the LUT pill and tray of the viewfinder. */
     @Nullable public LutTray lutTray;
+
+    /** P574: the «Верхняя строка» sheet while it is up (or leaving); null before the first. */
+    @Nullable private TopRowSheet.Handle topRowSheet;
+
+    /** P574: the top row's sheet is up or still leaving (its window takes every touch until it is gone). */
+    public boolean isTopRowSheetShowing() {
+        return topRowSheet != null && topRowSheet.isShowing();
+    }
+
+    /** P574: closes the top row's sheet as «Отмена» (a swipe up, Back). */
+    public void closeTopRowSheet() {
+        if (topRowSheet != null) topRowSheet.close();
+    }
+
+    /** P574: the quick-settings shade is being dragged or settling (its BottomSheetBehavior). */
+    public boolean isShadeSettling() {
+        if (cameraFragmentBinding == null) return false;
+        try {
+            final int state = com.google.android.material.bottomsheet.BottomSheetBehavior.from(cameraFragmentBinding.settingsBar).getState();
+            return state == com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_DRAGGING
+                    || state == com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_SETTLING;
+        } catch (IllegalArgumentException noBehaviour) {
+            return false;
+        }
+    }
+
+    /** P574: the top zone's bottom in the camera screen's touch coordinates: the viewfinder's middle (the top bar above it too). */
+    public float topRowZoneBottom() {
+        if (cameraFragmentBinding == null) return 0f;
+        final View root = cameraFragmentBinding.getRoot(), texture = cameraFragmentBinding.layoutViewfinder.texture;
+        final int[] r = new int[2], t = new int[2];
+        root.getLocationInWindow(r);
+        texture.getLocationInWindow(t);
+        return t[1] - r[1] + texture.getHeight() / 2f;
+    }
+
+    /**
+     * P574 (the approved concept): opens the «Верхняя строка» sheet - a swipe down from the top zone or the top grabber - only while
+     * the quick-settings shade is HIDDEN and settled (a swipe down with the shade up lowers the shade, as before) and never twice.
+     * The LUT tray closes first. «Готово» stores the row (TopRow) and the top bar glides to it.
+     */
+    public void openTopRowSheet() {
+        if (cameraFragmentBinding == null || isTopRowSheetShowing() || !isResumed()) return;
+        if (cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN || isShadeSettling()) return;
+        if (lutTray != null && lutTray.isOpen()) lutTray.setOpen(false);
+        final android.content.SharedPreferences prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext());
+        topRowSheet = TopRowSheet.show(cameraFragmentBinding.getRoot(), com.particlesdevs.photoncamera.settings.TopRow.load(prefs),
+                TopBar::available, items -> {
+                    com.particlesdevs.photoncamera.settings.TopRow.save(prefs, items);
+                    refreshTopBar();
+                });
+    }
+
+    /**
+     * P574: an item the top row's sheet can add was switched in the top row (the grid, the level, Ultra HDR): what the shade does
+     * after its tile writes the same setting (the grid redrawn, the level shown, a session-time key restarts the camera), the
+     * shade's values and the top bar again.
+     */
+    public void onTopRowSettingWritten(String key) {
+        final android.content.Context c = getContext();
+        if (c == null) return;
+        final com.particlesdevs.photoncamera.settings.ShadeCatalog.Entry e = com.particlesdevs.photoncamera.settings.ShadeCatalog.get(c).entry(key);
+        if (e != null) shadeHost.onSettingWritten(e);
+        if (cameraFragmentBinding != null) cameraFragmentBinding.settingsBar.refresh();
+        refreshTopBar();
+    }
+
+    /** The bottom grabber's description: a tap opens the quick settings, or closes them while they are up. */
+    private void bindMoreButton(View more) {
+        if (cameraFragmentViewModel == null) return;
+        more.setContentDescription(more.getContext().getString(cameraFragmentViewModel.getSheetLevel() == CameraFragmentModel.SHEET_HIDDEN
+                ? R.string.sheet_handle_open : R.string.sheet_handle_close));
+    }
+
+    /** The model's sheet level: the bottom grabber's description (removed with the fragment). */
+    @Nullable private androidx.databinding.Observable.OnPropertyChangedCallback moreButtonCallback;
+
+    /** P574: the top grabber - a tap or a short drag down on it opens the top row's sheet. */
+    private void attachTopGrabber() {
+        if (cameraFragmentBinding == null) return;
+        final View grab = cameraFragmentBinding.topRowGrabber;
+        // the 56 x 12 dp grabber answers to 48dp (its parent's touch delegate: the top row's items keep their taps)
+        TouchTargets.ensure(grab, Math.round(48 * grab.getResources().getDisplayMetrics().density));
+        grab.setOnClickListener(v -> {
+            if (lutTray != null && lutTray.isOpen()) lutTray.setOpen(false);
+            openTopRowSheet();
+        });
+        final float[] downY = {0f};
+        grab.setOnTouchListener((v, e) -> {
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) downY[0] = e.getY();
+            else if (e.getActionMasked() == android.view.MotionEvent.ACTION_UP
+                    && e.getY() - downY[0] > 24 * v.getResources().getDisplayMetrics().density) {
+                openTopRowSheet();
+                return true;
+            }
+            return false;
+        });
+        grab.setBackground(com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.ripple(grab.getContext(), 8));
+        cameraFragmentBinding.topRowGrip.setBackground(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.shape(grab.getContext(), 0x59FFFFFF, 0, 2));
+    }
     /** P293: the model's sheet level closes the LUT tray (removed with the fragment). */
     @Nullable private androidx.databinding.Observable.OnPropertyChangedCallback sheetTrayCallback;
 
@@ -770,18 +883,38 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
      * and name, the current one marked. A pick goes through CameraUIController like the shade's FORMAT tile.
      */
     public void openFormatChooser() {
+        openFormatChooser(CameraSheets.TAB_FORMAT);
+    }
+
+    /**
+     * P574 (the approved concept): the top row's format badge opens one sheet with the tabs «Формат | Размер» ({@code tab} shown
+     * first; a long press on the badge and the shade's size tile open «Размер»). A size picked goes through PhotoSize as the old
+     * size button and sheet did.
+     */
+    public void openFormatChooser(int tab) {
         android.content.Context c = getContext();
         if (c == null || mCameraUIEventsListener == null) return;
         // SIMPLE_UI §2: «Формат файла» - «Фото» and «RAW (DNG)» as two segmented choices (CameraSheets)
         java.util.List<com.particlesdevs.photoncamera.settings.FormatChoice> offered =
                 com.particlesdevs.photoncamera.settings.FormatChoice.offered(android.os.Build.VERSION.SDK_INT);
-        CameraSheets.format(c, offered, com.particlesdevs.photoncamera.settings.FormatChoice.current(), PreferenceKeys.getPhotoFormat(), choice -> {
+        CameraSheets.formatAndSize(c, offered, com.particlesdevs.photoncamera.settings.FormatChoice.current(), PreferenceKeys.getPhotoFormat(), choice -> {
             if (mCameraUIEventsListener == null) return;
             mCameraUIEventsListener.onChanged(new com.particlesdevs.photoncamera.ui.camera.model.TopBarSettingsData<>(
                     com.particlesdevs.photoncamera.settings.SettingType.FORMAT_CHOICE, choice.ordinal()));
             if (mCameraUIView != null) mCameraUIView.updateBadges();
             if (cameraFragmentBinding != null) cameraFragmentBinding.settingsBar.refresh();
-        });
+        }, new CameraSheets.SizeSource() {
+            @Override public int current() { return PhotoSize.current(); }
+            @Override public boolean full() { return PhotoSize.fullAvailable(); }
+            @Override public boolean max() { return PhotoSize.maxAvailable(); }
+            @Override public void pick(int size) {
+                String message = PhotoSize.set(CameraFragment.this, size);
+                if (message != null) showSnackBar(message);
+                refreshTopBar();
+            }
+            @Override public void refuse(CharSequence why) { showSnackBar(why.toString()); }
+            @Override public boolean dead(int size) { return PhotoSize.dead(size); }
+        }, tab);
     }
 
     /** The AWB colour temperature for the white-balance chip in auto. */
@@ -947,7 +1080,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         if (cameraFragmentBinding == null) return;
         // P518 (owner, 2026-11-05: «Кнопку lut можно не скрывать теперь»): under the viewfinder it covers nothing - always shown
         final boolean shown = true;
-        final View pill = cameraFragmentBinding.layoutBottombar.lutPill;
+        final View pill = cameraFragmentBinding.layoutTopbar.lutButton;
         if (pill.isEnabled() == shown) return;
         pill.setEnabled(shown);
         pill.animate().alpha(shown ? 1f : 0f).setDuration(shown ? 220 : 120).start();
@@ -970,14 +1103,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         int[] hud = new int[2];
         b.layoutViewfinder.surfaceView.getLocationInWindow(hud);
         b.layoutViewfinder.surfaceView.setHudTop(Math.max(0, vf[1] - hud[1]) + Math.round(12 * d) + overlap);
-        // P518: the LUT pill in the middle of the band between the viewfinder and the lens row; no band (a short window, 16:9):
-        // 10dp over the lens row, on the viewfinder's bottom as before
-        View lut = b.layoutBottombar.lutPill, pro = b.layoutBottombar.proButton;
-        int[] p = new int[2];
-        pro.getLocationInWindow(p);
-        int band = p[1] - (vf[1] + b.layoutViewfinder.texture.getHeight());
-        int h = lut.getHeight() > 0 ? lut.getHeight() : Math.round(28 * d);
-        setBottomMargin(lut, band >= h + Math.round(16 * d) ? (band - h) / 2 : Math.round(10 * d));
+        // P574: the LUT button is in the top row now (P518 placed the pill in the band above the lens row)
     }
 
     private static void setBottomMargin(View v, int margin) {
@@ -1016,12 +1142,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         pill.setBackground(bg);
         int pad = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 8);
         pill.setPaddingRelative(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 6), 0, pad, 0);
-        android.graphics.drawable.Drawable icon = c.getDrawable(R.drawable.ui_ic_lock);
+        android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.ui_ic_lock, ink); // P570: tonal mono
         if (icon != null) {
-            icon = icon.mutate();
             int s = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 13);
             icon.setBounds(0, 0, s, s);
-            icon.setTint(ink);
         }
         pill.setCompoundDrawablesRelative(icon, null, null, null);
         pill.setCompoundDrawablePadding(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 4));
@@ -1137,6 +1261,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
 
     @Override
     public void onPause() {
+        // P574: the top row's sheet goes with the screen, unsaved (no window left over a paused camera)
+        if (topRowSheet != null) topRowSheet.dismissNow();
         screenFlashShown = false; // P507: the system brightness back while the camera is not in front
         updateScreenFlash();
         if (mSubjectFocus != null) {
@@ -1183,6 +1309,11 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     @Override
     public boolean onBackPressed() {
         if (cameraFragmentBinding == null) return false;
+        // P574: the top row's sheet first (its own window normally takes Back; this covers a Back that reached the screen)
+        if (isTopRowSheetShowing()) {
+            closeTopRowSheet();
+            return true;
+        }
         final View panelView = cameraFragmentBinding.manualMode;
         final com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel pro =
                 panelView instanceof com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel
@@ -1239,6 +1370,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         if (sheetTrayCallback != null && cameraFragmentViewModel != null) {
             cameraFragmentViewModel.getCameraFragmentModel().removeOnPropertyChangedCallback(sheetTrayCallback);
             sheetTrayCallback = null;
+        }
+        if (moreButtonCallback != null && cameraFragmentViewModel != null) {
+            cameraFragmentViewModel.getCameraFragmentModel().removeOnPropertyChangedCallback(moreButtonCallback);
+            moreButtonCallback = null;
         }
         super.onDestroy();
 //        Log.d(TAG, "onDestroy() called");

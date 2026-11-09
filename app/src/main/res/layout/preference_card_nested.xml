@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- P384: a row inside an open module card (ModuleSection): preference_card a step inward - 24dp in, a 30dp icon tile with an 18dp
-     glyph, the title 14sp - on the nested fill SettingsCardDecoration draws under it. Same ids as preference_card. -->
+<!-- P384 / P574: a row inside an open module card (ModuleSection): preference_card a step inward - in the inner #232325 block
+     SettingsCardDecoration draws 10dp inside the card, 12dp in from the block's edge, a 30dp tile, the title 15sp semibold, the
+     description 12.5sp and the value at 55 % white. Same ids as preference_card. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -8,10 +9,10 @@
     android:gravity="center_vertical"
     android:minHeight="52dp"
     android:orientation="horizontal"
-    android:paddingStart="24dp"
-    android:paddingTop="10dp"
-    android:paddingEnd="14dp"
-    android:paddingBottom="10dp">
+    android:paddingStart="22dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="22dp"
+    android:paddingBottom="8dp">
     <FrameLayout
         android:id="@+id/settings_icon_tile"
         android:layout_width="30dp"
@@ -20,8 +21,8 @@
         android:background="@drawable/settings_icon_tile_nested">
         <ImageView
             android:id="@android:id/icon"
-            android:layout_width="18dp"
-            android:layout_height="18dp"
+            android:layout_width="19dp"
+            android:layout_height="19dp"
             android:layout_gravity="center"
             android:importantForAccessibility="no"
             android:scaleType="fitCenter" />
@@ -33,27 +34,28 @@
         android:orientation="vertical">
         <TextView
             android:id="@android:id/title"
-            android:fontFamily="sans-serif-medium"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/settings_text"
-            android:textSize="14sp" />
+            android:fontFamily="sans-serif-medium"
+            android:textColor="@color/settings_row_title"
+            android:textFontWeight="600"
+            android:textSize="15sp" />
         <TextView
             android:id="@+id/settings_value_below"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="1dp"
-            android:textColor="@color/settings_text"
-            android:textSize="12.5sp"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/settings_row_value"
+            android:textSize="14sp"
             android:visibility="gone" />
         <TextView
             android:id="@android:id/summary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="1dp"
+            android:layout_marginTop="2dp"
             android:lineSpacingExtra="1dp"
-            android:textColor="@color/settings_summary"
-            android:textSize="12sp" />
+            android:textColor="@color/settings_row_value"
+            android:textSize="12.5sp" />
         <TextView
             android:id="@+id/settings_restart"
             android:layout_width="wrap_content"
@@ -71,18 +73,18 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
-        android:maxWidth="140dp"
         android:gravity="end"
+        android:maxWidth="140dp"
         android:maxLines="2"
-        android:textColor="@color/settings_muted"
-        android:textSize="13sp"
+        android:textColor="@color/settings_row_value"
+        android:textSize="15sp"
         android:visibility="gone" />
     <LinearLayout
         android:id="@android:id/widget_frame"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:minWidth="16dp"
+        android:minWidth="9dp"
         android:orientation="vertical"
-        android:paddingStart="8dp" />
+        android:paddingStart="10dp" />
 </LinearLayout>

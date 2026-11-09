@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A text field of a dialog: the dark field of the settings' edit sheet, a faint outline, 14dp corners. -->
+<!-- A text field inside a dialog (DialogStyle.field): P574 a step lighter than the dialog's card, 12dp corners, no outline. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/settings_field" />
-    <stroke android:width="1dp" android:color="@color/settings_line" />
-    <corners android:radius="14dp" />
+    <solid android:color="@color/dialog_field_fill" />
+    <corners android:radius="12dp" />
 </shape>

@@ -46,7 +46,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
@@ -93,7 +92,12 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
     static final String EXTRA_URIS = "uris", EXTRA_NAMES = "names", EXTRA_PATHS = "paths", EXTRA_INDEX = "index";
     private static final String PREFS = "video_player";
     private static final String ACTION_PIP = "com.scamera.video.PIP";
-    private static final int PANEL = 0xD9161A1E, SCRIM = 0x99000000;
+    /**
+     * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the buttons and pills over the
+     * video are the camera's dark bars (rgba(20, 20, 22, .9), a 0.5dp light edge), the panels floating #1C1C1E sheets with 34dp
+     * corners, the seek and speed the shared slider, a choice ticked in the accent at the row's end, switches the shared switch.
+     */
+    private static final int PANEL = GalleryUi.BAR, SCRIM = 0x99000000;
     private static final long HIDE_MS = 3500;
 
     /** Opens the player on {@code index} of the list (the gallery's videos in its order, for previous / next). */
@@ -150,7 +154,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
     private LinearLayout topBar, bottomBar, quickRow;
     private View unlockDisc, playButton, prevButton, nextButton, audioDisc, subsDisc;
     private ImageView playIcon;
-    private SeekBar seek;
+    private com.particlesdevs.photoncamera.ui.controls.IosSlider seek;
     private boolean dragging, showRemaining;
     private final List<Quick> quicks = new ArrayList<>();
     private View chevron;
@@ -341,7 +345,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         sub.setText("");
         time.setText("0:00");
         total.setText("");
-        seek.setProgress(0);
+        seek.setValueNow(0);
         bindNav();
         engine = new VideoEngine(this, uris.get(i), this);
         if (surface != null) engine.setSurface(surface);
@@ -367,7 +371,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         if (e == null) return;
         prepared = true;
         long dur = e.durationMs();
-        seek.setMax((int) Math.max(1, Math.min(Integer.MAX_VALUE, dur)));
+        seek.setRange(0, Math.max(1, Math.min(Integer.MAX_VALUE, dur)), 0);
         total.setText(GalleryVideo.clock(dur));
         bindSub();
         applyRotation();
@@ -570,7 +574,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         if (e == null || !prepared) return;
         long pos = e.positionMs(), dur = e.durationMs();
         if (!dragging) {
-            seek.setProgress((int) Math.min(Integer.MAX_VALUE, pos));
+            seek.setValueNow(Math.min(Integer.MAX_VALUE, pos));
             time.setText(GalleryVideo.clock(pos));
             total.setText(showRemaining ? "-" + GalleryVideo.clock(Math.max(0, dur - pos)) : GalleryVideo.clock(dur));
         }
@@ -685,7 +689,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         pill = GalleryUi.text(c, "", 13.5f, GalleryUi.TEXT);
         pill.setGravity(Gravity.CENTER_VERTICAL);
         pill.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 10), GalleryUi.dp(c, 16), GalleryUi.dp(c, 10));
-        pill.setBackground(GalleryUi.round(c, PANEL, GalleryUi.LINE, 999));
+        pill.setBackground(GalleryUi.bar(c, 999));
         pill.setVisibility(View.GONE);
         FrameLayout.LayoutParams pp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM);
         pp.bottomMargin = GalleryUi.dp(c, 150);
@@ -740,10 +744,10 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         LinearLayout meta = new LinearLayout(c);
         meta.setOrientation(LinearLayout.VERTICAL);
         title = GalleryUi.fitText(c, "", 16, GalleryUi.TEXT);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setTypeface(GalleryUi.semibold());
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        sub = GalleryUi.text(c, "", 12, GalleryUi.MUTED);
+        sub = GalleryUi.text(c, "", 12.5f, 0xB3FFFFFF);
         sub.setSingleLine(true);
         meta.addView(title);
         meta.addView(sub);
@@ -759,7 +763,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         decoderPill.setGravity(Gravity.CENTER);
         decoderPill.setMinWidth(GalleryUi.dp(c, 52));
         decoderPill.setPadding(GalleryUi.dp(c, 10), 0, GalleryUi.dp(c, 10), 0);
-        decoderPill.setBackground(GalleryUi.pressable(GalleryUi.round(c, PANEL, GalleryUi.LINE, 999)));
+        decoderPill.setBackground(GalleryUi.pressable(GalleryUi.bar(c, 999)));
         decoderPill.setClickable(true);
         decoderPill.setFocusable(true);
         decoderPill.setOnClickListener(v -> openDecoderPanel());
@@ -813,19 +817,26 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         time = GalleryUi.text(c, "0:00", 13, GalleryUi.TEXT);
         time.setMinWidth(GalleryUi.dp(c, 44));
         seekRow.addView(time);
-        seek = new SeekBar(c);
+        // P579: the shared slider (the relative drag, the glass knob, a tap jumps there)
+        seek = new com.particlesdevs.photoncamera.ui.controls.IosSlider(c);
         seek.setContentDescription(Lang.t("Перемотка", "Seek"));
         int accent = GalleryUi.accent(c);
-        seek.setProgressTintList(ColorStateList.valueOf(accent));
-        seek.setThumbTintList(ColorStateList.valueOf(accent));
-        seek.setProgressBackgroundTintList(ColorStateList.valueOf(0x66FFFFFF));
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        seek.setAccent(accent);
+        seek.setTrackColour(0x66FFFFFF);
+        seek.setRange(0, 1, 0);
+        seek.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
             private long lastPreview;
 
             @Override
-            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+            public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider s, float value, boolean fromUser) {
                 if (!fromUser || engine == null) return;
+                long p = (long) value;
                 time.setText(GalleryVideo.clock(p));
+                // a step by the keyboard or the accessibility actions: no finger, the seek is exact at once
+                if (!s.isTracking()) {
+                    engine.seekTo(p, true);
+                    return;
+                }
                 long now = android.os.SystemClock.uptimeMillis();
                 if (now - lastPreview > 90) {
                     lastPreview = now;
@@ -834,25 +845,26 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
             }
 
             @Override
-            public void onStartTrackingTouch(SeekBar s) {
-                dragging = true;
-                ui.removeCallbacks(autoHide);
-                wasPlayingBeforeDrag = engine != null && engine.isPlaying();
-                if (engine != null) engine.pause();
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar s) {
+            public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider s, boolean tracking) {
+                if (tracking) {
+                    dragging = true;
+                    ui.removeCallbacks(autoHide);
+                    wasPlayingBeforeDrag = engine != null && engine.isPlaying();
+                    if (engine != null) engine.pause();
+                    return;
+                }
                 dragging = false;
                 if (engine != null) {
-                    engine.seekTo(s.getProgress(), true);
+                    engine.seekTo((long) s.getValue(), true);
                     if (wasPlayingBeforeDrag) engine.play();
                 }
                 onPlayStateChanged();
                 scheduleHide();
             }
         });
-        seekRow.addView(seek, new LinearLayout.LayoutParams(0, GalleryUi.dp(c, 36), 1));
+        LinearLayout.LayoutParams seekParams = new LinearLayout.LayoutParams(0, GalleryUi.dp(c, 38), 1);
+        seekParams.leftMargin = seekParams.rightMargin = GalleryUi.dp(c, 6);
+        seekRow.addView(seek, seekParams);
         total = GalleryUi.text(c, "", 13, GalleryUi.TEXT);
         total.setMinWidth(GalleryUi.dp(c, 44));
         total.setGravity(Gravity.END);
@@ -904,7 +916,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setBackground(GalleryUi.round(c, PANEL, GalleryUi.LINE, 22));
+        card.setBackground(GalleryUi.bar(c, 26));
         card.setPadding(GalleryUi.dp(c, 22), GalleryUi.dp(c, 14), GalleryUi.dp(c, 22), GalleryUi.dp(c, 14));
         hudIcon = GalleryUi.icon(c, R.drawable.ui_ic_sun, GalleryUi.TEXT, 26);
         card.addView(hudIcon, new LinearLayout.LayoutParams(GalleryUi.dp(c, 26), GalleryUi.dp(c, 26)));
@@ -920,7 +932,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         hudBar = new ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal);
         hudBar.setMax(1000);
         hudBar.setProgressTintList(ColorStateList.valueOf(GalleryUi.accent(c)));
-        hudBar.setProgressBackgroundTintList(ColorStateList.valueOf(0x44FFFFFF));
+        hudBar.setProgressBackgroundTintList(ColorStateList.valueOf(0x5C787880));
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 150), GalleryUi.dp(c, 6));
         hp.topMargin = GalleryUi.dp(c, 10);
         card.addView(hudBar, hp);
@@ -938,12 +950,11 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         return lp;
     }
 
-    /** A round translucent button with a line icon. */
+    /** A round button with a line icon; P579: the camera's dark bar with its light edge. */
     static FrameLayout disc(Context c, int icon, String description, View.OnClickListener click) {
         FrameLayout b = new FrameLayout(c);
-        GradientDrawable d = new GradientDrawable();
+        GradientDrawable d = GalleryUi.bar(c, 999);
         d.setShape(GradientDrawable.OVAL);
-        d.setColor(PANEL);
         b.setBackground(GalleryUi.pressable(d));
         b.setContentDescription(description);
         b.setClickable(true);
@@ -972,9 +983,8 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
             box.setGravity(Gravity.CENTER_HORIZONTAL);
             box.setPadding(GalleryUi.dp(c, 4), 0, GalleryUi.dp(c, 4), 0);
             disc = new FrameLayout(c);
-            GradientDrawable d = new GradientDrawable();
+            GradientDrawable d = GalleryUi.bar(c, 999);
             d.setShape(GradientDrawable.OVAL);
-            d.setColor(PANEL);
             disc.setBackground(GalleryUi.pressable(d));
             disc.setClickable(true);
             disc.setFocusable(true);
@@ -1008,7 +1018,9 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         void set(int iconRes, boolean on, String label) {
             if (icon != null) {
                 icon.setImageResource(iconRes);
-                icon.setColorFilter(on ? GalleryUi.accent(box.getContext()) : GalleryUi.TEXT);
+                // P570: a colour icon keeps its colours (on: its pressed pose); a plain glyph takes the accent when on
+                if (com.particlesdevs.photoncamera.ui.Icons.colour(box.getContext(), iconRes)) { com.particlesdevs.photoncamera.ui.Icons.own(icon); icon.setActivated(on); }
+                else icon.setColorFilter(on ? GalleryUi.accent(box.getContext()) : GalleryUi.TEXT);
             }
             this.label.setText(label);
             disc.setContentDescription(label);
@@ -1674,11 +1686,11 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
     private LinearLayout panelCard(String heading) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(GalleryUi.round(this, GalleryUi.SHEET, GalleryUi.LINE, 24));
-        card.setPadding(GalleryUi.dp(this, 16), GalleryUi.dp(this, 16), GalleryUi.dp(this, 16), GalleryUi.dp(this, 14));
+        card.setBackground(GalleryUi.card(this, GalleryUi.SHEET, 34)); // P579: the floating sheet, 34dp corners
+        card.setPadding(GalleryUi.dp(this, 16), GalleryUi.dp(this, 18), GalleryUi.dp(this, 16), GalleryUi.dp(this, 14));
         card.setClickable(true); // taps inside do not close it
         TextView t = GalleryUi.text(this, heading, 17, GalleryUi.TEXT);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTypeface(GalleryUi.semibold());
         t.setAccessibilityHeading(true);
         t.setPadding(GalleryUi.dp(this, 4), 0, 0, GalleryUi.dp(this, 10));
         card.addView(t);
@@ -1711,26 +1723,27 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         scheduleHide();
     }
 
-    /** A choice row: a radio mark, the title and a grey line under it. */
+    /** A choice row: the title and a grey line under it; P579: the chosen one ticked in the accent at the end (no radio). */
     private View optionRow(String main, @Nullable String under, boolean chosen, Runnable pick) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 11), GalleryUi.dp(this, 12), GalleryUi.dp(this, 11));
-        row.setBackground(GalleryUi.pressable(GalleryUi.card(this, chosen ? 0x22FFFFFF : 0, 14)));
-        View mark = new View(this);
-        GradientDrawable d = new GradientDrawable();
-        d.setShape(GradientDrawable.OVAL);
-        d.setStroke(GalleryUi.dp(this, chosen ? 6 : 2), chosen ? GalleryUi.accent(this) : GalleryUi.MUTED);
-        mark.setBackground(d);
-        row.addView(mark, new LinearLayout.LayoutParams(GalleryUi.dp(this, 20), GalleryUi.dp(this, 20)));
+        row.setMinimumHeight(GalleryUi.dp(this, 48));
+        row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 10), GalleryUi.dp(this, 12), GalleryUi.dp(this, 10));
+        row.setBackground(GalleryUi.pressable(GalleryUi.card(this, 0, 16)));
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
-        texts.addView(GalleryUi.text(this, main, 15, GalleryUi.TEXT));
-        if (under != null) texts.addView(GalleryUi.text(this, under, 12.5f, GalleryUi.MUTED));
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tp.leftMargin = GalleryUi.dp(this, 14);
-        row.addView(texts, tp);
+        texts.addView(GalleryUi.text(this, main, 16, GalleryUi.TEXT));
+        if (under != null) {
+            TextView u = GalleryUi.text(this, under, 13, GalleryUi.MUTED);
+            u.setPadding(0, GalleryUi.dp(this, 2), 0, 0);
+            texts.addView(u);
+        }
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        ImageView tick = GalleryUi.tick(this, chosen);
+        ((LinearLayout.LayoutParams) tick.getLayoutParams()).setMarginStart(GalleryUi.dp(this, 12));
+        row.addView(tick);
+        row.setSelected(chosen);
         row.setClickable(true);
         row.setFocusable(true);
         row.setContentDescription(main + (under != null ? ", " + under : ""));
@@ -1747,10 +1760,11 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 12), GalleryUi.dp(this, 12), GalleryUi.dp(this, 12));
-        row.setBackground(GalleryUi.pressable(GalleryUi.card(this, 0, 14)));
+        row.setMinimumHeight(GalleryUi.dp(this, 48));
+        row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 10), GalleryUi.dp(this, 12), GalleryUi.dp(this, 10));
+        row.setBackground(GalleryUi.pressable(GalleryUi.card(this, 0, 16)));
         row.addView(GalleryUi.icon(this, icon, GalleryUi.accent(this), 22));
-        TextView t = GalleryUi.text(this, main, 15, GalleryUi.TEXT);
+        TextView t = GalleryUi.text(this, main, 16, GalleryUi.TEXT);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         tp.leftMargin = GalleryUi.dp(this, 14);
         row.addView(t, tp);
@@ -1934,22 +1948,23 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         TextView value = GalleryUi.text(this, speedLabel(speed), 26, GalleryUi.TEXT);
-        value.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        value.setTypeface(GalleryUi.semibold());
         value.setGravity(Gravity.CENTER);
-        SeekBar bar = new SeekBar(this);
-        bar.setMax(75); // 0.25 .. 4.00 in 0.05 steps
-        bar.setProgress(Math.round((speed - .25f) / .05f));
-        bar.setProgressTintList(ColorStateList.valueOf(GalleryUi.accent(this)));
-        bar.setThumbTintList(ColorStateList.valueOf(GalleryUi.accent(this)));
-        Runnable[] apply = new Runnable[1];
-        View minus = disc(this, R.drawable.ui_ic_minus, Lang.t("Медленнее", "Slower"), v -> bar.setProgress(Math.max(0, bar.getProgress() - 1)));
-        View plus = disc(this, R.drawable.ui_ic_plus, Lang.t("Быстрее", "Faster"), v -> bar.setProgress(Math.min(75, bar.getProgress() + 1)));
+        // P579: the shared slider, 0.25 .. 4.00 in 0.05 steps (a double tap goes back to 1x)
+        com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(this);
+        bar.setRange(.25f, 4f, .05f);
+        bar.setDefaultValue(1f);
+        bar.setValueNow(speed);
+        bar.setContentDescription(Lang.t("Скорость", "Speed"));
+        View minus = disc(this, R.drawable.ui_ic_minus, Lang.t("Медленнее", "Slower"), v -> bar.setValue(bar.getValue() - .05f));
+        View plus = disc(this, R.drawable.ui_ic_plus, Lang.t("Быстрее", "Faster"), v -> bar.setValue(bar.getValue() + .05f));
         row.addView(minus, size(this, 44));
         row.addView(value, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         row.addView(plus, size(this, 44));
         card.addView(row);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GalleryUi.dp(this, 40));
         bp.topMargin = GalleryUi.dp(this, 8);
+        bp.leftMargin = bp.rightMargin = GalleryUi.dp(this, 4);
         card.addView(bar, bp);
         HorizontalScrollView presetScroll = new HorizontalScrollView(this);
         presetScroll.setHorizontalScrollBarEnabled(false);
@@ -1958,7 +1973,8 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         float[] values = {.5f, .75f, 1f, 1.25f, 1.5f, 2f, 3f};
         for (float v : values) {
             TextView chip = GalleryUi.chip(this, speedLabel(v), -1, false);
-            chip.setOnClickListener(x -> bar.setProgress(Math.round((v - .25f) / .05f)));
+            chip.setOnClickListener(x -> bar.setValue(v));
+            Motion.press(chip);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.rightMargin = GalleryUi.dp(this, 8);
             presets.addView(chip, lp);
@@ -1966,20 +1982,19 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pp.topMargin = GalleryUi.dp(this, 6);
         card.addView(presetScroll, pp);
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        bar.setListener(new com.particlesdevs.photoncamera.ui.controls.IosSlider.Listener() {
             @Override
-            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
-                speed = Math.round((.25f + p * .05f) * 100) / 100f;
+            public void onValue(com.particlesdevs.photoncamera.ui.controls.IosSlider s, float v, boolean fromUser) {
+                speed = Math.round(v * 100) / 100f;
                 value.setText(speedLabel(speed));
                 if (engine != null) engine.setSpeed(speed);
                 bindQuick();
             }
 
             @Override
-            public void onStartTrackingTouch(SeekBar s) {}
-
-            @Override
-            public void onStopTrackingTouch(SeekBar s) {}
+            public void onTracking(com.particlesdevs.photoncamera.ui.controls.IosSlider s, boolean tracking) {
+                if (!tracking) com.particlesdevs.photoncamera.ui.controls.IosMotion.pop(value);
+            }
         });
         card.addView(actionRow(R.drawable.ui_ic_undo, Lang.t("Сбросить на 1x", "Reset to 1x"), () -> {
             speed = 1f;
@@ -2016,9 +2031,10 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 10), GalleryUi.dp(this, 12), GalleryUi.dp(this, 10));
-            row.setBackground(GalleryUi.pressable(GalleryUi.card(this, 0, 14)));
-            TextView t = GalleryUi.text(this, q.baseLabel, 15, GalleryUi.TEXT);
+            row.setMinimumHeight(GalleryUi.dp(this, 48));
+            row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 6), GalleryUi.dp(this, 8), GalleryUi.dp(this, 6));
+            row.setBackground(GalleryUi.pressable(GalleryUi.card(this, 0, 16)));
+            TextView t = GalleryUi.text(this, q.baseLabel, 16, GalleryUi.TEXT);
             row.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             View sw = com.particlesdevs.photoncamera.gallery.ui.GallerySheets.toggleView(this, on);
             row.addView(sw);
@@ -2040,30 +2056,25 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
             card.addView(row);
         }
         TextView stepLabel = GalleryUi.text(this, Lang.t("Двойное касание: перемотка на", "Double tap seeks by"), 13, GalleryUi.MUTED);
-        stepLabel.setPadding(GalleryUi.dp(this, 4), GalleryUi.dp(this, 14), 0, GalleryUi.dp(this, 6));
+        stepLabel.setPadding(GalleryUi.dp(this, 4), GalleryUi.dp(this, 14), 0, GalleryUi.dp(this, 8));
         card.addView(stepLabel);
-        HorizontalScrollView stepScroll = new HorizontalScrollView(this);
-        stepScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout steps = new LinearLayout(this);
-        stepScroll.addView(steps);
-        for (int sec : new int[]{5, 10, 15, 20, 30, 60}) {
-            TextView chip = GalleryUi.chip(this, sec + Lang.t(" с", " s"), -1, sec == seekStep());
-            chip.setOnClickListener(v -> {
-                prefs.edit().putInt("seek_step", sec).apply();
-                openCustomizePanel(); // redrawn with the new choice
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = GalleryUi.dp(this, 8);
-            steps.addView(chip, lp);
+        // P579: the step on the shared segmented control (its thumb glides; the choice is stored at once)
+        final int[] stepValues = {5, 10, 15, 20, 30, 60};
+        String[] stepNames = new String[stepValues.length];
+        int stepChosen = -1;
+        for (int i = 0; i < stepValues.length; i++) {
+            stepNames[i] = stepValues[i] + Lang.t(" с", " s");
+            if (stepValues[i] == seekStep()) stepChosen = i;
         }
-        card.addView(stepScroll);
+        card.addView(GalleryUi.segmented(this, stepNames, stepChosen, i -> prefs.edit().putInt("seek_step", stepValues[i]).apply()),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         boolean pipHome = prefs.getBoolean("pip_on_home", false);
         if (Build.VERSION.SDK_INT >= 26) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 14), GalleryUi.dp(this, 12), GalleryUi.dp(this, 10));
-            row.addView(GalleryUi.text(this, Lang.t("Картинка в картинке при выходе", "Picture-in-picture on leaving"), 15, GalleryUi.TEXT),
+            row.setPadding(GalleryUi.dp(this, 12), GalleryUi.dp(this, 14), GalleryUi.dp(this, 8), GalleryUi.dp(this, 10));
+            row.addView(GalleryUi.text(this, Lang.t("Картинка в картинке при выходе", "Picture-in-picture on leaving"), 16, GalleryUi.TEXT),
                     new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             View sw = com.particlesdevs.photoncamera.gallery.ui.GallerySheets.toggleView(this, pipHome);
             row.addView(sw);

@@ -77,6 +77,10 @@ public class PortraitFaceMaskTest {
         final String combine = read("src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyCombine.java");
         assertTrue(combine.contains("final boolean faceShot = r.portraitFace && st.portrait != null && st.portrait.count > 0;"));
         assertTrue(combine.contains("WhyTone.curveSamples(r.portraitFace)"));
+        // P577: Face AWB's code default is the XML's 1 (P513), as «Приоритет лиц в AE»'s
+        assertTrue("Face AWB defaults to the XML's 1", combine.contains("WhyTone.value(\"portrait_awb\", 1f)"));
+        // P577: a monochrome picture takes no Face AWB (tools/check_colour_params.py renders it grey)
+        assertTrue(c.contains("    if (monoU == vec3(0.0))\n#endif\n    lab.yz += faceAwbU * lab.x;"));
         final String prefs = read("src/main/res/xml/preferences.xml");
         assertTrue(prefs.contains("android:key=\"portrait_mask_screen\""));
         assertTrue(prefs.contains("pref_scam_hybrid_why_portrait_ae\" android:title=\"@string/prefs_portrait_ae_title\" android:summary=\"@string/prefs_portrait_ae_summary\" android:defaultValue=\"1\""));

@@ -10,14 +10,12 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.SwitchCompat;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -318,13 +316,8 @@ public class LensDiscoveryActivity extends AppCompatActivity {
                 holder.summary.setText("ID " + info.f381id + " · " + info.facing + " · " + (info.isLogical ? "Logical" : "Physical"));
                 holder.toggle.setVisibility(0);
                 holder.toggle.setOnCheckedChangeListener(null);
-                holder.toggle.setChecked(!hidden.contains(info.f381id));
-                holder.toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() { // from class: com.particlesdevs.photoncamera.ui.camera.LensDiscoveryActivity$LensSettingAdapter$$ExternalSyntheticLambda0
-                    @Override // android.widget.CompoundButton.OnCheckedChangeListener
-                    public final void onCheckedChanged(CompoundButton compoundButton, boolean z) {
-                        LensSettingAdapter.this.lambda$onBindViewHolder$0(info, compoundButton, z);
-                    }
-                });
+                holder.toggle.setCheckedNow(!hidden.contains(info.f381id)); // P574: a recycled row takes its state without a slide
+                holder.toggle.setOnCheckedChangeListener((s, z) -> LensSettingAdapter.this.lambda$onBindViewHolder$0(info, z));
                 holder.itemView.setOnClickListener(new View.OnClickListener() { // from class: com.particlesdevs.photoncamera.ui.camera.LensDiscoveryActivity$LensSettingAdapter$$ExternalSyntheticLambda1
                     @Override // android.view.View.OnClickListener
                     public final void onClick(View view) {
@@ -345,7 +338,7 @@ public class LensDiscoveryActivity extends AppCompatActivity {
         }
 
         /* JADX INFO: Access modifiers changed from: private */
-        public /* synthetic */ void lambda$onBindViewHolder$0(LensInfo info, CompoundButton button, boolean checked) {
+        public /* synthetic */ void lambda$onBindViewHolder$0(LensInfo info, boolean checked) {
             Set<String> changed = new HashSet<>(LensDiscoveryActivity.this.settingsManager.getStringSet("default_scope", "hidden_camera_ids", new HashSet()));
             String str = info.f381id;
             if (checked) {
@@ -375,13 +368,13 @@ public class LensDiscoveryActivity extends AppCompatActivity {
         class SettingHolder extends RecyclerView.ViewHolder {
             final TextView summary;
             final TextView title;
-            final SwitchCompat toggle;
+            final com.particlesdevs.photoncamera.ui.controls.IosSwitch toggle;
 
             SettingHolder(View itemView) {
                 super(itemView);
                 this.title = (TextView) itemView.findViewById(R.id.lens_setting_title);
                 this.summary = (TextView) itemView.findViewById(R.id.lens_setting_summary);
-                this.toggle = (SwitchCompat) itemView.findViewById(R.id.lens_setting_switch);
+                this.toggle = itemView.findViewById(R.id.lens_setting_switch);
             }
         }
     }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P574: the navigation chevron of a settings row (the concept's 9 x 15 stroke), white at 35 % (settings_chevron). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="9dp"
+    android:height="15dp"
+    android:autoMirrored="true"
+    android:viewportWidth="9"
+    android:viewportHeight="15">
+    <path
+        android:pathData="M1.5,1.5l6,6 -6,6"
+        android:strokeWidth="2.2"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

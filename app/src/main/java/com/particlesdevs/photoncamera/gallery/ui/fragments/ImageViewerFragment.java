@@ -15,7 +15,6 @@ import android.webkit.MimeTypeMap;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -215,8 +214,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         FrameLayout disc = new FrameLayout(c);
         android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
         d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        d.setColor(0x99000000);
-        d.setStroke(GalleryUi.dp(c, 1), 0x55FFFFFF);
+        d.setColor(GalleryUi.BAR); // P579: the camera's dark bar with its light edge
+        d.setStroke(Math.max(1, GalleryUi.dp(c, .5f)), GalleryUi.EDGE);
         disc.setBackground(GalleryUi.pressable(d));
         disc.setContentDescription(Lang.t("Смотреть видео", "Play the video"));
         disc.setClickable(true);
@@ -296,6 +295,15 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_text, Lang.t("Текст на фото", "Text in the photo"),
                     () -> com.particlesdevs.photoncamera.gallery.ui.TextSheet.show(c, item.getFile())));
         actions.add(new GallerySheets.Action(R.drawable.ui_ic_open, Lang.t("Открыть в другом приложении", "Open in another app"), () -> sendTo(item, Intent.ACTION_VIEW)));
+        // P579 (owner, 2026-11-09: «… в ней надо стиль также обновить»): the pull-down menu at the «Ещё» button (the shared menu's look);
+        // the sheet of rows when the button is not on screen
+        View anchor = chrome != null ? chrome.more : null;
+        if (anchor != null && anchor.isAttachedToWindow() && anchor.getWindowToken() != null && anchor.isShown()) {
+            List<com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item> items = new ArrayList<>();
+            for (GallerySheets.Action a : actions) items.add(new com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item(a.icon, a.label, true, a.run));
+            com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.show(anchor, items);
+            return;
+        }
         GallerySheets.showActions(c, Lang.t("Ещё", "More"), actions);
     }
 
@@ -309,7 +317,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         try {
             startActivity(Intent.createChooser(i, null));
         } catch (android.content.ActivityNotFoundException e) {
-            Toast.makeText(requireContext(), Lang.t("Нет подходящего приложения", "No app for this"), Toast.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(requireContext(), Lang.t("Нет подходящего приложения", "No app for this"));
         }
     }
 
@@ -323,7 +331,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         slideshow = true;
         if (chromeVisible) onImageViewClicked(viewPager);
         if (root != null) root.setKeepScreenOn(true);
-        Toast.makeText(requireContext(), Lang.t("Слайд-шоу: касание останавливает", "Slideshow: tap to stop"), Toast.LENGTH_SHORT).show();
+        com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(requireContext(), Lang.t("Слайд-шоу: касание останавливает", "Slideshow: tap to stop"));
         viewPager.removeCallbacks(slideTick);
         viewPager.postDelayed(slideTick, SLIDE_MS);
     }
@@ -377,7 +385,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private void buildPaneOverlay(Context c) {
         paneLabel = GalleryUi.text(c, "", 12, GalleryUi.TEXT);
-        paneLabel.setBackground(GalleryUi.round(c, GalleryUi.PILL_BG, GalleryUi.LINE, 12));
+        paneLabel.setBackground(GalleryUi.bar(c, 14)); // P579: the dark bar over the photo
         paneLabel.setPadding(GalleryUi.dp(c, 9), GalleryUi.dp(c, 5), GalleryUi.dp(c, 9), GalleryUi.dp(c, 5));
         paneLabel.setCompoundDrawablePadding(GalleryUi.dp(c, 6));
         paneLabel.setMaxLines(4); // P196: EXIF line, resolution · phone, file name (one may wrap on a narrow pane)
@@ -512,7 +520,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         liveHistogram = new Histogram(c, null);
         liveHistogram.setContentDescription(Lang.t("Гистограмма RGB", "RGB histogram"));
         liveHistogramCard = new FrameLayout(c);
-        liveHistogramCard.setBackground(GalleryUi.card(c, GalleryUi.PILL_BG, 14));
+        liveHistogramCard.setBackground(GalleryUi.bar(c, 16)); // P579: the dark bar over the photo
         int pad = GalleryUi.dp(c, 8);
         liveHistogramCard.setPadding(pad, pad, pad, pad);
         liveHistogramCard.setTag("viewer_histogram_overlay");
@@ -735,7 +743,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             b.putInt(Constants.IMAGE2_KEY, image2pos);
             navController.navigate(R.id.action_imageViewerFragment_to_imageCompareFragment, b);
         } else if (getContext() != null) {
-            Toast.makeText(getContext(), Lang.t("Нет снимка для сравнения", "No photo to compare with"), Toast.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Нет снимка для сравнения", "No photo to compare with"));
         }
     }
 
@@ -787,7 +795,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == Constants.REQUEST_EDIT_IMAGE && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
-            Toast.makeText(getContext(), Lang.t("Сохранено: ", "Saved: ") + data.getData().getPath(), Toast.LENGTH_LONG).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Сохранено: ", "Saved: ") + data.getData().getPath(), true);
             viewModel.fetchAllMedia();
             initImageAdapter(viewModel.getCurrentFolderImages().getValue());
             updateExif();
@@ -1000,10 +1008,11 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         // P65: the file name on a second, smaller and muted line (which two shots are compared)
         String name = item.getFile().getDisplayName();
         paneLabel.setText(paneText(text, file, name));
-        android.graphics.drawable.Drawable routeD = route != null ? c.getDrawable(GalleryFormat.routeIcon(route)) : null;
-        android.graphics.drawable.Drawable fmt = c.getDrawable(format.icon);
+        // P570: a colour icon in tonal mono of the accent, a plain glyph tinted
         int s = GalleryUi.dp(c, 15), accent = GalleryUi.accent(c);
-        android.graphics.drawable.Drawable icons = combine(c, routeD, fmt, s, accent);
+        android.graphics.drawable.Drawable routeD = route != null ? com.particlesdevs.photoncamera.ui.Icons.inked(c, GalleryFormat.routeIcon(route), accent) : null;
+        android.graphics.drawable.Drawable fmt = com.particlesdevs.photoncamera.ui.Icons.inked(c, format.icon, accent);
+        android.graphics.drawable.Drawable icons = combine(c, routeD, fmt, s);
         paneLabel.setCompoundDrawables(icons, null, null, null);
         paneLabel.setContentDescription((route != null ? route + ", " : "") + format.label + ", " + text
                 + (file == null || file.isEmpty() ? "" : ", " + file) + (name == null || name.isEmpty() ? "" : ", " + name));
@@ -1033,14 +1042,9 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     }
 
     private static android.graphics.drawable.Drawable combine(Context c, @Nullable android.graphics.drawable.Drawable a,
-                                                              @Nullable android.graphics.drawable.Drawable b, int s, int tint) {
+                                                              @Nullable android.graphics.drawable.Drawable b, int s) {
         List<android.graphics.drawable.Drawable> list = new ArrayList<>();
-        for (android.graphics.drawable.Drawable d : new android.graphics.drawable.Drawable[]{a, b}) {
-            if (d == null) continue;
-            d = d.mutate();
-            d.setTint(tint);
-            list.add(d);
-        }
+        for (android.graphics.drawable.Drawable d : new android.graphics.drawable.Drawable[]{a, b}) if (d != null) list.add(d);
         if (list.isEmpty()) return null;
         android.graphics.drawable.LayerDrawable l = new android.graphics.drawable.LayerDrawable(list.toArray(new android.graphics.drawable.Drawable[0]));
         int gap = GalleryUi.dp(c, 4);
@@ -1071,7 +1075,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             galleryItems.remove(indexToDelete);
             seek_position = Math.min(indexToDelete, Math.max(0, galleryItems.size() - 1));
             if (!galleryItems.isEmpty()) initImageAdapter(galleryItems);
-            if (getContext() != null) Toast.makeText(getContext(), Lang.t("Удалено: ", "Deleted: ") + GalleryUi.shots(1), Toast.LENGTH_SHORT).show();
+            if (getContext() != null) com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Удалено: ", "Deleted: ") + GalleryUi.shots(1));
             indexToDelete = -1;
             if (galleryItems.isEmpty()) {
                 viewModel.setUpdatePending(true);
@@ -1079,7 +1083,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
                 if (root != null && navController != null) onGalleryButtonClick();
             } else viewModel.setUpdatePending(true);
         } else if (getContext() != null) {
-            Toast.makeText(getContext(), Lang.t("Не удалось удалить", "Deletion failed"), Toast.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Не удалось удалить", "Deletion failed"));
         }
     }
 }

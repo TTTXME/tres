@@ -47,7 +47,7 @@ public class ViewfinderUiTest {
         // Render the production XML controls. The scene is a neutral placeholder;
         // no camera or neural processing is simulated by this screenshot.
         LinearLayout screen=new LinearLayout(context);screen.setOrientation(LinearLayout.VERTICAL);
-        screen.setBackgroundColor(0xFF101316);screen.setPadding(12,12,12,12);
+        screen.setBackgroundColor(0xFF101316);screen.setPadding(12,0,12,0);   // P574: no vertical padding: the bar gets what the 880dp screen really leaves
         View top=LayoutInflater.from(context).inflate(R.layout.layout_main_topbar,screen,false);
         com.particlesdevs.photoncamera.databinding.LayoutMainTopbarBinding tb=com.particlesdevs.photoncamera.databinding.LayoutMainTopbarBinding.bind(top);
         tb.executePendingBindings();
@@ -75,7 +75,7 @@ public class ViewfinderUiTest {
         int[] ids={R.id.iso_option_tv,R.id.exposure_option_tv,R.id.ev_option_tv,R.id.focus_option_tv,R.id.wb_option_tv};
         for(int i=0;i<ids.length;i++)assertEquals(labels[i],manual.findViewById(ids[i]).getContentDescription().toString());
         // P25: the lens strip lives in the bottom bar now (above the shutter row, under the zoom ruler's place).
-        View bottom=LayoutInflater.from(context).inflate(R.layout.layout_main_bottombar,screen,false);screen.addView(bottom,new LinearLayout.LayoutParams(-1,259));
+        View bottom=LayoutInflater.from(context).inflate(R.layout.layout_main_bottombar,screen,false);screen.addView(bottom,new LinearLayout.LayoutParams(-1,283));
         var lenses=(com.particlesdevs.photoncamera.ui.camera.views.AuxButtonsLayout)bottom.findViewById(R.id.aux_buttons_container);
         var lensModel=new com.particlesdevs.photoncamera.ui.camera.model.AuxButtonsModel();
         java.util.List<com.particlesdevs.photoncamera.ui.camera.data.CameraLensData> cameraData=new ArrayList<>();
@@ -88,21 +88,18 @@ public class ViewfinderUiTest {
         assertEquals("ruler card",64,container.getHeight());
         assertEquals(View.GONE,toggleCard.getVisibility());assertTrue(chipsCard.getHeight()>=58);   // SIMPLE_UI: «Про» in the bottom bar, no toggle card
         assertEquals(container.getHeight()+8+chipsCard.getHeight(),manual.getHeight());
-        // SIMPLE_UI §1 top bar: torch, timer, Motion (44dp icon buttons), the pill card [format | size], the 44dp gear at the end,
-        // every size x UiScale; nothing overlaps and the gear stays inside.
+        // SIMPLE_UI §1 top bar; P574 (the approved concept): one centred row - the format badge (format over size), torch,
+        // timer, LUT (40dp round items, 16dp apart, x UiScale); nothing overlaps, the row stays inside and centred.
         float k=com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(context);
-        View gear=top.findViewById(R.id.settings_button),badges=top.findViewById(R.id.topbar_badges);
-        assertEquals(Math.round(44*k),gear.getWidth());assertEquals(gear.getWidth(),gear.getHeight());
-        assertEquals("the gear is pinned to the right edge",top.getWidth()-top.getPaddingRight(),gear.getRight());
-        assertTrue("badges must not run under the gear",badges.getRight()<=gear.getLeft());
-        View torch=top.findViewById(R.id.torch_button),timer=top.findViewById(R.id.timer_button),motion=top.findViewById(R.id.motion_mode_button);
-        assertTrue(torch.getRight()<=timer.getLeft());assertTrue(timer.getRight()<=motion.getLeft());assertTrue(motion.getRight()<=badges.getLeft());
-        for(View b:new View[]{torch,timer,motion}){assertEquals(Math.round(44*k),b.getHeight());assertEquals("round",b.getHeight(),b.getWidth());}
-        assertEquals(Math.round(40*k),badges.getHeight());
+        View formatButton=top.findViewById(R.id.format_button),torch=top.findViewById(R.id.torch_button),timer=top.findViewById(R.id.timer_button),lut=top.findViewById(R.id.lut_button);
+        assertTrue(formatButton.getRight()<=torch.getLeft());assertTrue(torch.getRight()<=timer.getLeft());assertTrue(timer.getRight()<=lut.getLeft());
+        for(View b:new View[]{torch,timer,lut}){assertEquals(Math.round(40*k),b.getHeight());assertEquals("round",b.getHeight(),b.getWidth());}
+        assertEquals(Math.round(40*k),formatButton.getHeight());
+        assertEquals("centred",formatButton.getLeft(),top.getWidth()-lut.getRight(),2);
+        assertNull("the gear is in the bottom row",top.findViewById(R.id.settings_button));
         TextView format=top.findViewById(R.id.format_badge),size=top.findViewById(R.id.size_badge);
-        assertTrue(format.getContentDescription().toString().endsWith("JPEG"));assertEquals(png.isEmpty()?"12 Мп":"12 MP",size.getText().toString());
+        assertTrue(format.getContentDescription().toString().endsWith("JPEG"));assertEquals("JPEG",format.getText().toString());assertEquals(png.isEmpty()?"12 Мп":"12 MP",size.getText().toString());
         assertEquals(View.GONE,top.findViewById(R.id.dcg_badge).getVisibility());assertEquals(View.GONE,top.findViewById(R.id.timer_badge).getVisibility());
-        assertTrue(top.findViewById(R.id.topbar_divider).getWidth()>=1);
         assertEquals(78,bottom.findViewById(R.id.shutter_button).getWidth());   // SIMPLE_UI: the concept's 78dp
         assertEquals(R.id.galery_button_container,((View)bottom.findViewById(R.id.processing_progress_bar).getParent()).getId());
         // Shutter row: gallery card | shutter exactly in the centre | front / back switch, none overlapping.
@@ -111,6 +108,13 @@ public class ViewfinderUiTest {
         assertEquals(row.getWidth()/2f,(shutterBox.getLeft()+shutterBox.getRight())/2f,1f);
         assertTrue(gallery.getRight()<=shutterBox.getLeft());assertTrue(flipBox.getLeft()>=shutterBox.getRight());
         assertEquals(54,gallery.getWidth());assertEquals(54,flipBox.getWidth());   // SIMPLE_UI: 54dp
+        // P574: the bottom row under the shutter row - the gear, the Sport | Photo switch in the centre, «Про»; none overlapping
+        View gearRow=bottom.findViewById(R.id.settings_button),modes=bottom.findViewById(R.id.mode_switch),pro=bottom.findViewById(R.id.pro_button);
+        assertTrue(((View)gearRow.getParent()).getTop()>=shutterBox.getBottom());
+        assertEquals(row.getWidth()/2f,(((View)modes.getParent()).getLeft()+modes.getLeft()+((View)modes.getParent()).getLeft()+modes.getRight())/2f,2f);
+        assertTrue(gearRow.getRight()<=modes.getLeft());assertTrue(modes.getRight()<=pro.getLeft());
+        assertEquals(50,gearRow.getWidth());assertEquals(50,pro.getWidth());assertEquals(52,modes.getHeight());
+        assertNotNull(bottom.findViewById(R.id.mode_sport));assertNotNull(bottom.findViewById(R.id.mode_photo));
         // The strip: a centred pill above the shutter row, the ruler's place above it, all inside the bottom bar.
         View slot=bottom.findViewById(R.id.zoom_ruler_slot),rowRoot=bottom.findViewById(R.id.bottom_buttons);
         assertEquals(bottom.getWidth()/2f,(lenses.getLeft()+lenses.getRight())/2f,1f);

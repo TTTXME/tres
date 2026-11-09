@@ -52,6 +52,7 @@
     <string name="focus_peaking_auto">Авто</string>
     <!-- Settings sheet handles (TalkBack) -->
     <string name="sheet_handle_open">Открыть панель настроек</string>
+    <string name="sheet_handle_close">Закрыть панель настроек</string>
     <string name="sheet_handle_toggle">Развернуть или свернуть панель настроек</string>
     <!-- Settings sheet groups and short value labels (segments, quick buttons) -->
     <!-- Settings sheet row pin (TalkBack, tooltip) -->

@@ -17,7 +17,7 @@ import com.particlesdevs.photoncamera.R;
  */
 public class ModuleRowPreference extends Preference {
     private CharSequence value;
-    private boolean warn, dimmed;
+    private boolean warn, dimmed, accentTile;
 
     public ModuleRowPreference(Context context) {
         super(context);
@@ -53,6 +53,15 @@ public class ModuleRowPreference extends Preference {
     }
 
     public boolean dimmed() { return dimmed; }
+
+    /** P574: an «add» row - its icon in the accent on the accent's tile (SettingsStyle.bind). */
+    public void setAccentTile(boolean on) {
+        if (accentTile == on) return;
+        accentTile = on;
+        notifyChanged();
+    }
+
+    public boolean accentTile() { return accentTile; }
 
     /** The title and the summary set together, binding once. */
     public void setTexts(CharSequence title, @Nullable CharSequence summary) {

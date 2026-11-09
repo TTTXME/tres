@@ -16,6 +16,9 @@ LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-index-free
 # P568: the Quad native merge with shared-memory tiles gives the original's floats bit for bit
 g++ -pthread -std=c++17 -O1 tools/check_nat_tile.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-nat-tile
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-nat-tile
+# P571: the fast route's Quad lattice pass on the GPU against its CPU reference, in one strip and in several
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_quad_lattice_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-quad-lattice-gpu
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-quad-lattice-gpu
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_still.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-still
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-still
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_stages.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-stages

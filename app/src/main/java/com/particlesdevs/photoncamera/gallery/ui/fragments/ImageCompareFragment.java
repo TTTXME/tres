@@ -20,7 +20,6 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -118,9 +117,9 @@ public class ImageCompareFragment extends Fragment {
         cbar.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 8), GalleryUi.dp(c, 12), GalleryUi.dp(c, 12));
         cbar.addView(syncCard(c), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         View share = GalleryUi.squareButton(c, R.drawable.ui_ic_share, Lang.t("Поделиться сравнением", "Share the comparison"), v -> onShareClick());
-        share.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 18)));
+        // P579 (owner, 2026-11-09: «… в ней надо стиль также обновить»): the round 48dp disc beside the switch card
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 48), GalleryUi.dp(c, 48));
-        sp.leftMargin = GalleryUi.dp(c, 8);
+        sp.setMarginStart(GalleryUi.dp(c, 10));
         cbar.addView(share, sp);
         bar = cbar;
         column.addView(cbar);
@@ -133,13 +132,15 @@ public class ImageCompareFragment extends Fragment {
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setMinimumHeight(GalleryUi.dp(c, 48));
-        card.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 18)));
-        card.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 10), GalleryUi.dp(c, 14), GalleryUi.dp(c, 10));
+        card.setMinimumHeight(GalleryUi.dp(c, 52));
+        // P579: a row card (#2C2C2E, 24dp corners) with the shared switch
+        card.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 24)));
+        card.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 8), GalleryUi.dp(c, 12), GalleryUi.dp(c, 8));
         card.addView(GalleryUi.icon(c, R.drawable.ui_ic_link, GalleryUi.accent(c), 22));
-        TextView t = GalleryUi.fitText(c, Lang.t("Зум и сдвиг вместе", "Zoom and pan together"), 14, GalleryUi.TEXT);
+        TextView t = GalleryUi.fitText(c, Lang.t("Зум и сдвиг вместе", "Zoom and pan together"), 15, GalleryUi.TEXT);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tp.leftMargin = tp.rightMargin = GalleryUi.dp(c, 10);
+        tp.setMarginStart(GalleryUi.dp(c, 12));
+        tp.setMarginEnd(GalleryUi.dp(c, 10));
         card.addView(t, tp);
         View sw = GallerySheets.toggleView(c, toSync);
         card.addView(sw);
@@ -216,7 +217,7 @@ public class ImageCompareFragment extends Fragment {
         } catch (RuntimeException e) {
             com.particlesdevs.photoncamera.util.Log.w("GALLERY_DECODE", "compare screenshot failed: " + e);
             hideButtons(false);
-            Toast.makeText(mContext, Lang.t("Не удалось", "Failed"), Toast.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(mContext, Lang.t("Не удалось", "Failed"));
             return;
         }
         HandlerThread bmpThread = new HandlerThread("ScreenshotThread", Process.THREAD_PRIORITY_BACKGROUND);
@@ -257,7 +258,7 @@ public class ImageCompareFragment extends Fragment {
             e.printStackTrace();
         }
         if (uri == null) {
-            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(mContext, Lang.t("Не удалось", "Failed"), Toast.LENGTH_SHORT).show());
+            new Handler(Looper.getMainLooper()).post(() -> com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(mContext, Lang.t("Не удалось", "Failed")));
         }
         return uri;
     }

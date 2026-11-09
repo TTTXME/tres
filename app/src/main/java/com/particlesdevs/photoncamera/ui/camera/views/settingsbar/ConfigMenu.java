@@ -460,8 +460,8 @@ final class ConfigMenu {
         r.setTag(tag);
         r.setOnClickListener(v -> click.run());
         ImageView i = new ImageView(c);
-        i.setImageResource(icon);
-        i.setImageTintList(ColorStateList.valueOf(iconColor));
+        com.particlesdevs.photoncamera.ui.Icons.set(i, icon, iconColor); // P570: a colour icon keeps its colours
+        i.setDuplicateParentStateEnabled(true); // and takes its pressed pose with the row
         r.addView(i, new LinearLayout.LayoutParams(dp(20), dp(20)));
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);

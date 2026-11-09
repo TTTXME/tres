@@ -392,7 +392,7 @@ public final class ScamLab {
             final int version = h.getInt(4);
             if (h.getInt(0) != ScamLabBurst.MAGIC || (version != 11 && version != 12)) return null;
             final int w = h.getInt(8), hh = h.getInt(12), frames = h.getInt(20);
-            if (w <= 0 || hh <= 0 || frames < 1 || frames > 64) return null;
+            if (w <= 0 || hh <= 0 || frames < 1 || frames > 128) return null;
             return new int[]{w, hh, h.getInt(16), frames, Math.max(1, h.getInt(52)), h.getInt(56)};
         } catch (IOException e) {
             return null;

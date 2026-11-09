@@ -67,8 +67,9 @@ public class CameraUIViewImpl implements CameraUIView {
         this.initListeners();
         migrateMode();
         styleControls(context);
-        // SIMPLE_UI §1: a long press on the photo size opens the «Размер фото» sheet (500 ms, haptic)
-        topbar.sizeBadge.setOnLongClickListener(v -> {
+        // SIMPLE_UI §1: a long press on the photo size opens the «Размер фото» sheet (500 ms, haptic); P574: on the format badge,
+        // whose second line is the size - the combined sheet on its «Размер» tab
+        topbar.formatButton.setOnLongClickListener(v -> {
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
             TopBar.openSizeSheet(cameraFragment);
             return true;
@@ -108,8 +109,8 @@ public class CameraUIViewImpl implements CameraUIView {
     /** SIMPLE_UI: the concept's glyphs in the text colour (the gear, the front / back switch), the empty gallery card's icon muted. */
     private void styleControls(Context context) {
 
-        bottombuttons.galleryPlaceholder.setImageTintList(ColorStateList.valueOf(ShadeStyle.MUTED));
-        bottombuttons.flipCameraButton.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
+        com.particlesdevs.photoncamera.ui.Icons.mono(bottombuttons.galleryPlaceholder, ShadeStyle.MUTED); // P570: the colour icons, the empty card's tonal mono
+        com.particlesdevs.photoncamera.ui.Icons.own(bottombuttons.flipCameraButton);
         mShutterButton.setBackground(shutterRing);
         // P495: the controls give under the finger and spring back (the shutter deeper); the gallery card follows its thumbnail's
         // press (the card, the picture and the processing ring as one)
@@ -118,7 +119,8 @@ public class CameraUIViewImpl implements CameraUIView {
         com.particlesdevs.photoncamera.ui.Motion.press(bottombuttons.galeryButtonContainer);
         com.particlesdevs.photoncamera.ui.Motion.press(bottombuttons.flipCameraButton);
         View bar = cameraFragment.cameraFragmentBinding.layoutBottombar.getRoot();
-        for (int id : new int[]{R.id.pro_button, R.id.more_button}) {
+        // P574: the bottom row (the gear, the two modes, «Про») gives under the finger too
+        for (int id : new int[]{R.id.pro_button, R.id.settings_button, R.id.mode_sport, R.id.mode_photo}) {
             View side = bar.findViewById(id);
             if (side != null) com.particlesdevs.photoncamera.ui.Motion.press(side);
         }
@@ -164,10 +166,13 @@ public class CameraUIViewImpl implements CameraUIView {
     @Override
     public void updateBadges() {
         if (topbar != null) bindBadges(topbar);
+        // P574: the bottom row's Sport | Photo switch follows the setting (a tap, the shade, the settings)
+        if (cameraFragment.cameraFragmentBinding != null)
+            com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.bindModes(cameraFragment.cameraFragmentBinding.layoutBottombar.getRoot(), true);
         cameraFragment.updateScreenFlash(); // P507: the torch from the top bar or the shade
     }
 
-    /** SIMPLE_UI §1: the top bar from the settings (TopBar: torch, timer, Motion, format | size | DCG, the gear). */
+    /** SIMPLE_UI §1: the top bar from the settings (TopBar; P574: format / size, torch, timer, LUT, DCG). */
     public static void bindBadges(LayoutMainTopbarBinding topbar) {
         TopBar.bind(topbar);
     }

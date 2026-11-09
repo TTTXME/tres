@@ -23,8 +23,8 @@ final class ToneCurveThumb extends View {
         samples = curve.samples(48);
         int accent = SettingsStyle.accent(c);
         float d = getResources().getDisplayMetrics().density;
-        back.setColor(SettingsStyle.FIELD);
-        diagonal.setColor(SettingsStyle.LINE);
+        back.setColor(SettingsStyle.PAGE);   // P574: the well on the #2C2C2E card
+        diagonal.setColor(SettingsStyle.HAIRLINE);
         diagonal.setStrokeWidth(d);
         line.setColor(accent);
         line.setStyle(Paint.Style.STROKE);

@@ -32,6 +32,14 @@ import java.util.List;
  * row fading out - no adapter position any more, and put at the end of the list's children - still belongs to its card; the
  * runs are built in the order the rows are drawn on screen, the card follows the rows' translation, a line between two rows
  * takes the fainter one's fade, and the rows of an open module card get a lighter fill (CARD_NESTED) inside the card's outline.
+ * <p>
+ * P574 (owner, 2026-11-09: the settings in the look of the camera's sheets): one #2C2C2E card per group with 24dp corners and no
+ * outline; the rows divided by 0.5dp hairlines (rgba(84, 84, 88, .65)) that start past the icon tile (60dp in) when the row below
+ * has one, 16dp in otherwise; on the right-to-left layout from the other side.
+ * <p>
+ * P574 (owner, 2026-11-09, the approved «Камеры и модули»): an open module card's rows sit in an inner #232325 block with 18dp
+ * corners, 10dp inside the card's sides and above its next row (the item offset under the block's last row); no line between a
+ * card's header and its block; the module headers' lines start past the badge (68dp), the block's lines end at the block.
  */
 public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
     /** Rows that draw their own card or are no row at all: they break a run. */
@@ -41,9 +49,10 @@ public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), stroke = new Paint(Paint.ANTI_ALIAS_FLAG), line = new Paint(),
             nested = new Paint();
-    private final float radius;
+    private final float radius, density, hairline;
     private final Standalone standalone;
     private final RectF rect = new RectF();
+    private final android.graphics.Rect tileRect = new android.graphics.Rect();
     private final Path path = new Path();
     private final List<Item> items = new ArrayList<>();
 
@@ -57,14 +66,37 @@ public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
 
     public SettingsCardDecoration(Context c, Standalone standalone) {
         float d = c.getResources().getDisplayMetrics().density;
-        radius = 20 * d;
-        fill.setColor(SettingsStyle.CARD);
+        radius = 24 * d;
+        density = d;
+        fill.setColor(SettingsStyle.ROW);
+        // the outline is gone (P574): the stroke paint only keeps its width for the geometry below
         stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(1f, d));
-        stroke.setColor(SettingsStyle.LINE);
-        line.setColor(SettingsStyle.LINE);
-        nested.setColor(SettingsStyle.CARD_NESTED);
+        stroke.setStrokeWidth(0f);
+        line.setColor(SettingsStyle.HAIRLINE);
+        hairline = Math.max(1f, .5f * d);
+        nested.setColor(NESTED);
         this.standalone = standalone;
+    }
+
+    /** P574: the inner block of an open module card, its corners and its inset from the card. */
+    static final int NESTED = 0xFF232325;
+    private static final float NESTED_RADIUS = 18f, NESTED_INSET = 10f;
+    private final Path block = new Path();
+
+    private static boolean nested(@Nullable Preference p) {
+        return p != null && p.getParent() instanceof ModuleSection;
+    }
+
+    /** P574: the room under an open module card's block (its last row's offset), covered by the card. */
+    @Override
+    public void getItemOffsets(@NonNull android.graphics.Rect out, @NonNull View view, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+        out.set(0, 0, 0, 0);
+        int position = parent.getChildAdapterPosition(view);
+        Preference p = preference(parent, view, position);
+        if (!nested(p) || position < 0 || !(parent.getAdapter() instanceof PreferenceGroupAdapter)) return;
+        PreferenceGroupAdapter adapter = (PreferenceGroupAdapter) parent.getAdapter();
+        Preference next = position + 1 < adapter.getItemCount() ? adapter.getItem(position + 1) : null;
+        if (next == null || next.getParent() != p.getParent()) out.bottom = Math.round(NESTED_INSET * density);
     }
 
     private boolean row(@Nullable Preference p) {
@@ -94,6 +126,20 @@ public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
         return rest <= 0f ? 1f : Math.max(0f, Math.min(1f, item.view.getAlpha() / rest));
     }
 
+    /** P574: where a row's hairline starts, from the row's start edge - past its icon tile (the text's start), else 16dp in. */
+    private float inset(View row) {
+        Object bound = row.getTag(R.id.settings_bound_preference);
+        if (bound instanceof ModuleSection) return 68 * density;   // P574: past the zoom badge
+        View tile = row.findViewById(R.id.settings_icon_tile);
+        if (row instanceof android.view.ViewGroup && tile != null && tile.getVisibility() == View.VISIBLE && tile.getWidth() > 0) {
+            tileRect.set(0, 0, tile.getWidth(), tile.getHeight());
+            ((android.view.ViewGroup) row).offsetDescendantRectToMyCoords(tile, tileRect);
+            boolean rtl = row.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+            return (rtl ? row.getWidth() - tileRect.left : tileRect.right) + 12 * density;
+        }
+        return 16 * density;
+    }
+
     @Override
     public void onDraw(@NonNull Canvas canvas, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
         items.clear();
@@ -104,6 +150,8 @@ public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
             item.p = preference(parent, item.view, item.position);
             item.top = item.view.getTop() + item.view.getTranslationY();
             item.bottom = item.view.getBottom() + item.view.getTranslationY();
+            // P574: the room under a module card's block belongs to the card
+            if (parent.getLayoutManager() != null) item.bottom += parent.getLayoutManager().getBottomDecorationHeight(item.view);
             // a title not yet faded in (a module's sensor rows swapping) does not split the card it sits in
             if (!row(item.p) && item.view.getAlpha() <= 0f) continue;
             items.add(item);
@@ -132,31 +180,42 @@ public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
             path.reset();
             path.addRoundRect(rect, new float[]{rt, rt, rt, rt, rb, rb, rb, rb}, Path.Direction.CW);
             canvas.drawPath(path, fill);
-            // an open module card's rows: a lighter fill, faded with them, inside the card's rounded outline
-            boolean clipped = false;
+            // an open module card's rows: the inner block (P574), each row's part faded with it, inside the block's rounded outline
+            float inner = NESTED_INSET * density;
             for (int k = i; k <= j; k++) {
-                Item item = items.get(k);
-                if (!(item.p != null && item.p.getParent() instanceof ModuleSection)) continue;
-                if (!clipped) {
-                    canvas.save();
-                    canvas.clipPath(path);
-                    clipped = true;
+                if (!nested(items.get(k).p)) continue;
+                int end = k;
+                while (end + 1 <= j && nested(items.get(end + 1).p) && items.get(end + 1).p.getParent() == items.get(k).p.getParent()) end++;
+                float blockBottom = items.get(end).view.getBottom() + items.get(end).view.getTranslationY();
+                block.reset();
+                block.addRoundRect(new RectF(left + inner, items.get(k).top, right - inner, blockBottom),
+                        NESTED_RADIUS * density, NESTED_RADIUS * density, Path.Direction.CW);
+                canvas.save();
+                canvas.clipPath(block);
+                for (int m = k; m <= end; m++) {
+                    Item item = items.get(m);
+                    nested.setAlpha(Math.round(255 * fade(item)));
+                    float partEnd = m == end ? blockBottom : items.get(m + 1).top;
+                    canvas.drawRect(left, item.top, right, Math.max(item.top, partEnd), nested);
                 }
-                nested.setAlpha(Math.round(255 * fade(item)));
-                canvas.drawRect(left, item.top, right, item.bottom, nested);
+                canvas.restore();
+                k = end;
             }
-            if (clipped) canvas.restore();
-            canvas.drawPath(path, stroke);
             // a divider above each shown row but the first: a row not yet faded in (still under the rows gliding past it) is
             // skipped, so the rows on screen keep their lines
             Item above = null;
             for (int k = i; k <= j; k++) {
                 Item item = items.get(k);
                 if (fade(item) <= 0f) continue;
-                if (above != null) {
-                    line.setAlpha(Math.round(255 * Math.min(fade(item), fade(above))));
+                // P574: no line between a module card's header and its block
+                if (above != null && !(nested(item.p) && !nested(above.p))) {
+                    line.setAlpha(Math.round(((SettingsStyle.HAIRLINE >>> 24) & 255) * Math.min(fade(item), fade(above))));
                     float y = item.top;
-                    canvas.drawRect(left, y, right, y + stroke.getStrokeWidth(), line);
+                    float inset = inset(item.view);
+                    // inside the block a line ends at the block's edge
+                    float end = nested(item.p) ? inner : 0f;
+                    boolean rtl = parent.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+                    canvas.drawRect(rtl ? left + end : left + inset, y, rtl ? right - inset : right - end, y + hairline, line);
                 }
                 above = item;
             }

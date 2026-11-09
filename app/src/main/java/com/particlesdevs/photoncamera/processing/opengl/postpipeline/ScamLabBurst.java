@@ -43,7 +43,7 @@ final class ScamLabBurst implements ScamTransport {
         flags = h.getInt(44);
         grid = Math.max(1, h.getInt(52));
         block = h.getInt(56);
-        if (width <= 0 || height <= 0 || frames < 1 || frames > 64) throw new IOException("bad NCH header");
+        if (width <= 0 || height <= 0 || frames < 1 || frames > 128) throw new IOException("bad NCH header");
         this.crop = crop == null ? null : aligned(crop, width, height);
         this.burstTuning = burstTuning == null ? "" : burstTuning;
         half = ScamHybridBurst.transportHalf(outputWidth(), outputHeight(), ScamHybridBurst.halfTransport());

@@ -38,7 +38,7 @@ public final class LutCompareView extends View {
     public LutCompareView(Context c) {
         super(c);
         knobIcon = c.getDrawable(R.drawable.ui_ic_compare);
-        if (knobIcon != null) knobIcon.mutate().setTint(0xFF111111);
+        if (knobIcon != null) knobIcon.mutate().setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(0xFF111111)); // P570: the colour icon, tonal mono
         touchSlop = ViewConfiguration.get(c).getScaledTouchSlop();
         tagPaint.setTextSize(UiTokens.dp(c, 11));
         tagPaint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
@@ -110,7 +110,7 @@ public final class LutCompareView extends View {
         // the border
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(lw);
-        paint.setColor(UiTokens.LINE);
+        paint.setColor(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.HAIRLINE);
         rect.inset(lw / 2, lw / 2);
         canvas.drawRoundRect(rect, r, r, paint);
         paint.setStyle(Paint.Style.FILL);

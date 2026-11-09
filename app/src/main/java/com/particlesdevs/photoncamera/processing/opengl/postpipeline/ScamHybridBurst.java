@@ -65,9 +65,12 @@ public final class ScamHybridBurst implements ScamTransport {
     static boolean momentSwitch(double anchor, double other) {
         return other >= MOMENT_SWITCH_RATIO * Math.max(anchor, 0) && other > 0;
     }
-    // Frames one burst sends (the app's own cap: 41 N + 7 bracketed / ultrashort; the worker takes up to kHybridMaxFrames = 128,
-    // scam-hybrid.h, and holds kHybridGpuFrames = 128 on the GPU).
-    private static final int WORKER_MAX_FRAMES = 48;
+    // Frames one burst sends (the app's own cap: 65 N + the bento's up to 3 + 5 bracketed / ultrashort - P578, owner 2026-11-09: «Увеличь максимальное
+    // количество кадров в склейке до 65», was 41 + 7; the worker takes up to kHybridMaxFrames = 128, scam-hybrid.h, and holds
+    // kHybridGpuFrames = 128 on the GPU).
+    static final int WORKER_MAX_FRAMES = 73;
+    /** P578: frames one burst may carry at all (the worker's kHybridMaxFrames). */
+    static final int BURST_MAX_FRAMES = 128;
     /** P27: N frames of the conservative retry after a failed merge. */
     private static final int CONSERVATIVE_NORMALS = 16;
     /** P27: worker tuning of the conservative retry (no tile-local alignment, Sabre 6.1 kernel, rim or chroma passes). */
@@ -208,7 +211,7 @@ public final class ScamHybridBurst implements ScamTransport {
         final String beyond = com.particlesdevs.photoncamera.processing.RawBin.limitExceeded(width, height, gpuMaxSide, true);
         if (beyond != null) throw new IOException("Hybrid: RAW " + width + "x" + height
                 + Lang.t(" за пределами склейки (", " is beyond the merge limits (") + beyond + ")");
-        if (source.isEmpty() || source.size() > 64) throw new IOException(Lang.t("SHDR: нужны 1–64 кадра", "SHDR: needs 1–64 frames"));
+        if (source.isEmpty() || source.size() > BURST_MAX_FRAMES) throw new IOException(Lang.t("SHDR: нужно 1–" + BURST_MAX_FRAMES + " кадров", "SHDR: needs 1–" + BURST_MAX_FRAMES + " frames"));
         // P226: «Увеличивать кадр с кропом» off - a crop shot keeps its pixels (no 2x grid, no resize up to the output size)
         final boolean keepCrop = !PreferenceKeys.cropUpscale() && PreferenceKeys.cropShot();
         android.graphics.Point fin = keepCrop ? new android.graphics.Point(width, height) : PreferenceKeys.hybridFinalSize(width, height);
@@ -262,14 +265,20 @@ public final class ScamHybridBurst implements ScamTransport {
         else if (!remosaic && mosaicBlock > 1) Log.i("SCAM_HDR", "hybrid without remosaic: " + width + "x" + height
                 + " is not whole " + 2 * mosaicBlock + "x" + 2 * mosaicBlock + " colour periods, merged with the remosaic");
         final String outputMode = PreferenceKeys.hybridOutputMode();
-        strictTwoX = !conservative && !keepCrop && dngMosaic == 1 && "2x".equals(outputMode);
-        final boolean outputMode2x = !conservative && !keepCrop && dngMosaic == 1 && !"sensor".equals(outputMode);
+        // P576: a crop shot cut to its window (SabreCrop) is merged on the window's own grid (the plan's), never strict
+        final com.particlesdevs.photoncamera.processing.processor.SabreCrop.Plan window = p.sabreCrop;
+        strictTwoX = window == null && !conservative && !keepCrop && dngMosaic == 1 && "2x".equals(outputMode);
+        final boolean outputMode2x = !conservative && !keepCrop && dngMosaic == 1
+                && (window != null ? window.sabre() : !"sensor".equals(outputMode));
         final boolean wants2x = outputMode2x && mosaicBlock <= 4;
         if (strictTwoX && !wants2x) throw new IOException(Lang.t("SHDR: склейка 2× недоступна для цветового блока ",
                 "SHDR: Sabre 2x is unavailable for colour block ") + mosaicBlock);
         if (outputMode2x && !wants2x) Log.i("SCAM_HDR", "hybrid output: sensor grid " + width + "x" + height + " (Sabre 2x grid off for a block "
                 + mosaicBlock + " mosaic stream: the native merge has no 2x grid for it)");
         final boolean twoX = wants2x && sabre2xFits(width, height, gpuMaxSide);
+        if (window != null && window.sabre() && !twoX) Log.i("SCAM_HDR", "Sabre crop (P576): the window " + width + "x" + height
+                + " merged on the sensor grid (" + (conservative ? "conservative retry" : keepCrop ? "no upscale" : dngMosaic != 1
+                ? "mosaic DNG" : !wants2x ? "block " + mosaicBlock : "GPU limits") + "), brought to the photo size after the pipeline");
         if (strictTwoX && !twoX) throw new IOException(Lang.t("SHDR: склейка 2× ", "SHDR: Sabre 2x ") + 2L * width + "x" + 2L * height
                 + Lang.t(" превышает предел стороны GPU ", " exceeds GPU side ") + gpuMaxSide
                 + Lang.t(" или размер буфера RGB FP16 (2 ГБ)", " or one FP16 RGB buffer (2 GB)"));
@@ -278,10 +287,12 @@ public final class ScamHybridBurst implements ScamTransport {
         Log.i("SCAM_HDR", "hybrid output mode=" + PreferenceKeys.hybridOutputMode() + " availMem=" + (availableMemory() >> 20) + " MB twoX=" + twoX
                 + (conservative ? " (conservative retry)" : ""));
         // P501: the Sabre scale's size (1.5x: the SCAM merge on the 2x grid, the worker resamples; the fast route merges at it)
-        final android.graphics.Point sabre = sabreSize(width, height, outputMode);
+        final android.graphics.Point sabre = window != null ? new android.graphics.Point(window.outWidth, window.outHeight)
+                : sabreSize(width, height, outputMode);
         outWidth = twoX ? sabre.x : width; outHeight = twoX ? sabre.y : height;
         rgbHalf = transportHalf(outWidth, outHeight, halfTransport());
-        finalWidth = fin.x; finalHeight = fin.y;
+        // P576: the window's photo size comes after the pipeline (ScamProcessor: the remaining crop, then the photo's size)
+        finalWidth = window != null ? outWidth : fin.x; finalHeight = window != null ? outHeight : fin.y;
         if (twoX) Log.i("SCAM_HDR", "hybrid output: Sabre " + outputMode + " grid " + outWidth + "x" + outHeight + ", final " + finalWidth + "x" + finalHeight);
         List<ImageFrame> normal = new ArrayList<>(), bracketed = new ArrayList<>(), shorts = new ArrayList<>();
         for (ImageFrame f : usable) {
@@ -687,6 +698,18 @@ public final class ScamHybridBurst implements ScamTransport {
             am.getMemoryInfo(info);
             return info.availMem;
         } catch (RuntimeException e) { return -1; }
+    }
+
+    /** P576: {@link #sabre2xFits} for SabreCrop (the whole frame's 2x grid, as an uncropped shot would take it). */
+    public static boolean sabre2xFitsFrame(int w, int h, int gpuMaxSide) { return sabre2xFits(w, h, gpuMaxSide); }
+    /** P576: the memory available now (bytes), -1 when unknown. */
+    public static long memoryAvailableNow() { return memoryAvailable(); }
+    /**
+     * P576: whether the next merge takes the fast route («Режим обработки» «Быстрый», or the SCAM merge black on this GPU), which
+     * merges a Sabre scale at that scale; the SCAM route merges it on the 2x grid and resamples (P501).
+     */
+    public static boolean fastRoute() {
+        return (PreferenceKeys.fastProcessing() || scamMergeBlack) && !avoidedSteps.contains(STEP_FAST) && !fastRouteHung;
     }
 
     static boolean sabre2xFits(int w, int h, int gpuMaxSide) {

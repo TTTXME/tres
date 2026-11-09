@@ -18,7 +18,6 @@ import androidx.preference.Preference;
 import androidx.preference.PreferenceViewHolder;
 
 import com.particlesdevs.photoncamera.R;
-import com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette;
 import com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens;
 import com.particlesdevs.photoncamera.ui.settings.SettingsMotion;
 
@@ -106,7 +105,7 @@ public class ModuleChipsPreference extends Preference {
         final TextView hint = (TextView) holder.findViewById(R.id.settings_chips_hint);
         final HorizontalScrollView scroll = (HorizontalScrollView) holder.findViewById(R.id.settings_chips_scroll);
         if (chips == null || pill == null) return;
-        final int accent = AccentPalette.color(c);
+        final int accent = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.accent(c);   // P574: the phone's theme colour
         final String signature = slots + "|" + texts(labels) + "|" + dots + "|" + accent;
         if (!signature.equals(chips.getTag())) {
             chips.removeAllViews();
@@ -114,7 +113,8 @@ public class ModuleChipsPreference extends Preference {
             chips.setTag(signature);
             pill.setTag(null);   // no chip to glide from
         }
-        pill.setBackground(UiTokens.shape(c, UiTokens.tint(accent, .20f), accent, 20));
+        // P574: the chosen chip's pill - the accent on its dark tone, no ring (the settings' value pills)
+        pill.setBackground(UiTokens.shape(c, com.particlesdevs.photoncamera.ui.settings.SettingsStyle.pillFill(accent), 0, 20));
         for (int i = 0; i < chips.getChildCount(); i++) {
             final TextView chip = (TextView) chips.getChildAt(i);
             chip.setContentDescription(c.getString(R.string.module_chip_description, labels.get(i))
@@ -163,7 +163,7 @@ public class ModuleChipsPreference extends Preference {
     private static void colour(LinearLayout chips, int from, int to, float k, int accent) {
         for (int i = 0; i < chips.getChildCount(); i++) {
             final float on = i == to ? k : i == from ? 1f - k : 0f;
-            ((TextView) chips.getChildAt(i)).setTextColor(SettingsMotion.mix(UiTokens.TEXT, accent, on));
+            ((TextView) chips.getChildAt(i)).setTextColor(SettingsMotion.mix(0xFFFFFFFF, accent, on));
         }
     }
 
@@ -178,13 +178,14 @@ public class ModuleChipsPreference extends Preference {
         }
         t.setText(text);
         t.setTextSize(14);
-        t.setTextColor(UiTokens.TEXT);
-        t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        t.setTextColor(0xFFFFFFFF);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.semibold());
         t.setGravity(Gravity.CENTER);
         t.setSingleLine(true);
         t.setIncludeFontPadding(false);
         t.setPadding(UiTokens.dp(c, 16), 0, UiTokens.dp(c, 16), 0);
-        final GradientDrawable ring = UiTokens.shape(c, 0, UiTokens.LINE, 20);
+        // P574: a #2C2C2E capsule, no outline (the chosen one's pill glides over it)
+        final GradientDrawable ring = UiTokens.shape(c, com.particlesdevs.photoncamera.ui.settings.SettingsStyle.ROW, 0, 20);
         t.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x1FFFFFFF), ring, null));
         t.setTag("module_chip_" + slot);
         t.setFocusable(true);

@@ -549,13 +549,16 @@ public class SettingsMenuTest {
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
         int exact=android.view.View.MeasureSpec.EXACTLY;
         view.measure(android.view.View.MeasureSpec.makeMeasureSpec(400,exact),android.view.View.MeasureSpec.makeMeasureSpec(880,exact));view.layout(0,0,400,880);
-        // SIMPLE_UI §4: the concept's header - a 44dp back disc, the title column, (the search disc)
-        android.view.ViewGroup header=(android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(0);
-        android.view.ViewGroup row=(android.view.ViewGroup)header.getChildAt(0);
-        android.view.ViewGroup titles=(android.view.ViewGroup)row.getChildAt(1);
-        assertTrue("Header must hold the 44dp back disc",header.getHeight()>=44);
+        // P574: the concept's header - a bar with the 40dp back disc, then the large title column (scrolling with the list)
+        // (a settings page holds the bar itself and the titles in its scrolling top; a module page the whole header: bar, titles)
+        android.view.ViewGroup first=(android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(0);
+        boolean whole=!(first.getChildAt(0) instanceof android.widget.ImageView);
+        android.view.ViewGroup row=whole?(android.view.ViewGroup)first.getChildAt(0):first;
+        assertTrue("Header must hold the 40dp back disc",row.getHeight()>=40);
         assertEquals(android.view.View.VISIBLE,row.getChildAt(0).getVisibility());
-        assertEquals(44,row.getChildAt(0).getWidth());
+        assertEquals(40,row.getChildAt(0).getWidth());
+        android.view.ViewGroup titles=whole?(android.view.ViewGroup)first.getChildAt(1)
+                :(android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(1)).getChildAt(0)).getChildAt(0)).getChildAt(0);
         if(titles.getChildAt(1).getVisibility()==android.view.View.VISIBLE)assertTrue(titles.getChildAt(1).getTop()>=titles.getChildAt(0).getBottom());
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(400,880,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
         java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
@@ -786,28 +789,28 @@ public class SettingsMenuTest {
         for(String key:new String[]{"pref_scam_hybrid_shasta_ev","pref_scam_hybrid_why_dn_factor","pref_scam_hybrid_why_dn_grain"}){
             Preference p=screen.findPreference(key);assertNotNull(key,p);
             android.view.View card=row(p);
-            android.widget.SeekBar bar=card.findViewById(R.id.seekbar);
+            // P574: the settings' slider (IosSlider): its knob rests inside the slider at both ends (inset by its 14dp radius); held,
+            // it widens and the rubber band stretches past the slider, so no view between the slider and the row clips
+            com.particlesdevs.photoncamera.ui.controls.IosSlider bar=card.findViewById(R.id.seekbar);
+            assertNotNull(key,bar);
             int w=Math.round(400*context.getResources().getDisplayMetrics().density);
-            for(int progress:new int[]{0,bar.getMax()}){
-                bar.setProgress(progress);
+            float d=context.getResources().getDisplayMetrics().density;
+            for(float progress:new float[]{bar.getMin(),bar.getMax()}){
+                bar.setValueNow(progress);
                 card.measure(android.view.View.MeasureSpec.makeMeasureSpec(w,android.view.View.MeasureSpec.EXACTLY),
                         android.view.View.MeasureSpec.makeMeasureSpec(0,android.view.View.MeasureSpec.UNSPECIFIED));
                 card.layout(0,0,w,card.getMeasuredHeight());
-                // AbsSeekBar.drawThumb: translate(paddingLeft - thumbOffset, paddingTop), then the thumb's bounds
-                android.graphics.Rect r=new android.graphics.Rect(bar.getThumb().getBounds());
-                assertTrue(key+" thumb laid out",r.width()>0);
-                r.offset(bar.getPaddingLeft()-bar.getThumbOffset(),bar.getPaddingTop());
+                float k=bar.getMax()>bar.getMin()?(progress-bar.getMin())/(bar.getMax()-bar.getMin()):0;
+                float travel=bar.getWidth()-bar.getPaddingLeft()-bar.getPaddingRight()-28*d;
+                float cx=bar.getPaddingLeft()+14*d+k*travel;
+                assertTrue(key+"@"+progress+": the knob inside the slider",cx-14*d>=-0.5f&&cx+14*d<=bar.getWidth()+0.5f);
+                assertTrue(key+" laid out",bar.getWidth()>0&&bar.getHeight()>=Math.round(28*d));
                 android.view.View child=bar;
                 while(child!=card){
                     android.view.ViewGroup parent=(android.view.ViewGroup)child.getParent();
-                    if(parent.getClipChildren())assertTrue(key+"@"+progress+": clipped by "+child+" "+r,
-                            r.left>=0&&r.top>=0&&r.right<=child.getWidth()&&r.bottom<=child.getHeight());
-                    r.offset(child.getLeft(),child.getTop());
-                    if(parent.getClipToPadding())assertTrue(key+"@"+progress+": clipped by the padding of "+parent+" "+r,
-                            r.left>=parent.getPaddingLeft()&&r.right<=parent.getWidth()-parent.getPaddingRight());
+                    assertFalse(key+": "+parent+" clips the held knob",parent.getClipChildren());
                     child=parent;
                 }
-                assertTrue(key+"@"+progress+": outside the card "+r,r.left>=0&&r.right<=card.getWidth());
                 checked++;
             }
         }
@@ -844,15 +847,25 @@ public class SettingsMenuTest {
             ((android.widget.EditText)root.findViewWithTag("precision_field")).setText("9");
             root.findViewWithTag("sheet_save").performClick();
             assertTrue(Float.isNaN(saved[0]));assertTrue(d.isShowing());
-            // «В шторку»: pinned at the end of the shade, then out again
-            android.widget.TextView pin=root.findViewWithTag("sheet_pin");assertNotNull(pin);
-            assertFalse(ShadeTiles.isPinned(prefs,key));
+            // P574 «Плитка в шторке» (the shared switch in the editor's card): pinned at the end of the shade, then out again
+            com.particlesdevs.photoncamera.ui.controls.IosSwitch pin=root.findViewWithTag("sheet_pin");assertNotNull(pin);
+            assertFalse(ShadeTiles.isPinned(prefs,key));assertFalse(pin.isChecked());
             pin.performClick();
             assertTrue(ShadeTiles.isPinned(prefs,key));assertEquals(key,ShadeTiles.stored(prefs).get(ShadeTiles.stored(prefs).size()-1));
-            assertTrue(pin.isSelected());
-            pin.performClick();
-            assertFalse(ShadeTiles.isPinned(prefs,key));assertFalse(pin.isSelected());
-            d.dismiss();
+            assertTrue(pin.isChecked());
+            ((android.view.View)root.findViewWithTag("precision_pin_row")).performClick();   // the row toggles it too
+            assertFalse(ShadeTiles.isPinned(prefs,key));assertFalse(pin.isChecked());
+            // P574: the stepper moves by the setting's own step, the reset line puts the default back, «Отмена» saves nothing
+            ((android.widget.EditText)root.findViewWithTag("precision_field")).setText("2");
+            ((android.view.View)root.findViewWithTag("precision_plus")).performClick();
+            assertEquals("2.1",((android.widget.TextView)root.findViewWithTag("precision_value")).getText().toString());
+            android.widget.TextView reset=root.findViewWithTag("precision_reset");
+            assertTrue(reset.getText().toString(),reset.getText().toString().endsWith(" 1.0"));assertTrue(reset.isEnabled());
+            reset.performClick();
+            assertEquals("1.0",((android.widget.TextView)root.findViewWithTag("precision_value")).getText().toString());
+            assertFalse(reset.isEnabled());
+            root.findViewWithTag("sheet_cancel").performClick();
+            assertTrue(Float.isNaN(saved[0]));assertFalse(d.isShowing());
             // P167: no limit - a shade of 30 tiles takes one more
             java.util.List<String> many=new java.util.ArrayList<>();for(int i=0;i<30;i++)many.add("tile"+i);
             ShadeTiles.save(prefs,many);
@@ -1495,25 +1508,32 @@ public class SettingsMenuTest {
             assertTrue(p.getKey()+" is a card",r.getBackground() instanceof android.graphics.drawable.RippleDrawable);
             android.widget.ImageView icon=r.findViewById(android.R.id.icon);
             assertNotNull(p.getKey(),icon);assertNotNull(p.getKey()+" has an icon",icon.getDrawable());
-            // P136: the multi-tone glyphs are drawn as they are; only the reset tile takes the warning colour
-            if(p==tile)assertNotNull(p.getKey()+" tinted",icon.getColorFilter());else assertNull(p.getKey()+" tinted",icon.getColorFilter());
+            // P574: every icon is drawn in the light tone of its hue on a tile of its dark tone (the reset tile in the red pair)
+            assertNotNull(p.getKey()+" toned",icon.getColorFilter());
+            android.view.View t=r.findViewById(R.id.settings_icon_tile);
+            assertEquals(p.getKey()+" has its tile",android.view.View.VISIBLE,t.getVisibility());
+            if(p==tile)assertEquals(com.particlesdevs.photoncamera.ui.settings.SettingsTiles.RED[0],((android.graphics.drawable.GradientDrawable)t.getBackground()).getColor().getDefaultColor());
         }
         assertNotNull("pages end in a chevron",row(page).findViewById(R.id.settings_chevron));
-        android.widget.TextView label=row(category).findViewById(android.R.id.title);assertEquals(accent,label.getCurrentTextColor());
+        android.widget.TextView label=row(category).findViewById(android.R.id.title);
+        assertEquals("P574: a group's title in white at 55 %",com.particlesdevs.photoncamera.ui.settings.SettingsStyle.SECTION,label.getCurrentTextColor());
+        assertNotNull("P574: a list ends in the up / down chevron",row(list).findViewById(R.id.settings_updown));
         android.view.View lr=row(list);android.widget.TextView value=lr.findViewById(R.id.settings_value);
-        assertEquals("Второй",value.getText().toString());assertEquals("SIMPLE_UI §4: the value on the right, muted",com.particlesdevs.photoncamera.ui.settings.SettingsStyle.MUTED,value.getCurrentTextColor());
+        assertEquals("Второй",value.getText().toString());assertEquals("P574: the value on the right, white at 55 %",com.particlesdevs.photoncamera.ui.settings.SettingsStyle.VALUE,value.getCurrentTextColor());
         assertEquals("the value is not repeated in the summary","Описание",((android.widget.TextView)lr.findViewById(android.R.id.summary)).getText().toString());
         assertEquals("42",((android.widget.TextView)row(edit).findViewById(R.id.settings_value)).getText().toString());
-        android.view.View sr=row(seek);android.widget.SeekBar bar=sr.findViewById(R.id.seekbar);
-        assertEquals(accent,bar.getProgressTintList().getDefaultColor());
+        android.view.View sr=row(seek);
+        assertTrue("P574: the settings' slider",sr.findViewById(R.id.seekbar) instanceof com.particlesdevs.photoncamera.ui.controls.IosSlider);
         assertEquals(accent,((android.widget.TextView)sr.findViewById(R.id.seekbar_value)).getCurrentTextColor());
         android.view.ViewGroup holder=new android.widget.FrameLayout(context);
         android.view.View swr=LayoutInflater.from(context).inflate(sw.getLayoutResource(),holder,false);
         LayoutInflater.from(context).inflate(sw.getWidgetLayoutResource(),(android.view.ViewGroup)swr.findViewById(android.R.id.widget_frame));
         PreferenceViewHolder h=PreferenceViewHolder.createInstanceForTests(swr);sw.onBindViewHolder(h);
         com.particlesdevs.photoncamera.ui.settings.SettingsStyle.bind(h,sw);
-        androidx.appcompat.widget.SwitchCompat toggle=swr.findViewById(androidx.preference.R.id.switchWidget);
-        assertEquals(accent,toggle.getTrackTintList().getColorForState(new int[]{android.R.attr.state_checked},0));
+        // P574: the settings' switch, on as the preference
+        com.particlesdevs.photoncamera.ui.controls.IosSwitch toggle=swr.findViewById(androidx.preference.R.id.switchWidget);
+        assertNotNull(toggle);assertTrue(toggle.isChecked());
+        toggle.performClick();assertFalse("a tap on the switch goes through the preference",sw.isChecked());
         assertNotNull("info rows are notes",row(info).findViewById(R.id.settings_info_icon));
         assertNull("notes are not cards",row(info).getBackground());
         assertEquals("SIMPLE_UI §4: the profile actions are rows, as the concept",R.layout.preference_card,tile.getLayoutResource());
@@ -2293,7 +2313,7 @@ public class SettingsMenuTest {
             view.findViewWithTag("lens_filter_bpm").performClick();
             view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
             assertTrue("the tune is still there",view.findViewWithTag("lens_filter_reset").isEnabled());
-            assertEquals(80,((android.widget.SeekBar)view.findViewWithTag("lens_filter_tune_"+com.particlesdevs.photoncamera.processing.color.LensFilters.T_RADIUS)).getProgress());
+            assertEquals(80f,((com.particlesdevs.photoncamera.ui.controls.IosSlider)view.findViewWithTag("lens_filter_tune_"+com.particlesdevs.photoncamera.processing.color.LensFilters.T_RADIUS)).getValue(),0f);   // P574: the shared slider
             view.findViewWithTag("lens_filter_reset").performClick();
             assertTrue(PreferenceKeys.lensFilterTune("bpm").fineDefault());
             prefs.edit().putString(com.particlesdevs.photoncamera.processing.color.LensFilters.tuneKey("bpm"),"0,35,70,50,60").commit();
@@ -2346,7 +2366,7 @@ public class SettingsMenuTest {
             try(var out=new java.io.FileOutputStream(new java.io.File(dir,"lens-filters-tune.png"))){grid.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
         }
     }
-    /** SIMPLE_UI §4 «Прозрачность шторки»: its own page - a preview and radio rows; the choice is the sheet's alpha. */
+    /** SIMPLE_UI §4 «Прозрачность шторки»: its own page - a preview and the slider (P574; were radio rows); the choice is the sheet's alpha. */
     @Test public void shadeTransparencyPageStoresThePercentage(){
         PreferenceScreen screen=inflate();
         com.particlesdevs.photoncamera.ui.settings.custompreferences.ShadeTransparencyPreference t=screen.findPreference("pref_shade_transparency");
@@ -2355,11 +2375,15 @@ public class SettingsMenuTest {
         android.view.View row=LayoutInflater.from(context).inflate(t.getLayoutResource(),null,false);
         t.onBindViewHolder(PreferenceViewHolder.createInstanceForTests(row));
         assertNotNull(row.findViewWithTag("shade_transparency_preview"));
-        for(int v:new int[]{0,20,30,40,50,60})assertNotNull("option "+v,row.findViewWithTag("shade_transparency_"+v));
-        row.findViewWithTag("shade_transparency_20").performClick();
+        // P574: the six steps (0 / 20 / 30 / 40 / 50 / 60 %) are a slider now (were radio rows): one step down from 40 % is 30 %,
+        // two more 0 % ... 20 %; the pill shows the stored percentage
+        com.particlesdevs.photoncamera.ui.controls.IosSlider bar=row.findViewWithTag("shade_transparency_slider");
+        assertNotNull(bar);assertEquals(0,bar.getMin(),0);assertEquals(5,bar.getMax(),0);assertEquals(3,bar.getValue(),0);
+        android.view.KeyEvent left=new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,android.view.KeyEvent.KEYCODE_DPAD_LEFT);
+        bar.onKeyDown(left.getKeyCode(),left);bar.onKeyDown(left.getKeyCode(),left);
         assertEquals("20",prefs.getString("pref_shade_transparency",""));
         assertEquals(.8f,com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.sheetAlpha(context),1e-6f);
-        assertTrue(row.findViewWithTag("shade_transparency_20").isSelected());
+        assertEquals("20 %",((android.widget.TextView)row.findViewWithTag("shade_transparency_value")).getText().toString());
     }
     /** SIMPLE_UI §4 «Профили и резервная копия»: the active profile, the saved ones (newest first) with load / delete in place. */
     @Test public void profilesPageListsAndLoadsConfigs(){

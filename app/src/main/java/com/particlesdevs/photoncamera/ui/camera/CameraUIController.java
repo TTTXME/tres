@@ -74,7 +74,12 @@ final class CameraUIController implements CameraUIEventsListener,
             case R.id.settings_button:
                 cameraFragment.launchSettings();
                 break;
-            case R.id.motion_mode_button: {
+            case R.id.mode_sport:
+            case R.id.mode_photo:
+                // P574: the bottom row's Sport | Photo switch: a tap on the chosen mode does nothing
+                if ((view.getId() == R.id.mode_sport) == com.particlesdevs.photoncamera.settings.MotionMode.on()) break;
+            {
+                // the other mode (the old top bar's Motion button)
                 // P86: the «Движение» mode; its AE frame rate is a session parameter, so the session starts again
                 final boolean on = !com.particlesdevs.photoncamera.settings.MotionMode.on();
                 com.particlesdevs.photoncamera.settings.MotionMode.set(on);
@@ -103,15 +108,30 @@ final class CameraUIController implements CameraUIEventsListener,
                         : Lang.t(view.getContext(), "Таймер: выкл.", "Timer: off"));
                 break;
             }
-            case R.id.size_badge: {
-                // SIMPLE_UI §1: the next photo size this module has (12 -> 50 -> 200 -> 12), the FULLRES switch
-                int next = PhotoSize.next(PhotoSize.current(), PhotoSize.fullAvailable(), PhotoSize.maxAvailable());
-                if (next == PhotoSize.current() && !PhotoSize.fullAvailable()) {
-                    cameraFragment.showSnackBar(Lang.t(view.getContext(), "50 Мп — нет на этом объективе", "50 MP: not on this lens"));
-                    break;
-                }
-                cameraFragment.showSnackBar(PhotoSize.set(cameraFragment, next));
-                cameraFragment.refreshTopBar();
+            case R.id.grid_button: {
+                // P574: the top row's grid (the shade's «Сетка»: off <-> 3x3; a stored 4x4 / Φ goes off first)
+                final boolean on = PreferenceKeys.getGridValue() <= 0;
+                PreferenceKeys.setGridValue(on ? 1 : 0);
+                cameraFragment.onTopRowSettingWritten("pref_show_grid_key");
+                cameraFragment.showSnackBar(Lang.t(view.getContext(), on ? "Сетка: вкл." : "Сетка: выкл.", on ? "Grid: on" : "Grid: off"));
+                break;
+            }
+            case R.id.horizon_button: {
+                // P574: the top row's level (the shade's «Горизонт»)
+                final boolean on = !PreferenceKeys.isHorizonOn();
+                com.particlesdevs.photoncamera.app.ScameraApp.getSettingsManagerStatic().set(
+                        com.particlesdevs.photoncamera.settings.SettingsManager.SCOPE_GLOBAL, com.particlesdevs.photoncamera.settings.ShadeCatalog.HORIZON, on);
+                cameraFragment.onTopRowSettingWritten(com.particlesdevs.photoncamera.settings.ShadeCatalog.HORIZON);
+                cameraFragment.showSnackBar(Lang.t(view.getContext(), on ? "Горизонт: вкл." : "Горизонт: выкл.", on ? "Level: on" : "Level: off"));
+                break;
+            }
+            case R.id.uhdr_button: {
+                // P574: the top row's Ultra HDR (the shade's «UHDR»; a session-time key restarts the camera there)
+                final boolean on = !PreferenceKeys.isUltraHdrOn();
+                com.particlesdevs.photoncamera.app.ScameraApp.getSettingsManagerStatic().set(
+                        com.particlesdevs.photoncamera.settings.SettingsManager.SCOPE_GLOBAL, "pref_ultrahdr_key", on);
+                cameraFragment.onTopRowSettingWritten("pref_ultrahdr_key");
+                cameraFragment.showSnackBar(Lang.t(view.getContext(), on ? "Ultra HDR: вкл." : "Ultra HDR: выкл.", on ? "Ultra HDR: on" : "Ultra HDR: off"));
                 break;
             }
             case R.id.dcg_badge: {
@@ -121,6 +141,7 @@ final class CameraUIController implements CameraUIEventsListener,
                 break;
             }
             case R.id.format_badge:
+            case R.id.format_button:
                 cameraFragment.openFormatChooser();
                 break;
 

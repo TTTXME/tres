@@ -60,7 +60,7 @@ public final class TrashPage {
         column.addView(GalleryUi.header(c, Lang.t("Недавно удаленные", "Recently deleted"), back, clearAll));
         note = GalleryUi.text(c, Lang.t("Удаленное хранится здесь 30 дней, потом удаляется навсегда.",
                 "Deleted items stay here for 30 days, then they are removed for good."), 13, GalleryUi.MUTED);
-        note.setPadding(GalleryUi.dp(c, 18), 0, GalleryUi.dp(c, 18), GalleryUi.dp(c, 10));
+        note.setPadding(GalleryUi.dp(c, 18), 0, GalleryUi.dp(c, 18), GalleryUi.dp(c, 10)); // P579: 60 % white under the title
         column.addView(note);
         grid = new ThumbGrid(new ThumbGrid.Listener() {
             @Override

@@ -221,8 +221,8 @@ pref_noise_model_profile_key	ListPreference	auto	-	-	-	-	@array/noise_model_prof
 pref_noise_model_import_key	Preference	-	-	-	-	-	-	-	-	-	-	-
 pref_noise_model_export_key	Preference	-	-	-	-	-	-	-	-	-	-	-
 noise_model_note	Preference	-	-	-	-	-	-	-	-	-	-	false
-pref_scam_hybrid_zsl_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	20	4	44	1	false	-	-	-	-	-	-
-pref_scam_hybrid_fullres50_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	12	0	64	1	false	-	-	-	-	-	-
+pref_scam_hybrid_zsl_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	20	4	65	1	false	-	-	-	-	-	-
+pref_scam_hybrid_fullres50_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	12	0	65	1	false	-	-	-	-	-	-
 pref_scam_hybrid_fullres50_zsl	SwitchPreferenceCompat	true	-	-	-	-	-	-	-	-	-	-
 pref_scam_hybrid_fullres200_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	4	3	64	1	false	-	-	-	-	-	-
 pref_zsl_buffer_count_key	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	@string/pref_zsl_buffer_count_default	1	100	-	-	-	-	-	-	-	-
@@ -276,7 +276,7 @@ pref_motion_mode	SwitchPreferenceCompat	false	-	-	-	-	-	-	-	-	-	-
 pref_ettr	SwitchPreferenceCompat	false	-	-	-	-	-	-	-	-	-	-
 pref_scam_hybrid_mm_shutter	ListPreference	250	-	-	-	-	@array/scam_motion_shutter_entries	@array/scam_motion_shutter_values	-	-	-	-
 pref_scam_hybrid_mm_flicker	SwitchPreferenceCompat	true	-	-	-	-	-	-	-	-	-	-
-pref_scam_hybrid_mm_zsl_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	8	4	44	1	false	-	-	-	-	-	-
+pref_scam_hybrid_mm_zsl_frames	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	8	4	65	1	false	-	-	-	-	-	-
 pref_scam_hybrid_mm_shasta	SwitchPreferenceCompat	false	-	-	-	-	-	-	-	-	-	-
 pref_scam_hybrid_mm_bento	ListPreference	1	-	-	-	-	@array/scam_hybrid_bento_entries	@array/scam_hybrid_bento_values	-	-	-	-
 pref_scam_hybrid_mm_motion_boost	SwitchPreferenceCompat	true	-	-	-	-	-	-	-	-	-	-

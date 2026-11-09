@@ -17,7 +17,6 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -250,7 +249,7 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         page.addView(compare, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         samples = new LinearLayout(c);
         for (int i = 0; i < SAMPLES; i++) {
-            TextView b = SettingsStyle.text(c, sampleName(c, i), 12.5f, UiTokens.TEXT);
+            TextView b = SettingsStyle.text(c, sampleName(c, i), 12.5f, SettingsStyle.ROW_TITLE);
             b.setGravity(Gravity.CENTER);
             b.setMinHeight(UiTokens.dp(c, 34));
             b.setPadding(UiTokens.dp(c, 12), 0, UiTokens.dp(c, 12), 0);
@@ -302,8 +301,8 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         for (int i = 0; i < samples.getChildCount(); i++) {
             TextView b = (TextView) samples.getChildAt(i);
             boolean on = i == sample;
-            b.setBackground(UiTokens.shape(c, on ? accent : UiTokens.CARD, on ? accent : UiTokens.LINE, 999));
-            b.setTextColor(on ? UiTokens.INK : UiTokens.TEXT);
+            b.setBackground(UiTokens.shape(c, on ? accent : SettingsStyle.ROW, on ? accent : 0, 999));
+            b.setTextColor(on ? UiTokens.INK : SettingsStyle.ROW_TITLE);
             b.setSelected(on);
         }
     }
@@ -324,8 +323,8 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
             LinearLayout card = new LinearLayout(c);
             card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 6));
-            GradientDrawable bg = UiTokens.shape(c, UiTokens.CARD, 0, 14);
-            bg.setStroke(UiTokens.dp(c, on ? 2 : 1), on ? accent : UiTokens.LINE);
+            GradientDrawable bg = UiTokens.shape(c, SettingsStyle.ROW, 0, 14);
+            if (on) bg.setStroke(UiTokens.dp(c, 2), accent);   // P574: no outline but the chosen one\'s
             card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), bg, null));
             ImageView thumb = new ImageView(c);
             thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -339,12 +338,12 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
             thumb.setClipToOutline(true);
             int cardW = UiTokens.dp(c, 92);
             card.addView(thumb, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round((cardW - UiTokens.dp(c, 8)) * .75f)));
-            TextView name = SettingsStyle.text(c, LensFilters.name(c, id), 12, UiTokens.TEXT);
+            TextView name = SettingsStyle.text(c, LensFilters.name(c, id), 12, SettingsStyle.ROW_TITLE);
             name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
             name.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 5), UiTokens.dp(c, 3), 0);
             name.setMaxLines(2);
             card.addView(name);
-            TextView hint = SettingsStyle.text(c, LensFilters.hint(c, id), 10.5f, UiTokens.MUTED);
+            TextView hint = SettingsStyle.text(c, LensFilters.hint(c, id), 10.5f, SettingsStyle.SECTION);
             hint.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 3), UiTokens.dp(c, 3), 0);
             hint.setMaxLines(2);
             card.addView(hint);
@@ -440,44 +439,41 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(UiTokens.dp(c, 52));
         row.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, hint == null ? 0 : 8), UiTokens.dp(c, 10), UiTokens.dp(c, hint == null ? 0 : 8));
-        row.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 16));
+        row.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));   // P574: a #2C2C2E card, 24dp, no outline
         LinearLayout names = new LinearLayout(c);
         names.setOrientation(LinearLayout.VERTICAL);
-        TextView name = SettingsStyle.text(c, label, 14, UiTokens.TEXT);
+        TextView name = SettingsStyle.text(c, label, 14, SettingsStyle.ROW_TITLE);
         name.setMaxLines(2);
         names.addView(name);
         if (hint != null) {
-            TextView h = SettingsStyle.text(c, hint, 11.5f, UiTokens.MUTED);
+            TextView h = SettingsStyle.text(c, hint, 11.5f, SettingsStyle.SECTION);
             h.setMaxLines(3);
             names.addView(h);
         }
         row.addView(names, new LinearLayout.LayoutParams(UiTokens.dp(c, 128), ViewGroup.LayoutParams.WRAP_CONTENT));
-        SeekBar bar = new SeekBar(c);
-        bar.setMax(100);
-        bar.setProgress(Math.round(value * 100f));
+        // P574: the shared slider (was a Material SeekBar), 0..100 as before
+        com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(c);
+        bar.setRange(0, 100, 1);
+        bar.setValueNow(Math.round(value * 100f));
         int accent = SettingsStyle.accent(c);
-        bar.setProgressTintList(ColorStateList.valueOf(accent));
-        bar.setThumbTintList(ColorStateList.valueOf(accent));
+        bar.setAccent(accent);
         bar.setTag(tag);
         bar.setContentDescription(label);
-        row.addView(bar, new LinearLayout.LayoutParams(0, UiTokens.dp(c, 36), 1f));
+        row.addView(bar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView shown = SettingsStyle.text(c, Math.round(value * 100f) + " %", 13.5f, accent);
         shown.setMinWidth(UiTokens.dp(c, 44));
         shown.setGravity(Gravity.END);
         row.addView(shown);
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                shown.setText(p + " %");
-                if (!user) return;
-                store.set(p);
-                redraw();
-            }
-            @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) { }
+        bar.setListener((s, v, user) -> {
+            final int p = Math.round(v);
+            shown.setText(p + " %");
+            if (!user) return;
+            store.set(p);
+            redraw();
         });
         final Runnable reset = () -> {
             final int p = Math.round(def * 100f);
-            bar.setProgress(p);
+            bar.setValue(p);
             store.set(p);
             redraw();
         };

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P574: a list row ends in the up / down chevron after its value: a tap opens the pull-down menu at the row (IosMenu). -->
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settings_updown"
+    android:layout_width="13dp"
+    android:layout_height="17dp"
+    android:importantForAccessibility="no"
+    android:src="@drawable/settings_ic_updown"
+    android:tint="@color/settings_row_value"
+    android:tintMode="src_in" />

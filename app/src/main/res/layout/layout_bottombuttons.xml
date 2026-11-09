@@ -20,7 +20,9 @@
     </data>
 
     <!-- P25 shutter row, three columns: the gallery card on the left, the shutter exactly in the centre, the front /
-         back switch on the right (where «Фото | Ночь» was; Night is gone). The side items stay inside their halves. -->
+         back switch on the right (where «Фото | Ночь» was; Night is gone). The side items stay inside their halves.
+         P574 (the approved concept, as the reference app): under it the bottom row - the gear (all settings), the Sport | Photo
+         switch (icons in a capsule) in the middle, «Про» (the manual controls) at the end. -->
     <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -35,6 +37,7 @@
                 android:layout_width="@dimen/vf_side_button_size"
                 android:layout_height="@dimen/vf_side_button_size"
                 android:background="@drawable/shade_gallery_card"
+                android:layout_marginStart="24dp"
                 app:layout_constraintHorizontal_bias="0"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toStartOf="@id/shutter_button_container"
@@ -79,10 +82,11 @@
                 android:layout_height="0dp"
                 app:layout_constraintDimensionRatio="1.0"
                 android:id="@+id/shutter_button_container"
+                app:layout_constraintVertical_chainStyle="packed"
                 app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toTopOf="@id/bottom_row"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintBottom_toBottomOf="parent"
                 >
 
             <ImageButton
@@ -132,6 +136,7 @@
                 android:id="@+id/camera_switch_container"
                 android:layout_width="@dimen/vf_side_button_size"
                 android:layout_height="@dimen/vf_side_button_size"
+                android:layout_marginEnd="24dp"
                 app:layout_constraintHorizontal_bias="1"
                 app:layout_constraintStart_toEndOf="@id/shutter_button_container"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -154,5 +159,105 @@
                     android:layout_width="match_parent"/>
 
         </FrameLayout>
+
+        <!-- P574: the bottom row (the concept: 50dp squares with 16dp corners, the switch a 52dp capsule of two 44dp discs). -->
+        <LinearLayout
+                android:id="@+id/bottom_row"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clipChildren="false"
+                app:layout_constraintTop_toBottomOf="@id/shutter_button_container"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent">
+
+            <ImageButton
+                    android:id="@+id/settings_button"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:padding="14dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ui_ic_gear"
+                    android:contentDescription="@string/sheet_all_settings"
+                    android:tooltipText="@string/sheet_all_settings"
+                    android:onClick="@{bottom_bar_click_listener}"
+                    bindRotate="@{uimodel}"/>
+
+            <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
+
+            <!-- Sport | Photo: the two modes as icons only, the chosen one on a lighter disc in the accent. -->
+            <LinearLayout
+                    android:id="@+id/mode_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="4dp"
+                    android:importantForAccessibility="no">
+
+                <ImageButton
+                        android:id="@+id/mode_sport"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:padding="10dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ui_ic_motion"
+                        android:onClick="@{bottom_bar_click_listener}"
+                        bindRotate="@{uimodel}"/>
+
+                <ImageButton
+                        android:id="@+id/mode_photo"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_marginStart="10dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:padding="10dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ui_ic_camera"
+                        android:onClick="@{bottom_bar_click_listener}"
+                        bindRotate="@{uimodel}"/>
+            </LinearLayout>
+
+            <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
+
+            <FrameLayout
+                    android:id="@+id/pro_button"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="@string/bottom_pro"
+                    bindRotate="@{uimodel}">
+
+                <FrameLayout
+                        android:id="@+id/pro_disc"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:duplicateParentState="true">
+
+                    <ImageView
+                            android:id="@+id/pro_icon"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ui_ic_sliders"
+                            android:importantForAccessibility="no"/>
+                </FrameLayout>
+            </FrameLayout>
+        </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 </layout>

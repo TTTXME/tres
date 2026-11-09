@@ -11,7 +11,7 @@
     android:paddingEnd="?attr/dialogPreferredPadding"
     android:paddingTop="10dp"
     android:paddingBottom="10dp"
-    android:textColor="@color/settings_text"
+    android:textColor="@color/settings_row_title"
     android:textSize="16sp"
     android:lineSpacingExtra="2sp"
     android:ellipsize="marquee" />

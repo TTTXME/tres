@@ -544,7 +544,9 @@ public class ModuleRowsTest {
             assertEquals("Mode #4: 8192x6144 @ 15fps", value);
             String summary = text(row, android.R.id.summary);
             assertFalse(summary, summary.startsWith(value));
-            assertTrue(summary, summary.startsWith(context.getString(R.string.module_sensor_mode_hint)));
+            // P574: at most three lines, cut after a whole word with «…»: the start of the hint
+            String hint = context.getString(R.string.module_sensor_mode_hint);
+            assertTrue(summary, summary.startsWith(hint) || summary.endsWith("…") && hint.startsWith(summary.substring(0, summary.length() - 1)));
             assertEquals("Sensor mode", text(row, android.R.id.title));
             assertEquals("restarts the camera", View.VISIBLE, row.findViewById(R.id.settings_restart).getVisibility());
             // the camera key of 3×
@@ -566,7 +568,7 @@ public class ModuleRowsTest {
             assertNotNull("its icon too", ((android.widget.ImageView) row.findViewById(android.R.id.icon)).getColorFilter());
             // and a row beside it that is no warning keeps the text colour (the views are recycled)
             row = bound(root, root.findPreference(ModuleRows.NAME + copy));
-            assertEquals(SettingsStyle.TEXT, ((TextView) row.findViewById(android.R.id.title)).getCurrentTextColor());
+            assertEquals(SettingsStyle.ROW_TITLE, ((TextView) row.findViewById(android.R.id.title)).getCurrentTextColor());
         }
     }
 

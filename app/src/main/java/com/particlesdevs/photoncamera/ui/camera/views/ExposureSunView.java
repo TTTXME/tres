@@ -49,7 +49,7 @@ public class ExposureSunView extends View {
         super(context, attrs);
         Drawable d = context.getDrawable(R.drawable.ui_ic_sun);
         sun = d == null ? null : d.mutate();
-        if (sun != null) sun.setTint(SUN);
+        if (sun != null) sun.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(SUN)); // P570: the colour sun, tonal mono
         label.setColor(0xFFFFFFFF);
         label.setTextSize(UiScale.spPx(context, 12));
         label.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));

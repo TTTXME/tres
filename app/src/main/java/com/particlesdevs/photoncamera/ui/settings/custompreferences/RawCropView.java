@@ -248,7 +248,7 @@ public class RawCropView extends View {
         for (int side = 0; side < 4; side++) drawStripe(canvas, side, s);
         canvas.restoreToCount(saved);
         // the frame's own outline, then the kept frame: a soft glow, the line and its corners
-        stroke.setColor(SettingsStyle.LINE);
+        stroke.setColor(SettingsStyle.HAIRLINE);
         stroke.setStrokeWidth(Math.max(1f, d));
         canvas.drawRoundRect(frame, radius, radius, stroke);
         final boolean cuts = cutShown[0] + cutShown[1] + cutShown[2] + cutShown[3] > .5f;
@@ -260,7 +260,7 @@ public class RawCropView extends View {
             stroke.setStrokeWidth(1.5f * d);
             canvas.drawRect(kept, stroke);
         }
-        drawCorners(canvas, cuts ? kept : frame, cuts ? accent : SettingsStyle.MUTED);
+        drawCorners(canvas, cuts ? kept : frame, cuts ? accent : SettingsStyle.SECTION);
         drawSideLabels(canvas);
         drawLegend(canvas);
         drawSizes(canvas);
@@ -273,12 +273,12 @@ public class RawCropView extends View {
         path.setFillType(Path.FillType.WINDING);
         path.addRoundRect(frame, radius, radius, Path.Direction.CW);
         canvas.clipPath(path);
-        final int card = SettingsStyle.CARD;
+        final int card = SettingsStyle.ROW;
         fill.setShader(new LinearGradient(0, frame.top, 0, frame.bottom, mix(card, accent, .42f), mix(card, accent, .12f), Shader.TileMode.CLAMP));
         canvas.drawRect(frame, fill);
         fill.setShader(null);
         final float w = frame.width(), h = frame.height();
-        fill.setColor(mix(SettingsStyle.TEXT, accent, .35f));
+        fill.setColor(mix(SettingsStyle.ROW_TITLE, accent, .35f));
         canvas.drawCircle(frame.left + .70f * w, frame.top + .27f * h, .085f * w, fill);
         path.reset();
         path.moveTo(frame.left, frame.top + .68f * h);
@@ -332,7 +332,7 @@ public class RawCropView extends View {
             canvas.drawRect(band, fill);
             final int saved = canvas.save();
             canvas.clipRect(band);
-            hatch.setColor((SettingsStyle.MUTED & 0x00FFFFFF) | 0x8C000000);
+            hatch.setColor((SettingsStyle.SECTION & 0x00FFFFFF) | 0x8C000000);
             final float step = 7 * d, shift = progress * step * 2;
             for (float x = band.left - band.height() - step + (shift % step); x < band.right + step; x += step)
                 canvas.drawLine(x, band.bottom, x + band.height(), band.top, hatch);
@@ -387,7 +387,7 @@ public class RawCropView extends View {
             final int value = dragging == side ? Math.max(dragValue, st.auto[side]) : st.cut[side];
             if (value <= 0 && dragging != side) continue;
             final boolean own = dragging == side || st.cut[side] > st.auto[side];
-            text.setColor(own ? accent : SettingsStyle.MUTED);
+            text.setColor(own ? accent : SettingsStyle.SECTION);
             text.setAlpha(Math.round(255 * labels));
             final String label = String.valueOf(value);
             switch (side) {
@@ -405,7 +405,7 @@ public class RawCropView extends View {
         text.setTextSize(10.5f * getResources().getDisplayMetrics().scaledDensity);
         text.setTypeface(Typeface.DEFAULT);
         text.setTextAlign(Paint.Align.LEFT);
-        text.setColor(SettingsStyle.MUTED);
+        text.setColor(SettingsStyle.SECTION);
         final float box = 9 * d, y = 6 * d;
         final String stripes = Lang.t(getContext(), "Чёрные полосы", "Black stripes"), own = Lang.t(getContext(), "Свои поля", "Own margins");
         final float w1 = box + 5 * d + text.measureText(stripes), w2 = box + 5 * d + text.measureText(own);
@@ -413,7 +413,7 @@ public class RawCropView extends View {
         band.set(x, y, x + box, y + box);
         fill.setColor(0xFF050607);
         canvas.drawRoundRect(band, 2 * d, 2 * d, fill);
-        stroke.setColor(SettingsStyle.LINE);
+        stroke.setColor(SettingsStyle.HAIRLINE);
         stroke.setStrokeWidth(Math.max(1f, d));
         canvas.drawRoundRect(band, 2 * d, 2 * d, stroke);
         canvas.drawText(stripes, x + box + 5 * d, y + box - 1 * d, text);
@@ -431,11 +431,11 @@ public class RawCropView extends View {
         final float base = frame.bottom + 34 * d;
         text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         text.setTextSize(13 * getResources().getDisplayMetrics().scaledDensity);
-        text.setColor(SettingsStyle.TEXT);
+        text.setColor(SettingsStyle.ROW_TITLE);
         canvas.drawText(sizes(st), getWidth() / 2f, base, text);
         text.setTypeface(Typeface.DEFAULT);
         text.setTextSize(11.5f * getResources().getDisplayMetrics().scaledDensity);
-        text.setColor(SettingsStyle.MUTED);
+        text.setColor(SettingsStyle.SECTION);
         canvas.drawText(found(getContext(), st), getWidth() / 2f, base + 16 * d, text);
     }
 

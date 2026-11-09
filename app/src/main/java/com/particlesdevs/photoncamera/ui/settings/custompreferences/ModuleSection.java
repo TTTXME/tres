@@ -78,10 +78,15 @@ public class ModuleSection extends PreferenceGroup {
         final TextView badgeView = (TextView) holder.findViewById(R.id.settings_module_badge);
         if (badgeView != null) {
             badgeView.setText(badge);
-            badgeView.setTextSize(badge.length() > 4 ? 11f : 12.5f);
+            badgeView.setTextSize(badge.length() > 4 ? 11.5f : 13f);
             badgeView.setAlpha(dim ? .45f : 1f);
-            paintBadge(c, badgeView, expanded || lit);
+            // P574 (the approved «Камеры и модули»): only the camera's module is lit (an open card keeps the grey badge)
+            paintBadge(c, badgeView, lit);
         }
+        // P574: the camera's module says so in the accent («Сейчас в камере · ID 3»), the others at 55 % white
+        final TextView summary = (TextView) holder.findViewById(android.R.id.summary);
+        if (summary != null) summary.setTextColor(lit ? com.particlesdevs.photoncamera.ui.settings.SettingsStyle.accent(c)
+                : com.particlesdevs.photoncamera.ui.settings.SettingsStyle.VALUE);
         SettingsMotion.turn(holder.findViewById(R.id.settings_module_chevron), expanded ? 90f : 0f);
         ViewCompat.setStateDescription(row, c.getString(expanded ? R.string.module_card_expanded : R.string.module_card_collapsed));
         ViewCompat.setAccessibilityDelegate(row, new AccessibilityDelegateCompat() {
@@ -104,25 +109,27 @@ public class ModuleSection extends PreferenceGroup {
     }
 
     /**
-     * The badge: an accent ring (1.5 dp) on a light accent fill when the card is open or the camera uses the module, the line's
-     * ring on the tile colour otherwise; a change cross-fades (the row is bound again in the same view).
+     * The badge: an accent ring (1.5 dp) on the accent at 28 % over the card when the camera uses the module, a #3A3A3C disc with
+     * white text otherwise (P574; the theme's colour, AccentPalette.camera); a change cross-fades (the row is bound again in the
+     * same view).
      */
     private static void paintBadge(Context c, TextView badge, boolean lit) {
-        final int accent = AccentPalette.color(c);
-        final int fillOn = UiTokens.tint(accent, .14f), fillOff = 0xFF232A2E, ringOff = UiTokens.LINE;
+        final int accent = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.accent(c);
+        final int fillOn = SettingsMotion.mix(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.ROW, accent, .28f),
+                fillOff = 0xFF3A3A3C, ringOff = 0x003A3A3C;
         final Object was = badge.getTag(R.id.settings_bound_preference);
         final GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
         badge.setBackground(d);
         badge.setTag(R.id.settings_bound_preference, lit);
-        final float on = UiTokens.dp(c, 1.5f), off = Math.max(1, UiTokens.dp(c, 1));
+        final float on = UiTokens.dp(c, 1.5f), off = 0f;
         final ValueAnimator running = badge.getTag(R.id.settings_rise) instanceof ValueAnimator ? (ValueAnimator) badge.getTag(R.id.settings_rise) : null;
         if (running != null) running.cancel();
         final boolean animate = was instanceof Boolean && (Boolean) was != lit && SettingsMotion.enabled(badge);
         if (!animate) {
             d.setColor(lit ? fillOn : fillOff);
             d.setStroke(Math.round(lit ? on : off), lit ? accent : ringOff);
-            badge.setTextColor(lit ? accent : UiTokens.TEXT);
+            badge.setTextColor(lit ? accent : 0xFFFFFFFF);
             return;
         }
         final ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
@@ -131,7 +138,7 @@ public class ModuleSection extends PreferenceGroup {
             final float k = lit ? v.getAnimatedFraction() : 1f - v.getAnimatedFraction();
             d.setColor(SettingsMotion.mix(fillOff, fillOn, k));
             d.setStroke(Math.round(off + (on - off) * k), SettingsMotion.mix(ringOff, accent, k));
-            badge.setTextColor(SettingsMotion.mix(UiTokens.TEXT, accent, k));
+            badge.setTextColor(SettingsMotion.mix(0xFFFFFFFF, accent, k));
         });
         badge.setTag(R.id.settings_rise, a);
         a.start();

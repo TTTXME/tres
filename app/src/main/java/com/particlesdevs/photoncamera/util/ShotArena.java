@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * plain native buffer as before.
  */
 public final class ShotArena {
-    /** Transport header and frame table (NCH v12: 128 + 32 B per frame, at most 64 frames) before the first slot. */
+    /** Transport header and frame table (NCH v12: 128 + 32 B per frame, at most 128 frames - P578) before the first slot. */
     public static final int HEADER = 64 << 10;
     private final int id;
     private final long slotBytes;
@@ -51,7 +51,7 @@ public final class ShotArena {
 
     /** An arena of {@code slots} frames of up to {@code frameBytes} each, or null. */
     public static ShotArena create(int slots, long frameBytes) {
-        if (slots <= 0 || frameBytes <= 0 || slots > 64) return null;
+        if (slots <= 0 || frameBytes <= 0 || slots > 128) return null;
         final long slot = (frameBytes + 4095) & ~4095L;
         final int id;
         try { id = Allocator.arenaCreate(HEADER + slot * slots); } catch (Throwable t) { return null; }

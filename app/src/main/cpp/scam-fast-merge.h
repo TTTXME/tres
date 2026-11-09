@@ -1657,6 +1657,18 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         report("HYBRID FAST MERGE MOSAIC: chroma median (dual 5-point, taps "+std::to_string(std::max(1,b/2))+" px of the "+std::to_string(OW)+"x"
             +std::to_string(OH)+" result, "+how+") "+std::to_string(int(ms(c0,Clock::now())))+" ms (P563)");
     }
+    if(quad&&sensorType==1&&tune.fastQuadLattice!=0&&!streamed&&tune.chromaGpu>0){
+        // P571 (owner, 2026-11-09: «Сетку сделай такой же как на качестве и даже лучше»): the 2 / 4 px lattice the base's own Quad
+        // interpolation leaves where few frames merged, off the luma (ChromaMedianGpu::quadLattice), after the chroma median (which moves R / B: the luma's lattice as the result holds it)
+        const auto q0=Clock::now();
+        try{auto gq=chromaTake();
+            // the strip's GPU buffers (36 B a pixel with its halo) within a quarter of MemAvailable, as the chroma median's bands
+            if(const uint64_t avail=hybridMemAvailable()){const int64_t rows=int64_t(avail/4/(uint64_t(OW)*36))-2*ChromaMedianGpu::kQlHalo;
+                gq->qlStrip=int(std::max<int64_t>(64,std::min<int64_t>(1024,rows)));}
+            const std::string t=gq->quadLattice(out,OW,OH);chromaKeep(std::move(gq));
+            report("HYBRID FAST MERGE MOSAIC: Quad lattice off the luma (P571): "+t+", "+std::to_string(int(ms(q0,Clock::now())))+" ms");}
+        catch(const std::exception& e){report(std::string("HYBRID FAST MERGE MOSAIC: Quad lattice pass skipped: ")+e.what());}
+    }
     if(statsOut)*statsOut=stats;
     if(hlMaskOut&&!hlMask.empty()){ // P480: last, once nothing of the route can fail any more
         double sum=0;size_t on=0,seen=0;

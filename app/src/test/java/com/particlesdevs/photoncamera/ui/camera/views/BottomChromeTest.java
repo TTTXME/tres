@@ -190,9 +190,14 @@ public class BottomChromeTest {
             BottomChrome.attach(bar, row, strip, slot, viewfinder, ruler, manual);
             bar.requestLayout();
             settle();
-            // A tenth of the panel (97.6 px), the same for all of them: the spacing between them stays.
-            int raise = Math.round(976 * BottomChrome.RAISE_FRACTION);
-            assertEquals(98, raise);
+            // A tenth of the panel (97.6 px) within the room there is, the same for all of them: the spacing between them stays.
+            // P574 (the approved concept): the bottom row (gear, Sport | Photo, «Про») under the shutter row makes the controls
+            // 22 + (78 + 14 + 52) + 14 + 46dp; on this 244dp panel that leaves no room above the 28dp handle and its 8dp: no raise.
+            int handleRoom = slot.getHeight() + dp(context, BottomChrome.CLEARANCE_DP);
+            int controls34 = dp(context, 22) + row.getHeight() + dp(context, 14) + strip.getHeight();
+            int raise = BottomChrome.raise(976, controls34, 0, slot.getHeight(), dp(context, BottomChrome.CLEARANCE_DP));
+            assertEquals(Math.max(0, Math.min(98, 976 - controls34 - handleRoom)), raise);
+            assertTrue("the controls fit under the viewfinder", 976 - controls34 >= 0);
             assertEquals(rowTop - raise, y(row));
             assertEquals(shutterTop - raise, y(shutter));
             assertEquals(stripTop - raise, y(strip));
@@ -200,11 +205,13 @@ public class BottomChromeTest {
             assertEquals(barTop, y(bar));
             // The handle starts at the viewfinder's bottom edge; the strip stays clear of it; the ruler's place stays
             // under the viewfinder; the manual palette keeps its place, 12dp above the handle (P43).
-            assertEquals(TOP_BAR + VIEWFINDER, y(slot));
+            assertEquals(handleAt(TOP_BAR + VIEWFINDER, y(strip), slot.getHeight(), context), y(slot));
             assertTrue(y(slot) + slot.getHeight() + dp(context, BottomChrome.CLEARANCE_DP) <= y(strip));
-            assertTrue(y(rulerSlot) >= TOP_BAR + VIEWFINDER);
-            assertEquals(manualBottom, y(manual) + manual.getHeight());
-            assertEquals(y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP), manualBottom);
+            // P574: the camera screen keeps no zoom ruler (CameraFragment's zoomDial is null); its old place now reaches over
+            // the viewfinder's bottom - it stays above the strip, and the handle yields while a ruler there shows (below)
+            assertTrue(y(rulerSlot) + rulerSlot.getHeight() <= y(strip));
+            assertEquals(Math.min(manualBottom, y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP)), y(manual) + manual.getHeight());
+            assertEquals(y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP), y(manual) + manual.getHeight());
             assertEquals(1f, slot.getAlpha(), 0f);
             render(screen, "bottom-chrome-3x4.png");
 
@@ -226,7 +233,7 @@ public class BottomChromeTest {
             viewfinder.getLayoutParams().height = VIEWFINDER + 40;
             viewfinder.requestLayout();
             settle();
-            assertEquals(TOP_BAR + VIEWFINDER + 40, y(slot));
+            assertEquals(handleAt(TOP_BAR + VIEWFINDER + 40, y(strip), slot.getHeight(), context), y(slot));
             assertEquals(stripTop - raise, y(strip));
             // A 9:16 preview under the controls: the handle stops 8dp above the strip.
             viewfinder.getLayoutParams().height = WIDTH * 16 / 9;
@@ -237,14 +244,15 @@ public class BottomChromeTest {
             viewfinder.getLayoutParams().height = VIEWFINDER - 200;
             viewfinder.requestLayout();
             settle();
-            assertEquals(TOP_BAR + VIEWFINDER, y(slot));
+            assertEquals(handleAt(TOP_BAR + VIEWFINDER, y(strip), slot.getHeight(), context), y(slot));
             // The controls never moved with the handle.
             assertEquals(stripTop - raise, y(strip));
             assertEquals(rowTop - raise, y(row));
-            assertEquals(manualBottom, y(manual) + manual.getHeight());
+            assertEquals(Math.min(manualBottom, y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP)), y(manual) + manual.getHeight());
 
-            // 16:9 (the tile, video): the 656 px bar over the lower part of a 9:16 preview. The strip rises to the bar's
-            // top (48 px, the room inside the bar), the handle floats 8dp above it, the manual palette 12dp above that.
+            // 16:9 (the tile, video): the 656 px bar over the lower part of a 9:16 preview. The strip rises by the room inside the
+            // bar (P574: with the bottom row there is none, the strip stands over the preview above the bar), the handle floats
+            // 8dp above it, the manual palette 12dp above that.
             dummy.getLayoutParams().height = HEIGHT - BAR_169;
             viewfinder.getLayoutParams().height = WIDTH * 16 / 9;
             dummy.requestLayout();
@@ -258,11 +266,13 @@ public class BottomChromeTest {
             // SIMPLE_UI: concept sizes - the 78dp shutter row (this bar is not run through scaleBar) and the strip of 38dp x k lens
             // tiles (they scale themselves) in its 2 x 4dp padding
             float k = BottomChrome.scale(context);
-            assertEquals(dp(context, 78), row.getHeight(), 2);
+            assertEquals(dp(context, 78), shutter.getHeight(), 2);
+            assertEquals("P574: the shutter row and the bottom row", dp(context, 78 + 14 + 52), row.getHeight(), 3);
             assertEquals(dp(context, 8) + dp(context, LensButton.HEIGHT_DP * k), strip.getHeight(), 3);
             assertTrue(BAR_169 - controls < Math.round(BAR_169 * BottomChrome.RAISE_FRACTION));
-            assertEquals(y(bar), y(strip));
-            assertEquals(y(bar) + BAR_169 - dp(context, 22) - (BAR_169 - controls), y(row) + row.getHeight());
+            int lift = Math.max(0, Math.min(Math.round(BAR_169 * BottomChrome.RAISE_FRACTION), BAR_169 - controls));
+            assertEquals(y(bar) + BAR_169 - controls - lift, y(strip));
+            assertEquals(y(bar) + BAR_169 - dp(context, 22) - lift, y(row) + row.getHeight());
             assertEquals(y(strip) - clearance, y(slot) + slot.getHeight());
             assertEquals(y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP), y(manual) + manual.getHeight());
             // The ruler has no room inside the bar and is clipped away: the handle stays.
@@ -282,9 +292,18 @@ public class BottomChromeTest {
             settle();
             assertEquals(stripTop - raise, y(strip));
             assertEquals(rowTop - raise, y(row));
-            assertEquals(TOP_BAR + VIEWFINDER, y(slot));
-            assertEquals(manualBottom, y(manual) + manual.getHeight());
+            assertEquals(handleAt(TOP_BAR + VIEWFINDER, y(strip), slot.getHeight(), context), y(slot));
+            assertEquals(Math.min(manualBottom, y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP)), y(manual) + manual.getHeight());
         }
+    }
+
+    /**
+     * Where the HIDDEN handle's top is: the viewfinder's bottom edge, or higher where the strip leaves less room under it (P574:
+     * the concept's three bottom rows leave the OPPO's 3:4 panel none, so the handle - never drawn on the camera screen since
+     * SIMPLE_UI §1 - and the manual palette above it move up over the viewfinder instead of onto the strip).
+     */
+    private static int handleAt(int viewfinderBottom, int stripTop, int handle, Context context) {
+        return Math.min(viewfinderBottom, stripTop - dp(context, BottomChrome.CLEARANCE_DP) - handle);
     }
 
     private static ConstraintLayout.LayoutParams matchWidth(int height) {

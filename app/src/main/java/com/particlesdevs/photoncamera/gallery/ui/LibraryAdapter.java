@@ -251,19 +251,21 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             super(new LinearLayout(c));
             LinearLayout row = (LinearLayout) itemView;
             row.setLayoutParams(new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 14), GalleryUi.dp(c, 4), GalleryUi.dp(c, 8));
-            label = GalleryUi.text(c, "", 12, GalleryUi.accent(c));
-            label.setLetterSpacing(.14f);
-            label.setAlpha(.85f);
+            // P579: the day as the settings' section caption (12sp semibold capitals, 55 % white), the count at 55 % too
+            row.setPadding(GalleryUi.dp(c, 8), GalleryUi.dp(c, 16), GalleryUi.dp(c, 8), GalleryUi.dp(c, 8));
+            label = GalleryUi.text(c, "", 12, GalleryUi.SECTION);
+            label.setLetterSpacing(.06f);
+            label.setTypeface(GalleryUi.semibold());
             label.setAllCaps(true);
-            count = GalleryUi.text(c, "", 12, GalleryUi.MUTED);
+            count = GalleryUi.text(c, "", 12, GalleryUi.SECTION);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             row.addView(count);
             // P498: while selecting, the day's header selects the whole day
             all = GalleryUi.icon(c, R.drawable.ui_ic_select_all, GalleryUi.accent(c), 18);
+            com.particlesdevs.photoncamera.ui.Icons.ink(all, R.drawable.ui_ic_select_all, GalleryUi.accent(c)); // P579: in the accent
             LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(GalleryUi.dp(c, 18), GalleryUi.dp(c, 18));
-            ap.leftMargin = GalleryUi.dp(c, 8);
+            ap.setMarginStart(GalleryUi.dp(c, 8));
             row.addView(all, ap);
             all.setVisibility(View.GONE);
             row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -422,7 +424,10 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             boolean selecting = host.selecting(), on = selecting && host.isSelected(item);
             boolean was = checkMark.getVisibility() == View.VISIBLE && check.getVisibility() == View.VISIBLE;
             int accent = GalleryUi.accent(c);
-            cell.setBackground(GalleryUi.round(c, GalleryUi.CARD, on ? accent : GalleryUi.LINE, 14));
+            // P579: the chosen one framed in the accent (2dp), no outline otherwise
+            android.graphics.drawable.GradientDrawable frame = GalleryUi.card(c, GalleryUi.CARD, 14);
+            if (on) frame.setStroke(GalleryUi.dp(c, 2), accent);
+            cell.setBackground(frame);
             GalleryMotion.select(image, on, animate); // P498: the thumbnail sinks into its frame on the spring
             if (animate && on && !was) com.particlesdevs.photoncamera.ui.Motion.pop(check);
             FrameLayout.LayoutParams bp = (FrameLayout.LayoutParams) badges.getLayoutParams();

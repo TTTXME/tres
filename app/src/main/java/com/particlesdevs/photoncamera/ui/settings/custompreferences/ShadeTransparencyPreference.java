@@ -23,13 +23,15 @@ import androidx.preference.PreferenceViewHolder;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens;
 import com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle;
+import com.particlesdevs.photoncamera.ui.controls.IosMotion;
+import com.particlesdevs.photoncamera.ui.controls.IosSlider;
 import com.particlesdevs.photoncamera.ui.settings.SettingsStyle;
 import com.particlesdevs.photoncamera.util.Lang;
 
 /**
  * SIMPLE_UI §4 «Прозрачность шторки» (the concept's sheetA page): a preview - a scene with the quick sheet over its lower
- * 62 % (title and eight tile shapes) at the chosen transparency - then one card of radio rows 0 / 20 / 30 / 40 / 50 / 60 %
- * (40 % the default) and the note that text and icons stay opaque. Stored as the percentage (ShadeStyle.TRANSPARENCY_KEY).
+ * 62 % (title and eight tile shapes) at the chosen transparency - then one card with the slider over 0 / 20 / 30 / 40 / 50 / 60 %
+ * (40 % the default; P574, was a card of radio rows) and the note that text and icons stay opaque. Stored as the percentage (ShadeStyle.TRANSPARENCY_KEY).
  */
 public class ShadeTransparencyPreference extends Preference {
     static final int[] VALUES = {0, 20, 30, 40, 50, 60};
@@ -100,7 +102,8 @@ public class ShadeTransparencyPreference extends Preference {
         page.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, UiTokens.dp(c, 150)));
         card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 18));
+        card.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));
+        card.setClipChildren(false);
         card.setTag("shade_transparency_options");
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cp.topMargin = UiTokens.dp(c, 14);
@@ -112,46 +115,102 @@ public class ShadeTransparencyPreference extends Preference {
         host.addView(page, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
+    /**
+     * P574 (owner, 2026-11-09: «Ползунки … ближе к IOS»): the choice is the settings' slider over the six steps 0 / 20 / 30 / 40 /
+     * 50 / 60 % (the same values as the radio rows were) - the value in its pill on the title line, lifted while the knob is
+     * held, popped on release; a double tap puts 40 % back; the step's hint under the title.
+     */
     private void fill() {
         LinearLayout box = card;
         if (box == null) return;
         Context c = getContext();
         int accent = SettingsStyle.accent(c), now = value();
+        IosSlider slider = box.findViewWithTag("shade_transparency_slider");
+        if (slider != null) {
+            slider.setValue(index(now));
+            paint(box, now, accent);
+            return;
+        }
         box.removeAllViews();
-        for (int i = 0; i < VALUES.length; i++) {
-            if (i > 0) {
-                View line = new View(c);
-                line.setBackgroundColor(UiTokens.LINE);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, UiTokens.dp(c, .5f)));
-                lp.setMarginStart(UiTokens.dp(c, 52));
-                box.addView(line, lp);
+        box.setPadding(UiTokens.dp(c, 16), UiTokens.dp(c, 12), UiTokens.dp(c, 16), UiTokens.dp(c, 8));
+        LinearLayout head = new LinearLayout(c);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout texts = new LinearLayout(c);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView t = SettingsStyle.text(c, Lang.t(c, "Прозрачность", "Transparency"), 16, SettingsStyle.ROW_TITLE);
+        t.setTypeface(SettingsStyle.semibold());
+        texts.addView(t);
+        TextView hint = SettingsStyle.text(c, "", 13, SettingsStyle.SUMMARY);
+        hint.setTag("shade_transparency_hint");
+        hint.setPadding(0, UiTokens.dp(c, 2), 0, 0);
+        texts.addView(hint);
+        head.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView pill = SettingsStyle.text(c, "", 15, accent);
+        pill.setTag("shade_transparency_value");
+        pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pill.setGravity(Gravity.CENTER);
+        pill.setMinWidth(UiTokens.dp(c, 44));
+        pill.setPadding(UiTokens.dp(c, 12), 0, UiTokens.dp(c, 12), 0);
+        pill.setBackgroundResource(R.drawable.settings_value_pill);
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, UiTokens.dp(c, 30));
+        pp.setMarginStart(UiTokens.dp(c, 10));
+        head.addView(pill, pp);
+        box.addView(head);
+        LinearLayout range = new LinearLayout(c);
+        range.setGravity(Gravity.CENTER_VERTICAL);
+        range.setClipChildren(false);
+        range.setClipToPadding(false);
+        TextView min = SettingsStyle.text(c, VALUES[0] + " %", 12, SettingsStyle.RANGE), max = SettingsStyle.text(c, VALUES[VALUES.length - 1] + " %", 12, SettingsStyle.RANGE);
+        range.addView(min);
+        IosSlider bar = new IosSlider(c);
+        bar.setTag("shade_transparency_slider");
+        bar.setContentDescription(Lang.t(c, "Прозрачность шторки", "Panel transparency"));
+        bar.setAccent(accent);
+        bar.setRange(0, VALUES.length - 1, 1);
+        bar.setDefaultValue(index(ShadeStyle.TRANSPARENCY_DEFAULT));
+        bar.setValueNow(index(now));
+        bar.setListener(new IosSlider.Listener() {
+            @Override public void onValue(IosSlider s, float v, boolean fromUser) {
+                if (!fromUser) return;
+                int percent = VALUES[Math.max(0, Math.min(VALUES.length - 1, Math.round(v)))];
+                if (percent != value()) choose(percent);
             }
-            int v = VALUES[i];
-            LinearLayout row = new LinearLayout(c);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setMinimumHeight(UiTokens.dp(c, 52));
-            row.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, 10), UiTokens.dp(c, 14), UiTokens.dp(c, 10));
-            row.setBackgroundResource(R.drawable.settings_row);
-            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(UiTokens.dp(c, 24), UiTokens.dp(c, 24));
-            rp.setMarginEnd(UiTokens.dp(c, 14));
-            row.addView(SettingsStyle.radio(c, v == now, accent), rp);
-            LinearLayout texts = new LinearLayout(c);
-            texts.setOrientation(LinearLayout.VERTICAL);
-            TextView t = SettingsStyle.text(c, label(c, v), 14.5f, UiTokens.TEXT);
-            t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-            texts.addView(t);
-            String h = hint(c, v);
-            if (h != null) {
-                TextView s = SettingsStyle.text(c, h, 12.5f, UiTokens.SUMMARY);
-                s.setPadding(0, UiTokens.dp(c, 2), 0, 0);
-                texts.addView(s);
+
+            @Override public void onTracking(IosSlider s, boolean tracking) {
+                if (tracking) IosMotion.lift(pill, true, pill.getCurrentTextColor(), pill.getCurrentTextColor());
+                else IosMotion.pop(pill);
             }
-            row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            row.setTag("shade_transparency_" + v);
-            row.setSelected(v == now);
-            row.setContentDescription(label(c, v));
-            row.setOnClickListener(x -> choose(v));
-            box.addView(row);
+        });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        bp.setMarginStart(UiTokens.dp(c, 10));
+        bp.setMarginEnd(UiTokens.dp(c, 10));
+        range.addView(bar, bp);
+        range.addView(max);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = UiTokens.dp(c, 4);
+        box.addView(range, rp);
+        paint(box, now, accent);
+    }
+
+    /** The step of {@code percent} on the slider (the nearest of VALUES). */
+    static int index(int percent) {
+        int best = 0;
+        for (int i = 1; i < VALUES.length; i++) if (Math.abs(VALUES[i] - percent) < Math.abs(VALUES[best] - percent)) best = i;
+        return best;
+    }
+
+    private void paint(LinearLayout box, int now, int accent) {
+        Context c = getContext();
+        TextView pill = box.findViewWithTag("shade_transparency_value");
+        if (pill != null) {
+            pill.setText(now + " %");
+            SettingsStyle.paintPill(pill, now != ShadeStyle.TRANSPARENCY_DEFAULT, accent);
+            pill.setContentDescription(label(c, now));
+        }
+        TextView hint = box.findViewWithTag("shade_transparency_hint");
+        if (hint != null) {
+            String h = hint(c, now);
+            hint.setText(h != null ? h : label(c, now));
         }
     }
 

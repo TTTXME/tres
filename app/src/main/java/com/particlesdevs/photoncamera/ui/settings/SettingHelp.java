@@ -136,13 +136,14 @@ public final class SettingHelp {
         final int res = helpRes(key);
         CharSequence text = res != 0 ? c.getText(res) : p.getSummary();
         if (TextUtils.isEmpty(text)) text = Lang.t(c, "Описания для этого пункта пока нет.", "No description for this row yet.");
-        body.addView(paragraph(c, text, SettingsStyle.TEXT, 15));
+        // P574: the text in white, the notes under it in white at 55 % (was the old bluish grey)
+        body.addView(paragraph(c, text, SettingsStyle.ROW_TITLE, 15));
         final CharSequence value = value(c, p);
-        if (value != null) body.addView(paragraph(c, Lang.t(c, "Сейчас: ", "Now: ") + value, SettingsStyle.MUTED, 13));
+        if (value != null) body.addView(paragraph(c, Lang.t(c, "Сейчас: ", "Now: ") + value, SettingsStyle.SECTION, 13));
         if (p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ModuleSection)
-            body.addView(paragraph(c, Lang.t(c, "Нажатие открывает и закрывает модуль.", "A tap opens and closes the module."), SettingsStyle.MUTED, 13));
+            body.addView(paragraph(c, Lang.t(c, "Нажатие открывает и закрывает модуль.", "A tap opens and closes the module."), SettingsStyle.SECTION, 13));
         else if (p instanceof PreferenceGroup)
-            body.addView(paragraph(c, Lang.t(c, "Нажатие открывает раздел.", "A tap opens the section."), SettingsStyle.MUTED, 13));
+            body.addView(paragraph(c, Lang.t(c, "Нажатие открывает раздел.", "A tap opens the section."), SettingsStyle.SECTION, 13));
         SettingsStyle.sheet(c, body).show();
     }
 

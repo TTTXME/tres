@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P572: an iOS alert leaving - a quick fade with a small shrink. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/motion_ease_out"
+    android:shareInterpolator="true">
+    <scale android:duration="180" android:fromXScale="1" android:toXScale="0.96" android:fromYScale="1" android:toYScale="0.96"
+        android:pivotX="50%" android:pivotY="50%" />
+    <alpha android:duration="160" android:fromAlpha="1" android:toAlpha="0" />
+</set>

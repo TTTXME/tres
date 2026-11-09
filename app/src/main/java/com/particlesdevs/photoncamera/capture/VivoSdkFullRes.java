@@ -142,7 +142,7 @@ public final class VivoSdkFullRes {
 
     static int frameCount(int requested, long frameBytes, long availableBytes) {
         if (frameBytes <= 0) throw new IllegalArgumentException("Invalid FULLRES frame size");
-        int count = Math.max(1, Math.min(64, requested));
+        int count = Math.max(1, Math.min(65, requested)); // P578: «Кадры FULLRES 50» up to 65
         // Retained RAWs must leave room for the camera, frame copies and subsequent processing.
         return availableBytes >= 0 ? (int) Math.min(count, availableBytes / 2 / frameBytes) : count;
     }
@@ -154,10 +154,10 @@ public final class VivoSdkFullRes {
      * column). A 200 MP merge runs with the camera closed: the HAL's four RAW buffers count as free. 0 when nothing fits.
      */
     static int seriesFit(long pixels, int width, long frameBytes, int block, int grid, boolean huge, long availableBytes) {
-        if (availableBytes < 0) return 64;
+        if (availableBytes < 0) return 65;
         final double halFree = huge ? 4.0 * frameBytes : 0, fixed = (huge ? 20.0 : 40.0) * pixels * grid * grid;
         final double perFrame = frameBytes + 2.0 * pixels / ((double) block * block) + 3800.0 * width;
-        return (int) Math.max(0, Math.min(64, Math.floor((availableBytes + halFree - fixed - frameBytes) / perFrame)));
+        return (int) Math.max(0, Math.min(65, Math.floor((availableBytes + halFree - fixed - frameBytes) / perFrame)));
     }
 
     /**

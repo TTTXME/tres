@@ -26,6 +26,8 @@ public final class IszCapturePolicy {
             return VivoQcomIsz.iszModule(VivoQcomIsz.role(physicalId, characteristics), mode);
         }
         if (ModuleRegistry.sensorMode(slot) != 0) return false;
+        // P575: the nubia «2×» is the full-size row at zoom 2 (a digital crop of the whole field), not a sensor crop: the photo's aspect applies
+        if (NubiaFullRes.iszModule(slot)) return false;
         if (SensorModeSwitches.sensorPreset(slot)) return true;
         if (!croppedRawSession || !CroppedRaw.supported(characteristics)) return false;
         return CroppedRaw.factor(CroppedRaw.of(result, physicalId, logicalId),

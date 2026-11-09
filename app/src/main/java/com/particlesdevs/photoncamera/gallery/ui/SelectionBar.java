@@ -1,7 +1,6 @@
 package com.particlesdevs.photoncamera.gallery.ui;
 
 import android.content.Context;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -9,12 +8,13 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.particlesdevs.photoncamera.R;
-import com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens;
 import com.particlesdevs.photoncamera.util.Lang;
 
 /**
  * P59b: the library's floating selection bar (replaces the FABs): × to clear, the accent count pill with the plural
  * («3 снимка», replaces number_fab), «Сравнить» (only with exactly 2), «Поделиться», «Удалить» (warning colour).
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the tab bar's dark capsule with its
+ * light edge, white line icons, «Удалить» in the red, the count the accent on its dark tone (the settings' value pill).
  */
 public final class SelectionBar {
     public final LinearLayout view;
@@ -34,18 +34,19 @@ public final class SelectionBar {
         view = new LinearLayout(c);
         view.setOrientation(LinearLayout.HORIZONTAL);
         view.setGravity(Gravity.CENTER_VERTICAL);
-        view.setBackground(GalleryUi.card(c, GalleryUi.CARD, 22));
+        view.setBackground(GalleryUi.bar(c, 26));
+        view.setElevation(GalleryUi.dp(c, 10));
         int p = GalleryUi.dp(c, 6);
         view.setPadding(p, p, p, p);
         view.setContentDescription(Lang.t("Выбранные снимки", "Selected photos"));
         close = GalleryUi.squareButton(c, R.drawable.ui_ic_close, Lang.t("Снять выделение", "Clear the selection"), v -> onClose.run());
-        close.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 14)));
+        close.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 999)));
         view.addView(close, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
         count = GalleryUi.fitText(c, "", 14, GalleryUi.accent(c));
-        count.setTypeface(Typeface.DEFAULT_BOLD);
+        count.setTypeface(GalleryUi.semibold());
         count.setGravity(Gravity.CENTER);
         count.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 8), GalleryUi.dp(c, 12), GalleryUi.dp(c, 8));
-        int bg = UiTokens.chipBg(GalleryUi.accent(c));
+        int bg = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.pillFill(GalleryUi.accent(c));
         count.setBackground(GalleryUi.round(c, bg, bg, 999));
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cp.leftMargin = cp.rightMargin = GalleryUi.dp(c, 4);

@@ -18,6 +18,7 @@ import androidx.annotation.Nullable;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.particlesdevs.photoncamera.R;
+import com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens;
 import com.particlesdevs.photoncamera.gallery.model.GalleryView;
 import com.particlesdevs.photoncamera.util.Lang;
 
@@ -27,27 +28,30 @@ import java.util.List;
  * P59b: the gallery's bottom sheets in the card style: delete («Удалить N снимков?»), folders (switch rows) and the
  * details of a photo (replaces exif_dialog). Each is a view built here (testable on its own) shown in a BottomSheetDialog:
  * drag down or tap the scrim to close, back closes it, focus goes into it.
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the camera's and the settings'
+ * sheets - #1C1C1E with 30dp top corners and the grabber, 17sp semibold titles, rows grouped in #2C2C2E cards (24dp corners, 0.5dp
+ * hairlines), the shared switch and segmented control, capsule buttons; the delete question a centred card (30dp corners, two
+ * capsules side by side, the red «Удалить»).
  */
 public final class GallerySheets {
     private GallerySheets() {}
 
-    /** The sheet frame: the grab handle on top, the content below, the sheet colour with a 26dp top radius. */
+    /** The sheet frame: the grabber on top, the content below; P579: #1C1C1E with 30dp top corners, no outline. */
     static LinearLayout frame(Context c) {
         LinearLayout sheet = new LinearLayout(c);
         sheet.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        float r = GalleryUi.dp(c, 26);
+        float r = GalleryUi.dp(c, 30);
         bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         bg.setColor(GalleryUi.SHEET);
-        bg.setStroke(Math.max(1, GalleryUi.dp(c, 1)), GalleryUi.LINE);
         sheet.setBackground(bg);
-        sheet.setPadding(GalleryUi.dp(c, 16), 0, GalleryUi.dp(c, 16), GalleryUi.dp(c, 18));
+        sheet.setPadding(GalleryUi.dp(c, 16), 0, GalleryUi.dp(c, 16), GalleryUi.dp(c, 20));
         View grab = new View(c);
-        grab.setBackground(GalleryUi.round(c, 0xFF4A4F57, 0xFF4A4F57, 2));
-        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 4));
+        grab.setBackground(GalleryUi.round(c, 0x4DFFFFFF, 0, 2.5f));
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 5));
         gp.gravity = Gravity.CENTER_HORIZONTAL;
-        gp.topMargin = GalleryUi.dp(c, 12);
-        gp.bottomMargin = GalleryUi.dp(c, 16);
+        gp.topMargin = GalleryUi.dp(c, 10);
+        gp.bottomMargin = GalleryUi.dp(c, 14);
         grab.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         sheet.addView(grab, gp);
         return sheet;
@@ -56,7 +60,7 @@ public final class GallerySheets {
     static TextView title(Context c, String value) {
         TextView t = GalleryUi.text(c, value, 17, GalleryUi.TEXT);
         t.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 2), GalleryUi.dp(c, 4), GalleryUi.dp(c, 2));
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTypeface(GalleryUi.semibold());
         t.setAccessibilityHeading(true);
         return t;
     }
@@ -96,52 +100,129 @@ public final class GallerySheets {
         return Lang.t("Удалить ", "Delete ") + GalleryUi.shots(n) + "?";
     }
 
-    /** «Удалить N снимков?», the count and size, the warning «Удалить» and «Отмена». */
+    /**
+     * «Удалить N снимков?», the count and size, «Отмена» and the red «Удалить»; P579: the concept's alert card - the title and the
+     * text centred, the two capsules side by side.
+     */
     public static LinearLayout delete(Context c, int n, long bytes, Runnable onDelete, Runnable onCancel) {
-        LinearLayout s = frame(c);
-        s.addView(title(c, deleteTitle(n)));
         // SIMPLE_UI §5 (the concept): what happens in words, then «Отмена» | «Удалить» side by side
-        s.addView(sub(c, n == 1 ? Lang.t("Файл удалится с телефона. Вернуть его будет нельзя.", "The file is removed from the phone. It cannot be brought back.")
-                : GalleryUi.shots(n) + " · " + GalleryUi.size(bytes) + ". "
-                + Lang.t("Файлы удалятся с телефона, вернуть их будет нельзя.", "The files are removed from the phone and cannot be brought back.")));
-        TextView no = bigButton(c, Lang.t("Отмена", "Cancel"), false);
-        no.setOnClickListener(v -> onCancel.run());
-        no.setTag("delete_cancel");
-        TextView yes = bigButton(c, Lang.t("Удалить", "Delete"), true);
-        yes.setOnClickListener(v -> onDelete.run());
-        yes.setTag("delete_confirm");
-        LinearLayout buttons = new LinearLayout(c);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.addView(no, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        LinearLayout.LayoutParams yp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        yp.leftMargin = GalleryUi.dp(c, 8);
-        buttons.addView(yes, yp);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = GalleryUi.dp(c, 14);
-        s.addView(buttons, lp);
+        LinearLayout s = confirmCard(c, deleteTitle(n), n == 1 ? Lang.t("Файл удалится с телефона. Вернуть его будет нельзя.", "The file is removed from the phone. It cannot be brought back.")
+                        : GalleryUi.shots(n) + " · " + GalleryUi.size(bytes) + ". "
+                        + Lang.t("Файлы удалятся с телефона, вернуть их будет нельзя.", "The files are removed from the phone and cannot be brought back."),
+                Lang.t("Отмена", "Cancel"), Lang.t("Удалить", "Delete"), onCancel, onDelete);
+        s.findViewWithTag("confirm_no").setTag("delete_cancel");
+        s.findViewWithTag("confirm_yes").setTag("delete_confirm");
         return s;
     }
 
+    /**
+     * P579: the concept's alert as a view - {@code title} and {@code message} centred on the alert card, then two capsules side by
+     * side: {@code no} (grey, tagged "confirm_no") and {@code yes} in the red (tagged "confirm_yes").
+     */
+    public static LinearLayout confirmCard(Context c, String title, String message, String no, String yes, Runnable onNo, Runnable onYes) {
+        LinearLayout s = new LinearLayout(c);
+        s.setOrientation(LinearLayout.VERTICAL);
+        s.setBackground(alertCard(c));
+        s.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 20), GalleryUi.dp(c, 16), GalleryUi.dp(c, 16));
+        TextView t = title(c, title);
+        t.setGravity(Gravity.CENTER);
+        s.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView what = GalleryUi.text(c, message, 14, 0xB3FFFFFF);
+        what.setGravity(Gravity.CENTER);
+        what.setLineSpacing(0, 1.25f);
+        LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wp.topMargin = GalleryUi.dp(c, 6);
+        s.addView(what, wp);
+        TextView noButton = bigButton(c, no, false);
+        noButton.setOnClickListener(v -> onNo.run());
+        noButton.setTag("confirm_no");
+        TextView yesButton = bigButton(c, yes, true);
+        yesButton.setOnClickListener(v -> onYes.run());
+        yesButton.setTag("confirm_yes");
+        LinearLayout buttons = new LinearLayout(c);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.addView(noButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams yp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        yp.setMarginStart(GalleryUi.dp(c, 8));
+        buttons.addView(yesButton, yp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = GalleryUi.dp(c, 18);
+        s.addView(buttons, lp);
+        s.setContentDescription(title);
+        return s;
+    }
+
+    /** P579: {@link #confirmCard} shown as the centred alert; either button closes it, {@code onYes} runs after. */
+    public static android.app.Dialog confirm(Context c, String title, String message, String no, String yes, Runnable onYes) {
+        final android.app.Dialog[] d = new android.app.Dialog[1];
+        LinearLayout card = confirmCard(c, title, message, no, yes, () -> {
+            if (d[0] != null) d[0].dismiss();
+        }, () -> {
+            if (d[0] != null) d[0].dismiss();
+            onYes.run();
+        });
+        d[0] = alert(c, card);
+        return d[0];
+    }
+
+    /** P579: the alert's card - the concept's rgba(38, 38, 40, .95), 30dp corners, a 0.5dp light edge. */
+    public static GradientDrawable alertCard(Context c) {
+        GradientDrawable card = new GradientDrawable();
+        card.setColor(0xF2262628);
+        card.setCornerRadius(GalleryUi.dp(c, 30));
+        card.setStroke(Math.max(1, GalleryUi.dp(c, .5f)), 0x24FFFFFF);
+        return card;
+    }
+
     public static void showDelete(Context c, int n, long bytes, Runnable onDelete) {
-        final BottomSheetDialog[] d = new BottomSheetDialog[1];
+        final android.app.Dialog[] d = new android.app.Dialog[1];
         LinearLayout content = delete(c, n, bytes, () -> {
             if (d[0] != null) d[0].dismiss();
             onDelete.run();
         }, () -> {
             if (d[0] != null) d[0].dismiss();
         });
-        d[0] = show(c, content);
+        d[0] = alert(c, content);
     }
 
+    /**
+     * P579: {@code card} as a centred alert (the settings' confirmation): 290dp wide, the screen behind dimmed, the card growing in
+     * on a spring (an Animator: the system's animation scale applies); back and a tap outside close it.
+     */
+    public static android.app.Dialog alert(Context c, View card) {
+        androidx.appcompat.app.AppCompatDialog d = new androidx.appcompat.app.AppCompatDialog(c);
+        d.supportRequestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        d.setContentView(card);
+        d.setCanceledOnTouchOutside(true);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setLayout(GalleryUi.dp(c, 290), ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setGravity(Gravity.CENTER);
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.setDimAmount(.45f);
+        }
+        d.setOnShowListener(x -> {
+            card.setFocusable(true);
+            card.requestFocus();
+            card.sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED);
+            if (!com.particlesdevs.photoncamera.ui.Motion.enabled(card)) return;
+            card.setScaleX(.86f);
+            card.setScaleY(.86f);
+            card.setAlpha(0f);
+            card.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(350)
+                    .setInterpolator(new android.view.animation.OvershootInterpolator(1.4f)).start();
+        });
+        d.show();
+        return d;
+    }
+
+    /** P579: a capsule of the alert - grey, «Удалить» in the red (the concept's alert buttons). */
     static TextView bigButton(Context c, String label, boolean warn) {
-        TextView b = GalleryUi.text(c, label, 16, warn ? 0xFF2A1210 : GalleryUi.TEXT);
-        b.setGravity(Gravity.CENTER);
-        b.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 14), GalleryUi.dp(c, 14), GalleryUi.dp(c, 14));
-        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        b.setMinHeight(GalleryUi.dp(c, 50));
-        b.setBackground(GalleryUi.pressable(warn ? GalleryUi.round(c, GalleryUi.WARN, GalleryUi.WARN, 16) : GalleryUi.round(c, 0xFF232A2E, 0xFF232A2E, 16)));
-        b.setClickable(true);
-        b.setFocusable(true);
+        TextView b = GalleryUi.capsule(c, label, warn ? GalleryUi.DESTRUCTIVE : GalleryUi.SECONDARY);
+        GradientDrawable fill = GalleryUi.round(c, com.particlesdevs.photoncamera.ui.settings.SettingsStyle.CAPSULE, 0, 999);
+        b.setBackground(GalleryUi.pressable(fill));
+        UiTokens.setTextSp(b, 17);
         return b;
     }
 
@@ -180,7 +261,9 @@ public final class GallerySheets {
             LinearLayout rows = column(c);
             rows.addView(switchRow(c, R.drawable.ui_ic_layers, Lang.t("Показывать папки", "Show folders"),
                     Lang.t("Лента папок над сеткой", "The folder chips above the grid"), chipsShown, on -> toggle.toggled(null, on)));
-            s.addView(rows);
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rp.topMargin = GalleryUi.dp(c, 8);
+            s.addView(rows, rp);
         }
         s.addView(GalleryUi.sectionLabel(c, Lang.t("Папки", "Folders")));
         LinearLayout list = column(c);
@@ -197,34 +280,25 @@ public final class GallerySheets {
         void on(boolean on);
     }
 
+    /** P579: a group of rows - one #2C2C2E card, 24dp corners, hairlines from the rows' text (past a 22dp icon). */
     static LinearLayout column(Context c) {
-        LinearLayout l = new LinearLayout(c);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setDividerDrawable(gap(c));
-        l.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-        return l;
+        return GalleryUi.group(c, 52);
     }
 
-    static GradientDrawable gap(Context c) {
-        GradientDrawable g = new GradientDrawable();
-        g.setSize(1, GalleryUi.dp(c, 8));
-        g.setColor(0);
-        return g;
-    }
-
-    /** A card row: icon, title / subtitle, and a switch (the settings' switch look). */
+    /** A row: icon, title / subtitle, and the switch (P579: the shared switch, the row's tap slides it). */
     static LinearLayout switchRow(Context c, @DrawableRes int icon, String t, String sub, boolean on, Switched switched) {
         LinearLayout row = cardRow(c);
         row.addView(GalleryUi.icon(c, icon, GalleryUi.accent(c), 22));
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
-        TextView tt = GalleryUi.text(c, t, 15, GalleryUi.TEXT);
-        TextView st = GalleryUi.text(c, sub, 12.5f, GalleryUi.MUTED);
+        TextView tt = GalleryUi.text(c, t, 16, GalleryUi.TEXT);
+        TextView st = GalleryUi.text(c, sub, 13, GalleryUi.MUTED);
         st.setPadding(0, GalleryUi.dp(c, 3), 0, 0);
         texts.addView(tt);
         texts.addView(st);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tp.leftMargin = tp.rightMargin = GalleryUi.dp(c, 12);
+        tp.setMarginStart(GalleryUi.dp(c, 14));
+        tp.setMarginEnd(GalleryUi.dp(c, 12));
         row.addView(texts, tp);
         View sw = toggleView(c, on);
         row.addView(sw);
@@ -243,37 +317,38 @@ public final class GallerySheets {
         return row;
     }
 
+    /** A row of a group: P579, transparent on the group's card (its ripple clipped to the card's corners), 16dp sides. */
     static LinearLayout cardRow(Context c) {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 16)));
-        row.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 12), GalleryUi.dp(c, 14), GalleryUi.dp(c, 12));
+        row.setMinimumHeight(GalleryUi.dp(c, GalleryUi.ROW_MIN));
+        row.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 0)));
+        row.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 10), GalleryUi.dp(c, 16), GalleryUi.dp(c, 10));
         return row;
     }
 
-    /** The switch: a 46 x 26dp track with a 20dp thumb (accent when on). */
+    /**
+     * The switch of a row; P579: the shared switch (IosSwitch: the theme's colour on, a knob that slides on a spring). The row
+     * drives it ({@link #setToggle}): the switch itself takes no taps, so a tap anywhere on the row toggles once.
+     */
     public static View toggleView(Context c, boolean on) {
-        FrameLayout track = new FrameLayout(c);
-        View thumb = new View(c);
-        track.addView(thumb, new FrameLayout.LayoutParams(GalleryUi.dp(c, 20), GalleryUi.dp(c, 20), Gravity.CENTER_VERTICAL));
-        track.setLayoutParams(new LinearLayout.LayoutParams(GalleryUi.dp(c, 46), GalleryUi.dp(c, 26)));
-        track.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        setToggle(track, on);
-        return track;
+        // the row takes every touch (a switch that saw the finger kept its pressed knob without the lift)
+        com.particlesdevs.photoncamera.ui.controls.IosSwitch sw = new com.particlesdevs.photoncamera.ui.controls.IosSwitch(c) {
+            @Override public boolean dispatchTouchEvent(android.view.MotionEvent e) { return false; }
+        };
+        sw.setCheckedNow(on);
+        sw.setClickable(false);
+        sw.setFocusable(false);
+        sw.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        sw.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return sw;
     }
 
+    /** The row's switch to {@code on}, sliding there. */
     public static void setToggle(View track, boolean on) {
-        Context c = track.getContext();
-        track.setBackground(GalleryUi.round(c, on ? GalleryUi.accent(c) : 0xFF3A3E45, on ? GalleryUi.accent(c) : 0xFF3A3E45, 999));
-        View thumb = ((FrameLayout) track).getChildAt(0);
-        thumb.setBackground(GalleryUi.round(c, on ? 0xFFFFFFFF : 0xFF9AA0A7, 0, 999));
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) thumb.getLayoutParams();
-        if (lp.leftMargin != GalleryUi.dp(c, 3)) {
-            lp.leftMargin = GalleryUi.dp(c, 3);
-            thumb.setLayoutParams(lp);
-        }
-        GalleryMotion.thumb(thumb, GalleryUi.dp(c, on ? 20 : 0)); // P498: the thumb slides on the spring
+        if (track instanceof com.particlesdevs.photoncamera.ui.controls.IosSwitch)
+            ((com.particlesdevs.photoncamera.ui.controls.IosSwitch) track).setChecked(on);
     }
 
     // ---------------------------------------------------------------- P498: the view options
@@ -282,39 +357,64 @@ public final class GallerySheets {
         void picked(int index);
     }
 
-    /** A row of choice pills (one chosen, accent filled); a pick pops the chosen pill. */
-    static android.widget.HorizontalScrollView segmented(Context c, String[] labels, int chosen, Picked picked) {
-        android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(c);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout row = new LinearLayout(c);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        scroll.addView(row);
-        final int[] now = {chosen};
-        for (int i = 0; i < labels.length; i++) {
-            final int index = i;
-            TextView chip = GalleryUi.chip(c, labels[i], -1, i == chosen);
-            com.particlesdevs.photoncamera.ui.Motion.press(chip);
-            chip.setOnClickListener(v -> {
-                if (now[0] == index) return;
-                now[0] = index;
-                for (int k = 0; k < row.getChildCount(); k++) restyle((TextView) row.getChildAt(k), k == index);
-                com.particlesdevs.photoncamera.ui.Motion.pop(v);
-                picked.picked(index);
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = GalleryUi.dp(c, 8);
-            row.addView(chip, lp);
-        }
-        return scroll;
+    /**
+     * A choice of a few: P579, the shared segmented control (the grey thumb glides to the chosen segment, its label in the accent;
+     * it was a row of pills).
+     */
+    static View segmented(Context c, String[] labels, int chosen, Picked picked) {
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented seg = GalleryUi.segmented(c, labels, chosen, picked::picked);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        seg.setLayoutParams(lp);
+        return seg;
     }
 
+    /**
+     * P579: a choice of many as a row of a group - {@code title} at the start, the chosen label and the up / down chevron at the end;
+     * a tap opens the shared pull-down menu (IosMenu) at the row, the chosen item ticked in the accent. Tagged {@code tag}.
+     */
+    static LinearLayout menuRow(Context c, String title, String[] labels, int chosen, Picked picked, String tag) {
+        LinearLayout row = cardRow(c);
+        row.setTag(tag);
+        TextView t = GalleryUi.text(c, title, 16, GalleryUi.TEXT);
+        row.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView value = GalleryUi.text(c, labels[Math.max(0, Math.min(labels.length - 1, chosen))], 16, GalleryUi.MUTED);
+        value.setSingleLine(true);
+        value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        vp.setMarginStart(GalleryUi.dp(c, 10));
+        row.addView(value, vp);
+        ImageView chev = new ImageView(c);
+        chev.setImageResource(R.drawable.settings_ic_updown);
+        chev.setImageTintList(android.content.res.ColorStateList.valueOf(GalleryUi.SECTION));
+        chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 16), GalleryUi.dp(c, 16));
+        cp.setMarginStart(GalleryUi.dp(c, 6));
+        row.addView(chev, cp);
+        final int[] now = {chosen};
+        row.setContentDescription(title);
+        androidx.core.view.ViewCompat.setStateDescription(row, value.getText());
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> com.particlesdevs.photoncamera.ui.controls.IosMenu.show(row, title, labels, now[0], i -> {
+            if (i == now[0]) return;
+            now[0] = i;
+            value.setText(labels[i]);
+            androidx.core.view.ViewCompat.setStateDescription(row, labels[i]);
+            picked.picked(i);
+        }));
+        return row;
+    }
+
+    /** The years' (several at once) chips: P579, the accent capsule when chosen, grey otherwise (GalleryUi.paintChip). */
     private static void restyle(TextView chip, boolean active) {
-        Context c = chip.getContext();
-        int accent = GalleryUi.accent(c);
-        chip.setTextColor(active ? GalleryUi.INK : GalleryUi.MUTED);
-        chip.setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        chip.setBackground(GalleryUi.pressable(GalleryUi.round(c, active ? accent : GalleryUi.CARD, active ? accent : GalleryUi.LINE, 999)));
-        chip.setSelected(active);
+        GalleryUi.paintChip(chip, active);
+    }
+
+    /** A caption over a control or a group: the section label (aligned with the rows' text inside the cards), 16dp above. */
+    private static TextView caption(Context c, String text) {
+        TextView t = GalleryUi.sectionLabel(c, text);
+        t.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 16), GalleryUi.dp(c, 16), GalleryUi.dp(c, 8));
+        return t;
     }
 
     /**
@@ -327,25 +427,25 @@ public final class GallerySheets {
         s.addView(sub(c, Lang.t("Что показывать и в каком порядке. Колонки меняются и щипком по сетке.",
                 "What to show and in which order. Pinch the grid to change the columns too.")));
         GalleryView.Media media = GalleryView.media(c);
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Показывать", "Show")));
+        s.addView(caption(c, Lang.t("Показывать", "Show")));
         s.addView(segmented(c, new String[]{Lang.t("Фото и видео", "Photos and videos"), Lang.t("Только фото", "Photos only"),
                 Lang.t("Только видео", "Videos only")}, media.ordinal(), i -> {
             GalleryView.setMedia(c, GalleryView.Media.values()[i]);
             changed.run();
         }));
         GalleryView.Type type = GalleryView.type(c);
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Тип файла", "File type")));
+        s.addView(caption(c, Lang.t("Тип файла", "File type")));
         s.addView(segmented(c, new String[]{Lang.t("Все", "All"), "RAW", "JPEG", "HEIC", Lang.t("Видео", "Video")}, type.ordinal(), i -> {
             GalleryView.setType(c, GalleryView.Type.values()[i]);
             changed.run();
         }));
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Порядок", "Order")));
+        s.addView(caption(c, Lang.t("Порядок", "Order")));
         s.addView(segmented(c, new String[]{Lang.t("Сначала новые", "Newest first"), Lang.t("Сначала старые", "Oldest first")},
                 GalleryView.oldestFirst(c) ? 1 : 0, i -> {
                     GalleryView.setOldestFirst(c, i == 1);
                     changed.run();
                 }));
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Колонки", "Columns")));
+        s.addView(caption(c, Lang.t("Колонки", "Columns")));
         int min = GalleryView.MIN_COLUMNS, max = GalleryView.MAX_COLUMNS;
         String[] cols = new String[max - min + 1];
         for (int i = 0; i < cols.length; i++) cols[i] = String.valueOf(min + i);
@@ -365,25 +465,25 @@ public final class GallerySheets {
         LinearLayout s = frame(c);
         s.addView(title(c, Lang.t("Фильтр", "Filter")));
         GalleryView.Media media = GalleryView.media(c);
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Показывать", "Show")));
+        s.addView(caption(c, Lang.t("Показывать", "Show")));
         s.addView(segmented(c, new String[]{Lang.t("Фото и видео", "Photos and videos"), Lang.t("Только фото", "Photos only"),
                 Lang.t("Только видео", "Videos only")}, media.ordinal(), i -> {
             GalleryView.setMedia(c, GalleryView.Media.values()[i]);
             changed.run();
         }));
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Формат", "Format")));
+        s.addView(caption(c, Lang.t("Формат", "Format")));
         s.addView(segmented(c, new String[]{Lang.t("Все", "All"), "RAW", "JPEG", "HEIC", Lang.t("Видео", "Video")}, GalleryView.type(c).ordinal(), i -> {
             GalleryView.setType(c, GalleryView.Type.values()[i]);
             changed.run();
         }));
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Статус", "Status")));
+        s.addView(caption(c, Lang.t("Статус", "Status")));
         s.addView(segmented(c, new String[]{Lang.t("Все", "All"), "♥ " + Lang.t("Избранное", "Favourites")},
                 GalleryView.favouritesOnly(c) ? 1 : 0, i -> {
                     GalleryView.setFavouritesOnly(c, i == 1);
                     changed.run();
                 }));
         if (!libraryYears.isEmpty()) {
-            s.addView(GalleryUi.sectionLabel(c, Lang.t("Время", "Time")));
+            s.addView(caption(c, Lang.t("Время", "Time")));
             android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(c);
             scroll.setHorizontalScrollBarEnabled(false);
             LinearLayout row = new LinearLayout(c);
@@ -401,7 +501,7 @@ public final class GallerySheets {
                     changed.run();
                 });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.rightMargin = GalleryUi.dp(c, 8);
+                lp.setMarginEnd(GalleryUi.dp(c, 8));
                 row.addView(chip, lp);
             }
             s.addView(scroll);
@@ -409,7 +509,7 @@ public final class GallerySheets {
         LinearLayout buttons = new LinearLayout(c);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bl.topMargin = GalleryUi.dp(c, 18);
+        bl.topMargin = GalleryUi.dp(c, 22);
         s.addView(buttons, bl);
         final com.google.android.material.bottomsheet.BottomSheetDialog[] dialog = new com.google.android.material.bottomsheet.BottomSheetDialog[1];
         TextView reset = wideButton(c, Lang.t("Сбросить", "Reset"), false);
@@ -424,23 +524,14 @@ public final class GallerySheets {
         });
         buttons.addView(reset, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        dp.leftMargin = GalleryUi.dp(c, 10);
+        dp.setMarginStart(GalleryUi.dp(c, 10));
         buttons.addView(done, dp);
         dialog[0] = show(c, s);
     }
 
-    /** A wide 48dp button of a sheet's footer (the accent one filled). */
+    /** A wide button of a sheet's footer; P579: the accent capsule with dark ink, or the grey one. */
     static TextView wideButton(Context c, String label, boolean accent) {
-        TextView b = GalleryUi.text(c, label, 15, accent ? GalleryUi.INK : GalleryUi.TEXT);
-        b.setGravity(android.view.Gravity.CENTER);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setMinHeight(GalleryUi.dp(c, 48));
-        int a = GalleryUi.accent(c);
-        b.setBackground(GalleryUi.pressable(GalleryUi.round(c, accent ? a : GalleryUi.CARD, accent ? a : GalleryUi.LINE, 999)));
-        b.setClickable(true);
-        b.setFocusable(true);
-        com.particlesdevs.photoncamera.ui.Motion.press(b);
-        return b;
+        return GalleryUi.capsule(c, label, accent ? GalleryUi.PRIMARY : GalleryUi.SECONDARY);
     }
 
     /** One action of the viewer's «Ещё» sheet. */
@@ -456,14 +547,14 @@ public final class GallerySheets {
         }
     }
 
-    /** P498: the viewer's «Ещё»: one card row per action (icon, label); a tap closes the sheet and runs it. */
+    /** P498: the viewer's «Ещё»: one row per action (icon, label) in one group (P579); a tap closes the sheet and runs it. */
     public static void showActions(Context c, String heading, List<Action> actions) {
         final BottomSheetDialog[] d = new BottomSheetDialog[1];
         LinearLayout s = frame(c);
         s.addView(title(c, heading));
         LinearLayout rows = column(c);
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rp.topMargin = GalleryUi.dp(c, 10);
+        rp.topMargin = GalleryUi.dp(c, 12);
         s.addView(rows, rp);
         List<View> shown = new java.util.ArrayList<>();
         for (Action a : actions) {
@@ -472,11 +563,14 @@ public final class GallerySheets {
             row.setFocusable(true);
             row.setContentDescription(a.label);
             row.addView(GalleryUi.icon(c, a.icon, GalleryUi.accent(c), 22));
-            TextView t = GalleryUi.text(c, a.label, 15, GalleryUi.TEXT);
+            TextView t = GalleryUi.text(c, a.label, 16, GalleryUi.TEXT);
             LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            tp.leftMargin = GalleryUi.dp(c, 12);
+            tp.setMarginStart(GalleryUi.dp(c, 14));
             row.addView(t, tp);
-            com.particlesdevs.photoncamera.ui.Motion.press(row, .97f);
+            ImageView chev = GalleryUi.icon(c, R.drawable.settings_ic_chevron, GalleryUi.SECTION, 16);
+            chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            if (chev.getDrawable() != null) chev.getDrawable().mutate().setAutoMirrored(true); // points the reading way in right to left
+            row.addView(chev);
             row.setOnClickListener(v -> {
                 if (d[0] != null) d[0].dismiss();
                 a.run.run();
@@ -505,77 +599,74 @@ public final class GallerySheets {
         public java.util.List<String[]> more = new java.util.ArrayList<>();
     }
 
-    /** SIMPLE_UI §5 (the concept's «Сведения»): when / with what / how big in one card, «Как снято», the merge in words. */
+    /**
+     * SIMPLE_UI §5 (the concept's «Сведения»): when / with what / how big in one card, «Как снято», the merge in words. P579: grouped
+     * cards (#2C2C2E, 24dp corners, hairlines) under 12sp captions - «Как снято» one card of four values in two lines.
+     */
     public static LinearLayout details(Context c, Details d, @Nullable View histogram) {
         LinearLayout s = frame(c);
         s.addView(title(c, Lang.t("Сведения", "Details")));
         if (!GalleryUi.empty(d.fileName)) s.addView(sub(c, d.fileName));
-        LinearLayout card = new LinearLayout(c);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(GalleryUi.card(c, GalleryUi.CARD, 18));
+        LinearLayout card = GalleryUi.group(c, 64);
         card.setTag("details_rows");
         card.addView(detailRow(c, R.drawable.ui_ic_clock, d.when == null ? "—" : d.when,
                 GalleryUi.empty(d.folder) ? null : Lang.t("Папка ", "Folder ") + d.folder, "when"));
-        card.addView(divider(c));
         card.addView(detailRow(c, R.drawable.ui_ic_lens, GalleryUi.empty(d.lens) ? Lang.t("Объектив не записан", "No lens in the file") : d.lens,
                 d.device, "lens"));
-        card.addView(divider(c));
         String mp = d.width > 0 && d.height > 0 ? Math.max(1, Math.round(d.width * (float) d.height / 1e6f)) + Lang.t(" Мп", " MP") : null;
         String big = mp == null ? GalleryUi.size(d.bytes) : mp + " · " + GalleryUi.size(d.bytes);
         String what = (d.width > 0 && d.height > 0 ? d.width + " × " + d.height + " · " : "") + (d.format == null ? "" : d.format)
                 + (d.ultraHdr ? " · Ultra HDR" : "");
         card.addView(detailRow(c, R.drawable.ui_ic_size, big, what, "format"));
-        s.addView(card);
-        s.addView(GalleryUi.sectionLabel(c, Lang.t("Как снято", "How it was shot")));
-        LinearLayout grid = new LinearLayout(c);
-        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.topMargin = GalleryUi.dp(c, 8);
+        s.addView(card, cardParams);
+        s.addView(caption(c, Lang.t("Как снято", "How it was shot")));
+        LinearLayout grid = GalleryUi.group(c, 0);
+        grid.setTag("details_shot");
         String[][] kv = {{Lang.t("Чувствительность", "Sensitivity"), d.iso}, {Lang.t("Выдержка", "Shutter speed"), d.shutter},
                 {Lang.t("Диафрагма", "Aperture"), d.fnum}, {Lang.t("Фокусное расстояние", "Focal length"), d.focal}};
         for (int r = 0; r < 2; r++) {
             LinearLayout line = new LinearLayout(c);
             line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setDividerDrawable(verticalHairline(c));
+            line.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
             for (int k = 0; k < 2; k++) {
                 String[] p = kv[r * 2 + k];
                 LinearLayout cell = new LinearLayout(c);
                 cell.setOrientation(LinearLayout.VERTICAL);
-                cell.setBackground(GalleryUi.card(c, GalleryUi.CARD, 16));
-                cell.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 10), GalleryUi.dp(c, 12), GalleryUi.dp(c, 10));
-                cell.addView(GalleryUi.fitText(c, p[0], 12, GalleryUi.MUTED));
-                TextView v = GalleryUi.fitText(c, p[1] == null ? "—" : p[1], 15, GalleryUi.TEXT);
-                v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+                cell.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 11), GalleryUi.dp(c, 12), GalleryUi.dp(c, 11));
+                cell.addView(GalleryUi.fitText(c, p[0], 12.5f, GalleryUi.MUTED));
+                TextView v = GalleryUi.fitText(c, p[1] == null ? "—" : p[1], 16, GalleryUi.TEXT);
+                v.setTypeface(GalleryUi.semibold());
                 v.setFontFeatureSettings("tnum");
                 LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 vp.topMargin = GalleryUi.dp(c, 3);
                 cell.addView(v, vp);
                 cell.setContentDescription(p[0] + " " + (p[1] == null ? "—" : p[1]));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-                if (k > 0) lp.leftMargin = GalleryUi.dp(c, 8);
-                line.addView(cell, lp);
+                line.addView(cell, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             }
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (r > 0) lp.topMargin = GalleryUi.dp(c, 8);
-            grid.addView(line, lp);
+            grid.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         s.addView(grid);
         if (!d.more.isEmpty()) { // P492: the rest of the file's EXIF, one row each
-            s.addView(GalleryUi.sectionLabel(c, Lang.t("Подробнее", "More")));
-            LinearLayout more = new LinearLayout(c);
-            more.setOrientation(LinearLayout.VERTICAL);
-            more.setBackground(GalleryUi.card(c, GalleryUi.CARD, 18));
+            s.addView(caption(c, Lang.t("Подробнее", "More")));
+            LinearLayout more = GalleryUi.group(c, 16);
             more.setTag("details_more");
             for (int i = 0; i < d.more.size(); i++) {
-                if (i > 0) more.addView(divider(c));
                 String[] row = d.more.get(i);
                 LinearLayout line = new LinearLayout(c);
                 line.setOrientation(LinearLayout.HORIZONTAL);
-                line.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 10), GalleryUi.dp(c, 14), GalleryUi.dp(c, 10));
-                TextView k = GalleryUi.text(c, row[0], 13, GalleryUi.MUTED);
-                TextView val = GalleryUi.text(c, row[1], 13.5f, GalleryUi.TEXT);
-                val.setGravity(android.view.Gravity.END);
+                line.setMinimumHeight(GalleryUi.dp(c, 44));
+                line.setGravity(Gravity.CENTER_VERTICAL);
+                line.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 10), GalleryUi.dp(c, 16), GalleryUi.dp(c, 10));
+                TextView k = GalleryUi.text(c, row[0], 14, GalleryUi.TEXT);
+                TextView val = GalleryUi.text(c, row[1], 14, GalleryUi.MUTED);
+                val.setGravity(Gravity.END);
                 val.setTextIsSelectable(true);
                 line.addView(k, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
                 LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f);
-                vp.leftMargin = GalleryUi.dp(c, 10);
+                vp.setMarginStart(GalleryUi.dp(c, 10));
                 line.addView(val, vp);
                 line.setContentDescription(row[0] + " " + row[1]);
                 more.addView(line);
@@ -592,55 +683,58 @@ public final class GallerySheets {
             s.addView(note, np);
         }
         if (histogram != null) {
-            s.addView(GalleryUi.sectionLabel(c, Lang.t("Гистограмма", "Histogram")));
+            s.addView(caption(c, Lang.t("Гистограмма", "Histogram")));
             FrameLayout histo = new FrameLayout(c);
-            histo.setBackground(GalleryUi.card(c, GalleryUi.CARD, 16));
-            int pad = GalleryUi.dp(c, 10);
+            histo.setBackground(GalleryUi.card(c, GalleryUi.CARD, 24));
+            histo.setClipToOutline(true);
+            int pad = GalleryUi.dp(c, 12);
             histo.setPadding(pad, pad, pad, pad);
             if (histogram.getParent() instanceof ViewGroup) ((ViewGroup) histogram.getParent()).removeView(histogram);
             histogram.setContentDescription(Lang.t("Гистограмма RGB", "RGB histogram"));
             histo.addView(histogram, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            s.addView(histo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GalleryUi.dp(c, 120)));
+            s.addView(histo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GalleryUi.dp(c, 124)));
         }
         s.setContentDescription(d.fileName);
         return s;
     }
 
-    /** A row of the concept's details card: the 36dp icon tile, the bold line and the muted one under it. */
+    /** P579: the hairline between two values of a line (0.5dp wide, inset from the top and bottom). */
+    static android.graphics.drawable.Drawable verticalHairline(Context c) {
+        GradientDrawable line = new GradientDrawable();
+        line.setColor(GalleryUi.LINE);
+        line.setSize(Math.max(1, GalleryUi.dp(c, .5f)), 1);
+        return new android.graphics.drawable.InsetDrawable(line, 0, GalleryUi.dp(c, 10), 0, GalleryUi.dp(c, 10));
+    }
+
+    /**
+     * A row of the concept's details card: the icon tile, the line and the 60 % one under it. P579: the settings' 32dp tonal tile
+     * (#3A3A3C, 8dp corners), the line 16sp semibold.
+     */
     static LinearLayout detailRow(Context c, @DrawableRes int icon, String main, @Nullable String under, String tag) {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 10), GalleryUi.dp(c, 14), GalleryUi.dp(c, 10));
+        row.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 10), GalleryUi.dp(c, 16), GalleryUi.dp(c, 10));
         row.setMinimumHeight(GalleryUi.dp(c, 58));
         FrameLayout tile = new FrameLayout(c);
-        tile.setBackground(GalleryUi.round(c, 0xFF232A2E, 0xFF232A2E, 12));
-        tile.addView(GalleryUi.icon(c, icon, GalleryUi.TEXT, 22), new FrameLayout.LayoutParams(GalleryUi.dp(c, 22), GalleryUi.dp(c, 22), Gravity.CENTER));
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
-        tp.rightMargin = GalleryUi.dp(c, 12);
+        tile.setBackground(GalleryUi.round(c, 0xFF3A3A3C, 0, 8));
+        tile.addView(GalleryUi.icon(c, icon, GalleryUi.TEXT, 20), new FrameLayout.LayoutParams(GalleryUi.dp(c, 20), GalleryUi.dp(c, 20), Gravity.CENTER));
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 32), GalleryUi.dp(c, 32));
+        tp.setMarginEnd(GalleryUi.dp(c, 16));
         row.addView(tile, tp);
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
-        TextView m = GalleryUi.text(c, main, 14.5f, GalleryUi.TEXT);
-        m.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        TextView m = GalleryUi.text(c, main, 16, GalleryUi.TEXT);
+        m.setTypeface(GalleryUi.semibold());
         texts.addView(m);
         if (!GalleryUi.empty(under)) {
-            TextView u = GalleryUi.text(c, under, 12.5f, GalleryUi.MUTED);
-            u.setPadding(0, GalleryUi.dp(c, 2), 0, 0);
+            TextView u = GalleryUi.text(c, under, 13, GalleryUi.MUTED);
+            u.setPadding(0, GalleryUi.dp(c, 3), 0, 0);
             texts.addView(u);
         }
         row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         row.setTag(tag);
         row.setContentDescription(main + (GalleryUi.empty(under) ? "" : ", " + under));
         return row;
-    }
-
-    static View divider(Context c) {
-        View v = new View(c);
-        v.setBackgroundColor(GalleryUi.LINE);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, GalleryUi.dp(c, .5f)));
-        lp.leftMargin = GalleryUi.dp(c, 62);
-        v.setLayoutParams(lp);
-        return v;
     }
 }

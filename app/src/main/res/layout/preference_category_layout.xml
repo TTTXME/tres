@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SIMPLE_UI §4: the concept's .gt (11.5sp, 600, caps, the accent). P6b category: no card, a small upper-case label in the accent (colour set at bind time). -->
+<!-- P574: a group's title over its card - 12sp, semibold, upper case, 0.08em apart, white at 55 % (the camera sheets' look). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingStart="6dp"
+    android:paddingStart="16dp"
     android:paddingTop="22dp"
-    android:paddingEnd="6dp"
-    android:paddingBottom="2dp">
+    android:paddingEnd="16dp"
+    android:paddingBottom="8dp">
     <ImageView
         android:id="@android:id/icon"
         android:layout_width="0dp"
@@ -18,14 +18,18 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fontFamily="sans-serif-medium"
-        android:letterSpacing="0.09"
+        android:letterSpacing="0.08"
+        android:textColor="@color/settings_section"
+        android:textFontWeight="600"
         android:textAllCaps="true"
-        android:textSize="11.5sp" />
+        android:textSize="12sp" />
     <TextView
         android:id="@android:id/summary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="@color/settings_muted"
-        android:textSize="12sp"
+        android:layout_marginTop="4dp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/settings_section"
+        android:textSize="13sp"
         android:visibility="gone" />
 </LinearLayout>

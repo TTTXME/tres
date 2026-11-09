@@ -68,12 +68,12 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_dn_coarse_stock": return new double[]{0,1,0};
             case "pref_scam_hybrid_dn_chroma_floor": return new double[]{0,5,0};
             case "pref_scam_hybrid_dn_chroma_2x_keep": return new double[]{0,1,0};
-            case "pref_scam_hybrid_zsl_frames": return new double[]{4,44,1};
+            case "pref_scam_hybrid_zsl_frames": return new double[]{4,65,1};
             // P190: frames of a FULLRES 50 MP shot (0 = as «Кадров в склейке») and of a 200 MP one (the owner's floor of 3)
-            case "pref_scam_hybrid_fullres50_frames": return new double[]{0,64,1};
+            case "pref_scam_hybrid_fullres50_frames": return new double[]{0,65,1};
             case "pref_scam_hybrid_fullres200_frames": return new double[]{3,64,1};
             // P86 «Движение»: the mode's own merge values
-            case "pref_scam_hybrid_mm_zsl_frames": return new double[]{4,44,1};
+            case "pref_scam_hybrid_mm_zsl_frames": return new double[]{4,65,1};
             case "pref_scam_hybrid_mm_boost_value": return new double[]{1,10,0};
             case "pref_scam_hybrid_mm_motion_threshold": return new double[]{0.25,8,0};
             case "pref_scam_hybrid_mm_bento": return new double[]{0,2,1};

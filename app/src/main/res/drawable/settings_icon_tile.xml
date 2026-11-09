@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SIMPLE_UI §4: the concept's .ri - a 36dp tile in the second card colour behind a row's icon. -->
+<!-- P574: a row's icon tile - 32dp, 9dp corners; SettingsStyle.bind fills it with the dark tone of the icon's hue (SettingsTiles)
+     and draws the icon in its light tone; this grey is the tile of a row without a known hue. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FF232A2E"/>
-    <corners android:radius="12dp"/>
+    <solid android:color="#FF45464B"/>
+    <corners android:radius="9dp"/>
 </shape>

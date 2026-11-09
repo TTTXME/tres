@@ -451,6 +451,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         // ───── P6b: the card look of «Камеры и сенсоры» on every page ─────
         private SettingsStyle.Header header;
         private android.widget.LinearLayout chipBox;
+        /** P574: the collapsing header (a search hit scrolls to its row with the header collapsed, not under it). */
+        @Nullable private com.google.android.material.appbar.AppBarLayout headerBar;
 
         @NonNull @Override
         public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle state) {
@@ -458,33 +460,62 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             Context c = requireContext();
             android.widget.LinearLayout page = new android.widget.LinearLayout(c);
             page.setOrientation(android.widget.LinearLayout.VERTICAL);
-            page.setBackgroundColor(SettingsStyle.BG);
+            page.setBackgroundColor(SettingsStyle.PAGE);
             page.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 16), 0);
             // SIMPLE_UI §4: as the concept, the search is a pill under the root's header only; P189: a module page has none
             // (a hit would open the usual page)
             header = SettingsStyle.header(c, () -> requireActivity().getOnBackPressedDispatcher().onBackPressed(), null, this::resetPage);
             // P385: the page's order (a module page shows the same pages filtered: arranged on the usual ones)
             if (moduleProfile() == null && SettingsLayoutFragment.editable(layout)) SettingsStyle.arrangeDisc(c, header, this::openLayout);
-            page.addView(header.view, new android.widget.LinearLayout.LayoutParams(-1, -2));
             boolean root = getArguments() == null || getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) == null;
+            // P574 (the concept): the bar of round buttons stays; the large title, the search and the chips scroll away with the
+            // list (and come back at its top), the bar's small title taking the large one's place
+            header.view.removeAllViews();
+            page.addView(header.bar, new android.widget.LinearLayout.LayoutParams(-1, -2));
+            android.widget.LinearLayout top = new android.widget.LinearLayout(c);
+            top.setOrientation(android.widget.LinearLayout.VERTICAL);
+            top.addView(header.titles, new android.widget.LinearLayout.LayoutParams(-1, -2));
             if (root && moduleProfile() == null) {
                 android.widget.LinearLayout.LayoutParams sp = new android.widget.LinearLayout.LayoutParams(-1, -2);
                 sp.bottomMargin = SettingsStyle.dp(c, 8);
-                page.addView(SettingsStyle.searchPill(c, this::openSearch), sp);
+                top.addView(SettingsStyle.searchPill(c, this::openSearch), sp);
                 // 2026-10-27 (owner: settings anyone can set up alone): the two gestures that explain a setting and put its
                 // default back (DoubleTapReset: the long press of a slider row reaches its help too)
                 android.widget.TextView tips = SettingsStyle.text(c, Lang.t(c,
                         "Удерживайте пункт, чтобы узнать, что он делает. Двойной тап по ползунку — значение по умолчанию.",
-                        "Hold a row to see what it does. Double-tap a slider to restore its default."), 12.5f, SettingsStyle.MUTED);
+                        "Hold a row to see what it does. Double-tap a slider to restore its default."), 13, SettingsStyle.SECTION);
+                tips.setLineSpacing(SettingsStyle.dp(c, 2), 1f);
                 tips.setTag("settings_tips");
                 android.widget.LinearLayout.LayoutParams tp = new android.widget.LinearLayout.LayoutParams(-1, -2);
-                tp.bottomMargin = SettingsStyle.dp(c, 8);
-                tp.leftMargin = SettingsStyle.dp(c, 4);
-                page.addView(tips, tp);
+                tp.bottomMargin = SettingsStyle.dp(c, 6);
+                tp.leftMargin = SettingsStyle.dp(c, 16);
+                tp.rightMargin = SettingsStyle.dp(c, 16);
+                top.addView(tips, tp);
             }
             chipBox = new android.widget.LinearLayout(c);
-            page.addView(chipBox, new android.widget.LinearLayout.LayoutParams(-1, -2));
-            page.addView(list, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
+            top.addView(chipBox, new android.widget.LinearLayout.LayoutParams(-1, -2));
+            androidx.coordinatorlayout.widget.CoordinatorLayout scroller = new androidx.coordinatorlayout.widget.CoordinatorLayout(c);
+            com.google.android.material.appbar.AppBarLayout bar = new com.google.android.material.appbar.AppBarLayout(c);
+            // fixed ids: the coordinator keeps the header's collapsed state when the page comes back
+            scroller.setId(R.id.settings_header_coordinator);
+            bar.setId(R.id.settings_header_bar);
+            headerBar = bar;
+            bar.setBackgroundColor(SettingsStyle.PAGE);
+            bar.setStateListAnimator(null);
+            bar.setElevation(0f);
+            bar.setTag("settings_header_scroll");
+            com.google.android.material.appbar.AppBarLayout.LayoutParams tl = new com.google.android.material.appbar.AppBarLayout.LayoutParams(-1, -2);
+            tl.setScrollFlags(com.google.android.material.appbar.AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL);
+            bar.addView(top, tl);
+            bar.addOnOffsetChangedListener((v, offset) -> {
+                int h = header.titles.getHeight();
+                SettingsStyle.collapse(header, h <= 0 ? 0f : -offset / (float) h);
+            });
+            scroller.addView(bar, new androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(-1, -2));
+            androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams lp = new androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(-1, -1);
+            lp.setBehavior(new com.google.android.material.appbar.AppBarLayout.ScrollingViewBehavior());
+            scroller.addView(list, lp);
+            page.addView(scroller, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
             return page;
         }
 
@@ -494,6 +525,10 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             list.setClipToPadding(false);
             list.setPadding(0, 0, 0, SettingsStyle.dp(requireContext(), 28));
             list.setVerticalScrollBarEnabled(false);
+            // P574: a row changed in place is bound again in the same view (no cross-fade to a new one): a switch slides, a
+            // segmented control's thumb glides, a slider keeps its knob
+            if (list.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator)
+                ((androidx.recyclerview.widget.SimpleItemAnimator) list.getItemAnimator()).setSupportsChangeAnimations(false);
             // SIMPLE_UI §4: the rows of a group share one card (the concept's .card / .row)
             list.addItemDecoration(new SettingsCardDecoration(requireContext(), SettingsStyle::standalone));
             // P384: the module cards open and close in place: rows fade in with a small rise, the rows below glide
@@ -551,11 +586,11 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 return;
             }
             final CharSequence title = screen.getTitle();
-            DialogStyle.builder(c)
-                    .setTitle(Lang.t(c, "Сбросить страницу?", "Reset this page?"))
-                    .setMessage(Lang.t(c, "Все параметры страницы «" + title + "» вернутся к значениям по умолчанию. Вложенные страницы не затрагиваются.",
-                            "Every setting of «" + title + "» goes back to its default. Pages inside it stay as they are."))
-                    .setPositiveButton(Lang.t(c, "Сбросить", "Reset"), (d, w) -> {
+            // P574 (the concept): the centred confirmation, «Отмена» / red «Сбросить»
+            DialogStyle.confirm(c, Lang.t(c, "Сбросить «" + title + "»?", "Reset «" + title + "»?"),
+                    Lang.t(c, "Все параметры этой страницы вернутся к значениям по умолчанию. Вложенные страницы не затрагиваются.",
+                            "Every setting of «" + title + "» goes back to its default. Pages inside it stay as they are."),
+                    Lang.t(c, "Сбросить", "Reset"), () -> {
                         int n = PageReset.reset(c, screen);
                         // the developer rows write scam_dev.txt, not the preferences
                         if (DeveloperPreferences.SCREEN.equals(screen.getKey()))
@@ -563,9 +598,20 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                                     getPreferenceManager().getContext(), this::askScameraFolder);
                         android.widget.Toast.makeText(c, n == 0 ? Lang.t(c, "Всё уже по умолчанию", "Everything is at its default already")
                                 : Lang.t(c, "Сброшено параметров: " + n, "Settings reset: " + n), android.widget.Toast.LENGTH_SHORT).show();
-                    })
-                    .setNegativeButton(Lang.t(c, "Отмена", "Cancel"), null)
-                    .show();
+                    });
+        }
+
+        /**
+         * P574 (the concept): the bar's path to this page - «Настройки › Обработка › …» (the pages above it), none on the root.
+         */
+        private String crumb(@Nullable PreferenceScreen screen) {
+            boolean root = getArguments() == null || getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) == null;
+            if (root || screen == null) return "";
+            java.util.ArrayList<String> path = new java.util.ArrayList<>();
+            for (androidx.preference.PreferenceGroup g = screen.getParent(); g != null; g = g.getParent())
+                if (g instanceof PreferenceScreen && g.getParent() != null && !android.text.TextUtils.isEmpty(g.getTitle())) path.add(0, g.getTitle().toString());
+            path.add(0, Lang.t(getContext(), "Настройки", "Settings"));
+            return android.text.TextUtils.join(" › ", path);
         }
 
         /** Title, and the chip: the active route on the root page, the module being edited on pages with per-module values. */
@@ -575,6 +621,13 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             CharSequence title = screen == null ? null : screen.getTitle();
             header.heading.setText(title == null || title.length() == 0 ? Lang.t(getContext(),"Настройки камеры","Camera settings") : title);
             header.subtitle.setVisibility(View.GONE);
+            header.crumb.setText(crumb(screen));
+            // P574 (the concept): a page's description under its large title
+            if (screen != null && getArguments() != null && getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) != null
+                    && !android.text.TextUtils.isEmpty(screen.getSummary())) {
+                header.subtitle.setText(screen.getSummary());
+                header.subtitle.setVisibility(View.VISIBLE);
+            }
             chipBox.removeAllViews();
             String chip = null;
             boolean modulePicker = false;
@@ -1028,9 +1081,11 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 // after a recreate the page's arguments hold what the user opened or chose since
                 if (moduleRows != null && savedInstanceState == null) moduleRows.reveal(found);
                 android.text.SpannableString highlighted = new android.text.SpannableString(found.getTitle());
-                highlighted.setSpan(new android.text.style.ForegroundColorSpan(com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.color(requireContext())), 0,
+                highlighted.setSpan(new android.text.style.ForegroundColorSpan(SettingsStyle.accent(requireContext())), 0,
                         highlighted.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 found.setTitle(highlighted);
+                // P574: the header collapsed first, so the row is not left under the expanded large title
+                if (headerBar != null) headerBar.setExpanded(false, false);
                 scrollToPreference(target);
             }
         }
@@ -1074,6 +1129,13 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         @Override public void onPause() {
             mSettingsManager.getDefaultPreferences().unregisterOnSharedPreferenceChangeListener(this);
             super.onPause();
+        }
+
+        /** P574: a confirmation or pull-down menu still open goes with the page (no leaked window on a rotation). */
+        @Override public void onDestroyView() {
+            DialogStyle.dismissShown();
+            headerBar = null;
+            super.onDestroyView();
         }
 
         @Override public void onDestroy() {
@@ -1526,11 +1588,10 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
 
         @Override
         public void onDisplayPreferenceDialog(@NonNull Preference preference) {
-            if (SettingsStyle.showDialog(requireContext(), preference)) return;
+            // P574: a list opens its menu at the row that was tapped
+            if (SettingsStyle.showDialog(requireContext(), preference, SettingsStyle.rowOf(getListView(), preference))) return;
             if (preference instanceof ResetPreferences) {
-                DialogFragment dialogFragment = ResetPreferences.Dialog.newInstance(preference);
-                dialogFragment.setTargetFragment(this, 0);
-                dialogFragment.show(getParentFragmentManager(), null);
+                ResetPreferences.confirm(requireContext(), preference);   // P574: the centred confirmation
             } else {
                 super.onDisplayPreferenceDialog(preference);
             }

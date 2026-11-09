@@ -65,6 +65,7 @@ public final class DevKeys {
             "dng_white_spec", // P370 (A1): the scene light and calibration weight of the shot's Parameters
             "pedestal_memory", // P386: the black of the shot's Parameters (the lab replays it as measured at the shot)
             "hybrid_sharp_select", // P331: picks the frames of the saved burst at the shot
+            "sabre_crop", // P576: cuts the shot's frames before the merge (a saved burst holds the window already)
             // P306: no native Tetra merge is a night shot any more, nothing reads its night point
             "hybrid_mosaic_tetra_night_kernel_scale", "hybrid_mosaic_tetra_night_edge_scale", "hybrid_mosaic_tetra_night_flat_scale")));
 
@@ -233,11 +234,17 @@ public final class DevKeys {
                 "RAW viewfinder: one draw request a frame (off: as before, a second request and a redraw of the same frame)")));
         k.add(s(vf, "vf_ring_ref", true, Lang.t("RAW-видоискатель берёт кадр из ячейки ZSL-кольца, без своей копии (выкл — копия из буфера камеры)",
                 "RAW viewfinder takes the frame from its ZSL ring slot, no copy of its own (off: a copy out of the camera's buffer)")));
+        // P573: a Tetra frame from its ring slot is drawn as the mosaic itself (no cell means on the camera thread)
+        k.add(s(vf, "vf_tetra_ring", true, Lang.t("RAW-видоискатель Tetra рисует мозаику прямо из ячейки ZSL-кольца, без усреднения на процессоре (выкл — как раньше: средние блоков на каждом кадре)",
+                "Tetra RAW viewfinder draws the mosaic straight from its ZSL ring slot, no averaging on the CPU (off: as before, the cell means of every frame)")));
         k.add(s(vf, "zsl_ring_unpack", true, Lang.t("RAW10 / RAW12 распаковывается в ячейку ZSL-кольца при приходе кадра: склейка и видоискатель берут её без копии (выкл — распаковка после нажатия)",
                 "RAW10 / RAW12 is unpacked into the ZSL ring slot as the frame arrives: the merge and the viewfinder take it without a copy (off: unpacked after the press)")));
         k.add(sAuto(vf, "vf_isp_light", Lang.t("Под RAW-видоискателем поток ISP 1440x1080, шумодав и резкость ISP выкл. в повторяющемся запросе (по умолчанию — на OPPO Find X7 Ultra; со следующего открытия камеры)",
                 "Under the RAW viewfinder the ISP stream at 1440x1080, ISP noise reduction and edge off in the repeating request (default: on the OPPO Find X7 Ultra; from the next camera start)")));
         // merge (worker)
+        // P576: a crop shot's burst cut to the crop's window before the merge, the window on the Sabre grid its photo needs
+        k.add(s(merge, "sabre_crop", true, Lang.t("Цифровой кроп (зум, кроп модуля, nubia «2×»): серия обрезается до окна кадра до склейки, окно склеивается на сетке Sabre нужного размера (суперразрешение вместо увеличения). Выкл — склейка всего кадра, затем кроп и увеличение, как раньше",
+                "Digital crop (zoom, a module's crop, nubia «2×»): the burst is cut to the crop's window before the merge and the window is merged on the Sabre grid the photo needs (super-resolution instead of an upscale). Off: the whole frame merged, then cropped and enlarged, as before")));
         k.add(s(merge, "hybrid_rgb_half", true, Lang.t("RGB от воркера в half float (меньше данных). Выкл — float32", "Worker RGB as half floats (less data). Off: float32")));
         k.add(n(merge, "hybrid_s61_mode", null, Lang.t("Режим ковариации Sabre 6.1 (6 — от базового кадра, быстрее)", "Sabre 6.1 covariance mode (6: from the base frame, faster)")));
         k.add(n(merge, "hybrid_s61_day_tensor_noise", null, Lang.t("Sabre 6.1 днём: шум тензора", "Sabre 6.1 by day: tensor noise")));
@@ -317,6 +324,8 @@ public final class DevKeys {
                 "Quad / Tetra «Fast»: chroma median after the merge against the colour lattice (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_site_gain", "1", Lang.t("Quad «Быстрый»: поправка чувствительности пикселей блока, как в «Качестве» (1 вкл., 0 только QPC)",
                 "Quad «Fast»: the block sites' response correction of «Quality» (1 on, 0 the QPC alone)")));
+        k.add(n(merge, "hybrid_fast_quad_lattice", "1", Lang.t("Quad «Быстрый»: убирать мелкую решётку 2 / 4 px по яркости после склейки (1 вкл., 0 выкл.)",
+                "Quad «Fast»: take the fine 2 / 4 px lattice off the luma after the merge (1 on, 0 off)")));
         k.add(n(merge, "hybrid_mosaic_nat_tile", "2", Lang.t("Quad «Качество»: блоки склейки в общей памяти GPU (0 выкл., 1 всегда, 2 быстрее из двух, замер один раз на телефоне; результат тот же)",
                 "Quad «Quality»: merge blocks in GPU shared memory (0 off, 1 always, 2 the faster of the two, measured once per phone; same result)")));
         k.add(n(merge, "hybrid_gain_measured", null, Lang.t("Измерять усиление кадров (1/0)", "Measure the frames' gain (1/0)")));
@@ -555,6 +564,11 @@ public final class DevKeys {
         // P214j: the route on OnePlus and realme too (their cameras' session key and sensor-mode table, OppoNativeFullRes.family)
         k.add(s(cap, "oppo_fullres", true, Lang.t("OPPO, OnePlus, realme: FULLRES без аппаратного ремозаика (свои AE и баланс белого; режимы — из таблицы камеры)",
                 "OPPO, OnePlus, realme: FULLRES without hardware remosaic (own AE and white balance; the modes from the camera's table)")));
+        // P575: nubia FULLRES / «2×» ISZ through the camera's full-size sensor-mode row (NubiaFullRes)
+        k.add(s(cap, "nubia_fullres", true, Lang.t("nubia: FULLRES и «2×» ISZ через полноразмерный режим сенсора из таблицы камеры (без ISP-потока, без ремозаика)",
+                "nubia: FULLRES and the «2×» ISZ through the camera's full-size sensor mode from its table (no ISP stream, no remosaic)")));
+        k.add(s(cap, "nubia_isz_module", true, Lang.t("nubia: модуль «2×» основной камеры (полноразмерный режим, зум 2)",
+                "nubia: the main camera's «2×» module (the full-size mode, zoom 2)")));
         // P212: the own AE of the OPPO native FULLRES session (NativeRawExposure)
         k.add(s(cap, "native_ae_cap", true, Lang.t("OPPO FULLRES, своя AE: ISO не выше того, что режим реально даёт (запомненный предел), один пробный кадр за сессию. Выкл — ISO по объявленному диапазону",
                 "OPPO FULLRES own AE: ISO no higher than the mode really gives (the stored cap), one probe frame a session. Off: ISO by the declared range")));

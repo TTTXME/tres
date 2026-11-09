@@ -184,10 +184,9 @@ public class ScalingMatrixTest {
             strip.setAuxButtonsModel(lenses);
             strip.setActiveId("1");
             binding.layoutViewfinder.texture.setAspectRatio(w, w * 4 / 3);
-            // the LUT pill with a long name and the lock pill, both shown
-            TextView lut = binding.layoutBottombar.lutPill, lock = binding.layoutViewfinder.lockPill;
-            lut.setText("Прохладная 160 · Pro-Mist");
-            lut.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            // the lock pill shown; P574: the LUT button is the top row's round item (no name on it)
+            View lut = binding.layoutTopbar.lutButton;
+            TextView lock = binding.layoutViewfinder.lockPill;
             CameraFragment.styleLockPill(lock);
             lock.setVisibility(View.VISIBLE);
 
@@ -219,7 +218,6 @@ public class ScalingMatrixTest {
             boolean fits = topBar.height() + w * 4 / 3 + (h - lensRow.top) <= h;
             if (fits) assertTrue(at + "the viewfinder under the top bar" + geometry, viewfinder.top >= topBar.bottom - 1);
             else {
-                assertTrue(at + "LUT pill clear of the top bar" + geometry, lutBox.top >= topBar.bottom);
                 assertTrue(at + "lock pill clear of the top bar" + geometry, lockBox.top >= topBar.bottom);
                 System.out.println("SHORT " + at + "the top bar over the viewfinder's top (no room for 3:4 and both bars)");
             }
@@ -229,15 +227,17 @@ public class ScalingMatrixTest {
             assertFalse(at + "Pro / top bar" + geometry, overlap(pro, topBar));
             assertFalse(at + "LUT pill / lock pill" + geometry, overlap(lutBox, lockBox));
             assertTrue(at + "lock pill inside the viewfinder" + geometry, viewfinder.contains(lockBox));
-            // P518: the LUT pill under the viewfinder, in the band above the lens row (Pro and «Ещё» beside it)
-            assertFalse(at + "LUT pill / lens row" + geometry, overlap(lutBox, lensRow));
-            assertTrue(at + "LUT pill above the lens row" + geometry, lutBox.bottom <= lensRow.top && lutBox.height() > 0);
-            if (at(binding.layoutBottombar.proButton).top - viewfinder.bottom >= lutBox.height() + dp(16))
-                assertTrue(at + "LUT pill under the viewfinder" + geometry, lutBox.top >= viewfinder.bottom);
+            // P574: the LUT button in the top row, inside it
+            assertTrue(at + "LUT button in the top bar" + geometry, topBar.contains(lutBox) && lutBox.height() > 0);
+            // P574: the bottom row (gear, Sport | Photo, «Про») under the shutter row and inside the screen
+            View bottomRow = binding.layoutBottombar.bottomButtons.bottomRow;
+            Rect bottomRowBox = at(bottomRow);
+            assertTrue(at + "bottom row under the shutter" + geometry, bottomRowBox.top >= at(shutter).bottom);
+            assertTrue(at + "bottom row inside the screen" + geometry, bottomRowBox.bottom <= h);
+            assertFalse(at + "Pro panel / bottom row" + geometry, overlap(pro, bottomRowBox));
             assertTrue(at + "rows inside the screen" + geometry, shutterRow.bottom <= h && lensRow.left >= 0 && lensRow.right <= w);
             assertEquals(at + "lock pill 20dp", dp(20), lockBox.height(), 1);
             oneLine(at + "lock pill", lock);
-            assertTrue(at + "LUT pill one line", lut.getLayout() != null && lut.getLayout().getLineCount() == 1);
             for (int id : chipIds) assertTrue(at + "chip text cut", ((ManualChipView) panel.findViewById(id)).textFits());
             for (int i = 0; i < strip.getChildCount(); i++) {
                 View lens = strip.getChildAt(i);

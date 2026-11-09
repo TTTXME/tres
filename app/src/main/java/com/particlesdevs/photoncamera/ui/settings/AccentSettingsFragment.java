@@ -13,12 +13,13 @@ import com.particlesdevs.photoncamera.util.Lang;
  * every module; a tap applies it at once.
  */
 public class AccentSettingsFragment extends ModuleConceptFragment {
-    private static final int CARD2=0xFF232A2E;
+    /** P574: a swatch's tile, a step lighter than the card (was a bluish grey). */
+    private static final int CARD2=SettingsStyle.CARD_NESTED;
 
     @Override protected void render(){
         page(Lang.t(getContext(),"Цвет оформления","Accent colour"),null);
         LinearLayout card=column();
-        card.setBackground(shape(CARD,LINE,18));card.setPadding(dp(14),dp(14),dp(14),dp(4));
+        card.setBackground(shape(CARD,0,24));card.setPadding(dp(14),dp(14),dp(14),dp(4));
         body.addView(card,space(-1,-2,10));
         String selected=AccentPalette.selected(requireContext());
         LinearLayout line=null;
@@ -27,7 +28,7 @@ public class AccentSettingsFragment extends ModuleConceptFragment {
             String value=AccentPalette.VALUES[i];String name=requireContext().getString(AccentPalette.NAMES[i]);
             boolean on=value.equals(selected)||(AccentPalette.SYSTEM.equals(value)&&"default".equals(selected));
             LinearLayout swatch=column();swatch.setGravity(Gravity.CENTER_HORIZONTAL);swatch.setPadding(dp(8),dp(12),dp(8),dp(12));
-            GradientDrawable bg=shape(CARD2,0,16);bg.setStroke(dp(on?2:1),on?accent:LINE);swatch.setBackground(bg);
+            GradientDrawable bg=shape(CARD2,0,16);if(on)bg.setStroke(dp(2),accent);swatch.setBackground(bg);   // P574: no outline but the chosen one's
             View dot=new View(requireContext());GradientDrawable d=new GradientDrawable();d.setShape(GradientDrawable.OVAL);d.setColor(AccentPalette.swatch(requireContext(),value));dot.setBackground(d);
             swatch.addView(dot,new LinearLayout.LayoutParams(dp(30),dp(30)));
             TextView label=text(name,12.5f,TEXT);label.setGravity(Gravity.CENTER);label.setMaxLines(2);swatch.addView(label,space(-1,-2,8));

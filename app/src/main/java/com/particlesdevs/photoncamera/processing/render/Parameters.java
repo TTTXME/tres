@@ -107,6 +107,11 @@ public class Parameters {
      * window written to the buffer's top, Xiaomi 15 Ultra DCG +256): the lens shading map over the active array is read there.
      */
     public int rawCropSensorShiftY;
+    /**
+     * P576: the crop shot's window (SabreCrop): the frames were cut to it before the merge; null for the whole frame. Set by
+     * {@link #applySabreCrop} after the levels and the colour were measured on the whole frames.
+     */
+    public com.particlesdevs.photoncamera.processing.processor.SabreCrop.Plan sabreCrop;
     public boolean portraitEnabled, portraitSkinWarmth, portraitFaceDetected;
     /** Face boxes in the cropped linear RGB, normalized and in sensor orientation. */
     public float[] portraitFaces = new float[0];
@@ -1274,6 +1279,23 @@ public class Parameters {
         ColorSpaceTransform forwardt1 = characteristics.get(CameraCharacteristics.SENSOR_FORWARD_MATRIX1);
         ColorSpaceTransform forwardt2 = characteristics.get(CameraCharacteristics.SENSOR_FORWARD_MATRIX2);
         final StringBuilder missing = new StringBuilder(refTag1 == null ? " illuminant 1 (D65 taken)" : "");
+        // P580 (CCM audit): an all-zero or non-finite colour / calibration matrix of a bad HAL is no matrix (it was taken as one: the
+        // white estimate failed, the daylight weight then picked the zero calibration and the chain fell to camera RGB as sRGB), and
+        // a calibration with an unknown illuminant (code 0) or no usable ColorMatrix2 is a single-illuminant profile - the first
+        // calibration alone, as the DNG SDK renders it (dng_color_spec: ColorMatrix2 empty or a temperature 0)
+        if (!com.particlesdevs.photoncamera.processing.color.PhotoMatrix.usableMatrix(calibration1)) calibration1 = null;
+        if (!com.particlesdevs.photoncamera.processing.color.PhotoMatrix.usableMatrix(calibration2)) calibration2 = null;
+        if (!com.particlesdevs.photoncamera.processing.color.PhotoMatrix.usableMatrix(colorMat1)) colorMat1 = null;
+        final boolean cm2Reported = colorMat2 != null;
+        if (!com.particlesdevs.photoncamera.processing.color.PhotoMatrix.usableMatrix(colorMat2)) colorMat2 = null;
+        final boolean singleCalibration = colorMat1 != null && (ref1 == 0 || ref2 == 0 || cm2Reported && colorMat2 == null);
+        if (singleCalibration) {
+            missing.append(" calibration 2 (illuminants ").append(ref1).append(" / ").append(ref2)
+                    .append(colorMat2 == null ? ", ColorMatrix2 unusable" : "").append(": the first calibration alone)");
+            ref2 = ref1;
+            calibrationIlluminant2 = ref2;
+            calibration2 = colorMat2 = null; // the forward matrix 2 below (the FM1 == FM2 test reads the tags as reported)
+        }
         if (calibration1 == null) {
             calibration1 = calibration2 != null ? calibration2 : identityTransform();
             missing.append(" CC1");
@@ -1305,6 +1327,7 @@ public class Parameters {
             forwardt1 = forwardt2;
             missing.append(" FM1");
         }
+        if (singleCalibration && forward1) forwardt2 = forwardt1;
         final boolean noForward = !forward1 && !forward2;
         if (noForward) {
             Log.d(TAG, "Forward matrices are not invertible, using identity");
@@ -1724,7 +1747,8 @@ public class Parameters {
 
     /** A forward matrix with every column non-zero (the former "invertible" test); null: none. */
     private static boolean usableForward(@androidx.annotation.Nullable ColorSpaceTransform fm) {
-        if (fm == null) return false;
+        // P580: a non-finite element (a rational over 0) is no forward matrix either (it passed: NaN sums are not 0)
+        if (!com.particlesdevs.photoncamera.processing.color.PhotoMatrix.usableMatrix(fm)) return false;
         for (int i = 0; i < 3; i++) {
             float sum = 0.0f;
             for (int j = 0; j < 3; j++) sum += Math.abs(fm.getElement(i, j).floatValue());
@@ -2023,6 +2047,38 @@ public class Parameters {
             if (i % 3 == 2) outp.append("\n");
         }
         Log.d(TAG, "matrix:\n" + outp);
+    }
+
+    /**
+     * P576: the shot's frames were cut to {@code plan.area} of the {@link #rawSize} frame (SabreCrop): the RAW size, the lens
+     * shading map (the window's part, the same grid), the hot pixels and the face boxes follow the window; the RAW crop area is
+     * the window in the frame as captured (P162's area and the window together). The levels, the white balance, the noise model
+     * and the colour stay the whole frame's (the window keeps the frame's CFA phase: its origin is on whole colour periods).
+     */
+    public void applySabreCrop(com.particlesdevs.photoncamera.processing.processor.SabreCrop.Plan plan) {
+        if (plan == null || rawSize == null) return;
+        final com.particlesdevs.photoncamera.processing.RawCrop.Area a = plan.area;
+        final int fw = rawSize.x, fh = rawSize.y;
+        if (gainMap != null && mapSize != null && mapSize.x >= 2 && mapSize.y >= 2)
+            gainMap = com.particlesdevs.photoncamera.processing.RawCrop.cropGainMap(gainMap, mapSize.x, mapSize.y, fw, fh, a);
+        if (hotPixels != null) hotPixels = keptHotPixels(hotPixels, a);
+        if (portraitFaces != null && portraitFaces.length > 0)
+            portraitFaces = com.particlesdevs.photoncamera.processing.portrait.PortraitFaces.crop(portraitFaces,
+                    a.x / (float) fw, a.y / (float) fh, a.width / (float) fw, a.height / (float) fh);
+        if (rawCrop != null) {
+            rawCrop = new com.particlesdevs.photoncamera.processing.RawCrop.Area(rawCrop.x + a.x, rawCrop.y + a.y, a.width, a.height);
+        } else {
+            rawCrop = a;
+            rawCropFull = new Point(fw, fh);
+        }
+        rawSize = new Point(a.width, a.height);
+        alignmentSize = new Point(a.width / tile + 1, a.height / tile + 1);
+        tilesX = a.width / 800 + 1;
+        cameraIntrinsic[2] = a.width / 2.0;
+        cameraIntrinsic[5] = a.height / 2.0;
+        cameraIntrinsicRev[2] = -a.width / 2.0;
+        cameraIntrinsicRev[5] = -a.height / 2.0;
+        sabreCrop = plan;
     }
 
     /** P162: the hot pixels inside {@code area}, in its own coordinates. */

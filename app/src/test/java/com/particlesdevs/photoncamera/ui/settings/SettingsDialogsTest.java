@@ -7,7 +7,6 @@ import android.content.SharedPreferences;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -182,7 +181,7 @@ public class SettingsDialogsTest {
             idle();
             AlertDialog d = latest();
             String name = String.valueOf(page.getPreferenceScreen().getTitle());
-            assertEquals("Reset this page?", title(d));
+            assertEquals("P574: the concept's title names the page", "Reset «" + name + "»?", title(d));
             assertEquals("Every setting of «" + name + "» goes back to its default. Pages inside it stay as they are.", message(d));
             assertEquals("Reset", button(d, DialogInterface.BUTTON_POSITIVE));
             assertEquals("Cancel", button(d, DialogInterface.BUTTON_NEGATIVE));
@@ -203,7 +202,7 @@ public class SettingsDialogsTest {
         }
     }
 
-    /** The root page's reset opens «Сбросить настройки» (the preference library's dialog, in the app's theme). */
+    /** The root page's reset opens «Сбросить настройки» (P574: the settings' centred confirmation with its warning). */
     @Test public void theRootResetOpensTheFullResetDialog() {
         try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class)) {
             SettingsActivity activity = controller.setup().get();
@@ -212,7 +211,9 @@ public class SettingsDialogsTest {
             top(activity);
             AlertDialog d = latest();
             assertEquals(activity.getString(R.string.reset_preferences_warning), message(d));
-            assertEquals(activity.getString(R.string.yes), button(d, DialogInterface.BUTTON_POSITIVE));
+            // P574: the settings' centred confirmation - «Отмена» / red «Сбросить»
+            assertEquals("Reset", button(d, DialogInterface.BUTTON_POSITIVE));
+            assertEquals(SettingsStyle.RED, d.getButton(DialogInterface.BUTTON_POSITIVE).getCurrentTextColor());
             assertFalse(d.getButton(DialogInterface.BUTTON_POSITIVE).isAllCaps());
             click(d, DialogInterface.BUTTON_NEGATIVE);
             assertFalse(d.isShowing());
@@ -235,7 +236,7 @@ public class SettingsDialogsTest {
             EditText name = d.findViewById(android.R.id.edit);
             assertTrue(name.getText().toString(), name.getText().toString().matches(".*\\d{8}_\\d{6}.*"));
             assertTrue("the app's field", name.getBackground() instanceof android.graphics.drawable.GradientDrawable);
-            assertEquals(SettingsStyle.TEXT, name.getCurrentTextColor());
+            assertEquals(SettingsStyle.ROW_TITLE, name.getCurrentTextColor());   // P574: white
             name.setText("night");
             click(d, DialogInterface.BUTTON_POSITIVE);
             assertEquals(Arrays.asList("night"), changes);
@@ -337,8 +338,9 @@ public class SettingsDialogsTest {
             EditText ratio = first(d, EditText.class);
             assertEquals("1", ratio.getText().toString());
             assertEquals("For example: 0.6, 1, 3, 6", ratio.getHint().toString());
-            CheckBox crop = first(d, CheckBox.class);
-            assertEquals("Sensor crop (the sensor mode already crops the frame)", crop.getText().toString());
+            // P574: the sensor crop on the shared switch
+            com.particlesdevs.photoncamera.ui.controls.IosSwitch crop = first(d, com.particlesdevs.photoncamera.ui.controls.IosSwitch.class);
+            assertTrue(texts(d.getWindow().getDecorView()).contains("Sensor crop (the sensor mode already crops the frame)"));
             assertEquals("Auto", button(d, DialogInterface.BUTTON_NEUTRAL));
             ratio.setText("1,5");
             crop.setChecked(true);
@@ -440,21 +442,24 @@ public class SettingsDialogsTest {
             ModuleCopyFragment copy = new ModuleCopyFragment();
             activity.getSupportFragmentManager().beginTransaction().replace(R.id.settings_container, copy).commitNow();
             idle();
+            // P574: the source in the pull-down menu at its row (items tagged "option_" + the module id)
             copy.requireView().findViewWithTag("source_module").performClick();
             idle();
-            AlertDialog d = latest();
-            assertEquals("Source", title(d));
-            int count = d.getListView().getAdapter().getCount();
-            assertTrue(String.valueOf(count), count >= 2);
-            String second = d.getListView().getAdapter().getItem(1).toString();
-            pick(d, 1);
-            assertFalse(d.isShowing());
+            android.widget.PopupWindow menu = copy.sourceMenu;
+            assertNotNull(menu);
+            assertTrue(menu.isShowing());
+            List<TextView> items = views(menu.getContentView(), TextView.class, new ArrayList<>());
+            assertEquals("Source", items.get(0).getText().toString());
+            assertTrue(String.valueOf(items.size()), items.size() >= 3);
+            String second = items.get(2).getText().toString();
+            ((View) items.get(2).getParent()).performClick();
+            idle();
             List<TextView> texts = views(copy.requireView().findViewWithTag("source_module"), TextView.class, new ArrayList<>());
             assertTrue(texts.stream().anyMatch(t -> t.getText().toString().equals("Source: " + second)));
 
             copy.requireView().findViewWithTag("primary_action").performClick();
             idle();
-            d = latest();
+            AlertDialog d = latest();
             assertNull(title(d));
             assertEquals("The selected settings are copied", message(d));
             assertEquals("Done", button(d, DialogInterface.BUTTON_POSITIVE));

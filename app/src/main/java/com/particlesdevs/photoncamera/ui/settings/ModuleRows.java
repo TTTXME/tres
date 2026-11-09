@@ -246,6 +246,7 @@ public final class ModuleRows {
             actions.setPersistent(false);
             add(group, actions);
             add = row(c, ADD, R.drawable.settings_ic_plus, c.getString(R.string.module_row_add), null);
+            add.setAccentTile(true);   // P574: the accent «+» of the approved concept
             add.setOnPreferenceClickListener(p -> {
                 List<String> sources = new ArrayList<>();
                 for (String slot : SensorConfigPreferenceGenerator.moduleSlots(null)) if (ModuleRegistry.visible(slot)) sources.add(slot);

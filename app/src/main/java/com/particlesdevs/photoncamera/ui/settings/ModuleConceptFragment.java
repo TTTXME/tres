@@ -8,7 +8,6 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.*;
 import androidx.fragment.app.Fragment;
 import com.particlesdevs.photoncamera.R;
-import com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette;
 import com.particlesdevs.photoncamera.util.Lang;
 
 /**
@@ -18,7 +17,7 @@ import com.particlesdevs.photoncamera.util.Lang;
  * chevron drawable, the note's info glyph.
  */
 public abstract class ModuleConceptFragment extends Fragment {
-    protected static final int BG=SettingsStyle.BG,CARD=SettingsStyle.CARD,TEXT=SettingsStyle.TEXT,MUTED=SettingsStyle.MUTED,LINE=SettingsStyle.LINE;
+    protected static final int BG=SettingsStyle.PAGE,CARD=SettingsStyle.ROW,TEXT=SettingsStyle.ROW_TITLE,MUTED=SettingsStyle.SECTION,LINE=SettingsStyle.HAIRLINE; // P574: the settings page, card, white text, 55 % notes, hairlines
     protected LinearLayout root,body;
     protected FrameLayout footer;
     protected TextView heading,subtitle;
@@ -26,7 +25,7 @@ public abstract class ModuleConceptFragment extends Fragment {
     protected abstract void render();
     protected int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     @Override public View onCreateView(LayoutInflater i,ViewGroup p,Bundle b){
-        accent=AccentPalette.color(requireContext());
+        accent=SettingsStyle.accent(requireContext());   // P574: the phone's theme colour, as the rest of the settings
         root=column();root.setBackgroundColor(BG);root.setPadding(dp(16),dp(12),dp(16),dp(16));
         SettingsStyle.Header header=SettingsStyle.header(requireContext(),this::back,null); // P6b: the header shared with the preference pages
         heading=header.heading;subtitle=header.subtitle;root.addView(header.view,new LinearLayout.LayoutParams(-1,-2));
@@ -35,8 +34,8 @@ public abstract class ModuleConceptFragment extends Fragment {
         footer=new FrameLayout(requireContext());footer.setPadding(0,dp(12),0,0);root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         render();return root;
     }
-    @Override public void onResume(){super.onResume();View toolbar=requireActivity().findViewById(R.id.settings_toolbar);if(toolbar!=null)toolbar.setVisibility(View.GONE);if(root!=null){accent=AccentPalette.color(requireContext());render();}}
-    @Override public void onDestroyView(){root=null;super.onDestroyView();}
+    @Override public void onResume(){super.onResume();View toolbar=requireActivity().findViewById(R.id.settings_toolbar);if(toolbar!=null)toolbar.setVisibility(View.GONE);if(root!=null){accent=SettingsStyle.accent(requireContext());render();}}
+    @Override public void onDestroyView(){DialogStyle.dismissShown();root=null;super.onDestroyView();}   // P574: no leaked menu or confirmation
     protected void back(){requireActivity().getOnBackPressedDispatcher().onBackPressed();}
     protected void page(String title,String sub){heading.setText(title);subtitle.setText(sub);subtitle.setVisibility(sub==null||sub.isEmpty()?View.GONE:View.VISIBLE);body.removeAllViews();footer.removeAllViews();}
     protected LinearLayout column(){LinearLayout v=new LinearLayout(requireContext());v.setOrientation(LinearLayout.VERTICAL);return v;}
@@ -44,11 +43,12 @@ public abstract class ModuleConceptFragment extends Fragment {
     protected LinearLayout.LayoutParams space(int w,int h,int top){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(w,h);lp.topMargin=dp(top);return lp;}
     protected TextView text(String value,float size,int color){TextView t=new TextView(requireContext());t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setFontFeatureSettings("kern");t.setIncludeFontPadding(false);return t;}
     protected GradientDrawable shape(int color,int stroke,int radius){return SettingsStyle.shape(requireContext(),color,stroke,radius);}
-    protected LinearLayout card(){LinearLayout c=column();c.setBackground(shape(CARD,LINE,12));c.setPadding(dp(2),dp(2),dp(2),dp(2));body.addView(c,space(-1,-2,10));return c;}
-    /** P384: as the preference pages' group titles (preference_category_layout): 11.5sp medium, upper case, the accent. */
+    /** P574: a group card - #2C2C2E, 24dp corners, no outline (its rows clipped to them). */
+    protected LinearLayout card(){LinearLayout c=column();c.setBackground(shape(CARD,0,24));c.setClipToOutline(true);c.setPadding(dp(2),dp(2),dp(2),dp(2));body.addView(c,space(-1,-2,10));return c;}
+    /** P384 / P574: as the preference pages' group titles: 12sp semibold, upper case, white at 55 % (was the accent). */
     protected void caption(String title){
-        TextView t=text(title,11.5f,accent);t.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));t.setAllCaps(true);t.setLetterSpacing(.09f);
-        t.setPadding(dp(6),0,dp(6),0);body.addView(t,space(-1,-2,22));
+        TextView t=text(title,12,MUTED);t.setTypeface(SettingsStyle.semibold());t.setAllCaps(true);t.setLetterSpacing(.08f);
+        t.setPadding(dp(16),0,dp(16),0);body.addView(t,space(-1,-2,22));
     }
     /** P384: the info glyph of the preference notes (it was the «ⓘ» character). */
     protected void note(String value){
@@ -57,10 +57,12 @@ public abstract class ModuleConceptFragment extends Fragment {
         TextView label=text(value,12.5f,MUTED);label.setLineSpacing(dp(3),1);n.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         n.setPadding(dp(6),0,dp(6),0);body.addView(n,space(-1,-2,16));
     }
-    protected TextView button(String title,boolean filled,Runnable action){TextView t=text(title,14,filled?0xFF15131D:accent);t.setGravity(Gravity.CENTER);t.setPadding(dp(8),dp(12),dp(8),dp(12));t.setMinHeight(dp(44));t.setBackground(shape(filled?accent:BG,filled?0:0xFF626974,10));t.setOnClickListener(v->action.run());t.setFocusable(true);t.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName("android.widget.Button");}});return t;}
+    /** P574: {@code filled} an accent capsule with dark ink (the main action), else a #2C2C2E capsule with white text. */
+    protected TextView button(String title,boolean filled,Runnable action){TextView t=text(title,filled?17:15,filled?SettingsStyle.INK:TEXT);t.setTypeface(SettingsStyle.semibold());t.setGravity(Gravity.CENTER);t.setPadding(dp(8),dp(12),dp(8),dp(12));t.setMinHeight(dp(44));
+        t.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(filled?0x33000000:0x1FFFFFFF),shape(filled?accent:CARD,0,25),null));t.setOnClickListener(v->action.run());t.setFocusable(true);t.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName("android.widget.Button");}});return t;}
     protected void actions(Runnable all,Runnable none){LinearLayout r=row();TextView a=button(Lang.t(getContext(),"Выбрать всё","Select all"),false,all),b=button(Lang.t(getContext(),"Отменить выбор","Clear selection"),false,none);a.setTag("select_all");b.setTag("clear_selection");LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.rightMargin=dp(10);r.addView(a,lp);r.addView(b,new LinearLayout.LayoutParams(0,-2,1));body.addView(r,space(-1,-2,12));}
-    protected void primary(String title,boolean enabled,Runnable action){TextView t=button(title,true,action);t.setTypeface(null,1);t.setMinHeight(dp(52));t.setEnabled(enabled);t.setAlpha(enabled?1:.4f);t.setTag("primary_action");footer.addView(t,new FrameLayout.LayoutParams(-1,-2));}
-    protected void divider(LinearLayout parent){View v=new View(requireContext());v.setBackgroundColor(LINE);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(1));lp.leftMargin=dp(48);parent.addView(v,lp);}
+    protected void primary(String title,boolean enabled,Runnable action){TextView t=button(title,true,action);t.setMinHeight(dp(52));t.setEnabled(enabled);t.setAlpha(enabled?1:.4f);t.setTag("primary_action");footer.addView(t,new FrameLayout.LayoutParams(-1,-2));}
+    protected void divider(LinearLayout parent){View v=new View(requireContext());v.setBackgroundColor(LINE);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,Math.max(1,dp(.5f)));lp.leftMargin=dp(48);parent.addView(v,lp);}
     protected ImageView icon(String name){
         ImageView v=new ImageView(requireContext());int resource;
         switch(name){ // P6b: the concept icon set shared with the preference pages
@@ -89,7 +91,7 @@ public abstract class ModuleConceptFragment extends Fragment {
     }
     /** P384: the chevron of the preference pages (settings_widget_chevron), not a «›» character. */
     protected ImageView chevron(){
-        ImageView v=new ImageView(requireContext());v.setImageResource(R.drawable.settings_ic_chevron);v.setColorFilter(MUTED,PorterDuff.Mode.SRC_IN);
+        ImageView v=new ImageView(requireContext());v.setImageResource(R.drawable.settings_ic_chevron);v.setColorFilter(SettingsStyle.CHEVRON,PorterDuff.Mode.SRC_IN);
         v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);return v;
     }
     protected void navigation(String icon,String title,String summary,Runnable action){
@@ -102,7 +104,8 @@ public abstract class ModuleConceptFragment extends Fragment {
     }
     protected View mark(int state,String label,Runnable action){View v=new View(requireContext()){
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        @Override protected void onDraw(Canvas canvas){float cx=getWidth()/2f,cy=getHeight()/2f,h=dp(10);RectF rect=new RectF(cx-h,cy-h,cx+h,cy+h);paint.setStyle(state==0?Paint.Style.STROKE:Paint.Style.FILL);paint.setStrokeWidth(dp(1.5f));paint.setColor(state==0?MUTED:accent);canvas.drawRoundRect(rect,dp(4),dp(4),paint);
+        // P574: the selection circle of the concept's lists - a faint ring, the accent disc with a dark tick (a dash: some) when chosen
+        @Override protected void onDraw(Canvas canvas){float cx=getWidth()/2f,cy=getHeight()/2f,h=dp(11);RectF rect=new RectF(cx-h,cy-h,cx+h,cy+h);paint.setStyle(state==0?Paint.Style.STROKE:Paint.Style.FILL);paint.setStrokeWidth(dp(1.5f));paint.setColor(state==0?SettingsStyle.CHEVRON:accent);canvas.drawRoundRect(rect,h,h,paint);
             if(state!=0){paint.setStyle(Paint.Style.STROKE);paint.setColor(0xFF17141F);paint.setStrokeWidth(dp(2));paint.setStrokeCap(Paint.Cap.ROUND);if(state==1)canvas.drawLine(cx-dp(4),cy,cx+dp(4),cy,paint);else{canvas.drawLine(cx-dp(5),cy,cx-dp(1),cy+dp(4),paint);canvas.drawLine(cx-dp(1),cy+dp(4),cx+dp(6),cy-dp(5),paint);}}}
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setClassName("android.widget.CheckBox");info.setCheckable(true);info.setChecked(state>0);}
     };v.setContentDescription(label+(state==1?Lang.t(getContext(),", выбрано частично",", partly selected"):""));v.setFocusable(true);v.setOnClickListener(w->action.run());return v;}

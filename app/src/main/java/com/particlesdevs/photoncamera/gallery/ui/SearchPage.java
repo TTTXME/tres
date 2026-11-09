@@ -2,7 +2,6 @@ package com.particlesdevs.photoncamera.gallery.ui;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.graphics.Typeface;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -84,23 +83,28 @@ public final class SearchPage {
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.HORIZONTAL);
         box.setGravity(Gravity.CENTER_VERTICAL);
-        box.setBackground(GalleryUi.round(c, 0x17FFFFFF, 0x2EFFFFFF, 999));
-        box.setPadding(GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 6), 0);
-        box.setMinimumHeight(GalleryUi.dp(c, 48));
-        box.addView(GalleryUi.icon(c, R.drawable.ui_ic_search, GalleryUi.MUTED, 20));
+        // P579 (owner, 2026-11-09: «… в ней надо стиль также обновить»): the settings' search capsule - #2C2C2E, 44dp, no outline,
+        // the glass and the hint at 55 % white
+        box.setBackground(GalleryUi.card(c, GalleryUi.CARD, 22));
+        box.setPadding(GalleryUi.dp(c, 12), 0, GalleryUi.dp(c, 4), 0);
+        box.setMinimumHeight(GalleryUi.dp(c, 44));
+        ImageView glass = GalleryUi.icon(c, R.drawable.ui_ic_search, GalleryUi.SECTION, 20);
+        com.particlesdevs.photoncamera.ui.Icons.ink(glass, R.drawable.ui_ic_search, GalleryUi.SECTION);
+        glass.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        box.addView(glass);
         field = new EditText(c);
         field.setBackground(null);
         field.setHint(Lang.t("Текст на фото, «видео», «октябрь 2026»…", "Text in a photo, “video”, “October 2026”…")); // P504
-        field.setHintTextColor(GalleryUi.MUTED);
+        field.setHintTextColor(GalleryUi.SECTION);
         field.setTextColor(GalleryUi.TEXT);
-        field.setTextSize(15);
+        field.setTextSize(16);
         field.setSingleLine(true);
         field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         field.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        fp.leftMargin = GalleryUi.dp(c, 8);
+        fp.setMarginStart(GalleryUi.dp(c, 8));
         box.addView(field, fp);
-        clear = GalleryUi.icon(c, R.drawable.ui_ic_close, GalleryUi.MUTED, 20);
+        clear = GalleryUi.icon(c, R.drawable.ui_ic_close, GalleryUi.SECTION, 20);
         int cp = GalleryUi.dp(c, 10);
         clear.setPadding(cp, cp, cp, cp);
         clear.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 999)));
@@ -222,7 +226,8 @@ public final class SearchPage {
         List<String> recent = recent();
         if (!recent.isEmpty()) {
             LinearLayout head = heading(c, Lang.t("Недавние запросы", "Recent searches"));
-            ImageView bin = GalleryUi.icon(c, R.drawable.ui_ic_trash, GalleryUi.MUTED, 18);
+            ImageView bin = GalleryUi.icon(c, R.drawable.ui_ic_trash, GalleryUi.SECTION, 18);
+            com.particlesdevs.photoncamera.ui.Icons.ink(bin, R.drawable.ui_ic_trash, GalleryUi.SECTION);
             int p = GalleryUi.dp(c, 10);
             bin.setPadding(p, p, p, p);
             bin.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 999)));
@@ -257,8 +262,10 @@ public final class SearchPage {
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (AlbumsPage.Album a : albums) {
                 LinearLayout r = AlbumsPage.row(c, a.icon, a.title, String.valueOf(a.count()), v -> host.openAlbum(a.folder, a.title));
+                r.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 18))); // P579: a card of its own in the row
+                Motion.press(r);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.rightMargin = GalleryUi.dp(c, 8);
+                lp.setMarginEnd(GalleryUi.dp(c, 8));
                 row.addView(r, lp);
             }
             scroll.addView(row);
@@ -270,9 +277,11 @@ public final class SearchPage {
         LinearLayout head = new LinearLayout(c);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 6));
-        TextView t = GalleryUi.text(c, title, 16, GalleryUi.TEXT);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        head.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 16), 0, GalleryUi.dp(c, 6));
+        // P579: the settings' section caption (12sp semibold capitals, 55 % white)
+        TextView t = GalleryUi.text(c, title.toUpperCase(Lang.ru() ? new java.util.Locale("ru") : java.util.Locale.ROOT), 12, GalleryUi.SECTION);
+        t.setTypeface(GalleryUi.semibold());
+        t.setLetterSpacing(.06f);
         t.setAccessibilityHeading(true);
         head.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         return head;
@@ -283,8 +292,8 @@ public final class SearchPage {
         FlowLayout flow = new FlowLayout(c, GalleryUi.dp(c, 8));
         List<View> made = new ArrayList<>();
         for (String w : words) {
-            TextView chip = GalleryUi.text(c, w, 14, GalleryUi.TEXT);
-            chip.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0x17FFFFFF, 0x17FFFFFF, 999)));
+            TextView chip = GalleryUi.text(c, w, 15, GalleryUi.TEXT);
+            chip.setBackground(GalleryUi.pressable(GalleryUi.card(c, GalleryUi.CARD, 999))); // P579: a #2C2C2E capsule
             chip.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 9), GalleryUi.dp(c, 14), GalleryUi.dp(c, 9));
             chip.setClickable(true);
             chip.setOnClickListener(v -> {

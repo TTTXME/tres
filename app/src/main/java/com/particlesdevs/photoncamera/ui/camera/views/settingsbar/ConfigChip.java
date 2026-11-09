@@ -66,7 +66,7 @@ public final class ConfigChip extends LinearLayout {
     public void setAccent(int accent) {
         this.accent = accent;
         setBackground(ShadeStyle.pressable(getContext(), ShadeStyle.tint(accent, .10f), (accent & 0x00FFFFFF) | 0x73000000, 100));
-        icon.setImageTintList(ColorStateList.valueOf(accent));
+        com.particlesdevs.photoncamera.ui.Icons.own(icon); // P570: the colour icon
         chevron.setImageTintList(ColorStateList.valueOf((accent & 0x00FFFFFF) | 0xB3000000));
         name.setTextColor(ShadeStyle.TEXT);
     }

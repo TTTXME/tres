@@ -120,4 +120,101 @@ public class ColourLookTest {
         c.skinHue = -100f;
         assertArrayEquals(new float[]{0.5f, -1f, 0f}, c.skinUniform(), 0f);
     }
+
+    /** OKLab of a linear sRGB colour. */
+    private static double[] oklab(float[] rgb) {
+        double l = Math.cbrt(0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]);
+        double m = Math.cbrt(0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]);
+        double s = Math.cbrt(0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]);
+        return new double[]{0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s};
+    }
+
+    private static void finite(String what, float[] m) {
+        for (float v : m) assertTrue(what + " finite " + java.util.Arrays.toString(m), Float.isFinite(v));
+    }
+
+    /**
+     * P577 colour audit: «Тепло» / «Оттенок» over their whole range (-100 .. 100, also the LUT tray's «Цвет» tab): white moves
+     * steadily warmer (OKLab b up) with the warmth and towards magenta (OKLab a up, green down) with the tint, keeps its
+     * luminance, the two rows stay apart (the warmth barely tints, the tint is mostly OKLab a), finite at the ends.
+     */
+    @Test public void warmthAndTintAreMonotonicOverTheirRange() {
+        ColourLook c = new ColourLook();
+        double lastB = -1, lastA = -1;
+        for (int v = -100; v <= 100; v += 5) {
+            c.warmth = v;
+            c.tint = 0f;
+            float[] m = v == 0 ? new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1} : c.whiteMatrix(6504f);
+            finite("warmth " + v, m);
+            double[] w = oklab(white(m));
+            assertEquals("warmth " + v + " keeps the luminance", 1f, luminance(white(m)), 1e-4f);
+            assertTrue("warmth " + v + ": warmer than " + (v - 5) + " (b " + w[2] + ")", w[2] > lastB);
+            assertTrue("warmth " + v + ": no tint (a " + w[1] + ", b " + w[2] + ")", Math.abs(w[1]) < 0.25 * Math.abs(w[2]) + 0.002);
+            lastB = w[2];
+            c.warmth = 0f;
+            c.tint = v;
+            m = v == 0 ? new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1} : c.whiteMatrix(6504f);
+            finite("tint " + v, m);
+            w = oklab(white(m));
+            assertEquals("tint " + v + " keeps the luminance", 1f, luminance(white(m)), 1e-4f);
+            assertTrue("tint " + v + ": more magenta than " + (v - 5) + " (a " + w[1] + ")", w[1] > lastA);
+            // (the Duv normal of the daylight locus lies at OKLab hue ~150 / ~330 deg at D65: green-yellow / pink-magenta, as an
+            // editor's tint perpendicular to the locus does - mostly a, some b)
+            assertTrue("tint " + v + ": mostly a (a " + w[1] + ", b " + w[2] + ")", Math.abs(w[2]) < 0.7 * Math.abs(w[1]) + 0.002);
+            lastA = w[1];
+        }
+        // the range ends: a visible, bounded change (no clip of a mid grey through the matrix)
+        c.tint = 0f;
+        c.warmth = 100f;
+        double bWarm = oklab(white(c.whiteMatrix(6504f)))[2];
+        c.warmth = -100f;
+        double bCool = oklab(white(c.whiteMatrix(6504f)))[2];
+        assertTrue("warmth ends " + bWarm + " / " + bCool, bWarm > 0.02 && bWarm < 0.12 && bCool < -0.02 && bCool > -0.12);
+    }
+
+    /** P577: «Сохранить тепло / синеву» over the light's whole range: finite, only ever warmer (cooler) the warmer (cooler) the light. */
+    @Test public void keptSceneLightIsMonotonicInTheLight() {
+        ColourLook c = new ColourLook();
+        c.keepWarm = 100f;
+        double last = -1;
+        for (float cct = 5000f; cct >= 1000f; cct -= 250f) {
+            float[] m = c.whiteMatrix(cct);
+            if (m == null) continue;
+            finite("keep warm " + cct, m);
+            double b = oklab(white(m))[2];
+            assertTrue("keep warm at " + cct + " K: warmer than at a higher light (" + b + ")", b >= last - 1e-9);
+            last = b;
+        }
+        c.keepWarm = 0f;
+        c.keepCool = 100f;
+        last = 1;
+        for (float cct = 7000f; cct <= 40000f; cct += 1000f) {
+            float[] m = c.whiteMatrix(cct);
+            if (m == null) continue;
+            finite("keep cool " + cct, m);
+            double b = oklab(white(m))[2];
+            assertTrue("keep cool at " + cct + " K: cooler than at a lower light (" + b + ")", b <= last + 1e-9);
+            last = b;
+        }
+        assertNull("above 40000 K: unknown", c.whiteMatrix(41000f));
+    }
+
+    /** P577: the primaries calibration at every range end keeps white white and stays finite. */
+    @Test public void calibrationRangeEndsKeepWhite() {
+        float[] ends = {-100f, 100f};
+        for (int p = 0; p < 3; p++)
+            for (float h : ends)
+                for (float s : ends) {
+                    ColourLook c = new ColourLook();
+                    c.calHue[p] = h;
+                    c.calSat[p] = s;
+                    float[] m = c.calibrationMatrix();
+                    finite("primary " + p, m);
+                    assertArrayEquals("primary " + p + " hue " + h + " sat " + s, new float[]{1f, 1f, 1f}, white(m), 1e-4f);
+                }
+        ColourLook all = new ColourLook();
+        for (int p = 0; p < 3; p++) { all.calHue[p] = 100f; all.calSat[p] = -100f; }
+        assertArrayEquals(new float[]{1f, 1f, 1f}, white(all.calibrationMatrix()), 1e-4f);
+    }
 }

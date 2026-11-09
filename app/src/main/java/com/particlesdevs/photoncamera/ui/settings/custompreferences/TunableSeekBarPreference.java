@@ -4,7 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.InputType;
 import android.widget.EditText;
-import android.widget.SeekBar;
+import com.particlesdevs.photoncamera.ui.controls.IosMotion;
+import com.particlesdevs.photoncamera.ui.controls.IosSlider;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.preference.Preference;
@@ -14,12 +15,14 @@ import com.particlesdevs.photoncamera.app.ScameraApp;
 import com.particlesdevs.photoncamera.settings.PreferenceNumber;
 
 /** The bar snaps; numeric entry preserves the exact value. Binding is strictly read-only. */
-public class TunableSeekBarPreference extends Preference implements SeekBar.OnSeekBarChangeListener {
+public class TunableSeekBarPreference extends Preference {
     private float mMin = 0f, mMax = 100f, mStepPerUnit = 1f, mDefaultValue = 0f;
     private boolean isFloat;
     private float autoValue = Float.NaN;
     private String autoLabel;
-    private SeekBar seekBar;
+    /** P574: the settings' slider, in progress steps 0 .. maxProgress(). */
+    private IosSlider seekBar;
+    private boolean instant;
     private TextView seekBarValue;
 
     public TunableSeekBarPreference(Context context) {
@@ -49,21 +52,47 @@ public class TunableSeekBarPreference extends Preference implements SeekBar.OnSe
     @Override public void onBindViewHolder(@NonNull PreferenceViewHolder holder) {
         super.onBindViewHolder(holder);
         holder.setDividerAllowedAbove(false);
-        seekBar = (SeekBar) holder.findViewById(R.id.seekbar);
+        seekBar = (IosSlider) holder.findViewById(R.id.seekbar);
         seekBarValue = (TextView) holder.findViewById(R.id.seekbar_value);
-        seekBar.setOnSeekBarChangeListener(null);
-        seekBar.setMax(maxProgress());
+        instant = seekBar.getTag(R.id.settings_bound_preference) != this;
+        seekBar.setTag(R.id.settings_bound_preference, this);
+        seekBar.setListener(null);
+        seekBar.setRange(0, maxProgress(), 1);
+        seekBar.setDefaultValue(PreferenceNumber.progress(mDefaultValue, mMin, mStepPerUnit, maxProgress()));
+        seekBar.setEnabled(isEnabled());
         refresh();
-        seekBar.setOnSeekBarChangeListener(this);
+        instant = false;
+        final TextView min = (TextView) holder.findViewById(R.id.seekbar_min), max = (TextView) holder.findViewById(R.id.seekbar_max);
+        if (min != null) min.setText(valueText(mMin));
+        if (max != null) max.setText(valueText(mMax));
+        seekBar.setListener(new IosSlider.Listener() {
+            @Override public void onValue(IosSlider s, float value, boolean fromUser) {
+                if (!fromUser || !isEnabled()) return;
+                if (ScameraApp.getVibration() != null) ScameraApp.getVibration().Tick();
+                save((float) (Math.round(value) / (double) mStepPerUnit + mMin), false);
+            }
+
+            // the value pill lifts while the knob is held and pops when it is let go
+            @Override public void onTracking(IosSlider s, boolean tracking) {
+                if (seekBarValue == null) return;
+                if (tracking) IosMotion.lift(seekBarValue, true, seekBarValue.getCurrentTextColor(), seekBarValue.getCurrentTextColor());
+                else IosMotion.pop(seekBarValue);
+            }
+        });
         // P357: a double tap on the bar, the value or the row puts the camera's own value back (the stored one goes)
         final Runnable reset = this::resetToDefault;
         com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(seekBar, reset);
+        // the exact reset is DoubleTapReset's alone: the slider's own double tap would write the step-snapped default first
+        seekBar.setOnResetListener(() -> { });
         com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(holder.itemView, this::showPreciseValueDialog, reset);
         if (seekBarValue != null) com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(seekBarValue, this::showPreciseValueDialog, reset);
     }
     private void refresh() {
         float value = getFloatValue();
-        if (seekBar != null) seekBar.setProgress(PreferenceNumber.progress(value, mMin, mStepPerUnit, maxProgress()));
+        // P574: not a row recycled for another preference since
+        if (seekBar == null || seekBar.getTag(R.id.settings_bound_preference) != this) return;
+        int progress = PreferenceNumber.progress(value, mMin, mStepPerUnit, maxProgress());
+        if (instant) seekBar.setValueNow(progress); else seekBar.setValue(progress);
         if (seekBarValue != null) {
             seekBarValue.setText(valueText(value));
             // P168: off the default the pill turns to the theme's opposite (was green text)
@@ -90,13 +119,6 @@ public class TunableSeekBarPreference extends Preference implements SeekBar.OnSe
         editor.apply();
         refresh();
     }
-    @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-        if (!fromUser || !isEnabled()) return;
-        if (ScameraApp.getVibration() != null) ScameraApp.getVibration().Tick();
-        save((float) (progress / (double) mStepPerUnit + mMin), false);
-    }
-    @Override public void onStartTrackingTouch(SeekBar bar) {}
-    @Override public void onStopTrackingTouch(SeekBar bar) {}
 
     /** P357: the camera's own value back (the stored one goes); true when one was stored. */
     public boolean resetToDefault() {
@@ -123,6 +145,6 @@ public class TunableSeekBarPreference extends Preference implements SeekBar.OnSe
     private void showPreciseValueDialog() {
         if (!isEnabled()) return;
         com.particlesdevs.photoncamera.ui.controls.PrecisionEditor.show(getContext(),getKey(),String.valueOf(getTitle()),
-            mMin,mMax,getFloatValue(),mDefaultValue,isFloat,value->save(value,false));
+            mMin,mMax,getFloatValue(),mDefaultValue,isFloat,1.0/mStepPerUnit,-1,value->save(value,false));   // P574: the slider's own step
     }
 }

@@ -30,7 +30,6 @@ import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.snackbar.Snackbar;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.app.ScameraApp;
 import com.particlesdevs.photoncamera.gallery.adapters.DragSelectionItemTouchListener;
@@ -152,9 +151,9 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         LinearLayout rangeRow = new LinearLayout(c);
         rangeRow.setOrientation(LinearLayout.HORIZONTAL);
         rangeRow.setGravity(Gravity.CENTER_VERTICAL);
-        rangeRow.setPadding(GalleryUi.dp(c, 18), 0, GalleryUi.dp(c, 12), GalleryUi.dp(c, 6));
+        rangeRow.setPadding(GalleryUi.dp(c, 18), 0, GalleryUi.dp(c, 16), GalleryUi.dp(c, 6));
         range = GalleryUi.fitText(c, "", 15, GalleryUi.TEXT);
-        range.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        range.setTypeface(GalleryUi.semibold()); // P579: the settings' row title weight
         rangeRow.addView(range, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         filterChip = GalleryUi.chip(c, Lang.t("Фильтр  ✕", "Filter  ✕"), -1, true);
         filterChip.setContentDescription(Lang.t("Сбросить фильтр", "Clear the filter"));
@@ -165,7 +164,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             refreshFilterChip();
         });
         LinearLayout.LayoutParams fcp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        fcp.rightMargin = GalleryUi.dp(c, 8);
+        fcp.setMarginEnd(GalleryUi.dp(c, 8));
         rangeRow.addView(filterChip, fcp);
         jump = GalleryUi.squareButton(c, R.drawable.ui_ic_jump, Lang.t("В начало или в конец", "To the start or the end"), v -> jump());
         rangeRow.addView(jump, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
@@ -856,8 +855,8 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         GalleryView.setFavourite(requireContext(), files, !all);
         favourites = GalleryView.favourites(requireContext());
         View root = getView();
-        if (root != null) Snackbar.make(root, all ? Lang.t("Убрано из избранного: ", "Removed from favourites: ") + GalleryUi.shots(s.size())
-                : Lang.t("В избранном: ", "Added to favourites: ") + GalleryUi.shots(s.size()), Snackbar.LENGTH_SHORT).show();
+        if (root != null) com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(root.getContext(), all ? Lang.t("Убрано из избранного: ", "Removed from favourites: ") + GalleryUi.shots(s.size())
+                : Lang.t("В избранном: ", "Added to favourites: ") + GalleryUi.shots(s.size()));
         clearSelection();
         adapter.notifyItemRangeChanged(0, adapter.getItemCount());
         viewModel.setUpdatePending(true); // the «Избранное» chip and its count
@@ -911,9 +910,9 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             clearSelection();
             // the refresh puts the folder read again into the grid (MediaStore deletes are done by now)
             viewModel.setUpdatePending(true);
-            if (root != null) Snackbar.make(root, Lang.t("Удалено: ", "Deleted: ") + GalleryUi.shots(n), Snackbar.LENGTH_SHORT).show();
+            if (root != null) com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(root.getContext(), Lang.t("Удалено: ", "Deleted: ") + GalleryUi.shots(n));
         } else if (root != null) {
-            Snackbar.make(root, Lang.t("Не удалось удалить", "Deletion failed"), Snackbar.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(root.getContext(), Lang.t("Не удалось удалить", "Deletion failed"));
         }
     }
 

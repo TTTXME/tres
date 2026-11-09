@@ -1,7 +1,6 @@
 package com.particlesdevs.photoncamera.ui.camera;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.camera2.CameraCharacteristics;
 import android.view.View;
@@ -17,25 +16,26 @@ import com.particlesdevs.photoncamera.capture.Dcg14Mode;
 import com.particlesdevs.photoncamera.circularbarlib.ui.UiScale;
 import com.particlesdevs.photoncamera.databinding.LayoutMainTopbarBinding;
 import com.particlesdevs.photoncamera.settings.FormatChoice;
-import com.particlesdevs.photoncamera.settings.MotionMode;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 import com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle;
 import com.particlesdevs.photoncamera.util.Lang;
 
 /**
- * SIMPLE_UI §1 The camera's top bar, as the concept draws it (392dp): torch, timer and Motion as 44dp icon buttons; while on,
- * torch and Motion become a card pill with the accent icon and a label («Фонарик», «Движение»), the timer a card circle with
- * its seconds badge (owner: «кружки при выборе должны быть круглые как на концепте»); one pill card [format | photo size |
- * DCG]; the gear. Every size is the concept's dp times {@link UiScale} (once per view tree), packed text sp times k with the
- * capped font scale. When the bar does not fit at the current width and font scale it steps down as the concept's
- * tight / tighter / tightest classes do: (1) labels off, the active buttons 40dp circles, pill padding 8; (2) gaps 2, row
- * padding 6, 36dp circles, pill padding 6, «RAW+HEIC» without spaces; (3) gaps 0, row padding 4, 33dp circles, pill padding 5
- * and 12sp. The gear always stays inside.
+ * SIMPLE_UI §1 The camera's top bar. P574 (the approved concept, owner 2026-11-09: «Отлично, реализуем»): one centred row of
+ * 40dp items 16dp apart - the format badge («JPEG» over «12 Мп»: the format and size sheet), the torch, the timer with its
+ * seconds badge, LUT (the LUT and film tray, drawn by LutTray), DCG where the module has it. Off an item is a white glyph on
+ * nothing, on it is the accent on the accent's tint (the concept's 16 %): less glass over the picture. The gear and Sport went to
+ * the bottom row. Every size is the concept's dp times {@link UiScale} (once per view tree). When the row does not fit at the
+ * current width and font scale it steps down: (1) gaps 10; (2) gaps 6, «RAW+HEIC» without spaces; (3) gaps 2 and smaller text.
  */
 public final class TopBar {
     private TopBar() {}
 
     static final int LEVELS = 4;
+    /** P574: the concept's gap between the row's items at each level (dp before the scale). */
+    static final float[] GAPS = {16, 10, 6, 2};
+    /** P574: an item that is on: the accent at this alpha under it (the concept's rgba(255, 214, 10, .16)). */
+    static final int ON_TINT_ALPHA = 0x29;
     /** DCG 14 bit on this module (Dcg14Mode.available of its characteristics). */
     private static volatile boolean dcgHere;
 
@@ -54,6 +54,11 @@ public final class TopBar {
         return dcgHere;
     }
 
+    /** The accent's tint under an item that is on. */
+    static int onTint(int accent) {
+        return (accent & 0x00FFFFFF) | (ON_TINT_ALPHA << 24);
+    }
+
     /** Values, states and descriptions from the settings; then the fit. */
     public static void bind(LayoutMainTopbarBinding tb) {
         View root = tb.getRoot();
@@ -67,68 +72,150 @@ public final class TopBar {
                 if (r - l != or - ol) v.post(() -> fit(tb));
             });
             // P495: every control of the bar gives under the finger and springs back
-            for (View v : new View[]{tb.torchButton, tb.timerButton, tb.motionModeButton, tb.formatBadge, tb.sizeBadge, tb.dcgBadge,
-                    tb.settingsButton})
+            for (View v : new View[]{tb.formatButton, tb.torchButton, tb.timerButton, tb.lutButton, tb.dcgBadge, tb.gridButton,
+                    tb.horizonButton, tb.uhdrButton})
                 com.particlesdevs.photoncamera.ui.Motion.press(v);
         }
-        final boolean wasTorch = tb.torchButton.isActivated(), wasMotion = tb.motionModeButton.isActivated();
+        final boolean wasTorch = tb.torchButton.isActivated();
         final String wasTimer = tb.timerButton.isActivated() ? String.valueOf(tb.timerBadge.getText()) : "";
         int accent = ShadeStyle.accent(c);
         // torch (pref_ae_mode: 0 torch, 1 off)
         boolean torch = PreferenceKeys.getAeMode() == 0;
         String torchName = Lang.t(c, torch ? "Фонарик: вкл." : "Фонарик: выкл.", torch ? "Torch: on" : "Torch: off");
-        button(tb.torchButton, tb.torchIcon, tb.torchLabel, torch, accent, torchName);
+        button(tb.torchButton, tb.torchIcon, torch, accent, torchName);
         // timer (0, 3 or 10 s)
         int seconds = timerSeconds(c);
         boolean timer = seconds > 0;
-        tb.timerBadge.setText(Lang.t(c, seconds + "с", seconds + "s"));
+        tb.timerBadge.setText(String.valueOf(seconds));
         tb.timerBadge.setVisibility(timer ? View.VISIBLE : View.GONE);
-        tb.timerBadge.setTextColor(ShadeStyle.INK);
+        tb.timerBadge.setTextColor(ShadeStyle.onAccent(accent));
         GradientDrawable badge = new GradientDrawable();
         badge.setColor(accent);
         badge.setCornerRadius(UiScale.dpF(c, 8));
-        badge.setStroke(Math.max(1, UiScale.dp(c, 2)), 0xFF000000);   // the dark ring round the badge
         tb.timerBadge.setBackground(badge);
         String timerName = timer ? Lang.t(c, "Таймер: " + seconds + " с", "Timer: " + seconds + " s") : Lang.t(c, "Таймер: выкл.", "Timer: off");
-        button(tb.timerButton, tb.timerIcon, null, timer, accent, timerName);
-        // Motion
-        boolean motion = MotionMode.on();
-        button(tb.motionModeButton, tb.motionIcon, tb.motionLabel, motion, accent,
-                c.getString(motion ? R.string.motion_mode_on : R.string.motion_mode_off));
-        // the pill card: format | size | DCG - P495: a tonal capsule as the shade's tiles (no line)
-        GradientDrawable card = new GradientDrawable();
-        card.setColor(ShadeStyle.TONAL);
-        card.setCornerRadius(UiScale.dpF(c, 20));
-        tb.topbarBadges.setBackground(card);
+        button(tb.timerButton, tb.timerIcon, timer, accent, timerName);
+        // the format badge: the format over the photo size (P319: the photo this lens really writes)
         FormatChoice format = FormatChoice.current();
+        int size = PhotoSize.current();
+        final String sizeText = PhotoSize.badge();
         tb.formatBadge.setTag(format.name());
         tb.formatBadge.setTag(R.id.format_badge, format.longLabel());
         tb.formatBadge.setText(format.longLabel());
-        tb.formatBadge.setTextColor(ShadeStyle.TEXT);
         tb.formatBadge.setContentDescription(c.getString(R.string.topbar_format, format.longLabel()));
-        int size = PhotoSize.current();
-        final String sizeText = PhotoSize.badge(); // P319: the photo this lens really writes
         tb.sizeBadge.setText(sizeText);
-        tb.sizeBadge.setTextColor(size != PhotoSize.NORMAL ? accent : ShadeStyle.TEXT);
-        tb.sizeBadge.setContentDescription(Lang.t(c, "Размер фото: " + sizeText + ". Нажатие — следующий размер, удержание — все размеры",
-                "Photo size: " + sizeText + ". Tap: next size, hold: all sizes"));
+        // a format or size other than the plain JPEG at the normal size is on: the badge in the accent on its tint
+        final boolean formatOn = format != FormatChoice.JPEG || size != PhotoSize.NORMAL;
+        tb.formatBadge.setTextColor(formatOn ? accent : ShadeStyle.TEXT);
+        tb.sizeBadge.setTextColor(formatOn ? accent : ShadeStyle.TEXT);
+        tb.sizeBadge.setAlpha(.85f);
+        tb.formatButton.setActivated(formatOn);
+        tb.formatButton.setBackground(ShadeStyle.pressable(c, formatOn ? onTint(accent) : 0x00000000, 0, 20));
+        final String formatName = Lang.t(c, "Формат и размер: " + format.longLabel() + ", " + sizeText
+                        + ". Нажатие — выбор, удержание — размеры",
+                "Format and size: " + format.longLabel() + ", " + sizeText + ". Tap: choose, hold: sizes");
+        tb.formatButton.setContentDescription(formatName);
+        ViewCompat.setTooltipText(tb.formatButton, Lang.t(c, "Формат и размер", "Format and size"));
+        // DCG
         boolean dcg = dcgHere, dcgOn = dcg && Dcg14Mode.mode() != Dcg14Mode.OFF;
-        tb.dcgBadge.setVisibility(dcg ? View.VISIBLE : View.GONE);
-        tb.dcgDivider.setVisibility(dcg ? View.VISIBLE : View.GONE);
         tb.dcgBadge.setTextColor(dcgOn ? accent : ShadeStyle.TEXT);
         tb.dcgBadge.setSelected(dcgOn);
+        tb.dcgBadge.setActivated(dcgOn);
+        tb.dcgBadge.setBackground(ShadeStyle.pressable(c, dcgOn ? onTint(accent) : 0x00000000, 0, 999));
         tb.dcgBadge.setContentDescription(c.getString(dcgOn ? R.string.dcg14_on : R.string.dcg14_off));
         ViewCompat.setStateDescription(tb.dcgBadge, Lang.t(c, dcgOn ? "вкл." : "выкл.", dcgOn ? "on" : "off"));
-        tb.settingsButton.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
-        tb.settingsButton.setBackground(ShadeStyle.pressable(c, ShadeStyle.TONAL, 0, 999)); // P495: the shade's tonal disc
-        for (TextView t : new TextView[]{tb.formatBadge, tb.sizeBadge, tb.dcgBadge}) t.setBackground(ShadeStyle.ripple(c, 20));
+        // P574: the items the «Верхняя строка» sheet can add - the grid, the level, Ultra HDR (the shade's same settings)
+        final boolean wasGrid = tb.gridButton.isActivated(), wasHorizon = tb.horizonButton.isActivated();
+        boolean grid = PreferenceKeys.getGridValue() > 0;
+        button(tb.gridButton, tb.gridIcon, grid, accent, Lang.t(c, grid ? "Сетка: вкл." : "Сетка: выкл.", grid ? "Grid: on" : "Grid: off"));
+        boolean horizon = PreferenceKeys.isHorizonOn();
+        button(tb.horizonButton, tb.horizonIcon, horizon, accent,
+                Lang.t(c, horizon ? "Горизонт: вкл." : "Горизонт: выкл.", horizon ? "Level: on" : "Level: off"));
+        boolean uhdr = PreferenceKeys.isUltraHdrOn();
+        tb.uhdrButton.setTextColor(uhdr ? accent : ShadeStyle.TEXT);
+        tb.uhdrButton.setActivated(uhdr);
+        tb.uhdrButton.setBackground(ShadeStyle.pressable(c, uhdr ? onTint(accent) : 0x00000000, 0, 999));
+        tb.uhdrButton.setContentDescription(Lang.t(c, uhdr ? "Ultra HDR: вкл." : "Ultra HDR: выкл.", uhdr ? "Ultra HDR: on" : "Ultra HDR: off"));
         if (rebind) {
-            // P495: torch, timer and Motion switched (here or from the shade): their icon breathes (the badges have the press)
+            // P495: torch and timer switched (here or from the shade): their icon breathes (the badges have the press)
             if (wasTorch != torch) com.particlesdevs.photoncamera.ui.Motion.pop(tb.torchIcon);
             if (!wasTimer.equals(timer ? String.valueOf(tb.timerBadge.getText()) : "")) com.particlesdevs.photoncamera.ui.Motion.pop(tb.timerIcon);
-            if (wasMotion != motion) com.particlesdevs.photoncamera.ui.Motion.pop(tb.motionIcon);
+            if (wasGrid != grid) com.particlesdevs.photoncamera.ui.Motion.pop(tb.gridIcon);
+            if (wasHorizon != horizon) com.particlesdevs.photoncamera.ui.Motion.pop(tb.horizonIcon);
         }
+        // P574: the row's items and their order from the stored row (TopRow); a change glides the others into place
+        arrange(tb, com.particlesdevs.photoncamera.settings.TopRow.load(androidx.preference.PreferenceManager.getDefaultSharedPreferences(c)), rebind);
         fit(tb);
+    }
+
+    /** P574: the item views by their TopRow id. */
+    static java.util.Map<String, View> items(LayoutMainTopbarBinding tb) {
+        java.util.Map<String, View> m = new java.util.LinkedHashMap<>();
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.FORMAT, tb.formatButton);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.TORCH, tb.torchButton);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.TIMER, tb.timerButton);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.LUT, tb.lutButton);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.DCG, tb.dcgBadge);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.GRID, tb.gridButton);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.HORIZON, tb.horizonButton);
+        m.put(com.particlesdevs.photoncamera.settings.TopRow.UHDR, tb.uhdrButton);
+        return m;
+    }
+
+    /** P574: whether item {@code id} can show on the open camera (DCG only on a module that has it). */
+    static boolean available(String id) {
+        return !com.particlesdevs.photoncamera.settings.TopRow.DCG.equals(id) || dcgHere;
+    }
+
+    /**
+     * P574: the row holds {@code ids} in their order (the others hidden, after them); {@code animate}: the items that stay glide
+     * from where they were, a new one grows in (ViewPropertyAnimator), a removed one goes at once.
+     */
+    static void arrange(LayoutMainTopbarBinding tb, java.util.List<String> ids, boolean animate) {
+        final ViewGroup row = (ViewGroup) tb.getRoot();
+        final java.util.Map<String, View> views = items(tb);
+        final boolean laidOut = row.getWidth() > 0 && animate && android.animation.ValueAnimator.areAnimatorsEnabled();
+        final java.util.Map<View, Integer> before = new java.util.HashMap<>();
+        if (laidOut) for (View v : views.values()) if (v.getVisibility() == View.VISIBLE) before.put(v, v.getLeft());
+        java.util.List<View> order = new java.util.ArrayList<>();
+        for (String id : ids) if (views.containsKey(id)) order.add(views.get(id));
+        for (java.util.Map.Entry<String, View> e : views.entrySet()) if (!ids.contains(e.getKey())) order.add(e.getValue());
+        boolean moved = false;
+        for (int i = 0; i < order.size() && !moved; i++) moved = row.getChildAt(i) != order.get(i);
+        if (moved) {
+            for (View v : order) row.removeView(v);
+            for (View v : order) row.addView(v);
+        }
+        final java.util.List<View> grown = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, View> e : views.entrySet()) {
+            final View v = e.getValue();
+            final boolean shown = ids.contains(e.getKey()) && available(e.getKey());
+            if (shown && v.getVisibility() != View.VISIBLE && laidOut) grown.add(v);
+            v.setVisibility(shown ? View.VISIBLE : View.GONE);
+        }
+        if (!laidOut || before.isEmpty() && grown.isEmpty()) return;
+        row.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                row.getViewTreeObserver().removeOnPreDrawListener(this);
+                for (java.util.Map.Entry<View, Integer> b : before.entrySet()) {
+                    final View v = b.getKey();
+                    if (v.getVisibility() != View.VISIBLE) continue;
+                    final int dx = b.getValue() - v.getLeft();
+                    if (dx == 0) continue;
+                    v.setTranslationX(dx);
+                    v.animate().translationX(0f).setDuration(com.particlesdevs.photoncamera.ui.Motion.ENTER.durationMs)
+                            .setInterpolator(com.particlesdevs.photoncamera.ui.Motion.ENTER).start();
+                }
+                for (View v : grown) {
+                    v.setAlpha(0f);
+                    v.setScaleX(.6f);
+                    v.setScaleY(.6f);
+                    v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(com.particlesdevs.photoncamera.ui.Motion.ENTER.durationMs)
+                            .setInterpolator(com.particlesdevs.photoncamera.ui.Motion.ENTER).start();
+                }
+                return true;
+            }
+        });
     }
 
     /**
@@ -136,28 +223,23 @@ public final class TopBar {
      * what it gives; a size this module lacks says why and does nothing.
      */
     public static void openSizeSheet(CameraFragment fragment) {
-        Context c = fragment.getContext();
-        if (c == null) return;
-        CameraSheets.size(c, PhotoSize.current(), PhotoSize.fullAvailable(), PhotoSize.maxAvailable(), size -> {
-            String message = PhotoSize.set(fragment, size);
-            if (message != null) fragment.showSnackBar(message);
-            fragment.refreshTopBar();
-        }, text -> fragment.showSnackBar(text.toString()), PhotoSize::dead);
+        // P574: the combined «Формат | Размер» sheet on its size tab
+        fragment.openFormatChooser(CameraSheets.TAB_SIZE);
     }
 
     /**
-     * An icon button in the shade's style (P495, owner 2026-11-03: «иконки в верхней панели под стиль шторки»): off, a tonal disc
-     * with the icon; on, the pill (or disc) filled with the accent, the icon and the label in its ink - as a changed tile.
+     * P574: a round item of the row (the concept): off, the glyph white on nothing; on, the glyph in the accent on the accent's
+     * tint. The press shows the glyph's pressed pose.
      */
-    private static void button(View box, ImageView icon, @Nullable TextView label, boolean on, int accent, String name) {
+    private static void button(View box, ImageView icon, boolean on, int accent, String name) {
         Context c = box.getContext();
         box.setActivated(on);
         box.setContentDescription(name);
         ViewCompat.setTooltipText(box, name);
-        final int ink = on ? ShadeStyle.onAccent(accent) : ShadeStyle.TEXT;
-        icon.setImageTintList(ColorStateList.valueOf(ink));
-        if (label != null) label.setTextColor(ink);
-        box.setBackground(ShadeStyle.pressable(c, on ? accent : ShadeStyle.TONAL, 0, 999));
+        com.particlesdevs.photoncamera.ui.Icons.mono(icon, on ? accent : ShadeStyle.TEXT);
+        icon.setActivated(on);
+        if (icon.getParent() == box) icon.setDuplicateParentStateEnabled(true);
+        box.setBackground(ShadeStyle.pressable(c, on ? onTint(accent) : 0x00000000, 0, 999));
     }
 
     /** The self-timer in seconds (0: off). */
@@ -175,7 +257,7 @@ public final class TopBar {
         for (int level = 0; level < LEVELS; level++) {
             apply(tb, level);
             if (need(tb) <= width || level == LEVELS - 1) {
-                root.setTag(R.id.topbar_spacer, level);
+                root.setTag(R.id.lut_button, level);
                 return;
             }
         }
@@ -183,18 +265,18 @@ public final class TopBar {
 
     /** The bar's level after the last fit (tests). */
     static int level(LayoutMainTopbarBinding tb) {
-        Object l = tb.getRoot().getTag(R.id.topbar_spacer);
+        Object l = tb.getRoot().getTag(R.id.lut_button);
         return l instanceof Integer ? (Integer) l : 0;
     }
 
-    /** The width the items need at their current sizes (the spacer takes no width). */
+    /** The width the items need at their current sizes. */
     private static int need(LayoutMainTopbarBinding tb) {
         ViewGroup row = (ViewGroup) tb.getRoot();
         int unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
         int sum = row.getPaddingLeft() + row.getPaddingRight();
         for (int i = 0; i < row.getChildCount(); i++) {
             View v = row.getChildAt(i);
-            if (v.getVisibility() == View.GONE || v == tb.topbarSpacer) continue;
+            if (v.getVisibility() == View.GONE) continue;
             ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
             int ws = lp.width >= 0 ? View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY) : unspecified;
             v.measure(ws, View.MeasureSpec.makeMeasureSpec(row.getHeight() > 0 ? row.getHeight() : 1000, View.MeasureSpec.AT_MOST));
@@ -203,42 +285,33 @@ public final class TopBar {
         return sum;
     }
 
+    /** The first visible item of the row (it takes no gap before it). */
+    @Nullable
+    private static View first(LayoutMainTopbarBinding tb) {
+        ViewGroup row = (ViewGroup) tb.getRoot();
+        for (int i = 0; i < row.getChildCount(); i++) if (row.getChildAt(i).getVisibility() != View.GONE) return row.getChildAt(i);
+        return null;
+    }
+
     private static void apply(LayoutMainTopbarBinding tb, int level) {
         Context c = tb.getRoot().getContext();
-        // the concept's .topbar / .tight / .tighter / .tightest
-        float pad = level >= 3 ? 5 : level >= 2 ? 6 : level >= 1 ? 8 : 10, gap = level >= 3 ? 0 : level >= 2 ? 2 : 4;
-        int height = UiScale.dp(c, 44), circle = UiScale.dp(c, level >= 3 ? 33 : level >= 2 ? 36 : level >= 1 ? 40 : 44);
-        for (View b : new View[]{tb.torchButton, tb.timerButton, tb.motionModeButton}) {
-            TextView label = b == tb.torchButton ? tb.torchLabel : b == tb.motionModeButton ? tb.motionLabel : null;
-            boolean pill = label != null && b.isActivated() && level < 1;
-            if (label != null) {
-                label.setVisibility(pill ? View.VISIBLE : View.GONE);
-                UiScale.textFixed(label, 13);
-            }
-            ViewGroup.LayoutParams lp = b.getLayoutParams();
-            // a pill with its label, or a circle (round while on; off it has no background, only its width counts)
-            lp.width = pill ? ViewGroup.LayoutParams.WRAP_CONTENT : circle;
-            lp.height = pill ? height : circle;
-            b.setLayoutParams(lp);
-            if (b != tb.timerButton) {
-                int p = pill ? UiScale.dp(c, 10) : 0;
-                b.setPaddingRelative(p, 0, p, 0);
-            }
-        }
-        for (View v : new View[]{tb.timerButton, tb.motionModeButton, tb.topbarBadges, tb.settingsButton}) {
+        ViewGroup row = (ViewGroup) tb.getRoot();
+        View lead = first(tb);
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View v = row.getChildAt(i);
             ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
-            lp.setMarginStart(UiScale.dp(c, gap));
+            lp.setMarginStart(v == lead ? 0 : UiScale.dp(c, GAPS[level]));
             v.setLayoutParams(lp);
         }
         int rowPad = UiScale.dp(c, level >= 3 ? 4 : level >= 2 ? 6 : 10);
-        tb.getRoot().setPaddingRelative(rowPad, 0, rowPad, 0);
+        row.setPaddingRelative(rowPad, 0, rowPad, 0);
         String format = String.valueOf(tb.formatBadge.getTag(R.id.format_badge));
         tb.formatBadge.setText(level >= 2 ? format.replace(" + ", "+") : format);
-        for (TextView t : new TextView[]{tb.formatBadge, tb.sizeBadge, tb.dcgBadge}) {
-            int p = UiScale.dp(c, pad);
-            t.setPaddingRelative(p, 0, p, 0);
-            UiScale.textFixed(t, level >= 3 ? 12 : 13);
-        }
+        // the concept: a format longer than five letters a little smaller
+        float formatSp = (format.length() > 5 ? 11.5f : 13f) - (level >= 3 ? 1f : 0f);
+        UiScale.textFixed(tb.formatBadge, formatSp);
+        UiScale.textFixed(tb.sizeBadge, level >= 3 ? 8.5f : 9f);
+        UiScale.textFixed(tb.dcgBadge, level >= 3 ? 12f : 13f);
         UiScale.textFixed(tb.timerBadge, 10);
     }
 

@@ -100,6 +100,54 @@ public class CameraSheetsTest {
         render(sheet.getRootView(), "size-sheet.png");
     }
 
+    /**
+     * P574 (the approved concept): the top row's badge opens one sheet - «Формат | Размер» tabs over the format's choices or the
+     * size rows; a size row ticks the chosen size (no radio circle), a pick stays in the sheet and the tick follows the camera.
+     */
+    @Test
+    public void theFormatAndSizeSheetHasTwoTabsAndTicksTheSize() throws Exception {
+        AppCompatActivity activity = Robolectric.buildActivity(AppCompatActivity.class).setup().get();
+        activity.setTheme(R.style.Theme_Scamera_SettingsActivity);
+        List<FormatChoice> stored = new ArrayList<>();
+        int[] size = {PhotoSize.NORMAL};
+        List<Integer> picked = new ArrayList<>();
+        BottomSheetDialog d = CameraSheets.formatAndSize(activity, Arrays.asList(FormatChoice.values()), FormatChoice.JPEG, PhotoFormat.JPEG,
+                stored::add, new CameraSheets.SizeSource() {
+                    @Override public int current() { return size[0]; }
+                    @Override public boolean full() { return true; }
+                    @Override public boolean max() { return true; }
+                    @Override public void pick(int s) { picked.add(s); size[0] = s; }
+                }, CameraSheets.TAB_FORMAT);
+        View root = d.findViewById(android.R.id.content);
+        ViewGroup tabs = root.findViewWithTag("format_size_tabs");
+        assertEquals(2, tabs.getChildCount());
+        View format = root.findViewWithTag("format_sheet"), sizes = root.findViewWithTag("size_page");
+        assertEquals(View.VISIBLE, format.getVisibility());
+        assertEquals(View.GONE, sizes.getVisibility());
+        tabs.getChildAt(1).performClick();
+        assertEquals(View.GONE, format.getVisibility());
+        assertEquals(View.VISIBLE, sizes.getVisibility());
+        org.robolectric.shadows.ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(1f, sizes.getAlpha(), 0f);
+        // a tap on the shown tab: no new page (no fade from nothing again)
+        tabs.getChildAt(1).performClick();
+        assertEquals("a new page would start from alpha 0", 1f, sizes.getAlpha(), 0f);
+        ViewGroup normal = root.findViewWithTag("size_" + PhotoSize.NORMAL), full = root.findViewWithTag("size_" + PhotoSize.FULL);
+        // TalkBack hears the row's subtitle too (why a size is unavailable, what it saves)
+        ViewGroup fullTexts = (ViewGroup) full.getChildAt(0);
+        assertEquals(((android.widget.TextView) fullTexts.getChildAt(0)).getText() + ", " + ((android.widget.TextView) fullTexts.getChildAt(1)).getText(),
+                full.getContentDescription().toString());
+        assertTrue("the chosen size is ticked", normal.isSelected());
+        assertEquals(View.VISIBLE, normal.getChildAt(normal.getChildCount() - 1).getVisibility());
+        assertEquals("no tick on the others", View.INVISIBLE, full.getChildAt(full.getChildCount() - 1).getVisibility());
+        full.performClick();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        assertEquals(Arrays.asList(PhotoSize.FULL), picked);
+        assertTrue("a pick keeps the sheet", d.isShowing());
+        assertTrue("the tick follows", ((View) root.findViewWithTag("size_" + PhotoSize.FULL)).isSelected());
+        render(root.getRootView(), "format-size-sheet.png");
+    }
+
     private static void render(View root, String name) throws Exception {
         int w = root.getWidth() > 0 ? root.getWidth() : 1080, h = root.getHeight() > 0 ? root.getHeight() : 2400;
         root.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));

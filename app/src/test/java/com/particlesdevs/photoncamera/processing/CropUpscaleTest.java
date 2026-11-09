@@ -20,7 +20,9 @@ public class CropUpscaleTest {
 
     @Test public void theSwitchBringsTheCropToThePhotoSize() throws Exception {
         String s = src("src/main/java/com/particlesdevs/photoncamera/processing/processor/ScamProcessor.java");
-        int target = s.indexOf("final Point cropTarget = img != null && zoomCrop > 1.005f && PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;");
+        // P576: a crop shot cut to its window (SabreCrop) takes its plan's photo size; the whole-frame crop as before
+        int target = s.indexOf("final Point cropTarget = img == null || !(zoomCrop > 1.005f) ? null : window != null ? SabreCrop.target(img.getWidth(), img.getHeight(), window)");
+        assertTrue(s.indexOf(": PreferenceKeys.cropUpscale() ? photoSize(img, hybridFinal) : null;", target) > target);
         int resize = s.indexOf("if (img != null && cropTarget == null && hybridFinal != null");
         int crop = s.indexOf("img = com.particlesdevs.photoncamera.control.ZoomController.crop(img, zoomCrop);");
         int scale = s.indexOf("ScamPostDownscale.scaleTo(img, cropTarget.x, cropTarget.y)");

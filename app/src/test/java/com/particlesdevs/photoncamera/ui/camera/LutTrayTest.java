@@ -121,16 +121,65 @@ public class LutTrayTest {
         tray.setOpen(true);
         assertTrue("opening the tray closes Pro", proClosed[0]);
         ViewGroup strengthRow = box.findViewWithTag("lut_tray_strength");
-        android.widget.SeekBar seek = (android.widget.SeekBar) strengthRow.getChildAt(1);
-        assertEquals(100, seek.getProgress());
+        com.particlesdevs.photoncamera.ui.controls.IosSlider seek = (com.particlesdevs.photoncamera.ui.controls.IosSlider) strengthRow.getChildAt(1);
+        assertEquals(100f, seek.getValue(), 0f);
         assertEquals("100 %", ((TextView) strengthRow.getChildAt(2)).getText().toString());
         // a user's move writes the settings' strength
-        shadowOf(seek).getOnSeekBarChangeListener().onProgressChanged(seek, 40, true);
+        seek.setValueFromUser(40);
         assertEquals(.4f, PreferenceKeys.filmLutStrength(), 1e-6f);
         // choosing a LUT at strength 0 brings the strength back to 100 %
         manager.set(SettingsManager.SCOPE_GLOBAL, FilmLut.STRENGTH_KEY, "0");
         tray.step(1);
         assertEquals(1f, PreferenceKeys.filmLutStrength(), 1e-6f);
+    }
+
+    /**
+     * P574 (the approved concept): the top row's LUT button is a round icon with no name; white with nothing on, the accent with a
+     * LUT on, on the accent's tint while open; its description names the LUT. The tray keeps its place (no margin from the button).
+     */
+    @Test
+    public void theTopRowButtonIsARoundIcon() {
+        TextView button = new TextView(context);
+        LinearLayout box = new LinearLayout(context);
+        FrameLayout root = new FrameLayout(context);
+        root.addView(button, new FrameLayout.LayoutParams(100, 100));
+        root.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LutTray tray = new LutTray(button, box, null, () -> { }, true);
+        assertEquals("no name on the button", "", button.getText().toString());
+        assertTrue(button.getContentDescription().toString().startsWith("LUT"));
+        button.performClick();
+        assertTrue(tray.isOpen());
+        assertTrue(button.isActivated());
+        assertEquals(0, ((ViewGroup.MarginLayoutParams) box.getLayoutParams()).bottomMargin);
+        ViewGroup row = box.findViewWithTag("lut_tray_luts");
+        row.getChildAt(4).performClick();
+        assertEquals("", button.getText().toString());
+        assertTrue(button.getContentDescription().toString().contains("Кино 500"));
+        tray.setOpen(false);
+        settle();
+        assertFalse(button.isActivated());
+    }
+
+    /** P574: the strength's double tap is the slider's own default (the settings' 100 %), written at once. */
+    @Test
+    public void theStrengthsDefaultIsTheSettings100() {
+        TextView pill = new TextView(context);
+        LinearLayout box = new LinearLayout(context);
+        LutTray tray = tray(pill, box);
+        tray.setOpen(true);
+        com.particlesdevs.photoncamera.ui.controls.IosSlider seek =
+                (com.particlesdevs.photoncamera.ui.controls.IosSlider) ((ViewGroup) box.findViewWithTag("lut_tray_strength")).getChildAt(1);
+        seek.setValueFromUser(30);
+        assertEquals(.3f, PreferenceKeys.filmLutStrength(), 1e-6f);
+        assertEquals("30 %", ((TextView) ((ViewGroup) box.findViewWithTag("lut_tray_strength")).getChildAt(2)).getText().toString());
+        // the warmth: -100 .. 100 around its default 0, written as the settings page writes it
+        com.particlesdevs.photoncamera.ui.controls.IosSlider warmth =
+                (com.particlesdevs.photoncamera.ui.controls.IosSlider) ((ViewGroup) box.findViewWithTag("lut_tray_warmth")).getChildAt(1);
+        assertEquals(-100f, warmth.getMin(), 0f);
+        assertEquals(100f, warmth.getMax(), 0f);
+        warmth.setValueFromUser(-25);
+        assertEquals(-25, LutTray.colourValue(LutTray.WARMTH_KEY));
+        assertEquals("-25", ((TextView) ((ViewGroup) box.findViewWithTag("lut_tray_warmth")).getChildAt(2)).getText().toString());
     }
 
     /** P228: the lens filters' row under the strength; a card is the settings' filter, the pill names it after the LUT. */
@@ -196,22 +245,19 @@ public class LutTrayTest {
         assertEquals(View.VISIBLE, adjust.getVisibility());
         for (String p : new String[]{"strength", "grain", "halation", "softness", "exposure", "contrast", "print"})
             assertNotNull(p, box.findViewWithTag("lut_tray_film_adjust_param_" + p));
-        android.widget.SeekBar seek = box.findViewWithTag("lut_tray_film_adjust_seek");
-        assertEquals("the strength first: 0..100 at 100", 100, seek.getMax());
-        assertEquals(100, seek.getProgress());
+        com.particlesdevs.photoncamera.ui.controls.IosSlider seek = box.findViewWithTag("lut_tray_film_adjust_seek");
+        assertEquals("the strength first: 0..100 at 100", 100f, seek.getMax(), 0f);
+        assertEquals(100f, seek.getValue(), 0f);
         box.findViewWithTag("lut_tray_film_adjust_param_grain").performClick();
-        assertEquals(200, seek.getMax());
-        assertEquals(0, seek.getProgress());
-        seek.setProgress(150);
-        shadowOf(seek).getOnSeekBarChangeListener().onProgressChanged(seek, 150, true);
-        shadowOf(seek).getOnSeekBarChangeListener().onStopTrackingTouch(seek);
+        assertEquals(200f, seek.getMax(), 0f);
+        assertEquals(0f, seek.getValue(), 0f);
+        seek.setValueFromUser(150);   // P574: a user's choice, as the finger's release writes it
         assertEquals("150", manager.getString(SettingsManager.SCOPE_GLOBAL, com.particlesdevs.photoncamera.processing.color.FilmSim.GRAIN_KEY, ""));
         assertEquals("150 %", ((TextView) box.findViewWithTag("lut_tray_film_adjust_value")).getText().toString());
         box.findViewWithTag("lut_tray_film_adjust_param_exposure").performClick();
-        assertEquals("-2 .. +2 EV in 0.1", 40, seek.getMax());
-        seek.setProgress(25);
-        shadowOf(seek).getOnSeekBarChangeListener().onProgressChanged(seek, 25, true);
-        shadowOf(seek).getOnSeekBarChangeListener().onStopTrackingTouch(seek);
+        assertEquals("-2 .. +2 EV", -2f, seek.getMin(), 1e-6f);
+        assertEquals("-2 .. +2 EV", 2f, seek.getMax(), 1e-6f);
+        seek.setValueFromUser(.5f);   // in 0.1
         assertEquals("0.50", manager.getString(SettingsManager.SCOPE_GLOBAL, com.particlesdevs.photoncamera.processing.color.FilmSim.EXPOSURE_KEY, ""));
         assertEquals("+0.5 EV", ((TextView) box.findViewWithTag("lut_tray_film_adjust_value")).getText().toString());
         // a slide is not printed
@@ -237,15 +283,15 @@ public class LutTrayTest {
         assertEquals(View.GONE, adjust.getVisibility());
         box.findViewWithTag("lut_tray_filter_bpm").performClick();
         assertEquals(View.VISIBLE, adjust.getVisibility());
-        android.widget.SeekBar seek = box.findViewWithTag("lut_tray_filter_adjust_seek");
-        assertEquals("the strength at its 50 %", 50, seek.getProgress());
-        shadowOf(seek).getOnSeekBarChangeListener().onProgressChanged(seek, 80, true);
+        com.particlesdevs.photoncamera.ui.controls.IosSlider seek = box.findViewWithTag("lut_tray_filter_adjust_seek");
+        assertEquals("the strength at its 50 %", 50f, seek.getValue(), 0f);
+        seek.setValueFromUser(80);
         assertEquals("written as it moves", .8f, PreferenceKeys.lensFilterStrength(), 1e-6f);
         View radius = box.findViewWithTag("lut_tray_filter_adjust_param_tune_" + com.particlesdevs.photoncamera.processing.color.LensFilters.T_RADIUS);
         assertNotNull("Black Pro-Mist's fine controls", radius);
         radius.performClick();
-        assertEquals(50, seek.getProgress());
-        shadowOf(seek).getOnSeekBarChangeListener().onProgressChanged(seek, 70, true);
+        assertEquals(50f, seek.getValue(), 0f);
+        seek.setValueFromUser(70);
         assertEquals(.7f, PreferenceKeys.lensFilterTune("bpm").radius, 1e-6f);
         assertEquals("the other controls as designed", .5f, PreferenceKeys.lensFilterTune("bpm").knee, 1e-6f);
     }
@@ -293,7 +339,7 @@ public class LutTrayTest {
         box.findViewWithTag("lut_tray_film_kodak_portra_400").performClick();
         settle();
         View choices = box.findViewWithTag("lut_tray_film_adjust_choices");
-        android.widget.SeekBar seek = box.findViewWithTag("lut_tray_film_adjust_seek");
+        com.particlesdevs.photoncamera.ui.controls.IosSlider seek = box.findViewWithTag("lut_tray_film_adjust_seek");
         View sliderRow = (View) seek.getParent();
         assertEquals("the strength's slider first", View.GONE, choices.getVisibility());
         final int sliderHeight = height(box);
@@ -337,7 +383,7 @@ public class LutTrayTest {
         settle();
         assertEquals(View.GONE, choices.getVisibility());
         assertEquals(View.VISIBLE, sliderRow.getVisibility());
-        assertEquals(200, seek.getMax());
+        assertEquals(200f, seek.getMax(), 0f);
         // a choice chosen last stays chosen for another stock, at that stock's value
         box.findViewWithTag("lut_tray_film_adjust_param_paper").performClick();
         box.findViewWithTag("lut_tray_film_kodak_vision3_500t").performClick();
@@ -376,7 +422,7 @@ public class LutTrayTest {
         settle();
         final int sliderHeight = height(box);
         View choices = box.findViewWithTag("lut_tray_film_adjust_choices");
-        android.widget.SeekBar seek = box.findViewWithTag("lut_tray_film_adjust_seek");
+        com.particlesdevs.photoncamera.ui.controls.IosSlider seek = box.findViewWithTag("lut_tray_film_adjust_seek");
         TextView value = box.findViewWithTag("lut_tray_film_adjust_value");
         // «Диффузия»: none by default, the four families in spektrafilm's order
         TextView diffusion = box.findViewWithTag("lut_tray_film_adjust_param_diffusion");
@@ -400,8 +446,8 @@ public class LutTrayTest {
         box.findViewWithTag("lut_tray_film_adjust_param_diffusion_strength").performClick();
         settle();
         assertEquals(View.GONE, choices.getVisibility());
-        assertEquals(40, seek.getMax());
-        assertEquals(10, seek.getProgress());
+        assertEquals(2f, seek.getMax(), 1e-6f);
+        assertEquals(.5f, seek.getValue(), 1e-6f);
         assertEquals("0.50", value.getText().toString());
         TrayAdjust.Param grade = null, dir = null;
         for (TrayAdjust.Param p : LutTray.filmParams(context, FilmSim.stock("kodak_portra_160"))) {
@@ -419,8 +465,8 @@ public class LutTrayTest {
         assertEquals("Цветоразделение (DIR)", couplers.getText().toString());
         couplers.performClick();
         settle();
-        assertEquals(100, seek.getMax());
-        assertEquals(0, seek.getProgress());
+        assertEquals(100f, seek.getMax(), 0f);
+        assertEquals(0f, seek.getValue(), 0f);
         assertEquals("0 %", value.getText().toString());
         assertNotNull(dir);
         dir.write.accept(0f);
@@ -561,7 +607,7 @@ public class LutTrayTest {
                 default:
                     assertEquals(0, LutTray.colourValue(LutTray.WARMTH_KEY));
                     assertEquals(0, LutTray.colourValue(LutTray.TINT_KEY));
-                    assertEquals(100, ((android.widget.SeekBar) ((ViewGroup) box.findViewWithTag("lut_tray_warmth")).getChildAt(1)).getProgress());
+                    assertEquals(0f, ((com.particlesdevs.photoncamera.ui.controls.IosSlider) ((ViewGroup) box.findViewWithTag("lut_tray_warmth")).getChildAt(1)).getValue(), 0f);
             }
         }
         assertEquals("kept", manager.getString(g, "pref_film_sim_probe_other", ""));
@@ -674,10 +720,6 @@ public class LutTrayTest {
     /** The tray's and the pill's animations run to their end (Robolectric's paused main looper). */
     private static void settle() {
         org.robolectric.shadows.ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS);
-    }
-
-    private static org.robolectric.shadows.ShadowSeekBar shadowOf(android.widget.SeekBar seek) {
-        return org.robolectric.Shadows.shadowOf(seek);
     }
 
     /**

@@ -6,10 +6,26 @@
     <color name="settings_text">#FFF4F3F7</color>
     <color name="settings_muted">#FFB2BAC9</color>
     <!-- P139: a row's description, a step dimmer than settings_muted; titles are medium weight (UiTokens.SUMMARY / title) -->
-    <color name="settings_summary">#FF959EAD</color>
+    <color name="settings_summary">#99FFFFFF</color>
     <color name="settings_line">#FF30363C</color>
     <!-- P384: the rows of an open module card, a step lighter than the card (SettingsStyle.CARD_NESTED) -->
-    <color name="settings_card_nested">#FF1F2528</color>
+    <color name="settings_card_nested">#FF3A3A3C</color>
+    <!-- P574 (owner, 2026-11-09: the settings in the look of the camera's own sheets): the page, its group cards, the 0.5dp
+         hairlines between rows, a row's title, its value and chevrons, the section titles (SettingsStyle.PAGE ... CHEVRON) -->
+    <color name="settings_page">#FF1C1C1E</color>
+    <color name="settings_row_card">#FF2C2C2E</color>
+    <color name="settings_hairline">#A6545458</color>
+    <color name="settings_row_title">#FFFFFFFF</color>
+    <color name="settings_row_value">#8CFFFFFF</color>
+    <color name="settings_section">#8CFFFFFF</color>
+    <color name="settings_chevron">#59FFFFFF</color>
+    <color name="settings_range">#66FFFFFF</color>
+    <!-- P574: the alert dialogs in the same look - the card #2C2C2E (the rows' colour), the body text white 70 %, a field on it
+         #3A3A3C, the quiet capsule button rgba(118, 118, 128, .3) -->
+    <color name="dialog_card">#FF2C2C2E</color>
+    <color name="dialog_body">#B3FFFFFF</color>
+    <color name="dialog_field_fill">#FF3A3A3C</color>
+    <color name="dialog_quiet_fill">#4D767680</color>
     <color name="settings_field">#FF121417</color>
     <color name="settings_sheet">#FF202428</color>
     <color name="settings_warn">#FFFFB4A8</color>
@@ -17,9 +33,9 @@
     <color name="settings_ink">#FF17141F</color>
     <!-- the press ripple of a dialog's rows and quiet buttons on the card -->
     <color name="settings_ripple">#1FFFFFFF</color>
-    <!-- The alert dialogs (DialogStyle, AlertDialogTheme): 24dp corners, the card 16dp inside the window's sides (26dp from
-         a 392dp screen's edge at the window's 95 %) and 24dp above and below. -->
-    <dimen name="dialog_radius">24dp</dimen>
+    <!-- The alert dialogs (DialogStyle, AlertDialogTheme): P574 30dp corners (the concept's alert; was 24dp), the card 16dp
+         inside the window's sides (26dp from a 392dp screen's edge at the window's 95 %) and 24dp above and below. -->
+    <dimen name="dialog_radius">30dp</dimen>
     <dimen name="dialog_inset_horizontal">16dp</dimen>
     <dimen name="dialog_inset_vertical">24dp</dimen>
     <dimen name="settings_card_radius">12dp</dimen>

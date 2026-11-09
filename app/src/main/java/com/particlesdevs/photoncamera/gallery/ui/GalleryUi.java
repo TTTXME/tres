@@ -29,14 +29,23 @@ import java.util.Locale;
  * P59b: the gallery in the SCAMERA card style (owner's GALLERY_TASK.md, concept "SCAMERA Gallery Concept"): the tokens of
  * the settings / shade / manual controls (UiTokens through SettingsStyle) and the pieces every gallery screen is built from.
  * Texts in ru / en (Lang). Built in code like the settings screens; the data and file logic stay where they were.
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the tokens and pieces of the
+ * camera's and the settings' new look - the #1C1C1E page and sheets, #2C2C2E cards with 24dp corners and 0.5dp hairlines, white
+ * titles, secondary text at 60 % white, 12sp section captions, round 40dp buttons, dark bars over photos with a light edge, capsule
+ * buttons (accent / grey / red), the shared switch, slider and segmented control.
  */
 public final class GalleryUi {
     private GalleryUi() {}
 
-    public static final int BG = SettingsStyle.BG, CARD = SettingsStyle.CARD, LINE = SettingsStyle.LINE, TEXT = SettingsStyle.TEXT,
-            MUTED = SettingsStyle.MUTED, SHEET = SettingsStyle.SHEET, WARN = SettingsStyle.WARN, INK = SettingsStyle.INK;
-    /** Dark backing of the thumbnail badges and the floating pills over a photo. */
-    public static final int SCRIM = 0xE60D0F12, PILL_BG = 0xCC0D0F12;
+    /** P579: the page and sheet (#1C1C1E), a card or row (#2C2C2E), the hairline, white text, 60 % white, the red. */
+    public static final int BG = SettingsStyle.PAGE, CARD = SettingsStyle.ROW, LINE = SettingsStyle.HAIRLINE, TEXT = 0xFFFFFFFF,
+            MUTED = SettingsStyle.SUMMARY, SHEET = SettingsStyle.PAGE, WARN = SettingsStyle.RED, INK = SettingsStyle.INK;
+    /** P579: a section caption (55 % white), the grey capsule of a secondary button, the light edge of a bar over a photo. */
+    public static final int SECTION = SettingsStyle.SECTION, CAPSULE = 0xFF2C2C2E, EDGE = 0x29FFFFFF;
+    /** P579: a dark bar over a photo (rgba(20, 20, 22, .9)), the thumbnail badges and the floating pills over a photo. */
+    public static final int BAR = 0xE6141416, SCRIM = 0xD9141416, PILL_BG = BAR;
+    /** P579: a list row's minimum height (dp). */
+    public static final int ROW_MIN = 52;
 
     public static int dp(Context c, float v) { return SettingsStyle.dp(c, v); }
 
@@ -50,10 +59,31 @@ public final class GalleryUi {
         return Math.max(1, Math.round(widthDp / 420f));
     }
 
-    public static int accent(Context c) { return SettingsStyle.accent(c); }
+    /**
+     * P579 (owner, 2026-11-09: «Цвет пускай будет зависеть от темы смартфона, как и остальной интерфейс»): the gallery takes the
+     * accent the camera, its shade and the settings use (AccentPalette.camera: the phone's Material You colour, else the chosen
+     * accent, else the camera's yellow). It was AccentPalette.color, which differs only before Android 12 with no accent chosen
+     * (lavender there): the gallery read differently from the camera it opens from.
+     */
+    public static int accent(Context c) { return com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(c); }
 
+    /** P579: a card - the fill with {@code radius} corners, no outline (the concept's grouped cards have none). */
     public static GradientDrawable card(Context c, int fill, float radius) {
-        return SettingsStyle.shape(c, fill, LINE, radius);
+        return SettingsStyle.shape(c, fill, 0, radius);
+    }
+
+    /** P579: a dark bar or card over a photo or the grid: {@link #BAR}, the 0.5dp light edge, {@code radius} corners. */
+    public static GradientDrawable bar(Context c, float radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(BAR);
+        g.setStroke(Math.max(1, dp(c, .5f)), EDGE);
+        g.setCornerRadius(dp(c, radius));
+        return g;
+    }
+
+    /** P579: a semibold face (600), as the settings' titles. */
+    public static Typeface semibold() {
+        return SettingsStyle.semibold();
     }
 
     public static GradientDrawable round(Context c, int fill, int stroke, float radius) {
@@ -87,32 +117,35 @@ public final class GalleryUi {
 
     public static ImageView icon(Context c, @DrawableRes int res, int color, int sizeDp) {
         ImageView v = new ImageView(c);
-        v.setImageResource(res);
-        v.setImageTintList(ColorStateList.valueOf(color));
+        com.particlesdevs.photoncamera.ui.Icons.set(v, res, color); // P570: a colour icon keeps its colours
         v.setScaleType(ImageView.ScaleType.FIT_CENTER);
         v.setLayoutParams(new LinearLayout.LayoutParams(dp(c, sizeDp), dp(c, sizeDp)));
         return v;
     }
 
-    /** A 44dp square card button with an accent icon (header and viewer buttons). */
+    /**
+     * The header's and the pages' round button; P579: the concept's 40dp #2C2C2E disc with a white line icon (it was a 44dp square
+     * card with an accent icon).
+     */
     public static FrameLayout squareButton(Context c, @DrawableRes int res, String description, View.OnClickListener click) {
         FrameLayout b = new FrameLayout(c);
-        b.setBackground(pressable(card(c, CARD, 16)));
         b.setContentDescription(description);
         b.setFocusable(true);
         b.setClickable(true);
         b.setOnClickListener(click);
         b.setTooltipText(description);
-        ImageView i = icon(c, res, accent(c), 22);
+        ImageView i = icon(c, res, TEXT, 22);
         b.addView(i, new FrameLayout.LayoutParams(dp(c, 22), dp(c, 22), Gravity.CENTER));
-        b.setLayoutParams(new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44)));
+        b.setLayoutParams(new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40)));
+        disc(b);
         com.particlesdevs.photoncamera.ui.Motion.press(b); // P498: gives under the finger as the shade's controls
         return b;
     }
 
     /**
-     * An action of the selection bar and of the viewer's button card: the accent icon above a short muted label, every
-     * button the same height; {@code warn} draws the icon in the warning colour.
+     * An action of the selection bar and of the viewer's button card: the icon above a short label, every button the same height;
+     * {@code warn} draws both in the red. P579: a white line icon (tonal mono for a colour icon) and a 60 % white label, the
+     * camera's bars' look (the icons were in the accent).
      */
     public static LinearLayout actionButton(Context c, @DrawableRes int res, String label, boolean warn, View.OnClickListener click) {
         LinearLayout b = new LinearLayout(c);
@@ -120,14 +153,17 @@ public final class GalleryUi {
         b.setGravity(Gravity.CENTER);
         b.setPadding(0, dp(c, 8), 0, dp(c, 8));
         b.setMinimumHeight(dp(c, 52));
-        b.setBackground(pressable(round(c, Color.TRANSPARENT, Color.TRANSPARENT, 14)));
+        b.setBackground(pressable(round(c, Color.TRANSPARENT, Color.TRANSPARENT, 16)));
         b.setClickable(true);
         b.setFocusable(true);
         b.setOnClickListener(click);
         b.setContentDescription(label);
-        ImageView i = icon(c, res, warn ? WARN : accent(c), 22);
-        b.addView(i);
-        TextView t = fitText(c, label, 11, MUTED);
+        ImageView i = new ImageView(c);
+        com.particlesdevs.photoncamera.ui.Icons.ink(i, res, warn ? WARN : TEXT);
+        i.setImageResource(res);
+        i.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        b.addView(i, new LinearLayout.LayoutParams(dp(c, 22), dp(c, 22)));
+        TextView t = fitText(c, label, 11, warn ? WARN : MUTED);
         t.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(c, 3);
@@ -141,16 +177,18 @@ public final class GalleryUi {
         v.setAlpha(enabled ? 1f : .35f);
     }
 
-    /** A folder chip «SCAMERA 128»: at least 40dp tall; the active one filled with the accent. */
+    /**
+     * A folder or filter chip «SCAMERA 128»: at least 36dp tall. P579: a #2C2C2E capsule with white text, the active one the accent
+     * capsule with dark ink (the concept's primary capsule), no outline.
+     */
     public static TextView chip(Context c, String name, int count, boolean active) {
-        int accent = accent(c);
         TextView t = new TextView(c);
         UiTokens.setTextSp(t, 15);
         t.setSingleLine(true);
         t.setEllipsize(null);
-        t.setMinHeight(dp(c, 40));
+        t.setMinHeight(dp(c, 36));
         t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setPadding(dp(c, 16), dp(c, 8), dp(c, 16), dp(c, 8));
+        t.setPadding(dp(c, 14), dp(c, 6), dp(c, 14), dp(c, 6));
         android.text.SpannableStringBuilder s = new android.text.SpannableStringBuilder(name);
         if (count >= 0) {
             int start = s.length();
@@ -158,39 +196,121 @@ public final class GalleryUi {
             s.setSpan(new android.text.style.RelativeSizeSpan(.8f), start, s.length(), 0);
         }
         t.setText(s);
-        t.setTextColor(active ? INK : MUTED);
-        t.setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        t.setBackground(pressable(round(c, active ? accent : CARD, active ? accent : LINE, 999)));
-        t.setSelected(active);
+        paintChip(t, active);
         t.setClickable(true);
         t.setFocusable(true);
         return t;
     }
 
-    /** A rounded pill over a photo (zoom «250 %», mini EXIF), dark backing. */
+    /** P579: a chip's look on or off (the accent capsule with dark ink / the grey one with white text). */
+    public static void paintChip(TextView t, boolean active) {
+        Context c = t.getContext();
+        int accent = accent(c);
+        t.setTextColor(active ? INK : TEXT);
+        t.setTypeface(active ? semibold() : Typeface.DEFAULT);
+        t.setBackground(pressable(round(c, active ? accent : CARD, 0, 999)));
+        t.setSelected(active);
+    }
+
+    /** A rounded pill over a photo (zoom «250 %», mini EXIF): P579, the dark bar with its light edge. */
     public static TextView pill(Context c, String value, boolean accentText) {
         TextView t = text(c, value, 12.5f, accentText ? accent(c) : TEXT);
         t.setPadding(dp(c, 12), dp(c, 6), dp(c, 12), dp(c, 6));
-        t.setBackground(round(c, PILL_BG, LINE, 999));
+        t.setBackground(bar(c, 999));
         t.setGravity(Gravity.CENTER);
-        if (accentText) t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTypeface(semibold());
         return t;
+    }
+
+    /**
+     * P579: a capsule button - {@link #PRIMARY} the accent with dark ink, {@link #SECONDARY} grey with white text, {@link #DESTRUCTIVE}
+     * grey with the red text (the concept's alert and sheet buttons); 46dp tall, 16sp semibold.
+     */
+    public static TextView capsule(Context c, String label, int kind) {
+        int accent = accent(c);
+        TextView b = text(c, label, 16, kind == PRIMARY ? INK : kind == DESTRUCTIVE ? WARN : TEXT);
+        b.setGravity(Gravity.CENTER);
+        b.setTypeface(semibold());
+        b.setMaxLines(1);
+        b.setEllipsize(TextUtils.TruncateAt.END);
+        b.setMinHeight(dp(c, 46));
+        b.setPadding(dp(c, 16), 0, dp(c, 16), 0);
+        b.setBackground(pressable(round(c, kind == PRIMARY ? accent : kind == DESTRUCTIVE ? 0x2EFF453A : CAPSULE, 0, 999)));
+        b.setClickable(true);
+        b.setFocusable(true);
+        com.particlesdevs.photoncamera.ui.Motion.press(b);
+        return b;
+    }
+
+    public static final int PRIMARY = 0, SECONDARY = 1, DESTRUCTIVE = 2;
+
+    /**
+     * P579: a group of rows - one #2C2C2E card with 24dp corners, its rows parted by 0.5dp hairlines that start at {@code insetDp}
+     * (the text of the rows, past their icon). Rows added to it take its corners (clipped to its outline).
+     */
+    public static LinearLayout group(Context c, float insetDp) {
+        LinearLayout l = new LinearLayout(c);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setBackground(card(c, CARD, 24));
+        l.setClipToOutline(true);
+        l.setDividerDrawable(hairline(c, insetDp));
+        l.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+        return l;
+    }
+
+    /** The hairline between the rows of a group: 0.5dp, {@code insetDp} from the start (mirrored right to left). */
+    public static android.graphics.drawable.Drawable hairline(Context c, float insetDp) {
+        GradientDrawable line = new GradientDrawable();
+        line.setColor(LINE);
+        line.setSize(1, Math.max(1, dp(c, .5f)));
+        android.graphics.drawable.LayerDrawable d = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{line});
+        d.setLayerInsetRelative(0, dp(c, insetDp), 0, 0, 0);
+        return d;
+    }
+
+    /**
+     * P579: the shared segmented control (a grey thumb gliding to the chosen segment, its label in the accent), as the camera's
+     * sheets build it; segments tagged {@code seg_i}; {@code pick} hears a tap's index.
+     */
+    public static com.particlesdevs.photoncamera.ui.controls.IosSegmented segmented(Context c, CharSequence[] labels, int selected,
+                                                                                java.util.function.IntConsumer pick) {
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented seg = new com.particlesdevs.photoncamera.ui.controls.IosSegmented(c);
+        seg.setColours(accent(c), 0x3D767680, 0xFF636366);
+        seg.setItems(labels);
+        for (int i = 0; i < seg.getChildCount(); i++) {
+            seg.getChildAt(i).setTag("seg_" + i);
+            ((TextView) seg.getChildAt(i)).setMinHeight(dp(c, 36));
+        }
+        seg.setSelected(selected, false);
+        seg.setListener((s, index) -> pick.accept(index));
+        return seg;
+    }
+
+    /** P579: the chosen row's trailing tick in the accent (rows of a choice instead of radio circles); not chosen keeps its room. */
+    public static ImageView tick(Context c, boolean on) {
+        ImageView v = new ImageView(c);
+        v.setImageResource(com.particlesdevs.photoncamera.R.drawable.ios_menu_check);
+        v.setColorFilter(accent(c));
+        v.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+        v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(c, 20), dp(c, 20)));
+        return v;
     }
 
     /** P498: the header with several discs at the right (8dp apart). */
     public static FrameLayout header(Context c, String title, View left, View... rights) {
-        if (rights.length <= 1) return header(c, title, left, rights.length == 1 ? rights[0] : null);
+        if (rights.length <= 1) return header(c, title, left, rights.length == 1 ? rights[0] : null); // P579: 40dp discs
         LinearLayout group = new LinearLayout(c);
         group.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < rights.length; i++) {
             disc(rights[i]);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44));
-            if (i > 0) lp.leftMargin = dp(c, 8);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
+            if (i > 0) lp.setMarginStart(dp(c, 8));
             group.addView(rights[i], lp);
         }
         FrameLayout h = header(c, title, left, (View) null);
         LinearLayout row = (LinearLayout) h.getChildAt(0);
-        row.addView(group, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(c, 44)));
+        row.addView(group, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(c, 40)));
         return h;
     }
 
@@ -211,45 +331,55 @@ public final class GalleryUi {
         return video && image ? "*/*" : video ? "video/*" : "image/*";
     }
 
-    /** The header of the gallery screens: «SCAMERA» eyebrow, the title, a 44dp card button on each side. */
+    /**
+     * The header of the gallery screens: a round button on each side and the title. P579: the settings' header look - 40dp discs,
+     * the title large and bold (26sp, shrinking to fit) at the left.
+     */
     public static FrameLayout header(Context c, String title, View left, @Nullable View right) {
-        // SIMPLE_UI §5 (the concept's .ghead): the left disc, the title on the left (22sp, 600), the right disc
         FrameLayout h = new FrameLayout(c);
-        h.setPadding(dp(c, 12), dp(c, 14), dp(c, 12), dp(c, 10));
+        h.setPadding(dp(c, 16), dp(c, 12), dp(c, 16), dp(c, 10));
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(c, 44));
         disc(left);
-        row.addView(left, new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44)));
-        TextView t = fitText(c, title, 22, TEXT);
-        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        row.addView(left, new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40)));
+        TextView t = fitText(c, title, 26, TEXT);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setLetterSpacing(-0.012f);
+        t.setAccessibilityHeading(true);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tp.leftMargin = tp.rightMargin = dp(c, 10);
+        tp.setMarginStart(dp(c, 12));
+        tp.setMarginEnd(dp(c, 10));
         row.addView(t, tp);
         if (right != null) {
             disc(right);
-            row.addView(right, new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44)));
+            row.addView(right, new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40)));
         }
         h.addView(row, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return h;
     }
 
-    /** The concept's .back: a header button is a card disc, its icon in the text colour. */
+    /** The concept's round button: a #2C2C2E disc, its icon white (P579: tonal mono white for a colour icon, as the settings' discs). */
     static void disc(View b) {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
         d.setColor(CARD);
         b.setBackground(pressable(d));
-        if (b instanceof ViewGroup && ((ViewGroup) b).getChildCount() > 0 && ((ViewGroup) b).getChildAt(0) instanceof ImageView)
-            ((ImageView) ((ViewGroup) b).getChildAt(0)).setImageTintList(ColorStateList.valueOf(TEXT));
+        if (b instanceof ViewGroup && ((ViewGroup) b).getChildCount() > 0 && ((ViewGroup) b).getChildAt(0) instanceof ImageView) {
+            final ImageView i = (ImageView) ((ViewGroup) b).getChildAt(0);
+            if (com.particlesdevs.photoncamera.ui.Icons.colour(i)) com.particlesdevs.photoncamera.ui.Icons.mono(i, TEXT);
+            else i.setImageTintList(ColorStateList.valueOf(TEXT));
+        }
     }
 
-    /** The section label of the sheets («СЪЁМКА»): small, uppercase, letter-spaced accent. */
+    /** The section caption of the sheets and pages («СЪЁМКА»): P579, 12sp semibold capitals at 55 % white, letter-spaced. */
     public static TextView sectionLabel(Context c, String value) {
-        TextView t = text(c, value.toUpperCase(Lang.ru() ? new Locale("ru") : Locale.ROOT), 11.5f, accent(c));
-        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));   // SIMPLE_UI: the concept's .gt
-        t.setLetterSpacing(.09f);
-        t.setPadding(dp(c, 4), dp(c, 12), dp(c, 4), dp(c, 8));
+        TextView t = text(c, value.toUpperCase(Lang.ru() ? new Locale("ru") : Locale.ROOT), 12, SECTION);
+        t.setTypeface(semibold());
+        t.setLetterSpacing(.06f);
+        t.setPadding(dp(c, 16), dp(c, 18), dp(c, 16), dp(c, 8));
+        t.setAccessibilityHeading(true);
         return t;
     }
 

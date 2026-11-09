@@ -8,7 +8,8 @@ import com.particlesdevs.photoncamera.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
+import com.particlesdevs.photoncamera.ui.controls.IosMotion;
+import com.particlesdevs.photoncamera.ui.controls.IosSlider;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -33,7 +34,7 @@ import com.particlesdevs.photoncamera.settings.PreferenceNumber;
  *    (dragging the bar, or confirming the precise-input dialog) persists anything, so a value
  *    that sits between two steps survives reopening the settings screen.
  */
-public class UniversalSeekBarPreference extends Preference implements SeekBar.OnSeekBarChangeListener {
+public class UniversalSeekBarPreference extends Preference {
     private static final String TAG = "UnivSeekBarPref";
     private static final boolean isLoggingOn = false;
     /** Sentinel used to detect "nothing persisted yet" without touching the store. */
@@ -47,7 +48,10 @@ public class UniversalSeekBarPreference extends Preference implements SeekBar.On
     private final int mDecimals;
     private int seekBarProgress;
     private TextView seekBarValue;
-    private SeekBar seekBar;
+    /** P574: the settings' slider (IosSlider) on the bar's step grid: its values are the progress steps 0 .. mSeekBarMax. */
+    private IosSlider seekBar;
+    /** The next showStoredValue moves the knob at once (a row bound to this preference afresh), not on its glide. */
+    private boolean instant;
     private String fallback_value;
 
     public UniversalSeekBarPreference(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
@@ -91,37 +95,45 @@ public class UniversalSeekBarPreference extends Preference implements SeekBar.On
     public void onBindViewHolder(@NonNull PreferenceViewHolder holder) {
         super.onBindViewHolder(holder);
         holder.setDividerAllowedAbove(false);
-        seekBar = (SeekBar) holder.findViewById(R.id.seekbar);
+        seekBar = (IosSlider) holder.findViewById(R.id.seekbar);
         seekBarValue = (TextView) holder.findViewById(R.id.seekbar_value);
-        seekBar.setMax(mSeekBarMax);
-        seekBar.setOnSeekBarChangeListener(this);
+        // P574: a recycled row shows this preference's value at once; the same row glides to a new one (a reset, an exact entry)
+        instant = seekBar.getTag(R.id.settings_bound_preference) != this;
+        seekBar.setTag(R.id.settings_bound_preference, this);
+        seekBar.setListener(null);
+        seekBar.setRange(0, mSeekBarMax, 1);
+        seekBar.setDefaultValue(valueToProgress(clamp(defaultNumber())));
+        seekBar.setEnabled(isEnabled());
         // Read-only refresh: must not quantize or rewrite what is already stored.
         showStoredValue();
+        instant = false;
+        final TextView min = (TextView) holder.findViewById(R.id.seekbar_min), max = (TextView) holder.findViewById(R.id.seekbar_max);
+        // the ends as the pill writes a value (on the bar's grid: «0.00» … «1.00»)
+        if (min != null) min.setText(isFloat ? PreferenceNumber.gridText(mMin, mDecimals) : formatExactValue(mMin));
+        if (max != null) max.setText(isFloat ? PreferenceNumber.gridText(mMax, mDecimals) : formatExactValue(mMax));
+        seekBar.setListener(new IosSlider.Listener() {
+            @Override public void onValue(IosSlider s, float value, boolean fromUser) {
+                if (!fromUser || !isEnabled()) return;
+                if (vibration != null) vibration.Tick();
+                set(Math.round(value));
+            }
+
+            // the value pill lifts while the knob is held and pops when it is let go (the concept's bounce)
+            @Override public void onTracking(IosSlider s, boolean tracking) {
+                if (seekBarValue == null) return;
+                if (tracking) IosMotion.lift(seekBarValue, true, seekBarValue.getCurrentTextColor(), seekBarValue.getCurrentTextColor());
+                else IosMotion.pop(seekBarValue);
+            }
+        });
 
         // Tapping the value or anywhere on the parameter row opens direct numeric entry; the slider remains available for quick
         // tuning. P357: a double tap on the bar, the value or the row puts the default back.
         final Runnable reset = () -> { if (isEnabled() && callChangeListener(formatExactValue(clamp(defaultNumber())))) resetToDefault(); };
         com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(seekBar, reset);
+        // the exact reset is DoubleTapReset's alone: the slider's own double tap would write the step-snapped default first
+        seekBar.setOnResetListener(() -> { });
         if (seekBarValue != null) com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(seekBarValue, this::showPreciseValueDialog, reset);
         com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(holder.itemView, this::showPreciseValueDialog, reset);
-    }
-
-    @Override
-    public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-        if (fromUser && isEnabled() && vibration != null) vibration.Tick();
-        if (fromUser && isEnabled()) {
-            set(progress);
-        }
-    }
-
-    @Override
-    public void onStartTrackingTouch(SeekBar seekBar) {
-
-    }
-
-    @Override
-    public void onStopTrackingTouch(SeekBar seekBar) {
-
     }
 
     @Override
@@ -208,7 +220,8 @@ public class UniversalSeekBarPreference extends Preference implements SeekBar.On
     }
 
     private void updateLabel(String valueToPersist) {
-        if (seekBarValue != null) {
+        // P574: not a row recycled for another preference since
+        if (seekBarValue != null && (seekBar == null || seekBar.getTag(R.id.settings_bound_preference) == this)) {
             if (showSeekBarValue) {
                 seekBarValue.setVisibility(View.VISIBLE);
                 seekBarValue.setText(valueToPersist);
@@ -231,8 +244,9 @@ public class UniversalSeekBarPreference extends Preference implements SeekBar.On
     }
 
     private void updateSeekbar(int progress) {
-        if (seekBar != null)
-            seekBar.setProgress(clampProgress(progress));
+        if (seekBar == null || seekBar.getTag(R.id.settings_bound_preference) != this) return;
+        if (instant) seekBar.setValueNow(clampProgress(progress));
+        else seekBar.setValue(clampProgress(progress));
     }
 
     private float clamp(float value) {
@@ -305,7 +319,7 @@ public class UniversalSeekBarPreference extends Preference implements SeekBar.On
         return seekBarProgress;
     }
 
-    public SeekBar getSeekBar() {
+    public IosSlider getSeekBar() {
         return seekBar;
     }
 
@@ -318,6 +332,7 @@ public class UniversalSeekBarPreference extends Preference implements SeekBar.On
     private void showPreciseValueDialog() {
         if (!isEnabled()) return;
         com.particlesdevs.photoncamera.ui.controls.PrecisionEditor.show(getContext(),getKey(),String.valueOf(getTitle()),
-            mMin,mMax,clamp(parseValue(getValue(),defaultNumber())),defaultNumber(),isFloat,this::setDirectValue);
+            mMin,mMax,clamp(parseValue(getValue(),defaultNumber())),defaultNumber(),isFloat,1.0/mStepPerUnit,
+            isFloat?mDecimals:0,this::setDirectValue);   // P574: the slider's own step and decimals
     }
 }

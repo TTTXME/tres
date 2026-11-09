@@ -40,6 +40,8 @@ public class ShadeTileView extends FrameLayout {
     final TextView remove;
     @Nullable String key;
     boolean active, dimmed, addTile;
+    /** P570: the icon shown is one of the colour icons (ui/Icons). */
+    private boolean colourIcon;
     /** The inline slider card under the grid belongs to this tile: an accent outline. */
     boolean open;
     /** Edit mode: «×» shown, the tile wobbles. */
@@ -133,6 +135,7 @@ public class ShadeTileView extends FrameLayout {
         dimmed = reason != null;
         // SIMPLE_UI: the icon as it is (the concept strikes nothing through; the value says «Выкл.»)
         icon.setImageDrawable(catalog.icon(entry));
+        colourIcon = catalog.colourValueIcon(entry);
         value.setText(catalog.valueText(entry, true));
         name.setText(entry.shortTitle);
         name.setVisibility(VISIBLE);
@@ -152,6 +155,7 @@ public class ShadeTileView extends FrameLayout {
         dimmed = false;
         accent = ShadeStyle.accent(getContext());
         icon.setImageResource(R.drawable.ic_shade_plus);
+        colourIcon = true;
         name.setText(R.string.shade_add);
         name.setVisibility(VISIBLE);
         value.setText("");
@@ -162,7 +166,8 @@ public class ShadeTileView extends FrameLayout {
         dashed.setColor(0);
         dashed.setStroke(ShadeStyle.dp(getContext(), 1), ShadeStyle.LINE, ShadeStyle.dp(getContext(), 5), ShadeStyle.dp(getContext(), 4));
         card.setBackground(dashed);
-        icon.setImageTintList(ColorStateList.valueOf(ShadeStyle.MUTED));
+        com.particlesdevs.photoncamera.ui.Icons.mono(icon, ShadeStyle.MUTED); // P570: tonal mono
+        icon.setActivated(false);
         name.setTextColor(ShadeStyle.MUTED);
         name.setTypeface(Typeface.DEFAULT);
         card.setAlpha(1f);
@@ -185,12 +190,20 @@ public class ShadeTileView extends FrameLayout {
         // P515 (owner, 2026-11-05: «сделай чтобы было видно какое значение в данный момент у плитки как это было в старой шторке»):
         // the value under the name again (P495 had the name only)
         value.setVisibility(value.getText().length() > 0 ? VISIBLE : GONE);
-        final int ink = active ? ShadeStyle.onAccent(accent) : ShadeStyle.TEXT;
-        final int fill = active ? accent : ShadeStyle.TONAL;
+        // P574 (the approved concept's tiles): a changed setting is a deep accent tile with the accent's own ink (the camera's
+        // yellow on a dark yellow), not a full accent fill
+        final int ink = active ? accent : ShadeStyle.TEXT;
+        final int fill = active ? ShadeStyle.tint(accent, .28f) : ShadeStyle.TONAL;
         final int stroke = open && !active ? accent : 0;
         card.setBackground(ShadeStyle.pressable(getContext(), fill, stroke,
                 com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 20) / getResources().getDisplayMetrics().density));
-        icon.setImageTintList(ColorStateList.valueOf(ink));
+        // P570: a colour icon in its own colours on the tonal tile; on the accent, tonal mono in its ink and in its pressed pose
+        if (!colourIcon) {
+            icon.clearColorFilter();
+            icon.setImageTintList(ColorStateList.valueOf(ink));
+        } else if (active) com.particlesdevs.photoncamera.ui.Icons.mono(icon, ink);
+        else com.particlesdevs.photoncamera.ui.Icons.own(icon);
+        icon.setActivated(active);
         value.setTextColor((ink & 0x00FFFFFF) | 0xB8000000);
         name.setTextColor(ink);
         name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));

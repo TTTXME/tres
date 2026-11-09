@@ -40,6 +40,9 @@ import java.util.List;
  * <li>«Другое»: «Недавно удаленные» (Android 11's trash, 30 days) and the folders the «Фото» tab shows.</li>
  * </ul>
  * The reference's people, places and smart categories need an on-device recogniser this app does not ship: left out.
+ * P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the settings' look - section titles
+ * 20sp bold with «Ещё» in the accent, the covers with 16dp corners, «Тип» and «Другое» rows of one #2C2C2E card (24dp corners,
+ * hairlines, a chevron) instead of tonal tiles.
  */
 public final class AlbumsPage {
     public interface Host {
@@ -126,18 +129,18 @@ public final class AlbumsPage {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setMinimumHeight(GalleryUi.dp(c, 48));
         head.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 10), 0, GalleryUi.dp(c, 2));
-        TextView t = GalleryUi.text(c, title, 17, GalleryUi.TEXT);
+        TextView t = GalleryUi.text(c, title, 20, GalleryUi.TEXT);
         t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setAccessibilityHeading(true);
         head.addView(t);
-        ImageView chev = GalleryUi.icon(c, R.drawable.ui_ic_chev, GalleryUi.MUTED, 18);
+        ImageView chev = GalleryUi.icon(c, R.drawable.ui_ic_chev, GalleryUi.SECTION, 18);
         chev.setRotation(collapsed[0] ? 90 : -90);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 18), GalleryUi.dp(c, 18));
-        cp.leftMargin = GalleryUi.dp(c, 6);
+        cp.setMarginStart(GalleryUi.dp(c, 6));
         head.addView(chev, cp);
         View fill = new View(c);
         head.addView(fill, new LinearLayout.LayoutParams(0, 1, 1));
-        TextView more = GalleryUi.text(c, "", 14, GalleryUi.MUTED);
+        TextView more = GalleryUi.text(c, "", 15, GalleryUi.accent(c));
         more.setPadding(GalleryUi.dp(c, 10), GalleryUi.dp(c, 8), GalleryUi.dp(c, 2), GalleryUi.dp(c, 8));
         more.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 999)));
         head.addView(more);
@@ -204,7 +207,7 @@ public final class AlbumsPage {
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.VERTICAL);
         FrameLayout cover = new SquareBox(c);
-        float radius = GalleryUi.dp(c, 18);
+        float radius = GalleryUi.dp(c, 16);
         cover.setOutlineProvider(new ViewOutlineProvider() {
             @Override
             public void getOutline(View v, Outline o) {
@@ -212,7 +215,7 @@ public final class AlbumsPage {
             }
         });
         cover.setClipToOutline(true);
-        cover.setBackground(GalleryUi.card(c, GalleryUi.CARD, 18));
+        cover.setBackground(GalleryUi.card(c, GalleryUi.CARD, 16));
         ImageView image = new ImageView(c);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         cover.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -233,7 +236,7 @@ public final class AlbumsPage {
             text.setOrientation(LinearLayout.VERTICAL);
             TextView n = GalleryUi.text(c, count, 11, 0xCCFFFFFF);
             TextView name = GalleryUi.fitText(c, a.title, 14, 0xFFFFFFFF);
-            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setTypeface(GalleryUi.semibold());
             text.addView(n);
             text.addView(name);
             FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -243,11 +246,12 @@ public final class AlbumsPage {
             box.addView(cover);
         } else {
             box.addView(cover);
-            TextView name = GalleryUi.fitText(c, a.title, 13, GalleryUi.TEXT);
+            TextView name = GalleryUi.fitText(c, a.title, 14, GalleryUi.TEXT);
+            name.setTypeface(GalleryUi.semibold());
             name.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 6), GalleryUi.dp(c, 2), 0);
             box.addView(name);
-            TextView n = GalleryUi.text(c, count, 12, GalleryUi.MUTED);
-            n.setPadding(GalleryUi.dp(c, 2), 0, GalleryUi.dp(c, 2), 0);
+            TextView n = GalleryUi.text(c, count, 13, GalleryUi.MUTED);
+            n.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 2), GalleryUi.dp(c, 2), 0);
             box.addView(n);
         }
         box.setClickable(true);
@@ -258,68 +262,49 @@ public final class AlbumsPage {
         return box;
     }
 
-    /** «Тип»: two rows a line, an icon, the name and the count, the shade's tonal tiles. */
+    /** «Тип»: P579, one card of rows - an icon, the name, the count and a chevron. */
     private View typeRows(Context c) {
-        List<View> rows = new ArrayList<>();
-        for (Album a : types) rows.add(row(c, a.icon, a.title, String.valueOf(a.count()), v -> host.openAlbum(a.folder, a.title)));
-        return pairs(c, rows);
+        LinearLayout list = GalleryUi.group(c, 52);
+        for (Album a : types) list.addView(row(c, a.icon, a.title, String.valueOf(a.count()), v -> host.openAlbum(a.folder, a.title)));
+        return list;
     }
 
     private View otherRows(Context c) {
-        List<View> rows = new ArrayList<>();
-        if (trashCount >= 0) rows.add(row(c, R.drawable.ui_ic_trash, Lang.t("Недавно удаленные", "Recently deleted"),
+        LinearLayout list = GalleryUi.group(c, 52);
+        if (trashCount >= 0) list.addView(row(c, R.drawable.ui_ic_trash, Lang.t("Недавно удаленные", "Recently deleted"),
                 String.valueOf(trashCount), v -> host.openTrash()));
-        rows.add(row(c, R.drawable.ui_ic_folders, Lang.t("Папки во вкладке «Фото»", "Folders in «Photos»"), "", v -> host.openPhotoFolders()));
-        LinearLayout list = new LinearLayout(c);
-        list.setOrientation(LinearLayout.VERTICAL);
-        for (View r : rows) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = GalleryUi.dp(c, 8);
-            list.addView(r, lp);
-        }
+        list.addView(row(c, R.drawable.ui_ic_folders, Lang.t("Папки во вкладке «Фото»", "Folders in «Photos»"), "", v -> host.openPhotoFolders()));
         return list;
     }
 
-    private static LinearLayout pairs(Context c, List<View> rows) {
-        LinearLayout list = new LinearLayout(c);
-        list.setOrientation(LinearLayout.VERTICAL);
-        for (int i = 0; i < rows.size(); i += 2) {
-            LinearLayout line = new LinearLayout(c);
-            line.setOrientation(LinearLayout.HORIZONTAL);
-            line.addView(rows.get(i), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            second.leftMargin = GalleryUi.dp(c, 8);
-            line.addView(i + 1 < rows.size() ? rows.get(i + 1) : new View(c), second);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = GalleryUi.dp(c, 8);
-            list.addView(line, lp);
-        }
-        return list;
-    }
-
-    /** A tonal row (the shade's Material You tile): icon, name, count at the right. */
+    /** A row of a group (P579): the colour icon, the name, the count at 55 % white and a chevron at the end. */
     static LinearLayout row(Context c, @DrawableRes int icon, String name, String count, View.OnClickListener click) {
         LinearLayout r = new LinearLayout(c);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(GalleryUi.dp(c, 52));
-        r.setPadding(GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 14), 0);
-        r.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0x17FFFFFF, 0x17FFFFFF, 18)));
-        r.addView(GalleryUi.icon(c, icon, GalleryUi.TEXT, 20));
-        TextView t = GalleryUi.fitText(c, name, 14, GalleryUi.TEXT);
+        r.setMinimumHeight(GalleryUi.dp(c, GalleryUi.ROW_MIN));
+        r.setPadding(GalleryUi.dp(c, 16), 0, GalleryUi.dp(c, 14), 0);
+        r.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 0)));
+        r.addView(GalleryUi.icon(c, icon, GalleryUi.TEXT, 22));
+        TextView t = GalleryUi.fitText(c, name, 16, GalleryUi.TEXT);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        tp.leftMargin = GalleryUi.dp(c, 12);
+        tp.setMarginStart(GalleryUi.dp(c, 14));
         r.addView(t, tp);
         if (!count.isEmpty()) {
             LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            np.leftMargin = GalleryUi.dp(c, 10);
-            r.addView(GalleryUi.text(c, count, 13, GalleryUi.MUTED), np);
+            np.setMarginStart(GalleryUi.dp(c, 10));
+            r.addView(GalleryUi.text(c, count, 16, GalleryUi.SECTION), np);
         }
+        ImageView chev = GalleryUi.icon(c, R.drawable.settings_ic_chevron, GalleryUi.SECTION, 16);
+        chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        if (chev.getDrawable() != null) chev.getDrawable().mutate().setAutoMirrored(true); // points the reading way in right to left
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 16), GalleryUi.dp(c, 16));
+        cp.setMarginStart(GalleryUi.dp(c, 6));
+        r.addView(chev, cp);
         r.setClickable(true);
         r.setFocusable(true);
         r.setContentDescription(count.isEmpty() ? name : name + ", " + count);
         r.setOnClickListener(click);
-        Motion.press(r);
         return r;
     }
 

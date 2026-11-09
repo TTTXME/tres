@@ -149,6 +149,8 @@ public class SettingsSearchFragment extends Fragment {
     private EditText input;
     private TextView count;
     private RecyclerView list;
+    /** P574: the stand-in preference every hit row carries (SettingsCardDecoration draws the card behind such rows). */
+    private androidx.preference.Preference hit;
     private int dp(float value) { return Math.round(value*getResources().getDisplayMetrics().density); }
     private TextView label(String text, int size, int color) {
         TextView v=new TextView(requireContext()); v.setText(text);v.setTextSize(size);v.setTextColor(color);return v;
@@ -165,23 +167,39 @@ public class SettingsSearchFragment extends Fragment {
     }
     @Override public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle state) {
         LinearLayout root=new LinearLayout(requireContext());root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16),dp(12),dp(16),0); root.setBackgroundColor(SettingsStyle.BG);
-        // P6b: the shared header and a field in the card style
+        root.setPadding(dp(16),dp(12),dp(16),0); root.setBackgroundColor(SettingsStyle.PAGE);
+        // P6b: the shared header; P574: the concept's search capsule (#2C2C2E, 44dp, 22dp corners)
         SettingsStyle.Header header=SettingsStyle.header(requireContext(),()->requireActivity().getOnBackPressedDispatcher().onBackPressed(),null);
-        header.heading.setText(Lang.t(getContext(),"Поиск настройки","Search settings"));header.subtitle.setVisibility(View.GONE);root.addView(header.view);
+        header.heading.setText(Lang.t(getContext(),"Поиск","Search"));header.subtitle.setVisibility(View.GONE);
+        header.crumb.setText(Lang.t(getContext(),"Настройки","Settings"));root.addView(header.view);
         LinearLayout search=new LinearLayout(requireContext());search.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        search.setBackground(SettingsStyle.shape(requireContext(),SettingsStyle.FIELD,SettingsStyle.LINE,14));search.setPadding(dp(14),0,dp(4),0);
+        search.setBackground(SettingsStyle.shape(requireContext(),SettingsStyle.ROW,0,22));search.setPadding(dp(12),0,dp(4),0);
+        search.setMinimumHeight(dp(44));
         android.widget.ImageView glass=new android.widget.ImageView(requireContext());glass.setImageResource(R.drawable.settings_ic_search);
-        glass.setColorFilter(SettingsStyle.MUTED);search.addView(glass,new LinearLayout.LayoutParams(dp(22),dp(22)));
-        input=new EditText(requireContext());input.setSingleLine(true);input.setTextColor(SettingsStyle.TEXT);input.setBackground(null);
-        input.setHintTextColor(SettingsStyle.MUTED);input.setTextSize(17);input.setHint(Lang.t(getContext(),"Поиск настройки","Search settings"));
+        com.particlesdevs.photoncamera.ui.Icons.ink(glass, R.drawable.settings_ic_search, SettingsStyle.SECTION); // P570: tonal mono
+        glass.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        search.addView(glass,new LinearLayout.LayoutParams(dp(20),dp(20)));
+        input=new EditText(requireContext());input.setSingleLine(true);input.setTextColor(SettingsStyle.ROW_TITLE);input.setBackground(null);
+        input.setHintTextColor(SettingsStyle.SECTION);input.setTextSize(17);input.setHint(Lang.t(getContext(),"Поиск","Search"));
+        input.setPadding(dp(8),0,dp(4),0);
         input.setContentDescription(Lang.t(getContext(),"Поиск настройки","Search settings"));input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-        search.addView(input,new LinearLayout.LayoutParams(0,dp(56),1));
-        TextView clear=label("×",28,com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.color(requireContext()));clear.setGravity(android.view.Gravity.CENTER);
+        search.addView(input,new LinearLayout.LayoutParams(0,dp(44),1));
+        // the concept's clear button: a 22dp grey disc with «×»
+        TextView clear=label("×",15,SettingsStyle.ROW);clear.setGravity(android.view.Gravity.CENTER);
+        clear.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);clear.setIncludeFontPadding(false);
+        android.graphics.drawable.GradientDrawable disc=new android.graphics.drawable.GradientDrawable();disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        disc.setColor(0x73FFFFFF);
+        android.graphics.drawable.InsetDrawable inset=new android.graphics.drawable.InsetDrawable(disc,dp(11));clear.setBackground(inset);
         clear.setContentDescription(Lang.t(getContext(),"Очистить поиск","Clear the search"));clear.setOnClickListener(v->input.setText(""));
-        search.addView(clear,new LinearLayout.LayoutParams(dp(48),dp(48)));root.addView(search);
-        count=label("",13,SettingsStyle.MUTED);count.setPadding(0,dp(14),0,dp(12));root.addView(count);
+        search.addView(clear,new LinearLayout.LayoutParams(dp(44),dp(44)));root.addView(search);
+        count=label("",12,SettingsStyle.SECTION);count.setPadding(dp(16),dp(22),dp(16),dp(8));
+        count.setAllCaps(true);count.setLetterSpacing(.08f);count.setTypeface(SettingsStyle.semibold());root.addView(count);
         list=new RecyclerView(requireContext());list.setLayoutManager(new LinearLayoutManager(requireContext()));
+        // P574: the hits in one card, as a group of the settings (SettingsCardDecoration: the card and the hairlines); each row
+        // carries a stand-in preference (the decoration's mark of a card row)
+        hit=new androidx.preference.Preference(requireContext());
+        list.addItemDecoration(new SettingsCardDecoration(requireContext(),p->false));
+        list.setClipToPadding(false);list.setPadding(0,0,0,dp(28));
         list.setAdapter(new ResultsAdapter());root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         input.setText(query);input.setSelection(input.length());filter(query);
         input.addTextChangedListener(new TextWatcher(){
@@ -209,7 +227,7 @@ public class SettingsSearchFragment extends Fragment {
         for(String word:normalize(query).trim().split("\\s+")) {
             if(word.isEmpty())continue;
             for(int at=normalized.indexOf(word);at>=0;at=normalized.indexOf(word,at+word.length()))
-                s.setSpan(new ForegroundColorSpan(com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.color(requireContext())),at,at+word.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                s.setSpan(new ForegroundColorSpan(SettingsStyle.accent(requireContext())),at,at+word.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return s;
     }
@@ -220,13 +238,14 @@ public class SettingsSearchFragment extends Fragment {
         }
         @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent,int type){
             LinearLayout row=new LinearLayout(requireContext());row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(dp(16),dp(13),dp(12),dp(13));row.setMinimumHeight(dp(64));row.setFocusable(true);
-            row.setBackgroundResource(R.drawable.settings_card); // the same card as the preference rows
-            TextView title=label("",16,SettingsStyle.TEXT),path=label("",12,SettingsStyle.SUMMARY);
-            com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.title(title);
-            path.setPadding(0,dp(5),0,0);row.addView(title);row.addView(path);
-            RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);lp.topMargin=dp(10);
-            row.setLayoutParams(lp);return new Holder(row,title,path);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16),dp(9),dp(16),dp(9));row.setMinimumHeight(dp(52));row.setFocusable(true);
+            row.setBackgroundResource(R.drawable.settings_row); // P574: a row of one card (the decoration draws it)
+            TextView title=label("",16,SettingsStyle.ROW_TITLE),path=label("",13,SettingsStyle.SUMMARY);
+            title.setTypeface(SettingsStyle.semibold());
+            path.setPadding(0,dp(2),0,0);row.addView(title);row.addView(path);
+            RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);
+            row.setLayoutParams(lp);row.setTag(R.id.settings_bound_preference,hit);return new Holder(row,title,path);
         }
         @Override public void onBindViewHolder(@NonNull Holder h,int position){
             Entry e=results.get(position);h.title.setText(highlighted(e.title));h.path.setText(e.path);

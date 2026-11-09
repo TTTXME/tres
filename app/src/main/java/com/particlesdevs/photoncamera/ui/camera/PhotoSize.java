@@ -39,12 +39,16 @@ public final class PhotoSize {
     public static void bind(@Nullable CameraCharacteristics characteristics) {
         String id = ScameraApp.getSettings().mCameraID;
         if (characteristics != null) com.particlesdevs.photoncamera.capture.OppoNativeFullRes.learn(id, characteristics); // P192
+        if (characteristics != null) com.particlesdevs.photoncamera.capture.NubiaFullRes.learn(id, characteristics); // P575
+        final boolean nubia = com.particlesdevs.photoncamera.capture.NubiaFullRes.device();
         boolean device = PixelPro10.device() || com.particlesdevs.photoncamera.capture.VivoQcomModes.device()
                 || com.particlesdevs.photoncamera.capture.VivoNativeFullRes.device()
-                || com.particlesdevs.photoncamera.capture.OppoNativeFullRes.device();
-        fullHere = device && (PixelPro10.fullResAvailable(characteristics) || VivoSdkFullRes.offered(id));
+                || com.particlesdevs.photoncamera.capture.OppoNativeFullRes.device() || nubia;
+        fullHere = device && (PixelPro10.fullResAvailable(characteristics) || VivoSdkFullRes.offered(id)
+                || nubia && com.particlesdevs.photoncamera.capture.NubiaFullRes.offeredHere(id));
         // P214h: a camera whose rows all failed keeps its sizes, dimmed - a tap says why and offers «Попробовать снова»
-        fullDead = device && !fullHere && VivoSdkFullRes.exhausted(id);
+        fullDead = device && !fullHere && (VivoSdkFullRes.exhausted(id)
+                || nubia && com.particlesdevs.photoncamera.capture.NubiaFullRes.exhausted(id));
         boundCamera = id == null ? "" : id;
         String trials = com.particlesdevs.photoncamera.capture.FullResTrials.dump(id);
         if (!trials.isEmpty()) Log.i("PhotoSize", "camera " + id + " FULLRES " + (fullDead ? "off by its trials: " : "trials: ") + trials);
@@ -129,7 +133,8 @@ public final class PhotoSize {
     private static void retry(CameraFragment fragment, int size) {
         com.particlesdevs.photoncamera.capture.FullResTrials.retry(boundCamera);
         fullDead = false;
-        fullHere = fullHere || VivoSdkFullRes.offered(boundCamera);
+        fullHere = fullHere || VivoSdkFullRes.offered(boundCamera)
+                || com.particlesdevs.photoncamera.capture.NubiaFullRes.offeredHere(boundCamera); // P575
         String message = set(fragment, size);
         if (message != null) fragment.showSnackBar(message);
         fragment.refreshTopBar();

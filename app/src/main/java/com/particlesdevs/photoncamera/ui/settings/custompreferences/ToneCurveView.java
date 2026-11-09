@@ -76,10 +76,10 @@ public final class ToneCurveView extends View {
         super(c);
         touchSlop = ViewConfiguration.get(c).getScaledTouchSlop();
         int accent = SettingsStyle.accent(c);
-        back.setColor(SettingsStyle.FIELD);
-        grid.setColor(SettingsStyle.LINE);
+        back.setColor(SettingsStyle.PAGE);   // P574: the graph's well on the #2C2C2E card
+        grid.setColor(SettingsStyle.HAIRLINE);
         grid.setStrokeWidth(dp(1));
-        guide.setColor((SettingsStyle.MUTED & 0x00FFFFFF) | 0x66000000);
+        guide.setColor((SettingsStyle.SECTION & 0x00FFFFFF) | 0x66000000);
         guide.setStrokeWidth(dp(1.2f));
         guide.setStyle(Paint.Style.STROKE);
         guide.setPathEffect(new DashPathEffect(new float[]{dp(4), dp(4)}, 0));
@@ -94,7 +94,7 @@ public final class ToneCurveView extends View {
         ring.setColor(accent);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(dp(2.2f));
-        label.setColor(SettingsStyle.MUTED);
+        label.setColor(SettingsStyle.SECTION);
         label.setTextSize(dp(10.5f));
         setContentDescription(Lang.t(c, "Тоновая кривая", "Tone curve"));
         setHapticFeedbackEnabled(true);
@@ -273,7 +273,7 @@ public final class ToneCurveView extends View {
         for (int k = 0; k < refSamples.length; k++) {
             float[] s = refSamples[k];
             if (s == null || s.length < 2) continue;
-            int colour = refColours != null && k < refColours.length ? refColours[k] : SettingsStyle.MUTED;
+            int colour = refColours != null && k < refColours.length ? refColours[k] : SettingsStyle.SECTION;
             refLine.setColor((colour & 0x00FFFFFF) | 0xD9000000);
             refPath.reset();
             for (int i = 0; i < s.length; i++) {
@@ -436,7 +436,7 @@ public final class ToneCurveView extends View {
         pill.setTag("tone_curve_history");
         int pad = Math.round(graph.dp(3));
         pill.setPadding(pad, pad, pad, pad);
-        pill.setBackground(SettingsStyle.shape(c, (SettingsStyle.CARD & 0x00FFFFFF) | 0xE6000000, SettingsStyle.LINE, 100));
+        pill.setBackground(SettingsStyle.shape(c, (SettingsStyle.ROW & 0x00FFFFFF) | 0xE6000000, 0, 100));
         ImageButton undo = historyButton(c, R.drawable.ic_curve_undo, "tone_curve_undo", Lang.t(c, "Отменить", "Undo"));
         ImageButton redo = historyButton(c, R.drawable.ic_curve_redo, "tone_curve_redo", Lang.t(c, "Повторить", "Redo"));
         undo.setOnClickListener(v -> graph.undo());
@@ -459,8 +459,7 @@ public final class ToneCurveView extends View {
     private static ImageButton historyButton(Context c, int icon, String tag, String name) {
         ImageButton b = new ImageButton(c);
         int accent = SettingsStyle.accent(c);
-        b.setImageResource(icon);
-        b.setImageTintList(ColorStateList.valueOf(accent));
+        com.particlesdevs.photoncamera.ui.Icons.set(b, icon, accent); // P570: a colour icon keeps its colours
         b.setScaleType(ImageView.ScaleType.CENTER);
         b.setPadding(0, 0, 0, 0);
         b.setBackground(new RippleDrawable(ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x33000000), null,

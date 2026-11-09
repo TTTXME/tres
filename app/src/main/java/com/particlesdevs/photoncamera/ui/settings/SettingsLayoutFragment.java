@@ -171,7 +171,7 @@ public class SettingsLayoutFragment extends Fragment {
         final Context c = requireContext();
         final LinearLayout root = new LinearLayout(c);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(SettingsStyle.BG);
+        root.setBackgroundColor(SettingsStyle.PAGE);
         root.setPadding(dp(16), dp(12), dp(16), 0);
         final SettingsStyle.Header header = SettingsStyle.header(c, () -> requireActivity().getOnBackPressedDispatcher().onBackPressed(),
                 null, this::askReset);
@@ -186,7 +186,7 @@ public class SettingsLayoutFragment extends Fragment {
             sp.bottomMargin = dp(10);
             root.addView(segments.view, sp);
         }
-        tip = SettingsStyle.text(c, "", 12.5f, SettingsStyle.MUTED);
+        tip = SettingsStyle.text(c, "", 12.5f, SettingsStyle.SECTION);
         tip.setTag("settings_layout_tip");
         final LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, -2);
         tp.leftMargin = dp(4);
@@ -386,7 +386,7 @@ public class SettingsLayoutFragment extends Fragment {
     private void lift(View v, boolean up) {
         final Object card = v.getTag(R.id.settings_layout_card);
         if (card instanceof GradientDrawable)
-            ((GradientDrawable) card).setStroke(dp(up ? 1.5f : 1f), up ? SettingsStyle.accent(v.getContext()) : SettingsStyle.LINE);
+            ((GradientDrawable) card).setStroke(up ? dp(1.5f) : 0, up ? SettingsStyle.accent(v.getContext()) : 0);   // P574: no outline at rest
         if (!SettingsMotion.enabled(v)) {
             v.setScaleX(up ? 1.03f : 1f);
             v.setScaleY(up ? 1.03f : 1f);
@@ -462,12 +462,12 @@ public class SettingsLayoutFragment extends Fragment {
                 return new Holder(t, t, null, null, null);
             }
             if (kind == Item.EMPTY) {
-                final TextView t = SettingsStyle.text(c, Lang.t(c, "Перетащите сюда пункт", "Drop a row here"), 13, SettingsStyle.MUTED);
+                final TextView t = SettingsStyle.text(c, Lang.t(c, "Перетащите сюда пункт", "Drop a row here"), 13, SettingsStyle.SECTION);
                 t.setGravity(Gravity.CENTER);
                 t.setMinHeight(dp(52));
                 final GradientDrawable d = new GradientDrawable();
                 d.setCornerRadius(dp(16));
-                d.setStroke(dp(1), SettingsStyle.LINE, dp(6), dp(5));
+                d.setStroke(dp(1), SettingsStyle.HAIRLINE, dp(6), dp(5));
                 t.setBackground(d);
                 final RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(-1, -2);
                 lp.bottomMargin = dp(6);
@@ -478,7 +478,7 @@ public class SettingsLayoutFragment extends Fragment {
             card.setGravity(Gravity.CENTER_VERTICAL);
             card.setMinimumHeight(dp(kind == Item.GROUP ? 64 : 56));
             card.setPadding(dp(14), dp(10), dp(8), dp(10));
-            final GradientDrawable bg = SettingsStyle.shape(c, SettingsStyle.CARD, SettingsStyle.LINE, 16);
+            final GradientDrawable bg = SettingsStyle.shape(c, SettingsStyle.ROW, 0, 16);
             card.setBackground(bg);
             card.setTag(R.id.settings_layout_card, bg);
             final ImageView icon = new ImageView(c);
@@ -488,7 +488,7 @@ public class SettingsLayoutFragment extends Fragment {
             card.addView(icon, ip);
             final LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
-            final TextView title = SettingsStyle.text(c, "", kind == Item.GROUP ? 15.5f : 14.5f, SettingsStyle.TEXT);
+            final TextView title = SettingsStyle.text(c, "", kind == Item.GROUP ? 15.5f : 14.5f, SettingsStyle.ROW_TITLE);
             if (kind == Item.GROUP) title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
             texts.addView(title, new LinearLayout.LayoutParams(-1, -2));
             final TextView summary = SettingsStyle.text(c, "", 12.5f, SettingsStyle.SUMMARY);
@@ -500,7 +500,7 @@ public class SettingsLayoutFragment extends Fragment {
             card.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
             final ImageView grip = new ImageView(c);
             grip.setImageResource(R.drawable.settings_ic_grip);
-            grip.setImageTintList(ColorStateList.valueOf(SettingsStyle.MUTED));
+            grip.setImageTintList(ColorStateList.valueOf(SettingsStyle.SECTION));
             grip.setScaleType(ImageView.ScaleType.CENTER);
             grip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             card.addView(grip, new LinearLayout.LayoutParams(dp(44), dp(44)));
@@ -589,7 +589,7 @@ public class SettingsLayoutFragment extends Fragment {
             this.chosen = chosen;
             view = new FrameLayout(c);
             view.setPadding(SettingsStyle.dp(c, 3), SettingsStyle.dp(c, 3), SettingsStyle.dp(c, 3), SettingsStyle.dp(c, 3));
-            view.setBackground(SettingsStyle.shape(c, SettingsStyle.CARD, SettingsStyle.LINE, 999));
+            view.setBackground(SettingsStyle.shape(c, SettingsStyle.ROW, 0, 999));
             view.setTag("settings_layout_modes");
             pill = new View(c);
             pill.setBackground(SettingsStyle.shape(c, SettingsStyle.tint(SettingsStyle.accent(c), .22f), 0, 999));
@@ -598,7 +598,7 @@ public class SettingsLayoutFragment extends Fragment {
             labels = new TextView[names.length];
             for (int i = 0; i < names.length; i++) {
                 final int index = i;
-                final TextView t = SettingsStyle.text(c, names[i], 14, SettingsStyle.TEXT);
+                final TextView t = SettingsStyle.text(c, names[i], 14, SettingsStyle.ROW_TITLE);
                 t.setGravity(Gravity.CENTER);
                 t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
                 t.setFocusable(true);
@@ -638,8 +638,8 @@ public class SettingsLayoutFragment extends Fragment {
         /** The chosen label turns to the accent with the pill's glide ({@code k} 0..1), the one left turns back. */
         private void paint(int accent, float k) {
             for (int i = 0; i < labels.length; i++)
-                labels[i].setTextColor(i == chosen ? SettingsMotion.mix(SettingsStyle.TEXT, accent, k)
-                        : i == previous ? SettingsMotion.mix(accent, SettingsStyle.TEXT, k) : SettingsStyle.TEXT);
+                labels[i].setTextColor(i == chosen ? SettingsMotion.mix(SettingsStyle.ROW_TITLE, accent, k)
+                        : i == previous ? SettingsMotion.mix(accent, SettingsStyle.ROW_TITLE, k) : SettingsStyle.ROW_TITLE);
         }
     }
 }

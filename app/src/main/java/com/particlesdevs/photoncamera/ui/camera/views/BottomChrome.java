@@ -85,9 +85,17 @@ public final class BottomChrome {
      * The strip fill: the card colour at 74 % (owner, 2026-11-05: «что-то между тем что сейчас и А» - the shade's glass, a little
      * more see-through than the old 85 % capsule, with {@link #STRIP_LINE}'s light hairline in place of the card line).
      */
-    public static final int STRIP_FILL = 0xBD1A1F22;
+    public static final int STRIP_FILL = 0xFF1C1C1E;
     /** The shade glass's light hairline around the lens strip and the zoom readout. */
-    public static final int STRIP_LINE = 0x38FFFFFF;
+    public static final int STRIP_LINE = 0x1AFFFFFF;
+    /**
+     * P574 (the approved concept, «Меньше стекла в самом видоискателе»): the bottom controls are solid dark (#1C1C1E with a faint
+     * hairline) - the zoom capsule ({@link #STRIP_FILL}), the front / back switch, the gear, the mode switch, «Про»; the chosen mode
+     * a lighter disc ({@link #CHOSEN}); «Про» while open the accent's dark tone with an accent edge.
+     */
+    public static final int CONTROL = 0xFF1C1C1E, CHOSEN = 0xFF3A3A3C;
+    /** P574: «Про» and the gear: the concept's 50dp squares with 16dp corners. */
+    static final float ROW_RADIUS_DP = 16f;
 
     /**
      * SIMPLE_UI (owner, 2026-10-18: «изучи концепт внимательно и сделай так же как у него»): the bottom rows as the concept
@@ -105,7 +113,17 @@ public final class BottomChrome {
         if (gallery != null) gallery.setBackground(tonalShape(card, 0, SIDE_RADIUS_DP * d * f, d));
         // P495 (owner, 2026-11-03: «Про», «Ещё» and the front / back switch as the top bar): tonal discs without a line
         // the switch the gallery card's shape (owner: «такой же формы как иконку галереи»): a tonal rounded square
-        if (flip != null) flip.setBackground(rounded(com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.TONAL, accent, SIDE_RADIUS_DP * d * f, d));
+        if (flip != null) flip.setBackground(rounded(CONTROL, accent, SIDE_RADIUS_DP * d * f, d));
+        // P574: the bottom row - the gear and «Про» solid squares, the mode switch a solid capsule
+        View gear = bar.findViewById(R.id.settings_button), modes = bar.findViewById(R.id.mode_switch);
+        if (gear instanceof android.widget.ImageView) {
+            gear.setBackground(rounded(CONTROL, accent, ROW_RADIUS_DP * d * f, d));
+            com.particlesdevs.photoncamera.ui.Icons.mono((android.widget.ImageView) gear, com.particlesdevs.photoncamera.ui.settings.SettingsStyle.TEXT);
+        }
+        if (modes != null) modes.setBackground(glassShape(CONTROL, 26 * d * f, d));
+        View grip = bar.findViewById(R.id.more_grip);
+        if (grip != null) grip.setBackground(tonalShape(0x59FFFFFF, 0, 2 * d, d));
+        bindModes(bar, false);
         if (strip != null) {
             // the concept's 4px padding came with the XML background: a new background without padding would drop it
             // (unless scaleTree had set it as the view's own), so the strip lost it at k = 1 only
@@ -117,15 +135,57 @@ public final class BottomChrome {
         if (thumb instanceof com.google.android.material.imageview.ShapeableImageView)
             ((com.google.android.material.imageview.ShapeableImageView) thumb).setShapeAppearanceModel(
                     com.google.android.material.shape.ShapeAppearanceModel.builder().setAllCornerSizes(SIDE_RADIUS_DP * d * f).build());
-        for (int id : new int[]{R.id.pro_button, R.id.more_button}) {
-            View side = bar.findViewById(id);
-            if (side == null) continue;
-            // P495 (owner, 2026-11-03: «Ещё» and «Про» the gallery's shape): its corners scaled to the 44dp disc
-            side.findViewById(id == R.id.pro_button ? R.id.pro_disc : R.id.more_disc).setBackground(rounded(
-                    com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.TONAL, accent, SIDE_DISC_RADIUS_DP * d * f, d));
-        }
+        View proDisc = bar.findViewById(R.id.pro_disc);
+        // P574: «Про» the concept's 50dp square with 16dp corners
+        if (proDisc != null) proDisc.setBackground(rounded(CONTROL, accent, ROW_RADIUS_DP * d * f, d));
         setSideOn(bar, R.id.pro_button, false);
-        setSideOn(bar, R.id.more_button, false);
+    }
+
+    /**
+     * P574: the Sport | Photo switch from the settings (MotionMode): the chosen mode a lighter disc with its glyph in the accent,
+     * the other a white glyph on nothing; {@code animate}: the discs cross-fade (Animators). Read out as two radio buttons.
+     */
+    public static void bindModes(View bar, boolean animate) {
+        android.widget.ImageView sport = bar.findViewById(R.id.mode_sport), photo = bar.findViewById(R.id.mode_photo);
+        if (sport == null || photo == null) return;
+        Context c = bar.getContext();
+        boolean on = com.particlesdevs.photoncamera.settings.MotionMode.on();
+        int accent = com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.accent(c);
+        modeDisc(sport, on, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Спорт", "Sport"));
+        modeDisc(photo, !on, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Фото", "Photo"));
+    }
+
+    private static void modeDisc(android.widget.ImageView b, boolean chosen, int accent, boolean animate, String name) {
+        final int fill = chosen ? CHOSEN : 0x00FFFFFF & CHOSEN, ink = chosen ? accent : com.particlesdevs.photoncamera.ui.settings.SettingsStyle.TEXT;
+        final Object was = b.getTag(R.id.mode_switch);
+        final int fromFill = was instanceof int[] ? ((int[]) was)[0] : fill, fromInk = was instanceof int[] ? ((int[]) was)[1] : ink;
+        b.setTag(R.id.mode_switch, new int[]{fill, ink});
+        final android.graphics.drawable.GradientDrawable disc = new android.graphics.drawable.GradientDrawable();
+        disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        disc.setColor(fill);
+        b.setBackground(disc);
+        com.particlesdevs.photoncamera.ui.Icons.mono(b, ink);
+        b.setSelected(chosen);
+        b.setActivated(chosen);
+        b.setContentDescription(name);
+        androidx.core.view.ViewCompat.setAccessibilityDelegate(b, new androidx.core.view.AccessibilityDelegateCompat() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.RadioButton.class.getName());
+                info.setCheckable(true);
+                info.setChecked(chosen);
+            }
+        });
+        if (!animate || (fromFill == fill && fromInk == ink) || !android.animation.ValueAnimator.areAnimatorsEnabled()) return;
+        final android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        a.setDuration(260);
+        a.setInterpolator(com.particlesdevs.photoncamera.ui.Motion.EASE_OUT);
+        a.addUpdateListener(v -> {
+            final float k = (float) v.getAnimatedValue();
+            disc.setColor(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(fromFill, fill, k));
+            b.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(fromInk, ink, k)));
+        });
+        a.start();
     }
 
     /** P495: a tonal rounded square (the gallery card's corners), rippling in the accent. */
@@ -134,34 +194,36 @@ public final class BottomChrome {
                 tonalShape(fill, 0, radiusPx, d), tonalShape(0xFFFFFFFF, 0, radiusPx, d));
     }
 
-    /** «Про» / «Ещё» on (the concept's .side.on: an accent disc, the glyph in INK, the label in the accent) or off. */
+    /**
+     * «Про» on or off. P574 (the concept): on, the accent's dark tone with an accent edge and the glyph in the accent; off, the solid
+     * dark square with a white glyph. ({@code id}: only «Про» is left of the old side discs; «Ещё» became the grabber.)
+     */
     public static void setSideOn(View bar, int id, boolean on) {
         View side = bar.findViewById(id);
-        if (side == null) return;
+        if (side == null || id != R.id.pro_button) return;
         Context c = side.getContext();
         int accent = com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.accent(c);
         int text = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.TEXT;
         boolean pro = id == R.id.pro_button;
-        View disc = side.findViewById(pro ? R.id.pro_disc : R.id.more_disc);
-        android.widget.ImageView icon = side.findViewById(pro ? R.id.pro_icon : R.id.more_icon);
-        android.widget.TextView label = side.findViewById(pro ? R.id.pro_label : R.id.more_label);
+        View disc = side.findViewById(R.id.pro_disc);
+        android.widget.ImageView icon = side.findViewById(R.id.pro_icon);
+        if (disc == null || icon == null) return;
         android.graphics.drawable.Drawable bg = disc.getBackground();
         if (bg instanceof android.graphics.drawable.RippleDrawable
                 && ((android.graphics.drawable.RippleDrawable) bg).getDrawable(0) instanceof android.graphics.drawable.GradientDrawable) {
             android.graphics.drawable.GradientDrawable shape = (android.graphics.drawable.GradientDrawable) ((android.graphics.drawable.RippleDrawable) bg).getDrawable(0);
             float d = c.getResources().getDisplayMetrics().density;
-            shape.setColor(on ? accent : com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.TONAL);
-            shape.setStroke(0, 0); // P495: no line, as the top bar's discs
+            shape.setColor(on ? tone(CONTROL, accent, .26f) : CONTROL);
+            shape.setStroke(Math.max(1, Math.round(on ? 1.5f * d : d / 2)), on ? accent : STRIP_LINE);
         }
-        // P495: on, the accent disc's own ink (dark on a light accent, white on a dark one)
-        icon.setImageTintList(android.content.res.ColorStateList.valueOf(on
-                ? com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.onAccent(accent) : text));
-        label.setTextColor(on ? accent : text);
+        // P574: the glyph in the accent while open, white while closed (and its pressed pose)
+        com.particlesdevs.photoncamera.ui.Icons.mono(icon, on ? accent : text);
+        icon.setActivated(on);
         // P495: the switched side's glyph breathes (Pro opened / closed)
         if (side.isActivated() != on) com.particlesdevs.photoncamera.ui.Motion.pop(icon);
         side.setActivated(on);
-        androidx.core.view.ViewCompat.setStateDescription(side, pro ? com.particlesdevs.photoncamera.util.Lang.t(c, on ? "открыто" : "закрыто",
-                on ? "open" : "closed") : null);
+        androidx.core.view.ViewCompat.setStateDescription(side, com.particlesdevs.photoncamera.util.Lang.t(c, on ? "открыто" : "закрыто",
+                on ? "open" : "closed"));
     }
 
     /** {@code base} moved {@code amount} of the way to {@code accent} (opaque): a tonal colour of the accent. */

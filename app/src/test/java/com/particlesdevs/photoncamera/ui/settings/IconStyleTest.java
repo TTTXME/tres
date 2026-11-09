@@ -91,8 +91,14 @@ public class IconStyleTest {
             android.widget.ImageView icon = (android.widget.ImageView) holder.findViewById(android.R.id.icon);
             icon.setColorFilter(0xFF00FF00); // a recycled row that was tinted before
             SettingsStyle.bind(holder, p);
-            if (key.startsWith("pref_reset")) org.junit.Assert.assertNotNull(key, icon.getColorFilter());
-            else org.junit.Assert.assertNull(key + " is tinted", icon.getColorFilter());
+            // P574: the icon in the light tone of its hue on a tile of the dark tone (the grey gear: the grey pair; the resets: red),
+            // never the recycled row's tint
+            org.junit.Assert.assertNotNull(key, icon.getColorFilter());
+            org.junit.Assert.assertNotEquals(key + " keeps a recycled tint", new android.graphics.PorterDuffColorFilter(0xFF00FF00,
+                    android.graphics.PorterDuff.Mode.SRC_ATOP), icon.getColorFilter());
+            android.view.View tile = row.findViewById(R.id.settings_icon_tile);
+            org.junit.Assert.assertEquals(key, key.startsWith("pref_reset") ? SettingsTiles.RED[0] : SettingsTiles.GREY[0],
+                    ((android.graphics.drawable.GradientDrawable) tile.getBackground()).getColor().getDefaultColor());
         }
         String xml = new String(java.nio.file.Files.readAllBytes(new File("src/main/res/xml/preferences.xml").toPath()),
                 java.nio.charset.StandardCharsets.UTF_8);

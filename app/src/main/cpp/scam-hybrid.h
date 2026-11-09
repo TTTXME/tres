@@ -1060,6 +1060,8 @@ struct HybridTuning {
     // P568: the Quad native merge with its colour blocks in shared memory (NAT_TILE; the same sums): 0 off, 1 always, 2 the faster
     // of the two measured on two strips of the first shot on a GPU and driver (kept in the program cache: hybridNatTileChoice)
     int mosaicNatTile=2;
+    // P571: the fast route's Quad lattice off the luma after its merge (ChromaMedianGpu::quadLattice): 0 off
+    int fastQuadLattice=1;
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
@@ -1351,7 +1353,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("mochi",nullptr,&t.mochi)
             ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
             ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit)
-            ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMosaicChroma",nullptr,&t.fastMosaicChroma)||set("fastSiteGain",nullptr,&t.fastSiteGain)||set("mosaicNatTile",nullptr,&t.mosaicNatTile)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
+            ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMosaicChroma",nullptr,&t.fastMosaicChroma)||set("fastSiteGain",nullptr,&t.fastSiteGain)||set("mosaicNatTile",nullptr,&t.mosaicNatTile)||set("fastQuadLattice",nullptr,&t.fastQuadLattice)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax); // P488
         }
@@ -17831,7 +17833,7 @@ struct MappedHybridBurst {
         if(h[0]!=0x3143484e||(h[1]!=10&&h[1]!=11&&h[1]!=12)){munmap(address,length);address=MAP_FAILED;return;}
         try {
             // The Java RGB buffer holds the selected FP16/FP32 transport, not the worker's float32 intermediates.
-            if(h[2]<64||h[3]<64||h[2]>65534||h[3]>65534||h[2]%2||h[3]%2||h[4]>3||h[5]<1||h[5]>64)
+            if(h[2]<64||h[3]<64||h[2]>65534||h[3]>65534||h[2]%2||h[3]%2||h[4]>3||h[5]<1||h[5]>uint32_t(kHybridMaxFrames)) // P578: was 64
                 throw std::runtime_error("Unsupported hybrid burst dimensions/CFA/count");
             const uint64_t streamPixels=uint64_t(h[2])*h[3];
             input.w=int(h[2]);input.h=int(h[3]);input.cfa=int(h[4]);

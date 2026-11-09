@@ -1421,6 +1421,10 @@ void main() {
     float faceM = textureLod(FaceMask, (vec2(xy) + 0.5) / vec2(size), 0.0).r;   // P512
 #endif
 #if FACE_AWB == 1
+#if COLOUR_LOOK == 1
+    // P577: a monochrome picture takes no white balance (the faces' shift gave its grey their cast, up to 0.03 a / L, b / L)
+    if (monoU == vec3(0.0))
+#endif
     lab.yz += faceAwbU * lab.x;   // P512: a white balance led by the faces
 #endif
     // P370 (B2): the colour as the matrix made it where it lies outside sRGB (monochrome keeps its grey); a branch, so a pixel

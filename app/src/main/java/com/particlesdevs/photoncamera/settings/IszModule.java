@@ -62,6 +62,8 @@ public final class IszModule {
                 break;
             }
             if (main == null) return;
+            // P575: a nubia main camera's «2×» runs its full-size sensor-mode row at zoom 2 (NubiaFullRes), not CROPPED_RAW
+            if (com.particlesdevs.photoncamera.capture.NubiaFullRes.ensureIszModule(context, main, c)) return;
             final String cameraId = ModuleRegistry.camera(main);
             if (p.getBoolean(OFFERED + cameraId, false)) return;
             if (!CroppedRaw.supported(c)) return;

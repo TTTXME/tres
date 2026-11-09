@@ -16,7 +16,7 @@
         android:fontFamily="sans-serif-medium"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="@color/settings_text"
+        android:textColor="@color/settings_row_title"
         android:textSize="16sp" />
     <TextView
         android:id="@android:id/summary"

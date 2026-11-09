@@ -32,7 +32,7 @@ public final class ScamLabParams {
 
     /** Fields never written: the worker RGB and the per-shot objects above. */
     static final Set<String> SKIPPED = new java.util.HashSet<>(java.util.Arrays.asList("scamRgb", "scamRgbOwned", "hotPixels",
-            "dngColour", "manualWbAtPress", "mosaicWbAtPress", "rawCrop", "dngNoiseProfile", "dngBaselineExposure"));
+            "dngColour", "manualWbAtPress", "mosaicWbAtPress", "rawCrop", "sabreCrop", "dngNoiseProfile", "dngBaselineExposure"));
 
     public static JSONObject toJson(Parameters p) throws JSONException {
         final JSONObject out = new JSONObject();

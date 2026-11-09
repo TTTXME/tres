@@ -80,7 +80,8 @@ public class PhotoStylePreference extends Preference implements SharedPreference
         host.removeAllViews();
         card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 18));
+        card.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));   // P574: a group card of the settings
+        card.setClipToOutline(true);
         card.setTag("photo_style");
         host.addView(card, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         fill();
@@ -99,31 +100,33 @@ public class PhotoStylePreference extends Preference implements SharedPreference
         for (int i = 0; i < rows.length; i++) {
             if (i > 0) {
                 View line = new View(c);
-                line.setBackgroundColor(UiTokens.LINE);
+                line.setBackgroundColor(SettingsStyle.HAIRLINE);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, UiTokens.dp(c, .5f)));
-                lp.setMarginStart(UiTokens.dp(c, 62));
+                lp.setMarginStart(UiTokens.dp(c, 60));
                 box.addView(line, lp);
             }
             LinearLayout row = new LinearLayout(c);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setMinimumHeight(UiTokens.dp(c, 58));
-            row.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, 10), UiTokens.dp(c, 14), UiTokens.dp(c, 10));
+            row.setMinimumHeight(UiTokens.dp(c, 52));
+            row.setPadding(UiTokens.dp(c, 16), UiTokens.dp(c, 9), UiTokens.dp(c, 16), UiTokens.dp(c, 9));
             row.setBackgroundResource(R.drawable.settings_row);
             FrameLayout tile = new FrameLayout(c);
-            tile.setBackgroundResource(R.drawable.settings_icon_tile);
             ImageView icon = new ImageView(c);
             icon.setImageResource(R.drawable.ui_ic_palette);
-            icon.setImageTintList(ColorStateList.valueOf(UiTokens.TEXT));
+            // P574: the tonal tile of the settings rows
+            int[] pair = com.particlesdevs.photoncamera.ui.settings.SettingsTiles.pair(icon.getDrawable());
+            tile.setBackground(UiTokens.shape(c, pair[0], 0, 9));
+            icon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(pair[1]));
             tile.addView(icon, new FrameLayout.LayoutParams(UiTokens.dp(c, 22), UiTokens.dp(c, 22), Gravity.CENTER));
-            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(UiTokens.dp(c, 36), UiTokens.dp(c, 36));
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(UiTokens.dp(c, 32), UiTokens.dp(c, 32));
             tp.setMarginEnd(UiTokens.dp(c, 12));
             row.addView(tile, tp);
             LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
-            TextView t = SettingsStyle.text(c, rows[i][0], 14.5f, UiTokens.TEXT);
-            t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            TextView t = SettingsStyle.text(c, rows[i][0], 16, SettingsStyle.ROW_TITLE);
+            t.setTypeface(SettingsStyle.semibold());
             texts.addView(t);
-            TextView s = SettingsStyle.text(c, rows[i][1], 12.5f, UiTokens.SUMMARY);
+            TextView s = SettingsStyle.text(c, rows[i][1], 13, SettingsStyle.SUMMARY);
             s.setPadding(0, UiTokens.dp(c, 2), 0, 0);
             texts.addView(s);
             row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));

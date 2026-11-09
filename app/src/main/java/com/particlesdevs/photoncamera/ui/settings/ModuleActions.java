@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.hardware.camera2.CameraManager;
 import android.os.Bundle;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Toast;
@@ -60,10 +59,22 @@ public final class ModuleActions {
         ratio.setHint(Lang.t(c, "Например: 0.6, 1, 3, 6", "For example: 0.6, 1, 3, 6"));
         ratio.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
         ratio.setText(String.format(Locale.US, "%.2f", ModuleRegistry.zoom(slot)).replaceAll("\\.?0+$", ""));
-        CheckBox crop = DialogStyle.check(new CheckBox(c));
-        crop.setText(Lang.t(c, "Кроп на сенсоре (кадр уже обрезан режимом сенсора)", "Sensor crop (the sensor mode already crops the frame)"));
-        crop.setChecked(ModuleRegistry.sensorCrop(slot));
-        LinearLayout box = DialogStyle.body(c, ratio, crop);
+        // P574: the sensor crop on the shared switch (was a check box); a tap on its row toggles it
+        com.particlesdevs.photoncamera.ui.controls.IosSwitch crop = new com.particlesdevs.photoncamera.ui.controls.IosSwitch(c);
+        crop.setCheckedNow(ModuleRegistry.sensorCrop(slot));
+        crop.setTag("zoom_sensor_crop");
+        crop.setContentDescription(Lang.t(c, "Кроп на сенсоре", "Sensor crop"));
+        LinearLayout cropRow = new LinearLayout(c);
+        cropRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.widget.TextView cropText = SettingsStyle.text(c, Lang.t(c, "Кроп на сенсоре (кадр уже обрезан режимом сенсора)",
+                "Sensor crop (the sensor mode already crops the frame)"), 15, SettingsStyle.ROW_TITLE);
+        cropText.setLineSpacing(SettingsStyle.dp(c, 2), 1f);
+        cropRow.addView(cropText, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
+        sp.setMarginStart(SettingsStyle.dp(c, 12));
+        cropRow.addView(crop, sp);
+        cropRow.setOnClickListener(v -> crop.toggle());
+        LinearLayout box = DialogStyle.body(c, ratio, cropRow);
         DialogStyle.builder(c).setTitle(Lang.t(c, "Зум · ", "Zoom · ") + ModuleRegistry.label(slot) + " · "
                         + c.getString(R.string.module_id_value, ModuleRegistry.camera(slot))).setView(box)
                 .setPositiveButton(Lang.t(c, "Сохранить", "Save"), (d, w) -> {
@@ -194,12 +205,12 @@ public final class ModuleActions {
 
     /** «Удалить «X»?»: a copy goes (an original can't be deleted); {@code done} after the delete. */
     static void deleteCopy(Context c, String slot, Runnable done) {
-        DialogStyle.builder(c).setTitle(Lang.t(c, "Удалить «" + ModuleRegistry.label(slot) + "»?", "Delete “" + ModuleRegistry.label(slot) + "”?"))
-                .setPositiveButton(Lang.t(c, "Удалить", "Delete"), (d, w) -> {
+        // P574: the concept's alert for what cannot be undone - «Отмена» and the red «Удалить» side by side
+        DialogStyle.confirm(c, Lang.t(c, "Удалить «" + ModuleRegistry.label(slot) + "»?", "Delete “" + ModuleRegistry.label(slot) + "”?"),
+                null, Lang.t(c, "Удалить", "Delete"), () -> {
                     ModuleRegistry.remove(slot);
                     done.run();
-                })
-                .setNegativeButton(Lang.t(c, "Отмена", "Cancel"), null).show();
+                });
     }
 
     // ───── P189 / P193: the modules' own settings ─────

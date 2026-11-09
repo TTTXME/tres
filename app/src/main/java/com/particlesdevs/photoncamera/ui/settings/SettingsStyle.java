@@ -2,8 +2,6 @@ package com.particlesdevs.photoncamera.ui.settings;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
-import android.graphics.Canvas;
-import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
@@ -16,7 +14,6 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.appcompat.widget.SwitchCompat;
@@ -68,12 +65,21 @@ public final class SettingsStyle {
     public static final int WARN = 0xFFFFB4A8;
     public static final int OFF_TRACK = 0xFF3A3E45, OFF_THUMB = 0xFF9AA0A7;
     /** P384: the rows of an open module card, a step lighter than the card (res: settings_card_nested). */
-    public static final int CARD_NESTED = 0xFF1F2528;
+    public static final int CARD_NESTED = 0xFF3A3A3C;
+    /**
+     * P574 (owner, 2026-11-09: «Отлично, реализуем» - the settings in the look of the camera's own sheets, not blue iOS): the page,
+     * its group cards, the 0.5dp hairlines between rows, a row's title, a value, a chevron, a section title, a slider's ends, the
+     * grey fill of a capsule button and the red of a destructive one (res: settings_page ... settings_range). The camera's
+     * colours (BG, CARD, ... from UiTokens) stay as they are: the shade and the gallery read them through this class.
+     */
+    public static final int PAGE = 0xFF1C1C1E, ROW = 0xFF2C2C2E, HAIRLINE = 0xA6545458, ROW_TITLE = 0xFFFFFFFF,
+            VALUE = 0x8CFFFFFF, SECTION = 0x8CFFFFFF, CHEVRON = 0x59FFFFFF, RANGE = 0x66FFFFFF, CAPSULE = 0x4D767680,
+            RED = 0xFFFF453A;
     /** P384: the expert groups of the main page (their title carries the «для опытных» pill). */
     static final Set<String> EXPERT_GROUPS = new HashSet<>(Arrays.asList("expert_module_sensor"));
     public static final float DIMMED = UiTokens.DIMMED;
-    /** P139: a row's description (dimmer than MUTED); titles take UiTokens.title (medium weight). */
-    public static final int SUMMARY = UiTokens.SUMMARY;
+    /** P139 / P574: a row's description, white at 60 % (res: settings_summary); titles are semibold white. */
+    public static final int SUMMARY = 0x99FFFFFF;
 
     /** Rows drawn as tiles three to a line (SIMPLE_UI §4: the profile actions are rows now, as the concept; none left). */
     static final Set<String> TILES = new HashSet<>();
@@ -83,7 +89,8 @@ public final class SettingsStyle {
 
     public static int dp(Context c, float v) { return UiTokens.dp(c, v); }
 
-    public static int accent(Context c) { return AccentPalette.color(c); }
+    /** P574: the settings take the camera's accent (yellow by default, the user's choice otherwise), as its sheets. */
+    public static int accent(Context c) { return AccentPalette.camera(c); }
 
     /** The accent at a given alpha over the card colour (chips, pills). */
     public static int tint(int accent, float alpha) {
@@ -103,31 +110,38 @@ public final class SettingsStyle {
         return t;
     }
 
-    // ───── Header (SIMPLE_UI §4, the concept's .shead): a 44dp back disc, the title on the left (20sp, 600), the search disc ─────
+    // ───── Header (P574, the concept: a bar of round 40dp buttons, the large page title, the search capsule) ─────
 
     public static final class Header {
-        public FrameLayout view;
+        /** The whole header (bar, then titles) for pages that keep it still; SettingsActivity takes the two apart. */
+        public LinearLayout view;
+        /** The bar: back, the breadcrumb (or the page's title once the large one scrolled away), search, arrange, reset. */
+        public LinearLayout bar;
+        /** The large title and its subtitle. */
+        public LinearLayout titles;
         public TextView heading, subtitle;
+        /** The bar's centre: the path to this page ({@link #crumb}) and the small title ({@link #small}). */
+        public TextView crumb, small;
         public ImageView back, search, reset, arrange;
     }
 
     /** P385: the header's «Расположение» disc (the page's order), before the reset disc. */
     public static ImageView arrangeDisc(Context c, Header h, Runnable onArrange) {
-        LinearLayout row = (LinearLayout) h.view.getChildAt(0);
+        LinearLayout row = h.bar;
         h.arrange = disc(c, R.drawable.settings_ic_arrange);
         h.arrange.setContentDescription(Lang.t(c, "Расположение настроек страницы", "This page's layout"));
         h.arrange.setTag("settings_page_arrange");
         h.arrange.setFocusable(true);
         h.arrange.setOnClickListener(v -> onArrange.run());
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44));
-        ap.setMarginStart(dp(c, 6));
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
+        ap.setMarginStart(dp(c, 8));
         row.addView(h.arrange, h.reset != null ? row.indexOfChild(h.reset) : row.getChildCount(), ap);
         return h.arrange;
     }
 
     /**
-     * The header of a settings page. view = FrameLayout {row (back disc, titles column (heading, subtitle), search disc)}.
-     * {@code onSearch} null: no search button.
+     * The header of a settings page. view = LinearLayout {bar (back disc, centre (crumb, small title), search disc), titles
+     * (heading, subtitle)}. {@code onSearch} null: no search button.
      */
     public static Header header(Context c, Runnable onBack, Runnable onSearch) {
         return header(c, onBack, onSearch, null);
@@ -136,36 +150,42 @@ public final class SettingsStyle {
     /** The header with, for {@code onReset}, a reset disc at its end (P357: the page's rows back to their defaults). */
     public static Header header(Context c, Runnable onBack, Runnable onSearch, Runnable onReset) {
         Header h = new Header();
-        h.view = new FrameLayout(c);
+        h.view = new LinearLayout(c);
+        h.view.setOrientation(LinearLayout.VERTICAL);
         LinearLayout row = new LinearLayout(c);
+        h.bar = row;
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 0, 0, dp(c, 10));
+        row.setMinimumHeight(dp(c, 44));
         h.back = disc(c, R.drawable.ui_ic_back);
         h.back.setContentDescription(Lang.t(c,"Назад","Back"));
         h.back.setFocusable(true);
         h.back.setOnClickListener(v -> onBack.run());
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44));
-        bp.setMarginEnd(dp(c, 6));
-        row.addView(h.back, bp);
-        LinearLayout titles = new LinearLayout(c);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        h.heading = text(c, "", 20, TEXT);
-        h.heading.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        h.heading.setMaxLines(2);
-        titles.addView(h.heading, new LinearLayout.LayoutParams(-1, -2));
-        h.subtitle = text(c, "", 12.5f, MUTED);
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
-        sp.topMargin = dp(c, 2);
-        titles.addView(h.subtitle, sp);
-        row.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(h.back, new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40)));
+        // the centre: the path to the page at rest, the page's title once its large title scrolled away (collapse)
+        FrameLayout centre = new FrameLayout(c);
+        h.crumb = text(c, "", 13, SECTION);
+        h.small = text(c, "", 16, ROW_TITLE);
+        h.small.setTypeface(semibold());
+        h.small.setAlpha(0f);
+        for (TextView t : new TextView[]{h.crumb, h.small}) {
+            t.setGravity(Gravity.CENTER);
+            t.setSingleLine(true);
+            t.setEllipsize(TextUtils.TruncateAt.END);
+            centre.addView(t, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
+        }
+        h.small.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -2, 1f);
+        cp.setMarginStart(dp(c, 8));
+        cp.setMarginEnd(dp(c, 8));
+        row.addView(centre, cp);
         if (onSearch != null) {
             h.search = disc(c, R.drawable.ui_ic_search);
             h.search.setContentDescription(Lang.t(c,"Поиск настройки","Search settings"));
             h.search.setTag("settings_search");
             h.search.setFocusable(true);
             h.search.setOnClickListener(v -> onSearch.run());
-            LinearLayout.LayoutParams qp = new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44));
-            qp.setMarginStart(dp(c, 6));
+            LinearLayout.LayoutParams qp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
+            qp.setMarginStart(dp(c, 8));
             row.addView(h.search, qp);
         }
         if (onReset != null) {
@@ -174,32 +194,84 @@ public final class SettingsStyle {
             h.reset.setTag("settings_page_reset");
             h.reset.setFocusable(true);
             h.reset.setOnClickListener(v -> onReset.run());
-            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44));
-            rp.setMarginStart(dp(c, 6));
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
+            rp.setMarginStart(dp(c, 8));
             row.addView(h.reset, rp);
         }
-        h.view.addView(row, new FrameLayout.LayoutParams(-1, -2));
+        h.view.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        h.titles = new LinearLayout(c);
+        h.titles.setOrientation(LinearLayout.VERTICAL);
+        h.titles.setPadding(dp(c, 4), dp(c, 14), dp(c, 4), dp(c, 10));
+        h.heading = text(c, "", 34, ROW_TITLE);
+        h.heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        h.heading.setLetterSpacing(-0.012f);
+        h.heading.setMaxLines(2);
+        h.heading.setEllipsize(TextUtils.TruncateAt.END);
+        // the concept: 34sp, 30sp past 16 letters, 26sp past 24 («Приоритет умеренных светов»); the bar's small title follows
+        h.heading.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int n) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int n) {}
+            @Override public void afterTextChanged(android.text.Editable s) {
+                h.heading.setTextSize(titleSize(s));
+                h.small.setText(s.toString());
+            }
+        });
+        h.titles.addView(h.heading, new LinearLayout.LayoutParams(-1, -2));
+        h.subtitle = text(c, "", 14, SUMMARY);
+        h.subtitle.setLineSpacing(dp(c, 2), 1f);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
+        sp.topMargin = dp(c, 6);
+        h.titles.addView(h.subtitle, sp);
+        h.view.addView(h.titles, new LinearLayout.LayoutParams(-1, -2));
         return h;
     }
 
+    /** The large title's size for {@code title} (sp): 34, 30 past 16 letters, 26 past 24. */
+    static float titleSize(@androidx.annotation.Nullable CharSequence title) {
+        int n = title == null ? 0 : title.length();
+        return n > 24 ? 26 : n > 16 ? 30 : 34;
+    }
+
     /**
-     * SIMPLE_UI §4: the concept's .search under the root's header - a 48dp card pill with a line border, the search icon and
-     * «Найти настройку» in the muted colour; a tap opens the search page.
+     * How far the large title has scrolled under the bar ({@code k} 0..1): it fades out, the bar's small title fades in over the
+     * path. Driven by the list's scroll, frame by frame (no animation of its own).
+     */
+    public static void collapse(Header h, float k) {
+        k = Math.max(0f, Math.min(1f, k));
+        h.titles.setAlpha(1f - Math.min(1f, k * 1.4f));
+        float shown = Math.max(0f, (k - .55f) / .45f);
+        h.small.setAlpha(shown);
+        h.crumb.setAlpha(1f - shown);
+    }
+
+    private static android.graphics.Typeface semibold;
+
+    /** A semibold face (600 where the system has weights; medium before Android 9). */
+    public static android.graphics.Typeface semibold() {
+        if (semibold == null) semibold = android.os.Build.VERSION.SDK_INT >= 28
+                ? android.graphics.Typeface.create(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL), 600, false)
+                : android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL);
+        return semibold;
+    }
+
+    /**
+     * SIMPLE_UI §4 / P574: the search under the root's large title - the concept's capsule (#2C2C2E, 44dp, 22dp corners), the glass
+     * and «Поиск» at 55 % white; a tap opens the search page.
      */
     public static LinearLayout searchPill(Context c, Runnable onSearch) {
         LinearLayout pill = new LinearLayout(c);
         pill.setGravity(Gravity.CENTER_VERTICAL);
-        pill.setMinimumHeight(dp(c, 48));
-        pill.setPadding(dp(c, 14), 0, dp(c, 14), 0);
-        pill.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), shape(c, CARD, LINE, 999), null));
+        pill.setMinimumHeight(dp(c, 44));
+        pill.setPadding(dp(c, 12), 0, dp(c, 12), 0);
+        pill.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), shape(c, ROW, 0, 22), null));
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.ui_ic_search);
-        icon.setImageTintList(ColorStateList.valueOf(MUTED));
+        icon.setImageResource(R.drawable.settings_ic_search);
+        com.particlesdevs.photoncamera.ui.Icons.ink(icon, R.drawable.settings_ic_search, SECTION); // P570: the search glass in tonal mono
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(c, 22), dp(c, 22));
-        ip.setMarginEnd(dp(c, 10));
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(c, 20), dp(c, 20));
+        ip.setMarginEnd(dp(c, 8));
         pill.addView(icon, ip);
-        pill.addView(text(c, Lang.t(c, "Найти настройку", "Find a setting"), 15, MUTED), new LinearLayout.LayoutParams(0, -2, 1f));
+        pill.addView(text(c, Lang.t(c, "Поиск", "Search"), 17, SECTION), new LinearLayout.LayoutParams(0, -2, 1f));
         pill.setContentDescription(Lang.t(c, "Поиск настройки", "Search settings"));
         pill.setTag("settings_search");
         pill.setFocusable(true);
@@ -207,25 +279,38 @@ public final class SettingsStyle {
         return pill;
     }
 
-    /** The concept's .back: a 44dp card disc with a line icon in the text colour. */
+    /** P574: the concept's round button - a 40dp #2C2C2E disc with a white line icon. */
     static ImageView disc(Context c, int icon) {
         ImageView v = new ImageView(c);
         v.setImageResource(icon);
-        v.setImageTintList(ColorStateList.valueOf(TEXT));
+        com.particlesdevs.photoncamera.ui.Icons.ink(v, icon, ROW_TITLE); // P574: white on the round button (tonal mono for a colour icon)
         v.setScaleType(ImageView.ScaleType.CENTER);
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
-        d.setColor(CARD);
+        d.setColor(ROW);
         v.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), d, null));
         return v;
     }
 
-    /** The module screen's chip: «Настраивается: …», «Активна: …». */
+    /**
+     * The module screen's chip: «Настраивается: …», «Активна: …». P574 (the approved «Камеры и модули»): a #2C2C2E capsule, 40dp,
+     * white 15sp semibold text; a trailing «▾» (the module picker) in the accent.
+     */
     public static TextView chip(Context c, CharSequence value) {
         int accent = accent(c);
-        TextView t = text(c, value, 13, accent);
-        t.setPadding(dp(c, 16), dp(c, 9), dp(c, 16), dp(c, 9));
-        t.setBackground(shape(c, tint(accent, .16f), 0, 20));
+        CharSequence shown = value;
+        String s = value == null ? "" : value.toString();
+        if (s.endsWith("▾")) {
+            android.text.SpannableString span = new android.text.SpannableString(s);
+            span.setSpan(new android.text.style.ForegroundColorSpan(accent), s.length() - 1, s.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            shown = span;
+        }
+        TextView t = text(c, shown, 15, ROW_TITLE);
+        t.setTypeface(semibold());
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        t.setMinHeight(dp(c, 40));
+        t.setPadding(dp(c, 16), dp(c, 8), dp(c, 14), dp(c, 8));
+        t.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), shape(c, ROW, 0, 20), null));
         t.setTag("settings_chip");
         return t;
     }
@@ -275,6 +360,7 @@ public final class SettingsStyle {
         if (p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ToneCurvePreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.RawCropPreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.SegmentedListPreference // P490
+                    && ((com.particlesdevs.photoncamera.ui.settings.custompreferences.SegmentedListPreference) p).segments() // P574
                 || page(p)) {
             p.setIconSpaceReserved(false);
             return;
@@ -296,10 +382,13 @@ public final class SettingsStyle {
             defaultIcon(p, R.drawable.settings_ic_sliders);
         } else if (p instanceof TwoStatePreference) {
             p.setLayoutResource(R.layout.preference_card);
+            // P574: the settings' switch (a check box of a choice list stays a check box)
+            if (!(p instanceof androidx.preference.CheckBoxPreference)) p.setWidgetLayoutResource(R.layout.settings_widget_switch);
             defaultIcon(p, R.drawable.settings_ic_toggle);
         } else if (p instanceof ListPreference) {
             p.setLayoutResource(R.layout.preference_card);
-            p.setWidgetLayoutResource(R.layout.settings_widget_chevron);
+            // P574: a list opens its pull-down menu at the row: the up / down chevron after the value (the restore keeps its dialog)
+            p.setWidgetLayoutResource(p instanceof RestorePreference ? R.layout.settings_widget_chevron : R.layout.settings_widget_updown);
             defaultIcon(p, R.drawable.settings_ic_list);
         } else if (p instanceof EditTextPreference) {
             p.setLayoutResource(R.layout.preference_card);
@@ -372,40 +461,77 @@ public final class SettingsStyle {
 
     /**
      * P406 (owner, 2026-10-29: «описание у всех параметров должно быть не больше двух строк, расширенное описание у нас
-     * показывается по зажатию по параметру»): a row's summary shows at most two lines - its whole sentences that fit, else its
-     * start with «…»; the long press (SettingHelp) shows the whole text. Fitted again whenever the row's width changes.
+     * показывается по зажатию по параметру»; P574, 2026-11-09: three lines, never cut in the middle of a word): a row's summary
+     * shows at most {@link #SUMMARY_LINES} lines - its whole sentences that fit, else its whole words that fit with «…»; the long
+     * press (SettingHelp) shows the whole text. Fitted again whenever the row's width changes.
      */
+    static final int SUMMARY_LINES = 3;
+
     static void twoLines(TextView summary) {
-        summary.setMaxLines(2);
+        fitLines(summary);
+    }
+
+    static void fitLines(TextView summary) {
+        summary.setMaxLines(SUMMARY_LINES);
         summary.setEllipsize(TextUtils.TruncateAt.END);
         summary.setTag(R.id.settings_full_summary, summary.getText());
         if (summary.getTag(R.id.settings_two_lines) == null) {
             summary.setTag(R.id.settings_two_lines, Boolean.TRUE);
-            summary.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitTwoLines((TextView) v));
+            summary.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitSummary((TextView) v));
         }
-        fitTwoLines(summary);
+        fitSummary(summary);
     }
 
-    private static void fitTwoLines(TextView summary) {
+    private static void fitSummary(TextView summary) {
         final Object full = summary.getTag(R.id.settings_full_summary);
         final int width = summary.getWidth() - summary.getTotalPaddingLeft() - summary.getTotalPaddingRight();
         if (!(full instanceof CharSequence) || width <= 0) return;
-        final CharSequence fit = twoLineText((CharSequence) full, summary.getPaint(), width);
-        if (!TextUtils.equals(fit, summary.getText())) summary.setText(fit);
+        final CharSequence fit = fitText((CharSequence) full, summary.getPaint(), width, SUMMARY_LINES);
+        if (!TextUtils.equals(fit, summary.getText())) {
+            summary.setText(fit);
+            // fitted in the middle of a layout pass: measured again on the next frame (a shorter text, a lower row)
+            summary.post(summary::requestLayout);
+        }
     }
 
     /** {@code text} if it takes at most two lines of {@code width} px, else its longest run of whole sentences that does; null: none. */
     static CharSequence twoLineText(CharSequence text, android.text.TextPaint paint, int width) {
         if (lines(text, paint, width) <= 2) return text;
+        final CharSequence head = sentences(text, paint, width, 2);
+        return head != null ? head : text;
+    }
+
+    /**
+     * {@code text} if it takes at most {@code max} lines of {@code width} px; else its longest run of whole sentences that does,
+     * else its longest run of whole words with «…» that does (never a word cut in two).
+     */
+    static CharSequence fitText(CharSequence text, android.text.TextPaint paint, int width, int max) {
+        if (lines(text, paint, width) <= max) return text;
+        final CharSequence head = sentences(text, paint, width, max);
+        if (head != null) return head;
+        final String s = text.toString();
+        String best = null;
+        int lo = 0;
+        for (int i = s.indexOf(' '); i > 0; i = s.indexOf(' ', i + 1)) {
+            final String cut = s.substring(0, i).replaceAll("[\\s,;:—–-]+$", "") + "…";
+            if (lines(cut, paint, width) > max) break;
+            best = cut;
+            lo = i;
+        }
+        return best != null && lo > 0 ? best : text;
+    }
+
+    @androidx.annotation.Nullable
+    private static String sentences(CharSequence text, android.text.TextPaint paint, int width, int max) {
         final String s = text.toString();
         final java.util.regex.Matcher m = java.util.regex.Pattern.compile("[.!?…;](?=\\s)").matcher(s);
         String best = null;
         while (m.find()) {
             final String head = s.substring(0, m.end());
-            if (lines(head, paint, width) > 2) break;
+            if (lines(head, paint, width) > max) break;
             best = head.endsWith(";") ? head.substring(0, head.length() - 1) + "…" : head;
         }
-        return best != null ? best : text;
+        return best;
     }
 
     private static int lines(CharSequence text, android.text.TextPaint paint, int width) {
@@ -443,27 +569,50 @@ public final class SettingsStyle {
             // a category is never "enabled" (PreferenceCategory.isEnabled is false): its label is not a dimmed row
             row.setAlpha(1f);
             TextView title = (TextView) holder.findViewById(android.R.id.title);
-            // P384: a module's sensor caption stays quiet (its layout's muted colour)
-            if (title != null && p.getLayoutResource() != R.layout.preference_subcategory_layout) title.setTextColor(accent);
+            // P574: a group's title in white at 55 %; P384: a module's sensor caption stays quiet (its layout's colour)
+            if (title != null && p.getLayoutResource() != R.layout.preference_subcategory_layout) {
+                title.setTextColor(SECTION);
+                title.setTypeface(semibold());
+            }
             TextView pill = (TextView) holder.findViewById(R.id.settings_expert_pill);
             if (pill != null) {
                 pill.setTextColor(accent);
-                pill.setBackground(shape(c, tint(accent, .12f), 0, 999));
+                pill.setBackground(shape(c, pillFill(accent), 0, 999));
             }
             return;
         }
         if (p instanceof ModuleSection) return;   // P384: the card header binds its badge and chevron itself
         ImageView icon = (ImageView) holder.findViewById(android.R.id.icon);
+        View tile = holder.findViewById(R.id.settings_icon_tile);
         boolean warn = warn(p);
-        // P136: the row icons are the multi-tone glyphs of tools/make_ui_icons.py (light body, accent details from the theme):
-        // drawn as they are; only the reset rows tint theirs in the warning colour
-        if (icon != null && !(p instanceof TunableKeyPreference)) {
-            if (warn) icon.setColorFilter(WARN, PorterDuff.Mode.SRC_IN); else icon.clearColorFilter();
+        // P570: the row's colour icon takes its pressed pose with the row
+        if (icon != null) {
+            icon.setDuplicateParentStateEnabled(true);
+            if (icon.getParent() instanceof View && icon.getParent() != holder.itemView) ((View) icon.getParent()).setDuplicateParentStateEnabled(true);
+        }
+        // P574 (owner: the coloured tiles stay): the tile in the dark tone of the icon's hue, the icon in its light tone; the reset
+        // rows in the red pair; a row without an icon has no tile (its text starts at the card's edge)
+        if (tile != null) tile.setVisibility(icon != null && icon.getDrawable() != null ? View.VISIBLE : View.GONE);
+        if (icon != null && icon.getDrawable() != null && !(p instanceof TunableKeyPreference)) {
+            int[] pair = warn ? SettingsTiles.RED : SettingsTiles.pair(icon.getDrawable());
+            if (tile != null) tile.setBackground(shape(c, pair[0], 0, tile.getLayoutParams() != null && tile.getLayoutParams().width < dp(c, 29) ? 8 : 9));
+            icon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(pair[1]));
+            // P574 (the approved «Камеры и модули»): «Добавить кнопку с кропом» - the «+» in the accent on its tile (the accent at
+            // 28 % over the card)
+            if (p instanceof ModuleRowPreference && ((ModuleRowPreference) p).accentTile()) {
+                if (tile != null) tile.setBackground(shape(c, SettingsMotion.mix(ROW, accent, .28f), 0, 9));
+                icon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(accent));
+            }
+        } else if (p instanceof TunableKeyPreference) {
+            // its icon is the key's status dot, drawn as it is (a recycled row's tone goes)
+            if (icon != null) icon.clearColorFilter();
+            if (tile != null) tile.setBackground(shape(c, SettingsTiles.GREY[0], 0, 9));
         }
         TextView title = (TextView) holder.findViewById(android.R.id.title);
         if (title != null && warn) title.setTextColor(WARN);
         else if (title != null && action(p)) title.setTextColor(accent);
-        else if (title != null) title.setTextColor(TEXT);   // P384: a recycled view that showed a warning or an action row
+        else if (title != null) title.setTextColor(ROW_TITLE);   // P384: a recycled view that showed a warning or an action row
+        if (title != null) title.setTypeface(semibold());
         // P384: a camera key's name breaks after its dots («vivo.control.forceSensorMo / de» broke inside a word); shown only
         if (title != null && p instanceof TunableKeyPreference && p.getTitle() != null)
             title.setText(p.getTitle().toString().replace(".", ".\u200B"));
@@ -478,17 +627,26 @@ public final class SettingsStyle {
             if (restarts) {
                 restart.setText(Lang.t(c, "Камера перезапустится", "The camera restarts"));
                 restart.setTextColor(accent);
-                restart.setBackground(shape(c, tint(accent, .12f), 0, 999));
+                restart.setBackground(shape(c, pillFill(accent), 0, 999));
             }
         }
         if (title != null && !TextUtils.isEmpty(p.getTitle()) && restarts && restart == null)
             title.setText(com.particlesdevs.photoncamera.settings.SessionKeys.marked(p.getTitle()));
         TextView summary = (TextView) holder.findViewById(android.R.id.summary);
+        // P574: a '%s' left in a description takes the row's current choice (never a literal %s on screen)
+        if (summary != null && summary.getText() != null && PLACEHOLDER.matcher(summary.getText()).find()) {
+            CharSequence entry = valueOf(p);
+            String filled = PLACEHOLDER.matcher(summary.getText().toString())
+                    .replaceAll(java.util.regex.Matcher.quoteReplacement(entry == null ? "" : entry.toString()));
+            filled = filled.replaceAll("^[.\\s]+", "").trim();
+            summary.setText(filled);
+            summary.setVisibility(filled.isEmpty() ? View.GONE : View.VISIBLE);
+        }
         TextView value = (TextView) holder.findViewById(R.id.settings_value);
         if (value != null) {
             CharSequence shown = valueOf(p);
             value.setText(shown);
-            value.setTextColor(MUTED);   // SIMPLE_UI §4: the value on the right, muted (the concept's .rv)
+            value.setTextColor(VALUE);   // P574: the value on the right, white at 55 % (the concept's .rv)
             // P248 (owner, 2026-10-18: «Режим автофокуса», «Кадры светов», «Разрешение» - the title and the description one
             // word a line beside a long value): a value wider than its share of the row goes under the title
             TextView below = (TextView) holder.findViewById(R.id.settings_value_below);
@@ -498,6 +656,7 @@ public final class SettingsStyle {
             value.setVisibility(TextUtils.isEmpty(shown) || under ? View.GONE : View.VISIBLE);
             if (below != null) {
                 below.setText(under ? shown : null);
+                below.setTextColor(VALUE);
                 below.setVisibility(under ? View.VISIBLE : View.GONE);
             }
             if (summary != null && !TextUtils.isEmpty(shown) && summary.getText() != null) {
@@ -508,20 +667,29 @@ public final class SettingsStyle {
                 else if (s.startsWith(v + "\n")) summary.setText(s.substring(v.length() + 1));   // P384: "%s\n…" summaries
             }
         }
-        if (summary != null) twoLines(summary);
+        if (summary != null) {
+            summary.setTextColor(SUMMARY);
+            fitLines(summary);
+        }
         View widget = holder.findViewById(androidx.preference.R.id.switchWidget);
-        if (widget instanceof SwitchCompat) {
+        if (widget instanceof com.particlesdevs.photoncamera.ui.controls.IosSwitch && p instanceof TwoStatePreference)
+            bindSwitch((com.particlesdevs.photoncamera.ui.controls.IosSwitch) widget, (TwoStatePreference) p);
+        else if (widget instanceof SwitchCompat) {
+            // a switch row built without SettingsStyle.apply keeps the theme's switch: in the settings' colours
             SwitchCompat sw = (SwitchCompat) widget;
             int[][] states = {{android.R.attr.state_checked}, {}};
             sw.setThumbTintList(new ColorStateList(states, new int[]{0xFFFFFFFF, OFF_THUMB}));
-            sw.setTrackTintList(new ColorStateList(states, new int[]{accent, OFF_TRACK}));
+            sw.setTrackTintList(new ColorStateList(states, new int[]{accent, OFF_TRACK})); // P574: the theme's colour, as IosSwitch
         }
         View bar = holder.findViewById(R.id.seekbar);
-        if (bar instanceof SeekBar) {
-            SeekBar s = (SeekBar) bar;
-            s.setProgressTintList(ColorStateList.valueOf(accent));
-            s.setThumbTintList(ColorStateList.valueOf(accent));
-            s.setProgressBackgroundTintList(ColorStateList.valueOf(0xFF4A5058));
+        if (bar instanceof com.particlesdevs.photoncamera.ui.controls.IosSlider) {
+            com.particlesdevs.photoncamera.ui.controls.IosSlider s = (com.particlesdevs.photoncamera.ui.controls.IosSlider) bar;
+            s.setAccent(accent);
+            s.setEnabled(p.isEnabled());
+            // the concept: under the title, past the tile when the row has one
+            View range = holder.findViewById(R.id.seekbar_row);
+            if (range != null) range.setPaddingRelative(tile != null && tile.getVisibility() == View.VISIBLE ? dp(c, 44) : 0,
+                    range.getPaddingTop(), range.getPaddingEnd(), range.getPaddingBottom());
             TextView pill = (TextView) holder.findViewById(R.id.seekbar_value);
             if (pill != null) {
                 boolean changed = p instanceof UniversalSeekBarPreference ? ((UniversalSeekBarPreference) p).isChanged()
@@ -531,6 +699,45 @@ public final class SettingsStyle {
         }
     }
 
+    /** A '%s' (or '%1$s') of a description. */
+    static final java.util.regex.Pattern PLACEHOLDER = java.util.regex.Pattern.compile("%(1\\$)?s");
+
+    /**
+     * P574: a row's switch - the preference's state at once when the row was bound to another preference (a recycled row: no slide
+     * from the old one's state), with the slide when it changed on this row; a tap on the switch itself goes through the preference
+     * (its change listener may refuse it: the switch slides back).
+     */
+    static void bindSwitch(com.particlesdevs.photoncamera.ui.controls.IosSwitch sw, TwoStatePreference p) {
+        if (sw.getTag(R.id.settings_bound_preference) != p) sw.setCheckedNow(p.isChecked());
+        else if (sw.isChecked() != p.isChecked()) sw.setChecked(p.isChecked());
+        sw.setTag(R.id.settings_bound_preference, p);
+        sw.setEnabled(p.isEnabled());
+        // the row is the focus stop and the tap target (as the stock widget: not clickable, not focusable); TalkBack reads the
+        // switch's state with the row. P574: a touch on the switch is the row's click (so its knob never stays pressed)
+        sw.setFocusable(false);
+        sw.setClickable(false);
+        sw.setOnTouchListener((v, e) -> {
+            View row = v;
+            while (row.getParent() instanceof View && !(row.getParent() instanceof androidx.recyclerview.widget.RecyclerView)) row = (View) row.getParent();
+            if (row == v) return false;
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_UP && e.getX() >= 0 && e.getY() >= 0
+                    && e.getX() <= v.getWidth() && e.getY() <= v.getHeight()) row.performClick();
+            return true;
+        });
+        sw.setContentDescription(p.getTitle());
+        sw.setOnCheckedChangeListener((s, on) -> {
+            if (on == p.isChecked()) return;
+            if (p.callChangeListener(on)) p.setChecked(on);
+            else s.setChecked(p.isChecked());
+        });
+    }
+
+    /** P574: the fill of a value pill at the default - the accent at 29 % over black (#4A3D00 for the camera's yellow). */
+    public static int pillFill(int accent) {
+        return 0xFF000000 | Math.round(((accent >> 16) & 255) * .29f) << 16 | Math.round(((accent >> 8) & 255) * .29f) << 8
+                | Math.round((accent & 255) * .29f);
+    }
+
     /**
      * P168 (owner, 2026-10-16: «Если параметр отличается от стандартного, то пускай пилюля со значением меняет цвет на
      * противоположный от используемой темы»): the value pill of a setting off its default in the theme's opposite - the
@@ -538,8 +745,9 @@ public final class SettingsStyle {
      * the accent, as before.
      */
     public static void paintPill(TextView pill, boolean changed, int accent) {
-        pill.setBackgroundTintList(ColorStateList.valueOf(changed ? TEXT : tint(accent, .18f)));
-        pill.setTextColor(changed ? BG : accent);
+        // P574: at the default the concept's pill (the accent on its dark tone), off it still the opposite (P168)
+        pill.setBackgroundTintList(ColorStateList.valueOf(changed ? TEXT : pillFill(accent)));
+        pill.setTextColor(changed ? PAGE : accent);
     }
 
     static CharSequence valueOf(Preference p) {
@@ -579,10 +787,66 @@ public final class SettingsStyle {
 
     /** True when the sheet replaced the stock dialog. Backup / Restore / Reset keep their own dialogs. */
     public static boolean showDialog(Context c, Preference p) {
+        return showDialog(c, p, null);
+    }
+
+    /**
+     * As {@link #showDialog(Context, Preference)}; P574 (owner, 2026-11-09: «Все вот такие подменю … сделай ближе по стилю»): with
+     * {@code anchor}, the row that was tapped, a list opens its pull-down menu there (IosMenu) instead of the sheet of radio rows.
+     */
+    public static boolean showDialog(Context c, Preference p, @androidx.annotation.Nullable View anchor) {
         if (p instanceof RestorePreference || p instanceof BackupPreferences || p instanceof ResetPreferences) return false;
-        if (p instanceof ListPreference) { listSheet(c, (ListPreference) p); return true; }
+        if (p instanceof ListPreference) {
+            if (anchor != null && anchor.isAttachedToWindow() && anchor.getWindowToken() != null) listMenu(anchor, (ListPreference) p);
+            else listSheet(c, (ListPreference) p);
+            return true;
+        }
         if (p instanceof EditTextPreference) { editSheet(c, (EditTextPreference) p); return true; }
         return false;
+    }
+
+    /**
+     * P574: a list's pull-down menu at its row - the entries, the chosen one ticked in the accent (items tagged "option_" + the
+     * value); a setting the camera's shade can hold ends in «Добавить в шторку» / «Убрать из шторки» (P137: the list sheet's pin).
+     */
+    public static android.widget.PopupWindow listMenu(View anchor, ListPreference p) {
+        final Context c = anchor.getContext();
+        CharSequence[] entries = p.getEntries(), values = p.getEntryValues();
+        if (entries == null || values == null) entries = values = new CharSequence[0];
+        final int n = Math.min(entries.length, values.length);
+        final String key = p.getKey();
+        final boolean pinnable = pinnable(c, key);
+        final android.content.SharedPreferences prefs = pinnable
+                ? com.particlesdevs.photoncamera.app.ScameraApp.getSettingsManagerStatic().getDefaultPreferences() : null;
+        final CharSequence[] labels = new CharSequence[n + (pinnable ? 1 : 0)], tags = new CharSequence[labels.length];
+        System.arraycopy(entries, 0, labels, 0, n);
+        System.arraycopy(values, 0, tags, 0, n);
+        if (pinnable) {
+            boolean on = com.particlesdevs.photoncamera.settings.ShadeTiles.isPinned(prefs, key);
+            labels[n] = on ? Lang.t(c, "Убрать из шторки", "Remove from the shade") : Lang.t(c, "Добавить в шторку", "Add to the shade");
+            tags[n] = "pin";
+        }
+        final CharSequence[] vals = values;
+        return DialogStyle.track(com.particlesdevs.photoncamera.ui.controls.IosMenu.show(anchor, p.getDialogTitle() != null ? p.getDialogTitle() : p.getTitle(),
+                labels, tags, p.findIndexOfValue(p.getValue()), i -> {
+                    if (i >= n) {
+                        if (prefs != null) com.particlesdevs.photoncamera.settings.ShadeTiles.toggle(prefs, key);
+                        return;
+                    }
+                    String v = vals[i].toString();
+                    if (!v.equals(p.getValue()) && p.callChangeListener(v)) p.setValue(v);
+                }));
+    }
+
+    /** The row of {@code p} on screen in {@code list} (the view SettingsStyle.bind tagged), null when it is not shown. */
+    @androidx.annotation.Nullable
+    public static View rowOf(@androidx.annotation.Nullable ViewGroup list, Preference p) {
+        if (list == null) return null;
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            if (child.getTag(R.id.settings_bound_preference) == p && child.getAlpha() > 0f) return child;
+        }
+        return null;
     }
 
     private static LinearLayout sheetBody(Context c, CharSequence title) {
@@ -590,69 +854,78 @@ public final class SettingsStyle {
     }
 
     /**
-     * A picker's sheet: the grab handle and the title; with {@code pinKey} a setting the camera's shade can hold, the title
-     * line also carries «В шторку» (P137: from any value editor of the settings straight into the shade).
+     * A picker's sheet: the grab handle and the title; with {@code pinKey} a setting the camera's shade can hold, a pin capsule
+     * under the title (P137: from any value editor of the settings straight into the shade). P574 (owner, 2026-11-09: the
+     * settings' sheets in the look of the camera's own): #1C1C1E, 30dp top corners, a light grabber, the title 17sp semibold
+     * white, centred.
      */
     public static LinearLayout sheetBody(Context c, CharSequence title, String pinKey) {
         LinearLayout body = new LinearLayout(c);
         body.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(SHEET);
-        float r = dp(c, 26);
+        bg.setColor(PAGE);
+        float r = dp(c, 30);
         bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         body.setBackground(bg);
-        body.setPadding(dp(c, 20), dp(c, 10), dp(c, 20), dp(c, 24));
+        body.setPadding(dp(c, 16), dp(c, 6), dp(c, 16), dp(c, 24));
         View grab = new View(c);
-        grab.setBackground(shape(c, OFF_TRACK, 0, 2));
-        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(c, 36), dp(c, 4));
+        grab.setBackground(shape(c, GRABBER, 0, 3));
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(c, 36), dp(c, 5));
         gp.gravity = Gravity.CENTER_HORIZONTAL;
-        gp.bottomMargin = dp(c, 14);
+        gp.bottomMargin = dp(c, 12);
         body.addView(grab, gp);
-        TextView t = text(c, title, 18, TEXT);
-        t.setTypeface(null, android.graphics.Typeface.BOLD);
-        t.setPadding(dp(c, 4), 0, dp(c, 4), dp(c, 12));
+        TextView t = text(c, title, 17, ROW_TITLE);
+        t.setTypeface(semibold());
+        t.setGravity(Gravity.CENTER);
+        t.setTag("sheet_title");
+        t.setPadding(dp(c, 8), dp(c, 2), dp(c, 8), dp(c, 14));
+        if (android.os.Build.VERSION.SDK_INT >= 28) t.setAccessibilityHeading(true);
+        body.addView(t, new LinearLayout.LayoutParams(-1, -2));
         TextView pin = pinChip(c, pinKey);
-        if (pin == null) {
-            body.addView(t);
-            return body;
+        if (pin != null) {
+            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2);
+            pp.gravity = Gravity.CENTER_HORIZONTAL;
+            pp.bottomMargin = dp(c, 14);
+            body.addView(pin, pp);
         }
-        LinearLayout head = new LinearLayout(c);
-        head.setGravity(Gravity.TOP);
-        head.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
-        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2);
-        pp.setMarginStart(dp(c, 10));
-        head.addView(pin, pp);
-        body.addView(head);
         return body;
     }
+
+    /** P574: the sheets' grabber, white at 22 %. */
+    public static final int GRABBER = 0x38FFFFFF;
 
     /**
      * «В шторку» / «В шторке»: pins the setting in the camera's quick-settings shade or takes it out (ShadeTiles; the shade
      * reloads its tiles when the camera comes back). Null for keys the shade cannot show.
      */
-    static TextView pinChip(Context c, String key) {
-        if (key == null) return null;
-        boolean known;
+    public static boolean pinnable(Context c, String key) {
+        if (key == null) return false;
         try {
-            known = com.particlesdevs.photoncamera.settings.ShadeCatalog.get(c).isKnown(key);
+            return com.particlesdevs.photoncamera.settings.ShadeCatalog.get(c).isKnown(key);
         } catch (RuntimeException e) {
-            known = false;
+            return false;
         }
-        if (!known) return null;
+    }
+
+    static TextView pinChip(Context c, String key) {
+        if (!pinnable(c, key)) return null;
         final android.content.SharedPreferences prefs = com.particlesdevs.photoncamera.app.ScameraApp.getSettingsManagerStatic().getDefaultPreferences();
         int accent = accent(c);
-        TextView chip = text(c, "", 13, accent);
+        // P574: a #2C2C2E capsule, white text, the pin in the accent (was an outlined accent chip)
+        TextView chip = text(c, "", 15, ROW_TITLE);
         chip.setTag("sheet_pin");
         chip.setGravity(Gravity.CENTER_VERTICAL);
-        chip.setPadding(dp(c, 10), dp(c, 7), dp(c, 14), dp(c, 7));
-        chip.setCompoundDrawablePadding(dp(c, 6));
+        chip.setMinHeight(dp(c, 40));
+        chip.setPadding(dp(c, 12), 0, dp(c, 16), 0);
+        chip.setCompoundDrawablePadding(dp(c, 8));
         chip.setCompoundDrawableTintList(ColorStateList.valueOf(accent));
+        chip.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), shape(c, ROW, 0, 20), null));
+        chip.setFocusable(true);
         Runnable paint = () -> {
             boolean on = com.particlesdevs.photoncamera.settings.ShadeTiles.isPinned(prefs, key);
             chip.setText(on ? Lang.t(c, "В шторке", "In the shade") : Lang.t(c, "В шторку", "To the shade"));
             chip.setContentDescription(on ? Lang.t(c, "Убрать из шторки", "Remove from the shade") : Lang.t(c, "Добавить в шторку", "Add to the shade"));
             chip.setCompoundDrawablesRelativeWithIntrinsicBounds(on ? R.drawable.ic_sheet_pin_on : R.drawable.ic_sheet_pin, 0, 0, 0);
-            chip.setBackground(shape(c, on ? tint(accent, .22f) : 0, on ? 0 : tint(accent, .55f), 18));
             chip.setSelected(on);
         };
         chip.setOnClickListener(v -> {
@@ -695,19 +968,19 @@ public final class SettingsStyle {
         return d;
     }
 
-    /** A radio dot: an accent ring with a dot when selected, a muted ring otherwise. */
+    /**
+     * The mark of a chosen option. P574 (the concept's menus and lists): an accent tick when chosen, nothing otherwise (was a
+     * radio ring); it keeps its room either way.
+     */
     public static View radio(Context c, boolean on, int accent) {
-        return new View(c) {
-            final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            @Override protected void onDraw(Canvas canvas) {
-                float cx = getWidth() / 2f, cy = getHeight() / 2f, r = dp(c, 10);
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(dp(c, 2));
-                paint.setColor(on ? accent : MUTED);
-                canvas.drawCircle(cx, cy, r, paint);
-                if (on) { paint.setStyle(Paint.Style.FILL); canvas.drawCircle(cx, cy, dp(c, 5), paint); }
-            }
-        };
+        ImageView tick = new ImageView(c);
+        tick.setImageResource(R.drawable.ios_menu_check);
+        tick.setColorFilter(accent);
+        tick.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        tick.setPadding(dp(c, 3), dp(c, 3), dp(c, 3), dp(c, 3));
+        tick.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+        tick.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return tick;
     }
 
     static BottomSheetDialog listSheet(Context c, ListPreference p) {
@@ -722,8 +995,8 @@ public final class SettingsStyle {
     }
 
     /**
-     * The list picker: a bottom sheet with a radio row per option (tag "option_" + the option's tag), the selected one
-     * tinted. A tap reports the option's index and closes the sheet. Also the list sheet of the camera's quick-settings
+     * The list picker: a bottom sheet with a row per option (tag "option_" + the option's tag) in one #2C2C2E card, the selected
+     * one ticked in the accent at its end (P574). A tap reports the option's index and closes the sheet. Also the list sheet of the camera's quick-settings
      * shade (P25), there with the camera accent.
      */
     public static BottomSheetDialog optionSheet(Context c, CharSequence title, CharSequence[] labels, CharSequence[] tags,
@@ -744,8 +1017,7 @@ public final class SettingsStyle {
     static BottomSheetDialog optionSheet(Context c, CharSequence title, CharSequence[] labels, CharSequence[] tags,
                                          int selected, int accent, int[] icons, java.util.function.IntConsumer onPick, String pinKey) {
         LinearLayout body = sheetBody(c, title, pinKey);
-        LinearLayout options = new LinearLayout(c);
-        options.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout options = card(c, icons != null ? 52 : 16);
         final int max = (int) (c.getResources().getDisplayMetrics().heightPixels * .6f);
         // nested scrolling: a drag scrolls the list (a plain ScrollView let the sheet take the drag and slide away)
         NestedScrollView scroll = new NestedScrollView(c) {
@@ -769,22 +1041,25 @@ public final class SettingsStyle {
             final int index = i;
             LinearLayout row = new LinearLayout(c);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(c, 6), dp(c, 13), dp(c, 6), dp(c, 13));
+            row.setPadding(dp(c, 16), dp(c, 10), dp(c, 14), dp(c, 10));
             row.setMinimumHeight(dp(c, 52));
-            row.setBackground(shape(c, i == selected ? tint(accent, .10f) : 0, 0, 14));
-            row.addView(radio(c, i == selected, accent), new LinearLayout.LayoutParams(dp(c, 24), dp(c, 24)));
+            row.setBackground(pressable(c));
             if (icons != null && i < icons.length && icons[i] != 0) {
                 ImageView icon = new ImageView(c);
-                icon.setImageResource(icons[i]);
-                icon.setColorFilter(accent, PorterDuff.Mode.SRC_IN);
+                com.particlesdevs.photoncamera.ui.Icons.set(icon, icons[i], accent); // P570: a colour icon keeps its colours
                 icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                 LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(c, 24), dp(c, 24));
-                ip.leftMargin = dp(c, 14);
+                ip.setMarginEnd(dp(c, 12));
                 row.addView(icon, ip);
             }
-            TextView label = text(c, labels[i], 16, TEXT);
-            label.setPadding(dp(c, 14), 0, 0, 0);
+            TextView label = text(c, labels[i], 16, ROW_TITLE);
+            label.setLineSpacing(dp(c, 2), 1f);
             row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(dp(c, 24), dp(c, 24));
+            tp.setMarginStart(dp(c, 10));
+            row.addView(radio(c, i == selected, accent), tp);
+            row.setSelected(i == selected);
+            row.setContentDescription(labels[i]);
             row.setTag("option_" + (tags != null && i < tags.length ? tags[i] : String.valueOf(i)));
             row.setOnClickListener(x -> {
                 onPick.accept(index);
@@ -816,17 +1091,13 @@ public final class SettingsStyle {
         int accent = accent(c);
         LinearLayout body = sheetBody(c, p.getDialogTitle() != null ? p.getDialogTitle() : p.getTitle(), p.getKey());
         if (!TextUtils.isEmpty(p.getDialogMessage())) {
-            TextView m = text(c, p.getDialogMessage(), 14, MUTED);
-            m.setPadding(dp(c, 4), 0, dp(c, 4), dp(c, 10));
+            TextView m = text(c, p.getDialogMessage(), 14, SUMMARY);
+            m.setLineSpacing(dp(c, 2), 1f);
+            m.setPadding(dp(c, 4), 0, dp(c, 4), dp(c, 12));
             body.addView(m);
         }
-        EditText field = new EditText(c);
-        field.setSingleLine(true);
-        field.setTextSize(17);
-        field.setTextColor(TEXT);
-        field.setHintTextColor(MUTED);
-        field.setBackground(shape(c, FIELD, LINE, 14));
-        field.setPadding(dp(c, 16), dp(c, 14), dp(c, 16), dp(c, 14));
+        // P574 (the concept's inline edit): the field on the rows' colour, 12dp corners; «Готово» an accent capsule
+        EditText field = field(new EditText(c));
         field.setText(p.getText());
         field.setImeOptions(EditorInfo.IME_ACTION_DONE);
         field.setTag("sheet_field");
@@ -836,11 +1107,7 @@ public final class SettingsStyle {
         LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
         fp.bottomMargin = dp(c, 14);
         body.addView(field, fp);
-        TextView save = text(c, Lang.t(c,"Сохранить","Save"), 16, INK);
-        save.setTypeface(null, android.graphics.Typeface.BOLD);
-        save.setGravity(Gravity.CENTER);
-        save.setPadding(0, dp(c, 15), 0, dp(c, 15));
-        save.setBackground(shape(c, accent, 0, 16));
+        TextView save = capsule(c, Lang.t(c, "Готово", "Done"), accent);
         save.setTag("sheet_save");
         body.addView(save, new LinearLayout.LayoutParams(-1, -2));
         BottomSheetDialog d = sheet(c, body);
@@ -854,6 +1121,85 @@ public final class SettingsStyle {
         d.show();
         field.requestFocus();
         return d;
+    }
+
+    // ───── P574: the sheets' parts (the concept's language, shared by every sheet and page of the settings) ─────
+
+    /** A text field of a sheet: the rows' colour #2C2C2E, 12dp corners, no outline, white text, the hint at 55 %, accent cursor. */
+    public static <T extends EditText> T field(T field) {
+        Context c = field.getContext();
+        field.setSingleLine(true);
+        field.setTextSize(17);
+        field.setTextColor(ROW_TITLE);
+        field.setHintTextColor(SECTION);
+        field.setBackground(shape(c, ROW, 0, 12));
+        field.setMinHeight(dp(c, 48));
+        field.setPadding(dp(c, 14), dp(c, 12), dp(c, 14), dp(c, 12));
+        int accent = accent(c);
+        field.setHighlightColor(tint(accent, .35f));
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            GradientDrawable cursor = new GradientDrawable();
+            cursor.setColor(accent);
+            cursor.setSize(dp(c, 2), 1);
+            field.setTextCursorDrawable(cursor);
+        }
+        return field;
+    }
+
+    /** A sheet's main action: an accent capsule with dark ink (17sp semibold, 50dp), as «Готово» in the concept. */
+    public static TextView capsule(Context c, CharSequence label, int accent) {
+        TextView b = text(c, label, 17, INK);
+        b.setTypeface(semibold());
+        b.setGravity(Gravity.CENTER);
+        b.setMinHeight(dp(c, 50));
+        b.setPadding(dp(c, 18), 0, dp(c, 18), 0);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x33000000), shape(c, accent, 0, 25), null));
+        b.setFocusable(true);
+        return b;
+    }
+
+    /** A secondary action: a #2C2C2E capsule, the label in {@code colour} (white; RED for a destructive one). */
+    public static TextView quietCapsule(Context c, CharSequence label, int colour) {
+        TextView b = text(c, label, 17, colour);
+        b.setTypeface(semibold());
+        b.setGravity(Gravity.CENTER);
+        b.setMinHeight(dp(c, 50));
+        b.setPadding(dp(c, 18), 0, dp(c, 18), 0);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), shape(c, ROW, 0, 25), null));
+        b.setFocusable(true);
+        return b;
+    }
+
+    /**
+     * A group card: #2C2C2E, 24dp corners (its rows clipped to them), a 0.5dp hairline between rows from {@code inset} dp past
+     * its start.
+     */
+    public static LinearLayout card(Context c, float inset) {
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(shape(c, ROW, 0, 24));
+        card.setClipToOutline(true);
+        GradientDrawable hair = new GradientDrawable();
+        hair.setColor(HAIRLINE);
+        hair.setSize(1, Math.max(1, Math.round(.5f * c.getResources().getDisplayMetrics().density)));
+        card.setDividerDrawable(new android.graphics.drawable.InsetDrawable(hair, dp(c, inset), 0, 0, 0));
+        card.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+        return card;
+    }
+
+    /** The press of a row inside a card: a light ripple, no fill of its own. */
+    public static android.graphics.drawable.Drawable pressable(Context c) {
+        return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), null,
+                new android.graphics.drawable.ColorDrawable(0xFFFFFFFF));
+    }
+
+    /** A section's label over a card: 12sp semibold, upper case, white at 55 %, a little letter spacing. */
+    public static TextView sectionLabel(Context c, CharSequence label) {
+        TextView t = text(c, label == null ? "" : label.toString().toUpperCase(java.util.Locale.getDefault()), 12, SECTION);
+        t.setTypeface(semibold());
+        t.setLetterSpacing(.08f);
+        t.setPadding(dp(c, 16), dp(c, 18), dp(c, 16), dp(c, 8));
+        return t;
     }
 
     /** Whether the page holds settings stored per module (then the page shows the module chip). */

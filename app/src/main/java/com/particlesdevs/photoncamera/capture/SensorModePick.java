@@ -98,16 +98,23 @@ public final class SensorModePick {
     public static final class Pick {
         public final int mode, width, height;
         public final Size size;
+        /** P575: the row of the nubia size switch (FULLRES), not one of a module: its failure turns FULLRES off (NubiaFullRes). */
+        public final boolean fullRes;
 
         Pick(int mode, int width, int height) {
+            this(mode, width, height, false);
+        }
+
+        Pick(int mode, int width, int height, boolean fullRes) {
             this.mode = mode;
             this.width = width;
             this.height = height;
             this.size = new Size(width, height);
+            this.fullRes = fullRes;
         }
 
         @Override public String toString() {
-            return "mode " + mode + " " + width + "x" + height;
+            return "mode " + mode + " " + width + "x" + height + (fullRes ? " (FULLRES)" : "");
         }
     }
 
@@ -121,7 +128,13 @@ public final class SensorModePick {
             if (physicalId == null || !PreferenceKeys.scamDevSwitch("sensor_mode_pick", true)) return null;
             final String slot = ModuleRegistry.active();
             if (!physicalId.equals(ModuleRegistry.camera(slot))) return null;
-            return of(picked(slot), SensorModeBand.table(c));
+            final int row = picked(slot);
+            // P575: on a nubia camera the size switch's FULLRES is its full-size row, on a module without a row of its own
+            if (row < 0) {
+                final Pick full = NubiaFullRes.fullResPick(physicalId, c, PixelPro10.fullResOn());
+                if (full != null) return full;
+            }
+            return of(row, SensorModeBand.table(c));
         } catch (RuntimeException e) {
             return null;
         }

@@ -39,10 +39,11 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 /**
- * SIMPLE_UI §1 / §6: the top bar on the real camera_fragment layout. With nothing on it holds the concept (level 0); with
- * everything on (torch, 10 s timer, Motion, the longest format, DCG) at 320 - 480dp and the font scale 1.0 / 1.3 it steps down
- * but never overlaps, never ellipsizes a label, keeps the gear inside and the timer's seconds badge visible, and the preview
- * frame starts under it.
+ * SIMPLE_UI §1 / §6: the top bar on the real camera_fragment layout. P574 (the approved concept): one centred row - the format
+ * badge (format over size), torch, timer, LUT, DCG. With nothing on it holds the concept (level 0); with everything on (torch,
+ * 10 s timer, the longest format, DCG) at 320 - 480dp and the font scale 1.0 / 1.3 it steps down but never overlaps, never
+ * ellipsizes or wraps a label, stays centred inside the bar, keeps the round items round and the timer's seconds badge visible,
+ * and the preview frame starts under it.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
@@ -94,7 +95,7 @@ public class TopBarFitTest {
         RuntimeEnvironment.setFontScale(fontScale);
         PreferenceKeys.setAeMode(torchOn ? 0 : 1);
         PreferenceKeys.setCountdownTimerIndex(timerOn ? (all ? 2 : 1) : 0);
-        MotionMode.set(motionOn);
+        MotionMode.set(motionOn);   // P574: Sport is in the bottom row; it changes nothing here
         TopBar.dcgAvailable(all);
         try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class)) {
             controller.setup();
@@ -124,29 +125,32 @@ public class TopBarFitTest {
             View top = tb.getRoot();
             Rect bar = inRoot(top, root);
             String at = widthDp + "dp x" + fontScale + " " + name + " level " + TopBar.level(tb) + ": ";
-            View[] order = {tb.torchButton, tb.timerButton, tb.motionModeButton, tb.topbarBadges, tb.settingsButton};
+            View[] order = {tb.formatButton, tb.torchButton, tb.timerButton, tb.lutButton, tb.dcgBadge};
             Rect prev = null;
             for (View v : order) {
+                if (v.getVisibility() == View.GONE) continue;
                 Rect r = inRoot(v, root);
                 assertTrue(at + "outside the bar " + r, r.left >= bar.left && r.right <= bar.right && r.top >= bar.top && r.bottom <= bar.bottom);
                 if (prev != null) assertTrue(at + "overlap " + prev + " " + r, prev.right <= r.left);
                 prev = r;
             }
-            assertEquals(at + "gear pinned right", w - top.getPaddingRight(), inRoot(tb.settingsButton, root).right);
-            for (TextView t : new TextView[]{tb.formatBadge, tb.sizeBadge, tb.dcgBadge, tb.torchLabel, tb.motionLabel, tb.timerBadge}) {
+            // P574: the row is centred (the same room left of the first item and right of the last)
+            View last = tb.dcgBadge.getVisibility() == View.VISIBLE ? tb.dcgBadge : tb.lutButton;
+            assertEquals(at + "centred", inRoot(tb.formatButton, root).left - bar.left, bar.right - inRoot(last, root).right, 2 * density);
+            for (TextView t : new TextView[]{tb.formatBadge, tb.sizeBadge, tb.dcgBadge, tb.timerBadge}) {
                 if (t.getVisibility() != View.VISIBLE) continue;
                 assertNotNull(at + "laid out", t.getLayout());
                 assertEquals(at + "ellipsis in " + t.getText(), 0, t.getLayout().getEllipsisCount(0));
                 assertEquals(at + "wrapped " + t.getText(), 1, t.getLayout().getLineCount());
                 assertTrue(at + "clipped " + t.getText(), t.getLayout().getLineWidth(0) <= t.getWidth() - t.getTotalPaddingLeft() - t.getTotalPaddingRight() + 1);
             }
-            // the timer always, torch and Motion without their label: round (owner: «кружки при выборе должны быть круглые»)
-            assertEquals(at + "timer round", tb.timerButton.getWidth(), tb.timerButton.getHeight());
-            for (View b : new View[]{tb.torchButton, tb.motionModeButton}) {
-                boolean labelled = ((ViewGroup) b).getChildAt(1).getVisibility() == View.VISIBLE;
-                if (!labelled) assertEquals(at + "round", b.getWidth(), b.getHeight());
-                else assertTrue(at + "a pill with its label", b.getWidth() > b.getHeight());
+            // torch, timer and LUT round 40dp x k (owner: «кружки при выборе должны быть круглые»); DCG at least as wide as tall
+            for (View b : new View[]{tb.torchButton, tb.timerButton, tb.lutButton}) {
+                assertEquals(at + "round", b.getWidth(), b.getHeight());
+                assertEquals(at + "40dp x k", UiScale.dp(activity, 40), b.getHeight());
             }
+            if (tb.dcgBadge.getVisibility() == View.VISIBLE) assertTrue(at + "DCG", tb.dcgBadge.getWidth() >= tb.dcgBadge.getHeight());
+            assertEquals(at + "torch on", torchOn, tb.torchButton.isActivated());
             if (timerOn) {
                 assertEquals(at + "the seconds badge", View.VISIBLE, tb.timerBadge.getVisibility());
                 Rect badge = inRoot(tb.timerBadge, root);
@@ -174,7 +178,7 @@ public class TopBarFitTest {
     public void conceptWidthHoldsTheConcept() throws Exception {
         assertEquals("nothing on at 392dp: the concept as drawn", 0, check(392, 1f, false, "plain"));
         assertEquals("the concept's screen (timer 3 s): level 0", 0, check(392, 1f, false, true, false, false, "concept"));
-        assertEquals("torch on keeps its label at 392dp", 0, check(392, 1f, true, false, false, false, "torch"));
+        assertEquals("torch on at 392dp: still the concept", 0, check(392, 1f, true, false, false, false, "torch"));
         check(392, 1f, true, true, true, false, "three");
         check(392, 1f, true, "all");
     }

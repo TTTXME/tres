@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.RectF;
-import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.GestureDetector;
@@ -31,7 +30,6 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.navigation.fragment.NavHostFragment;
 
-import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.gallery.files.ImageFile;
 import com.particlesdevs.photoncamera.gallery.helper.Constants;
@@ -126,6 +124,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         vm.source.observe(getViewLifecycleOwner(), this::onSource);
         vm.error.observe(getViewLifecycleOwner(), e -> {
             if (e == null) return;
+            // the system toast: leaving may close the activity (an edit for another app) and take a toast in its window along
             Toast.makeText(c, Lang.t("Не удалось открыть снимок: ", "Cannot open the photo: ") + e, Toast.LENGTH_LONG).show();
             leave(false);
         });
@@ -144,7 +143,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             if (e == null) return;
             vm.exportError.setValue(null);
             exportOverlay.setVisibility(View.GONE);
-            Toast.makeText(c, Lang.t("Не удалось сохранить: ", "Saving failed: ") + e, Toast.LENGTH_LONG).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(c, Lang.t("Не удалось сохранить: ", "Saving failed: ") + e, true);
         });
         vm.load(uri, name, mime, path);
         requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), new OnBackPressedCallback(true) {
@@ -163,8 +162,10 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     // ---------------------------------------------------------------- layout
 
     private View build(Context c) {
+        // P579 (owner, 2026-11-09: «Не забудь что у нас есть галерея и в ней надо стиль также обновить»): the picture on black as in
+        // the viewer, the tools on the #1C1C1E sheet with 30dp top corners, 40dp round buttons, the tabs' grey thumb with the accent
         FrameLayout root = new FrameLayout(c);
-        root.setBackgroundColor(GalleryUi.BG);
+        root.setBackgroundColor(0xFF000000);
         LinearLayout col = new LinearLayout(c);
         col.setOrientation(LinearLayout.VERTICAL);
         root.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -175,29 +176,28 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         top.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 14), GalleryUi.dp(c, 12), GalleryUi.dp(c, 6));
         View close = iconButton(c, R.drawable.ui_ic_close, Lang.t("Закрыть редактор", "Close the editor"), v -> onBack(false));
         GalleryUi.setEnabledLook(close, true);
-        top.addView(close, new LinearLayout.LayoutParams(GalleryUi.dp(c, 44), GalleryUi.dp(c, 44)));
+        top.addView(close, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
         TextView title = GalleryUi.fitText(c, name, 13, GalleryUi.MUTED);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         tp.leftMargin = tp.rightMargin = GalleryUi.dp(c, 8);
         top.addView(title, tp);
         undo = iconButton(c, R.drawable.ui_ic_undo, Lang.t("Отменить", "Undo"), v -> undo());
         redo = iconButton(c, R.drawable.ui_ic_redo, Lang.t("Повторить", "Redo"), v -> redo());
-        View more = iconButton(c, R.drawable.ui_ic_more, Lang.t("Ещё", "More"), v -> menu());
-        for (View b : new View[]{undo, redo, more}) top.addView(b, new LinearLayout.LayoutParams(GalleryUi.dp(c, 44), GalleryUi.dp(c, 44)));
+        View more = iconButton(c, R.drawable.ui_ic_more, Lang.t("Ещё", "More"), this::menu);
+        for (View b : new View[]{undo, redo, more}) {
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40));
+            bp.setMarginStart(GalleryUi.dp(c, 6));
+            top.addView(b, bp);
+        }
         for (View b : new View[]{close, undo, redo, more}) EditMotion.press(b);
-        TextView saveBtn = GalleryUi.text(c, Lang.t("Сохранить копию", "Save a copy"), 13.5f, GalleryUi.INK);
-        saveBtn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        saveBtn.setGravity(Gravity.CENTER);
-        saveBtn.setMinHeight(GalleryUi.dp(c, 38));
+        TextView saveBtn = GalleryUi.capsule(c, Lang.t("Сохранить копию", "Save a copy"), GalleryUi.PRIMARY); // P579: the accent capsule
+        com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.setTextSp(saveBtn, 14);
+        saveBtn.setMinHeight(GalleryUi.dp(c, 40));
         saveBtn.setPadding(GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 14), 0);
-        saveBtn.setBackground(GalleryUi.pressable(GalleryUi.round(c, GalleryUi.accent(c), GalleryUi.accent(c), 999)));
-        saveBtn.setClickable(true);
-        saveBtn.setFocusable(true);
         saveBtn.setOnClickListener(v -> save());
-        EditMotion.press(saveBtn);
         save = saveBtn;
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sp.leftMargin = GalleryUi.dp(c, 6);
+        sp.setMarginStart(GalleryUi.dp(c, 8));
         top.addView(saveBtn, sp);
         col.addView(top);
 
@@ -206,7 +206,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         imageArea.addView(gl, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         // P360: the cover the picture is revealed from (EditMotion.enter)
         cover = new View(c);
-        cover.setBackgroundColor(GalleryUi.BG);
+        cover.setBackgroundColor(0xFF000000);
         cover.setClickable(false);
         imageArea.addView(cover, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         overlay = new CropOverlayView(c);
@@ -299,7 +299,14 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
 
         panelScroll = new ScrollView(c);
         panelScroll.setFillViewport(true);
-        panelScroll.setBackgroundColor(GalleryUi.SHEET);
+        android.graphics.drawable.GradientDrawable sheetBg = new android.graphics.drawable.GradientDrawable();
+        float sheetR = GalleryUi.dp(c, 30);
+        sheetBg.setCornerRadii(new float[]{sheetR, sheetR, sheetR, sheetR, 0, 0, 0, 0});
+        sheetBg.setColor(GalleryUi.SHEET);
+        panelScroll.setBackground(sheetBg);
+        panelScroll.setClipToOutline(true);
+        panelScroll.setPadding(0, GalleryUi.dp(c, 8), 0, 0);
+        panelScroll.setClipToPadding(false);
         int screenH = c.getResources().getDisplayMetrics().heightPixels;
         col.addView(panelScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 Math.min(GalleryUi.dp(c, 300), (int) (screenH * 0.36f))));
@@ -307,7 +314,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         tabBar = new LinearLayout(c);
         tabBar.setOrientation(LinearLayout.HORIZONTAL);
         tabBar.setBackgroundColor(GalleryUi.SHEET);
-        tabBar.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 4), GalleryUi.dp(c, 4), GalleryUi.dp(c, 14));
+        tabBar.setPadding(GalleryUi.dp(c, 8), GalleryUi.dp(c, 6), GalleryUi.dp(c, 8), GalleryUi.dp(c, 14));
         col.addView(tabBar);
         buildTabs(c);
 
@@ -317,16 +324,20 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         exportOverlay.setVisibility(View.GONE);
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(GalleryUi.card(c, GalleryUi.CARD, 20));
-        card.setPadding(GalleryUi.dp(c, 20), GalleryUi.dp(c, 18), GalleryUi.dp(c, 20), GalleryUi.dp(c, 18));
-        exportText = GalleryUi.text(c, Lang.t("Сохраняю копию…", "Saving a copy…"), 15, GalleryUi.TEXT);
+        card.setBackground(GallerySheets.alertCard(c)); // P579: the alert's card (30dp corners)
+        card.setPadding(GalleryUi.dp(c, 20), GalleryUi.dp(c, 20), GalleryUi.dp(c, 20), GalleryUi.dp(c, 20));
+        exportText = GalleryUi.text(c, Lang.t("Сохраняю копию…", "Saving a copy…"), 16, GalleryUi.TEXT);
+        exportText.setTypeface(GalleryUi.semibold());
+        exportText.setGravity(Gravity.CENTER);
         card.addView(exportText);
         exportBar = new ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal);
         exportBar.setMax(1000);
+        exportBar.setProgressTintList(android.content.res.ColorStateList.valueOf(GalleryUi.accent(c)));
+        exportBar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0x5C787880));
         LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         ep.topMargin = GalleryUi.dp(c, 12);
         card.addView(exportBar, ep);
-        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(GalleryUi.dp(c, 280), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(GalleryUi.dp(c, 290), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         exportOverlay.addView(card, cp);
         root.addView(exportOverlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (vm.exporting()) exportOverlay.setVisibility(View.VISIBLE);
@@ -339,8 +350,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             @Override
             public void failed(String why) {
                 if (getContext() == null) return;
-                Toast.makeText(getContext(), Lang.t("Редактор не запустился на GPU: ", "The editor could not start on the GPU: ") + why,
-                        Toast.LENGTH_LONG).show();
+                com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Редактор не запустился на GPU: ", "The editor could not start on the GPU: ") + why, true);
             }
 
             @Override
@@ -372,6 +382,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         b.setFocusable(true);
         b.setOnClickListener(click);
         ImageView i = GalleryUi.icon(c, icon, GalleryUi.TEXT, 22);
+        com.particlesdevs.photoncamera.ui.Icons.ink(i, icon, GalleryUi.TEXT); // P579: white, as the settings' round buttons
         b.addView(i, new FrameLayout.LayoutParams(GalleryUi.dp(c, 22), GalleryUi.dp(c, 22), Gravity.CENTER));
         return b;
     }
@@ -390,13 +401,13 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         for (int i = 0; i < icons.length; i++) {
             final int k = i;
             boolean on = i == tab;
-            int colour = on ? accent : GalleryUi.TEXT;
+            int colour = on ? accent : GalleryUi.MUTED;
             LinearLayout b = new LinearLayout(c);
             b.setOrientation(LinearLayout.VERTICAL);
             b.setGravity(Gravity.CENTER);
             b.setPadding(0, GalleryUi.dp(c, 8), 0, GalleryUi.dp(c, 6));
-            // P360: the selection pill (accent at 16 %), faded between tabs
-            final android.graphics.drawable.GradientDrawable pill = GalleryUi.round(c, (accent & 0x00FFFFFF) | 0x29000000, android.graphics.Color.TRANSPARENT, 14);
+            // P360: the selection pill, faded between tabs; P579: the shared segmented control's grey thumb (the accent on it)
+            final android.graphics.drawable.GradientDrawable pill = GalleryUi.round(c, 0x52767680, 0, 18);
             pill.setAlpha(on ? 255 : 0);
             tabPills[i] = pill;
             b.setBackground(GalleryUi.pressable(pill));
@@ -407,7 +418,8 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             b.setOnClickListener(v -> selectTab(k));
             tabIcons[i] = GalleryUi.icon(c, icons[i], colour, 22);
             b.addView(tabIcons[i]);
-            TextView t = GalleryUi.fitText(c, names[i], 10, colour);
+            TextView t = GalleryUi.fitText(c, names[i], 10.5f, colour);
+            t.setTypeface(GalleryUi.semibold());
             t.setGravity(Gravity.CENTER);
             tabNames[i] = t;
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -441,8 +453,9 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             final TextView name = tabNames[i];
             final android.graphics.drawable.GradientDrawable pill = tabPills[i];
             tabButtons[i].setSelected(on);
-            EditMotion.colour(on ? GalleryUi.TEXT : accent, on ? accent : GalleryUi.TEXT, EditMotion.MEDIUM, col -> {
-                icon.setImageTintList(android.content.res.ColorStateList.valueOf(col));
+            icon.setActivated(on); // P570: the colour icon's pressed pose for the open tab
+            EditMotion.colour(on ? GalleryUi.MUTED : accent, on ? accent : GalleryUi.MUTED, EditMotion.MEDIUM, col -> {
+                if (!com.particlesdevs.photoncamera.ui.Icons.colour(icon)) icon.setImageTintList(android.content.res.ColorStateList.valueOf(col)); // P570
                 name.setTextColor(col);
             });
             EditMotion.fraction(on ? 0f : 1f, on ? 1f : 0f, EditMotion.MEDIUM, EditMotion.MOVE, f -> pill.setAlpha(Math.round(255 * f)));
@@ -685,57 +698,33 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
 
     // ---------------------------------------------------------------- menu, saving, leaving
 
-    private void menu() {
+    /**
+     * The editor's «Ещё»: reset, copy and paste the settings, open in another app. P579: the gallery's pull-down menu anchored at the
+     * button (the shared menu's look) instead of a bottom sheet.
+     */
+    private void menu(View anchor) {
         Context c = requireContext();
-        LinearLayout sheet = EditPanels.column(c);
-        sheet.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 14), GalleryUi.dp(c, 12), GalleryUi.dp(c, 18));
-        sheet.setBackground(GalleryUi.round(c, GalleryUi.SHEET, GalleryUi.LINE, 26));
-        final BottomSheetDialog[] d = new BottomSheetDialog[1];
-        sheet.addView(menuRow(c, R.drawable.ui_ic_backup, Lang.t("Сбросить всё", "Reset all"), () -> {
-            d[0].dismiss();
+        java.util.List<com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item> items = new java.util.ArrayList<>();
+        items.add(new com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item(R.drawable.ui_ic_backup, Lang.t("Сбросить всё", "Reset all"), true, () -> {
             vm.state = new EditState();
             changed(true);
             afterJump();
         }));
-        sheet.addView(menuRow(c, R.drawable.ui_ic_layers, Lang.t("Копировать настройки", "Copy settings"), () -> {
-            d[0].dismiss();
+        items.add(new com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item(R.drawable.ui_ic_layers, Lang.t("Копировать настройки", "Copy settings"), true, () -> {
             clipboard = vm.state.copy();
             c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PREF_CLIPBOARD, clipboard.toJson()).apply();
-            Toast.makeText(c, Lang.t("Настройки скопированы (без кадрирования)", "Settings copied (crop not included)"), Toast.LENGTH_SHORT).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(c, Lang.t("Настройки скопированы (без кадрирования)", "Settings copied (crop not included)"));
         }));
-        View paste = menuRow(c, R.drawable.ui_ic_plus, Lang.t("Вставить настройки", "Paste settings"), () -> {
-            d[0].dismiss();
+        items.add(new com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item(R.drawable.ui_ic_plus, Lang.t("Вставить настройки", "Paste settings"),
+                clipboard != null, () -> {
             if (clipboard == null) return;
             vm.state.copyTone(clipboard);
             changed(true);
             afterJump();
-        });
-        GalleryUi.setEnabledLook(paste, clipboard != null);
-        sheet.addView(paste);
-        sheet.addView(menuRow(c, R.drawable.ui_ic_share, Lang.t("Открыть в другом приложении", "Open in another app"), () -> {
-            d[0].dismiss();
-            ExternalEdit.openInOtherApp(this, uri, name);
         }));
-        d[0] = GallerySheets.show(c, sheet);
-        EditMotion.stagger(sheet);
-    }
-
-    private static View menuRow(Context c, int icon, String text, Runnable run) {
-        LinearLayout row = new LinearLayout(c);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(GalleryUi.dp(c, 52));
-        row.setPadding(GalleryUi.dp(c, 12), 0, GalleryUi.dp(c, 12), 0);
-        row.setBackground(GalleryUi.pressable(GalleryUi.round(c, android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT, 14)));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(v -> run.run());
-        row.addView(GalleryUi.icon(c, icon, GalleryUi.accent(c), 22));
-        TextView t = GalleryUi.text(c, text, 15, GalleryUi.TEXT);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        lp.leftMargin = GalleryUi.dp(c, 14);
-        row.addView(t, lp);
-        return row;
+        items.add(new com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.Item(R.drawable.ui_ic_share, Lang.t("Открыть в другом приложении", "Open in another app"),
+                true, () -> ExternalEdit.openInOtherApp(this, uri, name)));
+        com.particlesdevs.photoncamera.gallery.ui.GalleryMenu.show(anchor, items);
     }
 
     private void save() {
@@ -761,7 +750,9 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         if (c == null) return;
         String where = r.folder != null ? " · " + r.folder : "";
         String msg = Lang.t("Копия сохранена: ", "Copy saved: ") + r.displayName + where + (r.note != null ? " (" + r.note + ")" : "");
-        Toast.makeText(c, msg, Toast.LENGTH_LONG).show();
+        // an edit for another app closes the activity next: the system toast outlives it, the gallery's capsule would not
+        if (external) Toast.makeText(c, msg, Toast.LENGTH_LONG).show();
+        else com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(c, msg, true);
         vm.history = new EditHistory(vm.state); // saved: nothing unsaved any more
         if (external) {
             Activity a = requireActivity();
@@ -794,47 +785,13 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             return;
         }
         if (vm.history != null && vm.history.changed()) {
-            Context c = requireContext();
-            final BottomSheetDialog[] d = new BottomSheetDialog[1];
-            LinearLayout s = EditPanels.column(c);
-            s.setPadding(GalleryUi.dp(c, 18), GalleryUi.dp(c, 18), GalleryUi.dp(c, 18), GalleryUi.dp(c, 18));
-            s.setBackground(GalleryUi.round(c, GalleryUi.SHEET, GalleryUi.LINE, 26));
-            TextView t = GalleryUi.text(c, Lang.t("Выйти без сохранения?", "Leave without saving?"), 17, GalleryUi.TEXT);
-            t.setTypeface(Typeface.DEFAULT_BOLD);
-            s.addView(t);
-            TextView sub = GalleryUi.text(c, Lang.t("Изменения пропадут. Оригинал не меняется в любом случае.",
-                    "The edits are lost. The original is never changed either way."), 13, GalleryUi.MUTED);
-            sub.setPadding(0, GalleryUi.dp(c, 6), 0, GalleryUi.dp(c, 14));
-            s.addView(sub);
-            LinearLayout row = new LinearLayout(c);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            TextView stay = bigButton(c, Lang.t("Продолжить", "Keep editing"), false);
-            stay.setOnClickListener(v -> d[0].dismiss());
-            TextView discard = bigButton(c, Lang.t("Выйти", "Leave"), true);
-            discard.setOnClickListener(v -> {
-                d[0].dismiss();
-                leave(false);
-            });
-            row.addView(stay, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            dp.leftMargin = GalleryUi.dp(c, 8);
-            row.addView(discard, dp);
-            s.addView(row);
-            d[0] = GallerySheets.show(c, s);
+            // P579: the centred alert (30dp corners, «Продолжить» and the red «Выйти» side by side)
+            GallerySheets.confirm(requireContext(), Lang.t("Выйти без сохранения?", "Leave without saving?"),
+                    Lang.t("Изменения пропадут. Оригинал не меняется в любом случае.", "The edits are lost. The original is never changed either way."),
+                    Lang.t("Продолжить", "Keep editing"), Lang.t("Выйти", "Leave"), () -> leave(false));
             return;
         }
         leave(false);
-    }
-
-    private static TextView bigButton(Context c, String label, boolean warn) {
-        TextView b = GalleryUi.text(c, label, 16, warn ? 0xFF2A1210 : GalleryUi.TEXT);
-        b.setGravity(Gravity.CENTER);
-        b.setMinHeight(GalleryUi.dp(c, 50));
-        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        b.setBackground(GalleryUi.pressable(warn ? GalleryUi.round(c, GalleryUi.WARN, GalleryUi.WARN, 16) : GalleryUi.round(c, 0xFF232A2E, 0xFF232A2E, 16)));
-        b.setClickable(true);
-        b.setFocusable(true);
-        return b;
     }
 
     private void leave(boolean saved) {
@@ -850,7 +807,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == Constants.REQUEST_EDIT_IMAGE && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
-            Toast.makeText(getContext(), Lang.t("Сохранено: ", "Saved: ") + data.getData().getPath(), Toast.LENGTH_LONG).show();
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Сохранено: ", "Saved: ") + data.getData().getPath(), true);
             gallery.fetchAllMedia();
             gallery.setUpdatePending(true);
             leave(true);

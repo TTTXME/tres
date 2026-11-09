@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The text dialog of an EditTextPreference that keeps the preference library's dialog (BackupPreferences): the dialog
+<!-- The text dialog of an EditTextPreference that keeps the preference library's dialog (BackupPreferences): P574 the dialog
      message and the app's text field (dialog_field), aligned with the title. Same ids as the library's
      preference_dialog_edittext. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -21,7 +21,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:textColor="@color/settings_muted"
+            android:textColor="@color/dialog_body"
             android:textSize="15sp"
             android:lineSpacingExtra="3sp" />
 
@@ -35,8 +35,8 @@
             android:paddingEnd="16dp"
             android:paddingTop="12dp"
             android:paddingBottom="12dp"
-            android:textColor="@color/settings_text"
-            android:textColorHint="@color/settings_muted"
+            android:textColor="@color/settings_row_title"
+            android:textColorHint="@color/settings_section"
             android:textSize="16sp" />
 
     </LinearLayout>
