@@ -1048,7 +1048,18 @@ struct HybridTuning {
     // failure of it, merges the same input with the SCAM merge. 0 = the SCAM merge (replays unchanged).
     int fastMerge=0;
     // P555: the fast native merge reads its normalised blocks through the texture cache (an RGBA32UI image); 0 = the storage buffers
-    int mosaicNatTex=1;
+    int mosaicNatTex=0; // P563: 0 by default - on the Adreno 750 (nubia, 50 MP Quad, 11 frames) the image made the merge 62 s against 26 s
+    // P563 (owner, 2026-11-08: «на быстрой склейке у Нубии есть сетка, на качестве её нет»): the fast route's Quad / Tetra result gets
+    // the native merge's chroma median (mosaicChromaMedian: the colour lattice of the blocks, R / B 2-3x the quality route's at
+    // 1/4 cycles / px); 0 = as before (the result streamed as merged)
+    int fastMosaicChroma=1;
+    // P566 (the nubia's burst, 2026-11-08): the fast route's Quad unpack applies the native merge's site response (hybridMosaicGains,
+    // 64 classes over a field of zones) in place of the reference's QPC (4 phases, 16 x 12 zones from the base alone - in row strips
+    // from the first strip's rows only): a 2 / 4 px lattice of 13 - 62 x the background on its flat wall; 0 = the QPC as before
+    int fastSiteGain=1;
+    // P568: the Quad native merge with its colour blocks in shared memory (NAT_TILE; the same sums): 0 off, 1 always, 2 the faster
+    // of the two measured on two strips of the first shot on a GPU and driver (kept in the program cache: hybridNatTileChoice)
+    int mosaicNatTile=2;
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
@@ -1340,7 +1351,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("mochi",nullptr,&t.mochi)
             ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
             ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit)
-            ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
+            ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMosaicChroma",nullptr,&t.fastMosaicChroma)||set("fastSiteGain",nullptr,&t.fastSiteGain)||set("mosaicNatTile",nullptr,&t.mosaicNatTile)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax); // P488
         }
@@ -5220,6 +5231,40 @@ float natVal(uint u,out bool ok,out bool cl){
 // 2 dx Cxy in local arrays, per block phase sums, a window test on the cache indices) was miscompiled by the Adreno 750 driver
 // (OPPO PHY110, 2026-10): some R / B taps got wrong weights (syn_b2, round-4 kernel: R / B off by up to 0.28 at ~6000 pixels,
 // G exact), and small changes of its text moved the error around instead of removing it.
+#if defined(NAT_SHARED) && NAT_B!=4 && !defined(NAT_TEX)
+// P568 (owner, 2026-11-09: «Ускорь и оптимизируй всё максимально ... без ухудшения качества»; the nubia's profile: this program 87 s
+// of a 96 s Quality merge, and the texture-cache reads of P555 made it 2.4x slower - the block reads are its cost): the 8 x 8
+// invocations of a work group read the same colour blocks of a frame ~16 times each (a 4 x 4 block window per output pixel, the
+// windows of neighbours overlapping). Per frame the group loads the blocks of the union of its windows once into shared memory
+// (NAT_TS x NAT_TS blocks from the smallest window origin of its invocations that take the frame) and an invocation whose whole
+// window lies inside reads them there - the same words, the same sums; any other window (the frame's border, a group spread over
+// more blocks) reads them as before. The frame loop then runs for every invocation of the group (barriers): a frame an invocation
+// does not take only joins the load.
+#define NAT_TILE 1
+#define NAT_TS 12
+shared uvec4 natTile[NAT_TS*NAT_TS];
+shared int natTileS[2];
+int natTx=0,natTy=0;uint natTw=0u;bool natTileOn=false;
+void natTileLoad(uvec4 geo,bool use,vec2 O){
+    int BWi=natU.y>>1;
+    ivec2 N=ivec2(floor(O+0.5)),q0=(N-NAT_R)>>1;
+    int sx0=q0.x+cfaShift.x,rb0=q0.y+cfaShift.y-(int(geo.y)>>1);
+    if(gl_LocalInvocationIndex==0u){natTileS[0]=0x7FFFFFFF;natTileS[1]=0x7FFFFFFF;}
+    memoryBarrierShared();barrier();
+    if(use){atomicMin(natTileS[0],sx0);atomicMin(natTileS[1],rb0);}
+    memoryBarrierShared();barrier();
+    natTx=natTileS[0];natTy=natTileS[1];natTw=geo.w;
+    natTileOn=natTx!=0x7FFFFFFF;
+    if(natTileOn){
+        int rows=int(geo.z)>>1;
+        for(int k=int(gl_LocalInvocationIndex);k<NAT_TS*NAT_TS;k+=64){
+            int bx=natTx+k%NAT_TS,by=natTy+k/NAT_TS;
+            if(bx>=0&&bx<BWi&&by>=0&&by<rows)natTile[k]=natNormAt(geo.w,uint(by*BWi+bx));
+        }
+    }
+    memoryBarrierShared();barrier();
+}
+#endif
 struct NatSums{vec3 nm;vec3 dn;vec3 cn;vec3 cd;};
 NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCover){
     ivec2 N=ivec2(floor(O+0.5)),q0=(N-NAT_R)>>1;
@@ -5235,6 +5280,10 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
     int sx0=q0.x+cfaShift.x,sy0=q0.y+cfaShift.y,rb0=sy0-(int(geo.y)>>1);
     bool inner=sx0>=0&&sx0+NB<=BWi&&sy0>=0&&sy0+NB<=(natU.z>>1)&&rb0>=0&&rb0+NB<=(int(geo.z)>>1);
     int base=rb0*BWi+sx0,tcol=sx0,trow=int(geo.w)/BWi+rb0;
+#endif
+#ifdef NAT_TILE
+    bool tileIn=natTileOn&&inner&&geo.w==natTw&&sx0>=natTx&&sx0+NB<=natTx+NAT_TS&&rb0>=natTy&&rb0+NB<=natTy+NAT_TS;
+    int tbase=(rb0-natTy)*NAT_TS+(sx0-natTx);
 #endif
     for(int J=0;J<NB;J++)for(int I=0;I<NB;I++){
 #if NAT_B==4
@@ -5269,6 +5318,8 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
 #endif
 #ifdef NAT_TEX
         uvec4 u=inner?texelFetch(nnormT,ivec2(tcol+I,trow+J),0):natBlock(geo,bx,by);
+#elif defined(NAT_TILE)
+        uvec4 u=tileIn?natTile[tbase+J*NAT_TS+I]:inner?natNormAt(geo.w,uint(base+J*BWi+I)):natBlock(geo,bx,by);
 #else
         uvec4 u=inner?natNormAt(geo.w,uint(base+J*BWi+I)):natBlock(geo,bx,by);
 #endif
@@ -5581,7 +5632,12 @@ bool natDemosaic(vec2 S,float g,out vec3 rgb,out float detail){
 void main(){
     int g=kG.x,ow=kG.y,w2=size.x/2;
     int ox=int(gl_GlobalInvocationID.x),row=chunkU+int(gl_GlobalInvocationID.y);
+#ifdef NAT_TILE
+    bool live=ox<ow&&row<2*(cy1-cy0)*g; // P568: every invocation of the group runs the frame loop (its barriers)
+    ox=min(ox,ow-1);row=min(row,2*(cy1-cy0)*g-1);
+#else
     if(ox>=ow||row>=2*(cy1-cy0)*g)return;
+#endif
 #if NAT_B==4
     vec2 X=vec2(float(ox),float(2*cy0*g+row));
     vec2 S=g==4?X-1.5:(X+0.5)*(4.0/float(g))-2.0; // native canonical position of the output pixel (X - (b-1)/2; P56: on the Sabre
@@ -5710,9 +5766,16 @@ void main(){
     float frames=0.0;
     for(int f=1;f<frameCount;f++){
         float r=natRobust(f,B0,cx,cy,w2);
+#ifdef NAT_TILE
+        bool use=live&&r>=0.004&&!(kE.x>=0.0&&int(kE.x)!=f);
+        vec2 Ob=originM(f,2*cx,2*cy)+(B0-cell);
+        natTileLoad(nGeo[clamp(f,0,127)],use,Ob*2.0+0.5);
+        if(!use)continue;
+#else
         if(r<0.004)continue;
         if(kE.x>=0.0&&int(kE.x)!=f)continue;
         vec2 Ob=originM(f,2*cx,2*cy)+(B0-cell);
+#endif
         bool us=int(fParam[f].w)==5;
         vec3 Pf;
         if(us)Pf=vec3(kE.y,kE.y,0.0);
@@ -5726,6 +5789,10 @@ void main(){
         natFrame(a,f,Ob*2.0+0.5,r,rw,natClamp(Pf*natK.x));
 #endif
     }
+#ifdef NAT_TILE
+    natTileOn=false; // the base and the passes after the loop read the frames' blocks as before
+    if(!live)return;
+#endif
     float wbCover=wb; // P530: the coverage keeps the base frame's own weight
     if(natDzU.x>0.0&&wb>0.0){
         // P530 (P402's dezipper on the native merge): where the donors were rejected (accepted below 98 % of them, fully under
@@ -5801,6 +5868,30 @@ void main(){
 // Compiling the merge programs cost ~0.6 s of every shot (OPPO Adreno 750: 637 ms of a 702 ms init); a program loaded from
 // its own driver binary runs the identical code.
 inline std::string& hybridProgramCacheDir(){static std::string dir;return dir;}
+// P568: the native merge's choice between its original and its shared-memory twin on this GPU and driver (renderer + GL_VERSION;
+// a current context): -1 none kept (or no cache directory), else 0 / 1. A file "nat-tile.choice" in the program cache.
+inline std::string hybridNatTileKey(const std::string& renderer){
+    const GLubyte* v=glGetString(GL_VERSION);
+    std::string k="v1|"+renderer+"|"+(v?reinterpret_cast<const char*>(v):"");
+    for(char& c:k)if(c=='\n'||c=='\t')c=' ';
+    return k;
+}
+inline int hybridNatTileChoice(const std::string& renderer,const std::string&){
+    const std::string& dir=hybridProgramCacheDir();
+    if(dir.empty())return -1;
+    std::ifstream f(dir+"/nat-tile.choice");
+    std::string key,choice;
+    if(!std::getline(f,key)||!std::getline(f,choice))return -1;
+    if(key!=hybridNatTileKey(renderer))return -1;
+    return choice=="1"?1:choice=="0"?0:-1;
+}
+inline void hybridNatTileKeep(const std::string& renderer,const std::string&,int choice,double ms0,double ms1){
+    const std::string& dir=hybridProgramCacheDir();
+    if(dir.empty())return;
+    const std::string path=dir+"/nat-tile.choice",tmp=path+".tmp";
+    {std::ofstream f(tmp,std::ios::trunc);if(!f)return;f<<hybridNatTileKey(renderer)<<"\n"<<choice<<"\n"<<ms0<<" "<<ms1<<"\n";}
+    std::rename(tmp.c_str(),path.c_str());
+}
 
 // Lab stage view: directory the merge writes its stage maps to (empty = off), set by the worker for a job with a "stage-dump"
 // marker. Only the lab asks for it: every strip then reads its rejection buffers back (slower merge, same result).
@@ -6619,7 +6710,8 @@ struct HybridFill { int shift=0,w=0,h=0;std::vector<float> v;std::atomic<int> re
 // normalised-blocks buffer, no binding 24) for the retry after a failed native merge; 0 = as the GPU reports.
 inline std::atomic<int>& hybridNativeSafeLevel(){static std::atomic<int> level{0};return level;}
 // P555: HybridTuning::mosaicNatTex of the native merge in progress (hybridReconstructMosaicNative sets it per attempt)
-inline std::atomic<int>& hybridNatTexWanted(){static std::atomic<int> on{1};return on;}
+inline std::atomic<int>& hybridNatTexWanted(){static std::atomic<int> on{0};return on;}
+inline std::atomic<int>& hybridNatTileWanted(){static std::atomic<int> on{2};return on;} // P568: tune mosaicNatTile
 class HybridGpu {
     EGLDisplay display=EGL_NO_DISPLAY;
     EGLContext context=EGL_NO_CONTEXT;
@@ -6811,6 +6903,7 @@ class HybridGpu {
     GLuint markListProgram=0,markSparseProgram=0,markListBuf=0;size_t markListCap=0;
     // P34: the fast native merge (kHybNatNorm + kHybMergeMosaicFast [block Quad / Tetra][window r][marked][fill], compiled when
     // first used) and the normalised 2x2 cells of the strip (binding 18, outside the slots: written and read on the GPU only, one bank)
+    GLuint natFastTile[9][2][2]{}; // P568: the Quad merge with NAT_SHARED (window, marked, R / B fill)
     GLuint natNormProgram=0,natFast[2][9][2][2]{},natNormBuf=0,natNormBuf2=0,natFieldBuf=0;
     GLuint natFastFill[2][9][2]{}; // P204: the base-fill pass of a marked fast merge (block, half-width, R / B fill)
     GLuint natFastDem[2][9][2]{};  // P282: the base demosaic pass (block, half-width, R / B fill)
@@ -6826,18 +6919,19 @@ class HybridGpu {
     bool natNorm2=false; // P552: binding 24 exists (GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS > 24): P545's second buffer
     // P555: the normalised blocks as a 2D RGBA32UI image (written by kHybNatNorm, read through the texture cache by the merge)
     bool natTex=false;GLuint natNormTex=0;int natTexW=0,natTexH=0,maxTexSize=0;
-    GLuint natFastProgram(int block,int r,bool marked,bool fill,bool baseFill=false,bool demosaic=false,bool usPass=false,bool usTol=false){
+    GLuint natFastProgram(int block,int r,bool marked,bool fill,bool baseFill=false,bool demosaic=false,bool usPass=false,bool usTol=false,bool tile=false){
         const bool tetra=block==4;
         r=std::clamp(r,1,tetra?8:3);
         marked=marked||baseFill;
         if(demosaic){baseFill=false;marked=false;}
         if(usPass){baseFill=false;demosaic=false;} // P313
         usTol=usTol&&usPass; // P350
-        GLuint& p=usTol?natFastUsTol[tetra?1:0][r][marked?1:0][fill?1:0]:usPass?natFastUsPass[tetra?1:0][r][marked?1:0][fill?1:0]
+        tile=tile&&!tetra&&!natTex&&!baseFill&&!demosaic&&!usPass; // P568: the plain / marked Quad merge only
+        GLuint& p=tile?natFastTile[r][marked?1:0][fill?1:0]:usTol?natFastUsTol[tetra?1:0][r][marked?1:0][fill?1:0]:usPass?natFastUsPass[tetra?1:0][r][marked?1:0][fill?1:0]
                  :demosaic?(nativeTileWanted?natFastDemTile: natFastDem)[tetra?1:0][r][fill?1:0]:baseFill?natFastFill[tetra?1:0][r][fill?1:0]:natFast[tetra?1:0][r][marked?1:0][fill?1:0];
         if(!p){
             const auto t0=std::chrono::steady_clock::now();
-            std::string body=std::string(natNorm2?"#define NAT_NORM2 1\n":"")+(natTex?"#define NAT_TEX 1\n":"")+(usPass?"#define NAT_US_PASS 1\n":"")+(usTol?"#define NAT_US_TOL 1\n":"")+"#define NAT_B "+(tetra?"4":"2")+"\n#define NAT_R "+std::to_string(r)+"\n#define NAT_MARKED "+(marked?"1":"0")
+            std::string body=std::string(tile?"#define NAT_SHARED 1\n":"")+(natNorm2?"#define NAT_NORM2 1\n":"")+(natTex?"#define NAT_TEX 1\n":"")+(usPass?"#define NAT_US_PASS 1\n":"")+(usTol?"#define NAT_US_TOL 1\n":"")+"#define NAT_B "+(tetra?"4":"2")+"\n#define NAT_R "+std::to_string(r)+"\n#define NAT_MARKED "+(marked?"1":"0")
                 +"\n#define NAT_FILL "+(fill?"1":"0")+"\n#define NAT_BASEFILL "+(baseFill?"1":"0")+"\n#define NAT_DEMOSAIC "+(demosaic?"1":"0")+"\n"
                 +mergeCommon()+kHybNatAccess+mosaicFast();
             if(!std::getenv("SCAM_NO_NAT_CULL"))body="#define NAT_CULL 1\n#define NAT_CULL_TIGHT 1\n"+body;
@@ -6846,7 +6940,7 @@ class HybridGpu {
                 const std::string k(w);size_t at;
                 while((at=body.find(k))!=std::string::npos)body.replace(at,k.size(),k.substr(10)); // drops "writeonly "
             }
-            compileName=usTol?(tetra?"mosaicUsTolT":"mosaicUsTol"):usPass?(tetra?"mosaicUsT":"mosaicUs"):demosaic?(tetra?"mosaicDemT":"mosaicDem"):baseFill?(tetra?"mosaicFillT":"mosaicFill"):tetra?"mosaicFastT":"mosaicFast"; // the crash report names the program
+            compileName=tile?"mosaicTile":usTol?(tetra?"mosaicUsTolT":"mosaicUsTol"):usPass?(tetra?"mosaicUsT":"mosaicUs"):demosaic?(tetra?"mosaicDemT":"mosaicDem"):baseFill?(tetra?"mosaicFillT":"mosaicFill"):tetra?"mosaicFastT":"mosaicFast"; // the crash report names the program
             if(demosaic&&nativeTileWanted)try{
                 compileName="nativeTile";
 #ifdef SCAM_BAYER_SPLIT_FAULTS
@@ -6859,7 +6953,7 @@ class HybridGpu {
                 if(trace)trace(std::string("HYBRID NATIVE TILE: original shader after compile failure: ")+error.what());
                 return natFastProgram(block,r,marked,fill,baseFill,demosaic,usPass,usTol);
             }else p=compile(body.c_str());
-            compileMs+=std::string(usTol?" mosaicUsTol":usPass?" mosaicUs":demosaic?" mosaicDem":baseFill?" mosaicFill":" mosaicFast")+(tetra?"T":"")+std::to_string(r)+(marked?"m":"")+(fill?"f":"")+"="
+            compileMs+=std::string(tile?" mosaicTile":usTol?" mosaicUsTol":usPass?" mosaicUs":demosaic?" mosaicDem":baseFill?" mosaicFill":" mosaicFast")+(tetra?"T":"")+std::to_string(r)+(marked?"m":"")+(fill?"f":"")+"="
                 +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()));
         }
         return p;
@@ -7927,6 +8021,7 @@ public:
         // P34: Quad (window 1..3) and Tetra (window 1..8) with the full window merge with kHybNatNorm + kHybMergeMosaicFast (plain /
         // marked strips), anything else with kHybMergeMosaic (natMerge = the merge programs either way)
         bool natFastOn=false;GLuint natPlain=0,natMarked=0,natMarkedFill=0,natDem=0;std::vector<GLuint> natMerge;
+        GLuint natPlainT=0,natMarkedT=0;int natTileChoice=0;std::string natTileWhy;double natTileMs[2]{0,0}; // P568
         // P313: the ultrashort fill (mosaicUsFill) of the fast native merge with Bento: the merge, its dilate and demosaic as without
         // Bento (their uniforms), the ultrashort frames in a pass after them (plain / marked strips)
         bool natUs=false;GLuint natUsPlain=0,natUsMarked=0;
@@ -7946,6 +8041,21 @@ public:
                     natMarked=natFastProgram(nat->block,nat->window,true,fill);natMerge.push_back(natMarked);
                     natMarkedFill=natFastProgram(nat->block,nat->window,true,fill,true);natMerge.push_back(natMarkedFill); // P204
                 }
+                // P568: the shared-memory twins of the Quad merge (the same sums): always (mosaicNatTile 1), or the faster of the two
+                // on this GPU and driver (2: the choice kept in the program cache, else measured on two strips of this shot)
+                natTileChoice=nat->block==2&&!natTex?hybridNatTileWanted().load():0;
+                if(natTileChoice==2){const int kept=hybridNatTileChoice(renderer,limits);if(kept>=0){natTileChoice=kept;natTileWhy="kept";}}
+                if(natTileChoice!=0)try{
+                    natPlainT=natFastProgram(nat->block,nat->window,false,fill,false,false,false,false,true);
+                    if(mayMark)natMarkedT=natFastProgram(nat->block,nat->window,true,fill,false,false,false,false,true);
+                    natMerge.push_back(natPlainT);if(natMarkedT)natMerge.push_back(natMarkedT);
+                }catch(const std::exception& e){
+                    while(glGetError()!=GL_NO_ERROR){}
+                    natPlainT=natMarkedT=0;natTileChoice=0;natTileWhy=std::string("not built: ")+e.what();
+                    hybridNatTileKeep(renderer,limits,0,-1.0,-1.0); // not compiled again on every shot
+                }
+                if(trace&&nat->block==2)trace("HYBRID GPU: native merge shared tiles (P568): "+std::string(natTileChoice==1?"on":natTileChoice==2?"measured on strips 1 / 2":"off")
+                    +(natTileWhy.empty()?"":" ("+natTileWhy+")"));
                 // P282: the base's own demosaic where the donors were rejected (baseDemosaic 0: no program, the merge as before)
                 if(tune.baseDemosaic>0.f){natDem=natFastProgram(nat->block,nat->window,false,fill,false,true);natMerge.push_back(natDem);}
                 natUs=bento&&tune.mosaicUsFill>0&&clipFlags!=nullptr; // the pass reads the merge's clipped share in the clip flags
@@ -9001,7 +9111,16 @@ public:
             reserveBank(3,size_t(rows2)*ow*3*4,bank);reserveBank(4,size_t(rows2)*ow*4,bank);
             reserveBank(6,(clipFlags||rim||bentoColourPass||usBlend)?size_t(rows2)*ow*4:16,bank);
             if(nat){ // P29: the native merge, one invocation per output pixel of the strip, into the same Out / Eff / CFlags layout
-                const GLuint mosaicProgram=natFastOn?(natStripMode&&natMarked?natMarked:natPlain):this->mosaicProgram;
+                GLuint mosaicProgram=natFastOn?(natStripMode&&natMarked?natMarked:natPlain):this->mosaicProgram;
+                // P568: the shared-memory twin (decided, or measured on strips 1 and 2 against the original: the same sums)
+                const GLuint tiledProgram=natFastOn?(natStripMode&&natMarked?natMarkedT:natPlainT):0;
+                const bool tileTrial=natTileChoice==2&&tiledProgram&&(stripIndex==1||stripIndex==2);
+                if(tiledProgram&&(natTileChoice==1||(tileTrial&&stripIndex==2)))mosaicProgram=tiledProgram;
+                // the original kept before the tiles' first strip: a GPU that resets on it (the merge then retries without the
+                // tiles) does not try them on every later shot
+                if(tileTrial&&stripIndex==2)hybridNatTileKeep(renderer,limits,0,natTileMs[0],-1.0);
+                if(tileTrial)glFinish();
+                const auto tileT0=std::chrono::steady_clock::now();
                 if(natFastOn&&natStripMode&&!natMarked)throw std::runtime_error("HYBRID GPU: native strip with flags but no marked merge program");
                 glUseProgram(mosaicProgram);
                 glUniform1i(loc(mosaicProgram,"cy0"),cy0);glUniform1i(loc(mosaicProgram,"cy1"),cy1);glUniform1i(loc(mosaicProgram,"ry0"),ry0);
@@ -9017,6 +9136,19 @@ public:
                 const int natChunk=natFastOn?std::clamp(int(32.0*4096.0*22.0/(double(std::max(ow,1))*std::max(frames,1)*std::max(natCells,1.0)))&~7,8,128)
                                             :std::clamp(int(16.0*4096.0*16.0/(double(std::max(ow,1))*std::max(frames,1)))&~7,8,16);
                 dispatchRows(mosaicProgram,ow,rows2,1,natChunk,5,true,true);
+                if(tileTrial){
+                    glFinish();
+                    const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tileT0).count()/std::max(rows2,1);
+                    if(stripIndex==1)natTileMs[0]=ms;
+                    else{
+                        natTileMs[1]=ms;
+                        natTileChoice=natTileMs[1]<0.97*natTileMs[0]?1:0;
+                        natTileWhy="measured";
+                        hybridNatTileKeep(renderer,limits,natTileChoice,natTileMs[0],natTileMs[1]);
+                        if(trace){char l[200];std::snprintf(l,sizeof(l),"HYBRID GPU: native merge %.3f ms per row, with shared tiles %.3f (P568) -> %s from strip 3 on (kept for this GPU)",
+                            natTileMs[0],natTileMs[1],natTileChoice?"shared tiles":"the original");trace(l);}
+                    }
+                }
                 if(natFastOn&&natStripMode&&natMarkedFill){ // P204: the base fill of the colours the marked merge left without a sample
                     glUseProgram(natMarkedFill);
                     glUniform1i(loc(natMarkedFill,"cy0"),cy0);glUniform1i(loc(natMarkedFill,"cy1"),cy1);glUniform1i(loc(natMarkedFill,"ry0"),ry0);
@@ -15237,7 +15369,8 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             bool done=false;
             if(tune.chromaGpu>0){
                 const uint64_t avail=hybridMemAvailable();
-                if(chromaGpuPossible(int64_t(outW)*outH)&&(avail==0||ChromaMedianGpu::postBytesFor(outW,outH)<avail/4)){
+                // P564: mosaicPost works in strips (kPostStrip rows with their halo): any size, the strip's memory only
+                if(avail==0||ChromaMedianGpu::postBytesFor(outW,outH)<avail/4){
                     try{
                         const std::array<float,2> range=hybridLatticeNotchRange(effective,notchSpec.lowFrac,notchSpec.highFrac);
                         const float notch[3]={range[0],range[1],notchOn?notchStrength:0.f};
@@ -16293,16 +16426,79 @@ public:
 // P80: gpu = try ChromaMedianGpu first (float rounding of its boxes and soft counts only); *how gets "gpu" or "cpu (reason)".
 // P213b: the CPU path is MosaicChromaStream (any size; bandRows = its step, 0: kMosaicChromaBandRows; every step gives the same
 // floats).
+// P564: mosaicChromaMedian's GPU path for a frame above one call's size, in bands of rows (see the call). False (and *why) when
+// no band size fits (nothing touched); a GPU failure in a band finishes that band and the rest on the CPU, band by band.
+inline bool mosaicChromaMedianBands(std::vector<float>& rgb,int w,int h,int block,const std::vector<float>* osc,uint64_t avail,
+                                    std::string* why){
+    const int d=std::max(1,block/2),r1=block,r2=2*block,r3=3*block;
+    const int reach=std::max(2*d+2*r3+1,r1+1+r2)+2;              // rows a band's own rows read beyond them, all passes chained
+    const int halo=((reach+2*block-1)/(2*block))*(2*block);       // a whole number of colour periods
+    auto g=chromaTake();
+    GLint64 maxBlock=0;glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&maxBlock);
+    // band rows: within a storage block (12 B / px of rgb) and a quarter of MemAvailable (ChromaMedianGpu::bytesFor), at most 1024
+    int64_t rowsCap=maxBlock>0?int64_t(maxBlock)/(int64_t(w)*12):int64_t(1)<<30;
+    if(avail>0)rowsCap=std::min<int64_t>(rowsCap,int64_t(avail/4)/(int64_t(w)*48));
+    int band=int(std::min<int64_t>(1024,rowsCap-2*halo));
+    band=(band/(2*block))*(2*block);
+    if(band<4*halo){if(why)*why="a band of "+std::to_string(band)+" rows";chromaGiveBack(std::move(g));return false;}
+    const bool rawOsc=osc&&osc->size()==size_t(w/block)*size_t(h/block);
+    const int bw=w/block;
+    std::vector<float> in,saved(size_t(halo)*w*3),bandOsc;
+    const auto t0=std::chrono::steady_clock::now();
+    int bands=0,cpuBands=0;bool cpuRest=false;std::string cpuWhy;
+    for(int y0=0;y0<h;y0+=band,++bands){
+        const int y1=std::min(h,y0+band),a=std::max(0,y0-halo),b=std::min(h,y1+halo),rows=b-a;
+        in.resize(size_t(rows)*w*3);
+        // rows a..y0: the frame's originals (written back already by the last band: kept in `saved`), y0..b: still the originals
+        const int top=y0-a;
+        if(top>0)std::memcpy(in.data(),saved.data()+size_t(halo-top)*w*3,size_t(top)*w*3*4);
+        std::memcpy(in.data()+size_t(top)*w*3,rgb.data()+size_t(y0)*w*3,size_t(b-y0)*w*3*4);
+        const std::vector<float>* o=nullptr;
+        if(rawOsc){
+            const int J0=a/block,J1=std::min(h/block,(b+block-1)/block);
+            bandOsc.assign(osc->begin()+size_t(J0)*bw,osc->begin()+size_t(J1)*bw);
+            bandOsc.resize(size_t(bw)*size_t(rows/block),bandOsc.empty()?0.f:bandOsc.back());
+            o=&bandOsc;
+        }
+        // a GPU failure takes this band and the rest on the CPU (MosaicChromaStream on the same band: the same rows read), so no
+        // row is done twice and none is left
+        if(!cpuRest)try{g->times.clear();g->process(in,w,rows,block,o);}
+        catch(const std::exception& e){cpuRest=true;cpuWhy=e.what();}
+        if(cpuRest){MosaicChromaStream st(in.data(),w,rows,block,o,0,0,nullptr);st.advance(rows);++cpuBands;}
+        // the next band's top halo: the originals of rows y1 - halo .. y1, before this band's rows replace them
+        const int keep=std::min(halo,y1);
+        std::memcpy(saved.data()+size_t(halo-keep)*w*3,rgb.data()+size_t(y1-keep)*w*3,size_t(keep)*w*3*4);
+        std::memcpy(rgb.data()+size_t(y0)*w*3,in.data()+size_t(top)*w*3,size_t(y1-y0)*w*3*4);
+    }
+    if(why)*why=std::to_string(bands)+" bands of "+std::to_string(band)+" rows, halo "+std::to_string(halo)
+        +(cpuBands?", the last "+std::to_string(cpuBands)+" on the CPU ("+cpuWhy+")":std::string())+", "
+        +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()))+" ms";
+    chromaGiveBack(std::move(g));
+    return true;
+}
 inline void mosaicChromaMedian(std::vector<float>& rgb,int w,int h,int block,const std::vector<float>* osc=nullptr,bool gpu=false,
                                std::string* how=nullptr,int bandRows=0,MosaicChromaPasses* passes=nullptr){
     if(gpu){
         // within the GPU storage of one call and a quarter of MemAvailable (any RAW size: 8192x6144 needs 2.4 GB, it stays here)
         const uint64_t avail=hybridMemAvailable();
         const size_t need=ChromaMedianGpu::bytesFor(w,h);
+        std::string why="size";
         if(chromaGpuPossible(int64_t(w)*h)&&(avail==0||need<avail/4)){
             try{auto g=chromaTake();g->process(rgb,w,h,block,osc);if(how)*how="gpu: "+g->times+" ms";chromaGiveBack(std::move(g));return;}
-            catch(const std::exception& e){if(how)*how=std::string("cpu (")+e.what()+")";}
-        } else if(how)*how="cpu (size)";
+            catch(const std::exception& e){why=e.what();}
+        }
+        if(w>0&&h>0&&block>=1&&rgb.size()>=size_t(w)*h*3){
+            // P564 (owner, 2026-11-08: «Должно считаться на гпу, всё что возможно переведи на гпу»): a frame above the one-call size
+            // (50 / 200 MP; a storage block of 128 MB at 12 MP) in bands of rows, each with a halo of the passes' whole vertical
+            // reach (vertical median 2d, its wide ratios boxed twice at 3b, the [1 2 1] smoothing, the sign count's box r1 + 1 + 2b):
+            // every band's own rows get the floats of one call over the frame. The bands start on whole colour periods.
+            try{
+                std::string t;
+                if(mosaicChromaMedianBands(rgb,w,h,block,osc,avail,&t)){if(how)*how="gpu bands: "+t+" (one call: "+why+")";return;}
+                why+="; bands: "+t;
+            }catch(const std::exception& e){why+=std::string("; bands: ")+e.what();}
+        }
+        if(how)*how="cpu ("+why+")";
     } else if(how)*how="cpu";
     if(w<=0||h<=0||block<1||rgb.size()<size_t(w)*h*3)return;
     MosaicChromaStream stream(rgb.data(),w,h,block,osc,bandRows,0,passes);
@@ -16767,8 +16963,8 @@ inline std::vector<float> hybridReconstructMosaic(const HybridInput& input,int b
     auto millis=[](auto d){return std::chrono::duration<double,std::milli>(d).count();};
     const int b=block,W=input.w,Ht=input.h;
     if((W%(2*b))||(Ht%(2*b))||W/b<64||Ht/b<64)throw std::runtime_error("HYBRID MOSAIC: frame size not a multiple of the colour block");
-    // P80: the chroma median's GPU context builds during the merge (P219: for a result of W x H it can take)
-    if(tune.chromaGpu>0&&chromaGpuPossible(int64_t(W)*Ht))chromaPrewarm();
+    // P80: the chroma median's GPU context builds during the merge (P564: any size, a frame above one call in bands)
+    if(tune.chromaGpu>0)chromaPrewarm();
     const int vw=W/b,vh=Ht/b,per=b*b,n=int(input.frames.size());
     // ---- real frames within the GPU capacity (kHybridGpuFrames sub-frames): the base, the normals closest in time, the
     // ultrashort (Bento, up to bentoFrames) and the bracketed (Shasta) frames when there is room (hybridMosaicPick, P63's rules)
@@ -17146,9 +17342,8 @@ inline std::vector<float> hybridReconstructMosaicNativeMerge(const HybridInput& 
     // P80: the chroma median's GPU context builds during the merge. P219: only for a result the median takes on the GPU (ow x oh
     // below: Quad / T1 W x H, 4x that on the natively merged 2x grid, T2 a quarter), not for every 50 MP Quad merge
     const int k2Out=gridAsked==2&&!t2&&tune.mosaicNative2x!=0?2:1;
-    // P531: and for the post passes (hybridReconstruct's along-edge smoothing / lattice notch) with their programs
-    const bool postGpu=tune.chromaGpu>0&&((tune.baseDemosaic>0.f&&tune.baseDemosaicCover>0&&tune.mosaicAlongEdge>0.f)||tune.mosaicLatticeNotch>0.f||tune.mosaicTetraLatticeNotch>0.f)
-        &&chromaGpuPossible(int64_t(W)*Ht*k2Out*k2Out);
+    // P531: and for the post passes (hybridReconstruct's along-edge smoothing / lattice notch) with their programs (P564: any size, in strips)
+    const bool postGpu=tune.chromaGpu>0&&((tune.baseDemosaic>0.f&&tune.baseDemosaicCover>0&&tune.mosaicAlongEdge>0.f)||tune.mosaicLatticeNotch>0.f||tune.mosaicTetraLatticeNotch>0.f);
     if(postGpu||(tune.chromaGpu>0&&chromaGpuPossible(t2?int64_t(W)*Ht/4:int64_t(W)*Ht*k2Out*k2Out)&&!(tune.mosaicChroma&&tune.chromaOverlap>0)))
         chromaPrewarm(postGpu); // P364: none for the overlap
     // P73: Tetra T1 by day has its own scale (the Quad kernel in sensor px)
@@ -17471,6 +17666,7 @@ inline std::vector<float> hybridReconstructMosaicNative(const HybridInput& input
         }
         hybridNativeSafeLevel().store(attempt>=1?1:0);
         hybridNatTexWanted().store(t.mosaicNatTex);
+        hybridNatTileWanted().store(attempt>=1?0:t.mosaicNatTile); // P568: a retry merges as before
         try{
             // host checks only: the first N attempts fail as a native merge would
             if(const char* f=std::getenv("SCAM_NATIVE_FAIL_ATTEMPTS"))if(attempt<std::atoi(f))throw std::runtime_error("forced failure (SCAM_NATIVE_FAIL_ATTEMPTS)");

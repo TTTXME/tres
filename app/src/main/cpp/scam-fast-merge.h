@@ -439,10 +439,32 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         (void)sink;
     });}catch(const std::exception&){}
     struct ToucherJoin{std::atomic<bool>& s;std::thread& t;~ToucherJoin(){s=true;if(t.joinable())t.join();}} toucherJoin{stopTouch,toucher};
+    // P566: the Quad sites' response (the native merge's, over the base and the normal donors) on a CPU thread while the context
+    // and the first uploads are made; the unpack applies it (u_site_gains) and the QPC estimate is left out
+    std::array<float,64> siteGain;siteGain.fill(1.f);
+    HybridGainField siteField;
+    std::string siteLine;
+    std::future<void> siteJob;
+    if(quad&&sensorType==1&&mosaicBlock==2&&tune.fastSiteGain!=0&&tune.mosaicGain){
+        try{siteJob=std::async(std::launch::async,[&]{
+            std::vector<int> gf{baseIdx};
+            for(int f:donors)if(gf.size()<(tune.mosaicGain>=2?16u:4u)&&input.frames[size_t(f)].role==kRoleNormal)gf.push_back(f);
+            float spread=0,err=0;long used=0;
+            siteGain=hybridMosaicGains(input,gf,2,spread,&used,tune.mosaicGain,&err,tune.mosaicGainField?&siteField:nullptr,tune.mosaicGainZones);
+            char line[300];std::snprintf(line,sizeof(line),"HYBRID FAST MERGE MOSAIC: site response from %d frames, %ld smooth tiles, gain range %.4f..%.4f "
+                "(spread %.2f %%), error %.3f %%, field %s (P566: applied in the unpack, the QPC left out)",int(gf.size()),used,
+                *std::min_element(siteGain.begin(),siteGain.end()),*std::max_element(siteGain.begin(),siteGain.end()),100.0*spread,100.0*err,
+                siteField.on()?(std::to_string(siteField.zx)+"x"+std::to_string(siteField.zy)+" zones").c_str():"off");
+            siteLine=line;
+        });}catch(const std::exception&){}
+    }
     // the result vector (150 MB of zeroed pages at 12 MP) on a helper thread meanwhile
     // and then the worker's output memfd reserved and mapped (every page in place) for the halves (hybridFinalHalvesHook), on the
     // same thread (the result's data pointer names the stream)
-    const bool streamWanted=hybridFinalHalvesHook()&&!(mergedDng&&input.mergedDng)&&!std::getenv("SCAM_NO_STREAM_OUT");
+    // P563: a Quad / Tetra result takes the chroma median below (it reads the whole result): not streamed
+    const bool mosaicChroma=quad&&tune.fastMosaicChroma!=0&&tune.mosaicChroma;
+    if(mosaicChroma&&tune.chromaGpu>0)chromaPrewarm(); // P564: its GPU context builds during the merge
+    const bool streamWanted=hybridFinalHalvesHook()&&!(mergedDng&&input.mergedDng)&&!std::getenv("SCAM_NO_STREAM_OUT")&&!mosaicChroma;
     std::future<std::vector<float>> outAlloc=std::async(std::launch::async,[n=size_t(OW)*OH*3,streamWanted,OW,OH]{
         std::vector<float> v(n);
         if(streamWanted)hybridFinalHalvesHook()(nullptr,OW,OH,0,0,v.data());
@@ -522,6 +544,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     GLuint bayerBase=g.texture(GL_RGBA16F,w2,h2,false),bayerCur=g.texture(GL_RGBA16F,w2,h2,false);
     // Quad: the unpacked quads before the hot pixels (sh093 reads one texture and writes another), the QPC grid (16 x 12)
     GLuint bayerTmp=0,qpcRaw=0,qpcMap=0;
+    GLuint siteTex=0;double siteWaitMs=0; // P566
     if(quad){bayerTmp=g.texture(GL_RGBA16F,w2,h2,false);qpcRaw=g.texture(GL_RGBA16F,16,12,false);qpcMap=g.texture(GL_RGBA16F,16,12,true);}
     GLuint guideBase=g.texture(GL_RGBA16F,w2,h2,true),covBaseT=g.texture(GL_RGB10_A2,w2,h2,true);
     GLuint guideCur=g.texture(GL_RGBA16F,w2,h2,true),covCur=g.texture(GL_RGB10_A2,w2,h2,true);
@@ -652,6 +675,25 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u1i(A::pUnpack,"u_width",w2);g.u1i(A::pUnpack,"u_height",h2);g.u1i(A::pUnpack,"u_cfa_pattern",cfa);g.u1i(A::pUnpack,"u_raw_format",32);
         g.u4f(A::pUnpack,"u_black_level",blackColour);g.u1f(A::pUnpack,"u_white_level",input.white);
         g.u1f(A::pUnpack,"u_threshold_offset",0.01f*(input.white-blackMean));g.u1f(A::pUnpack,"u_suppression_strength",hotStrength);g.u1f(A::pUnpack,"u_threshold_mult",3.f);
+        if(siteJob.valid()){
+            {const auto w0=Clock::now();siteJob.get();siteWaitMs=ms(w0,Clock::now());}
+            const bool fieldOn=siteField.on();
+            const int nzx=fieldOn?siteField.zx:1,nzy=fieldOn?siteField.zy:1;
+            const float zw=fieldOn?float(siteField.zw):float(W),zh=fieldOn?float(siteField.zh):float(H);
+            std::vector<float> t(size_t(nzx)*4*size_t(nzy)*4*4);
+            for(int Z=0;Z<nzy;++Z)for(int X=0;X<nzx;++X)for(int c=0;c<4;++c)for(int a=0;a<4;++a)for(int s4=0;s4<4;++s4){
+                const int x=2*a+(s4&1),y=2*c+(s4>>1),k=(y<<3)|x;
+                t[((size_t(Z)*4+c)*size_t(nzx)*4+size_t(X)*4+a)*4+s4]=fieldOn?siteField.g[(size_t(Z)*nzx+X)*64+k]:siteGain[size_t(k)];
+            }
+            siteTex=g.texture(GL_RGBA32F,nzx*4,nzy*4,false);
+            glBindTexture(GL_TEXTURE_2D,siteTex);glPixelStorei(GL_UNPACK_ALIGNMENT,4);
+            glTexSubImage2D(GL_TEXTURE_2D,0,0,0,nzx*4,nzy*4,GL_RGBA,GL_FLOAT,t.data());
+            for(int p:{int(A::pUnpack),int(A::pUnpackBuf)}){
+                g.u1i(p,"u_site_gain",1);g.u4f(p,"u_site_zone",zw,zh,float(nzx),float(nzy));g.u4f(p,"u_site_black",blackSensor);
+                g.u1f(p,"u_site_clip",input.white-1.f);g.u1f(p,"u_site_white",input.white);
+            }
+            if(!siteLine.empty())report(siteLine+", waited "+std::to_string(int(siteWaitMs))+" ms");
+        }
         // guide (§4.3)
         g.u4f(PG,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));
         // (gains, black_levels_times_gains and the gray gain are the frame's: frontEnd)
@@ -771,6 +813,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     bool qpcMade=false;
     auto quadHotPixels=[&](GLuint to,int row0=0,int row1=-1){ // P497: rows [row0, row1) only (a row strip; -1 = to the end)
         using A=FastMergeGpu;
+        // P566: the site response is in the unpack; the QPC stays on top of it over a whole frame (its residual zonal phase gains),
+        // not in row strips (estimated there from the first strip's rows, the other zones unwritten)
+        if(!qpcMade&&siteTex&&stripMode){g.u1i(A::pHotPixel,"u_has_qpc_map",0);qpcMade=true;}
         if(!qpcMade){
             g.tex(A::pQpcEstimate,"u_extracted_bayer",0,bayerTmp);glBindImageTexture(1,qpcRaw,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
             g.dispatch(A::pQpcEstimate,16,12);
@@ -812,6 +857,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             stage(next); // the next frame's bytes while this one's passes are submitted
             uploadMs+=ms(u0,Clock::now());
             glBindImageTexture(1,unpackTarget,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
+            if(siteTex)g.tex(unpackProg,"u_site_gains",2,siteTex);
             g.dispatch(unpackProg,(w2+15)/16,(h2+15)/16);
             ringFence[slot]=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0); // the slot is free again once this unpack ran
         } else {
@@ -821,6 +867,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             uploadMs+=ms(u0,Clock::now());
             g.tex(A::pUnpack,"u_raw_tex",0,rt);
             glBindImageTexture(1,unpackTarget,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
+            if(siteTex)g.tex(A::pUnpack,"u_site_gains",2,siteTex);
             g.dispatch(A::pUnpack,(w2+15)/16,(h2+15)/16);
         }
         glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -1344,6 +1391,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         uploadMs+=ms(u0,Clock::now());
         g.u1i(A::pUnpackBuf,"u_row0q",qa);
         glBindImageTexture(1,quad?bayerTmp:unpackTo?unpackTo:bayer,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
+        if(siteTex)g.tex(A::pUnpackBuf,"u_site_gains",2,siteTex);
         g.dispatch(A::pUnpackBuf,(w2+15)/16,(qb-qa+15)/16);
         g.u1i(A::pUnpackBuf,"u_row0q",0);
         ringFence[slot]=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
@@ -1359,6 +1407,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u1i(A::pShortRecover,"u_row0",0);
             glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
+        if(profile)lap(13); // P567: phase B's upload + unpack + hot pixels (profile only: no extra flushes)
         std::array<float,4> gs,bs,gc,bc,cap;frameGains(ev,gs,bs,gc,bc);
         for(int q=0;q<4;++q)cap[size_t(q)]=grayCap[size_t(q)]*std::min(ev,1.f); // P497: as frontEnd
         g.u4f(PG,"gains",gs);g.u4f(PG,"black_levels_times_gains",bs);
@@ -1368,6 +1417,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         glEnable(GL_SCISSOR_TEST);glScissor(0,wa,w2,wb-wa);
         g.drawAt(PG,fGuide,0,0,w2,h2);
         glDisable(GL_SCISSOR_TEST);
+        if(profile)lap(14); // P567: phase B's guide
     };
     // the accumulators of one strip, the readback of one strip (reused)
     const GLuint fStrip=fMerge;
@@ -1410,6 +1460,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.tex(mp,"highlight_mask_texture",6,hlMaskTex);g.tex(mp,"u_long_scope_tex",7,oneScope);
             mergeDraw(mp);
             glFlush();
+            if(profile)lap(15); // P567: phase B's merge
         }
         if(validShorts>0)for(size_t q=0;q<shortFrames.size();++q){ // their Bayer and covariance were kept from phase A
             const ShortFrame& sq=shortFrames[q];
@@ -1584,8 +1635,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     report(line);
     if(profile){
         std::snprintf(line,sizeof(line),"HYBRID FAST MERGE GPU ms (timestamps, sums over %d donors; a compute pass may count in the next draw's stage): unpack=%.1f guide=%.1f pyr=%.1f "
-            "homography=%.1f lk=%.1f sparse=%.1f rejection=%.1f filter=%.1f dilate+cyclops+blendEq=%.1f accW=%.1f merge=%.1f base=%.1f out=%.1f total=%.1f",
+            "homography=%.1f lk=%.1f sparse=%.1f rejection=%.1f filter=%.1f dilate+cyclops+blendEq=%.1f accW=%.1f merge=%.1f base=%.1f out=%.1f"
+            " strips: unpack=%.1f guide=%.1f merge=%.1f total=%.1f",
             N-1,stageMs[0],stageMs[8],stageMs[1],stageMs[2],stageMs[3],stageMs[12],stageMs[9],stageMs[10],stageMs[11],stageMs[4],stageMs[5],stageMs[6],stageMs[7],
+            stageMs[13],stageMs[14],stageMs[15],
             std::accumulate(stageMs.begin(),stageMs.end(),0.0));
         report(line);
     }
@@ -1594,6 +1647,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     hybridSeriesMerged(tune,input,stats.merged,stats.mergedNormals,report);
     report("HYBRID STAGES ms: align=0 localAlign=0 mask=0 merge="+std::to_string(stats.mergeMs)+" total="+std::to_string(ms(started,finished))
         +" merged="+std::to_string(N)+" droppedBracketed="+std::to_string(longsDropped)+" bento=0 (fast merge)");
+    if(mosaicChroma&&!streamed){
+        // P563: the native merge's chroma median (dual 5-point, taps max(1, b / 2) output px; the false-colour suppression on the
+        // luma's oscillation): the blocks' colour lattice of the per-frame merge (R / B at 1/4 cycles / px 2-3x the quality route's)
+        const auto c0=Clock::now();
+        const int b=std::max(1,int(std::lround(double(mosaicBlock)*OW/std::max(W,1))));
+        std::string how;
+        mosaicChromaMedian(out,OW,OH,b,nullptr,tune.chromaGpu>0,&how);
+        report("HYBRID FAST MERGE MOSAIC: chroma median (dual 5-point, taps "+std::to_string(std::max(1,b/2))+" px of the "+std::to_string(OW)+"x"
+            +std::to_string(OH)+" result, "+how+") "+std::to_string(int(ms(c0,Clock::now())))+" ms (P563)");
+    }
     if(statsOut)*statsOut=stats;
     if(hlMaskOut&&!hlMask.empty()){ // P480: last, once nothing of the route can fail any more
         double sum=0;size_t on=0,seen=0;

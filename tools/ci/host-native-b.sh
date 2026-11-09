@@ -7,6 +7,15 @@ g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_CHROMA_RING_CHEC
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-chroma-band quick
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_CHROMA_RING_CHECK tools/check_chroma_overlap.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-chroma-overlap
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-chroma-overlap quick
+# P564: the GPU chroma median in bands of rows (a frame above one GPU call) against the CPU stream
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_chroma_gpu_bands.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-chroma-gpu-bands
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-chroma-gpu-bands
+# P569: the fast route's Quad programs without run-time indices are made and build
+g++ -pthread -std=c++17 -O1 tools/check_fast_index_free.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-index-free
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-index-free
+# P568: the Quad native merge with shared-memory tiles gives the original's floats bit for bit
+g++ -pthread -std=c++17 -O1 tools/check_nat_tile.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-nat-tile
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-nat-tile
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_still.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-still
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-still
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_stages.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-stages

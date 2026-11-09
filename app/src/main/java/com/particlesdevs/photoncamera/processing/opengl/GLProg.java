@@ -63,10 +63,22 @@ public class GLProg implements AutoCloseable {
             diskTried = true;
             try {
                 android.content.Context context = ScameraApp.getAppContext();
-                if (context != null) disk = new GLProgramDiskCache(new File(context.getCacheDir(), "glprog"));
+                if (context != null) disk = new GLProgramDiskCache(programDir(context));
             } catch (RuntimeException ignored) {}
         }
         return disk;
+    }
+    /**
+     * P565: the binaries in the app's no-backup files, not its cache: the nubia (NX721J) lost the whole cache folder between two
+     * shots nine minutes apart (build 31244: 51, then 54 programs compiled, 1.3 - 1.4 s of each shot, the idle warm-up found no
+     * kept recipe), while the X8U's cache hit 46 of 46. The folder stays bounded (GLProgramDiskCache's limits); an old cache
+     * folder is moved over once.
+     */
+    static File programDir(android.content.Context context) {
+        final File dir = new File(context.getNoBackupFilesDir(), "glprog");
+        final File old = new File(context.getCacheDir(), "glprog");
+        if (!dir.exists() && old.isDirectory() && !old.renameTo(dir)) dir.mkdirs();
+        return dir;
     }
     private static synchronized String driver() {
         if (driver == null) {

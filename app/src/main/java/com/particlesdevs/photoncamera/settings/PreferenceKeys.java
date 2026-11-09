@@ -956,9 +956,16 @@ public class PreferenceKeys {
         if (nightScale > 0f && nightScale != 1f) out.append("s61NightScale ").append(Math.max(0.25f, Math.min(2f, nightScale))).append('\n');
         // P402 (owner, 2026-10-29: «dezipper нам также перенеси»): the reference app's dezipper - the base frame's weight up to
         // max(1, value - accepted donors) where the donors were rejected (worker dezipper; 0 = off, the merge program as before)
-        // P555: the fast native Quad / Tetra merge reads its normalised blocks through the texture cache (worker mosaicNatTex,
-        // default 1, output identical); scam_dev.txt "hybrid_mosaic_nat_tex 0" = the storage buffers as before
-        if (hybridValue("mosaic_nat_tex", 1f) == 0f) out.append("mosaicNatTex 0\n");
+        // P555 / P563: the native Quad / Tetra merge's normalised blocks through the texture cache (worker mosaicNatTex, default 0
+        // since P563: 2.4x slower on the Adreno 750; output identical); scam_dev.txt "hybrid_mosaic_nat_tex 1" = the image
+        if (hybridValue("mosaic_nat_tex", 0f) != 0f) out.append("mosaicNatTex 1\n");
+        // P563: the fast route's Quad / Tetra chroma median (worker fastMosaicChroma, default 1); "hybrid_fast_mosaic_chroma 0" = before
+        if (hybridValue("fast_mosaic_chroma", 1f) == 0f) out.append("fastMosaicChroma 0\n");
+        // P566: the fast route's Quad site response in the unpack (worker fastSiteGain, default 1); "hybrid_fast_site_gain 0" = the QPC alone
+        if (hybridValue("fast_site_gain", 1f) == 0f) out.append("fastSiteGain 0\n");
+        // P568: the Quad native merge with shared-memory tiles (worker mosaicNatTile: 0 off, 1 always, 2 the faster measured once per GPU)
+        final float natTile = hybridValue("mosaic_nat_tile", 2f);
+        if (natTile != 2f) out.append("mosaicNatTile ").append(Math.round(Math.max(0f, Math.min(2f, natTile)))).append('\n');
         final float dezipper = hybridValue("dezipper", 4.5f);
         if (dezipper > 0f) out.append("dezipper ").append(Math.max(0.5f, Math.min(15f, dezipper))).append('\n');
         // P335 (owner, 2026-10-25: Why's rejections and anti-zipper «улучшить и добавить нам»): the rejection's soft motion prior

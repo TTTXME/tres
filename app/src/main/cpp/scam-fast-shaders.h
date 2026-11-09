@@ -32,6 +32,29 @@ uniform vec4 u_black_level;
 uniform float u_threshold_offset;
 uniform float u_suppression_strength;
 uniform float u_threshold_mult;
+// P566: the Quad sites' response (the native merge's hybridMosaicGains: 64 site classes (y & 7, x & 7) over a field of zones),
+// raw' = black + (raw - black) x gain, a clipped site as it is. u_site_gains: per zone 4 x 4 texels, texel (quad x & 3, quad y & 3)
+// the gains of its four sites; u_site_zone: zone width, height (sensor px), zones across, down (bilinear between zone centres)
+uniform int u_site_gain;
+uniform vec4 u_site_zone;
+uniform vec4 u_site_black;
+uniform float u_site_clip;
+uniform float u_site_white;
+layout(binding = 2) uniform highp sampler2D u_site_gains;
+vec4 site_correct(ivec2 qpos, vec4 v) {
+    if (u_site_gain == 0) return v;
+    ivec2 nz = ivec2(u_site_zone.zw);
+    vec2 zc = clamp((vec2(qpos) * 2.0 + 1.0) / u_site_zone.xy - 0.5, vec2(0.0), vec2(nz - 1));
+    ivec2 z0 = min(ivec2(zc), max(nz - 2, ivec2(0)));
+    ivec2 z1 = min(z0 + 1, nz - 1);
+    vec2 a = zc - vec2(z0);
+    ivec2 ph = qpos & 3;
+    vec4 g0 = mix(texelFetch(u_site_gains, z0 * 4 + ph, 0), texelFetch(u_site_gains, ivec2(z1.x, z0.y) * 4 + ph, 0), a.x);
+    vec4 g1 = mix(texelFetch(u_site_gains, ivec2(z0.x, z1.y) * 4 + ph, 0), texelFetch(u_site_gains, z1 * 4 + ph, 0), a.x);
+    vec4 g = mix(g0, g1, a.y);
+    vec4 c = min(u_site_black + (v - u_site_black) * g, vec4(u_site_white));
+    return mix(c, v, greaterThanEqual(v, vec4(u_site_clip)));
+}
 
 vec2 fetch_pair_raw10(int qx, int py) {
     int q = qx >> 1;
@@ -78,7 +101,7 @@ vec4 unpack_quad(ivec2 qpos) {
         row0 = fetch_pair_raw10(qx, by);
         row1 = fetch_pair_raw10(qx, by + 1);
     }
-    return vec4(row0.x, row0.y, row1.x, row1.y);
+    return site_correct(qpos, vec4(row0.x, row0.y, row1.x, row1.y));
 }
 
 shared vec4 s_quad[324];
@@ -4025,6 +4048,29 @@ uniform vec4 u_black_level;
 uniform float u_threshold_offset;
 uniform float u_suppression_strength;
 uniform float u_threshold_mult;
+// P566: the Quad sites' response (the native merge's hybridMosaicGains: 64 site classes (y & 7, x & 7) over a field of zones),
+// raw' = black + (raw - black) x gain, a clipped site as it is. u_site_gains: per zone 4 x 4 texels, texel (quad x & 3, quad y & 3)
+// the gains of its four sites; u_site_zone: zone width, height (sensor px), zones across, down (bilinear between zone centres)
+uniform int u_site_gain;
+uniform vec4 u_site_zone;
+uniform vec4 u_site_black;
+uniform float u_site_clip;
+uniform float u_site_white;
+layout(binding = 2) uniform highp sampler2D u_site_gains;
+vec4 site_correct(ivec2 qpos, vec4 v) {
+    if (u_site_gain == 0) return v;
+    ivec2 nz = ivec2(u_site_zone.zw);
+    vec2 zc = clamp((vec2(qpos) * 2.0 + 1.0) / u_site_zone.xy - 0.5, vec2(0.0), vec2(nz - 1));
+    ivec2 z0 = min(ivec2(zc), max(nz - 2, ivec2(0)));
+    ivec2 z1 = min(z0 + 1, nz - 1);
+    vec2 a = zc - vec2(z0);
+    ivec2 ph = qpos & 3;
+    vec4 g0 = mix(texelFetch(u_site_gains, z0 * 4 + ph, 0), texelFetch(u_site_gains, ivec2(z1.x, z0.y) * 4 + ph, 0), a.x);
+    vec4 g1 = mix(texelFetch(u_site_gains, ivec2(z0.x, z1.y) * 4 + ph, 0), texelFetch(u_site_gains, z1 * 4 + ph, 0), a.x);
+    vec4 g = mix(g0, g1, a.y);
+    vec4 c = min(u_site_black + (v - u_site_black) * g, vec4(u_site_white));
+    return mix(c, v, greaterThanEqual(v, vec4(u_site_clip)));
+}
 
 vec2 fetch_pair_raw10(int qx, int py) {
     int q = qx >> 1;
@@ -4068,7 +4114,7 @@ vec4 unpack_quad(ivec2 qpos) {
         row0 = fetch_pair_raw10(qx, by);
         row1 = fetch_pair_raw10(qx, by + 1);
     }
-    return vec4(row0.x, row0.y, row1.x, row1.y);
+    return site_correct(qpos, vec4(row0.x, row0.y, row1.x, row1.y));
 }
 
 shared vec4 s_quad[324];

@@ -311,8 +311,14 @@ public final class DevKeys {
         k.add(n(merge, "hybrid_mosaic_tetra_night_edge_scale", null, Lang.t("Tetra ночью: масштаб на краях (не действует: Tetra снимается днём, P306)", "Tetra at night: edge scale (no effect: Tetra is shot by day, P306)")));
         k.add(n(merge, "hybrid_mosaic_tetra_night_flat_scale", null, Lang.t("Tetra ночью: масштаб на ровных местах (не действует: Tetra снимается днём, P306)", "Tetra at night: flat scale (no effect: Tetra is shot by day, P306)")));
         k.add(n(merge, "hybrid_mosaic_tetra_kernel_scale", null, Lang.t("Tetra днём: масштаб ядра", "Tetra by day: kernel scale")));
-        k.add(n(merge, "hybrid_mosaic_nat_tex", "1", Lang.t("Quad / Tetra: чтение блоков склейки через текстурный кэш (1 вкл., 0 буферы как раньше; результат тот же)",
-                "Quad / Tetra: merge blocks read through the texture cache (1 on, 0 storage buffers as before; same result)")));
+        k.add(n(merge, "hybrid_mosaic_nat_tex", "0", Lang.t("Quad / Tetra «Качество»: чтение блоков склейки через текстурный кэш (1 вкл., 0 буферы; результат тот же, на Adreno 750 медленнее)",
+                "Quad / Tetra «Quality»: merge blocks read through the texture cache (1 on, 0 storage buffers; same result, slower on the Adreno 750)")));
+        k.add(n(merge, "hybrid_fast_mosaic_chroma", "1", Lang.t("Quad / Tetra «Быстрый»: цветовая медиана после склейки против цветной сетки (1 вкл., 0 как раньше)",
+                "Quad / Tetra «Fast»: chroma median after the merge against the colour lattice (1 on, 0 as before)")));
+        k.add(n(merge, "hybrid_fast_site_gain", "1", Lang.t("Quad «Быстрый»: поправка чувствительности пикселей блока, как в «Качестве» (1 вкл., 0 только QPC)",
+                "Quad «Fast»: the block sites' response correction of «Quality» (1 on, 0 the QPC alone)")));
+        k.add(n(merge, "hybrid_mosaic_nat_tile", "2", Lang.t("Quad «Качество»: блоки склейки в общей памяти GPU (0 выкл., 1 всегда, 2 быстрее из двух, замер один раз на телефоне; результат тот же)",
+                "Quad «Quality»: merge blocks in GPU shared memory (0 off, 1 always, 2 the faster of the two, measured once per phone; same result)")));
         k.add(n(merge, "hybrid_gain_measured", null, Lang.t("Измерять усиление кадров (1/0)", "Measure the frames' gain (1/0)")));
         k.add(n(merge, "hybrid_noise_measured", null, Lang.t("Измерять шум и поправлять модель (1/0)", "Measure the noise and correct the model (1/0)")));
         k.add(n(merge, "hybrid_la_threads", null, Lang.t("Потоков локального выравнивания F6", "Threads of the F6 local alignment")));

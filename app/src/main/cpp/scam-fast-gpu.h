@@ -26,6 +26,7 @@ enum : uint64_t { AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN = 3, AHARDWAREBUFFER_USAG
 #include <dirent.h>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <sys/stat.h>
 #include <utime.h>
@@ -360,10 +361,57 @@ inline std::string fastCleanValidArrayFree(const char* reference){
     fastReplaceOnce(s,"median9_valid(v);","median9_valid(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);");
     return s;
 }
+inline const std::string& fastGuideQuadArrayFree(){static const std::string t=fastGuideArrayFree(kFastGuideQuad,false);return t;}
+inline const char* fastGuideQuadArrayFreeText(){return fastGuideQuadArrayFree().c_str();}
+// P569 (owner, 2026-11-09: «Ускорь и оптимизируй всё максимально ... без ухудшения качества»; the nubia's fast route: the merge
+// and the guide of a 50 MP Quad shot, whole frame and again per row strip, ~5 s of its 7.4 s on the GPU): the Quad programs' local
+// arrays written at a run-time index - sh051 / sh103's accumulator per colour (accumulatedIntensities[dest_ch], sum_ch[qc],
+// wt_ch[qc]) and the CFA tables (k_cfa_map, k_ch_to_rgb, k_guide_cfa_map) - are what a mobile compiler puts in scratch memory.
+// On every GPU they are given as the same arithmetic without a run-time index: the tables are XOR / shift (k_cfa_map[p * 4 + ph]
+// = ph ^ p for its four rows, k_ch_to_rgb[c] = (c + 1) >> 1), an accumulator a[k] += v as a += v x (k == i) per component (the
+// other components add +0.0: every added value is >= 0). The sums are the reference's (a compiler may fuse a multiply-add
+// differently: 1 ulp). SCAM_FM_INDEXED: the reference's text (replays).
+inline std::string fastQuadIndexFree(const char* reference){
+    std::string s(reference);
+    fastReplaceOnce(s,"    return k_cfa_map[p * 4 + ph];","    return ph ^ p;");
+    fastReplaceOnce(s,"            int dest_ch = k_ch_to_rgb[ch];\n            accumulatedIntensities[dest_ch] += intensity * w;\n"
+                      "            accumulatedWeights[dest_ch]     += w;",
+                      "            vec3 dest_sel = vec3(equal(ivec3(0, 1, 2), ivec3((ch + 1) >> 1)));\n"
+                      "            accumulatedIntensities += dest_sel * (intensity * w);\n"
+                      "            accumulatedWeights     += dest_sel * w;");
+    fastReplaceOnce(s,"            float sum_ch[4] = float[4](0.0, 0.0, 0.0, 0.0);\n            float wt_ch[4]  = float[4](0.0, 0.0, 0.0, 0.0);",
+                      "            vec4 sum_ch = vec4(0.0);\n            vec4 wt_ch  = vec4(0.0);");
+    fastReplaceOnce(s,"                    sum_ch[qc] += qm * sw;\n                    wt_ch[qc]  += sw;",
+                      "                    vec4 qc_sel = vec4(equal(ivec4(0, 1, 2, 3), ivec4(qc)));\n"
+                      "                    sum_ch += qc_sel * (qm * sw);\n                    wt_ch  += qc_sel * sw;");
+    return s;
+}
+inline std::string fastGuideQuadIndexFree(const std::string& reference){
+    std::string s(reference);
+    fastReplaceOnce(s,"  return k_guide_cfa_map[clamp(u_cfa_pattern, 0, 3) * 4 + phase];","  return phase ^ clamp(u_cfa_pattern, 0, 3);");
+    return s;
+}
+// the variant of src without run-time indices (P569), or src: once per program text, the reference's text when a pattern is missing
+inline const char* fastIndexFree(const char* src){
+    if(std::getenv("SCAM_FM_INDEXED"))return src;
+    static std::mutex m;static std::map<const char*,std::string> made;
+    std::lock_guard<std::mutex> l(m);
+    auto it=made.find(src);
+    if(it==made.end()){
+        std::string v;
+        try{
+            if(src==kFastMergeQuad||src==kFastMergeQuadQuad)v=fastQuadIndexFree(src);
+            else if(src==kFastGuideQuad)v=fastGuideQuadIndexFree(src);
+            else if(src==fastGuideQuadArrayFreeText())v=fastGuideQuadIndexFree(src);
+        }catch(const std::exception&){v.clear();}
+        it=made.emplace(src,v).first;
+    }
+    return it->second.empty()?src:it->second.c_str();
+}
 // the reference's source, or its array-free variant (built once; the pointer names the program in the shader fallbacks)
 inline const char* fastArrayFree(const char* src){
-    static const std::string guide=fastGuideArrayFree(kFastGuide,true),guideQuad=fastGuideArrayFree(kFastGuideQuad,false),
-                             clean=fastCleanValidArrayFree(kFastHlCleanValid);
+    static const std::string guide=fastGuideArrayFree(kFastGuide,true),clean=fastCleanValidArrayFree(kFastHlCleanValid);
+    const std::string& guideQuad=fastGuideQuadArrayFree();
     if(src==kFastMedianAlign)return kFastMedianAlignNet;
     if(src==kFastGuide)return guide.c_str();
     if(src==kFastGuideQuad)return guideQuad.c_str();
@@ -811,8 +859,8 @@ private:
         return program;
     }
     bool arrayFree=false; // P501: fastArrayFree's variants (Mali)
-    GLuint cs(const char* src){return link({{GL_COMPUTE_SHADER,arrayFree?fastmerge::fastArrayFree(src):src}});}
-    GLuint fs(const char* src){return link({{GL_VERTEX_SHADER,fastmerge::kFastVs},{GL_FRAGMENT_SHADER,arrayFree?fastmerge::fastArrayFree(src):src}});}
+    GLuint cs(const char* src){return link({{GL_COMPUTE_SHADER,fastmerge::fastIndexFree(arrayFree?fastmerge::fastArrayFree(src):src)}});}
+    GLuint fs(const char* src){return link({{GL_VERTEX_SHADER,fastmerge::kFastVs},{GL_FRAGMENT_SHADER,fastmerge::fastIndexFree(arrayFree?fastmerge::fastArrayFree(src):src)}});}
 };
 
 // The context with its programs made on the worker's EGL warm-up thread while it waits for the burst (as laGpuPrewarm)
