@@ -680,11 +680,19 @@ def main(argv):
     write = '--write' in argv
     if '--check' in argv:
         # CI: the drawables are what this script makes (an icon edited by hand would drift from the style)
-        expected = [(icon.res + icon.name + '.xml', vector(icon)) for icon in ICONS]
+        # P570: the drawables tools/icons/build.mjs makes (listed in tools/icons/icons.tsv) are that tool's, not this one's
+        owned = set()
+        tsv = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'icons.tsv')
+        if os.path.isfile(tsv):
+            with open(tsv, encoding='utf-8') as f:
+                owned = {line.split('\t', 1)[0].strip() for line in f if line.strip() and not line.startswith('resource\t')}
+        expected = [(icon.res + icon.name + '.xml', vector(icon)) for icon in ICONS if icon.name not in owned]
         expected += [(RES + 'shortcut_ic_gear.xml', vector(SHORTCUT, accent_hex='#FFFFA99E')),
                      (RES + 'shortcut_ic_gear_mono.xml', vector(SHORTCUT, mono=True))]
         bad = [os.path.basename(f) for f, text in expected
                if not os.path.isfile(f) or open(f, encoding='utf-8').read().replace(chr(13), '') != text]
+        if owned:
+            print('UI icons: %d drawables left to tools/icons/build.mjs (P570)' % sum(1 for i in ICONS if i.name in owned))
         if bad:
             print('UI icons differ from tools/make_ui_icons.py: ' + ', '.join(bad))
             return 1

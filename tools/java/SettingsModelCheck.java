@@ -64,7 +64,7 @@ public class SettingsModelCheck {
         if(SettingsNumericRules.bounds("pref_scamhdr_hybrid_cdm")!=null)throw new AssertionError("legacy hybrid key still bounded");
         eq(SettingsNumericRules.value("pref_scam_hybrid_cdm","9",0.07),2);
         eq(SettingsNumericRules.value("pref_scam_hybrid_bento_factor","32",8),16);
-        eq(SettingsNumericRules.value("pref_scam_hybrid_zsl_frames","99",20),44);
+        eq(SettingsNumericRules.value("pref_scam_hybrid_zsl_frames","99",20),65); // P578
         eq(SettingsNumericRules.value("pref_scam_hybrid_zsl_frames","7.6",20),8);
         if(SettingsNumericRules.error("pref_scam_hybrid_zsl_frames","3")==null)throw new AssertionError("hybrid N below 4 accepted");
         eq(SettingsNumericRules.value("pref_scam_hybrid_noise_photon","0",1),.25);

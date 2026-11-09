@@ -592,7 +592,7 @@ public final class TopRowSheet {
         switch (id) {
             case TopRow.FORMAT: return Lang.t(c, "Формат и размер", "Format and size");
             case TopRow.LUT: return Lang.t(c, "LUT и плёнка", "LUT and film");
-            case TopRow.DCG: return "DCG 14 бит";
+            case TopRow.DCG: return Lang.t("DCG 14 бит", "DCG 14-bit");
             case TopRow.UHDR: return "Ultra HDR";
             default: return label(c, id);
         }
