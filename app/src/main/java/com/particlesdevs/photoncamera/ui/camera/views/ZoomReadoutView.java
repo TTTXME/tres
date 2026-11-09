@@ -44,7 +44,7 @@ public class ZoomReadoutView extends View {
     public ZoomReadoutView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
         value.setTextSize(UiScale.spPx(context, 12));
-        value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        value.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), com.particlesdevs.photoncamera.ui.style.Fonts.BOLD));
         value.setTextAlign(Paint.Align.CENTER);
         value.setFontFeatureSettings("tnum");
         setVisibility(GONE);

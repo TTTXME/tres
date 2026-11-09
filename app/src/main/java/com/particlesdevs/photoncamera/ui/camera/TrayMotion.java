@@ -333,8 +333,8 @@ final class TrayMotion {
      * part in the layout.
      */
     static final class ChipRow extends android.widget.LinearLayout {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF now = new RectF(), from = new RectF(), to = new RectF();
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF now = new RectF(), from = new RectF(), to = new RectF(), inset = new RectF();
         private float radius;
         private boolean shown;
         @Nullable private View target;
@@ -342,7 +342,11 @@ final class TrayMotion {
 
         ChipRow(Context c, int color, float radiusPx) {
             super(c);
-            paint.setColor(color);
+            // P583 (the concept's chosen look): #3A3A3C with an inset 1.5px edge in the accent ({@code color})
+            paint.setColor(ConceptStyle.CHOSEN);
+            edge.setStyle(Paint.Style.STROKE);
+            edge.setStrokeWidth(1.5f * c.getResources().getDisplayMetrics().density);
+            edge.setColor(color);
             radius = radiusPx;
             setWillNotDraw(false);
             // a chip whose bounds change after the pill was placed (its text, a relayout) keeps the pill on it
@@ -396,7 +400,11 @@ final class TrayMotion {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            if (shown) canvas.drawRoundRect(now, radius, radius, paint);
+            if (!shown) return;
+            canvas.drawRoundRect(now, radius, radius, paint);
+            final float h = edge.getStrokeWidth() / 2f;
+            inset.set(now.left + h, now.top + h, now.right - h, now.bottom - h);
+            canvas.drawRoundRect(inset, radius - h, radius - h, edge);
         }
 
         @Override protected void onDetachedFromWindow() {

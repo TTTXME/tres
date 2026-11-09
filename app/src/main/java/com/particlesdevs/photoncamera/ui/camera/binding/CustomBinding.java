@@ -129,8 +129,9 @@ public class CustomBinding {
     public static void adjustTopBar(View topbar, float displayAspectRatio) {
         ConstraintLayout.LayoutParams params = (ConstraintLayout.LayoutParams) topbar.getLayoutParams();
         float density = topbar.getResources().getDisplayMetrics().density;
-        // dp and pixels must not be mixed. Keep a modest gap on tall displays.
-        params.topMargin = Math.round((displayAspectRatio > 1.9f ? 12 : 4) * density);
+        // dp and pixels must not be mixed. P583 (the concept: the row's items centred 40dp down, the preview 70dp down): on a tall
+        // display the 64dp bar starts 6dp down (its row 4dp lower inside it), so the preview starts at 70dp.
+        params.topMargin = Math.round((displayAspectRatio > 1.9f ? 6 : 4) * density);
         topbar.setLayoutParams(params);
     }
     

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the concept's font (Roboto Flex, SIL OFL 1.1: tools/icons/ROBOTO_FLEX_OFL.txt), static instances 400 .. 800 -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:fontStyle="normal" android:fontWeight="400" android:font="@font/roboto_flex_400" app:fontStyle="normal" app:fontWeight="400" app:font="@font/roboto_flex_400" />
+    <font android:fontStyle="normal" android:fontWeight="500" android:font="@font/roboto_flex_500" app:fontStyle="normal" app:fontWeight="500" app:font="@font/roboto_flex_500" />
+    <font android:fontStyle="normal" android:fontWeight="600" android:font="@font/roboto_flex_600" app:fontStyle="normal" app:fontWeight="600" app:font="@font/roboto_flex_600" />
+    <font android:fontStyle="normal" android:fontWeight="700" android:font="@font/roboto_flex_700" app:fontStyle="normal" app:fontWeight="700" app:font="@font/roboto_flex_700" />
+    <font android:fontStyle="normal" android:fontWeight="800" android:font="@font/roboto_flex_800" app:fontStyle="normal" app:fontWeight="800" app:font="@font/roboto_flex_800" />
+</font-family>

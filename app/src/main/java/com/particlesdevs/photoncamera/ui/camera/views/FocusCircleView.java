@@ -14,7 +14,6 @@ import androidx.annotation.Nullable;
 
 import com.particlesdevs.photoncamera.R;
 
-import java.util.function.Function;
 
 /**
  * Created by Vibhor on 11/01/2021
@@ -43,19 +42,43 @@ public class FocusCircleView extends View {
         paint.setStrokeWidth(thickness);
     }
 
+    private final android.graphics.Path brackets = new android.graphics.Path();
+
+    /**
+     * P583 (the concept's tap focus): four corner brackets of the 76dp box - 14dp arms, 6dp rounded corners, a 1.5dp line - in
+     * the camera accent (the concept's yellow); red while the focus failed. The arms and corners keep the concept's proportions
+     * at the view's size (the ring's split and pop scale it).
+     */
     @Override
     protected void onDraw(Canvas canvas) {
         paint.setColor(getPaintColor());
-        canvas.drawCircle(getWidth() / 2f, getHeight() / 2f, getWidth() / 2.5f, paint);
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        float w = getWidth(), h = getHeight(), half = paint.getStrokeWidth() / 2f, k = Math.min(w, h) / 76f;
+        float arm = 14f * k, r = 6f * k, l = half, t = half, rt = w - half, b = h - half;
+        brackets.rewind();
+        brackets.moveTo(l, t + arm);
+        brackets.lineTo(l, t + r);
+        brackets.quadTo(l, t, l + r, t);
+        brackets.lineTo(l + arm, t);
+        brackets.moveTo(rt - arm, t);
+        brackets.lineTo(rt - r, t);
+        brackets.quadTo(rt, t, rt, t + r);
+        brackets.lineTo(rt, t + arm);
+        brackets.moveTo(l, b - arm);
+        brackets.lineTo(l, b - r);
+        brackets.quadTo(l, b, l + r, b);
+        brackets.lineTo(l + arm, b);
+        brackets.moveTo(rt - arm, b);
+        brackets.lineTo(rt - r, b);
+        brackets.quadTo(rt, b, rt, b - r);
+        brackets.lineTo(rt, b - arm);
+        canvas.drawPath(brackets, paint);
     }
 
     private int getPaintColor() {
-        Function<int[], Integer> color = mode -> colorStateList.getColorForState(STATE_FOCUSED_LOCKED, colorStateList.getDefaultColor());
-        if (focused_locked)
-            return color.apply(STATE_FOCUSED_LOCKED);
-        if (unfocused_locked)
-            return color.apply(STATE_UNFOCUSED_LOCKED);
-        return colorStateList.getDefaultColor();
+        if (unfocused_locked && !focused_locked)
+            return colorStateList.getColorForState(STATE_UNFOCUSED_LOCKED, colorStateList.getDefaultColor());
+        return com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(getContext());
     }
 
     public void setAfState(int afState) {

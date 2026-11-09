@@ -31,7 +31,14 @@ public final class DialogStyle {
 
     /** The app's alert dialog builder: the Material builder on {@code c} with the user's accent and the app's dialog theme. */
     public static MaterialAlertDialogBuilder builder(Context c) {
-        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(accented(c), R.style.AlertDialogTheme);
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(accented(c), R.style.AlertDialogTheme) {
+            @Override public androidx.appcompat.app.AlertDialog create() {
+                androidx.appcompat.app.AlertDialog d = super.create();
+                // P584: the dialog's texts in the concept's Roboto Flex, sizes in dp (its decor followed from the first layout)
+                if (d.getWindow() != null) ConceptFonts.follow(d.getWindow().getDecorView());
+                return d;
+            }
+        };
         // the card with its outline (the builder's own surface has no stroke); the insets stay the theme's
         b.setBackground(AppCompatResources.getDrawable(b.getContext(), R.drawable.dialog_surface));
         return b;
@@ -142,9 +149,18 @@ public final class DialogStyle {
             title.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
             title.setTextColor(0xFFFFFFFF);
             title.setTextSize(17);
-            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(title.getContext(), 700));
             title.setMaxLines(3);
             if (title.getLayoutParams() != null) title.getLayoutParams().width = android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+            // P584 (the concept's alert): 20dp over the title, 16dp at the sides, its lines 22dp
+            title.setIncludeFontPadding(false);
+            SettingsStyle.lineHeight(title, 22);
+            View template = d.findViewById(androidx.appcompat.R.id.title_template);
+            if (template != null) template.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 20), SettingsStyle.dp(c, 16), 0);
+        }
+        for (int id : new int[]{androidx.appcompat.R.id.textSpacerNoTitle, androidx.appcompat.R.id.textSpacerNoButtons}) {
+            View spacer = d.findViewById(id);
+            if (spacer != null) spacer.setVisibility(View.GONE);
         }
         android.widget.TextView message = d.findViewById(android.R.id.message);
         if (message != null) {
@@ -152,13 +168,17 @@ public final class DialogStyle {
             message.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
             message.setTextColor(0xB3FFFFFF);
             message.setTextSize(14);
+            // P584: 6dp under the title, its lines 19dp
+            message.setIncludeFontPadding(false);
+            SettingsStyle.lineHeight(message, 19);
+            message.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 16), 0);
         }
         android.widget.Button no = d.getButton(android.content.DialogInterface.BUTTON_NEGATIVE), yes = d.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
         for (android.widget.Button button : new android.widget.Button[]{no, yes}) {
             if (button == null) continue;
             button.setAllCaps(false);
             button.setTextSize(17);
-            button.setTypeface(SettingsStyle.semibold());
+            button.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(button.getContext(), 600));
             button.setTextColor(button == yes ? SettingsStyle.RED : 0xFFFFFFFF);
             button.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF),
                     SettingsStyle.shape(c, SettingsStyle.CAPSULE, 0, 23), null));
@@ -184,7 +204,7 @@ public final class DialogStyle {
         if (yes != null && yes.getParent() instanceof LinearLayout) {
             LinearLayout bar = (LinearLayout) yes.getParent();
             bar.setOrientation(LinearLayout.HORIZONTAL);
-            bar.setPadding(SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 16));
+            bar.setPadding(SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 18), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 16));   // P584
             for (int i = 0; i < bar.getChildCount(); i++) {
                 View v = bar.getChildAt(i);
                 if (v != yes && v != no) v.setVisibility(View.GONE);
@@ -192,6 +212,7 @@ public final class DialogStyle {
             if (bar.getParent() instanceof android.widget.ScrollView) ((android.widget.ScrollView) bar.getParent()).setFillViewport(true);
         }
         View card = d.getWindow() == null ? null : d.getWindow().getDecorView();
+        if (card != null) ConceptFonts.apply(card);   // P584: the concept's font
         if (card != null && SettingsMotion.enabled(card)) {
             card.setScaleX(.86f);
             card.setScaleY(.86f);

@@ -262,7 +262,7 @@ public class LutChangesPreference extends Preference implements SharedPreference
         col.addView(sw, top(c, UiTokens.dp(c, 6)));
         // «Как это определяется»
         TextView how = SettingsStyle.text(c, "", 12.5f, accent);
-        how.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        how.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(how.getContext(), 600));
         how.setMinHeight(UiTokens.dp(c, 32));
         how.setGravity(Gravity.CENTER_VERTICAL);
         how.setTag("lut_how");

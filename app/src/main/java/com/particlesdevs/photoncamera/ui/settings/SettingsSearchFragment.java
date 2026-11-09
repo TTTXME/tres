@@ -127,6 +127,9 @@ public class SettingsSearchFragment extends Fragment {
             String key=p.getKey();
             if(key!=null && !title.isEmpty()) {
                 CharSequence summary=p.getSummary();
+                // P584: the hit's icon tile, as the concept shows it (the row's own icon; none: no tile)
+                android.graphics.drawable.Drawable icon=p.getIcon();
+                if(icon!=null && icon.getConstantState()!=null && !SettingsStyle.defaulted(p)) ICONS.put(key, icon.getConstantState());
                 entries.add(new Entry(key, p instanceof PreferenceScreen ? key : page, title, path,
                         summary==null ? "" : summary.toString()));
             }
@@ -138,6 +141,9 @@ public class SettingsSearchFragment extends Fragment {
     // The index is handed over in memory, not in the arguments: its ~0.7 MB went into the saved state at every stop and the binder
     // refused it (TransactionTooLargeException, the app died when sent to the background from the search, vivo 2026-11-03/04)
     private static volatile ArrayList<Entry> sEntries;
+    /** P584: the rows' icons by key (memory only: after the process is gone a hit shows without its tile). */
+    private static final java.util.Map<String, android.graphics.drawable.Drawable.ConstantState> ICONS =
+            java.util.Collections.synchronizedMap(new HashMap<>());
     public static SettingsSearchFragment create(ArrayList<Entry> entries) {
         sEntries=entries;
         return new SettingsSearchFragment();
@@ -153,7 +159,8 @@ public class SettingsSearchFragment extends Fragment {
     private androidx.preference.Preference hit;
     private int dp(float value) { return Math.round(value*getResources().getDisplayMetrics().density); }
     private TextView label(String text, int size, int color) {
-        TextView v=new TextView(requireContext()); v.setText(text);v.setTextSize(size);v.setTextColor(color);return v;
+        TextView v=new TextView(requireContext()); v.setText(text);v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP,size);v.setTextColor(color);
+        v.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(requireContext(),400));return v;
     }
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
@@ -167,39 +174,42 @@ public class SettingsSearchFragment extends Fragment {
     }
     @Override public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle state) {
         LinearLayout root=new LinearLayout(requireContext());root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16),dp(12),dp(16),0); root.setBackgroundColor(SettingsStyle.PAGE);
-        // P6b: the shared header; P574: the concept's search capsule (#2C2C2E, 44dp, 22dp corners)
+        root.setPadding(dp(16),dp(16),dp(16),0); root.setBackgroundColor(SettingsStyle.PAGE);
+        // P6b: the shared header; P574: the concept's search capsule (#2C2C2E, 44dp, 22dp corners); P584: the concept searches
+        // in place on the main page - its header («Настройки», the back disc alone), the capsule where the main page has it
         SettingsStyle.Header header=SettingsStyle.header(requireContext(),()->requireActivity().getOnBackPressedDispatcher().onBackPressed(),null);
-        header.heading.setText(Lang.t(getContext(),"Поиск","Search"));header.subtitle.setVisibility(View.GONE);
-        header.crumb.setText(Lang.t(getContext(),"Настройки","Settings"));root.addView(header.view);
+        header.heading.setText(Lang.t(getContext(),"Настройки","Settings"));header.subtitle.setVisibility(View.GONE);
+        header.crumb.setText("");root.addView(header.view);
         LinearLayout search=new LinearLayout(requireContext());search.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        search.setBackground(SettingsStyle.shape(requireContext(),SettingsStyle.ROW,0,22));search.setPadding(dp(12),0,dp(4),0);
+        search.setBackground(SettingsStyle.shape(requireContext(),SettingsStyle.ROW,0,22));search.setPadding(dp(12),0,dp(1),0);
         search.setMinimumHeight(dp(44));
-        android.widget.ImageView glass=new android.widget.ImageView(requireContext());glass.setImageResource(R.drawable.settings_ic_search);
-        com.particlesdevs.photoncamera.ui.Icons.ink(glass, R.drawable.settings_ic_search, SettingsStyle.SECTION); // P570: tonal mono
+        android.widget.ImageView glass=new android.widget.ImageView(requireContext());glass.setImageResource(R.drawable.cs_search);
+        glass.setColorFilter(new android.graphics.PorterDuffColorFilter(SettingsStyle.SECTION,android.graphics.PorterDuff.Mode.SRC_IN));
         glass.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        search.addView(glass,new LinearLayout.LayoutParams(dp(20),dp(20)));
+        search.addView(glass,new LinearLayout.LayoutParams(dp(19),dp(19)));
         input=new EditText(requireContext());input.setSingleLine(true);input.setTextColor(SettingsStyle.ROW_TITLE);input.setBackground(null);
-        input.setHintTextColor(SettingsStyle.SECTION);input.setTextSize(17);input.setHint(Lang.t(getContext(),"Поиск","Search"));
+        input.setHintTextColor(SettingsStyle.SECTION);input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP,17);
+        input.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(requireContext(),400));input.setHint(Lang.t(getContext(),"Поиск","Search"));
         input.setPadding(dp(8),0,dp(4),0);
         input.setContentDescription(Lang.t(getContext(),"Поиск настройки","Search settings"));input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         search.addView(input,new LinearLayout.LayoutParams(0,dp(44),1));
         // the concept's clear button: a 22dp grey disc with «×»
         TextView clear=label("×",15,SettingsStyle.ROW);clear.setGravity(android.view.Gravity.CENTER);
-        clear.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);clear.setIncludeFontPadding(false);
+        clear.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(requireContext(),700));clear.setIncludeFontPadding(false);
         android.graphics.drawable.GradientDrawable disc=new android.graphics.drawable.GradientDrawable();disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         disc.setColor(0x73FFFFFF);
         android.graphics.drawable.InsetDrawable inset=new android.graphics.drawable.InsetDrawable(disc,dp(11));clear.setBackground(inset);
         clear.setContentDescription(Lang.t(getContext(),"Очистить поиск","Clear the search"));clear.setOnClickListener(v->input.setText(""));
         search.addView(clear,new LinearLayout.LayoutParams(dp(44),dp(44)));root.addView(search);
-        count=label("",12,SettingsStyle.SECTION);count.setPadding(dp(16),dp(22),dp(16),dp(8));
-        count.setAllCaps(true);count.setLetterSpacing(.08f);count.setTypeface(SettingsStyle.semibold());root.addView(count);
+        // the concept's first group title: 10dp under the search and its own 6dp
+        count=label("",12,SettingsStyle.SECTION);count.setPadding(dp(16),dp(16),dp(16),dp(8));
+        count.setAllCaps(true);count.setLetterSpacing(1f/12f);count.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(requireContext(),600));root.addView(count);
         list=new RecyclerView(requireContext());list.setLayoutManager(new LinearLayoutManager(requireContext()));
         // P574: the hits in one card, as a group of the settings (SettingsCardDecoration: the card and the hairlines); each row
         // carries a stand-in preference (the decoration's mark of a card row)
         hit=new androidx.preference.Preference(requireContext());
         list.addItemDecoration(new SettingsCardDecoration(requireContext(),p->false));
-        list.setClipToPadding(false);list.setPadding(0,0,0,dp(28));
+        list.setClipToPadding(false);list.setPadding(0,0,0,dp(28));list.setVerticalScrollBarEnabled(false);
         list.setAdapter(new ResultsAdapter());root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         input.setText(query);input.setSelection(input.length());filter(query);
         input.addTextChangedListener(new TextWatcher(){
@@ -222,6 +232,21 @@ public class SettingsSearchFragment extends Fragment {
     }
     @Override public void onSaveInstanceState(@NonNull Bundle state){super.onSaveInstanceState(state);state.putString("query",query);}
     @Override public void onDestroyView(){input=null;count=null;list=null;super.onDestroyView();}
+    /**
+     * P584: the concept's path under a hit - the pages to it (its groups left out), «Настройки» for a row of the main page; the
+     * index keeps the whole path for the matching.
+     */
+    private String pages(Entry e) {
+        if(fullPaths==null){fullPaths=new HashMap<>();for(Entry x:entries)if(x.key.equals(x.page))fullPaths.put(x.path.isEmpty()?x.title:x.path+" › "+x.title,x.title);}
+        if(e.path.isEmpty())return Lang.t(getContext(),"Настройки","Settings");
+        String[] parts=e.path.split(" › ");StringBuilder out=new StringBuilder();StringBuilder at=new StringBuilder();
+        for(String part:parts){
+            if(at.length()>0)at.append(" › ");at.append(part);
+            if(fullPaths.containsKey(at.toString())){if(out.length()>0)out.append(" › ");out.append(part);}
+        }
+        return out.length()==0 ? Lang.t(getContext(),"Настройки","Settings") : out.toString();
+    }
+    private HashMap<String,String> fullPaths;
     private CharSequence highlighted(String text) {
         SpannableString s=new SpannableString(text);String normalized=normalize(text);
         for(String word:normalize(query).trim().split("\\s+")) {
@@ -234,21 +259,44 @@ public class SettingsSearchFragment extends Fragment {
     private class ResultsAdapter extends RecyclerView.Adapter<ResultsAdapter.Holder> {
         class Holder extends RecyclerView.ViewHolder {
             final TextView title,path;
-            Holder(LinearLayout row,TextView title,TextView path){super(row);this.title=title;this.path=path;}
+            final android.widget.FrameLayout tile;
+            final android.widget.ImageView icon;
+            Holder(LinearLayout row,TextView title,TextView path,android.widget.FrameLayout tile,android.widget.ImageView icon){
+                super(row);this.title=title;this.path=path;this.tile=tile;this.icon=icon;}
         }
         @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent,int type){
-            LinearLayout row=new LinearLayout(requireContext());row.setOrientation(LinearLayout.VERTICAL);
+            // P584 (the concept's hit): the row's icon tile, its title and the path of pages to it, the chevron
+            LinearLayout row=new LinearLayout(requireContext());row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
             row.setPadding(dp(16),dp(9),dp(16),dp(9));row.setMinimumHeight(dp(52));row.setFocusable(true);
             row.setBackgroundResource(R.drawable.settings_row); // P574: a row of one card (the decoration draws it)
+            android.widget.FrameLayout tile=new android.widget.FrameLayout(requireContext());tile.setId(R.id.settings_icon_tile);
+            android.widget.ImageView icon=new android.widget.ImageView(requireContext());icon.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            tile.addView(icon,new android.widget.FrameLayout.LayoutParams(dp(19),dp(19),android.view.Gravity.CENTER));
+            LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(dp(32),dp(32));tp.setMarginEnd(dp(12));row.addView(tile,tp);
+            LinearLayout text=new LinearLayout(requireContext());text.setOrientation(LinearLayout.VERTICAL);
             TextView title=label("",16,SettingsStyle.ROW_TITLE),path=label("",13,SettingsStyle.SUMMARY);
-            title.setTypeface(SettingsStyle.semibold());
-            path.setPadding(0,dp(2),0,0);row.addView(title);row.addView(path);
+            title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(requireContext(),600));
+            SettingsStyle.lineHeight(title,21);SettingsStyle.lineHeight(path,17);
+            title.setIncludeFontPadding(false);path.setIncludeFontPadding(false);
+            path.setMaxLines(3);path.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=dp(2);
+            text.addView(title);text.addView(path,pp);row.addView(text,new LinearLayout.LayoutParams(0,-2,1));
+            android.widget.ImageView chevron=new android.widget.ImageView(requireContext());chevron.setImageResource(R.drawable.cs_chevron);
+            chevron.setColorFilter(new android.graphics.PorterDuffColorFilter(SettingsStyle.CHEVRON,android.graphics.PorterDuff.Mode.SRC_IN));
+            chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(dp(9),dp(15));cp.setMarginStart(dp(12));row.addView(chevron,cp);
             RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);
-            row.setLayoutParams(lp);row.setTag(R.id.settings_bound_preference,hit);return new Holder(row,title,path);
+            row.setLayoutParams(lp);row.setTag(R.id.settings_bound_preference,hit);return new Holder(row,title,path,tile,icon);
         }
         @Override public void onBindViewHolder(@NonNull Holder h,int position){
-            Entry e=results.get(position);h.title.setText(highlighted(e.title));h.path.setText(e.path);
+            Entry e=results.get(position);h.title.setText(e.title);h.path.setText(pages(e));
+            android.graphics.drawable.Drawable.ConstantState icon=ICONS.get(e.key);
+            h.tile.setVisibility(icon==null ? View.GONE : View.VISIBLE);
+            if(icon!=null){
+                android.graphics.drawable.Drawable d=icon.newDrawable(getResources()).mutate();h.icon.setImageDrawable(d);
+                int[] pair=SettingsTiles.pair(d);h.tile.setBackground(SettingsStyle.shape(requireContext(),pair[0],0,9));SettingsTiles.ink(h.icon,pair[1]);
+            }
             h.itemView.setOnClickListener(v->{
                 InputMethodManager keyboard=(InputMethodManager)requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
                 if(keyboard!=null)keyboard.hideSoftInputFromWindow(v.getWindowToken(),0);

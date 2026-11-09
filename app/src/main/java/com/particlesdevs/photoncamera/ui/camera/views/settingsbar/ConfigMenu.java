@@ -251,7 +251,7 @@ final class ConfigMenu {
         eyebrow.setPadding(dp(10), 0, dp(10), dp(6));
         body.addView(eyebrow);
         title = text(ConfigState.label(c), 17, ShadeStyle.TEXT);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(title, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         title.setPadding(dp(10), 0, dp(10), dp(10));
@@ -484,7 +484,7 @@ final class ConfigMenu {
 
     private TextView button(CharSequence label, int textColor, int fill, String tag, Runnable click) {
         TextView b = text(label, 15, textColor);
-        b.setTypeface(null, Typeface.BOLD);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(b, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
         b.setGravity(Gravity.CENTER);
         b.setSingleLine(true);
         b.setEllipsize(TextUtils.TruncateAt.MIDDLE);

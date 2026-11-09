@@ -60,7 +60,7 @@ public final class GallerySheets {
     static TextView title(Context c, String value) {
         TextView t = GalleryUi.text(c, value, 17, GalleryUi.TEXT);
         t.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 2), GalleryUi.dp(c, 4), GalleryUi.dp(c, 2));
-        t.setTypeface(GalleryUi.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setAccessibilityHeading(true);
         return t;
     }
@@ -85,6 +85,7 @@ public final class GallerySheets {
                 host.setBackgroundColor(0);
                 BottomSheetBehavior.from(host).setState(BottomSheetBehavior.STATE_EXPANDED);
             }
+            if (d.getWindow() != null) com.particlesdevs.photoncamera.ui.settings.ConceptFonts.follow(d.getWindow().getDecorView());
             content.setFocusable(true);
             content.requestFocus();
             content.sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED);
@@ -384,7 +385,7 @@ public final class GallerySheets {
         vp.setMarginStart(GalleryUi.dp(c, 10));
         row.addView(value, vp);
         ImageView chev = new ImageView(c);
-        chev.setImageResource(R.drawable.settings_ic_updown);
+        chev.setImageResource(R.drawable.cs_updown);
         chev.setImageTintList(android.content.res.ColorStateList.valueOf(GalleryUi.SECTION));
         chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 16), GalleryUi.dp(c, 16));
@@ -567,7 +568,7 @@ public final class GallerySheets {
             LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
             tp.setMarginStart(GalleryUi.dp(c, 14));
             row.addView(t, tp);
-            ImageView chev = GalleryUi.icon(c, R.drawable.settings_ic_chevron, GalleryUi.SECTION, 16);
+            ImageView chev = GalleryUi.icon(c, R.drawable.cs_chevron, GalleryUi.SECTION, 16);
             chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             if (chev.getDrawable() != null) chev.getDrawable().mutate().setAutoMirrored(true); // points the reading way in right to left
             row.addView(chev);
@@ -638,7 +639,7 @@ public final class GallerySheets {
                 cell.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 11), GalleryUi.dp(c, 12), GalleryUi.dp(c, 11));
                 cell.addView(GalleryUi.fitText(c, p[0], 12.5f, GalleryUi.MUTED));
                 TextView v = GalleryUi.fitText(c, p[1] == null ? "—" : p[1], 16, GalleryUi.TEXT);
-                v.setTypeface(GalleryUi.semibold());
+                v.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(v.getContext(), 600));
                 v.setFontFeatureSettings("tnum");
                 LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 vp.topMargin = GalleryUi.dp(c, 3);
@@ -725,7 +726,7 @@ public final class GallerySheets {
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView m = GalleryUi.text(c, main, 16, GalleryUi.TEXT);
-        m.setTypeface(GalleryUi.semibold());
+        m.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(m.getContext(), 600));
         texts.addView(m);
         if (!GalleryUi.empty(under)) {
             TextView u = GalleryUi.text(c, under, 13, GalleryUi.MUTED);

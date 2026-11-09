@@ -251,7 +251,7 @@ public class ProfilesPreference extends Preference {
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView t = SettingsStyle.text(c, title, 14.5f, SettingsStyle.ROW_TITLE);
-        t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         texts.addView(t);
         if (sub != null) {
             TextView s = SettingsStyle.text(c, sub, 12.5f, UiTokens.SUMMARY);
@@ -269,7 +269,7 @@ public class ProfilesPreference extends Preference {
     /** A pill button: filled in {@code color} (the ink text) or outlined in it. */
     private static View button(Context c, String text, boolean filled, int color, String tag, Runnable onClick) {
         TextView b = SettingsStyle.text(c, text, 13, filled ? UiTokens.INK : color);
-        b.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        b.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(b.getContext(), 600));
         b.setGravity(Gravity.CENTER);
         b.setMinHeight(UiTokens.dp(c, 36));
         b.setPadding(UiTokens.dp(c, 16), 0, UiTokens.dp(c, 16), 0);

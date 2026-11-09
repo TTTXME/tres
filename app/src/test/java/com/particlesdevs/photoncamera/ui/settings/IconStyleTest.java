@@ -104,7 +104,8 @@ public class IconStyleTest {
                 java.nio.charset.StandardCharsets.UTF_8);
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("android:icon=\"@drawable/([a-z0-9_]+)\"").matcher(xml);
         int n = 0;
-        while (m.find()) { n++; assertTrue(m.group(1) + " is not a generated row glyph", m.group(1).startsWith("settings_ic_")); }
+        // P584: the rows draw the concept's own glyphs (tools/icons/concept_icons.py --board Hybrid --table ICONS: cs_ic_*)
+        while (m.find()) { n++; assertTrue(m.group(1) + " is not a concept row glyph", m.group(1).startsWith("cs_ic_")); }
         assertTrue(n > 50);
         // the glyphs load in the accent theme (settings) and in the application context (the shade's catalog)
         for (Field f : drawables("settings_ic_", "ic_shade_", "ic_sheet_", "topbar_ic_", "shortcut_")) {

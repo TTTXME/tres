@@ -323,14 +323,26 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         report(line);
     }
     const float sigma=snr<=8.f?0.33f:(snr<16.f?0.41f-0.01f*snr:0.25f);
-    const float covBase=1.f/sigma,covShrink=2.2f*covBase,covStretch=0.25f*covBase;
+    const float covBase0=1.f/sigma,covShrink0=2.2f*covBase0,covStretch0=0.25f*covBase0;
     auto table=[](float x,std::initializer_list<std::pair<float,float>> t){
         const auto* p=t.begin();if(x<=p[0].first)return p[0].second;
         for(size_t i=1;i<t.size();++i)if(x<=p[i].first){const float a=(x-p[i-1].first)/(p[i].first-p[i-1].first);return p[i-1].second+a*(p[i].second-p[i-1].second);}
         return p[t.size()-1].second;
     };
     const float tabA=table(snr,{{6.f,5.f},{12.f,4.f},{30.f,3.f}});
-    const float covBlurred=1.f/(tabA*sigma);
+    const float covBlurred0=1.f/(tabA*sigma);
+    // P587: the texture / bokeh footprints (hybridKernelFootprint: base / texture, blurred / bokeh, the ramp at transition x the
+    // gradient; shrink and stretch keep the reference's 2.2 / 0.25 x the base precision before it); 1 = the reference values
+    const HybridKernelFootprint footprint=hybridKernelFootprint(tune);
+    std::array<float,4> fpA{covShrink0,covStretch0,0.001f,covBase0},fpB{covBlurred0,166.67f,0.f,0.f};
+    footprint.apply61(fpA,fpB);
+    const float covShrink=fpA[0],covStretch=fpA[1],covBase=fpA[3],covBlurred=fpB[0],covClip=fpA[2],covTrans=fpB[1];
+    if(footprint.active()){
+        char line[200];
+        std::snprintf(line,sizeof(line),"HYBRID FAST MERGE: kernel footprint texture x%.3f, bokeh x%.3f, transition x%.3f",
+            footprint.texture,footprint.bokeh,footprint.transition);
+        report(line);
+    }
     const int lkTile0=snr>=10.8f?16:(snr>2.7f?32:64);
     const int tiles[5]={lkTile0,snr>=10.8f?16:32,16,8,8};
     // ---- white balance of the merge's gains (wbR / wbB of the app, else the base's grey world); undone at the end
@@ -699,8 +711,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // (gains, black_levels_times_gains and the gray gain are the frame's: frontEnd)
         g.u1f(PG,"green_clipping_point",std::sqrt(0.95f*wb[1])); // [UNCERTAIN] the base green at 95 % of the range
         g.u4f(PG,"frame_border_padded",fb[0],fb[1],fb[2],fb[3]);
-        g.u4f(PG,"covariance_parameters1",covShrink,covStretch,0.001f,covBase);
-        g.u4f(PG,"covariance_parameters2",covBlurred,166.67f,0.f,0.f);
+        g.u4f(PG,"covariance_parameters1",covShrink,covStretch,covClip,covBase);
+        g.u4f(PG,"covariance_parameters2",covBlurred,covTrans,0.f,0.f);
         g.u4f(PG,"force_reference_color_rgb",0,0,0,0);g.u4f(PG,"debug_options",1,0,0,0);
         g.u4f(PG,"noise_texture_scale_bias",nsb[0],nsb[1],nsb[2],nsb[3]);
         g.u4f(PG,"cov_range_rg_factors",-covRangeRg[0]/covRangeRg[1],1.f/covRangeRg[1],-covRangeRg[2]/covRangeRg[3],1.f/covRangeRg[3]);

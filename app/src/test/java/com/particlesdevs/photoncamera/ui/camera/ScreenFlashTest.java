@@ -33,6 +33,6 @@ public class ScreenFlashTest {
         assertTrue(read("src/main/java/com/particlesdevs/photoncamera/ui/camera/CameraUIViewImpl.java").contains("cameraFragment.updateScreenFlash();"));
         // no torch request reaches a lens without a flash
         assertTrue(read("src/main/java/com/particlesdevs/photoncamera/capture/CaptureController.java")
-                .contains("if (mFlashed || (mFlashSupported && PreferenceKeys.getAeMode() == 0)) captureBuilder.set(FLASH_MODE, FLASH_MODE_TORCH);"));
+                .contains("if (flash == null && mFlashSupported && PreferenceKeys.getAeMode() == FlashMode.TORCH) captureBuilder.set(FLASH_MODE, FLASH_MODE_TORCH);"));
     }
 }

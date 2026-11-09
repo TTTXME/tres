@@ -15,16 +15,17 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
 /**
- * SIMPLE_UI step 0: one scale factor for the camera chrome, k = clamp(short side / 392dp, 0.85, 1.35), from the window's
- * configuration; BottomChrome uses the same formula.
+ * SIMPLE_UI step 0: one scale factor for the camera chrome, k = clamp(short side / 390dp, 0.85, 1.35), from the window's
+ * configuration; BottomChrome uses the same formula. P582: the reference is the concept's 390dp (392 before), the width every
+ * activity now has (UiFixedScale), so k is 1 on a phone.
  */
 @RunWith(RobolectricTestRunner.class)
 public class UiScaleTest {
     @Test public void theConceptExamples() {
-        assertEquals(0.918f, UiScale.k(360f), 1e-3f);
-        assertEquals(1f, UiScale.k(392f), 0f);
-        assertEquals(1.048f, UiScale.k(411f), 1e-3f);
-        assertEquals(1.224f, UiScale.k(480f), 1e-3f);
+        assertEquals(0.923f, UiScale.k(360f), 1e-3f);
+        assertEquals(1f, UiScale.k(390f), 0f);
+        assertEquals(1.054f, UiScale.k(411f), 1e-3f);
+        assertEquals(1.231f, UiScale.k(480f), 1e-3f);
         assertEquals("clamped below", 0.85f, UiScale.k(300f), 0f);
         assertEquals("clamped above", 1.35f, UiScale.k(700f), 0f);
         assertEquals("unknown", 1f, UiScale.k(0f), 0f);

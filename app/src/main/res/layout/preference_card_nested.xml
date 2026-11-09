@@ -3,6 +3,7 @@
      SettingsCardDecoration draws 10dp inside the card, 12dp in from the block's edge, a 30dp tile, the title 15sp semibold, the
      description 12.5sp and the value at 55 % white. Same ids as preference_card. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/settings_row"
@@ -21,8 +22,8 @@
         android:background="@drawable/settings_icon_tile_nested">
         <ImageView
             android:id="@android:id/icon"
-            android:layout_width="19dp"
-            android:layout_height="19dp"
+            android:layout_width="17dp"
+            android:layout_height="17dp"
             android:layout_gravity="center"
             android:importantForAccessibility="no"
             android:scaleType="fitCenter" />
@@ -36,27 +37,33 @@
             android:id="@android:id/title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-medium"
+            android:fontFamily="@font/roboto_flex_600"
+            app:fontFamily="@font/roboto_flex_600"
             android:textColor="@color/settings_row_title"
-            android:textFontWeight="600"
-            android:textSize="15sp" />
+            android:textSize="15dp" />
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@+id/settings_value_below"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:textColor="@color/settings_row_value"
-            android:textSize="14sp"
+            android:textSize="14dp"
             android:visibility="gone" />
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@android:id/summary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:lineSpacingExtra="1dp"
             android:textColor="@color/settings_row_value"
-            android:textSize="12.5sp" />
+            android:textSize="12.5dp" />
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@+id/settings_restart"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -65,19 +72,22 @@
             android:paddingTop="1dp"
             android:paddingEnd="7dp"
             android:paddingBottom="1dp"
-            android:textSize="11sp"
+            android:textSize="11dp"
             android:visibility="gone" />
     </LinearLayout>
     <TextView
+        android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
         android:id="@+id/settings_value"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="10dp"
+        android:layout_marginStart="12dp"
         android:gravity="end"
-        android:maxWidth="140dp"
-        android:maxLines="2"
+        android:ellipsize="end"
+        android:maxWidth="130dp"
+        android:maxLines="1"
         android:textColor="@color/settings_row_value"
-        android:textSize="15sp"
+        android:textSize="15dp"
         android:visibility="gone" />
     <LinearLayout
         android:id="@android:id/widget_frame"
@@ -86,5 +96,5 @@
         android:gravity="center"
         android:minWidth="9dp"
         android:orientation="vertical"
-        android:paddingStart="10dp" />
+        android:paddingStart="12dp" />
 </LinearLayout>

@@ -175,6 +175,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      */
     private static final int STATE_PICTURE_TAKEN = 4;
     private static final int STATE_CLOSED = 5;
+    /** P590: a flash shot waits for its AE precapture (FlashMode.Precapture), then takes its frame (captureStillPicture). */
+    private static final int STATE_FLASH_PRECAPTURE = 6;
     /**
      * Max preview width that is guaranteed by Camera2 API
      */
@@ -771,6 +773,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * Whether the current camera device supports Flash or not.
      */
     private boolean mFlashSupported;
+    /** P590: the flash shot the next captureStillPicture takes (set after its precapture; null: a normal shot). */
+    private volatile FlashMode.Shot mFlashShot;
+    /** P590: the flash shot waiting for its precapture (STATE_FLASH_PRECAPTURE) and the wait. */
+    private FlashMode.Shot mFlashPending;
+    private FlashMode.Precapture mFlashPrecapture;
+    /**
+     * P590: from a flash press until its frame fired (or the normal shot of the press took the ring): the ring keeps the frames and
+     * results of the press (a flash that did not fire falls back to them), no preview result is added to the ring's metadata.
+     */
+    private volatile boolean mFlashRingHold;
+    /** P590: the route whose «no flash» toast was shown (once a session: the route and the session generation). */
+    private String mFlashBlockToast;
     /**
      * Creates a new {@link CameraCaptureSession} for camera preview.
      */
@@ -818,6 +832,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     break;
                 case STATE_WAITING_NON_PRECAPTURE:
                     waitingNonPrecaptureProcess(result);
+                    break;
+                case STATE_FLASH_PRECAPTURE:
+                    // P590: completed results only (a partial one may carry no AE state)
+                    if (result instanceof TotalCaptureResult) flashPrecaptureProcess(result);
                     break;
             }
         }
@@ -923,6 +941,17 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         if (nubiaPick != null && SensorModePick.session() == nubiaPick) retryWithoutRequestedSensorMode(mCaptureSession, nubiaWhy);
                     });
                 }
+                // P586: the OnePlus 16's ISZ / DCG / DAG row or native FULLRES mode its results report; one that never shows fails over
+                final String oplusWhy = OplusIsz.watchResult(physicalID, result);
+                if (oplusWhy != null) {
+                    final boolean oplusFull = OplusIsz.watchingFullRes();
+                    final SensorModePick.Pick oplusPick = SensorModePick.session();
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (oplusFull) {
+                            if (mVivoSdkRawSession != null) retryWithoutVivoSdkFullRes(mCaptureSession, oplusWhy);
+                        } else if (oplusPick != null && SensorModePick.session() == oplusPick) retryWithoutRequestedSensorMode(mCaptureSession, oplusWhy);
+                    });
+                }
                 // Restarts count as successful only after a second of frames: one result per new session reset the count and the
                 // stall restarts never stopped (Xiaomi 13 Ultra, 14 restarts in a row, 2026-10-10)
                 if (mPreviewSessionStartMs > 0 && mLastPreviewResultMs - mPreviewSessionStartMs > 1000) mStallRestarts = 0;
@@ -973,7 +1002,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 mFlashed = state != null && (state == CaptureResult.FLASH_STATE_PARTIAL || state == CaptureResult.FLASH_STATE_FIRED);
                 if (mTorchLogFrames > 0 && --mTorchLogFrames % 5 == 0) Log.i("SCAM_CAPTURE", "torch: camera " + physicalID
                         + " result flash mode " + result.get(CaptureResult.FLASH_MODE) + " state " + state);
-                if (isZslMode()) {
+                if (isZslMode() && !mFlashRingHold) { // P590: a flash press keeps the ring's metadata of the press
                     Long timestamp = result.get(CaptureResult.SENSOR_TIMESTAMP);
                     if (timestamp != null) synchronized (mZslBufferLock) {
                         mHexZslResults.put(timestamp, result);
@@ -2143,6 +2172,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mScamQueuedShots = 0;
         ScamStockAe stock=mStockAe;mStockAe=null;if(stock!=null)stock.close();
         mScamRingFrozen=false;
+        clearFlashShot(); // P590
         // Invalidate callbacks before releasing their resources. onConfigured and
         // capture results can still arrive after returning from Settings.
         synchronized (mPreviewStateLock) {
@@ -2612,7 +2642,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             return;
         }
         // P575: a nubia row's session (FULLRES or the «2×») that never gave a frame: the row is not used, the normal session opens
-        if (mLastPreviewResultMs == 0 && NubiaFullRes.device() && SensorModePick.session() != null
+        if (mLastPreviewResultMs == 0 && SensorModePick.session() != null
+                && (NubiaFullRes.device() || SensorModePick.session().route != null) // P586: an OPPO-family ISZ / DCG / DAG row too
                 && retryWithoutRequestedSensorMode(mCaptureSession, "no preview frame for " + noFrame + " ms")) {
             mPreviewSessionStartMs = 0;
             handler.removeCallbacks(mStallCheck);
@@ -3266,11 +3297,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mNativeAe = ae;
             OppoNativeFullRes.begin(mVivoSdkCameraId, ae);
             Log.i("SCAM_CAPTURE", "OPPO native FULLRES camera " + mVivoSdkCameraId + ": mode "
-                    + VivoSdkFullRes.profile(mVivoSdkCameraId).sensorMode + ", own AE from " + ae + " (" + seed.source
+                    + VivoSdkFullRes.profile(mVivoSdkCameraId).sensorMode + " " + fullRes + " block " + VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
+                    + ", ISP stream off (RAW viewfinder), own AE from " + ae + " (" + seed.source
                     + (cap == Integer.MAX_VALUE ? "" : ", ISO cap " + cap) + ")");
         }
         if (!sdkFullRes && isRawFormat(mTargetFormat) && !sFullResRefused.contains(physicalID) && !mIsRecordingVideo) {
             PixelPro10.FullRes fr = PixelPro10.fullRes(characteristics);
+            // P588: the nubia's FULLRES without root is the generic maximum-resolution session
+            if (fr == null && PixelPro10.fullResOn() && NubiaFullRes.maxRes(physicalID)) fr = PixelPro10.fullResStream(characteristics);
             if (fr != null) {
                 mTargetFormat = fr.format;
                 fullRes = fr.size;
@@ -3287,6 +3321,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 + " (SensorModeTable, P276)");
         // P575: a nubia session watches the mode its results report (the picked row proves itself; a normal one logs its own)
         NubiaFullRes.watchSession(physicalID, modePick);
+        // P586: the OnePlus 16's sessions watch their reported mode too (an ISZ / DCG / DAG row, a native FULLRES mode, or the own one)
+        OplusIsz.watchSession(physicalID, modePick, sdkFullRes && VivoSdkFullRes.oppo() ? VivoSdkFullRes.profile(mVivoSdkCameraId) : null);
+        if (modePick != null && modePick.route != null)
+            Log.i("SCAM_CAPTURE", "OPPO family " + modePick.route + " camera " + physicalID + ": sensor mode row " + modePick.mode + " "
+                    + modePick.size + ", " + OppoNativeFullRes.MODE_KEY + " on the session and every request, merge block "
+                    + (modePick.block > 0 ? modePick.block : "measured") + (modePick.rawOnly() ? ", ISP stream off (RAW viewfinder)"
+                    : ", the ISP stream as «Поток ISP» has it") + " (P586)");
         if (modePick != null && NubiaFullRes.device())
             Log.i("SCAM_CAPTURE", "nubia " + (modePick.fullRes ? "FULLRES (the size switch)" : "ISZ / module row") + " camera " + physicalID
                     + ": sensor mode row " + modePick.mode + " " + modePick.size + ", " + SensorModePick.QCOM_KEY
@@ -3664,16 +3705,20 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mIspPreviewOff = photoMode && (ispSurface == 2 && (mFullResSession || IszCapturePolicy.mosaicModule(
                     com.particlesdevs.photoncamera.settings.ModuleRegistry.active())) || ispSurface == 3);
             // P266: the ISP stream out of the session (the module's «Поток ISP»; Auto: a module that forces a sensor mode)
-            final boolean forcedMode = vivoQcomIsz || SensorModePick.session() != null
+            final boolean forcedMode = vivoQcomIsz
                     || com.particlesdevs.photoncamera.settings.ModuleRegistry.sensorMode(com.particlesdevs.photoncamera.settings.ModuleRegistry.active()) > 0;
+            // P575 (owner: «Фулрез на Нубии работает при ... отключении ISP превью»): a nubia row runs without it; P586 (owner:
+            // «При съемке без ремозаика isp превью у него должно отключаться»): an OPPO-family ISZ row whatever «Поток ISP», while
+            // its DCG / DAG row keeps the setting (SensorModePick.ispStreamOff)
             mIspSurfaceOff = photoMode && !isBurstSession && !mIsRecordingVideo && !sdkFullRes && mVivoSdkRawSession == null
-                    && isRawFormat(mTargetFormat) && !mLiveRawRejected && (ispSurface == 2 || ispSurface == 0 && forcedMode
-                    // P575 (owner: «Фулрез на Нубии работает при ... отключении ISP превью»): a nubia row runs without it
-                    || ispSurface == 1 && SensorModePick.session() != null && NubiaFullRes.device());
+                    && isRawFormat(mTargetFormat) && !mLiveRawRejected
+                    && (SensorModePick.ispStreamOff(ispSurface, SensorModePick.session(), forcedMode, NubiaFullRes.device())
+                    || mFullResSession && NubiaFullRes.device()); // P588: the nubia's maximum-resolution FULLRES without the ISP stream
             if (mIspSurfaceOff) {
                 mIspPreviewOff = true;
-                Log.i("SCAM_CAPTURE", "camera " + physicalID + ": no ISP stream in the session (" + (ispSurface == 2 ? "the module's setting"
-                        : "a forced sensor mode") + "), the RAW viewfinder (P266)");
+                Log.i("SCAM_CAPTURE", "camera " + physicalID + ": no ISP stream in the session (" + (SensorModePick.session() != null
+                        && SensorModePick.session().rawOnly() ? "an ISZ row without remosaic, P586" : ispSurface == 2 ? "the module's setting"
+                        : "a forced sensor mode") + "), ISP stream off (RAW viewfinder) (P266)");
             }
             // P252 A/B (scam_dev.txt "isp_preview_off_always 1"): every photo session repeats the RAW stream only (the ISP preview in
             // the session, not in the request) - on the OPPO X7U that picks the HAL's ZSL use case; does its AF focus at night?
@@ -4106,6 +4151,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private boolean retryWithoutRequestedSensorMode(@Nullable CameraCaptureSession session, String why) {
         // P276: a module's picked SensorModeTable row the camera refused goes back to Auto (said once, the camera reopens)
         final SensorModePick.Pick pick = SensorModePick.session();
+        if (pick != null && (pick.rawOnly() || pick.dcg())) {
+            // P586: the OnePlus 16's ISZ row (the module crops digitally from now on) or DCG / DAG row (the switch off, the next
+            // row the next time) failed: noted for this firmware, with a notice, the normal session
+            final String note = pick.rawOnly()
+                    ? OplusIsz.failed(physicalID, com.particlesdevs.photoncamera.settings.ModuleRegistry.active(), pick, why)
+                    : OplusDcg.failed(physicalID, pick.mode, why);
+            SensorModePick.session(null, null);
+            if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
+            showError(note);
+            new Handler(Looper.getMainLooper()).post(this::restartCamera);
+            return true;
+        }
         if (pick != null && pick.fullRes) {
             // P575: the nubia size switch's row failed: noted for this firmware (the 50 Мп size dims), FULLRES off, the normal session
             final String note = NubiaFullRes.failed(physicalID, pick.mode, why);
@@ -4468,12 +4525,20 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mShutterLensFilter = com.particlesdevs.photoncamera.processing.opengl.postpipeline.LensFilter.Choice.now();
             mShutterLook = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ShotLook.now();
             mShutterMotion = com.particlesdevs.photoncamera.settings.MotionMode.snapshot();
+            mFlashShot = null;
             if (mVivoSdkRawSession != null) {
+                flashShotAtPress(); // P590: FULLRES takes no flash shot (its toast once, the torch stays)
                 mBackgroundHandler.post(this::captureVivoSdkFullRes);
                 return true;
             }
             if (isZslMode()) {
                 mScamRingFrozen = PreferenceKeys.isScamEnabled();
+                // P590: On, or Auto with the AE asking for the flash: the precapture, then one fresh frame with the flash (not the ring)
+                final FlashMode.Shot flash = flashShotAtPress();
+                if (flash != null) {
+                    startFlashShot(flash);
+                    return true;
+                }
                 captureStillPicture();
                 return true;
             }
@@ -4505,6 +4570,180 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 }
             }
             return mShotInProgress;
+        }
+    }
+
+    /**
+     * P590: why this session's route takes no flash shot (FlashMode.routeBlock; null: it can). {@code atPress}: with the press's ISZ
+     * decision (IszCapturePolicy, taken at the press), else the session's own state (the preview's AE mode).
+     */
+    @Nullable
+    private String flashRouteBlock(boolean atPress) {
+        final String slot = com.particlesdevs.photoncamera.settings.ModuleRegistry.active();
+        int forcedMode = 0;
+        try { forcedMode = com.particlesdevs.photoncamera.settings.ModuleRegistry.sensorMode(slot); } catch (RuntimeException ignored) {}
+        boolean dcgSwitch = false;
+        try { dcgSwitch = Dcg14Mode.active(mCameraCharacteristics); } catch (RuntimeException ignored) {}
+        return FlashMode.routeBlock(mVivoSdkRawSession != null || mFullResSession || PixelPro10.fullResOn(),
+                dcgSwitch || mDcgRequestKeys || mDcgOperationMode != 0,
+                atPress && mShutterIszAspect4x3 || mCroppedRawSession || XiaomiTeleZoom.active() && XiaomiTeleZoom.isz(),
+                SensorModePick.session() != null || forcedMode != 0);
+    }
+
+    /** P590: the camera lists CONTROL_AE_MODE_OFF (a manual flash frame: AE off, FLASH_MODE_SINGLE). */
+    private boolean aeOffListed() {
+        final int[] modes = mCameraCharacteristics == null ? null : mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES);
+        return listed(modes, CaptureRequest.CONTROL_AE_MODE_OFF);
+    }
+
+    /** P590: a toast once a session (route and session), the log line every press. */
+    private void flashNotice(String key, String log, String toast) {
+        Log.i("SCAM_CAPTURE", log);
+        final String once = key + "@" + mSessionGeneration.get();
+        if (once.equals(mFlashBlockToast)) return;
+        mFlashBlockToast = once;
+        showToast(toast);
+    }
+
+    /**
+     * P590: the press's flash shot, or null for the normal shot: On, or Auto with the latest preview result's AE state
+     * FLASH_REQUIRED, on a lens with a flash unit, on a route that takes it (not ISZ / DCG / DAG / FULLRES: Auto / On act as off
+     * there, one toast). A manual exposure takes its frame AE off at the manual values with FLASH_MODE_SINGLE where the camera lists
+     * AE off, else no flash.
+     */
+    @Nullable
+    private FlashMode.Shot flashShotAtPress() {
+        final int mode = FlashMode.effective(PreferenceKeys.getAeMode(), mFlashSupported, false);
+        if (mode != FlashMode.AUTO && mode != FlashMode.ON) return null;
+        final String blocked = flashRouteBlock(true);
+        if (blocked != null) {
+            flashNotice(blocked, "flash: mode " + FlashMode.name(mode) + " in the " + blocked + " route: the shot is taken without the flash (P590)",
+                    FlashMode.routeBlockText(blocked));
+            return null;
+        }
+        final CaptureResult latest = mPreviewCaptureResult;
+        final Integer aeState = latest == null ? null : latest.get(CaptureResult.CONTROL_AE_STATE);
+        if (!FlashMode.flashShot(mode, aeState, mFlashSupported)) {
+            Log.i("SCAM_CAPTURE", "flash: mode auto, AE state " + FlashMode.aeStateName(aeState) + ": no flash needed, the normal shot");
+            return null;
+        }
+        if (!PreferenceKeys.isScamHybridEnabled()) {
+            Log.i("SCAM_CAPTURE", "flash: the merge route is not the Hybrid: the normal shot (P590)");
+            return null;
+        }
+        final long manualNs = paramController.manualShotShutterNs();
+        final int manualIso = paramController.manualIsoValue();
+        if (manualNs > 0 || manualIso > 0) {
+            final long ns = manualNs > 0 ? manualNs : mPreviewExposureTime;
+            final int iso = manualIso > 0 ? manualIso : mPreviewIso;
+            if (!aeOffListed() || ns <= 0 || iso <= 0) {
+                flashNotice("manual", "flash: manual exposure without AE off (or no exposure known): the shot is taken without the flash (P590)",
+                        Lang.t("Вспышка с ручной экспозицией здесь не работает: снимок без вспышки",
+                                "The flash does not work with the manual exposure here: the shot is taken without it"));
+                return null;
+            }
+            return new FlashMode.Shot(mode, aeState, ns, iso);
+        }
+        return new FlashMode.Shot(mode, aeState, 0, 0);
+    }
+
+    /**
+     * P590: a flash press: the ring keeps the frames of the press (a flash that does not fire falls back to them), the AE precapture
+     * runs on the preview (the pre-flash), then captureStillPicture takes the flash frame; a manual flash frame needs no precapture.
+     */
+    private void startFlashShot(FlashMode.Shot flash) {
+        mFlashRingHold = true;
+        mZslCapturing = true; // no preview RAW (the pre-flash) enters the ring from here
+        if (flash.manual() || mPreviewRequestBuilder == null || mCaptureSession == null) {
+            mFlashShot = flash;
+            mState = STATE_PICTURE_TAKEN;
+            captureStillPicture();
+            return;
+        }
+        final long start = android.os.SystemClock.elapsedRealtime();
+        mFlashPending = flash;
+        mFlashPrecapture = new FlashMode.Precapture(start);
+        mState = STATE_FLASH_PRECAPTURE;
+        final CaptureRequest.Builder builder = mPreviewRequestBuilder;
+        try {
+            builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
+            mCaptureSession.capture(builder.build(), mCaptureCallback, mBackgroundHandler);
+        } catch (CameraAccessException | RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "flash shot: precapture trigger failed (" + e + "): the frame without the precapture");
+            endFlashPrecapture("trigger failed");
+            return;
+        } finally {
+            builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE);
+        }
+        final FlashMode.Precapture wait = mFlashPrecapture;
+        if (mBackgroundHandler != null) mBackgroundHandler.postDelayed(() -> {
+            synchronized (mPreviewStateLock) {
+                if (mState == STATE_FLASH_PRECAPTURE && mFlashPrecapture == wait) endFlashPrecapture("timeout, no result");
+            }
+        }, FlashMode.PRECAPTURE_TIMEOUT_MS + 300);
+    }
+
+    /** P590: the flash fired: the ring's frames and results held since the press go (the next shot's ring starts after this one). */
+    private void releaseFlashRing() {
+        synchronized (mZslBufferLock) {
+            for (RingFrame image : mZslRingBuffer) image.close();
+            mZslRingBuffer.clear();
+            mHexZslResults.clear();
+        }
+        mFlashRingHold = false;
+    }
+
+    /** P590: no flash shot pending or holding the ring (a shot's end, its failure, the camera closed). */
+    private void clearFlashShot() {
+        mFlashShot = null;
+        mFlashPending = null;
+        mFlashPrecapture = null;
+        mFlashRingHold = false;
+        if (mState == STATE_FLASH_PRECAPTURE) mState = STATE_PREVIEW;
+    }
+
+    /** P590: a preview result while the flash shot waits for its precapture. */
+    private void flashPrecaptureProcess(CaptureResult result) {
+        final FlashMode.Precapture wait = mFlashPrecapture;
+        if (wait == null) return;
+        final CaptureRequest request = result.getRequest();
+        final String end = wait.offer(request == null ? null : request.get(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER),
+                result.get(CaptureResult.CONTROL_AE_STATE), android.os.SystemClock.elapsedRealtime());
+        if (end != null) endFlashPrecapture(end);
+    }
+
+    /** P590: the precapture ended ({@code why}): the flash frame. */
+    private void endFlashPrecapture(String why) {
+        final FlashMode.Shot flash = mFlashPending;
+        final FlashMode.Precapture wait = mFlashPrecapture;
+        mFlashPending = null;
+        mFlashPrecapture = null;
+        if (flash == null) return;
+        flash.precaptureMs = wait == null ? 0 : wait.elapsed(android.os.SystemClock.elapsedRealtime());
+        flash.precaptureEnd = why;
+        Log.i("SCAM_CAPTURE", flash.describe());
+        mFlashShot = flash;
+        mState = STATE_PICTURE_TAKEN;
+        captureStillPicture();
+    }
+
+    /**
+     * P590: the flash did not fire on the flash frame: the normal shot of the same press - its ring frames, held since the press
+     * (the shot's cutoff kept), merged as any shot; the shutter stays busy until that shot's end.
+     */
+    private void flashFallbackShot() {
+        synchronized (mPreviewStateLock) {
+            mFlashShot = null;
+            mFlashRingHold = false;
+            if (!isCameraResumed || mCaptureSession == null || mCameraDevice == null) {
+                mZslCapturing = false;
+                finishScamShot();
+                return;
+            }
+            Log.i("SCAM_CAPTURE", "flash shot: the flash did not fire, the normal shot of the press from the ring (P590)");
+            mScamRingFrozen = PreferenceKeys.isScamEnabled();
+            mState = STATE_PICTURE_TAKEN;
+            captureStillPicture();
         }
     }
 
@@ -4726,6 +4965,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mInFlightRescue = null;
         if (rescue == null) {
             mNativeRawPslCapture = false; mZslCapturing = false; mHybridZslCapture = false; burst = false;
+            clearFlashShot(); // P590
             return;
         }
         Log.w("SCAM_CAPTURE", "shot in flight completed with the frames that arrived: " + reason);
@@ -4794,6 +5034,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         synchronized (mPreviewStateLock) {
             mShotInProgress = false;
             mScamRingFrozen = false;
+            clearFlashShot(); // P590
             mState = STATE_PREVIEW;
             fire = mScamQueuedShots > 0;
             if (fire) mScamQueuedShots--;
@@ -4887,6 +5128,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     private void failPendingShutter(Exception error) {
         mScamRingFrozen = false;
+        clearFlashShot(); // P590
         mShotInProgress = false;
         mState = STATE_PREVIEW;
         Log.e(TAG, "SHUTTER failed camera=" + physicalID, error);
@@ -5620,10 +5862,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // P575: a nubia row declared a mosaic (its full size beside the binned one) whose frames are a plain Bayer is the
                 // HAL's remosaic: not used (FULLRES off / the module on Auto, with a notice), the normal session opens
                 // (this session's own verdict: a stored block 1 of the row would fail every retry at once)
-                if (NubiaFullRes.device() && com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict() == 1
+                if ((NubiaFullRes.device() || SensorModePick.session() != null && SensorModePick.session().rawOnly()) // P586
+                        && com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict() == 1
                         && SensorModePick.session() != null
                         && SensorModePick.sessionBlock(c) > 1
                         && retryWithoutRequestedSensorMode(mCaptureSession, "the frames are remosaicked by the HAL (plain Bayer, no mosaic)")) return;
+                // P588: the nubia's maximum-resolution FULLRES whose frames are a plain Bayer is the HAL's remosaic: off, with a notice
+                if (NubiaFullRes.device() && mFullResSession
+                        && com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict() == 1
+                        && retryWithoutFullRes(mCaptureSession, "nubia: the maximum-resolution frames are remosaicked by the HAL (plain Bayer, no mosaic)")) return;
                 // P188 (owner, 2026-10-17: «Нам нужен фулрез без ремозаика»): a native FULLRES row whose frames are a plain Bayer
                 // was remosaicked by the HAL (X300 Ultra main camera, 50 MP row 2): that row counts as failed and the next start
                 // tries the next row of the table, instead of shooting the HAL's remosaic
@@ -5632,6 +5879,16 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     // P208: not the still-only route, whose viewfinder is the normal mode's Bayer
                     if (full != null && full.nativeBlock > 1 && !full.stillOnly
                             && retryWithoutVivoSdkFullRes(mCaptureSession, "the frames are remosaicked by the HAL (plain Bayer, no mosaic)")) return;
+                }
+                // P586: the OnePlus 16's 200 MP row (declared 4x4) whose frames are a confident Quad: accepted as a Quad (noted for
+                // this firmware), the session restarts with block 2
+                if (block == 2 && nativeVivoFullRes() && VivoSdkFullRes.oppo()
+                        && com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict() == 2) {
+                    final VivoSdkFullRes.Profile full = VivoSdkFullRes.profile(mVivoSdkCameraId);
+                    if (full != null && full.nativeBlock == 4 && OppoNativeFullRes.acceptQuad(mVivoSdkCameraId, full)) {
+                        new Handler(Looper.getMainLooper()).post(this::restartCamera);
+                        return;
+                    }
                 }
                 // P194: the other way round, a hardware-remosaic row (plain Bayer expected) whose frames are a Quad / Tetra mosaic is
                 // no hardware remosaic: noted, its camera takes the own mosaic from the next start
@@ -7865,7 +8122,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final long availableBytes = manager == null ? -1 : memory.availMem;
         final int grid = !hugeSeries && !"sensor".equals(PreferenceKeys.hybridOutputMode()) ? 2 : 1;
         // P194: the native route's own colour block (Quad 2, the X100 / X300 Ultra's hardware-remosaic Bayer 1); the SDK route 1
-        final int block = hugeSeries ? 4 : nativeVivoFullRes() ? Math.max(1, VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock) : 1;
+        // P586: a 200 MP row its frames proved a Quad (the OnePlus 16) merges as one; the vivo 200 MP profiles are block 4 as before
+        final int block = nativeVivoFullRes() ? Math.max(1, VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock) : hugeSeries ? 4 : 1;
         final int guarded = VivoSdkFullRes.frameCount(requested, frameBytes, availableBytes);
         final int frames = seriesMode ? VivoSdkFullRes.seriesCount(requested, (long) rawWidth * rawHeight, rawWidth, frameBytes, block, grid,
                 hugeSeries, availableBytes) : guarded;
@@ -8285,6 +8543,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mBackgroundHandler.post(this::captureStillPicture);
             return;
         }
+        // P590: a flash shot (startFlashShot, after its precapture): one fresh frame with the flash, the ring left alone
+        final FlashMode.Shot flash = mFlashShot;
+        mFlashShot = null;
         com.particlesdevs.photoncamera.control.ZoomController.markShot();
         try {
             if (mClosedForProcessing) { // P179: the plain session of a running FULLRES merge (200 MP; P200 50 MP too) takes no shot
@@ -8306,7 +8567,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P84: the Hybrid with a hand-set shutter longer than 1/8 s takes its frames after the shutter (PSL), not from the ring
             // P315: not in an OPPO-family picked sensor mode (nothing is exposed after the shutter there: the ring at the
             // viewfinder's exposure)
-            final boolean manualPsl = scamHybridSelected && paramController.pslShutterNs() > 0 && SensorModePick.seriesAllowed();
+            final boolean manualPsl = flash == null && scamHybridSelected && paramController.pslShutterNs() > 0 && SensorModePick.seriesAllowed();
             ScamStockAe.Plan planned;
             {
                 if(!hybridZslRequested)throw new IllegalStateException((scamHybridSelected?"Hybrid":"SCAM HDR")+Lang.t(" требует ZSL RAW-поток"," needs the ZSL RAW stream"));
@@ -8378,8 +8639,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
             //captureBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
             //setCaptureAEMode(captureBuilder);
-            // the torch stays on through the shot's frames (the still template carries FLASH_MODE OFF)
-            if (mFlashed || (mFlashSupported && PreferenceKeys.getAeMode() == 0)) captureBuilder.set(FLASH_MODE, FLASH_MODE_TORCH);
+            // the torch stays on through the shot's frames (the still template carries FLASH_MODE OFF); P590: only the torch (a
+            // preview result of the precapture's pre-flash reports FIRED too), never on a flash frame (the AE runs the flash)
+            if (flash == null && mFlashSupported && PreferenceKeys.getAeMode() == FlashMode.TORCH) captureBuilder.set(FLASH_MODE, FLASH_MODE_TORCH);
             Log.d(TAG, "Focus:" + focus);
             captureBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL);
 
@@ -8426,7 +8688,19 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             int denoiseFrameCount = 4, shortFrameCount = 2, longFrameCount = 1;
             // P494: the shade's HDR off as «Спорт»: no short and no long frames
             if (com.particlesdevs.photoncamera.settings.PreferenceKeys.noHdrFrames()) shortFrameCount = longFrameCount = 0;
-            if (manualPsl) {
+            if (flash != null) {
+                // P590: the flash frame alone, after the shutter (as PSL: the viewfinder keeps running, its RAW routed by the
+                // timestamp); the ring keeps the press's frames for a flash that does not fire (flashFallbackShot)
+                denoiseFrameCount = 1;
+                shortFrameCount = longFrameCount = 0;
+                mHybridZslCapture = false;
+                mZslCapturing = true;
+                mPendingZslNormalFrames = new ArrayList<>();
+                if (scamZslRequested) {
+                    mLiveRawRouter.clear();
+                    mScamRouted = true;
+                }
+            } else if (manualPsl) {
                 // as an empty ring: every frame after the shutter, the viewfinder keeps running, RAWs routed by their timestamp
                 mHybridZslCapture = false;
                 mZslCapturing = true;
@@ -8557,7 +8831,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // P98: while the HAL reports motion, a bracketed frame's shutter stays within its motion-safe exposure
                 HybridPlan.setMotionCap(manualPsl?0:HalMotion.motionCapNs(mNativeZslBase!=null?mNativeZslBase:mPreviewCaptureResult)); HybridPlan.setDeepShadow(mLastZslDeepShadow); HybridPlan.setShadow(mLastZslShadow); // P409 / P410
                 try {
-                if(hybridZsl) {
+                if(flash!=null) {
+                    // P590: the flash frame's own exposure and white balance (no ring AE, no ETTR, no brackets)
+                    plan=flash.manual() ? HybridPlan.flashManual(flash.manualShutterNs,flash.manualIso)
+                            : HybridPlan.flash(FlashMode.stillAeMode(flash.mode));
+                } else if(hybridZsl) {
                     // N = the newest ring frame (the base of the selection): its own exposure, not the cutoff plan's.
                     CaptureResult base=mNativeZslBase;
                     Long baseNs=base==null?null:base.get(CaptureResult.SENSOR_EXPOSURE_TIME);
@@ -8588,7 +8866,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // is the stream's (0 here: «Наш ремозаик» off keeps every frame for the binned merge)
                 if(mFullResSession && !com.particlesdevs.photoncamera.settings.MotionMode.on())
                     plan=plan.withLongFrames(HybridPlan.fullResLongFrames(true,0,PreferenceKeys.isHybridMosaicRemosaic()));
-                plan=plan.withNote(ettrNote()); // P377: the shot's ETTR (the stamp's line, the log)
+                if(flash==null) plan=plan.withNote(ettrNote()); // P377: the shot's ETTR (the stamp's line, the log); P590: none on a flash frame
                 hybridPlanHolder[0]=plan;
                 Log.i("SCAM_CAPTURE",plan.description);
                 for(ImageFrame normal:mPendingZslNormalFrames) {
@@ -8679,7 +8957,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P554 (owner, 2026-11-08, OPPO Find X8 Ultra: «ISZ все зелёные»): the press's Quad / Tetra white balance route (P408's
             // viewfinder neutral, P315's sensor mode) reached only the FULLRES saver; every ring / Camera2 mosaic shot lost it and
             // took P121's projection (0.491 / 0.524 for a viewfinder at 0.462 / 0.540: a white ceiling R/G 0.94, yellow-green)
-            mImageSaver.mosaicWbAtPress = mShutterMosaicWb;
+            mImageSaver.mosaicWbAtPress = flash != null ? null : mShutterMosaicWb; // P590: the flash frame's own white balance
             mImageSaver.dcgShot = dcgShotNow();
             // the shot's digital-zoom crop (after the drain: rawCropOfShot is in it) and camera, read by its processing, not the
             // next press's
@@ -8743,6 +9021,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             final FlushLossStats flushStats=FlushLossStats.of(String.valueOf(physicalID));
             final ImageSaver shotSaver=mImageSaver;
             final boolean shotHybridRoute=scamHybridShot;
+            // P590: the flash frame came back without the flash (FLASH_STATE not FIRED): it is left out, the normal shot follows
+            final boolean[] flashMissed={false};
             // P35: the stream key of this shot (its stored colour block skips the detector in the processing).
             final String shotMosaicKey=com.particlesdevs.photoncamera.processing.MosaicStream.key();
             // P214i: by the X300 Ultra's list; 0 once the module's frames proved a plain Bayer (the stored 1 merges then)
@@ -8810,6 +9090,23 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     int frameCount = (int) (result.getFrameNumber() - baseFrameNumber[0]);
                     final ExposureLimits shotLimits = mExposureLimits;
                     if (shotLimits != null) shotLimits.observeManual(request, result);
+                    if (flash != null) {
+                        // P590: the frame's own flash state decides: FIRED - the flash shot (the ring's held frames go); else the
+                        // frame leaves the shot and the normal shot of the press follows from the ring
+                        final Integer flashState = result.get(CaptureResult.FLASH_STATE);
+                        final Long flashNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                        final Integer flashIso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+                        final boolean fired = FlashMode.fired(flashState);
+                        Log.i("SCAM_CAPTURE", flash.describe() + ", frame flash state " + FlashMode.flashStateName(flashState)
+                                + ", frame AE state " + FlashMode.aeStateName(result.get(CaptureResult.CONTROL_AE_STATE))
+                                + String.format(java.util.Locale.ROOT, ", %.3f ms ISO %s", flashNs == null ? 0 : flashNs / 1e6, flashIso)
+                                + ", 1 frame" + (fired ? "" : ": not FIRED, fallback to the normal shot"));
+                        if (fired) releaseFlashRing();
+                        else {
+                            flashMissed[0] = true;
+                            if (scamSequence != null) scamSequence.lost(request, "the flash did not fire");
+                        }
+                    }
                     if(scamSequence != null) {
                         // P27: a frame never costs the shot for its exposure. The Hybrid uses it in the role its measured
                         // exposure gives (HybridPlan.classify); SCAM HDR keeps it with its measured exposure (ScamBurst
@@ -8979,6 +9276,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                             // released here, so continuous AF scans again after the shot
                             if (routedScam && unlockHandler != null) unlockHandler.post(CaptureController.this::releaseShotAfLock);
                             try{
+                            if (flashMissed[0]) {
+                                // P590: the frame without the flash is not the photo: the normal shot of the press follows (finally)
+                                shotSaver.discardFrames();
+                                return;
+                            }
                             if (scamSequence != null) {
                                 java.util.List<ImageFrame> unmatched = scamSequence.bindAndValidate(shotSaver.snapshotFrames());
                                 if (!unmatched.isEmpty()) shotSaver.removeFrames(unmatched);
@@ -9069,16 +9371,19 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                                 // P30: no more frames for this shot's arena (it goes once the processing frees them)
                                 if (shotArena != null) { shotArena.release(); if (mShotArena == shotArena) mShotArena = null; }
                                 mScamRouted = false;
-                                mNativeRawPslCapture=false;mZslCapturing=false;mLiveRawRouter.clear();
+                                // P590: a flash that did not fire keeps the ring closed (its frames are the press's) for the normal shot
+                                final boolean flashRetry = flashMissed[0];
+                                mNativeRawPslCapture=false;mZslCapturing=flashRetry;mLiveRawRouter.clear();
                                 if (hybridZslRequested) {
                                     mHybridZslCapture = false;
-                                    mZslCapturing = false;
+                                    mZslCapturing = flashRetry;
                                     mPendingZslNormalFrames = new ArrayList<>();
                                 }
                                 // Preview never stopped: no AF re-trigger or 3A reset, the
                                 // shutter is free as soon as the tail RAWs are in memory.
                                 final android.os.Handler finishHandler = mBackgroundHandler;
-                                if (routedScam && finishHandler != null) finishHandler.post(CaptureController.this::finishScamShot);
+                                if (flashRetry && finishHandler != null) finishHandler.post(CaptureController.this::flashFallbackShot);
+                                else if (routedScam && finishHandler != null) finishHandler.post(CaptureController.this::finishScamShot);
                             }
                         });
                         /*mBackgroundHandler.post(() -> {
@@ -9211,7 +9516,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     case PHOTO:
                     case MOTION:
                         mCaptureSession.captureBurst(captures, CaptureCallback, mBackgroundHandler);
-                        if (mScamRouted) queueScamAeRestore();
+                        if (mScamRouted && flash == null) queueScamAeRestore(); // P590: the AE runs on after a flash frame
+                        if (flash != null) Log.i("SCAM_CAPTURE", "flash shot: frame submitted (" + (flash.manual() ? "AE off, FLASH_MODE_SINGLE"
+                                : "AE mode " + FlashMode.stillAeMode(flash.mode)) + ", CONTROL_CAPTURE_INTENT_STILL_CAPTURE)");
                         if (flushQueue) {
                             mCaptureSession.setRepeatingRequest(
                                     mPreviewInputRequest = mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
@@ -9232,6 +9539,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 return;
             }
             mNativeRawPslCapture=false;mZslCapturing=false;mShotInProgress=false;mScamRingFrozen=false;
+            clearFlashShot(); // P590
             mScamRouted=false;mScamQueuedShots=0;mLiveRawRouter.clear();
             if (mShotArena != null) { mShotArena.release(); mShotArena = null; }
             for(ImageFrame frame:mPendingZslNormalFrames)frame.close();mPendingZslNormalFrames=new ArrayList<>();
@@ -9493,18 +9801,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * @param aeMode         possible values = 0, 1, 2, 3
      */
     private void setAEMode(CaptureRequest.Builder requestBuilder, int aeMode) {
-        if (requestBuilder != null) {
-            if (mFlashSupported) {
-                requestBuilder.set(CONTROL_AE_MODE, Math.max(aeMode, 1));//here AE_MODE will never be OFF(0)
-
-                //if PreferenceKeys.getAeMode() returns zero, we set the FLASH_MODE_TORCH instead of setting AE_MODE to OFF(0)
-                requestBuilder.set(CaptureRequest.FLASH_MODE,
-                        aeMode == 0 ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_OFF);
-            } else {
-                requestBuilder.set(CONTROL_AE_MODE, CONTROL_AE_MODE_ON);
-                requestBuilder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF);
-            }
-        }
+        if (requestBuilder == null) return;
+        // P590: Авто / Вкл. run the preview in ON_AUTO_FLASH / ON_ALWAYS_FLASH (the AE reports FLASH_REQUIRED, the still request
+        // fires the flash); the torch is FLASH_MODE_TORCH under ON (pref 0 is never AE off); a lens without a flash, the video and
+        // the routes without the flash shot (ISZ / DCG / DAG / FULLRES) run ON
+        final boolean video = ScameraApp.getSettings().selectedMode == CameraMode.VIDEO;
+        final boolean flashShots = mFlashSupported && flashRouteBlock(false) == null;
+        int ae = FlashMode.previewAeMode(aeMode, flashShots, video);
+        final int[] listedModes = mCameraCharacteristics == null ? null : mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES);
+        if (listedModes != null && !listed(listedModes, ae)) ae = CONTROL_AE_MODE_ON;
+        requestBuilder.set(CONTROL_AE_MODE, ae);
+        requestBuilder.set(CaptureRequest.FLASH_MODE, FlashMode.previewFlashMode(aeMode, mFlashSupported));
+        if (requestBuilder == mPreviewRequestBuilder) mPreviewAEMode = ae; // a tap's restore keeps it (TouchFocus)
     }
 
     private void setAFMode(CaptureRequest.Builder builder, int afMode) {

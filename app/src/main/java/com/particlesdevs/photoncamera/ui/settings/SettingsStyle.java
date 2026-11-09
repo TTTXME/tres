@@ -104,7 +104,9 @@ public final class SettingsStyle {
     public static TextView text(Context c, CharSequence value, float size, int color) {
         TextView t = new TextView(c);
         t.setText(value);
-        t.setTextSize(size);
+        // P584: the concept's px as dp (the phone's font scale does not change the settings) in its Roboto Flex
+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, size);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR));
         t.setTextColor(color);
         t.setIncludeFontPadding(false);
         return t;
@@ -128,7 +130,7 @@ public final class SettingsStyle {
     /** P385: the header's «Расположение» disc (the page's order), before the reset disc. */
     public static ImageView arrangeDisc(Context c, Header h, Runnable onArrange) {
         LinearLayout row = h.bar;
-        h.arrange = disc(c, R.drawable.settings_ic_arrange);
+        h.arrange = disc(c, R.drawable.cs_ic_arrange, 19);
         h.arrange.setContentDescription(Lang.t(c, "Расположение настроек страницы", "This page's layout"));
         h.arrange.setTag("settings_page_arrange");
         h.arrange.setFocusable(true);
@@ -136,6 +138,7 @@ public final class SettingsStyle {
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
         ap.setMarginStart(dp(c, 8));
         row.addView(h.arrange, h.reset != null ? row.indexOfChild(h.reset) : row.getChildCount(), ap);
+        balance(c, h);
         return h.arrange;
     }
 
@@ -156,7 +159,7 @@ public final class SettingsStyle {
         h.bar = row;
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(dp(c, 44));
-        h.back = disc(c, R.drawable.ui_ic_back);
+        h.back = disc(c, R.drawable.cs_back, 20);   // P584: the concept's chevron (20dp, 2.4 stroke)
         h.back.setContentDescription(Lang.t(c,"Назад","Back"));
         h.back.setFocusable(true);
         h.back.setOnClickListener(v -> onBack.run());
@@ -165,7 +168,7 @@ public final class SettingsStyle {
         FrameLayout centre = new FrameLayout(c);
         h.crumb = text(c, "", 13, SECTION);
         h.small = text(c, "", 16, ROW_TITLE);
-        h.small.setTypeface(semibold());
+        h.small.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(h.small.getContext(), 600));
         h.small.setAlpha(0f);
         for (TextView t : new TextView[]{h.crumb, h.small}) {
             t.setGravity(Gravity.CENTER);
@@ -175,11 +178,10 @@ public final class SettingsStyle {
         }
         h.small.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -2, 1f);
-        cp.setMarginStart(dp(c, 8));
-        cp.setMarginEnd(dp(c, 8));
+        cp.setMarginStart(dp(c, 8));   // P584: the end discs bring their own 8dp gap (the concept's gap: 8 on each side)
         row.addView(centre, cp);
         if (onSearch != null) {
-            h.search = disc(c, R.drawable.ui_ic_search);
+            h.search = disc(c, R.drawable.cs_search, 19);
             h.search.setContentDescription(Lang.t(c,"Поиск настройки","Search settings"));
             h.search.setTag("settings_search");
             h.search.setFocusable(true);
@@ -189,7 +191,7 @@ public final class SettingsStyle {
             row.addView(h.search, qp);
         }
         if (onReset != null) {
-            h.reset = disc(c, R.drawable.settings_ic_reset);
+            h.reset = disc(c, R.drawable.cs_page_reset, 19);
             h.reset.setContentDescription(Lang.t(c, "Сбросить настройки страницы", "Reset this page"));
             h.reset.setTag("settings_page_reset");
             h.reset.setFocusable(true);
@@ -199,12 +201,15 @@ public final class SettingsStyle {
             row.addView(h.reset, rp);
         }
         h.view.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        balance(c, h);
+        // P584 (the concept's h1): 14dp over the title, 12dp under it; 700, -0.4px apart, the line 1.12 of the size
         h.titles = new LinearLayout(c);
         h.titles.setOrientation(LinearLayout.VERTICAL);
-        h.titles.setPadding(dp(c, 4), dp(c, 14), dp(c, 4), dp(c, 10));
+        h.titles.setPadding(dp(c, 4), dp(c, 14), dp(c, 4), dp(c, 12));
         h.heading = text(c, "", 34, ROW_TITLE);
-        h.heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        h.heading.setLetterSpacing(-0.012f);
+        h.heading.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD));
+        h.heading.setLetterSpacing(-0.4f / 34f);
+        lineHeight(h.heading, 34 * 1.12f);
         h.heading.setMaxLines(2);
         h.heading.setEllipsize(TextUtils.TruncateAt.END);
         // the concept: 34sp, 30sp past 16 letters, 26sp past 24 («Приоритет умеренных светов»); the bar's small title follows
@@ -212,21 +217,49 @@ public final class SettingsStyle {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int n) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int n) {}
             @Override public void afterTextChanged(android.text.Editable s) {
-                h.heading.setTextSize(titleSize(s));
+                h.heading.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, titleSize(s));
+                h.heading.setLetterSpacing(-0.4f / titleSize(s));
+                lineHeight(h.heading, titleSize(s) * 1.12f);
                 h.small.setText(s.toString());
             }
         });
         h.titles.addView(h.heading, new LinearLayout.LayoutParams(-1, -2));
-        h.subtitle = text(c, "", 14, SUMMARY);
-        h.subtitle.setLineSpacing(dp(c, 2), 1f);
+        // the page's description: 14 / 19dp, white at 65 %, 4dp into the title's margin, 14dp over the list
+        h.subtitle = text(c, "", 14, 0xA6FFFFFF);
+        lineHeight(h.subtitle, 19);
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
-        sp.topMargin = dp(c, 6);
+        sp.topMargin = dp(c, 8);
+        sp.bottomMargin = dp(c, 2);
         h.titles.addView(h.subtitle, sp);
         h.view.addView(h.titles, new LinearLayout.LayoutParams(-1, -2));
         return h;
     }
 
-    /** The large title's size for {@code title} (sp): 34, 30 past 16 letters, 26 past 24. */
+    /** P584: {@code t}'s lines {@code dp} apart (the concept's line-height; before Android 9 the font's own). */
+    public static void lineHeight(TextView t, float dp) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return;
+        final int px = Math.round(dp * t.getResources().getDisplayMetrics().density);
+        t.setLineHeight(px);
+        // the concept's half-leading: Android adds a line's extra under it but not under the last one - half of it over the first
+        // line and half under the last make each line box {@code dp} tall as in the concept
+        final int extra = Math.max(0, px - t.getPaint().getFontMetricsInt(null));
+        t.setPaddingRelative(t.getPaddingStart(), extra / 2, t.getPaddingEnd(), extra - extra / 2);
+    }
+
+    /**
+     * P584 (owner: «названия не отцентрованы»): the bar's crumb centred on the screen, as the concept's between its two discs - a
+     * bar with more discs at its end (search, arrange, reset) gives the crumb as much room at its start.
+     */
+    static void balance(Context c, Header h) {
+        if (h.bar == null || h.crumb == null || !(h.crumb.getParent() instanceof View)) return;
+        int end = 0;
+        for (ImageView v : new ImageView[]{h.search, h.arrange, h.reset}) if (v != null && v.getParent() == h.bar) end++;
+        // the back disc and its 8dp gap at the start, each end disc with its 8dp gap at the end
+        View centre = (View) h.crumb.getParent();
+        centre.setPaddingRelative(Math.max(0, end - 1) * dp(c, 48), 0, end == 0 ? dp(c, 48) : 0, 0);
+    }
+
+    /** The large title's size for {@code title} (dp): 34, 30 past 16 letters, 26 past 24. */
     static float titleSize(@androidx.annotation.Nullable CharSequence title) {
         int n = title == null ? 0 : title.length();
         return n > 24 ? 26 : n > 16 ? 30 : 34;
@@ -246,8 +279,14 @@ public final class SettingsStyle {
 
     private static android.graphics.Typeface semibold;
 
-    /** A semibold face (600 where the system has weights; medium before Android 9). */
+    /**
+     * A semibold face: P584 the concept's Roboto Flex 600 (the application's resources; the system's 600 only when none is set
+     * up yet). Views take {@code Fonts.of(context, 600)}.
+     */
     public static android.graphics.Typeface semibold() {
+        android.content.Context app = null;
+        try { app = com.particlesdevs.photoncamera.app.ScameraApp.getAppContext(); } catch (RuntimeException ignored) { /* none yet */ }
+        if (app != null) return com.particlesdevs.photoncamera.ui.style.Fonts.of(app, 600);
         if (semibold == null) semibold = android.os.Build.VERSION.SDK_INT >= 28
                 ? android.graphics.Typeface.create(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL), 600, false)
                 : android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL);
@@ -265,10 +304,10 @@ public final class SettingsStyle {
         pill.setPadding(dp(c, 12), 0, dp(c, 12), 0);
         pill.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), shape(c, ROW, 0, 22), null));
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.settings_ic_search);
-        com.particlesdevs.photoncamera.ui.Icons.ink(icon, R.drawable.settings_ic_search, SECTION); // P570: the search glass in tonal mono
+        icon.setImageResource(R.drawable.cs_search);   // P584: the concept's glass, 19dp, white at 55 %
+        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(SECTION, android.graphics.PorterDuff.Mode.SRC_IN));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(c, 20), dp(c, 20));
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(c, 19), dp(c, 19));
         ip.setMarginEnd(dp(c, 8));
         pill.addView(icon, ip);
         pill.addView(text(c, Lang.t(c, "Поиск", "Search"), 17, SECTION), new LinearLayout.LayoutParams(0, -2, 1f));
@@ -281,10 +320,19 @@ public final class SettingsStyle {
 
     /** P574: the concept's round button - a 40dp #2C2C2E disc with a white line icon. */
     static ImageView disc(Context c, int icon) {
+        return disc(c, icon, 0);
+    }
+
+    /** P584: the disc with its icon {@code size} dp (the concept's 20 for the back chevron, 19 for the others; 0: its own size). */
+    static ImageView disc(Context c, int icon, int size) {
         ImageView v = new ImageView(c);
         v.setImageResource(icon);
-        com.particlesdevs.photoncamera.ui.Icons.ink(v, icon, ROW_TITLE); // P574: white on the round button (tonal mono for a colour icon)
-        v.setScaleType(ImageView.ScaleType.CENTER);
+        SettingsTiles.ink(v, ROW_TITLE);   // P574: white on the round button (P584: a concept glyph as it is)
+        if (size > 0) {
+            int pad = Math.round((40 - size) / 2f * c.getResources().getDisplayMetrics().density);
+            v.setPadding(pad, pad, pad, pad);
+            v.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        } else v.setScaleType(ImageView.ScaleType.CENTER);
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
         d.setColor(ROW);
@@ -306,7 +354,7 @@ public final class SettingsStyle {
             shown = span;
         }
         TextView t = text(c, shown, 15, ROW_TITLE);
-        t.setTypeface(semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setGravity(Gravity.CENTER_VERTICAL);
         t.setMinHeight(dp(c, 40));
         t.setPadding(dp(c, 16), dp(c, 8), dp(c, 14), dp(c, 8));
@@ -372,28 +420,28 @@ public final class SettingsStyle {
         if (p instanceof PreferenceGroup) {
             p.setLayoutResource(R.layout.preference_card);
             p.setWidgetLayoutResource(R.layout.settings_widget_chevron);
-            defaultIcon(p, R.drawable.settings_ic_gear);
+            defaultIcon(p, R.drawable.cs_gear);
             return;
         }
         if (com.particlesdevs.photoncamera.processing.color.FilmLut.STRENGTH_KEY.equals(p.getKey())) {
             p.setLayoutResource(R.layout.preference_seekbar_inline);   // SIMPLE_UI §4c: «Сила» on the LUT page
         } else if (p instanceof UniversalSeekBarPreference || p instanceof TunableSeekBarPreference) {
             p.setLayoutResource(R.layout.preference_seekbar);
-            defaultIcon(p, R.drawable.settings_ic_sliders);
+            defaultIcon(p, R.drawable.cs_ic_sliders);
         } else if (p instanceof TwoStatePreference) {
             p.setLayoutResource(R.layout.preference_card);
             // P574: the settings' switch (a check box of a choice list stays a check box)
             if (!(p instanceof androidx.preference.CheckBoxPreference)) p.setWidgetLayoutResource(R.layout.settings_widget_switch);
-            defaultIcon(p, R.drawable.settings_ic_toggle);
+            defaultIcon(p, R.drawable.cs_ic_toggle);
         } else if (p instanceof ListPreference) {
             p.setLayoutResource(R.layout.preference_card);
             // P574: a list opens its pull-down menu at the row: the up / down chevron after the value (the restore keeps its dialog)
             p.setWidgetLayoutResource(p instanceof RestorePreference ? R.layout.settings_widget_chevron : R.layout.settings_widget_updown);
-            defaultIcon(p, R.drawable.settings_ic_list);
+            defaultIcon(p, R.drawable.cs_ic_list);
         } else if (p instanceof EditTextPreference) {
             p.setLayoutResource(R.layout.preference_card);
             p.setWidgetLayoutResource(R.layout.settings_widget_chevron);
-            defaultIcon(p, R.drawable.settings_ic_edit);
+            defaultIcon(p, R.drawable.cs_ic_edit);
         } else if (p instanceof DialogPreference || p instanceof TunableKeyPreference || p instanceof ModuleRowPreference) {
             p.setLayoutResource(R.layout.preference_card);
         } else if (p.getClass() == Preference.class && !p.isSelectable() && p.getIcon() == null) {
@@ -402,7 +450,7 @@ public final class SettingsStyle {
             p.setLayoutResource(R.layout.preference_card);
             if (p.getFragment() != null || p.getIntent() != null || (p.getKey() != null && NAVIGATION.contains(p.getKey())))
                 p.setWidgetLayoutResource(R.layout.settings_widget_chevron);
-            defaultIcon(p, p.isSelectable() ? R.drawable.settings_ic_gear : R.drawable.settings_ic_info);
+            defaultIcon(p, p.isSelectable() ? R.drawable.cs_gear : R.drawable.cs_ic_info);
         }
         p.setIconSpaceReserved(true);
     }
@@ -435,7 +483,17 @@ public final class SettingsStyle {
     }
 
     private static void defaultIcon(Preference p, int icon) {
-        if (p.getIcon() == null) p.setIcon(icon);
+        if (p.getIcon() == null) {
+            p.setIcon(icon);
+            DEFAULTED.put(p, Boolean.TRUE);
+        }
+    }
+
+    /** P584: rows whose icon is the style's stand-in (none in the XML): the concept's search shows them without a tile. */
+    private static final java.util.Map<Preference, Boolean> DEFAULTED = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    static boolean defaulted(Preference p) {
+        return DEFAULTED.containsKey(p);
     }
 
     /** A clickable plain row that is an action (import, probe, export): the title in the accent, as in the concept. */
@@ -448,6 +506,8 @@ public final class SettingsStyle {
 
     /** P248: the right-hand value's share of a row's text width at most (the title and the description keep the rest). */
     static final float VALUE_SHARE = 0.38f;
+    /** P584: the concept's right-hand value, at most 130dp (its max-width). */
+    static final float VALUE_MAX = 130f;
 
     /**
      * The widest the value on the right may be, in pixels: its share of what a settings row leaves for text on this screen (the
@@ -456,7 +516,8 @@ public final class SettingsStyle {
     public static int valueShare(Context c) {
         float density = c.getResources().getDisplayMetrics().density;
         float text = c.getResources().getDisplayMetrics().widthPixels - (16 * 2 + 14 * 2 + 36 + 12 + 24) * density;
-        return Math.max(Math.round(48 * density), Math.round(VALUE_SHARE * text));
+        // P584: the concept's value is at most 130dp wide; a narrow screen keeps half of the text for the title
+        return Math.max(Math.round(48 * density), Math.min(Math.round(VALUE_MAX * density), Math.round(.5f * text)));
     }
 
     /**
@@ -572,16 +633,17 @@ public final class SettingsStyle {
             // P574: a group's title in white at 55 %; P384: a module's sensor caption stays quiet (its layout's colour)
             if (title != null && p.getLayoutResource() != R.layout.preference_subcategory_layout) {
                 title.setTextColor(SECTION);
-                title.setTypeface(semibold());
+                title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(title.getContext(), 600));
             }
             TextView pill = (TextView) holder.findViewById(R.id.settings_expert_pill);
             if (pill != null) {
                 pill.setTextColor(accent);
                 pill.setBackground(shape(c, pillFill(accent), 0, 999));
             }
+            ConceptFonts.apply(row);   // P584
             return;
         }
-        if (p instanceof ModuleSection) return;   // P384: the card header binds its badge and chevron itself
+        if (p instanceof ModuleSection) { ConceptFonts.apply(row); return; }   // P384: the card header binds its badge and chevron itself
         ImageView icon = (ImageView) holder.findViewById(android.R.id.icon);
         View tile = holder.findViewById(R.id.settings_icon_tile);
         boolean warn = warn(p);
@@ -596,12 +658,12 @@ public final class SettingsStyle {
         if (icon != null && icon.getDrawable() != null && !(p instanceof TunableKeyPreference)) {
             int[] pair = warn ? SettingsTiles.RED : SettingsTiles.pair(icon.getDrawable());
             if (tile != null) tile.setBackground(shape(c, pair[0], 0, tile.getLayoutParams() != null && tile.getLayoutParams().width < dp(c, 29) ? 8 : 9));
-            icon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(pair[1]));
+            SettingsTiles.ink(icon, pair[1]);   // P584: a concept glyph in its light tone as it is
             // P574 (the approved «Камеры и модули»): «Добавить кнопку с кропом» - the «+» in the accent on its tile (the accent at
             // 28 % over the card)
             if (p instanceof ModuleRowPreference && ((ModuleRowPreference) p).accentTile()) {
                 if (tile != null) tile.setBackground(shape(c, SettingsMotion.mix(ROW, accent, .28f), 0, 9));
-                icon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(accent));
+                SettingsTiles.ink(icon, accent);
             }
         } else if (p instanceof TunableKeyPreference) {
             // its icon is the key's status dot, drawn as it is (a recycled row's tone goes)
@@ -612,7 +674,10 @@ public final class SettingsStyle {
         if (title != null && warn) title.setTextColor(WARN);
         else if (title != null && action(p)) title.setTextColor(accent);
         else if (title != null) title.setTextColor(ROW_TITLE);   // P384: a recycled view that showed a warning or an action row
-        if (title != null) title.setTypeface(semibold());
+        if (title != null) {
+            title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));
+            if (p.getLayoutResource() != R.layout.preference_module_card) lineHeight(title, 21);   // P584: 16 / 21dp
+        }
         // P384: a camera key's name breaks after its dots («vivo.control.forceSensorMo / de» broke inside a word); shown only
         if (title != null && p instanceof TunableKeyPreference && p.getTitle() != null)
             title.setText(p.getTitle().toString().replace(".", ".\u200B"));
@@ -668,6 +733,7 @@ public final class SettingsStyle {
             }
         }
         if (summary != null) {
+            if (p.getLayoutResource() != R.layout.preference_module_card) lineHeight(summary, 17);   // P584: 13 / 17dp
             summary.setTextColor(SUMMARY);
             fitLines(summary);
         }
@@ -697,6 +763,18 @@ public final class SettingsStyle {
                 paintPill(pill, changed, accent);
             }
         }
+        ConceptFonts.apply(row);   // P584: the row's texts in the concept's Roboto Flex at their weights, sizes in dp
+    }
+
+    /**
+     * P584: a number as the concept writes it on a Russian screen - the decimal comma and the true minus («0,02», «−100»); the
+     * stored value keeps its dot.
+     */
+    public static String number(Context c, CharSequence value) {
+        if (value == null) return "";
+        String s = value.toString();
+        if (!Lang.ru(c)) return s;
+        return s.replaceAll("(?<=\\d)\\.(?=\\d)", ",").replaceAll("^-(?=\\d)", "\u2212");
     }
 
     /** A '%s' (or '%1$s') of a description. */
@@ -875,7 +953,7 @@ public final class SettingsStyle {
         gp.bottomMargin = dp(c, 12);
         body.addView(grab, gp);
         TextView t = text(c, title, 17, ROW_TITLE);
-        t.setTypeface(semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setGravity(Gravity.CENTER);
         t.setTag("sheet_title");
         t.setPadding(dp(c, 8), dp(c, 2), dp(c, 8), dp(c, 14));
@@ -962,6 +1040,7 @@ public final class SettingsStyle {
         d.setOnShowListener(x -> {
             View host = d.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (host != null) host.setBackgroundColor(0);
+            if (d.getWindow() != null) ConceptFonts.follow(d.getWindow().getDecorView());   // P584
             d.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
             d.getBehavior().setSkipCollapsed(true);
         });
@@ -1149,7 +1228,7 @@ public final class SettingsStyle {
     /** A sheet's main action: an accent capsule with dark ink (17sp semibold, 50dp), as «Готово» in the concept. */
     public static TextView capsule(Context c, CharSequence label, int accent) {
         TextView b = text(c, label, 17, INK);
-        b.setTypeface(semibold());
+        b.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(b.getContext(), 600));
         b.setGravity(Gravity.CENTER);
         b.setMinHeight(dp(c, 50));
         b.setPadding(dp(c, 18), 0, dp(c, 18), 0);
@@ -1161,7 +1240,7 @@ public final class SettingsStyle {
     /** A secondary action: a #2C2C2E capsule, the label in {@code colour} (white; RED for a destructive one). */
     public static TextView quietCapsule(Context c, CharSequence label, int colour) {
         TextView b = text(c, label, 17, colour);
-        b.setTypeface(semibold());
+        b.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(b.getContext(), 600));
         b.setGravity(Gravity.CENTER);
         b.setMinHeight(dp(c, 50));
         b.setPadding(dp(c, 18), 0, dp(c, 18), 0);
@@ -1196,7 +1275,7 @@ public final class SettingsStyle {
     /** A section's label over a card: 12sp semibold, upper case, white at 55 %, a little letter spacing. */
     public static TextView sectionLabel(Context c, CharSequence label) {
         TextView t = text(c, label == null ? "" : label.toString().toUpperCase(java.util.Locale.getDefault()), 12, SECTION);
-        t.setTypeface(semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setLetterSpacing(.08f);
         t.setPadding(dp(c, 16), dp(c, 18), dp(c, 16), dp(c, 8));
         return t;

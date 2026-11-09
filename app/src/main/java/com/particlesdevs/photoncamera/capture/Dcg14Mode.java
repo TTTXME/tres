@@ -21,6 +21,9 @@ import com.particlesdevs.photoncamera.settings.PreferenceKeys;
  * <p>
  * P230: the Xiaomi 15 Ultra's main camera ({@link XiaomiDcg}: vendor operation mode 0x9203 on the session, current_mode 24,
  * 60 fps, the 512 empty rows cut, 14-bit levels).
+ * <p>
+ * P586: the OnePlus 16 (PYB110, {@link OplusDcg}): the main's DCG row 28 and the tele's DAG row 2 / 4 by the sensor-mode pick,
+ * the levels learned from the frames.
  */
 public final class Dcg14Mode {
     private static final String PREFS = "scam_dcg14";
@@ -31,13 +34,14 @@ public final class Dcg14Mode {
 
     /** A phone with the switch: the vivo X300 Ultra, the X200 Ultra (its guarded routes), the Xiaomi 15 Ultra. */
     public static boolean device() {
-        return VivoQcomIsz.enabled() || VivoQcomModes.device() || XiaomiDcg.enabled();
+        return VivoQcomIsz.enabled() || VivoQcomModes.device() || XiaomiDcg.enabled() || OplusDcg.enabled();
     }
 
     /** Whether this camera has a DCG mode (X300 Ultra: main, ultra-wide, tele; 15 Ultra: the main). */
     public static boolean available(@Nullable CameraCharacteristics c) {
         if (c == null || !device() || !PreferenceKeys.scamDevSwitch("dcg14", true)) return false;
         if (XiaomiDcg.device()) return XiaomiDcg.available(c);
+        if (OplusDcg.device()) return OplusDcg.available(c); // P586
         if (VivoQcomModes.device()) return VivoQcomModes.dcgAvailable(c);
         return VivoQcomIsz.dcgAvailable(c);
     }
@@ -64,6 +68,12 @@ public final class Dcg14Mode {
 
     public static String name(int mode) {
         return mode == OFF ? "off" : "DCG";
+    }
+
+    /** P586: the switch's name for the owner: «14 бит (DCG)», «DAG (телевик)» on the OnePlus 16 tele. */
+    public static String title() {
+        final String oplus = OplusDcg.switchName();
+        return oplus != null ? oplus : com.particlesdevs.photoncamera.util.Lang.t("14 бит (DCG)", "14-bit (DCG)");
     }
 
     @Nullable
@@ -125,6 +135,7 @@ public final class Dcg14Mode {
     public static String apply(CaptureRequest.Builder builder, @Nullable CameraCharacteristics c, @Nullable String physicalId) {
         if (builder == null || !active(c)) return "";
         if (XiaomiDcg.device()) return XiaomiDcg.applySession(builder, c);
+        if (OplusDcg.device()) return OplusDcg.describe(physicalId); // P586: the pick sets the mode key itself
         if (VivoQcomModes.device()) return VivoQcomModes.apply(builder, c, physicalId);
         return VivoQcomIsz.applyDcg(builder, c);
     }

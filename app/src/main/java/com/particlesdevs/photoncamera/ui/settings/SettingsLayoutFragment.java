@@ -454,7 +454,7 @@ public class SettingsLayoutFragment extends Fragment {
             final Context c = parent.getContext();
             if (kind == Item.HEADER) {
                 final TextView t = SettingsStyle.text(c, "", 11.5f, SettingsStyle.accent(c));
-                t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+                t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
                 t.setLetterSpacing(0.09f);
                 t.setAllCaps(true);
                 t.setPadding(dp(6), dp(18), dp(6), dp(8));
@@ -489,7 +489,7 @@ public class SettingsLayoutFragment extends Fragment {
             final LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
             final TextView title = SettingsStyle.text(c, "", kind == Item.GROUP ? 15.5f : 14.5f, SettingsStyle.ROW_TITLE);
-            if (kind == Item.GROUP) title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            if (kind == Item.GROUP) title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(title.getContext(), 600));
             texts.addView(title, new LinearLayout.LayoutParams(-1, -2));
             final TextView summary = SettingsStyle.text(c, "", 12.5f, SettingsStyle.SUMMARY);
             summary.setMaxLines(2);
@@ -527,7 +527,7 @@ public class SettingsLayoutFragment extends Fragment {
             final Drawable.ConstantState icon = ICONS.get(it.id);
             if (h.icon != null) {
                 if (it.kind == Item.GROUP) {
-                    h.icon.setImageResource(R.drawable.settings_ic_layers);
+                    h.icon.setImageResource(R.drawable.cs_ic_layers);
                     h.icon.setVisibility(View.VISIBLE);
                 } else if (icon != null) {
                     h.icon.setImageDrawable(icon.newDrawable(c.getResources()).mutate());
@@ -600,7 +600,7 @@ public class SettingsLayoutFragment extends Fragment {
                 final int index = i;
                 final TextView t = SettingsStyle.text(c, names[i], 14, SettingsStyle.ROW_TITLE);
                 t.setGravity(Gravity.CENTER);
-                t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+                t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
                 t.setFocusable(true);
                 t.setOnClickListener(v -> {
                     if (index == this.chosen) return;

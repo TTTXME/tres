@@ -54,7 +54,7 @@ import static org.mockito.Mockito.*;
  * <li>none of these overlap: the top bar, the viewfinder, the lens row, the shutter row, the Pro panel, and the LUT pill with
  * the lock pill (both inside the viewfinder);</li>
  * <li>packed texts (Pro chips, lens labels, the pills) are one line and not cut;</li>
- * <li>k = short side / 392dp clamped at 0.85 and 1.35; where it is not clamped, the shutter width, the top bar height and the
+ * <li>k = short side / 390dp (P582; 392 before) clamped at 0.85 and 1.35; where it is not clamped, the shutter width, the top bar height and the
  * lens row width over the screen width are within ±6 % of the reference's; where it is clamped, they follow the clamped k.</li>
  * </ul>
  */
@@ -107,7 +107,8 @@ public class ScalingMatrixTest {
                 String at = window + " font " + font + ": ";
                 float shortSide = Math.min(Float.parseFloat(window.substring(1, window.indexOf("dp"))),
                         Float.parseFloat(window.substring(window.indexOf("-h") + 2, window.lastIndexOf("dp"))));
-                float expectK = Math.max(0.85f, Math.min(1.35f, shortSide / 392f));
+                // P582: k against the concept's 390dp (UiScale.REFERENCE_DP; 392 before)
+                float expectK = Math.max(0.85f, Math.min(1.35f, shortSide / com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.REFERENCE_DP));
                 assertEquals(at + "k clamped at 0.85 / 1.35", expectK, s.k, 1e-3f);
                 // the share a k-scaled size has against the reference: k / (k at the reference) x (392 / width)
                 float width = Float.parseFloat(window.substring(1, window.indexOf("dp")));

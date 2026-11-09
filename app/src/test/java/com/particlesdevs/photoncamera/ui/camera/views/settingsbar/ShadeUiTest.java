@@ -211,9 +211,9 @@ public class ShadeUiTest {
                 for (int l = 0; l < layout.getLineCount(); l++) assertEquals(text.getText() + " not cut", 0, layout.getEllipsisCount(l));
             }
         }
-        // Four columns, 5dp x k apart (the concept's gap): half of it inside each tile.
+        // Four columns, 8dp x k apart (P583, the concept's gap): half of it inside each tile.
         ShadeTileView first = (ShadeTileView) grid.getChildAt(0), second = (ShadeTileView) grid.getChildAt(1);
-        assertEquals(2 * Math.round(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(activity, 2.5f)),
+        assertEquals(2 * Math.round(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(activity, 4f)),
                 second.getLeft() + second.card.getLeft() - (first.getLeft() + first.card.getRight()));
         render("shade-full-default.png");
     }

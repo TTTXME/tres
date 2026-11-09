@@ -5,6 +5,7 @@
      P574 (owner, 2026-11-09, the approved «Камеры и модули»): 64dp, a 40dp badge (13sp bold), the name 16sp semibold, the state
      13sp at 55 % white (the camera's module in the accent), the thin chevron at 40 %. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/settings_row"
@@ -16,6 +17,8 @@
     android:paddingEnd="18dp"
     android:paddingBottom="10dp">
     <TextView
+        android:fontFamily="@font/roboto_flex_700"
+            app:fontFamily="@font/roboto_flex_700"
         android:id="@+id/settings_module_badge"
         android:layout_width="40dp"
         android:layout_height="40dp"
@@ -27,8 +30,7 @@
         android:includeFontPadding="false"
         android:maxLines="1"
         android:textColor="@color/settings_row_title"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+        android:textSize="13dp" />
     <ImageView
         android:id="@android:id/icon"
         android:layout_width="0dp"
@@ -44,19 +46,25 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:ellipsize="end"
-            android:fontFamily="sans-serif-medium"
+            android:fontFamily="@font/roboto_flex_600"
+            app:fontFamily="@font/roboto_flex_600"
             android:maxLines="2"
             android:textColor="@color/settings_row_title"
-            android:textFontWeight="600"
-            android:textSize="16sp" />
+            android:textSize="16dp"
+            android:lineHeight="21dp"
+            android:includeFontPadding="false" />
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@android:id/summary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:lineSpacingExtra="1dp"
             android:textColor="@color/settings_row_value"
-            android:textSize="13sp" />
+            android:lineHeight="17dp"
+            android:includeFontPadding="false"
+            android:textSize="13dp" />
     </LinearLayout>
     <ImageView
         android:id="@+id/settings_module_chevron"

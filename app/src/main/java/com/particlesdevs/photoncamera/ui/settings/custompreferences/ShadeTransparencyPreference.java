@@ -138,7 +138,7 @@ public class ShadeTransparencyPreference extends Preference {
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView t = SettingsStyle.text(c, Lang.t(c, "Прозрачность", "Transparency"), 16, SettingsStyle.ROW_TITLE);
-        t.setTypeface(SettingsStyle.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         texts.addView(t);
         TextView hint = SettingsStyle.text(c, "", 13, SettingsStyle.SUMMARY);
         hint.setTag("shade_transparency_hint");
@@ -147,7 +147,7 @@ public class ShadeTransparencyPreference extends Preference {
         head.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView pill = SettingsStyle.text(c, "", 15, accent);
         pill.setTag("shade_transparency_value");
-        pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pill.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(pill.getContext(), 700));
         pill.setGravity(Gravity.CENTER);
         pill.setMinWidth(UiTokens.dp(c, 44));
         pill.setPadding(UiTokens.dp(c, 12), 0, UiTokens.dp(c, 12), 0);
@@ -256,7 +256,7 @@ public class ShadeTransparencyPreference extends Preference {
             float pad = UiTokens.dp(c, 10);
             paint.setColor(UiTokens.TEXT);
             paint.setTextSize(UiTokens.dp(c, 12));
-            paint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            paint.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));
             float ty = top + pad - paint.ascent();
             canvas.drawText(Lang.t(c, "Быстрые настройки", "Quick settings"), pad, ty, paint);
             float gap = UiTokens.dp(c, 5), tw = (w - 2 * pad - 3 * gap) / 4f, th = UiTokens.dp(c, 28), y0 = ty + paint.descent() + UiTokens.dp(c, 4);

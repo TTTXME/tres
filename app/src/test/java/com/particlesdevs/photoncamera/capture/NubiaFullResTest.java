@@ -169,4 +169,20 @@ public class NubiaFullResTest {
         assertTrue(text, text.contains("0"));
         assertTrue(text, text.contains("FULLRES"));
     }
+
+    /** P585: the 2026-11-09 session advertised 4096x3072 (binned static metadata): no FULLRES, and the log says why. */
+    @org.junit.Test public void aBinnedAdvertisedArrayHasNoRowAndTheLogNamesTheLargerOne() {
+        org.junit.Assert.assertNull(NubiaFullRes.fullRow(MAIN, 4096, 3072));
+        org.junit.Assert.assertTrue(NubiaFullRes.largerRow(MAIN, 4096, 3072).contains("row 0 is 8192x6144"));
+        org.junit.Assert.assertEquals("", NubiaFullRes.largerRow(MAIN, 8192, 6144));
+    }
+
+    /** P588: the stock HAL (no Magisk module) advertises 4096x3072 with a maximum-resolution RAW of 8192x6144: FULLRES through it. */
+    @org.junit.Test public void theMaximumResolutionRawIsTheFullResWithoutARow() {
+        final android.util.Size array = new android.util.Size(4096, 3072);
+        NubiaFullRes.learnMaxRes("p588", new PixelPro10.FullRes(android.graphics.ImageFormat.RAW_SENSOR, new android.util.Size(8192, 6144)), array);
+        NubiaFullRes.learnMaxRes("p588small", new PixelPro10.FullRes(android.graphics.ImageFormat.RAW_SENSOR, new android.util.Size(4096, 3072)), array);
+        org.junit.Assert.assertNull("no row pick for it", NubiaFullRes.offer("p588"));
+        org.junit.Assert.assertFalse("not larger than the binned array: none", NubiaFullRes.maxRes("p588small") && NubiaFullRes.device());
+    }
 }

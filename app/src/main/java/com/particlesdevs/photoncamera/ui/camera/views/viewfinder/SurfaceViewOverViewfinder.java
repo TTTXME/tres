@@ -65,7 +65,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
 
     private void initPaints() {
         // Grid lines at ~15 % white (P25), one dp wide.
-        whitePaint.setColor(0x26FFFFFF);
+        whitePaint.setColor(0x47FFFFFF); // P583: the concept's grid, rgba(255, 255, 255, .28)
         whitePaint.setStrokeWidth(Math.max(1f, getResources().getDisplayMetrics().density));
 
         textPaint.setColor(Color.WHITE);
@@ -80,7 +80,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
 
         hudPaint.setColor(Color.WHITE);
         hudPaint.setTextSize(fontSize);
-        hudPaint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        hudPaint.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD));
         hudPaint.setTextAlign(Paint.Align.LEFT);
         hudPaint.setShadowLayer(4f, 1f, 1f, Color.BLACK);
 
@@ -127,8 +127,8 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
     }
 
     private void draw3x3(Canvas canvas) {
-        int w = canvas.getWidth();
-        int h = canvas.getHeight();
+        int w = getWidth();
+        int h = getHeight();
         canvas.drawLine(w / 3f, 0, w / 3f, h, whitePaint);
         canvas.drawLine(2.f * w / 3f, 0, 2f * w / 3f, h, whitePaint);
         canvas.drawLine(0, h / 3f, w, h / 3f, whitePaint);
@@ -136,8 +136,8 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
     }
 
     private void draw4x4(Canvas canvas) {
-        int w = canvas.getWidth();
-        int h = canvas.getHeight();
+        int w = getWidth();
+        int h = getHeight();
         canvas.drawLine(w / 4f, 0, w / 4f, h, whitePaint);
         canvas.drawLine(w / 2f, 0, w / 2f, h, whitePaint);
         canvas.drawLine(3 * w / 4f, 0, 3 * w / 4f, h, whitePaint);
@@ -147,8 +147,8 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
     }
 
     private void drawGoldenRatio(Canvas canvas) {
-        int w = canvas.getWidth();
-        int h = canvas.getHeight();
+        int w = getWidth();
+        int h = getHeight();
         float gr = (float) goldenRatio(1, 1);
         canvas.drawLine(w / (1 + gr), 0, w / (1 + gr), h, whitePaint);
         canvas.drawLine(gr * w / (1 + gr), 0, gr * w / (1 + gr), h, whitePaint);
@@ -157,8 +157,8 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
     }
 
     private void drawSuperDiag(Canvas canvas) {
-        int w = canvas.getWidth();
-        int h = canvas.getHeight();
+        int w = getWidth();
+        int h = getHeight();
         //float gr = (float) goldenRatio(1, 1);
         canvas.drawLine(0, 0, w, h, whitePaint);
         canvas.drawLine(w/3.f, h/3.f, w, 0, whitePaint);
@@ -356,7 +356,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
         boolean isLandscape = drawnLandscape();
 
         // Dynamic pivot calculation keeping exact 14dp right and 12dp top margins in all rotations
-        float pivotX = canvas.getWidth() - marginSide - (isLandscape ? (h / 2f) : (w / 2f));
+        float pivotX = getWidth() - marginSide - (isLandscape ? (h / 2f) : (w / 2f));
         float pivotY = marginTop + (isLandscape ? (w / 2f) : (h / 2f));
 
         float left = pivotX - (w / 2f);

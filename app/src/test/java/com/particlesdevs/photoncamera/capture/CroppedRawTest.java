@@ -62,4 +62,12 @@ public class CroppedRawTest {
         float[] trim = CroppedRaw.viewCrop(active, new Rect(active), 1f, new Rect(32, 0, 4048, 3072));
         assertEquals(1f, trim[2], 1e-6f);
     }
+
+    /** P586: the OPPO family's CROPPED_RAW is the HAL's own ISZ (a remosaicked Bayer): off unless scam_dev oplus_cropped_raw 1. */
+    @Test
+    public void notOnTheOppoFamily() {
+        assertFalse(CroppedRaw.familyAllows(true, false));
+        assertTrue(CroppedRaw.familyAllows(true, true));
+        assertTrue(CroppedRaw.familyAllows(false, false));
+    }
 }

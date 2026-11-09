@@ -48,7 +48,7 @@ public final class FastScroller extends FrameLayout {
         addView(thumb, new LayoutParams(GalleryUi.dp(c, 6), GalleryUi.dp(c, 52), Gravity.END | Gravity.TOP));
         // P579: the day under the finger in the camera's dark capsule (its light edge), as the toasts
         bubble = GalleryUi.text(c, "", 14, GalleryUi.TEXT);
-        bubble.setTypeface(GalleryUi.semibold());
+        bubble.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(bubble.getContext(), 600));
         bubble.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 9), GalleryUi.dp(c, 14), GalleryUi.dp(c, 9));
         bubble.setBackground(GalleryUi.bar(c, 999));
         bubble.setElevation(GalleryUi.dp(c, 4));

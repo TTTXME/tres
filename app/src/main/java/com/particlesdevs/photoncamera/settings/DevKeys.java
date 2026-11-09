@@ -565,10 +565,27 @@ public final class DevKeys {
         k.add(s(cap, "oppo_fullres", true, Lang.t("OPPO, OnePlus, realme: FULLRES без аппаратного ремозаика (свои AE и баланс белого; режимы — из таблицы камеры)",
                 "OPPO, OnePlus, realme: FULLRES without hardware remosaic (own AE and white balance; the modes from the camera's table)")));
         // P575: nubia FULLRES / «2×» ISZ through the camera's full-size sensor-mode row (NubiaFullRes)
+        k.add(s(cap, "nubia_maxres", true, Lang.t("nubia: FULLRES без рута через RAW максимального разрешения (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), без ISP-потока; кадры обычного Байера (ремозаик) выключают его",
+                "nubia: FULLRES without root through the maximum-resolution RAW (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), no ISP stream; plain Bayer frames (remosaic) turn it off")));
         k.add(s(cap, "nubia_fullres", true, Lang.t("nubia: FULLRES и «2×» ISZ через полноразмерный режим сенсора из таблицы камеры (без ISP-потока, без ремозаика)",
                 "nubia: FULLRES and the «2×» ISZ through the camera's full-size sensor mode from its table (no ISP stream, no remosaic)")));
         k.add(s(cap, "nubia_isz_module", true, Lang.t("nubia: модуль «2×» основной камеры (полноразмерный режим, зум 2)",
                 "nubia: the main camera's «2×» module (the full-size mode, zoom 2)")));
+        // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)
+        k.add(s(cap, "oplus_table_fallback", true, Lang.t("OnePlus 16: таблица режимов сенсора из отчёта SCAM TEST, если камера не отдаёт её в Java",
+                "OnePlus 16: the sensor-mode table of the SCAM TEST report when the camera gives none to Java")));
+        k.add(s(cap, "oplus_200mp", true, Lang.t("OnePlus 16: размер «200 Мп» основной камеры (режим 24, своя мозаика 4×4)",
+                "OnePlus 16: the main camera's «200 MP» size (mode 24, its own 4x4 mosaic)")));
+        k.add(s(cap, "oplus_isz", true, Lang.t("OnePlus 16: модули ISZ основной камеры и телевика (режим 11, квад сенсора без ремозаика, без ISP-потока)",
+                "OnePlus 16: the ISZ modules of the main camera and the tele (mode 11, the sensor's Quad without remosaic, no ISP stream)")));
+        k.add(s(cap, "oplus_mode_watch", true, Lang.t("OnePlus 16: проверка режима сенсора по результатам (ISZ, DCG, FULLRES; не тот режим — откат)",
+                "OnePlus 16: the sensor mode checked in the results (ISZ, DCG, FULLRES; another mode falls back)")));
+        k.add(s(cap, "oplus_dcg", true, Lang.t("OnePlus 16: кнопка DCG (основная, режим 28) и DAG (телевик, режим 2 / 4)",
+                "OnePlus 16: the DCG button (main, mode 28) and DAG (tele, mode 2 / 4)")));
+        k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",
+                "OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 on the session and every request (where the camera lists it)")));
+        k.add(s(cap, "oplus_cropped_raw", false, Lang.t("OPPO, OnePlus, realme: CROPPED_RAW (ISZ самого HAL — аппаратный ремозаик). Выкл по умолчанию",
+                "OPPO, OnePlus, realme: CROPPED_RAW (the HAL's own ISZ, a hardware remosaic). Off by default")));
         // P212: the own AE of the OPPO native FULLRES session (NativeRawExposure)
         k.add(s(cap, "native_ae_cap", true, Lang.t("OPPO FULLRES, своя AE: ISO не выше того, что режим реально даёт (запомненный предел), один пробный кадр за сессию. Выкл — ISO по объявленному диапазону",
                 "OPPO FULLRES own AE: ISO no higher than the mode really gives (the stored cap), one probe frame a session. Off: ISO by the declared range")));

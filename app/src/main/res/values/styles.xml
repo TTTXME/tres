@@ -19,7 +19,167 @@
         <item name="alertDialogTheme">@style/AlertDialogTheme</item>
         <item name="materialAlertDialogTheme">@style/AlertDialogTheme</item>
         <item name="android:alertDialogTheme">@style/AlertDialogTheme.Framework</item>
-        <item name="android:fontFamily">@font/open_sans</item>
+        <!--
+            P582 (owner, 2026-11-09: «…то какой у него в системе шрифт не влияет на наше приложение»): the concept's Roboto Flex
+            for every TextView, Button, Chip, toolbar title, preference row, dialog and sheet - the theme's family for views
+            inflated with no font of their own, the Material 3 type scale below for the views that set a text appearance in
+            code, and ConceptViewInflater for layouts that still name a system family (sans-serif-medium -> 500).
+        -->
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+        <item name="viewInflaterClass">com.particlesdevs.photoncamera.ui.style.ConceptViewInflater</item>
+        <item name="textAppearanceDisplayLarge">@style/TextAppearance.Scamera.DisplayLarge</item>
+        <item name="textAppearanceDisplayLargeEmphasized">@style/TextAppearance.Scamera.DisplayLarge.Emphasized</item>
+        <item name="textAppearanceDisplayMedium">@style/TextAppearance.Scamera.DisplayMedium</item>
+        <item name="textAppearanceDisplayMediumEmphasized">@style/TextAppearance.Scamera.DisplayMedium.Emphasized</item>
+        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Scamera.DisplaySmall</item>
+        <item name="textAppearanceDisplaySmallEmphasized">@style/TextAppearance.Scamera.DisplaySmall.Emphasized</item>
+        <item name="textAppearanceHeadlineLarge">@style/TextAppearance.Scamera.HeadlineLarge</item>
+        <item name="textAppearanceHeadlineLargeEmphasized">@style/TextAppearance.Scamera.HeadlineLarge.Emphasized</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Scamera.HeadlineMedium</item>
+        <item name="textAppearanceHeadlineMediumEmphasized">@style/TextAppearance.Scamera.HeadlineMedium.Emphasized</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Scamera.HeadlineSmall</item>
+        <item name="textAppearanceHeadlineSmallEmphasized">@style/TextAppearance.Scamera.HeadlineSmall.Emphasized</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Scamera.TitleLarge</item>
+        <item name="textAppearanceTitleLargeEmphasized">@style/TextAppearance.Scamera.TitleLarge.Emphasized</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Scamera.TitleMedium</item>
+        <item name="textAppearanceTitleMediumEmphasized">@style/TextAppearance.Scamera.TitleMedium.Emphasized</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Scamera.TitleSmall</item>
+        <item name="textAppearanceTitleSmallEmphasized">@style/TextAppearance.Scamera.TitleSmall.Emphasized</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Scamera.BodyLarge</item>
+        <item name="textAppearanceBodyLargeEmphasized">@style/TextAppearance.Scamera.BodyLarge.Emphasized</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Scamera.BodyMedium</item>
+        <item name="textAppearanceBodyMediumEmphasized">@style/TextAppearance.Scamera.BodyMedium.Emphasized</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Scamera.BodySmall</item>
+        <item name="textAppearanceBodySmallEmphasized">@style/TextAppearance.Scamera.BodySmall.Emphasized</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Scamera.LabelLarge</item>
+        <item name="textAppearanceLabelLargeEmphasized">@style/TextAppearance.Scamera.LabelLarge.Emphasized</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.Scamera.LabelMedium</item>
+        <item name="textAppearanceLabelMediumEmphasized">@style/TextAppearance.Scamera.LabelMedium.Emphasized</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.Scamera.LabelSmall</item>
+        <item name="textAppearanceLabelSmallEmphasized">@style/TextAppearance.Scamera.LabelSmall.Emphasized</item>
+    </style>
+
+    <!-- P582: the Material 3 type scale in Roboto Flex (sizes and spacing as Material's; its medium steps at 500). -->
+    <style name="TextAppearance.Scamera.DisplayLarge" parent="TextAppearance.Material3.DisplayLarge">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.DisplayLarge.Emphasized" parent="TextAppearance.Material3.DisplayLarge.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.DisplayMedium" parent="TextAppearance.Material3.DisplayMedium">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.DisplayMedium.Emphasized" parent="TextAppearance.Material3.DisplayMedium.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.DisplaySmall.Emphasized" parent="TextAppearance.Material3.DisplaySmall.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.HeadlineLarge" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.HeadlineLarge.Emphasized" parent="TextAppearance.Material3.HeadlineLarge.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.HeadlineMedium.Emphasized" parent="TextAppearance.Material3.HeadlineMedium.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.HeadlineSmall.Emphasized" parent="TextAppearance.Material3.HeadlineSmall.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.TitleLarge.Emphasized" parent="TextAppearance.Material3.TitleLarge.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.TitleMedium.Emphasized" parent="TextAppearance.Material3.TitleMedium.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.TitleSmall.Emphasized" parent="TextAppearance.Material3.TitleSmall.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.BodyLarge.Emphasized" parent="TextAppearance.Material3.BodyLarge.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.BodyMedium.Emphasized" parent="TextAppearance.Material3.BodyMedium.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.BodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.BodySmall.Emphasized" parent="TextAppearance.Material3.BodySmall.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.LabelLarge.Emphasized" parent="TextAppearance.Material3.LabelLarge.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.LabelMedium.Emphasized" parent="TextAppearance.Material3.LabelMedium.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
+    </style>
+    <style name="TextAppearance.Scamera.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
+    </style>
+    <style name="TextAppearance.Scamera.LabelSmall.Emphasized" parent="TextAppearance.Material3.LabelSmall.Emphasized">
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
     </style>
 
     <style name="Theme.Scamera.Splash" parent="Theme.Scamera.BaseApp">
@@ -103,7 +263,8 @@
         <item name="isLightTheme">false</item>
         <item name="android:isLightTheme" tools:targetApi="q">false</item>
         <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
-        <item name="android:fontFamily">@font/open_sans</item>
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
         <item name="materialAlertDialogTitlePanelStyle">@style/Scamera.Dialog.TitlePanel</item>
         <item name="materialAlertDialogTitleTextStyle">@style/Scamera.Dialog.Title</item>
         <item name="materialAlertDialogBodyTextStyle">@style/Scamera.Dialog.Body</item>
@@ -145,7 +306,7 @@
         <item name="android:textAppearance">@style/TextAppearance.Scamera.DialogTitle</item>
         <item name="android:textColor">@color/settings_row_title</item>
         <item name="android:textSize">18sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:singleLine">false</item>
         <item name="android:maxLines">4</item>
@@ -156,8 +317,8 @@
     <style name="TextAppearance.Scamera.DialogTitle" parent="">
         <item name="android:textSize">18sp</item>
         <item name="android:textColor">@color/settings_row_title</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
         <item name="android:textAllCaps">false</item>
     </style>
 
@@ -166,7 +327,7 @@
         <item name="android:textAppearance">@style/TextAppearance.Scamera.DialogBody</item>
         <item name="android:textColor">@color/dialog_body</item>
         <item name="android:textSize">15sp</item>
-        <item name="android:fontFamily">@font/open_sans</item>
+        <item name="android:fontFamily">@font/roboto_flex</item>
         <item name="android:lineSpacingExtra">3sp</item>
         <item name="android:paddingBottom">6dp</item>
     </style>
@@ -174,8 +335,8 @@
     <style name="TextAppearance.Scamera.DialogBody" parent="">
         <item name="android:textSize">15sp</item>
         <item name="android:textColor">@color/dialog_body</item>
-        <item name="android:fontFamily">@font/open_sans</item>
-        <item name="fontFamily">@font/open_sans</item>
+        <item name="android:fontFamily">@font/roboto_flex</item>
+        <item name="fontFamily">@font/roboto_flex</item>
     </style>
 
     <!-- «Отмена»: a quiet button in white, sentence case; P574 a grey capsule (the concept's secondary action). -->
@@ -185,7 +346,7 @@
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">15sp</item>
         <item name="android:letterSpacing">0</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
         <item name="android:textColor">@color/dialog_quiet_text</item>
         <item name="rippleColor">@color/settings_ripple</item>
         <item name="shapeAppearance">@style/ShapeAppearance.Scamera.Pill</item>
@@ -213,7 +374,7 @@
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">15sp</item>
         <item name="android:letterSpacing">0</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
         <item name="android:textColor">@color/dialog_positive_text</item>
         <item name="backgroundTint">@color/dialog_positive_fill</item>
         <item name="rippleColor">@color/settings_ripple</item>
@@ -233,8 +394,8 @@
 
     <style name="TextAppearance.Scamera.DialogButton" parent="">
         <item name="android:textSize">15sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
+        <item name="fontFamily">@font/roboto_flex_500</item>
         <item name="android:textAllCaps">false</item>
         <item name="textAllCaps">false</item>
         <item name="android:letterSpacing">0</item>
@@ -264,7 +425,7 @@
         <item name="android:colorControlActivated">?attr/colorPrimary</item>
         <item name="android:colorControlNormal">@color/settings_muted</item>
         <item name="android:colorControlHighlight">@color/settings_ripple</item>
-        <item name="android:fontFamily">@font/open_sans</item>
+        <item name="android:fontFamily">@font/roboto_flex</item>
         <item name="android:windowTitleStyle">@style/AlertDialogTheme.Framework.Title</item>
         <item name="android:buttonBarButtonStyle">@style/AlertDialogTheme.Framework.Button</item>
         <item name="android:isLightTheme" tools:targetApi="q">false</item>
@@ -281,7 +442,7 @@
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">14sp</item>
         <item name="android:letterSpacing">0</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_500</item>
         <item name="android:textColor">?attr/colorPrimary</item>
     </style>
 
@@ -309,7 +470,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginStart">6dp</item>
         <item name="android:textSize">13sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_600</item>
         <item name="android:maxLines">1</item>
         <item name="android:visibility">gone</item>
         <item name="android:importantForAccessibility">no</item>
@@ -322,7 +483,7 @@
         <item name="android:paddingEnd">10dp</item>
         <item name="android:gravity">center</item>
         <item name="android:textSize">13sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/roboto_flex_600</item>
         <item name="android:letterSpacing">0.01</item>
         <item name="android:maxLines">1</item>
         <item name="android:clickable">true</item>

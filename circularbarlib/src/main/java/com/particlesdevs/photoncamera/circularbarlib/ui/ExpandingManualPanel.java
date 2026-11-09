@@ -51,8 +51,9 @@ public class ExpandingManualPanel extends LinearLayout {
         toggleIcon = findViewById(R.id.manual_toggle_icon);
         Context c = getContext();
         // P509 (owner, 2026-11-05: «Подменю про режима тоже перерисуй под стиль нашей новой шторки»): the shade's glass plates
-        tabs.setBackground(UiTokens.glass(c, 18));
-        scale.setBackground(UiTokens.glass(c, 18));
+        // P583 (the concept's Pro cards): rgba(20, 20, 22, .9) with 22px corners
+        tabs.setBackground(UiTokens.shape(c, UiTokens.PRO_CARD, 0, 22));
+        scale.setBackground(UiTokens.shape(c, UiTokens.PRO_CARD, 0, 22));
         toggle.setBackground(UiTokens.shape(c, UiTokens.CARD, UiTokens.LINE, 20));
         GradientDrawable round = new GradientDrawable();
         round.setShape(GradientDrawable.OVAL);

@@ -287,6 +287,15 @@ struct HybridTuning {
     float lutLo=10.f,lutHi=30.f,lutHiSigma=1.414f;
     // kernel (Sabre 6.1 curves of the SNR of mid grey, see snrKernel())
     float kernelScale=1.f;       // multiplies every kernel sigma
+    // P587 (owner, 2026-11-09, after ArkCam 2.07's Sabre covariance cov_base / cov_blurred / cov_trans: «Добавь такие параметры к
+    // нам»): multipliers of the kernel sigma by region of the structure-tensor kernel, 1 = the kernel before (bit for bit).
+    // kernelTexture: the base sigma (textured areas: strong gradient, low coherence; also the isotropic end of the edge ellipse);
+    // kernelBokeh: the blurred / flat sigma (gradient energy below the noise-relative threshold: flat areas, out-of-focus bokeh);
+    // kernelTransition: the gradient threshold of the ramp between them (Sabre 6.1 / fast route: clip x t, slope / t; round-4:
+    // flat0 / flat1 x t), > 1 = more of the frame takes the bokeh kernel. Every route with a structure-tensor kernel (the plain and
+    // the mosaic merge through the guide, the native Quad / Tetra merge from the same covariance, the fast route) - see
+    // hybridKernelFootprint.
+    float kernelTexture=1.f,kernelBokeh=1.f,kernelTransition=1.f;
     float widenBelow=4.f;        // base-frame kernel widening below this accumulated donor weight (6.1: 4.0)
     float widenMul=1.826f;       // 6.1: covariance x0.3 = sigma x1.826
     float kernelFloor=0.00005f;  // 6.1 kEpsilon: no hole where the kernel is narrower than the lattice
@@ -1270,6 +1279,32 @@ inline bool& hybridCellsPlain(){static bool on=false;return on;}
 // uniform - the same result
 inline bool& hybridBlendStagesOff(){static bool off=false;return off;}
 
+// P587: the texture / bokeh footprints of the kernel (HybridTuning::kernelTexture / kernelBokeh / kernelTransition, clamped to
+// 0.25 .. 4) on the uniforms every structure-tensor kernel takes, so the GPU programs are untouched and every route the same:
+// - Sabre 6.1 (sabreCov61Q, precisions p ~ 1 / sigma): base k61a[3] / texture, blurred k61b[0] / bokeh, the ramp
+//   blur = clamp(1 - (max(strength, gd) - k61a[2]) k61b[1]) with clip k61a[2] x transition and slope k61b[1] / transition
+//   (= the gradient read / transition: the same ramp at transition x the gradient);
+// - round 4 (kHybGuide's own tensor, sigmas): base x texture, flat x bokeh, flat0 / flat1 x transition;
+// - the fast route's covariance_parameters (scam-fast-merge.h, the 6.1 program): as Sabre 6.1.
+// Factors of exactly 1 leave every value as it was (bit for bit): nothing is multiplied then.
+struct HybridKernelFootprint {
+    float texture=1.f,bokeh=1.f,transition=1.f;
+    bool active()const{return texture!=1.f||bokeh!=1.f||transition!=1.f;}
+    void apply61(std::array<float,4>& a,std::array<float,4>& b)const{
+        if(texture!=1.f)a[3]/=texture;
+        if(bokeh!=1.f)b[0]/=bokeh;
+        if(transition!=1.f){a[2]*=transition;b[1]/=transition;}
+    }
+    void applyRound4(SuperResTuning& k)const{
+        if(texture!=1.f)k.base*=texture;
+        if(bokeh!=1.f)k.flat*=bokeh;
+        if(transition!=1.f){k.flat0*=transition;k.flat1*=transition;}
+    }
+};
+inline HybridKernelFootprint hybridKernelFootprint(const HybridTuning& t){
+    auto f=[](float v){return std::isfinite(v)&&v>0.f?std::clamp(v,0.25f,4.f):1.f;};
+    return {f(t.kernelTexture),f(t.kernelBokeh),f(t.kernelTransition)};
+}
 inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::function<void(const std::string&)>& report) {
     HybridTuning t;
     const std::string paths[]={jobDir+"/hybrid_tuning.txt","/sdcard/Download/SCAMERA/hybrid_tuning.txt","/data/local/tmp/hybrid_tuning.txt"};
@@ -1289,7 +1324,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("motionThreshold",&t.motionThreshold)
             ||set("filterVariance",&t.filterVariance)||set("dilateOffset",&t.dilateOffset)||set("dilateScale",&t.dilateScale)||set("dilateFloor",&t.dilateFloor)
             ||set("clipLevel",&t.clipLevel)||set("fwe",&t.fwe)||set("weightCap",&t.weightCap)||set("lutLo",&t.lutLo)||set("lutHi",&t.lutHi)
-            ||set("lutHiSigma",&t.lutHiSigma)||set("kernelScale",&t.kernelScale)||set("widenBelow",&t.widenBelow)||set("widenMul",&t.widenMul)
+            ||set("lutHiSigma",&t.lutHiSigma)||set("kernelScale",&t.kernelScale)||set("kernelTexture",&t.kernelTexture)||set("kernelBokeh",&t.kernelBokeh)||set("kernelTransition",&t.kernelTransition)||set("widenBelow",&t.widenBelow)||set("widenMul",&t.widenMul)
             ||set("kernelFloor",&t.kernelFloor)||set("chromaDiff",&t.chromaDiff)||set("chromaDiffClamp",nullptr,&t.chromaDiffClamp)||set("rawTensor",&t.rawTensor)||set("rawNoise",&t.rawNoise)||set("bento",nullptr,&t.bento)
             ||set("bentoHighlight",&t.bentoHighlight)||set("bentoDilate",nullptr,&t.bentoDilate)||set("bentoSmooth",&t.bentoSmooth)
             ||set("grid",nullptr,&t.grid)||set("bentoMinClipped",&t.bentoMinClipped)||set("bentoMaxUsClipped",&t.bentoMaxUsClipped)||set("bentoNearClip",&t.bentoNearClip)||set("bentoMaxHole",nullptr,&t.bentoMaxHole)
@@ -13865,6 +13900,12 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                     :sabreSnr(baseSlope,keyOffset,tune.snrScale);
     snrKernel(kernel,snr);
     kernel.base*=tune.kernelScale;kernel.shrunk*=tune.kernelScale;kernel.stretched*=tune.kernelScale;kernel.flat*=tune.kernelScale;
+    const HybridKernelFootprint footprint=hybridKernelFootprint(tune); // P587
+    if(footprint.active()){
+        footprint.applyRound4(kernel);
+        report("HYBRID KERNEL: footprint texture x"+std::to_string(footprint.texture)+", bokeh x"+std::to_string(footprint.bokeh)
+            +", transition x"+std::to_string(footprint.transition));
+    }
     if(tune.isoKernel){kernel.shrunk=kernel.stretched=kernel.base;if(tune.isoKernel>=2)kernel.flat=kernel.base;}
     // Sabre 6.1 kernel (sabre2x_61.md F1): key = 0.18/sqrt(O + 0.18 S) of the base frame (no snrScale), 6.1 curves f0..f3
     // (the Sabre 6.1 curves in research), f4 = 4, f5 = 2.2; uniforms exactly as the reference library 0x723f04-0x724008.
@@ -13945,6 +13986,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         k61b={1.f/(f0*f1),1.f/f3,1.f/(ks*ks),tn>0?tn:1.f};
         if(native&&flatScale!=1.f)k61b[0]/=std::clamp(flatScale,0.25f,4.f); // P34
         k61c={gn>0?gn:1.f,tune.s61Fine>0.f?tune.s61Fine:0.f,0,0};
+        footprint.apply61(k61a,k61b); // P587
         auto sigma=[&](float p){return std::to_string(ks/(p*std::sqrt(std::log(2.f))));};
         report("HYBRID KERNEL: Sabre 6.1 baseNoise slope="+std::to_string(baseSlope)+" offset="+std::to_string(baseOffset)+" key="+std::to_string(key)
             +" f0="+std::to_string(f0)+" f1="+std::to_string(f1)+" f2="+std::to_string(f2)+" f3="+std::to_string(f3)

@@ -65,6 +65,8 @@ public class GalleryActivity extends BaseActivity {
 
         getDelegate().setLocalNightMode(PreferenceKeys.getThemeValue());
         activityGalleryBinding = DataBindingUtil.setContentView(this, R.layout.activity_gallery);
+        // P584: the gallery in the settings concept's font (Roboto Flex at each text's weight, sizes in dp)
+        com.particlesdevs.photoncamera.ui.settings.ConceptFonts.follow(getWindow().getDecorView());
         viewModel = new ViewModelProvider(this).get(GalleryViewModel.class);
         
         // A recreation (rotation, a theme change, process death): the NavHostFragment restored the back stack and each entry's

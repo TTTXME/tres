@@ -37,7 +37,7 @@ public class ManualChipView extends LinearLayout {
     /** Value text size: at most this, shrunk to fit the chip down to {@link #VALUE_MIN_SP}. */
     public static final float VALUE_MAX_SP = 13f, VALUE_MIN_SP = 9f;
     /** The name line (the concept's .n: 10sp, letter spacing -0.025). */
-    public static final float STATE_SP = 10f, STATE_MIN_SP = 7f;
+    public static final float STATE_SP = 9.5f, STATE_MIN_SP = 7f;   // P583: the concept's 9.5px name
     /** Alpha of a locked or unavailable chip. */
     public static final float LOCKED_ALPHA = .4f;
 
@@ -57,6 +57,7 @@ public class ManualChipView extends LinearLayout {
         setOrientation(VERTICAL);
         setGravity(Gravity.CENTER_HORIZONTAL);
         setPadding(0, UiTokens.dp(context, 6), 0, UiTokens.dp(context, 5));
+        setMinimumHeight(UiTokens.dp(context, 66));   // P583: the concept's 66px chip
         setClickable(true);
         setLongClickable(true);
         setFocusable(true);
@@ -64,21 +65,22 @@ public class ManualChipView extends LinearLayout {
         accent = UiTokens.cameraAccent(context);
         icon = new ImageView(context);
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        int size = UiTokens.dp(context, 20);
+        int size = UiTokens.dp(context, 18);   // P583: the concept's 18px glyph
         addView(icon, new LayoutParams(size, size));
         value = line(context, VALUE_MAX_SP);
         value.setFontFeatureSettings("tnum");
-        value.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        value.setLetterSpacing(-.01f);
+        value.setTypeface(UiTokens.font(context, 700));   // P583: 13px heavy
+        value.setLetterSpacing(0f);
         // Each line takes LINE_HEIGHT x its nominal size, whatever the system font's own metrics (P43): the chip is
         // 6 + 20 + 1 + 15.6 + 1 + 12 + 5 dp as in the concept, the same for every chip (a shrunk value keeps the line),
         // and grows with the font size only up to UiTokens.FONT_SCALE_CAP.
         addView(value, lineParams(value, VALUE_MAX_SP, UiTokens.dp(context, 1)));
         state = line(context, STATE_SP);
-        state.setLetterSpacing(-.025f);
-        state.setTextColor(UiTokens.MUTED);
+        state.setLetterSpacing(0f);
+        state.setTypeface(UiTokens.font(context, 400));
+        state.setTextColor(0xBFFFFFFF);
         addView(state, lineParams(state, STATE_SP, UiTokens.dp(context, 1)));
-        background.setCornerRadius(UiTokens.dp(context, 16)); // P509: a Material You tile on the glass
+        background.setCornerRadius(UiTokens.dp(context, 18)); // P583: the concept's 18px chip
         setBackground(background);
         if (attrs != null) {
             TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.ManualChipView);
@@ -192,10 +194,13 @@ public class ManualChipView extends LinearLayout {
     private void apply() {
         boolean manual = chipState == MANUAL;
         boolean dim = chipState == LOCKED || chipState == UNAVAILABLE || chipState == DIMMED;
-        int color = manual || iconAccent && !dim ? accent : UiTokens.MUTED;
+        // P583 (the concept's chips): the chosen one #2C2C2E with an inset 1.5px accent edge, its glyph, value and name in the
+        // accent; the others clear, white (a hand-set value keeps the accent on its number)
+        int color = chosen || iconAccent && !dim ? accent : UiTokens.TEXT;
         icon.setColorFilter(color, android.graphics.PorterDuff.Mode.SRC_IN);
-        value.setTextColor(manual ? accent : UiTokens.TEXT);
-        background.setColor(manual ? UiTokens.alpha(accent | 0xFF000000, .26f) : UiTokens.TONAL); // P509: tonal, the accent when manual
+        value.setTextColor(chosen || manual ? accent : UiTokens.TEXT);
+        state.setTextColor(chosen ? (accent & 0x00FFFFFF) | 0xBF000000 : 0xBFFFFFFF);
+        background.setColor(chosen ? 0xFF2C2C2E : 0x00000000);
         if (chosen) background.setStroke(Math.round(1.5f * getResources().getDisplayMetrics().density), accent);
         else background.setStroke(0, 0);
         setAlpha(dim ? LOCKED_ALPHA : 1f);

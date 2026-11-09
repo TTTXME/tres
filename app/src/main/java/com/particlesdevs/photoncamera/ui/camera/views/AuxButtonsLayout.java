@@ -317,7 +317,7 @@ public AuxButtonsLayout(Context context, @Nullable AttributeSet attrs) {
         for (int i = 0; i < getChildCount(); i++) {
             View v = getChildAt(i);
             if (v instanceof Button && !(v instanceof LensButton))
-                ((Button) v).setTypeface(null, v.isSelected() ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                ((Button) v).setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(v.getContext(), v.isSelected() ? 700 : 400));
         }
     }
 
@@ -331,7 +331,7 @@ public AuxButtonsLayout(Context context, @Nullable AttributeSet attrs) {
     private final android.graphics.RectF pill = new android.graphics.RectF(), pillFrom = new android.graphics.RectF(),
             pillAt = new android.graphics.RectF();
     /** The active lens at the last layout; the lens whose own pill is hidden while the strip's glides to it. */
-    @Nullable private LensButton pillLens, pillHidden;
+    @Nullable private LensButton pillLens, pillHidden, fading;
     @Nullable private android.animation.ValueAnimator glide;
 
     @Override
@@ -373,24 +373,54 @@ public AuxButtonsLayout(Context context, @Nullable AttributeSet attrs) {
         else pillFrom.set(l0, t0, r0, b0);
         endGlide();
         pill.set(pillFrom);
-        pillPaint.setColor(com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(getContext()));
+        pillPaint.setColor(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.CHOSEN);
         pillHidden = now;
         now.ownPill(false);
+        // P589 (owner, 2026-11-09: the old switch «переделай и улучши её под нашу новую стилистику»): the pill flows - its leading
+        // edge runs ahead on the spring and the trailing one follows (a short stretch toward the new lens that settles into it),
+        // the labels cross-fade white <-> accent with it, and the new lens pops once as the pill lands
+        final boolean right = pillAt.centerX() >= pillFrom.centerX();
+        final LensButton old = before != null && before.getParent() == this ? before : null;
+        fading = old;
+        final int accent = com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(getContext());
         final android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
-        a.setDuration(GLIDE.durationMs);
-        a.setInterpolator(GLIDE);
+        a.setDuration(Math.round(GLIDE.durationMs * 1.15f));
+        a.setInterpolator(new android.view.animation.LinearInterpolator());
+        final LensButton target = now;
         a.addUpdateListener(x -> {
-            final float k = (float) x.getAnimatedValue();
-            pill.set(pillFrom.left + (pillAt.left - pillFrom.left) * k, pillFrom.top + (pillAt.top - pillFrom.top) * k,
-                    pillFrom.right + (pillAt.right - pillFrom.right) * k, pillFrom.bottom + (pillAt.bottom - pillFrom.bottom) * k);
+            final float t = (float) x.getAnimatedValue();
+            final float lead = GLIDE.getInterpolation(Math.min(1f, t * 1.3f)), trail = GLIDE.getInterpolation(Math.max(0f, (t - 0.14f) / 0.86f));
+            final float kl = right ? trail : lead, kr = right ? lead : trail, km = (lead + trail) / 2f;
+            pill.set(pillFrom.left + (pillAt.left - pillFrom.left) * kl, pillFrom.top + (pillAt.top - pillFrom.top) * km,
+                    pillFrom.right + (pillAt.right - pillFrom.right) * kr, pillFrom.bottom + (pillAt.bottom - pillFrom.bottom) * km);
+            final float c = Math.max(0f, Math.min(1f, lead));
+            target.labelColour(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(0xFFFFFFFF, accent, c));
+            if (old != null) old.labelColour(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(accent, 0xFFFFFFFF, c));
             invalidate();
         });
         a.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) {
-                if (glide == a) endGlide();
+                if (glide == a) {
+                    endGlide();
+                    land(target);
+                }
             }
         });
         glide = a;
+        a.start();
+    }
+
+    /** P589: the lens the pill landed on swells a little and settles (1 -> 1.07 -> 1, 260 ms). */
+    private static void land(View v) {
+        if (!com.particlesdevs.photoncamera.ui.Motion.enabled(v)) return;
+        final android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(1f, 1.07f, 1f);
+        a.setDuration(260);
+        a.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        a.addUpdateListener(x -> {
+            final float k = (float) x.getAnimatedValue();
+            v.setScaleX(k);
+            v.setScaleY(k);
+        });
         a.start();
     }
 
@@ -399,8 +429,13 @@ public AuxButtonsLayout(Context context, @Nullable AttributeSet attrs) {
         final android.animation.ValueAnimator g = glide;
         glide = null;
         if (g != null) g.cancel();
-        if (pillHidden != null) pillHidden.ownPill(true);
+        if (pillHidden != null) {
+            pillHidden.ownPill(true);
+            pillHidden.restoreLabels();
+        }
         pillHidden = null;
+        if (fading != null) fading.restoreLabels();
+        fading = null;
         if (!pill.isEmpty()) {
             pill.setEmpty();
             invalidate();

@@ -161,6 +161,9 @@ public class ShadowTextRenderer {
         }
         if (style.hasValue(1) || style.hasValue(7)) {
             Typeface typeface = context.getResources().getFont(style.getResourceId(7, 0));
+            // P582: the style's bold from the Roboto Flex family (its 700), not a synthetic one
+            int textStyle = style.getInt(1, Typeface.NORMAL);
+            if (textStyle != Typeface.NORMAL) typeface = Typeface.create(typeface, textStyle);
             this.m_TextPaint.setTypeface(typeface);
             this.m_StrokePaint.setTypeface(typeface);
             isTextSizeChanged = true;

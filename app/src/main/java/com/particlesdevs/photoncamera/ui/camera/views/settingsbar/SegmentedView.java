@@ -81,7 +81,7 @@ final class SegmentedView extends ViewGroup {
             TextView t = segments[i];
             t.setBackground(on ? ShadeStyle.card(getContext(), accent, 0, 14) : ShadeStyle.pressable(getContext(), 0, 0, 14));
             t.setTextColor(on ? ShadeStyle.INK : ShadeStyle.MUTED);
-            t.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, on ? com.particlesdevs.photoncamera.ui.style.Fonts.BOLD : com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         }
     }
 

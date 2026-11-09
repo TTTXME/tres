@@ -98,7 +98,7 @@ public class ShadeCatalogView extends LinearLayout {
         heading.setText(R.string.shade_catalog_title);
         heading.setTextColor(ShadeStyle.TEXT);
         heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
-        heading.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(heading, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         titles.addView(heading);
         count = new TextView(context);
         count.setTextColor(ShadeStyle.MUTED);
@@ -296,7 +296,7 @@ public class ShadeCatalogView extends LinearLayout {
             TextView title = new TextView(c);
             title.setTextColor(ShadeStyle.TEXT);
             title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f);
-            title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(title, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
             texts.addView(title);
             TextView crumb = new TextView(c);
             crumb.setTextColor(ShadeStyle.MUTED);
@@ -315,7 +315,7 @@ public class ShadeCatalogView extends LinearLayout {
             // «Добавить» (an accent outline) / «✓ В шторке» (muted)
             TextView button = new TextView(c);
             button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(button, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
             button.setGravity(Gravity.CENTER);
             button.setMinHeight(dp(34));
             button.setPadding(dp(10), dp(6), dp(10), dp(6));

@@ -109,8 +109,9 @@ public class UniversalSeekBarPreference extends Preference {
         instant = false;
         final TextView min = (TextView) holder.findViewById(R.id.seekbar_min), max = (TextView) holder.findViewById(R.id.seekbar_max);
         // the ends as the pill writes a value (on the bar's grid: «0.00» … «1.00»)
-        if (min != null) min.setText(isFloat ? PreferenceNumber.gridText(mMin, mDecimals) : formatExactValue(mMin));
-        if (max != null) max.setText(isFloat ? PreferenceNumber.gridText(mMax, mDecimals) : formatExactValue(mMax));
+        // P584: as the concept writes numbers (a decimal comma on a Russian screen)
+        if (min != null) min.setText(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.number(getContext(), isFloat ? PreferenceNumber.gridText(mMin, mDecimals) : formatExactValue(mMin)));
+        if (max != null) max.setText(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.number(getContext(), isFloat ? PreferenceNumber.gridText(mMax, mDecimals) : formatExactValue(mMax)));
         seekBar.setListener(new IosSlider.Listener() {
             @Override public void onValue(IosSlider s, float value, boolean fromUser) {
                 if (!fromUser || !isEnabled()) return;
@@ -224,7 +225,7 @@ public class UniversalSeekBarPreference extends Preference {
         if (seekBarValue != null && (seekBar == null || seekBar.getTag(R.id.settings_bound_preference) == this)) {
             if (showSeekBarValue) {
                 seekBarValue.setVisibility(View.VISIBLE);
-                seekBarValue.setText(valueToPersist);
+                seekBarValue.setText(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.number(getContext(), valueToPersist));
                 // P168: off the default the pill turns to the theme's opposite, at once while the bar moves
                 com.particlesdevs.photoncamera.ui.settings.SettingsStyle.paintPill(seekBarValue, differs(valueToPersist),
                         com.particlesdevs.photoncamera.ui.settings.SettingsStyle.accent(getContext()));

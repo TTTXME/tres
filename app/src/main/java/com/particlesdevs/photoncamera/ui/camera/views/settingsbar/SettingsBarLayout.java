@@ -243,22 +243,22 @@ public class SettingsBarLayout extends LinearLayout {
         content = new LinearLayout(context);
         content.setOrientation(VERTICAL);
         // The tiles carry 5dp of the 10dp gap themselves: 11 + 5 = the 16dp edge.
-        content.setPadding(dp(11), 0, dp(11), dp(10));
+        // P583: 10 + the tiles' own 4 = the concept's 14px edge
+        content.setPadding(dp(10), 0, dp(10), dp(10));
         listScroll.addView(content, new NestedScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout head = new LinearLayout(context);
         head.setOrientation(HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
         // SIMPLE_UI §2 header: the profile button (P255; «Перетащите плитку» while editing), «Изменить» / «Готово», the 40dp gear
-        head.setPadding(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 7), 0,
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 3),
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 6));
+        head.setPadding(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 4), 0,
+                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 4), 0);
         headTitle = new TextView(context);
         headTitle.setText(R.string.shade_quick_title);
         headTitle.setTextColor(ShadeStyle.TEXT);
         headTitle.setMaxLines(1);
         headTitle.setTag("shade_title");
-        headTitle.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(headTitle, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(headTitle, 16.5f);
         // P143: the config button takes the title's place; the slot limits it, a long name shrinks inside its frame
         android.widget.FrameLayout headSlot = new android.widget.FrameLayout(context);
@@ -275,23 +275,24 @@ public class SettingsBarLayout extends LinearLayout {
         slotParams.setMarginEnd(dp(10));
         head.addView(headSlot, slotParams);
         editButton = new TextView(context);
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(editButton, 13.5f);
+        // P583 (the concept): «Изменить» 15px semibold in the accent, a 40px button with 12px sides
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.text(editButton, 15, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         editButton.setGravity(Gravity.CENTER);
         editButton.setMinHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 40));
-        editButton.setPadding(dp(4), 0, dp(4), 0);
+        editButton.setPadding(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 12), 0,
+                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 12), 0);
         editButton.setTag("shade_edit");
         editButton.setOnClickListener(v -> setEditing(!editing));
         head.addView(editButton);
         headGear = new ImageView(context);
-        headGear.setImageResource(R.drawable.ui_ic_gear);
+        headGear.setImageResource(R.drawable.cv_gear);
         headGear.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int gearPad = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 10);
         headGear.setPadding(gearPad, gearPad, gearPad, gearPad);
-        // the concept's .hgear: a 40dp disc, the card at 70 % with a line
+        // P583, the concept's «Все настройки» disc: 40px, #2C2C2E, the 20px gear in white
         android.graphics.drawable.GradientDrawable gearDisc = new android.graphics.drawable.GradientDrawable();
         gearDisc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        gearDisc.setColor(0xB31A1F22);
-        gearDisc.setStroke(Math.max(1, dp(1)), ShadeStyle.LINE);
+        gearDisc.setColor(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.ROW);
         headGear.setBackground(gearDisc);
         headGear.setContentDescription(context.getString(R.string.sheet_all_settings));
         headGear.setTooltipText(context.getString(R.string.sheet_all_settings));
@@ -301,10 +302,13 @@ public class SettingsBarLayout extends LinearLayout {
         });
         int gearSize = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 40);
         LayoutParams gearParams = new LayoutParams(gearSize, gearSize);
-        gearParams.setMarginStart(dp(6));
+        gearParams.setMarginStart(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 8));
         head.addView(headGear, gearParams);
-        content.addView(head, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 46)));
+        // P583: the concept's 40px header, 12px over the grid (8 here, the tiles' own 4 under it)
+        LayoutParams headParams = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 40));
+        headParams.bottomMargin = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 8);
+        content.addView(head, headParams);
 
         gridRow = buildGridRow(context);
         gridRow.setVisibility(GONE);
@@ -424,7 +428,7 @@ public class SettingsBarLayout extends LinearLayout {
         content.addView(fullList, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         styleEditButton(accent);
-        com.particlesdevs.photoncamera.ui.Icons.tint(headGear, R.drawable.ui_ic_gear, ShadeStyle.TEXT); // P570
+        com.particlesdevs.photoncamera.ui.Icons.tint(headGear, R.drawable.cv_gear, ShadeStyle.TEXT); // P583
         configChip.setAccent(accent);
         refreshConfigName();
     }
@@ -472,7 +476,7 @@ public class SettingsBarLayout extends LinearLayout {
         value.setTextColor(ShadeStyle.TEXT);
         value.setGravity(Gravity.CENTER);
         value.setTag(tag);
-        value.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(value, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(value, 15f);
         pill.addView(minus, new LayoutParams(dp(30), dp(40)));
         pill.addView(value, new LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -531,11 +535,9 @@ public class SettingsBarLayout extends LinearLayout {
      * splits at their top (moving with the list's scroll); no rows: one plate.
      */
     private void updatePlates() {
+        // P583 (the concept): one sheet - its rows on the same plate under the grid (no second plate)
         if (!(getBackground() instanceof ShadeStyle.GlassPlates)) return;
-        int y = -1;
-        if (fullList.getVisibility() == VISIBLE && fullList.getChildCount() > 0 && fullList.getHeight() > 0)
-            y = listScroll.getTop() + content.getTop() + fullList.getTop() - listScroll.getScrollY();
-        ((ShadeStyle.GlassPlates) getBackground()).setSplit(y);
+        ((ShadeStyle.GlassPlates) getBackground()).setSplit(-1);
     }
 
     /** The page dots follow the pages (hidden with one page). A drag in the edit mode turns the pages at the edge (ItemTouchHelper). */
@@ -625,8 +627,8 @@ public class SettingsBarLayout extends LinearLayout {
     private void styleEditButton(int accent) {
         editButton.setText(editing ? R.string.shade_done : R.string.shade_edit);
         editButton.setTextColor(accent);
-        editButton.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        editButton.setBackground(ShadeStyle.ripple(getContext(), 12));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(editButton, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        editButton.setBackground(ShadeStyle.ripple(getContext(), 20));
     }
 
     private int dp(float f) {
@@ -709,10 +711,10 @@ public class SettingsBarLayout extends LinearLayout {
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
         // P495 (concept G): a slim menu row - the title, its contents on the same line, the chevron
-        int ph = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14), pv = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 8);
-        row.setPadding(ph, pv, ph, pv);
-        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 44));
-        row.setBackground(ShadeStyle.pressable(c, sheetCard(c), 0, 14));
+        // P583 (the concept): a 52px #2C2C2E row, padding 0 14 0 16, corners 20 20 6 6 (the pair with «Все настройки»)
+        row.setPadding(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 16), 0, com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14), 0);
+        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 52));
+        row.setBackground(pairRow(c, true));
         row.setTag("shade_advanced");
         LinearLayout texts = new LinearLayout(c);
         texts.setOrientation(HORIZONTAL);
@@ -720,13 +722,13 @@ public class SettingsBarLayout extends LinearLayout {
         TextView title = new TextView(c);
         title.setText(R.string.shade_advanced);
         title.setTextColor(ShadeStyle.TEXT);
-        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(title, 14);
+        title.setMaxLines(1);
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.text(title, 16, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         texts.addView(title);
         TextView summary = new TextView(c);
         summary.setText(R.string.shade_advanced_summary);
-        summary.setTextColor(ShadeStyle.MUTED);
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(summary, 11);
+        summary.setTextColor(0x99FFFFFF);
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.text(summary, 13, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         summary.setMaxLines(1);
         summary.setEllipsize(android.text.TextUtils.TruncateAt.END);
         summary.setGravity(Gravity.END);
@@ -735,11 +737,13 @@ public class SettingsBarLayout extends LinearLayout {
         texts.addView(summary, sp);
         row.addView(texts, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         ImageView chevron = new ImageView(c);
-        chevron.setImageResource(R.drawable.ui_ic_chev);
-        chevron.setImageTintList(ColorStateList.valueOf(ShadeStyle.MUTED));
+        chevron.setImageResource(R.drawable.cv_chev_right);
+        chevron.setImageTintList(ColorStateList.valueOf(0x80FFFFFF));
         chevron.setRotation(advancedOpen ? 90f : 0f);
-        int cs = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 20);
-        row.addView(chevron, new LayoutParams(cs, cs));
+        int cs = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14);
+        LayoutParams chp = new LayoutParams(cs, cs);
+        chp.setMarginStart(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 10));
+        row.addView(chevron, chp);
         row.setContentDescription(c.getString(R.string.shade_advanced));
         row.setOnClickListener(v -> {
             advancedOpen = !advancedOpen;
@@ -756,29 +760,47 @@ public class SettingsBarLayout extends LinearLayout {
         return ShadeStyle.TONAL;
     }
 
+    /** P583: one of the concept's two joined rows (#2C2C2E): the upper rounded 20 20 6 6, the lower 6 6 20 20; it ripples. */
+    private static android.graphics.drawable.Drawable pairRow(Context c, boolean upper) {
+        float big = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 20), small = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 6);
+        float[] r = upper ? new float[]{big, big, big, big, small, small, small, small} : new float[]{small, small, small, small, big, big, big, big};
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable(), mask = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.ROW);
+        shape.setCornerRadii(r);
+        mask.setColor(0xFFFFFFFF);
+        mask.setCornerRadii(r);
+        return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x29FFFFFF), shape, mask);
+    }
+
     /** SIMPLE_UI §2: the full-width «Все настройки» button at the end (the concept's .big), as the header's gear. */
     private View allSettingsCard() {
         Context c = getContext();
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int p = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14);
-        row.setPadding(p, dp(8), p, dp(8));
-        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 44));
-        row.setBackground(ShadeStyle.pressable(c, sheetCard(c), 0, 14));
+        // P583 (the concept): the lower of the joined rows - 52px, padding 0 14 0 16, the 20px gear, 12px, the title 16px
+        // semibold, the chevron
+        row.setPadding(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 16), 0, com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14), 0);
+        row.setMinimumHeight(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 52));
+        row.setBackground(pairRow(c, false));
         row.setTag("shade_all_settings");
         ImageView icon = new ImageView(c);
-        com.particlesdevs.photoncamera.ui.Icons.set(icon, R.drawable.ui_ic_gear, ShadeStyle.TEXT); // P570
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon(icon, R.drawable.cv_gear, ShadeStyle.TEXT);
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         int is = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 20);
         LayoutParams ip = new LayoutParams(is, is);
-        ip.setMarginEnd(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 10));
+        ip.setMarginEnd(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 12));
         row.addView(icon, ip);
         TextView title = new TextView(c);
         title.setText(R.string.sheet_all_settings);
         title.setTextColor(ShadeStyle.TEXT);
-        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(title, 14);
-        row.addView(title);
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.text(title, 16, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        row.addView(title, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        ImageView chevron = new ImageView(c);
+        chevron.setImageResource(R.drawable.cv_chev_right);
+        chevron.setImageTintList(ColorStateList.valueOf(0x80FFFFFF));
+        chevron.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        int cs = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14);
+        row.addView(chevron, new LayoutParams(cs, cs));
         row.setOnClickListener(v -> {
             if (host != null) host.openSettings();
         });
@@ -787,7 +809,7 @@ public class SettingsBarLayout extends LinearLayout {
 
     private LayoutParams moreRowParams() {
         LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(6); // P495: the rows close together on their plate
+        lp.topMargin = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), 2); // P583: the concept's joined rows, 2px apart
         return lp;
     }
 
@@ -1522,10 +1544,14 @@ public class SettingsBarLayout extends LinearLayout {
         updatePlates();
         // OPEN: the handle, the header and the grid (P495: with its page dots), or down to the slider card when it is open;
         // +14dp (the concept).
-        View last = sliderCard.getVisibility() == VISIBLE ? sliderCard
+        // P583 (the concept's shade): also its two joined rows («Для опытных», «Все настройки») under the grid, while the
+        // advanced card is closed; 16dp under them
+        View body = fullList.findViewWithTag("shade_advanced_body");
+        View last = fullList.getVisibility() == VISIBLE && fullList.getChildCount() > 0 && (body == null || body.getVisibility() != VISIBLE)
+                ? fullList : sliderCard.getVisibility() == VISIBLE ? sliderCard
                 : pagerDots != null && pagerDots.getVisibility() == VISIBLE ? pagerDots : tiles;
         int peek = listScroll.getTop() + content.getTop() + last.getBottom()
-                + com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), 14);
+                + com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), last == fullList ? 6 : 14);
         if (contentBuilt && peek > 0 && peek != gridNeed) {
             gridNeed = peek;
             post(() -> applyMaxSheetHeight(Math.max(baseMaxSheetHeight, gridNeed)));

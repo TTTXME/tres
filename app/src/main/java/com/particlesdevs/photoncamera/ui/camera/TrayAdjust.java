@@ -241,7 +241,7 @@ final class TrayAdjust {
             TextView t = (TextView) chips.getChildAt(i);
             boolean on = params.get(i) == p;
             t.setTextColor(on ? ShadeStyle.TEXT : ShadeStyle.MUTED);
-            t.setTypeface(android.graphics.Typeface.create(on ? "sans-serif-medium" : "sans-serif", android.graphics.Typeface.NORMAL));
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, on ? com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD : com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
             if (on) chips.moveTo(t, animate);
         }
         // P381: a choice's options in the slider's place (a short fade between a slider and a choice)
@@ -326,7 +326,7 @@ final class TrayAdjust {
             t.setActivated(on);
             t.setBackground(LutTray.chipBackground(c, on, accent, 10));
             t.setTextColor(on ? ShadeStyle.INK : ShadeStyle.TEXT);
-            t.setTypeface(android.graphics.Typeface.create(on ? "sans-serif-medium" : "sans-serif", android.graphics.Typeface.NORMAL));
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, on ? com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD : com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         }
         if (target == null) {
             options.hide();

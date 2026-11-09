@@ -340,7 +340,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
         LinearLayout c = card(), r = row();
         r.setPadding(dp(12), dp(16), dp(10), dp(16));
         ImageView ic = icon("◉");
-        ic.setImageResource(R.drawable.settings_ic_save);
+        ic.setImageResource(R.drawable.cs_ic_save);
         ic.setPadding(0, 0, dp(12), 0);
         r.addView(ic, new LinearLayout.LayoutParams(dp(40), dp(28)));
         LinearLayout labels = column();
@@ -2170,7 +2170,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
         r.setPadding(dp(12), dp(12), dp(12), dp(12));
         LinearLayout head = row();
         TextView letter = text(name, 16, accent);
-        letter.setTypeface(null, android.graphics.Typeface.BOLD);
+        letter.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(letter.getContext(), 700));
         head.addView(letter, new LinearLayout.LayoutParams(dp(28), -2));
         final TextView shown = text(label(spec, value), 15, TEXT);
         com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.title(shown);

@@ -41,14 +41,26 @@ public final class HybridPlan {
         public final double ratio;
         /** P27: no N exposure is known; the camera's AE exposes this frame (its measured exposure is used as is). */
         public final boolean autoExposure;
+        /**
+         * P590: a flash frame - the AE's flash mode (ON_AUTO_FLASH / ON_ALWAYS_FLASH, {@code autoExposure}), or AE off at the
+         * manual exposure with FLASH_MODE_SINGLE ({@link #FLASH_SINGLE}); 0: no flash.
+         */
+        public final int flashAeMode;
+        /** P590: {@link #flashAeMode} of a manual flash frame (AE off, FLASH_MODE_SINGLE). */
+        public static final int FLASH_SINGLE = -1;
         Request(ImageFrame.CaptureRole role, long shutterNs, int iso, double ratio) {
             this(role, shutterNs, iso, ratio, false);
         }
         Request(ImageFrame.CaptureRole role, long shutterNs, int iso, double ratio, boolean autoExposure) {
+            this(role, shutterNs, iso, ratio, autoExposure, 0);
+        }
+        Request(ImageFrame.CaptureRole role, long shutterNs, int iso, double ratio, boolean autoExposure, int flashAeMode) {
             this.role = role; this.shutterNs = shutterNs; this.iso = iso; this.ratio = ratio; this.autoExposure = autoExposure;
+            this.flashAeMode = flashAeMode;
         }
         @Override public String toString() {
-            return autoExposure ? role + " AE" : String.format(Locale.ROOT, "%s %.3fms*ISO%d (x%.3f)", role, shutterNs / 1e6, iso, ratio);
+            final String flash = flashAeMode == FLASH_SINGLE ? " flash single" : flashAeMode != 0 ? " flash AE " + flashAeMode : "";
+            return (autoExposure ? role + " AE" : String.format(Locale.ROOT, "%s %.3fms*ISO%d (x%.3f)", role, shutterNs / 1e6, iso, ratio)) + flash;
         }
     }
     private static final long HANDHELD_SHUTTER_CAP_NS = 125_000_000L;
@@ -463,6 +475,25 @@ public final class HybridPlan {
         return new HybridPlan(out, nShutterNs, nIso, String.format(Locale.ROOT, "hybrid single N=%.3fms*ISO%d", nShutterNs / 1e6, nIso));
     }
 
+    /**
+     * P590: the flash shot - one fresh N frame (never the ring's: they have no flash), exposed by the camera's AE in its flash mode
+     * {@code aeMode} (ON_AUTO_FLASH / ON_ALWAYS_FLASH) after the precapture, still capture intent; merged as a 1-frame shot (no
+     * ultrashort and no bracketed frames: the flash lights one frame).
+     */
+    public static HybridPlan flash(int aeMode) {
+        List<Request> out = new ArrayList<>();
+        out.add(new Request(ImageFrame.CaptureRole.NORMAL, 0, 0, 1.0, true, aeMode));
+        return new HybridPlan(out, 0, 0, "hybrid flash frame: 1 (AE mode " + aeMode + ", still capture, no ring frames)");
+    }
+
+    /** P590: the manual exposure's flash frame: AE off at {@code shutterNs} / {@code iso}, FLASH_MODE_SINGLE, still capture. */
+    public static HybridPlan flashManual(long shutterNs, int iso) {
+        List<Request> out = new ArrayList<>();
+        out.add(new Request(ImageFrame.CaptureRole.NORMAL, shutterNs, iso, 1.0, false, Request.FLASH_SINGLE));
+        return new HybridPlan(out, shutterNs, iso, String.format(Locale.ROOT,
+                "hybrid flash frame: 1 manual N=%.3fms*ISO%d (AE off, FLASH_MODE_SINGLE, no ring frames)", shutterNs / 1e6, iso));
+    }
+
     /** P27: no N exposure is known at all: {@code count} frames exposed by the camera's own AE. */
     public static HybridPlan autoExposure(int count) {
         List<Request> out = new ArrayList<>();
@@ -508,10 +539,16 @@ public final class HybridPlan {
 
     public void apply(CaptureRequest.Builder builder, int index) {
         Request r = requests.get(index);
+        if (r.flashAeMode != 0) {
+            // P590: a still capture (the HAL fires its flash for it), the precapture's metering kept (no CANCEL trigger)
+            builder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE);
+            builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE);
+        }
         if (r.autoExposure) {
-            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            builder.set(CaptureRequest.CONTROL_AE_MODE, r.flashAeMode > 0 ? r.flashAeMode : CaptureRequest.CONTROL_AE_MODE_ON);
             builder.set(CaptureRequest.CONTROL_AE_LOCK, false);
             builder.set(CaptureRequest.CONTROL_ENABLE_ZSL, false);
+            if (r.flashAeMode > 0) builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF); // the AE runs the flash
             return;
         }
         builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
@@ -519,6 +556,13 @@ public final class HybridPlan {
         builder.set(CaptureRequest.CONTROL_ENABLE_ZSL, false);
         builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, r.shutterNs);
         builder.set(CaptureRequest.SENSOR_SENSITIVITY, r.iso);
+        if (r.flashAeMode == Request.FLASH_SINGLE) builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_SINGLE);
+    }
+
+    /** P590: this plan is a flash shot's (its one frame fires the flash). */
+    public boolean flash() {
+        for (Request r : requests) if (r.flashAeMode != 0) return true;
+        return false;
     }
 
     /**

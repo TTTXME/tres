@@ -70,7 +70,7 @@ public final class EditSlider extends LinearLayout {
         title.setEllipsize(TextUtils.TruncateAt.END);
         head.addView(title, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         pill = GalleryUi.text(c, "", 14, accent);
-        pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pill.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(pill.getContext(), 700));
         pill.setFontFeatureSettings("tnum");
         pill.setGravity(Gravity.CENTER);
         pill.setMaxLines(1);

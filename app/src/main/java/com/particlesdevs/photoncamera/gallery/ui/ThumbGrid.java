@@ -132,7 +132,7 @@ public final class ThumbGrid extends RecyclerView.Adapter<ThumbGrid.Holder> {
             image.setBackgroundColor(GalleryUi.CARD);
             f.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             badge = GalleryUi.text(c, "", 11, GalleryUi.TEXT);
-            badge.setTypeface(Typeface.DEFAULT_BOLD);
+            badge.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(badge.getContext(), 700));
             badge.setShadowLayer(GalleryUi.dp(c, 2), 0, 0, 0xCC000000);
             FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.START);

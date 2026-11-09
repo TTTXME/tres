@@ -97,3 +97,6 @@
 -keep class com.particlesdevs.photoncamera.capture.ScamVcf2RootWorker$ClientContext { *; }
 -keep class com.particlesdevs.photoncamera.capture.ScamVcf2Device$NativeReader { *; }
 -keep class com.particlesdevs.photoncamera.capture.ScamStockAe { native <methods>; }
+
+# P582: the base theme names it in viewInflaterClass; AppCompat makes it by reflection
+-keep class com.particlesdevs.photoncamera.ui.style.ConceptViewInflater { <init>(); }

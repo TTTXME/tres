@@ -2,11 +2,9 @@ package com.particlesdevs.photoncamera.ui.camera;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
-import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -17,6 +15,7 @@ import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.Space;
 import android.widget.TextView;
 
 import androidx.annotation.DrawableRes;
@@ -89,11 +88,12 @@ public final class TopRowSheet {
         final LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setTag("top_row_sheet");
+        // P583 (the concept's edit sheet): padding 14 14 8, 36dp corners, #1C1C1E
         final int pad = UiScale.dp(c, 14);
         card.setPadding(pad, pad, pad, UiScale.dp(c, 8));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(SHEET);
-        bg.setCornerRadius(UiScale.dpF(c, 32));
+        bg.setCornerRadius(UiScale.dpF(c, 36));
         card.setBackground(bg);
         card.setElevation(UiScale.dpF(c, 18));
         card.setClickable(true);
@@ -102,31 +102,44 @@ public final class TopRowSheet {
         return card;
     }
 
+    /** The concept's gap between the sheet's parts (flex gap: 14px). */
+    static final float GAP = 14f;
+
     private static void fill(LinearLayout card, Editor editor, Consumer<List<String>> done, Runnable cancel) {
         final Context c = card.getContext();
         final int accent = ShadeStyle.accent(c);
         card.removeAllViews();
         final Runnable again = () -> fill(card, editor, done, cancel);
-        // the head: «Отмена» · «Верхняя строка» · «Готово»
-        LinearLayout head = new LinearLayout(c);
-        head.setGravity(Gravity.CENTER_VERTICAL);
+        // the head: «Отмена» · «Верхняя строка» · «Готово» - P583 (owner: «не отцентрованы названия»): the title centred on the
+        // card whatever the two buttons' widths (a frame: the buttons at its ends, the title in its middle between them)
+        FrameLayout head = new FrameLayout(c);
+        head.setTag("top_row_head");
         TextView no = pill(c, Lang.t(c, "Отмена", "Cancel"), ROW, ShadeStyle.TEXT, false);
         no.setTag("top_row_cancel");
         no.setOnClickListener(v -> cancel.run());
-        head.addView(no);
-        TextView title = text(c, Lang.t(c, "Верхняя строка", "Top row"), 15, ShadeStyle.TEXT);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        head.addView(no, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, UiScale.dp(c, 34), Gravity.START | Gravity.CENTER_VERTICAL));
+        TextView yes = pill(c, Lang.t(c, "Готово", "Done"), accent, ShadeStyle.onAccent(accent), true);
+        yes.setTag("top_row_done");
+        yes.setOnClickListener(v -> done.accept(new ArrayList<>(editor.items)));
+        head.addView(yes, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, UiScale.dp(c, 34), Gravity.END | Gravity.CENTER_VERTICAL));
+        final TextView title = text(c, Lang.t(c, "Верхняя строка", "Top row"), 15, ShadeStyle.TEXT, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        title.setTag("top_row_title");
         title.setGravity(Gravity.CENTER);
         title.setMaxLines(1);
         title.setEllipsize(TextUtils.TruncateAt.END);
         ViewCompat.setAccessibilityHeading(title, true);
-        head.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView yes = pill(c, Lang.t(c, "Готово", "Done"), accent, ShadeStyle.onAccent(accent), true);
-        yes.setTag("top_row_done");
-        yes.setOnClickListener(v -> done.accept(new ArrayList<>(editor.items)));
-        head.addView(yes);
+        head.addView(title, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        // a long title never runs under the buttons: it keeps the room beside the wider one on both sides (still centred)
+        head.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            final int side = Math.max(no.getWidth(), yes.getWidth()) + UiScale.dp(c, 6);
+            final int room = Math.max(0, (r - l) - 2 * side);
+            if (title.getMaxWidth() != room && room > 0) {
+                title.setMaxWidth(room);
+                v.post(title::requestLayout);
+            }
+        });
         card.addView(head, matchWrap());
-        // the row as it will be, each item with its «−» badge
+        // the row as it will be, each item with its «−» badge: 38dp slots 12dp apart, centred in a 50dp black capsule
         LinearLayout strip = new LinearLayout(c);
         strip.setTag("top_row_preview");
         strip.setGravity(Gravity.CENTER);
@@ -135,19 +148,23 @@ public final class TopRowSheet {
         GradientDrawable sb = new GradientDrawable();
         sb.setColor(0xFF000000);
         sb.setCornerRadius(UiScale.dpF(c, 25));
-        sb.setStroke(Math.max(1, UiScale.dp(c, 1)), 0x2EFFFFFF);
+        sb.setStroke(Math.max(1, Math.round(c.getResources().getDisplayMetrics().density)), 0x2EFFFFFF);
         strip.setBackground(sb);
         strip.setMinimumHeight(UiScale.dp(c, 50));
         if (editor.items.isEmpty()) {
-            TextView empty = text(c, Lang.t(c, "Пусто — добавьте ниже", "Empty: add below"), 13, ShadeStyle.MUTED);
+            TextView empty = text(c, Lang.t(c, "Пусто — добавьте ниже", "Empty: add below"), 13, ShadeStyle.MUTED, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
             strip.addView(empty);
         }
         for (String id : editor.items) {
             FrameLayout slot = new FrameLayout(c);
             slot.setClipChildren(false);
+            slot.setClipToPadding(false);
             slot.setTag("top_row_item_" + id);
             View glyph = glyph(c, id, 20, ShadeStyle.TEXT);
-            slot.addView(glyph, new FrameLayout.LayoutParams(UiScale.dp(c, 38), UiScale.dp(c, 38), Gravity.CENTER));
+            // the glyph centred on the slot whatever its own width (the format's «JPEG» runs past the 38dp, as in the concept)
+            FrameLayout.LayoutParams gp = new FrameLayout.LayoutParams(UiScale.dp(c, glyph instanceof ImageView ? 38 : 64),
+                    UiScale.dp(c, 38), Gravity.CENTER);
+            slot.addView(glyph, gp);
             slot.setContentDescription(name(c, id));
             // kept in the row, hidden on this camera: the glyph dimmed (not the slot: its layer would cut the badge off)
             if (!TopBar.available(id)) glyph.setAlpha(.45f);
@@ -158,14 +175,15 @@ public final class TopRowSheet {
             if (TopRow.required(id)) continue;
             ImageView minus = new ImageView(c);
             minus.setTag("top_row_remove_" + id);
-            minus.setImageResource(R.drawable.ui_ic_minus);
-            minus.setColorFilter(SHEET);
+            ConceptStyle.icon(minus, R.drawable.cv_minus, SHEET);
             GradientDrawable mb = new GradientDrawable();
             mb.setShape(GradientDrawable.OVAL);
             mb.setColor(BADGE);
             minus.setBackground(mb);
-            final int mp = UiScale.dp(c, 4);
+            // the concept: an 11px glyph in the 20px disc
+            final int mp = Math.round(UiScale.dpF(c, 4.5f));
             minus.setPadding(mp, mp, mp, mp);
+            minus.setScaleType(ImageView.ScaleType.FIT_CENTER);
             minus.setContentDescription(Lang.t(c, "Убрать: ", "Remove: ") + name(c, id));
             minus.setOnClickListener(v -> {
                 if (editor.remove(id)) {
@@ -173,28 +191,30 @@ public final class TopRowSheet {
                     again.run();
                 }
             });
-            FrameLayout.LayoutParams ml = new FrameLayout.LayoutParams(UiScale.dp(c, 20), UiScale.dp(c, 20), Gravity.TOP | Gravity.END);
+            // right: -6px, top: -6px of the 38dp slot, the same on every item
+            FrameLayout.LayoutParams ml = new FrameLayout.LayoutParams(UiScale.dp(c, 20), UiScale.dp(c, 20), Gravity.TOP | Gravity.START);
+            ml.leftMargin = UiScale.dp(c, 38) - UiScale.dp(c, 20) + UiScale.dp(c, 6);
             ml.topMargin = -UiScale.dp(c, 6);
-            ml.setMarginEnd(-UiScale.dp(c, 6));
             slot.addView(minus, ml);
         }
-        LinearLayout.LayoutParams stp = matchWrap();
-        stp.topMargin = UiScale.dp(c, 14);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, UiScale.dp(c, 50));
+        stp.topMargin = UiScale.dp(c, GAP);
         card.addView(strip, stp);
-        // «ДОБАВИТЬ»: every item this camera can show, the ones in the row dimmed
-        TextView add = text(c, Lang.t(c, "Добавить", "Add"), 12, 0x99FFFFFF);
+        // «ДОБАВИТЬ»: every item this camera can show, the ones in the row dimmed (12px semibold, 1px letter spacing, white 60 %)
+        TextView add = text(c, Lang.t(c, "Добавить", "Add"), 12, 0x99FFFFFF, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         add.setAllCaps(true);
-        add.setLetterSpacing(.08f);
-        add.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        add.setLetterSpacing(1f / 12f);
         add.setPaddingRelative(UiScale.dp(c, 6), 0, 0, 0);
         LinearLayout.LayoutParams ap = matchWrap();
-        ap.topMargin = UiScale.dp(c, 14);
+        ap.topMargin = UiScale.dp(c, GAP);
         card.addView(add, ap);
         GridLayout grid = new GridLayout(c);
         grid.setTag("top_row_library");
         grid.setColumnCount(5);
         final boolean full = editor.items.size() >= TopRow.MAX;
-        for (String id : editor.library()) {
+        final List<String> library = editor.library();
+        for (int i = 0; i < library.size(); i++) {
+            final String id = library.get(i);
             final boolean in = editor.items.contains(id);
             LinearLayout cell = new LinearLayout(c);
             cell.setOrientation(LinearLayout.VERTICAL);
@@ -205,13 +225,19 @@ public final class TopRowSheet {
             db.setShape(GradientDrawable.OVAL);
             db.setColor(ROW);
             disc.setBackground(db);
-            disc.addView(glyph(c, id, 21, ShadeStyle.TEXT), new FrameLayout.LayoutParams(UiScale.dp(c, 40), UiScale.dp(c, 40), Gravity.CENTER));
-            cell.addView(disc, new LinearLayout.LayoutParams(UiScale.dp(c, 48), UiScale.dp(c, 48)));
-            TextView label = text(c, label(c, id), 10, ShadeStyle.TEXT);
-            label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            View g = glyph(c, id, 21, ShadeStyle.TEXT, true);
+            disc.addView(g, new FrameLayout.LayoutParams(UiScale.dp(c, 48), UiScale.dp(c, 48), Gravity.CENTER));
+            disc.setClipChildren(false);
+            LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(UiScale.dp(c, 48), UiScale.dp(c, 48));
+            dp.gravity = Gravity.CENTER_HORIZONTAL;
+            cell.addView(disc, dp);
+            // the caption centred under its disc (the cell's full width, centred text)
+            TextView label = text(c, label(c, id), 10, ShadeStyle.TEXT, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
             label.setGravity(Gravity.CENTER);
+            label.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
             label.setMaxLines(1);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            label.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.topMargin = UiScale.dp(c, 5);
             cell.addView(label, lp);
             cell.setAlpha(in || full ? .35f : 1f);
@@ -227,45 +253,55 @@ public final class TopRowSheet {
                 }
             });
             Motion.press(cell);
+            // five equal columns 4dp apart, rows 12dp apart (the concept's grid gap 12px 4px)
             GridLayout.LayoutParams gp = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED),
                     GridLayout.spec(GridLayout.UNDEFINED, 1f));
             gp.width = 0;
-            gp.topMargin = UiScale.dp(c, 6);
-            gp.bottomMargin = UiScale.dp(c, 6);
+            final int col = i % 5;
+            gp.setMarginStart(col == 0 ? 0 : UiScale.dp(c, 2));
+            gp.setMarginEnd(col == 4 ? 0 : UiScale.dp(c, 2));
+            gp.topMargin = i >= 5 ? UiScale.dp(c, 12) : 0;
             grid.addView(cell, gp);
         }
+        // a short last row keeps the five columns' widths (empty cells hold them)
+        for (int i = library.size(); i < 5; i++) {
+            Space space = new Space(c);
+            GridLayout.LayoutParams gp = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
+            gp.width = 0;
+            grid.addView(space, gp);
+        }
         LinearLayout.LayoutParams gl = matchWrap();
-        gl.topMargin = UiScale.dp(c, 6);
+        gl.topMargin = UiScale.dp(c, GAP);
         card.addView(grid, gl);
-        // «Вернуть основные»
-        TextView reset = text(c, Lang.t(c, "Вернуть основные", "Back to the defaults"), 14, accent);
+        // «Вернуть основные» (34dp, 14px semibold, the accent)
+        TextView reset = text(c, Lang.t(c, "Вернуть основные", "Back to the defaults"), 14, accent, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         reset.setTag("top_row_reset");
-        reset.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         reset.setGravity(Gravity.CENTER);
-        reset.setMinHeight(UiScale.dp(c, 40));
         reset.setPadding(UiScale.dp(c, 16), 0, UiScale.dp(c, 16), 0);
-        reset.setBackground(ShadeStyle.ripple(c, 20));
+        reset.setBackground(ShadeStyle.ripple(c, 17));
         reset.setOnClickListener(v -> {
             editor.reset();
             again.run();
         });
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, UiScale.dp(c, 34));
         rp.gravity = Gravity.CENTER_HORIZONTAL;
-        rp.topMargin = UiScale.dp(c, 6);
+        rp.topMargin = UiScale.dp(c, GAP);
         card.addView(reset, rp);
-        // the grabber: a tap (or a swipe up on the card) closes it as «Отмена»
+        // the grabber (44 x 12, a 36 x 5 bar at 30 %): a tap (or a swipe up on the card) closes it as «Отмена»
         FrameLayout grab = new FrameLayout(c);
         grab.setTag("top_row_grab");
         grab.setContentDescription(Lang.t(c, "Закрыть", "Close"));
         View bar = new View(c);
         GradientDrawable gb = new GradientDrawable();
-        gb.setColor(0x4DFFFFFF);
+        gb.setColor(ConceptStyle.SHEET_GRIP);
         gb.setCornerRadius(UiScale.dpF(c, 2.5f));
         bar.setBackground(gb);
         grab.addView(bar, new FrameLayout.LayoutParams(UiScale.dp(c, 36), UiScale.dp(c, 5), Gravity.CENTER));
         grab.setOnClickListener(v -> cancel.run());
-        LinearLayout.LayoutParams gbp = new LinearLayout.LayoutParams(UiScale.dp(c, 56), UiScale.dp(c, 18));
+        TouchTargets.ensure(grab, UiScale.dp(c, 32));
+        LinearLayout.LayoutParams gbp = new LinearLayout.LayoutParams(UiScale.dp(c, 44), UiScale.dp(c, 12));
         gbp.gravity = Gravity.CENTER_HORIZONTAL;
+        gbp.topMargin = UiScale.dp(c, GAP);
         card.addView(grab, gbp);
     }
 
@@ -509,14 +545,22 @@ public final class TopRowSheet {
         v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(Motion.ENTER.durationMs).setInterpolator(Motion.ENTER).start();
     }
 
-    /** An item's glyph as the top row draws it: its icon, or its text (the format over the size, DCG, UHDR). */
+    /** An item's glyph as the top row draws it: its icon, or its text (the format over the size, DCG). */
     static View glyph(Context c, String id, int iconDp, int ink) {
+        return glyph(c, id, iconDp, ink, false);
+    }
+
+    /**
+     * {@link #glyph}; {@code small}: the library's disc (the concept: 11px over 8px there, 12px over 9px in the row). P583: the
+     * concept's line icons (cv_*) and its text in Roboto Flex.
+     */
+    static View glyph(Context c, String id, int iconDp, int ink, boolean small) {
         final int icon = icon(id);
         if (icon != 0) {
             ImageView v = new ImageView(c);
-            v.setImageResource(icon);
-            com.particlesdevs.photoncamera.ui.Icons.mono(v, ink);
-            final int p = Math.max(0, (UiScale.dp(c, 38) - UiScale.dp(c, iconDp)) / 2);
+            ConceptStyle.icon(v, icon, ink);
+            v.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            final int box = UiScale.dp(c, small ? 48 : 38), p = Math.max(0, (box - UiScale.dp(c, iconDp)) / 2);
             v.setPadding(p, p, p, p);
             v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             return v;
@@ -530,16 +574,19 @@ public final class TopRowSheet {
             main = formatText();
             sub = sizeText();
         } else main = TopRow.DCG.equals(id) ? "DCG" : "UHDR";
-        TextView t = text(c, main, main.length() > 5 ? 10 : 12, ink);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        TextView t = text(c, main, (small ? 11 : 12) - (main.length() > 5 ? 2 : 0), ink, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
         t.setIncludeFontPadding(false);
-        box.addView(t);
+        t.setMaxLines(1);
+        t.setGravity(Gravity.CENTER);
+        box.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (sub != null) {
-            TextView s = text(c, sub, 8.5f, ink);
+            TextView s = text(c, sub, small ? 8 : 9, ink, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
             s.setAlpha(.85f);
             s.setIncludeFontPadding(false);
-            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            sp.topMargin = UiScale.dp(c, 2);
+            s.setMaxLines(1);
+            s.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            sp.topMargin = UiScale.dp(c, 3);
             box.addView(s, sp);
         }
         return box;
@@ -564,11 +611,12 @@ public final class TopRowSheet {
     @DrawableRes
     static int icon(String id) {
         switch (id) {
-            case TopRow.TORCH: return R.drawable.ui_ic_flash;
-            case TopRow.TIMER: return R.drawable.ui_ic_timer;
-            case TopRow.LUT: return R.drawable.ui_ic_looks;
-            case TopRow.GRID: return R.drawable.ui_ic_grid;
-            case TopRow.HORIZON: return R.drawable.ui_ic_level;
+            case TopRow.TORCH: return R.drawable.cv_bolt;
+            case TopRow.TIMER: return R.drawable.cv_timer;
+            case TopRow.LUT: return R.drawable.cv_lut;
+            case TopRow.GRID: return R.drawable.cv_grid;
+            case TopRow.HORIZON: return R.drawable.cv_level;
+            case TopRow.UHDR: return R.drawable.cv_sparkle;
             default: return 0;
         }
     }
@@ -577,7 +625,7 @@ public final class TopRowSheet {
     static String label(Context c, String id) {
         switch (id) {
             case TopRow.FORMAT: return Lang.t(c, "Формат", "Format");
-            case TopRow.TORCH: return Lang.t(c, "Фонарик", "Torch");
+            case TopRow.TORCH: return Lang.t(c, "Вспышка", "Flash"); // P590: off / auto / on / torch
             case TopRow.TIMER: return Lang.t(c, "Таймер", "Timer");
             case TopRow.LUT: return "LUT";
             case TopRow.DCG: return "DCG";
@@ -598,23 +646,24 @@ public final class TopRowSheet {
         }
     }
 
+    /** The head's buttons: 34dp capsules, 15px - «Отмена» regular on #2C2C2E (14px sides), «Готово» heavy on the accent (16px sides). */
     private static TextView pill(Context c, CharSequence s, int fill, int ink, boolean bold) {
-        TextView t = text(c, s, 15, ink);
-        t.setTypeface(Typeface.create("sans-serif-medium", bold ? Typeface.BOLD : Typeface.NORMAL));
+        TextView t = text(c, s, 15, ink, bold ? com.particlesdevs.photoncamera.ui.style.Fonts.BOLD : com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         t.setGravity(Gravity.CENTER);
-        t.setMinHeight(UiScale.dp(c, 34));
-        t.setMinimumHeight(UiScale.dp(c, 34));
+        t.setMaxLines(1);
         t.setPadding(UiScale.dp(c, bold ? 16 : 14), 0, UiScale.dp(c, bold ? 16 : 14), 0);
         t.setBackground(ShadeStyle.pressable(c, fill, 0, 17));
         Motion.press(t);
         return t;
     }
 
-    private static TextView text(Context c, CharSequence s, float sp, int colour) {
+    /** The concept's text: {@code px} as dp times the chrome's scale, Roboto Flex at {@code weight}. */
+    private static TextView text(Context c, CharSequence s, float px, int colour, int weight) {
         TextView t = new TextView(c);
         t.setText(s);
         t.setTextColor(colour);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setIncludeFontPadding(false);
+        ConceptStyle.text(t, px, weight);
         return t;
     }
 

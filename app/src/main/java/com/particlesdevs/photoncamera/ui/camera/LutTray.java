@@ -146,10 +146,9 @@ public final class LutTray {
             UiScale.textFixed(pill, 12);
         }
         tray.setOrientation(LinearLayout.VERTICAL);
-        tray.setPadding(UiScale.dp(c, 12), UiScale.dp(c, 12), UiScale.dp(c, 12), UiScale.dp(c, 12));
-        // P509 (owner, 2026-11-05: «меню внутри под новый стиль»): the shade's glass panel (concept G: 18dp corners, a hairline edge,
-        // «Прозрачность шторки»)
-        tray.setBackground(ShadeStyle.sheet(c));
+        tray.setPadding(UiScale.dp(c, 10), UiScale.dp(c, 10), UiScale.dp(c, 10), UiScale.dp(c, 10));
+        // P583 (the concept's tray): rgba(20, 20, 22, .92) with 24px corners, 10px inside
+        tray.setBackground(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.shape(c, 0xEB141416, 24, false));
         tray.setElevation(UiScale.dpF(c, 18));
         tray.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         tray.setClickable(true);
@@ -182,20 +181,27 @@ public final class LutTray {
             com.particlesdevs.photoncamera.ui.controls.DoubleTapReset.attach(chip, () -> resetTab(t), TrayMotion.press());
         }
         head.addView(tabs, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        all = text(c, Lang.t(c, "Все ›", "All ›"), 14, accent);
+        // P583 (the concept): «Все» 14px semibold in the accent with its 14px chevron, a 30px button (8 / 6 px sides)
+        all = text(c, Lang.t(c, "Все", "All"), 14, accent);
         all.setTag("lut_tray_all");
-        all.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        all.setPaddingRelative(UiScale.dp(c, 10), UiScale.dp(c, 6), UiScale.dp(c, 4), UiScale.dp(c, 6));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(all, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        all.setCompoundDrawablesRelative(null, null, com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon(c, R.drawable.cv_chev_right, accent, UiScale.dp(c, 14)), null);
+        all.setCompoundDrawablePadding(UiScale.dp(c, 2));
+        all.setGravity(Gravity.CENTER_VERTICAL);
+        all.setMinHeight(UiScale.dp(c, 30));
+        all.setPaddingRelative(UiScale.dp(c, 8), 0, UiScale.dp(c, 6), 0);
         all.setBackground(ShadeStyle.ripple(c, 10));
         all.setOnClickListener(v -> openPage());
-        head.addView(all);
+        LinearLayout.LayoutParams allp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        allp.setMarginStart(UiScale.dp(c, 6));
+        head.addView(all, allp);
         tray.addView(head, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         // the pages, one shown
         pages = new LinearLayout(c);
         pages.setOrientation(LinearLayout.VERTICAL);
         pages.setTag("lut_tray_pages");
         LinearLayout.LayoutParams pgp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pgp.topMargin = UiScale.dp(c, 6);
+        pgp.topMargin = UiScale.dp(c, 10);
         tray.addView(pages, pgp);
         // LUT: the chips and the strength
         LinearLayout lutPage = page(c, TAB_LUT);
@@ -634,18 +640,19 @@ public final class LutTray {
 
     /** P574: a slider row's name (the concept: 13sp, muted, a fixed column so the sliders line up). */
     static TextView sliderLabel(Context c, CharSequence label) {
-        TextView l = text(c, label, 13, ShadeStyle.MUTED);
-        l.setMinWidth(UiScale.dp(c, 72));
+        // P583 (the concept): 13px at 75 %, a 92px column (4px in), 10px before the slider
+        TextView l = text(c, label, 13, 0xBFFFFFFF);
+        l.setMinWidth(UiScale.dp(c, 96));
         l.setMaxWidth(UiScale.dp(c, 110));
-        l.setPaddingRelative(UiScale.dp(c, 4), 0, UiScale.dp(c, 8), 0);
+        l.setPaddingRelative(UiScale.dp(c, 4), 0, UiScale.dp(c, 10), 0);
         return l;
     }
 
     /** P574: a slider row's value (the concept: 13sp semibold, tabular figures, in the accent, at the row's end). */
     static TextView valueLabel(Context c) {
         TextView v = text(c, "", 13, ShadeStyle.accent(c));
-        v.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        v.setMinWidth(UiScale.dp(c, 52));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(v, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        v.setMinWidth(UiScale.dp(c, 58));
         v.setGravity(Gravity.END);
         v.setFontFeatureSettings("tnum");
         return v;
@@ -689,7 +696,8 @@ public final class LutTray {
         t.setText(s);
         t.setTextColor(color);
         t.setMaxLines(1);
-        UiScale.textFixed(t, sp);
+        // P583: the concept's px as dp (times the chrome's scale), Roboto Flex
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.text(t, sp, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         return t;
     }
 
@@ -718,10 +726,10 @@ public final class LutTray {
      * a ripple bounded by its shape.
      */
     static android.graphics.drawable.Drawable chipBackground(Context c, boolean on, int accent, float radiusDp) {
+        // P583 (the concept): an unchosen chip is clear (the chosen one lies on the row's #3A3A3C plate)
         GradientDrawable fill = new GradientDrawable();
         fill.setCornerRadius(UiScale.dpF(c, radiusDp));
-        fill.setColor(on ? 0x00000000 : CHIP_FILL);
-        if (!on) fill.setStroke(Math.max(1, UiScale.dp(c, 1)), CHIP_LINE);
+        fill.setColor(0x00000000);
         GradientDrawable mask = new GradientDrawable();
         mask.setCornerRadius(UiScale.dpF(c, radiusDp));
         mask.setColor(0xFFFFFFFF);
@@ -729,7 +737,8 @@ public final class LutTray {
     }
 
     /** P509: a card's thumbnail side (dp) and corner (dp); the card's own corner. */
-    static final int THUMB_DP = 58, THUMB_CORNER_DP = 13, CARD_CORNER_DP = 17;
+    // P583 (the concept's five thumbnails across the tray): 53px pictures with 14px corners on 18px cards
+    static final int THUMB_DP = 53, THUMB_CORNER_DP = 14, CARD_CORNER_DP = 18;
 
     /**
      * P509 (owner, 2026-11-05: small pictures that say what a LUT, a film or a filter is - not live previews): a card with a still
@@ -741,7 +750,7 @@ public final class LutTray {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         final int pad = UiScale.dp(c, 4), side = UiScale.dp(c, THUMB_DP);
-        card.setPadding(pad, pad, pad, UiScale.dp(c, 5));
+        card.setPadding(pad, pad, pad, UiScale.dp(c, 6));
         card.setBackground(chipBackground(c, on, accent, CARD_CORNER_DP));
         card.setActivated(on);
         android.widget.ImageView img = new android.widget.ImageView(c);
@@ -754,13 +763,14 @@ public final class LutTray {
         img.setClipToOutline(true);
         img.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         card.addView(img, new LinearLayout.LayoutParams(side, side));
-        TextView t = text(c, label, 10.5f, on ? ShadeStyle.INK : ShadeStyle.TEXT);
+        TextView t = text(c, label, 11, on ? accent : ShadeStyle.TEXT);
         t.setGravity(Gravity.CENTER);
         t.setSingleLine(true);
         t.setEllipsize(TextUtils.TruncateAt.END);
-        t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        t.setIncludeFontPadding(false);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(side, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tp.topMargin = UiScale.dp(c, 4);
+        tp.topMargin = UiScale.dp(c, 5);
         card.addView(t, tp);
         TrayMotion.pressable(card);
         return card;
@@ -796,14 +806,16 @@ public final class LutTray {
 
     /** A chip's texts: INK on the pill, TEXT (and the brand line MUTED) on glass; cross-faded over 180 ms when {@code animate}. */
     private static void recolour(View chip, boolean on, boolean animate) {
+        // P583 (the concept): the chosen chip's text in the accent on its #3A3A3C plate
+        final int accent = ShadeStyle.accent(chip.getContext());
         if (chip instanceof TextView) {
-            fade((TextView) chip, on ? ShadeStyle.INK : ShadeStyle.TEXT, animate);
+            fade((TextView) chip, on ? accent : ShadeStyle.TEXT, animate);
         } else if (chip instanceof ViewGroup && ((ViewGroup) chip).getChildCount() == 2 && ((ViewGroup) chip).getChildAt(0) instanceof android.widget.ImageView) {
-            fade((TextView) ((ViewGroup) chip).getChildAt(1), on ? ShadeStyle.INK : ShadeStyle.TEXT, animate); // P509: a thumbnail card
+            fade((TextView) ((ViewGroup) chip).getChildAt(1), on ? accent : ShadeStyle.TEXT, animate); // P509: a thumbnail card
         } else if (chip instanceof ViewGroup && ((ViewGroup) chip).getChildCount() == 2) {
             ViewGroup g = (ViewGroup) chip;
-            fade((TextView) g.getChildAt(0), on ? (ShadeStyle.INK & 0x00FFFFFF) | 0xB3000000 : ShadeStyle.MUTED, animate);
-            fade((TextView) g.getChildAt(1), on ? ShadeStyle.INK : ShadeStyle.TEXT, animate);
+            fade((TextView) g.getChildAt(0), on ? (accent & 0x00FFFFFF) | 0xB3000000 : ShadeStyle.MUTED, animate);
+            fade((TextView) g.getChildAt(1), on ? accent : ShadeStyle.TEXT, animate);
         }
     }
 
@@ -935,7 +947,7 @@ public final class LutTray {
         pillInk = fg;
         pillFill = fill;
         pill.setTextColor(fg);
-        android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.ui_ic_looks, fg); // P570
+        android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.cv_lut, fg); // P570
         if (icon != null) {
             int s = UiScale.dp(c, 16);
             icon.setBounds(0, 0, s, s);
@@ -958,7 +970,7 @@ public final class LutTray {
                 bg.setColor(TrayMotion.mix(fromFill, fill, k));
                 int ink = TrayMotion.mix(fromFg, fg, k);
                 pill.setTextColor(ink);
-                if (icons[0] != null) com.particlesdevs.photoncamera.ui.Icons.recolour(c, R.drawable.ui_ic_looks, icons[0], ink);
+                if (icons[0] != null) com.particlesdevs.photoncamera.ui.Icons.recolour(c, R.drawable.cv_lut, icons[0], ink);
             });
             a.start();
             // the pill gives a little and springs back
@@ -988,7 +1000,7 @@ public final class LutTray {
         final GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(fade ? fromFill : fill);
-        final android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.ui_ic_looks, fade ? fromFg : fg);
+        final android.graphics.drawable.Drawable icon = com.particlesdevs.photoncamera.ui.Icons.inked(c, R.drawable.cv_lut, fade ? fromFg : fg);
         final android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(
                 icon != null ? new android.graphics.drawable.Drawable[]{bg, icon} : new android.graphics.drawable.Drawable[]{bg});
         if (icon != null) {
@@ -1006,7 +1018,7 @@ public final class LutTray {
                 if (pillBg != bg) return; // a newer bind took over
                 final float k = (float) v.getAnimatedValue();
                 bg.setColor(TrayMotion.mix(fromFill, fill, k));
-                if (icon != null) com.particlesdevs.photoncamera.ui.Icons.recolour(c, R.drawable.ui_ic_looks, icon, TrayMotion.mix(fromFg, fg, k));
+                if (icon != null) com.particlesdevs.photoncamera.ui.Icons.recolour(c, R.drawable.cv_lut, icon, TrayMotion.mix(fromFg, fg, k));
             });
             a.start();
             // the button gives a little and springs back (no cancel(): the button's turn with the phone may be running)

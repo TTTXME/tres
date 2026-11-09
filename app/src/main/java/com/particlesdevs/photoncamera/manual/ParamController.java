@@ -781,7 +781,12 @@ public class ParamController implements Observer {
         return manualIso() ? (int) manualParamModel.getCurrentISOValue() : 0;
     }
 
-    /** P201: the hand-set shutter on the viewfinder (at most PREVIEW_SHUTTER_MAX_NS; 0 = automatic). */
+    /** P590: the hand-set shutter of the photo (not clamped to the viewfinder's; 0 = automatic): a manual flash frame's. */
+    public long manualShotShutterNs() {
+        return manualShutter() ? (long) manualParamModel.getCurrentExposureValue() : 0;
+    }
+
+        /** P201: the hand-set shutter on the viewfinder (at most PREVIEW_SHUTTER_MAX_NS; 0 = automatic). */
     public long manualPreviewShutterNs() {
         return manualShutter() ? previewShutter((long) manualParamModel.getCurrentExposureValue()) : 0;
     }

@@ -280,7 +280,7 @@ public final class SearchPage {
         head.setPadding(GalleryUi.dp(c, 4), GalleryUi.dp(c, 16), 0, GalleryUi.dp(c, 6));
         // P579: the settings' section caption (12sp semibold capitals, 55 % white)
         TextView t = GalleryUi.text(c, title.toUpperCase(Lang.ru() ? new java.util.Locale("ru") : java.util.Locale.ROOT), 12, GalleryUi.SECTION);
-        t.setTypeface(GalleryUi.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setLetterSpacing(.06f);
         t.setAccessibilityHeading(true);
         head.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));

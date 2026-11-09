@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.text.Layout;
 import android.view.Gravity;
@@ -41,6 +40,18 @@ public class LensButton extends Button {
     /** The active lens's own pill (the selected state's fill). */
     private GradientDrawable pill;
 
+    /** The labels' colours: the chosen stop in the accent, the others white. */
+    private ColorStateList labels;
+
+    /** The label's colour while the strip's pill glides (the cross-fade of P589); {@link #restoreLabels} ends it. */
+    void labelColour(int colour) {
+        setTextColor(colour);
+    }
+
+    void restoreLabels() {
+        if (labels != null) setTextColor(labels);
+    }
+
     /** P495: hides the own pill while the strip draws the one gliding to this lens ({@link AuxButtonsLayout}). */
     void ownPill(boolean shown) {
         if (pill == null) return;
@@ -59,20 +70,20 @@ public class LensButton extends Button {
         setHorizontallyScrolling(false);
         int accent = AccentPalette.camera(context);
         // the other lenses in the accent's tone of the muted text (Material You's on-surface-variant)
-        setTextColor(new ColorStateList(new int[][]{{android.R.attr.state_selected}, {}},
-                new int[]{SettingsStyle.INK, SettingsStyle.MUTED}));
+        // P583 (the concept's zoom stops): the chosen stop a #3A3A3C disc with its label in the accent, the others white
+        labels = new ColorStateList(new int[][]{{android.R.attr.state_selected}, {}}, new int[]{accent, 0xFFFFFFFF});
+        setTextColor(labels);
         float radius = CORNER_DP * unit;
         GradientDrawable selected = new GradientDrawable();
-        selected.setColor(accent);
+        selected.setColor(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.CHOSEN);
         selected.setCornerRadius(radius);
         StateListDrawable states = new StateListDrawable();
         states.addState(new int[]{android.R.attr.state_selected}, selected);
         // P185: a lens not in use has no tile of its own (its label on the strip's capsule)
         states.addState(new int[]{}, new android.graphics.drawable.ColorDrawable(0));
-        GradientDrawable mask = new GradientDrawable();
-        mask.setColor(0xFFFFFFFF);
-        mask.setCornerRadius(radius);
-        setBackground(new RippleDrawable(ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x33000000), states, mask));
+        // P589 (owner, 2026-11-09, the old switch's video: «переделай и улучши её под нашу новую стилистику»): no grey ripple dot -
+        // the press is the lens giving under the finger (Motion.press) and the pill gliding over (AuxButtonsLayout)
+        setBackground(states);
         pill = selected;
         // P495: the lens gives under the finger and springs back (in place of the button's elevation animator)
         com.particlesdevs.photoncamera.ui.Motion.press(this);
@@ -86,7 +97,8 @@ public class LensButton extends Button {
      * its height: a pill) - dp before the scale.
      */
     // owner, 2026-11-05 («между тем что сейчас и А»): the active lens a 15dp rounded rectangle, between the old pill and A's squircle
-    static final float HEIGHT_DP = 38f, WIDTH_DP = 34f, SELECTED_WIDTH_DP = 46f, CORNER_DP = 15f;   // SIMPLE_UI: the concept's .lens
+    // P583 (the concept's zoom stops): 48 x 44dp, round (22dp corners), the chosen one as wide
+    public static final float HEIGHT_DP = 44f, WIDTH_DP = 48f, SELECTED_WIDTH_DP = 48f, CORNER_DP = 22f;
     private final float unit;
     /**
      * P181 (owner, 2026-10-16: «у нас модули выходят за границы экрана»): the strip's fit, MIN_FIT..1 - the tile's least
@@ -161,19 +173,18 @@ public class LensButton extends Button {
         requestLayout();
     }
 
-    /** The concept's .lens: 13sp, weight 600, at least 34dp wide (the active one 46dp), 6dp side padding, 38dp high (times the scale). */
+    /** P583, the concept's zoom stop: 14px (the chosen 15px) semibold Roboto Flex, 48 x 44dp (times the scale). */
     private void applyState() {
         if (unit == 0f) return;   // the TextView constructor sets the text before this one runs
         boolean on = isSelected();
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.setTextSp(this, 13);
-        baseTextPx = getTextSize() * BottomChrome.scale(getContext());
+        baseTextPx = (on ? 15f : 14f) * unit;
         setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, baseTextPx * fit);
-        setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD));
         baseMinWidth = (on ? SELECTED_WIDTH_DP : WIDTH_DP) * unit;
         int width = Math.round(baseMinWidth * fit);
         setMinWidth(width);
         setMinimumWidth(width);
-        basePadding = 6f * unit;
+        basePadding = 4f * unit;
         int padding = Math.round(basePadding * fit);
         setPadding(padding, 0, padding, 0);
     }

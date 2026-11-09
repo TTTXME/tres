@@ -57,7 +57,8 @@ public final class VivoSdkFullRes {
 
     /** P181: the camera's profile at the given size of a camera with two (200 MP and 50 MP); others have one size. */
     public static Profile profile(String cameraId, boolean tele200) {
-        if (OppoNativeFullRes.device()) return OppoNativeFullRes.profile(cameraId); // P192: one size, the sensor's own mosaic
+        // P192: the sensor's own mosaic; P586: the size asked on a camera with two (the OnePlus 16 main: 50 MP row 9, 200 MP row 24)
+        if (OppoNativeFullRes.device()) return OppoNativeFullRes.profile(cameraId, tele200);
         final boolean nativeBuild = nativeRaw();
         return choose(cameraId, nativeBuild, nativeBuild && hardwareRemosaicOn(), tele200);
     }
@@ -137,6 +138,7 @@ public final class VivoSdkFullRes {
      * Ultra's telephoto, the X300 Ultra's main camera and telephoto too.
      */
     public static boolean teleSizes(String cameraId) {
+        if (OppoNativeFullRes.device()) return OppoNativeFullRes.twoSizes(cameraId); // P586: the OnePlus 16 main's 50 / 200 MP
         return nativeRaw() && VivoNativeFullRes.twoSizes(cameraId);
     }
 
@@ -207,11 +209,13 @@ public final class VivoSdkFullRes {
      * button, dimmed (it gave way to the other size's single button before, P186). The X200 Ultra's as {@link #teleSizes}.
      */
     public static boolean teleButtons(String cameraId) {
+        if (OppoNativeFullRes.device()) return OppoNativeFullRes.twoSizes(cameraId); // P586
         return nativeRaw() && VivoNativeFullRes.twoSizes(VivoNativeFullRes.phone(), cameraId, false);
     }
 
     /** P214h: that size ({@code large}: 200 MP) of a camera with two buttons has no row left (dimmed). */
     public static boolean sizeExhausted(String cameraId, boolean large) {
+        if (OppoNativeFullRes.device()) return OppoNativeFullRes.sizeExhausted(cameraId, large); // P586
         return nativeRaw() && !OppoNativeFullRes.device()
                 && VivoNativeFullRes.sizeExhausted(VivoNativeFullRes.phone(), cameraId, large, hardwareRemosaicOn());
     }

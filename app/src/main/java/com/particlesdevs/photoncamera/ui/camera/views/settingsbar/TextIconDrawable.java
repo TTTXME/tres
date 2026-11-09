@@ -26,7 +26,7 @@ public final class TextIconDrawable extends Drawable {
     public TextIconDrawable(Context c, String text) {
         this.text = text;
         size = Math.round(24 * c.getResources().getDisplayMetrics().density);
-        paint.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD));
+        paint.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD));
         paint.setTextAlign(Paint.Align.CENTER);
     }
 

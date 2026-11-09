@@ -102,6 +102,7 @@ public final class GalleryMenu {
         w.setOutsideTouchable(true);
         w.setElevation(GalleryUi.dp(c, 24));
         w.setAnimationStyle(0);
+        com.particlesdevs.photoncamera.ui.settings.ConceptFonts.apply(card);   // P584: the settings concept's font
         card.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
         // where: under the anchor, its end at the anchor's end (the start in right to left); above it when there is no room
         Rect frame = new Rect();

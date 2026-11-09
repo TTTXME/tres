@@ -141,11 +141,11 @@ public class CameraUIViewImpl implements CameraUIView {
     }
 
     static final int SHUTTER_WHITE = 0xFFFFFFFF;
-    /** P495: the shutter's tonal glass ring (white at 30 %). */
-    static final int SHUTTER_TONAL = 0x4DFFFFFF;
+    /** P583: the concept's shutter disc round the centre (#3A3A3C). */
+    static final int SHUTTER_TONAL = 0xFF3A3A3C;
 
     private static Drawable ring(Context context, int ringColor, int centreColor, boolean pressed) {
-        // the concept's 78dp shutter times the screen's scale (BottomChrome.scale / UiScale)
+        // the concept's 86dp shutter times the screen's scale (BottomChrome.scale / UiScale)
         float f = com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.scale(context);
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
@@ -156,8 +156,8 @@ public class CameraUIViewImpl implements CameraUIView {
         centre.setShape(GradientDrawable.OVAL);
         centre.setColor(centreColor);
         LayerDrawable layers = new LayerDrawable(new Drawable[]{ring, centre});
-        // 4dp ring + 5dp space; pressed: the centre (78 - 18 = 60dp) at 88 %
-        float inner = 9 * f + (pressed ? (78 - 18) * f * .06f : 0f);
+        // P583 (the concept): a 70dp centre in the 86dp disc; pressed: the centre at 86 %
+        float inner = 8 * f + (pressed ? 70 * f * .07f : 0f);
         int inset = ShadeStyle.dp(context, inner);
         layers.setLayerInset(1, inset, inset, inset, inset);
         return layers;

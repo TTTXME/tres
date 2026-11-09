@@ -178,7 +178,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
             paintChips(samples, FilmLutPreference.sample);
             redrawPreview();
         });
-        page.addView(samples, margin(c, 10));
+        page.addView(samples, margin(c, 14));   // P584: the concept's 14dp between the page's parts
         paintChips(samples, FilmLutPreference.sample);
         // P487: «DIR», «Ореол» and «Проявка» after «Эффекты» (the reference film app's DIR Couplers / Halation / Film pages)
         tabs = chips(c, new String[]{Lang.t(c, "Плёнка", "Film"), Lang.t(c, "Печать", "Print"), Lang.t(c, "Формат", "Format"),
@@ -187,11 +187,14 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
             paintChips(tabs, tab);
             fill();
         });
-        page.addView(tabs, margin(c, 16));
+        // P584 (FilmPage.dc.html): the sections in the concept's segmented track (rgba(118,118,128,.24), 3dp in, 20dp corners),
+        // the chosen one on its #636366 thumb; seven sections scroll inside it
+        segmented(c, tabs);
+        page.addView(tabs, margin(c, 14));
         paintChips(tabs, tab);
         content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
-        page.addView(content, margin(c, 10));
+        page.addView(content, margin(c, 14));
         fill();
         compare.post(this::redrawPreview);
         return page;
@@ -203,21 +206,41 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         return lp;
     }
 
+    /** P584: the concept's iosSeg track around {@code wrap}'s chips (the thumb is the chosen chip's fill: paintChips). */
+    private static void segmented(Context c, LinearLayout wrap) {
+        wrap.setBackground(UiTokens.shape(c, SEG_TRACK, 0, 20));
+        wrap.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 3), UiTokens.dp(c, 3), UiTokens.dp(c, 3));
+        wrap.setTag(R.id.film_seg, Boolean.TRUE);
+        final LinearLayout row = (LinearLayout) wrap.getTag();
+        for (int i = 0; i < row.getChildCount(); i++) {
+            final TextView b = (TextView) row.getChildAt(i);
+            b.setMinHeight(UiTokens.dp(c, 34));
+            b.setMinWidth(UiTokens.dp(c, 84));
+            b.setPadding(UiTokens.dp(c, 6), UiTokens.dp(c, 4), UiTokens.dp(c, 6), UiTokens.dp(c, 4));
+            if (b.getLayoutParams() instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) b.getLayoutParams()).setMarginStart(0);
+        }
+    }
+
+    /** The concept's grey of a chip and a segmented track: rgba(118,118,128,.24); its thumb #636366. */
+    static final int SEG_TRACK = 0x3D767680, SEG_THUMB = 0xFF636366;
+
     private LinearLayout chips(Context c, String[] names, String tag, java.util.function.IntConsumer onPick) {
         final HorizontalScrollView scroll = new HorizontalScrollView(c);
         scroll.setHorizontalScrollBarEnabled(false);
         final LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < names.length; i++) {
-            final TextView b = SettingsStyle.text(c, names[i], 12.5f, SettingsStyle.ROW_TITLE);
+            // P584 (FilmPage.dc.html): a 40dp chip, 16dp in, 14dp semibold, 8dp apart
+            final TextView b = SettingsStyle.text(c, names[i], 14, SettingsStyle.ROW_TITLE);
+            b.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));
             b.setGravity(Gravity.CENTER);
-            b.setMinHeight(UiTokens.dp(c, 34));
-            b.setPadding(UiTokens.dp(c, 14), 0, UiTokens.dp(c, 14), 0);
+            b.setMinHeight(UiTokens.dp(c, 40));
+            b.setPadding(UiTokens.dp(c, 16), 0, UiTokens.dp(c, 16), 0);
             b.setTag(tag + i);
             final int index = i;
             b.setOnClickListener(v -> onPick.accept(index));
             final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (i > 0) lp.setMarginStart(UiTokens.dp(c, 6));
+            if (i > 0) lp.setMarginStart(UiTokens.dp(c, 8));
             row.addView(b, lp);
         }
         scroll.addView(row);
@@ -235,8 +258,14 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         for (int i = 0; i < row.getChildCount(); i++) {
             final TextView b = (TextView) row.getChildAt(i);
             final boolean sel = i == on;
-            b.setBackground(UiTokens.shape(c, sel ? accent : SettingsStyle.ROW, sel ? accent : 0, 999));
-            b.setTextColor(sel ? UiTokens.INK : SettingsStyle.ROW_TITLE);
+            if (wrap.getTag(R.id.film_seg) != null) {
+                // the segmented track: the chosen section on the thumb, white; the others white at 75 %
+                b.setBackground(sel ? UiTokens.shape(c, SEG_THUMB, 0, 17) : null);
+                b.setTextColor(sel ? SettingsStyle.ROW_TITLE : 0xBFEBEBF5);
+            } else {
+                b.setBackground(UiTokens.shape(c, sel ? accent : SEG_TRACK, 0, 20));
+                b.setTextColor(sel ? UiTokens.INK : SettingsStyle.ROW_TITLE);
+            }
             b.setSelected(sel);
         }
     }
@@ -539,24 +568,29 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
             final boolean on = ids[i].equals(chosen);
             final LinearLayout card = new LinearLayout(c);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(UiTokens.dp(c, 12), UiTokens.dp(c, 10), UiTokens.dp(c, 12), UiTokens.dp(c, 10));
-            final GradientDrawable bg = UiTokens.shape(c, SettingsStyle.ROW, 0, 14);
-            if (on) bg.setStroke(UiTokens.dp(c, 2), accent);   // P574: no outline but the chosen one\'s
+            // P584 (FilmPage.dc.html): 150 x 124dp, 14dp in, 22dp corners, #1C1C1E with a hairline; the chosen one ringed in the accent
+            card.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, 14), UiTokens.dp(c, 14), UiTokens.dp(c, 14));
+            final GradientDrawable bg = UiTokens.shape(c, SettingsStyle.ROW, 0, 22);   // a step over the page, as the concept's #1C1C1E on black
+            if (on) bg.setStroke(UiTokens.dp(c, 2), accent);
+            else bg.setStroke(Math.max(1, Math.round(.5f * c.getResources().getDisplayMetrics().density)), SettingsStyle.HAIRLINE);
             card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), bg, null));
-            final TextView brand = SettingsStyle.text(c, text[i][0].toUpperCase(Locale.ROOT), 10.5f, on ? accent : SettingsStyle.SECTION);
-            brand.setLetterSpacing(.06f);
+            final TextView brand = SettingsStyle.text(c, text[i][0].toUpperCase(Locale.ROOT), 11, 0xBFFFFFFF);
+            brand.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));
+            brand.setLetterSpacing(1f / 11f);
             card.addView(brand);
-            final TextView name = SettingsStyle.text(c, text[i][1], 15, SettingsStyle.ROW_TITLE);
-            name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            final TextView name = SettingsStyle.text(c, text[i][1], 18, SettingsStyle.ROW_TITLE);
+            name.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));
+            SettingsStyle.lineHeight(name, 22);
             name.setPadding(0, UiTokens.dp(c, 4), 0, 0);
             name.setMaxLines(2);
             card.addView(name);
             final View gap = new View(c);
             card.addView(gap, new LinearLayout.LayoutParams(1, 0, 1));
-            final TextView kind = SettingsStyle.text(c, text[i][2], 10.5f, SettingsStyle.SECTION);
+            final TextView kind = SettingsStyle.text(c, text[i][2], 12.5f, 0x99EBEBF5);
+            SettingsStyle.lineHeight(kind, 16);
             kind.setMaxLines(2);
             card.addView(kind);
-            card.setMinimumHeight(UiTokens.dp(c, 108));
+            card.setMinimumHeight(UiTokens.dp(c, 124));
             card.setTag(tag + ids[i]);
             card.setContentDescription(text[i][0] + " " + text[i][1] + ". " + text[i][2]);
             card.setSelected(on);
@@ -565,7 +599,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
                 onPick.accept(id);
                 fill();
             });
-            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(UiTokens.dp(c, 132), ViewGroup.LayoutParams.MATCH_PARENT);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(UiTokens.dp(c, 150), ViewGroup.LayoutParams.MATCH_PARENT);
             lp.setMarginEnd(UiTokens.dp(c, 8));
             row.addView(card, lp);
             if (on) selected = card;

@@ -3,6 +3,7 @@ package com.particlesdevs.photoncamera.capture;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -425,5 +426,132 @@ public class OppoNativeFullResTest {
         assertFalse(OppoNativeFullRes.modeMatches(null, new int[]{1}, 35));
         assertFalse(OppoNativeFullRes.modeMatches(new int[]{35}, new int[]{1}, 35));
         assertTrue(OppoNativeFullRes.modeMatches(new int[0], new int[0], 35));
+    }
+
+    // P586: the OnePlus 16 (PYB110) report's tables (NDK tag 0x80d00000, SCAM TEST 2026-11-09): the main (camera 2, line 7340, and
+    // logical 0, line 634) and the tele (camera 4, line 13964) as OppoNativeFullRes records them; the ultra-wide (camera 3, line
+    // 10642) and the front (camera 1, line 3997) here
+    static final int[] PYB110_WIDE = {14, 3, 4096, 3072, 30, 4096, 3072, 30, 4096, 2560, 30, 4096, 2304, 60, 4096, 2560, 30,
+            4096, 2304, 60, 4096, 2304, 30, 4096, 3072, 30, 1920, 1080, 120, 3520, 2640, 30, 1920, 1440, 30, 3408, 2556, 30,
+            1824, 1368, 30, 4096, 2304, 60};
+    static final int[] PYB110_FRONT = {11, 3, 4096, 3072, 30, 4096, 3072, 30, 4096, 3072, 30, 4096, 2560, 30, 4096, 2304, 60,
+            4096, 2560, 30, 4096, 2304, 60, 4096, 2304, 30, 4096, 2560, 30, 4096, 2304, 60, 2048, 1536, 20};
+
+    /** P586: the main's 50 MP-class FULLRES is row 9 (8160x6144 @ 30, Quad), its 200 MP row 24 (16320x12288, 4x4); row 0 never. */
+    @Test public void theOnePlus16MainOffersRow9AndRow24() {
+        final OppoNativeFullRes.Offer o = OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_MAIN, 4080, 3072, null);
+        assertEquals(1, o.small.length);
+        assertArrayEquals("row 9 full size QBC; row 25 (8160x6144 @ 16) is below 24 fps", new int[]{9, 8160, 6144, 30, 2}, o.small[0]);
+        assertEquals(1, o.large.length);
+        assertArrayEquals("row 24, not row 0 (the HAL's highpixel hwremosaic)", new int[]{24, 16320, 12288, 8, 4}, o.large[0]);
+        assertArrayEquals("the P214j form: the 50 MP class", new int[]{8160, 6144, 30, 9},
+                OppoNativeFullRes.candidates("2", true, OppoNativeFullRes.PYB110_MAIN, false));
+        assertNull("no session key: nothing", OppoNativeFullRes.candidates("2", false, OppoNativeFullRes.PYB110_MAIN, false));
+        assertArrayEquals("the same table on logical 0", OppoNativeFullRes.PYB110_MAIN, OppoNativeFullRes.PYB110_MAIN.clone());
+    }
+
+    @Test public void theOnePlus16TeleOffersRow9AndTheUltraWideAndFrontNothing() {
+        final OppoNativeFullRes.Offer tele = OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_TELE, 4096, 3072, null);
+        assertEquals(1, tele.small.length);
+        assertArrayEquals(new int[]{9, 8192, 6144, 15, 2}, tele.small[0]);
+        assertEquals("50 MP: one size", 0, tele.large.length);
+        assertTrue("ultra-wide: no binned row of 4096x3072", OppoNativeFullRes.rows(PYB110_WIDE, 4096, 3072, null).empty());
+        assertNotNull("the front's 4096x3072 beside 2048x1536 looks like a full size by the table alone",
+                OppoNativeFullRes.fullModes(PYB110_FRONT));
+        assertTrue("but it is its public RAW size: no FULLRES", OppoNativeFullRes.rows(PYB110_FRONT, 4096, 3072, null).empty());
+        assertTrue(OppoNativeFullRes.learn("p586-front", true, PYB110_FRONT, false, 4096, 3072, null, "test").empty());
+        assertNull("no profile, no button", OppoNativeFullRes.profile("p586-front"));
+        OppoNativeFullRes.forget("p586-front");
+    }
+
+    /** P586: the OEM's custom RAW list puts its sizes first among the 50 MP-class rows; P214j's phones keep their order. */
+    @Test public void theCustomRawListGoesFirst() {
+        final int[][] rows = {{3, 8192, 4608, 30, 2}, {9, 8160, 6144, 30, 2}};
+        final java.util.List<int[]> custom = Arrays.asList(new int[]{8160, 6144}, new int[]{8160, 4590});
+        assertEquals(9, OppoNativeFullRes.preferCustom(rows, custom)[0][0]);
+        assertEquals(3, OppoNativeFullRes.preferCustom(rows, null)[0][0]);
+        assertArrayEquals("the PHY110's modes unchanged with any list", new int[]{8192, 6144, 24, 35, 37},
+                OppoNativeFullRes.legacy(OppoNativeFullRes.rows(PHY110_MAIN, 4096, 3072, custom).small));
+    }
+
+    /** P586: the PYB110 learns its two sizes, 50 MP by default, 200 MP when chosen, with one log line naming every route. */
+    @Test public void theOnePlus16MainHasTwoSizes() {
+        ShadowBuild.setManufacturer("OnePlus");
+        ShadowBuild.setModel("PYB110");
+        try {
+            assertTrue(OppoNativeFullRes.pyb110());
+            assertFalse(OppoNativeFullRes.pyb110("OnePlus", "CPH2747"));
+            assertFalse("OPPO-family default: 50 MP until 200 is chosen", PixelPro10.tele200Default());
+            final OppoNativeFullRes.Offer o = OppoNativeFullRes.learn("p586-main", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072,
+                    Arrays.asList(new int[]{8160, 6144}), "test");
+            assertEquals(1, o.small.length);
+            assertTrue(OppoNativeFullRes.twoSizes("p586-main"));
+            VivoSdkFullRes.Profile fifty = OppoNativeFullRes.profile("p586-main", false);
+            assertEquals(9, fifty.sensorMode);
+            assertEquals(8160, fifty.size.getWidth());
+            assertEquals(6144, fifty.size.getHeight());
+            assertEquals(2, fifty.nativeBlock);
+            assertTrue("the native route: one RAW stream, no ISP stream", fifty.nativeRoute() && !fifty.stillOnly);
+            VivoSdkFullRes.Profile large = OppoNativeFullRes.profile("p586-main", true);
+            assertEquals(24, large.sensorMode);
+            assertEquals(16320, large.size.getWidth());
+            assertEquals(12288, large.size.getHeight());
+            assertEquals("its own 4x4 mosaic (the Tetra route)", 4, large.nativeBlock);
+            assertTrue(large.nativeRoute() && !large.stillOnly);
+            assertEquals("the profile of the 50 MP size (P214j's call)", 9, OppoNativeFullRes.profile("p586-main").sensorMode);
+            assertFalse(OppoNativeFullRes.sizeExhausted("p586-main", true));
+            assertFalse(OppoNativeFullRes.exhausted("p586-main"));
+            final OppoNativeFullRes.Offer tele = OppoNativeFullRes.learn("p586-tele", true, OppoNativeFullRes.PYB110_TELE, false, 4096, 3072,
+                    null, "test");
+            assertFalse("the tele: one size", OppoNativeFullRes.twoSizes("p586-tele"));
+            assertEquals(9, OppoNativeFullRes.profile("p586-tele", true).sensorMode);
+            assertEquals(1_000_000_000L / 15, OppoNativeFullRes.frameNs("p586-tele"));
+            final String line = OppoNativeFullRes.line("2", "OnePlus PYB110", true, "fallback", 4080, 3072, o,
+                    Arrays.asList(new int[]{8160, 6144}), OplusIsz.row(true, "2", OppoNativeFullRes.PYB110_MAIN),
+                    OplusDcg.rows(true, "2", OppoNativeFullRes.PYB110_MAIN));
+            assertTrue(line, line.startsWith("OPPO family camera 2 (OnePlus PYB110): mode key true, table fallback"));
+            assertTrue(line, line.contains("FULLRES mode 9 8160x6144@30 block 2"));
+            assertTrue(line, line.contains("200 MP mode 24 16320x12288@8 block 4 (not in OemSupportedCustomRAWFullSizes)"));
+            assertTrue(line, line.contains("ISZ mode 11 4080x3072"));
+            assertTrue(line, line.contains("DCG mode 28"));
+            assertEquals(9, tele.small[0][0]);
+        } finally {
+            OppoNativeFullRes.forget("p586-main");
+            OppoNativeFullRes.forget("p586-tele");
+        }
+    }
+
+    /** P586: the recorded tables stand in on the PYB110 only, for its main and tele. */
+    @Test public void theRecordedTablesAreThePyb110s() {
+        assertArrayEquals(OppoNativeFullRes.PYB110_MAIN, OppoNativeFullRes.recordedTable(true, "2"));
+        assertArrayEquals(OppoNativeFullRes.PYB110_TELE, OppoNativeFullRes.recordedTable(true, "4"));
+        assertNull(OppoNativeFullRes.recordedTable(true, "3"));
+        assertNull(OppoNativeFullRes.recordedTable(true, "1"));
+        assertNull("another phone", OppoNativeFullRes.recordedTable(false, "2"));
+        assertEquals(39, OppoNativeFullRes.PYB110_MAIN[0]);
+        assertEquals(2 + 39 * 3, OppoNativeFullRes.PYB110_MAIN.length);
+        assertEquals(2 + 19 * 3, OppoNativeFullRes.PYB110_TELE.length);
+    }
+
+    /** P586: the 200 MP size's trials have keys of their own (the 50 MP ones stay), shown as a line of their own; a Quad is noted. */
+    @Test public void the200MpTrialsAreTheirOwn() {
+        final SharedPreferences p = RuntimeEnvironment.getApplication().getSharedPreferences("p586_trials", 0);
+        p.edit().clear().commit();
+        try {
+            OppoNativeFullRes.learn("p586-t", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072, null, "test");
+            OppoNativeFullRes.noteAt(p, OppoNativeFullRes.base200("p586-t"), 1, 24, "session configuration failed", "s1");
+            assertEquals(1, OppoNativeFullRes.countAt(p, OppoNativeFullRes.base200("p586-t"), "s1"));
+            assertEquals("the 50 MP size untouched", 0, OppoNativeFullRes.failures(p, "p586-t", "s1"));
+            final String status = OppoNativeFullRes.status(p, "p586-t", "s1");
+            assertTrue(status, status.contains("200"));
+            assertFalse(OppoNativeFullRes.quadNoted(p, "p586-t", 24, "s1"));
+            OppoNativeFullRes.noteQuad(p, "p586-t", 24, "s1");
+            assertTrue(OppoNativeFullRes.quadNoted(p, "p586-t", 24, "s1"));
+            assertFalse("another firmware", OppoNativeFullRes.quadNoted(p, "p586-t", 24, "s2"));
+            assertTrue("«Попробовать снова» clears both sizes", OppoNativeFullRes.clearFailures(p, "p586-t") > 0);
+            assertEquals(0, OppoNativeFullRes.countAt(p, OppoNativeFullRes.base200("p586-t"), "s1"));
+        } finally {
+            OppoNativeFullRes.forget("p586-t");
+        }
     }
 }

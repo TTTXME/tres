@@ -19,12 +19,10 @@ public final class UiTokens {
      * never read as one paragraph (owner: «заголовки отличались от описания чтобы они не сливались вместе»).
      */
     public static final int SUMMARY = 0xFF959EAD;
-    private static android.graphics.Typeface titleFace;
 
-    /** P139: a setting's title: medium weight (sans-serif-medium), the colour stays the caller's. */
+    /** P139: a setting's title: medium weight (P582: Roboto Flex 500, UiFonts), the colour stays the caller's. */
     public static void title(android.widget.TextView view) {
-        if (titleFace == null) titleFace = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL);
-        view.setTypeface(titleFace);
+        view.setTypeface(UiFonts.of(view.getContext(), UiFonts.MEDIUM));
     }
 
     /** P139: a setting's description under its title. */
@@ -129,5 +127,13 @@ public final class UiTokens {
     public static int alpha(int color, float alpha) {
         int a = Math.round(((color >>> 24) & 255) * Math.max(0f, Math.min(1f, alpha)));
         return (a << 24) | (color & 0x00FFFFFF);
+    }
+
+    /** P583: the Pro panel's cards (the concept's rgba(20, 20, 22, .9)). */
+    public static final int PRO_CARD = 0xE6141416;
+
+    /** P583: Roboto Flex at {@code weight} ({@link UiFonts#of}). */
+    public static android.graphics.Typeface font(Context c, int weight) {
+        return UiFonts.of(c, weight);
     }
 }

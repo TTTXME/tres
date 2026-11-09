@@ -95,7 +95,8 @@ public final class NubiaFullRes {
         if (cameraId == null || c == null || OFFER.containsKey(cameraId) || !device()) return;
         try {
             final Size array = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
-            learn(cameraId, SensorModeBand.table(c), array == null ? 0 : array.getWidth(), array == null ? 0 : array.getHeight());
+            final int[] full = learn(cameraId, SensorModeBand.table(c), array == null ? 0 : array.getWidth(), array == null ? 0 : array.getHeight());
+            if (full == null) learnMaxRes(cameraId, PixelPro10.fullResStream(c), array);
         } catch (RuntimeException e) {
             Log.w(TAG, "camera " + cameraId + ": characteristics unreadable: " + e);
         }
@@ -108,10 +109,51 @@ public final class NubiaFullRes {
         OFFER.put(cameraId, full == null ? NONE : full);
         Log.i("SCAM_CAPTURE", "nubia camera " + cameraId + " (" + android.os.Build.MODEL + "): SensorModeTable "
                 + (table == null || table.length < 1 ? "none" : table[0] + " rows") + ", pixel array " + arrayWidth + "x" + arrayHeight
-                + (full == null ? ": no full-size row of a binning sensor, no FULLRES / ISZ"
+                + (full == null ? ": no full-size row of a binning sensor, no FULLRES / ISZ" + largerRow(table, arrayWidth, arrayHeight)
                 : String.format(Locale.ROOT, ": FULLRES row %d %dx%d @ %d fps (binned row %d), Quad block %d", full[0], full[1], full[2],
                 full[3], binnedRow(table, full[1], full[2]), OppoNativeFullRes.block(full[1], full[2]))));
         return full;
+    }
+
+    /**
+     * P585: why a table with a larger row than the advertised pixel array gives no FULLRES - the stock HAL advertises its binned
+     * static metadata (2026-11-09 on the NX721J: pixel array and RAW 4096x3072, ISO from 100); the 8192x6144 of the 2026-11-02
+     * report and of 2026-11-08 came with a Magisk module installed (owner, 2026-11-09: «На старой сборке работал магиск модуль»):
+     * the larger row cannot be streamed (its RAW size is not in the stream configurations).
+     */
+    static String largerRow(@Nullable int[] table, int arrayWidth, int arrayHeight) {
+        int best = -1;
+        long area = (long) arrayWidth * arrayHeight;
+        for (int[] r : SensorModePick.rows(table))
+            if ((long) r[1] * r[2] > area) { area = (long) r[1] * r[2]; best = r[0]; }
+        if (best < 0) return "";
+        final int[] e = SensorModeBand.modeEntry(table, best);
+        return String.format(Locale.ROOT, " (the table's row %d is %dx%d, larger than the advertised %dx%d: the HAL advertises its "
+                + "binned static metadata (stock HAL, no Magisk module), so that row's RAW size cannot be streamed)",
+                best, e[0], e[1], arrayWidth, arrayHeight);
+    }
+
+    /**
+     * P588 (owner, 2026-11-09: FULLRES without root; the SCAM TEST of 17:13 without the Magisk module): the stock HAL advertises
+     * the binned 4096x3072 but a maximum-resolution map (android.scaler.streamConfigurationMapMaximumResolution: RAW_SENSOR
+     * 8192x6144, binning factor 2x2, «RAW_SENSOR 8192x6144 in SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION -> true» on cameras 0 / 2;
+     * camera 3 9248x6944): FULLRES runs the generic MAXIMUM_RESOLUTION session (P108's route, PixelPro10.fullResStream) with no
+     * ISP stream; its frames must be the sensor's mosaic (MosaicStream: a plain Bayer = the HAL's remosaic -> FULLRES off).
+     */
+    private static final Map<String, Size> MAXRES = new ConcurrentHashMap<>();
+
+    static void learnMaxRes(String cameraId, @Nullable PixelPro10.FullRes fr, @Nullable Size array) {
+        if (fr == null || fr.size == null || !PreferenceKeys.scamDevSwitch("nubia_maxres", true)) return;
+        final long area = array == null ? 0 : (long) array.getWidth() * array.getHeight();
+        if ((long) fr.size.getWidth() * fr.size.getHeight() < area * 3 / 2) return;
+        MAXRES.put(cameraId, fr.size);
+        Log.i("SCAM_CAPTURE", "nubia camera " + cameraId + ": FULLRES through the maximum-resolution RAW " + fr.size
+                + " (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION, no ISP stream, the frames must be a mosaic - P588)");
+    }
+
+    /** The camera's FULLRES is the maximum-resolution session (P588). */
+    public static boolean maxRes(@Nullable String cameraId) {
+        return cameraId != null && device() && MAXRES.containsKey(cameraId);
     }
 
     /** {row, width, height, fps} the camera offers (null: none or not learned in this run). */
@@ -130,12 +172,16 @@ public final class NubiaFullRes {
     /** The megapixels of the camera's full-size row, to the nearest ten (FullResProfiles' tag); 0 without one. */
     public static int megapixels(@Nullable String cameraId) {
         final int[] o = device() ? offer(cameraId) : null;
+        if (o == null && maxRes(cameraId)) {
+            final Size s = MAXRES.get(cameraId);
+            return com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(s.getWidth(), s.getHeight());
+        }
         return o == null ? 0 : com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(o[1], o[2]);
     }
 
     /** The camera has a FULLRES row that has not failed on this firmware. */
     public static boolean offered(@Nullable String cameraId) {
-        return device() && offer(cameraId) != null && failures(cameraId) == 0;
+        return device() && (offer(cameraId) != null && failures(cameraId) == 0 || maxRes(cameraId));
     }
 
     /** The size switch of the active module: the camera's FULLRES, on a module without its own sensor mode (not the «2×»). */
@@ -170,8 +216,8 @@ public final class NubiaFullRes {
     static SensorModePick.Pick fullResPick(@Nullable String physicalId, @Nullable CameraCharacteristics c, boolean chosen) {
         if (!chosen || physicalId == null || !device()) return null;
         learn(physicalId, c);
-        if (!offered(physicalId)) return null;
         final int[] o = offer(physicalId);
+        if (!offered(physicalId) || o == null) return null; // P588: a maximum-resolution FULLRES has no row pick
         return new SensorModePick.Pick(o[0], o[1], o[2], true);
     }
 
@@ -269,12 +315,19 @@ public final class NubiaFullRes {
      */
     static final class ModeWatch {
         static final int PATIENCE = 15;
+        /** P586: whose session it is in the log («nubia», «OPPO family»). */
+        final String who;
         final String camera;
         final int expected;
         private int mismatches;
         private boolean logged, settled;
 
         ModeWatch(String camera, int expected) {
+            this("nubia", camera, expected);
+        }
+
+        ModeWatch(String who, String camera, int expected) {
+            this.who = who;
             this.camera = camera;
             this.expected = expected;
         }
@@ -285,16 +338,16 @@ public final class NubiaFullRes {
             if (settled || reported == null) return null;
             if (expected < 0) {
                 settled = true;
-                return "nubia camera " + camera + " normal session: the results report sensor mode " + reported;
+                return who + " camera " + camera + " normal session: the results report sensor mode " + reported;
             }
             if (reported == expected) {
                 settled = true;
-                return "nubia camera " + camera + ": the results report sensor mode " + reported + " (asked " + expected + "): the row runs";
+                return who + " camera " + camera + ": the results report sensor mode " + reported + " (asked " + expected + "): the row runs";
             }
             mismatches++;
             if (!logged) {
                 logged = true;
-                return "nubia camera " + camera + ": the results report sensor mode " + reported + ", asked " + expected + " (waiting)";
+                return who + " camera " + camera + ": the results report sensor mode " + reported + ", asked " + expected + " (waiting)";
             }
             return null;
         }

@@ -153,7 +153,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         rangeRow.setGravity(Gravity.CENTER_VERTICAL);
         rangeRow.setPadding(GalleryUi.dp(c, 18), 0, GalleryUi.dp(c, 16), GalleryUi.dp(c, 6));
         range = GalleryUi.fitText(c, "", 15, GalleryUi.TEXT);
-        range.setTypeface(GalleryUi.semibold()); // P579: the settings' row title weight
+        range.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(range.getContext(), 600)); // P579: the settings' row title weight
         rangeRow.addView(range, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         filterChip = GalleryUi.chip(c, Lang.t("Фильтр  ✕", "Filter  ✕"), -1, true);
         filterChip.setContentDescription(Lang.t("Сбросить фильтр", "Clear the filter"));

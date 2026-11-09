@@ -112,16 +112,19 @@ public class LinearScaleView extends View {
         tickPaint.setStrokeWidth(d);
         markerPaint.setStrokeWidth(2 * d);
         markerPaint.setStrokeCap(Paint.Cap.ROUND);
-        labelPaint.setColor(UiTokens.MUTED);
-        // Text in sp, its growth with the font size capped (P43): the scale is a fixed 54dp box.
-        labelPaint.setTextSize(UiTokens.spPx(context, 10f));
-        valuePaint.setTextSize(UiTokens.spPx(context, 12f));
+        // P583 (the concept's dial): the stops' labels 12px semibold white at 60 %, the current one 16px heavy in the accent,
+        // «Авто» 15px heavy; Roboto Flex
+        labelPaint.setColor(0x99FFFFFF);
+        labelPaint.setTextSize(12f * d);
+        labelPaint.setTypeface(UiTokens.font(context, 600));
+        valuePaint.setTextSize(16f * d);
         valuePaint.setTextAlign(Paint.Align.CENTER);
-        valuePaint.setTypeface(Typeface.DEFAULT_BOLD);
+        valuePaint.setTypeface(UiTokens.font(context, 700));
         valuePaint.setFontFeatureSettings("tnum");
         labelPaint.setTextAlign(Paint.Align.CENTER);
         labelPaint.setFontFeatureSettings("tnum");
-        autoTextPaint.setTextSize(UiTokens.spPx(context, 13f));
+        autoTextPaint.setTextSize(15f * d);
+        autoTextPaint.setTypeface(UiTokens.font(context, 700));
         autoTextPaint.setTextAlign(Paint.Align.CENTER);
         insetPaint.setColor(UiTokens.SCALE_INSET);
         setFocusable(true);
@@ -273,9 +276,9 @@ public class LinearScaleView extends View {
         return v * getResources().getDisplayMetrics().density;
     }
 
-    /** Width of the «Авто» button: its text plus 11dp on each side. */
+    /** Width of the «Авто» button: the concept's 64px, wider for a longer word (its text plus 11dp on each side). */
     public float autoWidth() {
-        return autoTextPaint.measureText(autoLabel) + dp(22);
+        return Math.max(dp(64), autoTextPaint.measureText(autoLabel) + dp(22));
     }
 
     private boolean isInAutoButton(float x, float y) {
@@ -302,45 +305,45 @@ public class LinearScaleView extends View {
         float w = getWidth(), h = getHeight();
         float autoW = autoWidth();
         boolean auto = isAuto();
-        rect.set(dp(.5f), dp(.5f), autoW - dp(.5f), h - dp(.5f));
-        if (auto) {
-            autoPaint.setStyle(Paint.Style.FILL);
-            autoPaint.setColor(accent);
-        } else {
-            autoPaint.setStyle(Paint.Style.STROKE);
-            autoPaint.setStrokeWidth(dp(1));
-            autoPaint.setColor(UiTokens.LINE);
-        }
-        canvas.drawRoundRect(rect, dp(13), dp(13), autoPaint);
-        autoTextPaint.setColor(auto ? UiTokens.ACCENT_INK : UiTokens.TEXT);
-        autoTextPaint.setTypeface(MEDIUM);
+        // P583 (the concept): a 64 x 50px button, 16px corners - #2C2C2E with white text, in auto the accent's dark tone with
+        // the accent's text
+        float bh = Math.min(h, dp(50)), by = (h - bh) / 2f;
+        rect.set(0, by, autoW, by + bh);
+        autoPaint.setStyle(Paint.Style.FILL);
+        autoPaint.setColor(auto ? dark(accent) : 0xFF2C2C2E);
+        canvas.drawRoundRect(rect, dp(16), dp(16), autoPaint);
+        autoTextPaint.setColor(auto ? accent : UiTokens.TEXT);
         Paint.FontMetrics fm = autoTextPaint.getFontMetrics();
         canvas.drawText(autoLabel, autoW / 2, h / 2 - (fm.ascent + fm.descent) / 2, autoTextPaint);
 
         // The scale on its inset.
-        float left = autoW + dp(8), right = w;
+        float left = autoW + dp(10), right = w;
         if (right - left < dp(24)) return;
-        rect.set(left, 0, right, h);
-        canvas.drawRoundRect(rect, dp(14), dp(14), insetPaint);
         if (stops.isEmpty()) return;
         canvas.save();
         canvas.clipRect(left, 0, right, h);
-        float cx = (left + right) / 2, step = dp(STOP_DP), base = h - dp(8);
-        float labelBase = h - dp(23) - labelPaint.getFontMetrics().descent;
+        // P583 (the concept's dial): the labels on one row at the top (6px down), the current one 16px in the accent in the
+        // middle, the ticks on a line 4px over the bottom
+        float cx = (left + right) / 2, step = dp(STOP_DP), base = h - dp(4);
+        float labelBase = dp(6) - valuePaint.getFontMetrics().ascent;
         float lastLabelEnd = -Float.MAX_VALUE;
+        KnobItemInfo shown = currentItem();
+        float valueHalf = shown == null ? 0f : valuePaint.measureText(label(shown)) / 2f + dp(8);
         int from = Math.max(0, idx - (int) Math.ceil((cx - left) / step) - 2);
         int to = Math.min(stops.size() - 1, idx + (int) Math.ceil((right - cx) / step) + 2);
-        tickPaint.setStrokeWidth(dp(1.5f));
+        tickPaint.setStrokeWidth(dp(2f));
         for (int j = from; j <= to; j++) {
             float x = cx + (j - idx) * step - offset;
             KnobItemInfo item = items.get(stops.get(j));
             boolean major = isMajor(item, j);
-            tickPaint.setColor(major ? UiTokens.MUTED : FAINT);
+            // P583: the concept's ticks - 2px, 14px at 70 % white, 8px at 35 %
+            tickPaint.setColor(major ? 0xB3FFFFFF : 0x59FFFFFF);
             canvas.drawLine(x, base, x, base - dp(major ? 14 : 8), tickPaint);
             if (major) {
                 String label = label(item);
                 float half = labelPaint.measureText(label) / 2;
-                if (x - half >= left + dp(2) && x + half <= right - dp(2) && x - half > lastLabelEnd + dp(6)) {
+                boolean clearOfValue = x + half < cx - valueHalf || x - half > cx + valueHalf;
+                if (clearOfValue && x - half >= left + dp(2) && x + half <= right - dp(2) && x - half > lastLabelEnd + dp(6)) {
                     canvas.drawText(label, x, labelBase, labelPaint);
                     lastLabelEnd = x + half;
                 }
@@ -348,14 +351,14 @@ public class LinearScaleView extends View {
         }
         // Edges fade into the inset.
         float fade = Math.min(dp(FADE_DP), (right - left) / 3);
-        fadePaint.setShader(new LinearGradient(left, 0, left + fade, 0, UiTokens.SCALE_INSET, UiTokens.SCALE_INSET & 0x00FFFFFF, Shader.TileMode.CLAMP));
+        fadePaint.setShader(new LinearGradient(left, 0, left + fade, 0, FADE, FADE & 0x00FFFFFF, Shader.TileMode.CLAMP));
         canvas.drawRect(left, 0, left + fade, h, fadePaint);
-        fadePaint.setShader(new LinearGradient(right - fade, 0, right, 0, UiTokens.SCALE_INSET & 0x00FFFFFF, UiTokens.SCALE_INSET, Shader.TileMode.CLAMP));
+        fadePaint.setShader(new LinearGradient(right - fade, 0, right, 0, FADE & 0x00FFFFFF, FADE, Shader.TileMode.CLAMP));
         canvas.drawRect(right - fade, 0, right, h, fadePaint);
         canvas.restore();
-        // The fixed marker in the accent: a 2dp line, 22dp high, 4dp over the bottom.
+        // The fixed marker in the accent (P583, the concept's needle): a 2px line, 26px high, from the bottom.
         markerPaint.setColor(accent);
-        canvas.drawLine(cx, h - dp(5), cx, h - dp(25), markerPaint);
+        canvas.drawLine(cx, h - dp(1), cx, h - dp(26), markerPaint);
         // The current value at the top centre, on the inset's colour.
         KnobItemInfo current = currentItem();
         if (current != null) {
@@ -363,14 +366,19 @@ public class LinearScaleView extends View {
             valuePaint.setColor(auto ? UiTokens.TEXT : accent);
             float vw = valuePaint.measureText(value);
             Paint.FontMetrics vm = valuePaint.getFontMetrics();
-            float top = dp(3), textH = vm.descent - vm.ascent;
-            rect.set(cx - vw / 2 - dp(5), top, cx + vw / 2 + dp(5), top + textH);
-            canvas.drawRoundRect(rect, dp(6), dp(6), insetPaint);
-            canvas.drawText(value, cx, top - vm.ascent, valuePaint);
+            canvas.drawText(value, cx, labelBase, valuePaint);
         }
     }
 
-    private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
+    /** P583: the fades into the Pro card's colour (the concept's rgba(20, 20, 22, .9) over the picture). */
+    private static final int FADE = 0xF0141416;
+    private final Paint valueBack = new Paint(Paint.ANTI_ALIAS_FLAG) {{ setColor(FADE); }};
+
+    /** The accent's dark tone (the concept's #4A3D00 for its yellow: 29 %). */
+    static int dark(int accent) {
+        return 0xFF000000 | Math.round(((accent >> 16) & 255) * .29f) << 16 | Math.round(((accent >> 8) & 255) * .29f) << 8
+                | Math.round((accent & 255) * .29f);
+    }
     private final Paint valuePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     /** The item the value label shows: the selected one, or the metered stop while in auto. */

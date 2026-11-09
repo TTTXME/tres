@@ -207,7 +207,7 @@ public final class GalleryUi {
         Context c = t.getContext();
         int accent = accent(c);
         t.setTextColor(active ? INK : TEXT);
-        t.setTypeface(active ? semibold() : Typeface.DEFAULT);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), active ? 600 : 400));
         t.setBackground(pressable(round(c, active ? accent : CARD, 0, 999)));
         t.setSelected(active);
     }
@@ -218,7 +218,7 @@ public final class GalleryUi {
         t.setPadding(dp(c, 12), dp(c, 6), dp(c, 12), dp(c, 6));
         t.setBackground(bar(c, 999));
         t.setGravity(Gravity.CENTER);
-        t.setTypeface(semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         return t;
     }
 
@@ -230,7 +230,7 @@ public final class GalleryUi {
         int accent = accent(c);
         TextView b = text(c, label, 16, kind == PRIMARY ? INK : kind == DESTRUCTIVE ? WARN : TEXT);
         b.setGravity(Gravity.CENTER);
-        b.setTypeface(semibold());
+        b.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(b.getContext(), 600));
         b.setMaxLines(1);
         b.setEllipsize(TextUtils.TruncateAt.END);
         b.setMinHeight(dp(c, 46));
@@ -345,7 +345,7 @@ public final class GalleryUi {
         disc(left);
         row.addView(left, new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40)));
         TextView t = fitText(c, title, 26, TEXT);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 700));
         t.setLetterSpacing(-0.012f);
         t.setAccessibilityHeading(true);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
@@ -376,7 +376,7 @@ public final class GalleryUi {
     /** The section caption of the sheets and pages («СЪЁМКА»): P579, 12sp semibold capitals at 55 % white, letter-spaced. */
     public static TextView sectionLabel(Context c, String value) {
         TextView t = text(c, value.toUpperCase(Lang.ru() ? new Locale("ru") : Locale.ROOT), 12, SECTION);
-        t.setTypeface(semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setLetterSpacing(.06f);
         t.setPadding(dp(c, 16), dp(c, 18), dp(c, 16), dp(c, 8));
         t.setAccessibilityHeading(true);

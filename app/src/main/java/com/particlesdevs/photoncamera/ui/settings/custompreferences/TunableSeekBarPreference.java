@@ -63,8 +63,8 @@ public class TunableSeekBarPreference extends Preference {
         refresh();
         instant = false;
         final TextView min = (TextView) holder.findViewById(R.id.seekbar_min), max = (TextView) holder.findViewById(R.id.seekbar_max);
-        if (min != null) min.setText(valueText(mMin));
-        if (max != null) max.setText(valueText(mMax));
+        if (min != null) min.setText(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.number(getContext(), valueText(mMin)));
+        if (max != null) max.setText(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.number(getContext(), valueText(mMax)));
         seekBar.setListener(new IosSlider.Listener() {
             @Override public void onValue(IosSlider s, float value, boolean fromUser) {
                 if (!fromUser || !isEnabled()) return;
@@ -94,7 +94,7 @@ public class TunableSeekBarPreference extends Preference {
         int progress = PreferenceNumber.progress(value, mMin, mStepPerUnit, maxProgress());
         if (instant) seekBar.setValueNow(progress); else seekBar.setValue(progress);
         if (seekBarValue != null) {
-            seekBarValue.setText(valueText(value));
+            seekBarValue.setText(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.number(getContext(), valueText(value)));
             // P168: off the default the pill turns to the theme's opposite (was green text)
             com.particlesdevs.photoncamera.ui.settings.SettingsStyle.paintPill(seekBarValue, isChanged(),
                     com.particlesdevs.photoncamera.ui.settings.SettingsStyle.accent(getContext()));

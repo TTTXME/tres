@@ -211,11 +211,8 @@ def main():
     for name, svg in ICONS.items():
         with open(os.path.join(root, 'ui_ic_%s.xml' % name), 'w', encoding='utf-8', newline='\n') as f:
             f.write(vector(name, svg))
-    lib = os.path.join(here, 'circularbarlib', 'src', 'main', 'res', 'drawable')
-    for chip, name in PRO.items():
-        with open(os.path.join(lib, 'pro_ic_%s.xml' % chip), 'w', encoding='utf-8', newline='\n') as f:
-            f.write(vector(name, ICONS[name]))
-    print('%d icons, %d Pro chips' % (len(ICONS), len(PRO)))
+    # P583: the Pro chips (pro_ic_*) are the approved concept's own icons now: tools/icons/concept_icons.py --board Viewfinder
+    print('%d icons' % len(ICONS))
 
 
 if __name__ == '__main__':

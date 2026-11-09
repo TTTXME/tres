@@ -554,9 +554,11 @@ public class SettingsMenuTest {
         android.view.ViewGroup first=(android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(0);
         boolean whole=!(first.getChildAt(0) instanceof android.widget.ImageView);
         android.view.ViewGroup row=whole?(android.view.ViewGroup)first.getChildAt(0):first;
-        assertTrue("Header must hold the 40dp back disc",row.getHeight()>=40);
+        // P582: the activity is at the concept's density (UiFixedScale: 400 px = 390dp here), so 40dp is 40 x that density
+        int disc=Math.round(40*view.getResources().getDisplayMetrics().density);
+        assertTrue("Header must hold the 40dp back disc",row.getHeight()>=disc);
         assertEquals(android.view.View.VISIBLE,row.getChildAt(0).getVisibility());
-        assertEquals(40,row.getChildAt(0).getWidth());
+        assertEquals(disc,row.getChildAt(0).getWidth());
         android.view.ViewGroup titles=whole?(android.view.ViewGroup)first.getChildAt(1)
                 :(android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(1)).getChildAt(0)).getChildAt(0)).getChildAt(0);
         if(titles.getChildAt(1).getVisibility()==android.view.View.VISIBLE)assertTrue(titles.getChildAt(1).getTop()>=titles.getChildAt(0).getBottom());
@@ -1388,7 +1390,7 @@ public class SettingsMenuTest {
             pages++;
         }
         assertTrue("root pages found: "+pages,pages>=7);
-        assertEquals("@drawable/settings_ic_ui",byIcon.entrySet().stream().filter(e->e.getValue().equals("interface_settings_screen")).findFirst().get().getKey());
+        assertEquals("@drawable/cs_ic_ui",byIcon.entrySet().stream().filter(e->e.getValue().equals("interface_settings_screen")).findFirst().get().getKey());
     }
     @Test public void titlesStandOutFromTheirDescriptions(){
         PreferenceScreen screen=inflate();
@@ -1463,14 +1465,15 @@ public class SettingsMenuTest {
         PreferenceManager pm=new PreferenceManager(context);PreferenceScreen screen=pm.createPreferenceScreen(context);
         ListPreference list=new ListPreference(context);list.setKey("t_af");list.setTitle("Режим автофокуса");
         list.setSummary("Как держится фокус: непрерывно (фото — быстрее, видео — плавнее) или один раз (Авто).");
-        list.setEntries(new CharSequence[]{"Непрерывный (фото)","Авто"});list.setEntryValues(new CharSequence[]{"c","a"});
+        // P584: the concept's value takes up to 130dp on the right: a value past that goes under the title
+        list.setEntries(new CharSequence[]{"Непрерывный (фото и видео)","Авто"});list.setEntryValues(new CharSequence[]{"c","a"});
         screen.addPreference(list);list.setValue("c");
         com.particlesdevs.photoncamera.ui.settings.SettingsStyle.apply(screen);
         android.view.View row=row(list);
         android.widget.TextView right=row.findViewById(R.id.settings_value),below=row.findViewById(R.id.settings_value_below);
         assertEquals(android.view.View.GONE,right.getVisibility());
         assertEquals(android.view.View.VISIBLE,below.getVisibility());
-        assertEquals("Непрерывный (фото)",below.getText().toString());
+        assertEquals("Непрерывный (фото и видео)",below.getText().toString());
         list.setValue("a");
         row=row(list);
         right=row.findViewById(R.id.settings_value);below=row.findViewById(R.id.settings_value_below);
@@ -1481,7 +1484,7 @@ public class SettingsMenuTest {
         int share=com.particlesdevs.photoncamera.ui.settings.SettingsStyle.valueShare(context);
         assertEquals(share,right.getMaxWidth());
         float text=400-(16*2+14*2+36+12+24);
-        assertEquals(Math.round(0.38f*text),share);
+        assertEquals(Math.min(130,Math.round(0.5f*text)),share);   // P584: the concept's max-width of the value
     }
 
     /** P6b: one row of each preference type renders as a card in the user's accent, with the expected widgets. */
@@ -2371,6 +2374,9 @@ public class SettingsMenuTest {
         PreferenceScreen screen=inflate();
         com.particlesdevs.photoncamera.ui.settings.custompreferences.ShadeTransparencyPreference t=screen.findPreference("pref_shade_transparency");
         assertNotNull(t);
+        // P583: the concept's sheet is opaque - 0 % by default; the steps below start from a stored 40 %
+        assertEquals(0,t.value());
+        prefs.edit().putString("pref_shade_transparency","40").commit();
         assertEquals(40,t.value());
         android.view.View row=LayoutInflater.from(context).inflate(t.getLayoutResource(),null,false);
         t.onBindViewHolder(PreferenceViewHolder.createInstanceForTests(row));

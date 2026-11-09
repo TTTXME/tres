@@ -817,6 +817,8 @@ public class PreferenceKeys {
             {"bento", "bento"},
             {"cdm", "cdm"},
             {"kernelScale", "kernel"}, {"weightCap", "weight_cap"},
+            // P587: the texture / bokeh footprints of the kernel (ArkCam's cov_base / cov_blurred / cov_trans as multipliers, 1 = as before)
+            {"kernelTexture", "kernel_texture"}, {"kernelBokeh", "kernel_bokeh"}, {"kernelTransition", "kernel_transition"},
             {"fwe", "fwe"}, {"dilateScale", "dilate"},
             {"shastaSharpness", "shasta_sharpness"}, {"bentoUsWeight", "bento_weight"},
             {"shastaMaxRatio", "shasta_max_ratio"}, {"filterVariance", "filter_variance"},

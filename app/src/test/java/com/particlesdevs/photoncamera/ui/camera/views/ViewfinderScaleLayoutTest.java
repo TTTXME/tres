@@ -216,13 +216,17 @@ public class ViewfinderScaleLayoutTest {
             String geometry = " manual=" + manual + " handle=" + handleBox + " bar=" + barBox + " toggle=" + toggleBox
                     + " chips=" + chipsBox + " strip=" + stripBox + " row=" + rowBox;
 
-            // The manual block: 6dp from the sides, 12dp above the handle (40dp above its bottom), the ruler 8dp above.
-            assertEquals(at + "left margin" + geometry, dp(6), manual.left);
-            assertEquals(at + "right margin" + geometry, dp(6), w - manual.right);
-            assertEquals(at + "handle at the bar's top" + geometry, barBox.top, handleBox.top, 1);
-            assertEquals(at + "12dp above the handle" + geometry, handleBox.top - dp(12), manual.bottom, 1);
-            assertEquals(at + "40dp above the handle's bottom" + geometry, handleBox.bottom - dp(40), manual.bottom, 1);
-            assertEquals(at + "ruler card 8dp above the strip" + geometry, chipsBox.top - dp(8), rulerBox.bottom);
+            // The manual block: 8dp from the sides, 8dp above the handle (36dp above its bottom), the ruler 6dp above.
+            // P583: the concept's Pro panel 8dp from the sides; the handle at the bar's top, or higher where the (concept-sized)
+            // strip needs the room under it (BottomChrome.handleTop: the strip keeps its clearance)
+            assertEquals(at + "left margin" + geometry, dp(8), manual.left);
+            assertEquals(at + "right margin" + geometry, dp(8), w - manual.right);
+            assertEquals(at + "handle at the bar's top" + geometry, Math.min(barBox.top,
+                    stripBox.top - Math.round(BottomChrome.CLEARANCE_DP * density) - handleBox.height()), handleBox.top, 1);
+            // P583: the concept's Pro panel 8dp over the preview's bottom (the handle's top)
+            assertEquals(at + "8dp above the handle" + geometry, handleBox.top - dp(BottomChrome.MANUAL_GAP_DP), manual.bottom, 1);
+            assertEquals(at + "36dp above the handle's bottom" + geometry, handleBox.bottom - dp(28 + BottomChrome.MANUAL_GAP_DP), manual.bottom, 1);
+            assertEquals(at + "ruler card 6dp above the strip (the concept's gap)" + geometry, chipsBox.top - dp(6), rulerBox.bottom);
             assertTrue(at + "the open ruler stays under the top bar" + geometry, rulerBox.top >= topBar.bottom);
 
             // SIMPLE_UI §3: no toggle card (the bottom bar's «Про» opens the panel); the chips card spans the panel, 58dp..cap high.
@@ -233,9 +237,11 @@ public class ViewfinderScaleLayoutTest {
                     chipsBox.height() <= dp(STRIP_MAX_DP));
             // The concept's chips card: 4 + (6 + 20 + 1 + value line + 1 + name line + 5) + 4 dp, lines 1.2 x the text size
             // (15.6 + 12 = 27.6dp at font scale 1, 68.6dp in all), whatever the font's own metrics.
-            float lines = 1.2f * (UiTokens.spPx(context, 13f) + UiTokens.spPx(context, 10f));
-            assertEquals(at + "strip height", dp(41) + lines, chipsBox.height(), 2f);
-            if (fontScale == 1f) assertEquals(at + "strip as in the concept", 68.6f, chipsBox.height() / density, 1f);
+            // P583: 4 + (6 + 18 + 1 + value line + 1 + name line + 5) + 4dp with the concept's 18dp glyph and 9.5 name, the chip at
+            // least the concept's 66dp: the card 74dp
+            float lines = 1.2f * (UiTokens.spPx(context, 13f) + UiTokens.spPx(context, 9.5f));
+            assertEquals(at + "strip height", Math.max(dp(74), dp(39) + lines), chipsBox.height(), 2f);
+            if (fontScale == 1f) assertEquals(at + "strip as in the concept", 74f, chipsBox.height() / density, 1f);
             assertEquals(at + "chips card to the right margin", manual.right, chipsBox.right);
             Rect first = at(panel.findViewById(chipIds[0]));
             for (int i = 0; i < chipIds.length; i++) {   // SIMPLE_UI §3: six equal chips, «Всё на авто» the sixth
@@ -278,23 +284,24 @@ public class ViewfinderScaleLayoutTest {
             View gallery = row.findViewById(R.id.galery_button_container), shutter = row.findViewById(R.id.shutter_button_container),
                     flip = row.findViewById(R.id.camera_switch_container);
             Rect galleryBox = at(gallery), shutterBox = at(shutter), flipBox = at(flip);
-            // P157 / SIMPLE_UI step 0: the bottom bar's concept dp sizes times k = width / 392dp (UiScale, BottomChrome.scale)
+            // P157 / SIMPLE_UI step 0: the bottom bar's concept dp sizes times k = width / 390dp (P582; UiScale, BottomChrome.scale)
             float s = BottomChrome.scale(w / density);
-            assertEquals(at + "scale", Math.max(.85f, Math.min(1.35f, w / density / 392f)), s, 1e-4f);
-            assertEquals(at + "gallery 54dp x scale", dp(54 * s), galleryBox.width(), 2);
-            assertEquals(at + "flip 54dp x scale", dp(54 * s), flipBox.width(), 2);
-            assertEquals(at + "shutter 78dp x scale", dp(78 * s), shutterBox.width(), 2);
-            assertEquals(at + "shutter a fifth of the width", w / 5f, shutterBox.width(), w * .02f);
+            assertEquals(at + "scale", Math.max(.85f, Math.min(1.35f, w / density / com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.REFERENCE_DP)), s, 1e-4f);
+            // P583: the concept's 58dp gallery and switch, the 86dp shutter (86 of its 390dp width)
+            assertEquals(at + "gallery 58dp x scale", dp(58 * s), galleryBox.width(), 2);
+            assertEquals(at + "flip 58dp x scale", dp(58 * s), flipBox.width(), 2);
+            assertEquals(at + "shutter 86dp x scale", dp(86 * s), shutterBox.width(), 2);
+            assertEquals(at + "shutter 86 / 390 of the width", w * 86f / 390f, shutterBox.width(), w * .02f);
             // P574 (the approved concept: the gallery and the switch 52px in): the row's 22dp and the items' own 24dp
-            assertEquals(at + "gallery 46dp x scale from the left", dp(46 * s), galleryBox.left, 2);
-            assertEquals(at + "flip 46dp x scale from the right", dp(46 * s), w - flipBox.right, 2);
+            assertEquals(at + "gallery 52dp x scale from the left", dp(52 * s), galleryBox.left, 2);
+            assertEquals(at + "flip 52dp x scale from the right", dp(52 * s), w - flipBox.right, 2);
             assertEquals(at + "shutter centred", w / 2f, shutterBox.exactCenterX(), 1f);
             assertEquals(at + "gallery, shutter, flip on one line", shutterBox.centerY(), galleryBox.centerY(), 1);
             assertEquals(at + "gallery, shutter, flip on one line", shutterBox.centerY(), flipBox.centerY(), 1);
-            assertTrue(at + "shutter row 22dp x scale or more over the bottom" + geometry, rowBox.bottom <= h - dp(22 * s) + 1);
+            assertTrue(at + "shutter row 18dp x scale or more over the bottom" + geometry, rowBox.bottom <= h - dp(18 * s) + 1);
             assertEquals(at + "lens strip centred", w / 2f, stripBox.exactCenterX(), 1f);
             assertTrue(at + "lens strip inside the screen" + geometry, stripBox.left >= 0 && stripBox.right <= w);
-            assertEquals(at + "lens strip 14dp x scale over the shutter row" + geometry, dp(14 * s), rowBox.top - stripBox.bottom, 2);
+            assertEquals(at + "lens strip 16dp x scale over the shutter row" + geometry, dp(16 * s), rowBox.top - stripBox.bottom, 2);
             for (int i = 0; i < strip.getChildCount(); i++) {
                 View lens = strip.getChildAt(i);
                 if (!(lens instanceof TextView)) continue;

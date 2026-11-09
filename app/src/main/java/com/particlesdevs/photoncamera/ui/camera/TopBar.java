@@ -42,6 +42,9 @@ public final class TopBar {
     /** The module's capabilities that change the bar: DCG and the photo sizes (CameraFragment, on every characteristics update). */
     public static void bindCamera(@Nullable CameraCharacteristics characteristics) {
         PhotoSize.bind(characteristics);
+        // P590: the flash modes need a flash unit (a front lens keeps off <-> torch: its screen light, P507)
+        final Boolean flash = characteristics == null ? null : characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+        com.particlesdevs.photoncamera.capture.FlashMode.bindLens(characteristics == null || flash != null && flash);
         dcgHere = Dcg14Mode.device() && characteristics != null && Dcg14Mode.available(characteristics);
     }
 
@@ -76,13 +79,16 @@ public final class TopBar {
                     tb.horizonButton, tb.uhdrButton})
                 com.particlesdevs.photoncamera.ui.Motion.press(v);
         }
-        final boolean wasTorch = tb.torchButton.isActivated();
+        final Object wasFlash = tb.torchButton.getTag(R.id.torch_button);
         final String wasTimer = tb.timerButton.isActivated() ? String.valueOf(tb.timerBadge.getText()) : "";
         int accent = ShadeStyle.accent(c);
-        // torch (pref_ae_mode: 0 torch, 1 off)
-        boolean torch = PreferenceKeys.getAeMode() == 0;
-        String torchName = Lang.t(c, torch ? "Фонарик: вкл." : "Фонарик: выкл.", torch ? "Torch: on" : "Torch: off");
-        button(tb.torchButton, tb.torchIcon, torch, accent, torchName);
+        // P590: the flash mode (pref_ae_mode: 0 torch, 1 off, 2 auto, 3 on; FlashMode), as the lens and the mode allow it - off a
+        // white bolt with a slash, auto a bolt with «A», on the filled bolt, the torch a flashlight; every mode but off in the accent
+        final int flash = com.particlesdevs.photoncamera.capture.FlashMode.shown();
+        final boolean torch = flash != com.particlesdevs.photoncamera.capture.FlashMode.OFF;
+        tb.torchButton.setTag(R.id.torch_button, flash);
+        button(tb.torchButton, tb.torchIcon, torch, accent, com.particlesdevs.photoncamera.capture.FlashMode.label(flash));
+        ConceptStyle.icon(tb.torchIcon, com.particlesdevs.photoncamera.capture.FlashMode.icon(flash), torch ? accent : ShadeStyle.TEXT);
         // timer (0, 3 or 10 s)
         int seconds = timerSeconds(c);
         boolean timer = seconds > 0;
@@ -132,13 +138,10 @@ public final class TopBar {
         button(tb.horizonButton, tb.horizonIcon, horizon, accent,
                 Lang.t(c, horizon ? "Горизонт: вкл." : "Горизонт: выкл.", horizon ? "Level: on" : "Level: off"));
         boolean uhdr = PreferenceKeys.isUltraHdrOn();
-        tb.uhdrButton.setTextColor(uhdr ? accent : ShadeStyle.TEXT);
-        tb.uhdrButton.setActivated(uhdr);
-        tb.uhdrButton.setBackground(ShadeStyle.pressable(c, uhdr ? onTint(accent) : 0x00000000, 0, 999));
-        tb.uhdrButton.setContentDescription(Lang.t(c, uhdr ? "Ultra HDR: вкл." : "Ultra HDR: выкл.", uhdr ? "Ultra HDR: on" : "Ultra HDR: off"));
+        button(tb.uhdrButton, tb.uhdrIcon, uhdr, accent, Lang.t(c, uhdr ? "Ultra HDR: вкл." : "Ultra HDR: выкл.", uhdr ? "Ultra HDR: on" : "Ultra HDR: off"));
         if (rebind) {
             // P495: torch and timer switched (here or from the shade): their icon breathes (the badges have the press)
-            if (wasTorch != torch) com.particlesdevs.photoncamera.ui.Motion.pop(tb.torchIcon);
+            if (wasFlash != null && !wasFlash.equals(flash)) com.particlesdevs.photoncamera.ui.Motion.pop(tb.torchIcon);
             if (!wasTimer.equals(timer ? String.valueOf(tb.timerBadge.getText()) : "")) com.particlesdevs.photoncamera.ui.Motion.pop(tb.timerIcon);
             if (wasGrid != grid) com.particlesdevs.photoncamera.ui.Motion.pop(tb.gridIcon);
             if (wasHorizon != horizon) com.particlesdevs.photoncamera.ui.Motion.pop(tb.horizonIcon);
@@ -236,7 +239,9 @@ public final class TopBar {
         box.setActivated(on);
         box.setContentDescription(name);
         ViewCompat.setTooltipText(box, name);
-        com.particlesdevs.photoncamera.ui.Icons.mono(icon, on ? accent : ShadeStyle.TEXT);
+        // P583: the concept's line icon (cv_*) tinted plain (a tonal mono filter would fade its white strokes to a third)
+        icon.clearColorFilter();
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(on ? accent : ShadeStyle.TEXT));
         icon.setActivated(on);
         if (icon.getParent() == box) icon.setDuplicateParentStateEnabled(true);
         box.setBackground(ShadeStyle.pressable(c, on ? onTint(accent) : 0x00000000, 0, 999));
@@ -304,15 +309,22 @@ public final class TopBar {
             v.setLayoutParams(lp);
         }
         int rowPad = UiScale.dp(c, level >= 3 ? 4 : level >= 2 ? 6 : 10);
-        row.setPaddingRelative(rowPad, 0, rowPad, 0);
+        row.setPaddingRelative(rowPad, row.getPaddingTop(), rowPad, 0);
         String format = String.valueOf(tb.formatBadge.getTag(R.id.format_badge));
         tb.formatBadge.setText(level >= 2 ? format.replace(" + ", "+") : format);
         // the concept: a format longer than five letters a little smaller
         float formatSp = (format.length() > 5 ? 11.5f : 13f) - (level >= 3 ? 1f : 0f);
-        UiScale.textFixed(tb.formatBadge, formatSp);
-        UiScale.textFixed(tb.sizeBadge, level >= 3 ? 8.5f : 9f);
-        UiScale.textFixed(tb.dcgBadge, level >= 3 ? 12f : 13f);
-        UiScale.textFixed(tb.timerBadge, 10);
+        // P583: the concept's text (px as dp x the chrome's scale, Roboto Flex): 13 / 11.5 heavy over 9 semibold, DCG 13, the badge 10
+        text(tb.formatBadge, formatSp, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
+        text(tb.sizeBadge, level >= 3 ? 8.5f : 9f, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        text(tb.dcgBadge, level >= 3 ? 12f : 13f, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
+        text(tb.timerBadge, 10, com.particlesdevs.photoncamera.ui.style.Fonts.HEAVY);
+    }
+
+    /** A label of the row at the concept's {@code px} (no autosize: the row steps down by itself). */
+    private static void text(TextView v, float px, int weight) {
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeWithDefaults(v, androidx.core.widget.TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE);
+        ConceptStyle.text(v, px, weight);
     }
 
     /**

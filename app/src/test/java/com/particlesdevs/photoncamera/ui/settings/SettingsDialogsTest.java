@@ -182,7 +182,8 @@ public class SettingsDialogsTest {
             AlertDialog d = latest();
             String name = String.valueOf(page.getPreferenceScreen().getTitle());
             assertEquals("P574: the concept's title names the page", "Reset «" + name + "»?", title(d));
-            assertEquals("Every setting of «" + name + "» goes back to its default. Pages inside it stay as they are.", message(d));
+            // P584: the concept's text
+            assertEquals("The settings of this page go back to their defaults.", message(d));
             assertEquals("Reset", button(d, DialogInterface.BUTTON_POSITIVE));
             assertEquals("Cancel", button(d, DialogInterface.BUTTON_NEGATIVE));
             click(d, DialogInterface.BUTTON_NEGATIVE);

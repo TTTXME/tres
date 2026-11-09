@@ -43,7 +43,7 @@ public final class SelectionBar {
         close.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 999)));
         view.addView(close, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
         count = GalleryUi.fitText(c, "", 14, GalleryUi.accent(c));
-        count.setTypeface(GalleryUi.semibold());
+        count.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(count.getContext(), 600));
         count.setGravity(Gravity.CENTER);
         count.setPadding(GalleryUi.dp(c, 12), GalleryUi.dp(c, 8), GalleryUi.dp(c, 12), GalleryUi.dp(c, 8));
         int bg = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.pillFill(GalleryUi.accent(c));

@@ -92,7 +92,7 @@ public final class PrecisionEditor extends LinearLayout {
 
         // ── the value: 64sp bold, tabular figures; a tap types it in place ──
         number = SettingsStyle.text(c, format(this.value), 64, SettingsStyle.ROW_TITLE);
-        number.setTypeface(Typeface.DEFAULT_BOLD);
+        number.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD));
         number.setFontFeatureSettings("tnum");
         number.setGravity(Gravity.CENTER);
         number.setSingleLine(true);
@@ -117,7 +117,7 @@ public final class PrecisionEditor extends LinearLayout {
         field = new EditText(c);
         field.setSingleLine(true);
         field.setTextSize(34);
-        field.setTypeface(Typeface.DEFAULT_BOLD);
+        field.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD));
         field.setGravity(Gravity.CENTER);
         field.setTextColor(SettingsStyle.ROW_TITLE);
         field.setBackground(SettingsStyle.shape(c, SettingsStyle.ROW, 0, 12));
@@ -521,7 +521,7 @@ public final class PrecisionEditor extends LinearLayout {
         TextView cancel = headButton(c, Lang.t(c, "Отмена", "Cancel"), accent, false);
         cancel.setTag("sheet_cancel");
         TextView name = SettingsStyle.text(c, title, 17, SettingsStyle.ROW_TITLE);
-        name.setTypeface(SettingsStyle.semibold());
+        name.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(name.getContext(), 600));
         name.setGravity(Gravity.CENTER);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
@@ -552,7 +552,7 @@ public final class PrecisionEditor extends LinearLayout {
     /** «Отмена» / «Готово»: accent text buttons of the header (17sp; «Готово» bold). */
     private static TextView headButton(Context c, CharSequence label, int accent, boolean bold) {
         TextView b = SettingsStyle.text(c, label, 17, accent);
-        if (bold) b.setTypeface(Typeface.DEFAULT_BOLD);
+        if (bold) b.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD));
         b.setGravity(Gravity.CENTER);
         b.setPadding(SettingsStyle.dp(c, 12), 0, SettingsStyle.dp(c, 12), 0);
         b.setFocusable(true);

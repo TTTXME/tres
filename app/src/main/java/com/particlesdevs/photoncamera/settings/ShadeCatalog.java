@@ -156,34 +156,45 @@ public final class ShadeCatalog {
      */
     static final Map<String, Integer> CONCEPT_ICONS = new HashMap<>();
     static {
-        CONCEPT_ICONS.put(FLASH, R.drawable.ui_ic_flash);
-        CONCEPT_ICONS.put(TIMER, R.drawable.ui_ic_timer);
-        CONCEPT_ICONS.put(FORMAT, R.drawable.ui_ic_format);
-        CONCEPT_ICONS.put(OUTPUT, R.drawable.ui_ic_size);
-        CONCEPT_ICONS.put(DOWNSAMPLER, R.drawable.ui_ic_size);
-        CONCEPT_ICONS.put(RESIZE, R.drawable.ui_ic_size);
-        CONCEPT_ICONS.put("pref_show_grid_key", R.drawable.ui_ic_grid);
-        CONCEPT_ICONS.put("pref_horizon", R.drawable.ui_ic_level);
-        CONCEPT_ICONS.put("pref_ultrahdr_key", R.drawable.ui_ic_hdr);
-        CONCEPT_ICONS.put("pref_hdr_frames", R.drawable.ui_ic_hdr); // P494
-        CONCEPT_ICONS.put("pref_motion_mode", R.drawable.ui_ic_motion);
+        // P583 (owner, 2026-11-09: «убедись что иконки точно такие же как в концептах»): the concept's own line icons
+        // (Viewfinder.dc.html's tiles: tools/icons/concept_icons.py -> cv_*) wherever the concept has the tile; the others keep
+        // the P570 icons
+        CONCEPT_ICONS.put(FLASH, R.drawable.cv_bolt);
+        CONCEPT_ICONS.put(TIMER, R.drawable.cv_timer);
+        CONCEPT_ICONS.put(FORMAT, R.drawable.cv_image);
+        CONCEPT_ICONS.put(OUTPUT, R.drawable.cv_res);
+        CONCEPT_ICONS.put(DOWNSAMPLER, R.drawable.cv_res);
+        CONCEPT_ICONS.put(RESIZE, R.drawable.cv_res);
+        CONCEPT_ICONS.put("pref_show_grid_key", R.drawable.cv_grid);
+        CONCEPT_ICONS.put("pref_horizon", R.drawable.cv_horizon);
+        CONCEPT_ICONS.put(HORIZON, R.drawable.cv_horizon);
+        CONCEPT_ICONS.put("pref_ultrahdr_key", R.drawable.cv_sparkle);
+        CONCEPT_ICONS.put("pref_hdr_frames", R.drawable.cv_sparkle); // P494
+        CONCEPT_ICONS.put("pref_motion_mode", R.drawable.cv_run);
+        CONCEPT_ICONS.put(MOTION, R.drawable.cv_run);
         CONCEPT_ICONS.put("pref_camera_sounds_key", R.drawable.ui_ic_sound);
         CONCEPT_ICONS.put("pref_scam_hybrid_colour_mono", R.drawable.ui_ic_palette);
-        CONCEPT_ICONS.put("pref_film_lut", R.drawable.ui_ic_looks); // P509: the same icon as the viewfinder button
-        CONCEPT_ICONS.put("pref_lens_filter", R.drawable.ui_ic_lens);
+        CONCEPT_ICONS.put("pref_film_lut", R.drawable.cv_lut); // P509: the same icon as the viewfinder button
+        CONCEPT_ICONS.put("pref_lens_filter", R.drawable.cv_filter);
         CONCEPT_ICONS.put("pref_face_detect_mode", R.drawable.ui_ic_face);
-        CONCEPT_ICONS.put("pref_wide169_key", R.drawable.ui_ic_aspect);
-        CONCEPT_ICONS.put("pref_tracking_af_mode", R.drawable.ui_ic_target);
-        CONCEPT_ICONS.put("pref_peak_method_key", R.drawable.ui_ic_peak);
-        CONCEPT_ICONS.put("pref_scam_hybrid_bento", R.drawable.ui_ic_sun);
-        CONCEPT_ICONS.put("pref_show_afdata_key", R.drawable.ui_ic_info);
+        CONCEPT_ICONS.put("pref_wide169_key", R.drawable.cv_crop);
+        CONCEPT_ICONS.put("pref_tracking_af_mode", R.drawable.cv_focus);
+        CONCEPT_ICONS.put("pref_peak_method_key", R.drawable.cv_peak);
+        CONCEPT_ICONS.put("pref_scam_hybrid_bento", R.drawable.cv_sun);
+        CONCEPT_ICONS.put("pref_scam_hybrid_bento_frames", R.drawable.cv_layers);
+        CONCEPT_ICONS.put("pref_scam_hybrid_shasta", R.drawable.cv_layers);
+        CONCEPT_ICONS.put("pref_scam_hybrid_zsl_frames", R.drawable.cv_layers);
+        CONCEPT_ICONS.put("pref_scam_hybrid_why_dn_factor", R.drawable.cv_wave);
+        CONCEPT_ICONS.put("pref_scam_hybrid_why_metering", R.drawable.cv_target);
+        CONCEPT_ICONS.put(ETTR, R.drawable.cv_target);
+        CONCEPT_ICONS.put("pref_show_afdata_key", R.drawable.cv_info);
         CONCEPT_ICONS.put("pref_live_viewfinder_raw_key", R.drawable.ui_ic_raw);
         CONCEPT_ICONS.put("pref_show_watermark_key", R.drawable.ui_ic_text);
-        CONCEPT_ICONS.put(METERING_STD, R.drawable.ui_ic_target);
-        CONCEPT_ICONS.put(SIZE, R.drawable.ui_ic_size);
+        CONCEPT_ICONS.put(METERING_STD, R.drawable.cv_target);
+        CONCEPT_ICONS.put(SIZE, R.drawable.cv_res);
         CONCEPT_ICONS.put(STYLE, R.drawable.ui_ic_palette);
         CONCEPT_ICONS.put(MIRROR, R.drawable.ui_ic_mirror);
-        CONCEPT_ICONS.put(FLICKER, R.drawable.ui_ic_lamp);
+        CONCEPT_ICONS.put(FLICKER, R.drawable.cv_bolt);
     }
 
     /** Curated look of a key: short tile name, short value labels, icon of the setting and of each value. */
@@ -208,7 +219,9 @@ public final class ShadeCatalog {
     }
 
     static {
-        spec(FLASH, R.string.shade_t_flash, R.array.shade_s_flash, R.drawable.ic_flash_on, R.drawable.ic_torch, R.drawable.ic_flash_off);
+        // P590: off, auto, on, torch (the values' order, a tap's cycle; the tile's icon is FlashMode.icon)
+        spec(FLASH, R.string.shade_t_flash, R.array.shade_s_flash, R.drawable.ic_flash_on, R.drawable.ic_flash_off, R.drawable.ic_flash_on,
+                R.drawable.ic_flash_on, R.drawable.ic_torch);
         spec(TIMER, R.string.shade_t_timer, R.array.shade_s_timer, R.drawable.ic_sheet_timer,
                 R.drawable.ic_timeroff, R.drawable.ic_timer3s, R.drawable.ic_timer10s);
         spec(FORMAT, R.string.shade_t_format, 0, R.drawable.ic_shade_jpeg); // value icons: FormatChoice
@@ -383,7 +396,8 @@ public final class ShadeCatalog {
         this.res = context.getResources();
         this.prefs = prefs;
         this.lang = res.getString(R.string.ui_language);
-        addVirtual(FLASH, R.string.shade_title_flash, R.array.shade_l_flash, new String[]{"0", "1"},
+        // P590: pref_ae_mode 1 off, 2 auto flash, 3 always flash, 0 torch (PhotonCamera's values), in the cycle's order
+        addVirtual(FLASH, R.string.shade_title_flash, R.array.shade_l_flash, new String[]{"1", "2", "3", "0"},
                 res.getString(R.string.pref_ae_mode_default).trim(), SettingType.FLASH);
         addVirtual(TIMER, R.string.shade_title_timer, R.array.shade_l_timer, new String[]{"0", "1", "2"}, "0", SettingType.TIMER);
         addFormat();
@@ -699,7 +713,7 @@ public final class ShadeCatalog {
     public Object value(Entry e) {
         if (e.isVirtual()) {
             switch (e.key) {
-                case FLASH: return String.valueOf(PreferenceKeys.getAeMode());
+                case FLASH: return String.valueOf(flashShown()); // P590: as this lens and mode allow it
                 case TIMER: return String.valueOf(PreferenceKeys.getCountdownTimerIndex());
                 case FORMAT: return String.valueOf(FormatChoice.current().ordinal());
                 case SIZE: return String.valueOf(com.particlesdevs.photoncamera.ui.camera.PhotoSize.current());
@@ -753,6 +767,30 @@ public final class ShadeCatalog {
     public float number(Entry e) {
         float def = (float) PreferenceNumber.read(defaultOf(e), e.min);
         return Math.max(e.min, Math.min(e.max, (float) PreferenceNumber.read(value(e), def)));
+    }
+
+    /**
+     * P583 (the concept's shade, Viewfinder.dc.html valueOf: on = a toggle on, a list past its first value, a slider never): a tile
+     * is lit while its setting is on - a toggle on (HDR on is lit), a list at any value but its «off» one (its first value when it
+     * has no «off»), never a slider or a curve.
+     */
+    public boolean lit(Entry e) {
+        switch (e.kind) {
+            case TOGGLE:
+                return on(e);
+            case SLIDER:
+            case CURVE:
+                return false;
+            default:
+                int current = index(e);
+                if (current < 0 || e.values == null) return false;
+                String off = res.getString(R.string.shade_off).replace(".", "").trim();
+                for (int i = 0; i < e.values.length; i++) {
+                    String l = String.valueOf(label(e, i, false)).replace(".", "").trim();
+                    if (l.equalsIgnoreCase(off) || l.equalsIgnoreCase("Off")) return current != i;
+                }
+                return current > 0;
+        }
     }
 
     /** True when the value differs from the default (lists, toggles and sliders alike; owner's answer 5). */
@@ -862,12 +900,9 @@ public final class ShadeCatalog {
     /** Icon of the current value, else of the setting. */
     @Nullable
     public Drawable icon(Entry e) {
-        // P502: «Разрешение» shows its scale («1X», «1.5X», «2X») as the icon
-        if (OUTPUT.equals(e.key)) {
-            String mode = PreferenceKeys.hybridOutputMode();
-            return new com.particlesdevs.photoncamera.ui.camera.views.settingsbar.TextIconDrawable(context,
-                    "2x".equals(mode) ? "2X" : "1.5x".equals(mode) ? "1.5X" : "1X");
-        }
+        // P590: the flash tile shows its mode (a bolt with a slash, with «A», filled; the flashlight)
+        if (FLASH.equals(e.key)) return context.getDrawable(com.particlesdevs.photoncamera.capture.FlashMode.icon(flashShown()));
+        // P583: «Разрешение» the concept's res icon (its value line says the scale; P502 drew the scale as the icon)
         Integer concept = CONCEPT_ICONS.get(e.key);
         if (concept != null) return context.getDrawable(concept);
         int i = e.kind == LIST ? index(e) : -1;
@@ -887,6 +922,7 @@ public final class ShadeCatalog {
     /** P570: the value's icon ({@link #icon}) is one of the colour icons. */
     public boolean colourValueIcon(Entry e) {
         if (OUTPUT.equals(e.key)) return false;
+        if (FLASH.equals(e.key)) return com.particlesdevs.photoncamera.ui.Icons.colour(context, com.particlesdevs.photoncamera.capture.FlashMode.icon(flashShown()));
         Integer concept = CONCEPT_ICONS.get(e.key);
         if (concept != null) return com.particlesdevs.photoncamera.ui.Icons.colour(context, concept);
         int i = e.kind == LIST ? index(e) : -1;
@@ -930,11 +966,22 @@ public final class ShadeCatalog {
 
     /** The next list value (wrapping) as stored, for a tap on a list tile. */
     public String nextValue(Entry e) {
+        // P590: the flash cycles as the top row's item (a lens without a flash and the video: off <-> torch)
+        if (FLASH.equals(e.key)) return String.valueOf(com.particlesdevs.photoncamera.capture.FlashMode.tap());
         int i = index(e);
         return e.values[(i + 1 + e.values.length) % e.values.length].toString();
     }
 
     // ───────────────────────────────── availability
+
+    /** P590: the flash mode the tile shows (FlashMode.shown; off where the settings cannot be read). */
+    private static int flashShown() {
+        try {
+            return com.particlesdevs.photoncamera.capture.FlashMode.shown();
+        } catch (RuntimeException e) {
+            return com.particlesdevs.photoncamera.capture.FlashMode.OFF;
+        }
+    }
 
     /** Whether the current lens has a flash (set from the camera characteristics). */
     public static void setFlashAvailable(boolean available) {

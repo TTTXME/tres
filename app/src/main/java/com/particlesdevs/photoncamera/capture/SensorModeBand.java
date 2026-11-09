@@ -51,6 +51,19 @@ public final class SensorModeBand {
         return new int[]{table[at], table[at + 1], table[at + 2]};
     }
 
+    /** The sensor mode table for the log: "N rows: 0 8192x6144@30, 1 4096x3072@30, …" ("none" without one). */
+    public static String describe(@Nullable CameraCharacteristics c) {
+        final int[] t = table(c);
+        if (t == null || t.length < 2 || t[0] <= 0) return "none";
+        final StringBuilder sb = new StringBuilder().append(t[0]).append(" rows:");
+        for (int m = 0; m < t[0]; m++) {
+            final int[] e = modeEntry(t, m);
+            if (e == null) break;
+            sb.append(m == 0 ? " " : ", ").append(m).append(' ').append(e[0]).append('x').append(e[1]).append('@').append(e[2]);
+        }
+        return sb.toString();
+    }
+
     /** The camera's sensor mode table, null when it has none. */
     @Nullable
     static int[] table(@Nullable CameraCharacteristics c) {

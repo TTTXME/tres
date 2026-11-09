@@ -116,7 +116,7 @@ public class PhotoStylePreference extends Preference implements SharedPreference
             // P574: the tonal tile of the settings rows
             int[] pair = com.particlesdevs.photoncamera.ui.settings.SettingsTiles.pair(icon.getDrawable());
             tile.setBackground(UiTokens.shape(c, pair[0], 0, 9));
-            icon.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(pair[1]));
+            com.particlesdevs.photoncamera.ui.settings.SettingsTiles.ink(icon, pair[1]);
             tile.addView(icon, new FrameLayout.LayoutParams(UiTokens.dp(c, 22), UiTokens.dp(c, 22), Gravity.CENTER));
             LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(UiTokens.dp(c, 32), UiTokens.dp(c, 32));
             tp.setMarginEnd(UiTokens.dp(c, 12));
@@ -124,7 +124,7 @@ public class PhotoStylePreference extends Preference implements SharedPreference
             LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
             TextView t = SettingsStyle.text(c, rows[i][0], 16, SettingsStyle.ROW_TITLE);
-            t.setTypeface(SettingsStyle.semibold());
+            t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
             texts.addView(t);
             TextView s = SettingsStyle.text(c, rows[i][1], 13, SettingsStyle.SUMMARY);
             s.setPadding(0, UiTokens.dp(c, 2), 0, 0);

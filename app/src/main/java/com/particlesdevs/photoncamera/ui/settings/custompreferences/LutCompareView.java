@@ -37,11 +37,11 @@ public final class LutCompareView extends View {
 
     public LutCompareView(Context c) {
         super(c);
-        knobIcon = c.getDrawable(R.drawable.ui_ic_compare);
-        if (knobIcon != null) knobIcon.mutate().setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(0xFF111111)); // P570: the colour icon, tonal mono
+        knobIcon = c.getDrawable(R.drawable.cs_compare);
+        if (knobIcon != null) knobIcon.mutate().setColorFilter(new android.graphics.PorterDuffColorFilter(0xFF000000, android.graphics.PorterDuff.Mode.SRC_IN)); // P584: the concept's ‹› in black
         touchSlop = ViewConfiguration.get(c).getScaledTouchSlop();
         tagPaint.setTextSize(UiTokens.dp(c, 11));
-        tagPaint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        tagPaint.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));   // P584: the concept's 13 / 600 tags
         setFocusable(true);
         setContentDescription(Lang.t(c, "Сравнение до и после", "Before and after"));
         setTag("lut_compare");

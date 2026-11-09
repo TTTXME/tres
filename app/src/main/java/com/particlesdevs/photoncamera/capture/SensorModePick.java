@@ -100,22 +100,59 @@ public final class SensorModePick {
         public final Size size;
         /** P575: the row of the nubia size switch (FULLRES), not one of a module: its failure turns FULLRES off (NubiaFullRes). */
         public final boolean fullRes;
+        /** P586: the colour block the row's frames have (the OnePlus 16's izoom QBC rows: 2), 0 when the table says it ({@link #declaredBlock}). */
+        public final int block;
+        /** P586: the OPPO-family route of the row - {@link #ISZ} (no remosaic: RAW only), {@link #DCG} (DCG / DAG), null for none. */
+        @Nullable public final String route;
 
         Pick(int mode, int width, int height) {
             this(mode, width, height, false);
         }
 
         Pick(int mode, int width, int height, boolean fullRes) {
+            this(mode, width, height, fullRes, 0, null);
+        }
+
+        Pick(int mode, int width, int height, boolean fullRes, int block, @Nullable String route) {
             this.mode = mode;
             this.width = width;
             this.height = height;
             this.size = new Size(width, height);
             this.fullRes = fullRes;
+            this.block = block;
+            this.route = route;
+        }
+
+        /** P586: an ISZ row without the remosaic (the OnePlus 16 main / tele row 11): no ISP stream in its session, whatever «Поток ISP». */
+        public boolean rawOnly() {
+            return ISZ.equals(route);
+        }
+
+        /** P586: the DCG / DAG row of the DCG switch (the OnePlus 16 main row 28, tele row 2 / 4): «Поток ISP» as the module has it. */
+        public boolean dcg() {
+            return DCG.equals(route);
         }
 
         @Override public String toString() {
-            return "mode " + mode + " " + width + "x" + height + (fullRes ? " (FULLRES)" : "");
+            return "mode " + mode + " " + width + "x" + height + (fullRes ? " (FULLRES)" : "") + (route == null ? "" : " (" + route + ")");
         }
+    }
+
+    static final String ISZ = "oplus ISZ", DCG = "oplus DCG";
+
+    /**
+     * P266 / P575 / P586: the session leaves its ISP stream out - the RAW-only session, the RAW viewfinder. «Поток ISP»
+     * ({@code ispSurface}: 0 Auto, 1 On, 2 Off, 3 fake off) Off always; Auto with a forced sensor mode ({@code otherForcedMode}: a
+     * vivo ISZ / module sensor mode; a pick but the DCG / DAG one, which keeps the ISP stream as Xiaomi's DCG does); a nubia row with
+     * On too; an OPPO-family ISZ row without the remosaic ({@link Pick#rawOnly}) whatever the setting (owner, 2026-11-09: «При
+     * съемке без ремозаика isp превью у него должно отключаться»). Native FULLRES sessions are RAW-only by their own route.
+     */
+    public static boolean ispStreamOff(int ispSurface, @Nullable Pick pick, boolean otherForcedMode, boolean nubia) {
+        if (pick != null && pick.rawOnly()) return true;
+        if (ispSurface == 2) return true;
+        final boolean forced = otherForcedMode || pick != null && !pick.dcg();
+        if (ispSurface == 0 && forced) return true;
+        return ispSurface == 1 && pick != null && nubia;
     }
 
     /** Session-scoped: the pick of the session being configured (CaptureController sets it, the request builders read it). */
@@ -133,8 +170,12 @@ public final class SensorModePick {
             if (row < 0) {
                 final Pick full = NubiaFullRes.fullResPick(physicalId, c, PixelPro10.fullResOn());
                 if (full != null) return full;
+                final Pick dcg = OplusDcg.pick(physicalId, c); // P586: the OnePlus 16's DCG (main) / DAG (tele) row
+                if (dcg != null) return dcg;
             }
-            return of(row, SensorModeBand.table(c));
+            // P586: an OPPO-family camera's table, else the PYB110's recorded one; its ISZ row declares its Quad
+            final Pick p = of(row, brand() == Brand.OPLUS ? OppoNativeFullRes.table(physicalId, c) : SensorModeBand.table(c));
+            return p == null ? null : OplusIsz.mark(physicalId, slot, p);
         } catch (RuntimeException e) {
             return null;
         }
@@ -198,7 +239,8 @@ public final class SensorModePick {
     public static String apply(@Nullable CaptureRequest.Builder builder) {
         final Pick p = sSession;
         if (builder == null || p == null) return "";
-        return apply(builder, p.mode, brand());
+        final String mode = apply(builder, p.mode, brand());
+        return p.dcg() ? mode + OplusDcg.applyHdrKey(builder) : mode; // P586: EnableHDRDCGMode beside the mode, where listed
     }
 
     static String apply(CaptureRequest.Builder builder, int mode, Brand brand) {
@@ -258,6 +300,6 @@ public final class SensorModePick {
     /** The declared block of the session's pick (0: none / unknown). */
     public static int sessionBlock(@Nullable CameraCharacteristics c) {
         final Pick p = sSession;
-        return p == null ? 0 : declaredBlock(SensorModeBand.table(c), p.mode);
+        return p == null ? 0 : p.block > 0 ? p.block : declaredBlock(SensorModeBand.table(c), p.mode);
     }
 }

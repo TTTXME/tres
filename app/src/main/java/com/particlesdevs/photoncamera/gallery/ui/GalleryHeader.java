@@ -35,7 +35,7 @@ public final class GalleryHeader {
             view.addView(back, bp);
         }
         title = GalleryUi.fitText(c, text, 32, GalleryUi.TEXT);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(title.getContext(), 700));
         title.setLetterSpacing(-0.012f);
         title.setAccessibilityHeading(true);
         view.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));

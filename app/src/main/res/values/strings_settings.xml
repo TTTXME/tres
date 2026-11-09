@@ -110,6 +110,12 @@
     <string name="prefs_scam_hybrid_s61_min_motion_summary">For Auto by day, with Local alignment F6: hand shake from which the new kernel is used. Lower: more often (noisier on a tripod); higher: less often.</string>
     <string name="prefs_scam_hybrid_kernel_title">Merge kernel scale</string>
     <string name="prefs_scam_hybrid_kernel_summary">Blend width of the frames. Higher: softer and cleaner; lower: sharper but noisier.</string>
+    <string name="prefs_scam_hybrid_kernel_texture_title">Texture kernel footprint</string>
+    <string name="prefs_scam_hybrid_kernel_texture_summary">%s. Blend width on textured surfaces (sand, asphalt, foliage). Higher: smoother, cleaner surfaces; lower: crisper micro-texture, more grain. 1: as before.</string>
+    <string name="prefs_scam_hybrid_kernel_bokeh_title">Bokeh kernel footprint</string>
+    <string name="prefs_scam_hybrid_kernel_bokeh_summary">%s. Blend width in flat and out-of-focus areas (sky, walls, bokeh). Higher: cleaner, smoother; lower: keeps more fine grain. 1: as before.</string>
+    <string name="prefs_scam_hybrid_kernel_transition_title">Texture / bokeh transition</string>
+    <string name="prefs_scam_hybrid_kernel_transition_summary">%s. Where the bokeh kernel starts, by local detail. Higher: more of the frame counts as flat (smoother); lower: more counts as texture. 1: as before.</string>
     <string name="prefs_scam_hybrid_snr_scale_title">Noise scale for the SNR key</string>
     <string name="prefs_scam_hybrid_snr_scale_summary">Older kernel only: how noisy the shot is assumed to be. Higher: softer and cleaner; lower: sharper, noisier.</string>
     <string name="prefs_scam_hybrid_tensor_noise_title">Tensor noise correction</string>

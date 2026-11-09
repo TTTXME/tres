@@ -120,7 +120,7 @@ public class TunableKeyPreference extends Preference {
 
     /** The key glyph with a 7 dp status dot at its bottom end (ringed in the tile colour, so it reads on the glyph). */
     static Drawable statusIcon(Context context, int color) {
-        Drawable key = AppCompatResources.getDrawable(context, R.drawable.settings_ic_key);
+        Drawable key = AppCompatResources.getDrawable(context, R.drawable.cs_ic_key);
         GradientDrawable dot = new GradientDrawable();
         dot.setShape(GradientDrawable.OVAL);
         dot.setColor(color);

@@ -130,7 +130,7 @@ public final class AlbumsPage {
         head.setMinimumHeight(GalleryUi.dp(c, 48));
         head.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 10), 0, GalleryUi.dp(c, 2));
         TextView t = GalleryUi.text(c, title, 20, GalleryUi.TEXT);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 700));
         t.setAccessibilityHeading(true);
         head.addView(t);
         ImageView chev = GalleryUi.icon(c, R.drawable.ui_ic_chev, GalleryUi.SECTION, 18);
@@ -236,7 +236,7 @@ public final class AlbumsPage {
             text.setOrientation(LinearLayout.VERTICAL);
             TextView n = GalleryUi.text(c, count, 11, 0xCCFFFFFF);
             TextView name = GalleryUi.fitText(c, a.title, 14, 0xFFFFFFFF);
-            name.setTypeface(GalleryUi.semibold());
+            name.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(name.getContext(), 600));
             text.addView(n);
             text.addView(name);
             FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -247,7 +247,7 @@ public final class AlbumsPage {
         } else {
             box.addView(cover);
             TextView name = GalleryUi.fitText(c, a.title, 14, GalleryUi.TEXT);
-            name.setTypeface(GalleryUi.semibold());
+            name.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(name.getContext(), 600));
             name.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 6), GalleryUi.dp(c, 2), 0);
             box.addView(name);
             TextView n = GalleryUi.text(c, count, 13, GalleryUi.MUTED);
@@ -295,7 +295,7 @@ public final class AlbumsPage {
             np.setMarginStart(GalleryUi.dp(c, 10));
             r.addView(GalleryUi.text(c, count, 16, GalleryUi.SECTION), np);
         }
-        ImageView chev = GalleryUi.icon(c, R.drawable.settings_ic_chevron, GalleryUi.SECTION, 16);
+        ImageView chev = GalleryUi.icon(c, R.drawable.cs_chevron, GalleryUi.SECTION, 16);
         chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         if (chev.getDrawable() != null) chev.getDrawable().mutate().setAutoMirrored(true); // points the reading way in right to left
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(GalleryUi.dp(c, 16), GalleryUi.dp(c, 16));

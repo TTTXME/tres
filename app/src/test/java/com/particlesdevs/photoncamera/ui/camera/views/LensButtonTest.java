@@ -98,7 +98,7 @@ public class LensButtonTest {
         assertEquals("2,8×", button.getText().toString());
         assertEquals("the active pill keeps the height", dp(LensButton.HEIGHT_DP * BottomChrome.scale(context)), button.getHeight());
         assertTrue("the active pill at least 46dp wide", button.getWidth() >= dp(LensButton.SELECTED_WIDTH_DP * BottomChrome.scale(context)));
-        assertEquals("a rounded rectangle: 15 of its 38dp", button.getHeight() * 15f / 38f, dp(LensButton.CORNER_DP * BottomChrome.scale(context)), 1f);
+        assertEquals("P583: round ends, 22 of its 44dp", button.getHeight() * 22f / 44f, dp(LensButton.CORNER_DP * BottomChrome.scale(context)), 1f);
         button.setSelected(false);
         assertEquals("2,8", button.getText().toString());
         assertEquals("2,8×", button.fullLabel().toString());
@@ -146,16 +146,17 @@ public class LensButtonTest {
                     if (!inside) assertEquals("ink outside the button at " + o + " (" + x + "," + y + ")", 0, Color.alpha(image.getPixel(x, y)));
                 }
             // The pill: both round ends and the middle of the top edge are in the accent, as in portrait.
-            assertEquals(accent, image.getPixel(margin + dp(3), margin + height / 2));
-            assertEquals(accent, image.getPixel(margin + width - 1 - dp(3), margin + height / 2));
-            assertEquals(accent, image.getPixel(margin + width / 2, margin + dp(1)));
+            // P583 (the concept's zoom stops): the chosen stop a #3A3A3C disc (its label in the accent)
+            assertEquals(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.CHOSEN, image.getPixel(margin + dp(3), margin + height / 2));
+            assertEquals(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.CHOSEN, image.getPixel(margin + width - 1 - dp(3), margin + height / 2));
+            assertEquals(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.CHOSEN, image.getPixel(margin + width / 2, margin + dp(1)));
             // The label: drawn, centred, turned with the phone (taller than wide in landscape) and clear of the edges.
             int left = Integer.MAX_VALUE, right = -1, top = Integer.MAX_VALUE, bottom = -1, ink = 0;
             for (int y = margin; y < margin + height; y++)
                 for (int x = margin; x < margin + width; x++) {
                     int p = image.getPixel(x, y);
-                    // Dark text on the pill; the transparent corners around the pill's round ends are no ink.
-                    if (Color.alpha(p) < 200 || Color.red(p) + Color.green(p) + Color.blue(p) >= 300) continue;
+                    // P583: the accent's text on the dark pill; the transparent corners around the pill's round ends are no ink.
+                    if (Color.alpha(p) < 200 || Color.red(p) + Color.green(p) + Color.blue(p) < 300) continue;
                     ink++;
                     left = Math.min(left, x);
                     right = Math.max(right, x);

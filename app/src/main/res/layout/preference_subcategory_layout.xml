@@ -2,6 +2,7 @@
 <!-- P384: the chosen module's caption in «Сенсор по модулям» («1× · ID 0»): a quiet sub-caption over its rows (muted, sentence
      case), not a group title. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -18,14 +19,17 @@
         android:id="@android:id/title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="sans-serif-medium"
+        android:fontFamily="@font/roboto_flex_500"
+            app:fontFamily="@font/roboto_flex_500"
         android:textColor="@color/settings_summary"
-        android:textSize="12.5sp" />
+        android:textSize="12.5dp" />
     <TextView
+        android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
         android:id="@android:id/summary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="@color/settings_summary"
-        android:textSize="12sp"
+        android:textSize="12dp"
         android:visibility="gone" />
 </LinearLayout>

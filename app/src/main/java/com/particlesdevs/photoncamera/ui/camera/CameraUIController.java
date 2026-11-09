@@ -90,12 +90,14 @@ final class CameraUIController implements CameraUIEventsListener,
                 break;
             }
             case R.id.torch_button: {
-                // SIMPLE_UI §1: the torch (pref_ae_mode 0 torch, 1 off), as the quick-sheet tile
-                int mode = PreferenceKeys.getAeMode() == 0 ? 1 : 0;
+                // P590: the flash modes (pref_ae_mode 0 torch, 1 off, 2 auto, 3 on), a tap the next as the timer's: Выкл. -> Авто ->
+                // Вкл. -> Фонарик -> Выкл. (a lens without a flash and the video: Выкл. <-> Фонарик)
+                final int mode = com.particlesdevs.photoncamera.capture.FlashMode.tap();
                 PreferenceKeys.setAeMode(mode);
                 cameraFragment.captureController.setPreviewAEModeRebuild(PreferenceKeys.getAeMode());
                 cameraFragment.refreshTopBar();
-                cameraFragment.showSnackBar(Lang.t(view.getContext(), mode == 0 ? "Фонарик: вкл." : "Фонарик: выкл.", mode == 0 ? "Torch: on" : "Torch: off"));
+                cameraFragment.showSnackBar(com.particlesdevs.photoncamera.capture.FlashMode.label(mode));
+                Log.i(TAG, "flash mode " + com.particlesdevs.photoncamera.capture.FlashMode.name(mode));
                 break;
             }
             case R.id.timer_button: {
@@ -271,7 +273,7 @@ final class CameraUIController implements CameraUIEventsListener,
                 Object value = topBarSettingsData.getValue();
                 switch (type) {
                     case FLASH:
-                        PreferenceKeys.setAeMode((Integer) value); // 0 torch, 1 off
+                        PreferenceKeys.setAeMode((Integer) value); // P590: 0 torch, 1 off, 2 auto, 3 on (FlashMode)
                         cameraFragment.captureController.setPreviewAEModeRebuild(PreferenceKeys.getAeMode());
                         break;
                     case GRID:

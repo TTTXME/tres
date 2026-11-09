@@ -88,6 +88,12 @@ import java.util.Set;
  */
 public final class VideoPlayerActivity extends AppCompatActivity implements VideoEngine.Listener, SurfaceHolder.Callback,
         VideoPlaybackService.Controller {
+    /** P582: laid out at the concept's 390dp width with the font scale 1, whatever the phone's display / font size. */
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.particlesdevs.photoncamera.ui.style.UiFixedScale.wrap(base));
+    }
+
     private static final String TAG = "VideoPlayer";
     static final String EXTRA_URIS = "uris", EXTRA_NAMES = "names", EXTRA_PATHS = "paths", EXTRA_INDEX = "index";
     private static final String PREFS = "video_player";
@@ -744,7 +750,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         LinearLayout meta = new LinearLayout(c);
         meta.setOrientation(LinearLayout.VERTICAL);
         title = GalleryUi.fitText(c, "", 16, GalleryUi.TEXT);
-        title.setTypeface(GalleryUi.semibold());
+        title.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(title.getContext(), 600));
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         sub = GalleryUi.text(c, "", 12.5f, 0xB3FFFFFF);
@@ -759,7 +765,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         subsDisc = disc(c, R.drawable.ui_ic_subtitles, Lang.t("Субтитры", "Subtitles"), v -> openSubsPanel());
         row.addView(subsDisc, gap(size(c, 40), 6));
         decoderPill = GalleryUi.text(c, "HW+", 13, GalleryUi.TEXT);
-        decoderPill.setTypeface(Typeface.DEFAULT_BOLD);
+        decoderPill.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(decoderPill.getContext(), 700));
         decoderPill.setGravity(Gravity.CENTER);
         decoderPill.setMinWidth(GalleryUi.dp(c, 52));
         decoderPill.setPadding(GalleryUi.dp(c, 10), 0, GalleryUi.dp(c, 10), 0);
@@ -921,7 +927,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         hudIcon = GalleryUi.icon(c, R.drawable.ui_ic_sun, GalleryUi.TEXT, 26);
         card.addView(hudIcon, new LinearLayout.LayoutParams(GalleryUi.dp(c, 26), GalleryUi.dp(c, 26)));
         hudBig = GalleryUi.text(c, "", 22, GalleryUi.TEXT);
-        hudBig.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        hudBig.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(hudBig.getContext(), 600));
         hudBig.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bp.topMargin = GalleryUi.dp(c, 6);
@@ -1001,7 +1007,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
             } else {
                 icon = null;
                 text = GalleryUi.text(c, "1x", 14, GalleryUi.TEXT);
-                text.setTypeface(Typeface.DEFAULT_BOLD);
+                text.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(text.getContext(), 700));
                 text.setGravity(Gravity.CENTER);
                 disc.addView(text, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             }
@@ -1690,7 +1696,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         card.setPadding(GalleryUi.dp(this, 16), GalleryUi.dp(this, 18), GalleryUi.dp(this, 16), GalleryUi.dp(this, 14));
         card.setClickable(true); // taps inside do not close it
         TextView t = GalleryUi.text(this, heading, 17, GalleryUi.TEXT);
-        t.setTypeface(GalleryUi.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setAccessibilityHeading(true);
         t.setPadding(GalleryUi.dp(this, 4), 0, 0, GalleryUi.dp(this, 10));
         card.addView(t);
@@ -1948,7 +1954,7 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         TextView value = GalleryUi.text(this, speedLabel(speed), 26, GalleryUi.TEXT);
-        value.setTypeface(GalleryUi.semibold());
+        value.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(value.getContext(), 600));
         value.setGravity(Gravity.CENTER);
         // P579: the shared slider, 0.25 .. 4.00 in 0.05 steps (a double tap goes back to 1x)
         com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(this);

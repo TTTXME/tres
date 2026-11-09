@@ -236,6 +236,15 @@ public class ScameraApp extends Application {
         return sApp != null ? sApp.mSettingsManager : null;
     }
 
+    /**
+     * P582: the app context at the concept's scale and font scale too (UiFixedScale), so sizes and text set up with it (a
+     * toast's own view, dimensions read through it) agree with the activities' instead of the system's display size.
+     */
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(com.particlesdevs.photoncamera.ui.style.UiFixedScale.wrap(base));
+    }
+
     @Override
     public void onCreate() {
         // First thing of all: a crash during initModules() leaves no logcat for the user,

@@ -389,7 +389,7 @@ public class ViewObserver implements Observer {
         String v = manual ? manualText(p) : meteredText(p);
         rulerValue.setText(v);
         rulerValue.setTextColor(manual ? accent : UiTokens.MUTED);
-        rulerValue.setTypeface(Typeface.DEFAULT, manual ? Typeface.BOLD : Typeface.NORMAL);
+        rulerValue.setTypeface(UiFonts.of(rulerValue.getContext(), manual ? UiFonts.BOLD : UiFonts.REGULAR));
         GradientDrawable pill = new GradientDrawable();
         pill.setCornerRadius(UiTokens.dp(activity, 999));
         pill.setColor(manual ? UiTokens.chipBg(accent) : UiTokens.MUTED_PILL);

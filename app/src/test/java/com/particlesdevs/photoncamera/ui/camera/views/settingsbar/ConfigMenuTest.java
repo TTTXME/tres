@@ -163,7 +163,9 @@ public class ConfigMenuTest {
         chip.measure(View.MeasureSpec.makeMeasureSpec(slot, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         assertTrue("within the slot: " + chip.getMeasuredWidth(), chip.getMeasuredWidth() <= slot);
         TextView name = chip.nameView();
-        float sp = name.getTextSize() / activity.getResources().getDisplayMetrics().scaledDensity;
+        // P583: the concept's px as dp times the chrome's scale (the system font size does not count)
+        float sp = name.getTextSize() / (activity.getResources().getDisplayMetrics().density
+                * com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(activity));
         assertEquals("shrunk to the smallest size first", ConfigChip.MIN_SP, sp, .01f);
         assertNotNull("then an ellipsis inside the frame", name.getEllipsize());
         // a name that fits a little smaller only shrinks

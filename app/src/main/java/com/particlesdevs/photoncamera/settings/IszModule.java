@@ -64,6 +64,8 @@ public final class IszModule {
             if (main == null) return;
             // P575: a nubia main camera's «2×» runs its full-size sensor-mode row at zoom 2 (NubiaFullRes), not CROPPED_RAW
             if (com.particlesdevs.photoncamera.capture.NubiaFullRes.ensureIszModule(context, main, c)) return;
+            // P586: the OnePlus 16's ISZ is the sensor's own izoom QBC row on the main and the tele (OplusIsz), not CROPPED_RAW
+            if (com.particlesdevs.photoncamera.capture.OplusIsz.ensure(context)) return;
             final String cameraId = ModuleRegistry.camera(main);
             if (p.getBoolean(OFFERED + cameraId, false)) return;
             if (!CroppedRaw.supported(c)) return;

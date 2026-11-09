@@ -15,15 +15,15 @@ import com.particlesdevs.photoncamera.circularbarlib.ui.ManualFormat;
 import com.particlesdevs.photoncamera.circularbarlib.ui.UiScale;
 
 /**
- * SIMPLE_UI §1, the concept's brightness control beside the focus ring (.evbar): a vertical line (2dp, white at 50 %) with
- * a sun knob (28dp, a dark disc with the sun in #FFD77A) at the current exposure compensation, its value («+0,7») to the
- * right of the knob while it is not 0. Dragging it up brightens, down darkens; the value is the Pro panel's EV (one state),
- * set through {@link Listener}. 136dp x k high, 28dp x k wide plus the label; it never takes a touch outside itself.
+ * SIMPLE_UI §1, the concept's brightness control beside the focus brackets: a vertical line (P583: 1.5dp, the accent at
+ * 80 %) broken by the line sun (20dp, the accent) at the current exposure compensation, its value («+0,7») to the right of
+ * the sun while it is not 0. Dragging it up brightens, down darkens; the value is the Pro panel's EV (one state), set through
+ * {@link Listener}. 96dp x k high, 22dp x k wide plus the label; it never takes a touch outside itself.
  */
 public class ExposureSunView extends View {
     /** The concept's sizes before the scale. */
-    public static final float HEIGHT_DP = 136f, WIDTH_DP = 28f, KNOB_DP = 28f, GAP_DP = 16f, LABEL_DP = 48f;
-    static final int SUN = 0xFFFFD77A, KNOB = 0x59000000, LINE = 0x80FFFFFF;
+    // P583 (the concept's sun beside the focus brackets): a 96dp column 22dp wide, 11dp after the brackets; the sun 20dp
+    public static final float HEIGHT_DP = 96f, WIDTH_DP = 22f, KNOB_DP = 20f, GAP_DP = 11f, LABEL_DP = 48f;
 
     public interface Listener {
         /** A drag moved the value (EV, already within the range). */
@@ -47,12 +47,13 @@ public class ExposureSunView extends View {
 
     public ExposureSunView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
-        Drawable d = context.getDrawable(R.drawable.ui_ic_sun);
+        Drawable d = context.getDrawable(R.drawable.cv_sun);
         sun = d == null ? null : d.mutate();
-        if (sun != null) sun.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(SUN)); // P570: the colour sun, tonal mono
+        // P583: the concept's line sun in the camera accent (its yellow)
+        if (sun != null) sun.setTint(com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(context));
         label.setColor(0xFFFFFFFF);
         label.setTextSize(UiScale.spPx(context, 12));
-        label.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        label.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(context, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD));
         label.setShadowLayer(UiScale.dpF(context, 3), 0, UiScale.dpF(context, 1), 0xFF000000);
         setContentDescription(context.getString(R.string.ev_sun_description));
     }
@@ -88,37 +89,49 @@ public class ExposureSunView extends View {
         setMeasuredDimension(UiScale.dp(getContext(), WIDTH_DP + LABEL_DP), UiScale.dp(getContext(), HEIGHT_DP));
     }
 
-    /** px per 1 EV: the knob's travel (the height less the knob) over the larger side of the range, 0 in the middle. */
+    /** px per 1 EV (0 EV at {@link #ZERO} of the height). */
     float pxPerEv() {
-        float travel = (getHeight() - UiScale.dpF(getContext(), KNOB_DP)) / 2f;
-        return travel / Math.max(1e-3f, Math.max(Math.abs(min), Math.abs(max)));
+        // P583: one scale both ways - the room on the shorter side of 0 EV over its end of the range
+        float r = UiScale.dpF(getContext(), KNOB_DP) / 2f, zero = zeroY();
+        float up = (zero - r) / Math.max(1e-3f, max), down = (getHeight() - r - zero) / Math.max(1e-3f, -min);
+        return Math.max(0f, Math.min(up, down));
+    }
+
+    /**
+     * P583 (the concept: the line split 1 : 1.4 around the 20px sun in its 96px column): 0 EV sits {@link #ZERO} of the way
+     * down, not in the middle.
+     */
+    static final float ZERO = (HEIGHT_DP - KNOB_DP) / 2.4f / HEIGHT_DP + KNOB_DP / 2f / HEIGHT_DP;
+
+    float zeroY() {
+        return getHeight() * ZERO;
     }
 
     float knobY() {
-        return getHeight() / 2f - ev * pxPerEv();
+        return zeroY() - ev * pxPerEv();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         Context c = getContext();
         float cx = UiScale.dpF(c, WIDTH_DP) / 2f, r = UiScale.dpF(c, KNOB_DP) / 2f;
-        paint.setColor(LINE);
-        paint.setStrokeWidth(UiScale.dpF(c, 2));
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        canvas.drawLine(cx, 0, cx, getHeight(), paint);
+        // P583 (the concept): a 1.5dp line in the accent at 80 %, broken by the sun (no disc under it)
+        final int accent = com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(c);
+        paint.setColor((accent & 0x00FFFFFF) | 0xCC000000);
+        paint.setStrokeWidth(UiScale.dpF(c, 1.5f));
+        paint.setStrokeCap(Paint.Cap.BUTT);
         float y = knobY();
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(KNOB);
-        canvas.drawCircle(cx, y, r, paint);
+        if (y - r > 0) canvas.drawLine(cx, 0, cx, y - r, paint);
+        if (y + r < getHeight()) canvas.drawLine(cx, y + r, cx, getHeight(), paint);
         if (sun != null) {
-            int s = Math.round(UiScale.dpF(c, 22) / 2f);
+            int s = Math.round(UiScale.dpF(c, KNOB_DP) / 2f);
             sun.setBounds(Math.round(cx) - s, Math.round(y) - s, Math.round(cx) + s, Math.round(y) + s);
             sun.draw(canvas);
         }
         if (Math.abs(ev) >= 0.05f) {
             String text = ManualFormat.ev(ev);
             Paint.FontMetrics fm = label.getFontMetrics();
-            canvas.drawText(text, UiScale.dpF(c, 34), y - (fm.ascent + fm.descent) / 2f, label);
+            canvas.drawText(text, UiScale.dpF(c, WIDTH_DP + 4), y - (fm.ascent + fm.descent) / 2f, label);
         }
     }
 

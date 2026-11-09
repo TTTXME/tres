@@ -179,7 +179,7 @@ public class ModuleChipsPreference extends Preference {
         t.setText(text);
         t.setTextSize(14);
         t.setTextColor(0xFFFFFFFF);
-        t.setTypeface(com.particlesdevs.photoncamera.ui.settings.SettingsStyle.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setGravity(Gravity.CENTER);
         t.setSingleLine(true);
         t.setIncludeFontPadding(false);

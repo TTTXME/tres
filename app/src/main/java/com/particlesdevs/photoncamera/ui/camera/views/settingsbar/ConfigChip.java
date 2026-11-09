@@ -24,7 +24,8 @@ import com.particlesdevs.photoncamera.util.Lang;
  */
 @SuppressLint("ViewConstructor")
 public final class ConfigChip extends LinearLayout {
-    static final float MAX_SP = 13f, MIN_SP = 9f;
+    // P583 (the concept's profile button): 15px semibold, down to 10 when a long name needs it
+    static final float MAX_SP = 15f, MIN_SP = 10f;
     static final PathInterpolator EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
 
     private final ImageView icon, chevron;
@@ -36,38 +37,38 @@ public final class ConfigChip extends LinearLayout {
         super(context);
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
-        setPadding(dp(10), dp(6), dp(8), dp(6));
-        setMinimumHeight(dp(32));
+        // P583: a 40px #2C2C2E capsule, padding 0 14 0 12, 8px between the save icon (18, accent), the name and the chevron (14)
+        setPadding(cdp(12), 0, cdp(14), 0);
+        setMinimumHeight(cdp(40));
         setTag("shade_config");
         setClickable(true);
         setFocusable(true);
         icon = new ImageView(context);
-        icon.setImageResource(R.drawable.settings_ic_config);
+        icon.setImageResource(R.drawable.cv_save);
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        addView(icon, new LayoutParams(dp(16), dp(16)));
+        addView(icon, new LayoutParams(cdp(18), cdp(18)));
         name = new TextView(context);
         name.setTag("shade_config_name");
         name.setSingleLine(true);
         name.setIncludeFontPadding(false);
-        name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, MAX_SP);
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.text(name, MAX_SP, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         LayoutParams np = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
-        np.setMarginStart(dp(7));
-        np.setMarginEnd(dp(3));
+        np.setMarginStart(cdp(8));
+        np.setMarginEnd(cdp(8));
         addView(name, np);
         chevron = new ImageView(context);
-        chevron.setImageResource(R.drawable.settings_ic_chevron);
-        chevron.setRotation(90f);
+        chevron.setImageResource(R.drawable.cv_chev_down);
         chevron.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        addView(chevron, new LayoutParams(dp(14), dp(14)));
+        addView(chevron, new LayoutParams(cdp(14), cdp(14)));
         setAccent(ShadeStyle.accent(context));
     }
 
     public void setAccent(int accent) {
         this.accent = accent;
-        setBackground(ShadeStyle.pressable(getContext(), ShadeStyle.tint(accent, .10f), (accent & 0x00FFFFFF) | 0x73000000, 100));
-        com.particlesdevs.photoncamera.ui.Icons.own(icon); // P570: the colour icon
-        chevron.setImageTintList(ColorStateList.valueOf((accent & 0x00FFFFFF) | 0xB3000000));
+        setBackground(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.pressable(getContext(), com.particlesdevs.photoncamera.ui.camera.ConceptStyle.ROW, 20, false));
+        icon.clearColorFilter();
+        icon.setImageTintList(ColorStateList.valueOf(accent));
+        chevron.setImageTintList(ColorStateList.valueOf(ShadeStyle.TEXT));
         name.setTextColor(ShadeStyle.TEXT);
     }
 
@@ -91,10 +92,8 @@ public final class ConfigChip extends LinearLayout {
     public void setOpen(boolean on) {
         if (open == on) return;
         open = on;
-        chevron.animate().rotation(on ? 270f : 90f).setDuration(220).setInterpolator(EASE).start();
+        chevron.animate().rotation(on ? 180f : 0f).setDuration(220).setInterpolator(EASE).start();
         setSelected(on);
-        setBackground(ShadeStyle.pressable(getContext(), ShadeStyle.tint(accent, on ? .20f : .10f),
-                (accent & 0x00FFFFFF) | (on ? 0xCC000000 : 0x73000000), 100));
     }
 
     public boolean isOpen() {
@@ -106,7 +105,7 @@ public final class ConfigChip extends LinearLayout {
         int limit = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED ? Integer.MAX_VALUE
                 : MeasureSpec.getSize(widthMeasureSpec);
         LayoutParams np = (LayoutParams) name.getLayoutParams();
-        int around = getPaddingLeft() + getPaddingRight() + dp(16) + dp(14) + np.getMarginStart() + np.getMarginEnd();
+        int around = getPaddingLeft() + getPaddingRight() + cdp(18) + cdp(14) + np.getMarginStart() + np.getMarginEnd();
         fitName(limit == Integer.MAX_VALUE ? Integer.MAX_VALUE : Math.max(0, limit - around));
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
@@ -114,7 +113,7 @@ public final class ConfigChip extends LinearLayout {
     /** 13sp down to 9sp in 0.5sp steps; what still does not fit ends in an ellipsis within {@code width}. */
     void fitName(int width) {
         CharSequence text = name.getText();
-        float scaled = getResources().getDisplayMetrics().scaledDensity;
+        float scaled = getResources().getDisplayMetrics().density * com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(getContext());
         TextPaint paint = new TextPaint(name.getPaint());
         float sp = MAX_SP;
         if (text != null && width != Integer.MAX_VALUE) {
@@ -124,7 +123,7 @@ public final class ConfigChip extends LinearLayout {
             }
             sp = Math.max(MIN_SP, sp);
         }
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_PX, sp * scaled);
         paint.setTextSize(sp * scaled);
         boolean fits = text == null || width == Integer.MAX_VALUE || paint.measureText(text, 0, text.length()) <= width;
         name.setEllipsize(fits ? null : TextUtils.TruncateAt.END);
@@ -143,5 +142,10 @@ public final class ConfigChip extends LinearLayout {
 
     private int dp(float v) {
         return ShadeStyle.dp(getContext(), v);
+    }
+
+    /** The concept's px as the camera chrome's dp (times its scale). */
+    private int cdp(float v) {
+        return com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), v);
     }
 }

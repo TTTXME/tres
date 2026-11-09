@@ -379,8 +379,8 @@ public class RawCropView extends View {
     /** Each cut side's pixels next to it: the accent when the own margin leads, else muted. */
     private void drawSideLabels(Canvas canvas) {
         final State st = state;
-        text.setTextSize(11 * getResources().getDisplayMetrics().scaledDensity);
-        text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        text.setTextSize(11 * getResources().getDisplayMetrics().density);
+        text.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), 600));
         final Paint.FontMetrics fm = text.getFontMetrics();
         final float mid = -(fm.ascent + fm.descent) / 2f;
         for (int side = 0; side < 4; side++) {
@@ -403,7 +403,7 @@ public class RawCropView extends View {
     /** Top: what the colours mean. */
     private void drawLegend(Canvas canvas) {
         text.setTextSize(10.5f * getResources().getDisplayMetrics().scaledDensity);
-        text.setTypeface(Typeface.DEFAULT);
+        text.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), 400));
         text.setTextAlign(Paint.Align.LEFT);
         text.setColor(SettingsStyle.SECTION);
         final float box = 9 * d, y = 6 * d;
@@ -429,11 +429,11 @@ public class RawCropView extends View {
     private void drawSizes(Canvas canvas) {
         final State st = state;
         final float base = frame.bottom + 34 * d;
-        text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        text.setTextSize(13 * getResources().getDisplayMetrics().scaledDensity);
+        text.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), 600));
+        text.setTextSize(13 * getResources().getDisplayMetrics().density);
         text.setColor(SettingsStyle.ROW_TITLE);
         canvas.drawText(sizes(st), getWidth() / 2f, base, text);
-        text.setTypeface(Typeface.DEFAULT);
+        text.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), 400));
         text.setTextSize(11.5f * getResources().getDisplayMetrics().scaledDensity);
         text.setColor(SettingsStyle.SECTION);
         canvas.drawText(found(getContext(), st), getWidth() / 2f, base + 16 * d, text);

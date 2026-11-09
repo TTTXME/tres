@@ -415,9 +415,16 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         View bar = binding.layoutBottombar.getRoot();
         android.content.Context c = band.getContext();
         ViewGroup.LayoutParams lp = band.getLayoutParams();
-        lp.height = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 22);
+        // P583 (the concept's toast): a 34px capsule of rgba(20, 20, 22, .9), 13px semibold, 14px sides, 14px under the
+        // preview's top edge (over the picture, never over a control)
+        lp.height = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 34);
         band.setLayoutParams(lp);
-        com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.textFixed(band, 12);
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeWithDefaults(band, androidx.core.widget.TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE);
+        ConceptStyle.text(band, 13, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        band.setBackground(ConceptStyle.shape(c, 0xE6141416, 17, false));
+        final int bandPad = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(c, 14);
+        band.setPadding(bandPad, 0, bandPad, 0);
+        final View preview = binding.layoutViewfinder.texture;
         View.OnLayoutChangeListener place = (v, l, t, r, b, ol, ot, or, ob) -> {
             View strip = bar.findViewById(R.id.aux_buttons_container), pro = null; // P574: the strip is the top of the bottom controls
             if (strip == null || band.getHeight() == 0 && band.getVisibility() == View.VISIBLE) return;
@@ -433,11 +440,18 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             for (View item : new View[]{band, binding.zoomReadout}) {
                 item.getLocationInWindow(bandAt);
                 float h = item.getLayoutParams().height > 0 ? item.getLayoutParams().height : item.getHeight();
+                if (item == band && preview.getHeight() > 0) {
+                    // the toast: its top 14px under the preview's top
+                    preview.getLocationInWindow(at);
+                    item.setTranslationY(at[1] + com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 14) - (bandAt[1] - item.getTranslationY()));
+                    continue;
+                }
                 item.setTranslationY(want - (bandAt[1] - item.getTranslationY() + h));
             }
         };
         bar.addOnLayoutChangeListener(place);
         band.addOnLayoutChangeListener(place);
+        preview.addOnLayoutChangeListener(place);
     }
 
     /** The bottom chrome's wiring on the camera screen's views (also used by the layout tests, P43). */
@@ -2379,7 +2393,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                     t.setText(R.string.diag_badge);
                     t.setTextColor(0xFFFFD54F);
                     t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11);
-                    t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                    com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
                     final int pad = Math.round(4 * frame.getResources().getDisplayMetrics().density);
                     t.setPadding(2 * pad, pad, 2 * pad, pad);
                     t.setBackgroundColor(0x99000000);

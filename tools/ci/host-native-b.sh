@@ -36,3 +36,6 @@ g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_us_p
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-us-pending
 g++ -pthread -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS -fsanitize=thread tools/check_hybrid_us_pending.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-us-pending-tsan
 setarch "$(uname -m)" -R /tmp/check-hybrid-us-pending-tsan
+# P587: the texture / bokeh kernel footprints (factors of 1 bit for bit; texture / bokeh act on their regions)
+g++ -pthread -std=c++17 -O1 tools/check_hybrid_kernel_footprint.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-kernel-footprint
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-hybrid-kernel-footprint

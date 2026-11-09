@@ -28,6 +28,7 @@
             android:gravity="center"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
+            android:paddingTop="4dp"
             android:clipChildren="false"
             tools:visibility="visible">
 
@@ -85,7 +86,7 @@
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ui_ic_flash"
+                    android:src="@drawable/cv_bolt"
                     android:importantForAccessibility="no"/>
         </FrameLayout>
 
@@ -105,7 +106,7 @@
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ui_ic_timer"
+                    android:src="@drawable/cv_timer"
                     android:importantForAccessibility="no"/>
 
             <!-- The seconds badge (the concept: right 0, bottom 2, 15dp high, 10sp heavy, ink on the accent). -->
@@ -175,7 +176,7 @@
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ui_ic_grid"
+                    android:src="@drawable/cv_grid"
                     android:importantForAccessibility="no"/>
         </FrameLayout>
 
@@ -195,28 +196,30 @@
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ui_ic_level"
+                    android:src="@drawable/cv_level"
                     android:importantForAccessibility="no"/>
         </FrameLayout>
 
-        <TextView
+        <!-- P583: Ultra HDR the concept's sparkle (DEF.uhdr: I.sparkle), not a word. -->
+        <FrameLayout
                 android:id="@+id/uhdr_button"
-                android:layout_width="wrap_content"
+                android:layout_width="40dp"
                 android:layout_height="40dp"
-                android:minWidth="40dp"
                 android:layout_marginStart="16dp"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp"
-                android:gravity="center"
-                android:text="@string/shade_t_ultrahdr"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:maxLines="1"
                 android:visibility="gone"
                 android:clickable="true"
                 android:focusable="true"
                 android:onClick="@{top_bar_click_listener}"
-                bindRotate="@{uimodel}"/>
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/uhdr_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/cv_sparkle"
+                    android:importantForAccessibility="no"/>
+        </FrameLayout>
 
     </LinearLayout>
 </layout>

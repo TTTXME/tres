@@ -113,11 +113,11 @@ public final class CameraSheets {
         GradientDrawable bg = new GradientDrawable();
         // P574: the concept's solid sheet (#1C1C1E), no see-through glass over the picture
         bg.setColor(SHEET);
-        float r = UiScale.dpF(c, 32);
-        bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        // P583 (the concept's sheets): 36px corners all round, padding 8 14 18
+        bg.setCornerRadius(UiScale.dpF(c, 36));
         body.setBackground(bg);
         int side = UiScale.dp(c, 14);
-        body.setPadding(side, UiScale.dp(c, 10), side, UiScale.dp(c, 16));
+        body.setPadding(side, UiScale.dp(c, 12), side, UiScale.dp(c, 18));
         View grab = new View(c);
         grab.setBackground(SettingsStyle.shape(c, 0x4DFFFFFF, 0, 2.5f));
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(UiScale.dp(c, 36), UiScale.dp(c, 5));
@@ -128,8 +128,8 @@ public final class CameraSheets {
         TextView t = new TextView(c);
         t.setText(title);
         t.setTextColor(ShadeStyle.TEXT);
-        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        UiScale.textFixed(t, 16.5f);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        px(t, 16.5f);
         t.setPadding(UiScale.dp(c, 4), 0, 0, UiScale.dp(c, 12));
         body.addView(t);
         return body;
@@ -143,10 +143,10 @@ public final class CameraSheets {
         TextView t = new TextView(c);
         t.setText(text);
         t.setAllCaps(true);
-        t.setLetterSpacing(.08f);
+        t.setLetterSpacing(1f / 12f);
         t.setTextColor(0x8CFFFFFF);
-        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        UiScale.textFixed(t, 12f);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
+        px(t, 12f);
         t.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 4), 0, UiScale.dp(c, 8));
         return t;
     }
@@ -164,7 +164,8 @@ public final class CameraSheets {
             TextView b = (TextView) seg.getChildAt(i);
             b.setTag("seg_" + i);
             b.setMaxLines(1);
-            UiScale.textFixed(b, 14f);
+            px(b, 14f);
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(b, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
             b.setMinHeight(UiScale.dp(c, 36));
         }
         seg.setSelected(selected, false);
@@ -183,8 +184,24 @@ public final class CameraSheets {
         TextView t = new TextView(c);
         t.setText(text);
         t.setTextColor(color);
-        UiScale.textFixed(t, sp);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
+        px(t, sp);
         return t;
+    }
+
+    /** P583: the concept's px as dp times the chrome's scale (the system font size does not count), no autosize. */
+    static void px(TextView t, float px) {
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeWithDefaults(t, androidx.core.widget.TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE);
+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, UiScale.dpF(t.getContext(), px));
+    }
+
+    /** P583 (the concept's floating sheets): 8px from the screen's sides and bottom. */
+    static void floating(LinearLayout body) {
+        final View host = (View) body.getParent();
+        if (host == null) return;
+        final int m = UiScale.dp(body.getContext(), 8);
+        host.setPadding(m, 0, m, m);
+        if (host instanceof ViewGroup) ((ViewGroup) host).setClipToPadding(false);
     }
 
     // ───── «Формат файла»
@@ -209,6 +226,7 @@ public final class CameraSheets {
         LinearLayout body = frame(c, Lang.t(c, "Формат файла", "File format"));
         body.addView(formatContent(c, offered, current, storedCodec, apply));
         BottomSheetDialog d = SettingsStyle.sheet(c, body);
+        floating(body);
         enterRows(body);
         d.show();
         return d;
@@ -285,6 +303,7 @@ public final class CameraSheets {
         body.addView(formatPage);
         body.addView(sizePage);
         BottomSheetDialog d = SettingsStyle.sheet(c, body);
+        floating(body);
         enterRows(body);
         d.show();
         return d;
@@ -311,7 +330,7 @@ public final class CameraSheets {
         TextView rd = line(c, "", 13, ShadeStyle.MUTED);
         rd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 8), UiScale.dp(c, 6), UiScale.dp(c, 14));
         TextView sum = line(c, "", 16, ShadeStyle.accent(c));
-        sum.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(sum, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
         sum.setTag("format_summary");
         Runnable[] update = new Runnable[1];
         com.particlesdevs.photoncamera.ui.controls.IosSegmented[] photoSeg = new com.particlesdevs.photoncamera.ui.controls.IosSegmented[1];
@@ -353,8 +372,8 @@ public final class CameraSheets {
         card.setMinimumHeight(UiScale.dp(c, 48));
         card.setPadding(UiScale.dp(c, 16), UiScale.dp(c, 8), UiScale.dp(c, 16), UiScale.dp(c, 8));
         int accent = ShadeStyle.accent(c);
-        card.setBackground(SettingsStyle.shape(c, com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.tone(SHEET, accent, .26f), 0,
-                UiScale.dpF(c, 16) / c.getResources().getDisplayMetrics().density));
+        // P583: the concept's #4A3D00 - the accent's dark tone
+        card.setBackground(ConceptStyle.shape(c, ConceptStyle.dark(accent), 16, false));
         card.addView(line(c, Lang.t(c, "Сохранится", "Saved"), 14, 0xCCFFFFFF), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         value.setGravity(Gravity.END);
         card.addView(value);
@@ -378,12 +397,14 @@ public final class CameraSheets {
         n.setPadding(ph, pv, ph, pv);
         n.setBackground(SettingsStyle.shape(c, ROW, 0, UiScale.dpF(c, 16) / c.getResources().getDisplayMetrics().density)); // P574
         ImageView icon = new ImageView(c);
-        icon.setImageResource(R.drawable.ui_ic_info); // P570: the colour icon as it is
-        int s = UiScale.dp(c, 20);
+        ConceptStyle.icon(icon, R.drawable.cv_info, ShadeStyle.accent(c)); // P583: the concept's info glyph in the accent
+        int s = UiScale.dp(c, 18);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(s, s);
         ip.setMarginEnd(UiScale.dp(c, 10));
         n.addView(icon, ip);
-        n.addView(line(c, text, 13, ShadeStyle.MUTED), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView nt = line(c, text, 13, 0xB3FFFFFF);
+        nt.setLineSpacing(0f, 18f / 13f / 1.17f);
+        n.addView(nt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return n;
     }
 
@@ -408,6 +429,7 @@ public final class CameraSheets {
             if (dialog[0] != null) body.postDelayed(dialog[0]::dismiss, 180);
         }, refuse, dead));
         dialog[0] = SettingsStyle.sheet(c, body);
+        floating(body);
         enterRows(body);
         dialog[0].show();
         return dialog[0];
@@ -459,7 +481,7 @@ public final class CameraSheets {
             LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
             TextView t = line(c, rows[i][0], 16f, ShadeStyle.TEXT);
-            t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            com.particlesdevs.photoncamera.ui.style.Fonts.apply(t, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
             texts.addView(t);
             // P217 / P267: without our remosaic a FULLRES shot is saved as its merged mosaic DNG only
             final boolean binned = i > 0 && available && !off && !ourRemosaic();
@@ -507,8 +529,9 @@ public final class CameraSheets {
     /** P574: the chosen row's tick (the shared menu's tick in the accent); a row not chosen keeps the room for it. */
     static View check(Context c, boolean on, int accent) {
         ImageView v = new ImageView(c);
-        v.setImageResource(R.drawable.ios_menu_check);
-        v.setColorFilter(accent);
+        // P583: the concept's tick (17 x 14, a 2.4 stroke) in the accent
+        ConceptStyle.icon(v, R.drawable.cv_check, accent);
+        v.setScaleType(ImageView.ScaleType.FIT_CENTER);
         v.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
         v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         v.setSelected(on);

@@ -362,7 +362,7 @@ pref_scam_hybrid_colour_cal_green_sat	com.particlesdevs.photoncamera.ui.settings
 pref_scam_hybrid_colour_cal_blue_hue	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	0	-100	100	1	false	-	-	-	-	-	-
 pref_scam_hybrid_colour_cal_blue_sat	com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference	0	-100	100	1	false	-	-	-	-	-	-
 pref_theme_accent_key	Preference	-	-	-	-	-	-	-	-	-	-	-
-pref_shade_transparency	com.particlesdevs.photoncamera.ui.settings.custompreferences.ShadeTransparencyPreference	40	-	-	-	-	-	-	-	-	-	-
+pref_shade_transparency	com.particlesdevs.photoncamera.ui.settings.custompreferences.ShadeTransparencyPreference	0	-	-	-	-	-	-	-	-	-	-
 pref_hide_gallery_icon_key	com.particlesdevs.photoncamera.ui.settings.custompreferences.ManagedSwitchPreference	@bool/pref_hide_gallery_icon_default	-	-	-	-	-	-	-	-	-	-
 pref_theme_key	ListPreference	@string/pref_theme_default_value	-	-	-	-	@array/theme_entries	@array/theme_entryValues	-	-	-	-
 profiles_page	com.particlesdevs.photoncamera.ui.settings.custompreferences.ProfilesPreference	-	-	-	-	-	-	-	-	-	-	-

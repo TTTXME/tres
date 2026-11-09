@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Видоискатель SCAMERA</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#000000}
+*{-webkit-tap-highlight-color:transparent}
+button:focus{outline:none}
+button:focus-visible,a:focus-visible{outline:2px solid #FFD60A;outline-offset:2px}
+@keyframes scamSpin{to{transform:rotate(360deg)}}
+@keyframes iosKnobA{0%{transform:scale(1)}30%{transform:scale(1.2,.84)}60%{transform:scale(.94,1.07)}100%{transform:scale(1)}}
+@keyframes iosKnobB{0%{transform:scale(1)}30%{transform:scale(1.2,.84)}60%{transform:scale(.94,1.07)}100%{transform:scale(1)}}
+@keyframes iosPopA{0%{transform:scale(1)}35%{transform:scale(1.22)}100%{transform:scale(1)}}
+@keyframes iosPopB{0%{transform:scale(1)}35%{transform:scale(1.22)}100%{transform:scale(1)}}
+@keyframes iosMenuIn{0%{transform:scale(.25);opacity:0;filter:blur(6px)}60%{opacity:1;filter:blur(0)}100%{transform:scale(1);opacity:1}}
+@keyframes iosMenuOut{to{transform:scale(.6);opacity:0;filter:blur(4px)}}
+@keyframes iosFade{from{opacity:0}to{opacity:1}}
+@keyframes iosAlertIn{0%{transform:scale(1.15);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes iosHud{0%{transform:translate(-50%,-30px) scale(.8);opacity:0}100%{transform:translate(-50%,0) scale(1);opacity:1}}
+@keyframes iosFlash{0%,100%{background:#1C1C1E}25%,60%{background:#3A3A3C}}
+
+@keyframes scamWiggle{from{rotate:-1.2deg}to{rotate:1.2deg}}
+@keyframes scamPop{0%{transform:scale(.6);opacity:0}30%{transform:scale(1.08);opacity:1}100%{transform:scale(1);opacity:1}}
+a{color:inherit;text-decoration:none}a:hover{color:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: #000000; color: #FFFFFF; font-family: 'Roboto Flex', -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; touch-action: none">
+
+  <button aria-label="Изменить верхнюю строку (свайп сверху вниз)" onClick="{{openEdit}}" style="position: absolute; left: 50%; top: 4px; margin-left: -22px; width: 44px; height: 10px; border: 0; padding: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center">
+    <span style="width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.35)"></span>
+  </button>
+
+  <div style="position: absolute; left: 0; right: 0; top: 16px; height: 48px; display: flex; justify-content: center; align-items: center; gap: 16px">
+    <sc-for list="{{topItems}}" as="b" hint-placeholder-count="5">
+      <button aria-label="{{b.name}}" aria-pressed="{{b.pressed}}" onClick="{{b.flip}}" style="{{b.style}}">
+        <sc-if value="{{b.isText}}" hint-placeholder-val="{{ false }}">
+          <span style="display: flex; flex-direction: column; align-items: center; line-height: 1; gap: 3px"><span style="{{b.textStyle}}">{{b.text}}</span><span style="font-size: 9px; font-weight: 600; opacity: .85">{{b.sub}}</span></span>
+        </sc-if>
+        <sc-if value="{{b.isIcon}}" hint-placeholder-val="{{ true }}">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="{{b.fill}}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{b.d}}"/></svg>
+        </sc-if>
+        <sc-if value="{{b.hasBadge}}" hint-placeholder-val="{{ false }}">
+          <span style="position: absolute; right: 0; bottom: 2px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; background: #FFD60A; color: #2B2200; font-size: 10px; font-weight: 800; line-height: 15px; text-align: center">{{b.badge}}</span>
+        </sc-if>
+      </button>
+    </sc-for>
+  </div>
+
+  <div onPointerDown="{{vfDown}}" onPointerUp="{{vfUp}}" style="position: absolute; left: 0; top: 70px; width: 390px; height: 520px; overflow: hidden; border-radius: 28px; background: linear-gradient(170deg, #3A4656 0%, #1E2630 55%, #0F1318 100%)">
+    <sc-for list="{{gridLines}}" as="gl" hint-placeholder-count="4">
+      <div style="{{gl.style}}"></div>
+    </sc-for>
+    <sc-if value="{{showLevel}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; left: 110px; right: 110px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: #34C759"></div>
+    </sc-if>
+    <sc-if value="{{showInfo}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; left: 12px; top: 12px; padding: 6px 10px; border-radius: 10px; background: rgba(20,20,22,.8); font-size: 11px; line-height: 15px; font-weight: 600; color: rgba(255,255,255,.85); white-space: pre">{{infoText}}</div>
+    </sc-if>
+    <div style="position: absolute; left: 0; right: 0; top: 110px; text-align: center; font-size: 13px; color: rgba(255,255,255,.4)">Изображение с камеры</div>
+    <div style="position: absolute; left: 157px; top: 222px; width: 76px; height: 76px">
+      <span style="position: absolute; left: 0; top: 0; width: 14px; height: 14px; border-left: 1.5px solid #FFD60A; border-top: 1.5px solid #FFD60A; border-top-left-radius: 6px"></span>
+      <span style="position: absolute; right: 0; top: 0; width: 14px; height: 14px; border-right: 1.5px solid #FFD60A; border-top: 1.5px solid #FFD60A; border-top-right-radius: 6px"></span>
+      <span style="position: absolute; left: 0; bottom: 0; width: 14px; height: 14px; border-left: 1.5px solid #FFD60A; border-bottom: 1.5px solid #FFD60A; border-bottom-left-radius: 6px"></span>
+      <span style="position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; border-right: 1.5px solid #FFD60A; border-bottom: 1.5px solid #FFD60A; border-bottom-right-radius: 6px"></span>
+    </div>
+    <div style="position: absolute; left: 244px; top: 212px; width: 22px; height: 96px; display: flex; flex-direction: column; align-items: center">
+      <div style="flex: 1; width: 1.5px; background: rgba(255,214,10,.8)"></div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFD60A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="{{I.sun}}"/></svg>
+      <div style="flex: 1.4; width: 1.5px; background: rgba(255,214,10,.8)"></div>
+    </div>
+
+    <sc-if value="{{blink}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; inset: 0; background: #000000; opacity: .6"></div>
+    </sc-if>
+    <sc-if value="{{counting}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none">
+        <span style="{{countStyle}}">{{count}}</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{hasToast}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; left: 50%; top: 14px; transform: translateX(-50%); max-width: 330px; height: 34px; padding: 0 14px; box-sizing: border-box; border-radius: 17px; background: rgba(20,20,22,.9); color: #FFFFFF; font-size: 13px; font-weight: 600; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: scamPop .3s ease-out">{{toast}}</div>
+    </sc-if>
+
+    <sc-if value="{{pro}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px">
+        <div style="height: 70px; border-radius: 22px; background: rgba(20,20,22,.9); display: flex; align-items: center; gap: 10px; padding: 0 10px 0 8px">
+          <button onClick="{{toggleAuto}}" aria-pressed="{{autoPressed}}" style="{{autoBtn}}">Авто</button>
+          <div style="position: relative; flex: 1; min-width: 0; height: 58px; overflow: hidden">
+            <div style="{{dialRow}}">
+              <sc-for list="{{dialLabels}}" as="dl" hint-placeholder-count="8">
+                <span style="{{dl.style}}">{{dl.label}}</span>
+              </sc-for>
+            </div>
+            <div style="position: absolute; left: 0; right: 0; bottom: 4px; height: 16px; display: flex; justify-content: space-between; align-items: flex-end; padding: 0 2px">
+              <sc-for list="{{ticks}}" as="t" hint-placeholder-count="33">
+                <span style="{{t.style}}"></span>
+              </sc-for>
+            </div>
+            <span style="position: absolute; left: 50%; bottom: 0; width: 2px; height: 26px; margin-left: -1px; border-radius: 1px; background: #FFD60A"></span>
+            <input type="range" aria-label="{{dialName}}" min="0" max="{{dialMax}}" step="1" value="{{dialIdx}}" onInput="{{setDial}}" style="position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize">
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 22px; background: rgba(20,20,22,.9)">
+          <sc-for list="{{chips}}" as="ch" hint-placeholder-count="6">
+            <button onClick="{{ch.pick}}" aria-pressed="{{ch.pressed}}" style="{{ch.style}}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ch.d}}"/></svg>
+              <span style="font-size: 13px; font-weight: 700">{{ch.value}}</span>
+              <span style="font-size: 9.5px; opacity: .75">{{ch.name}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{lutOpen}}" hint-placeholder-val="{{ false }}">
+      <div role="dialog" aria-label="Цвет и плёнка" style="position: absolute; left: 8px; right: 8px; bottom: 8px; box-sizing: border-box; padding: 10px; border-radius: 24px; background: rgba(20,20,22,.92); display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 6px">
+          <div role="tablist" style="{{tabsK.track}}">
+            <div style="{{tabsK.thumb}}"></div>
+            <sc-for list="{{tabs}}" as="tb" hint-placeholder-count="4">
+              <button role="tab" aria-selected="{{tb.selected}}" onClick="{{tb.pick}}" style="{{tb.style}}">{{tb.label}}</button>
+            </sc-for>
+          </div>
+          <a href="FilmPage.dc.html" style="height: 30px; padding: 0 6px 0 8px; display: flex; align-items: center; gap: 2px; font-size: 14px; font-weight: 600; color: #FFD60A">Все<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></a>
+        </div>
+        <sc-if value="{{showThumbs}}" hint-placeholder-val="{{ true }}">
+          <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px">
+            <sc-for list="{{thumbs}}" as="th" hint-placeholder-count="5">
+              <button onClick="{{th.pick}}" aria-pressed="{{th.pressed}}" style="{{th.wrap}}">
+                <span style="{{th.sky}}">
+                  <svg width="100%" height="100%" viewBox="0 0 60 60" preserveAspectRatio="none" aria-hidden="true" style="position: absolute; inset: 0">
+                    <circle cx="38" cy="26" r="7" fill="{{th.sun}}"/>
+                    <path d="M0 40 L12 26 L20 34 L30 22 L42 36 L52 28 L60 34 L60 60 L0 60 Z" fill="{{th.hill}}"/>
+                    <path d="M0 44 H60 V60 H0 Z" fill="{{th.water}}"/>
+                    <path d="M24 48 H44 M27 52 H41 M30 56 H38" stroke="{{th.sun}}" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  <span style="{{th.haze}}"></span>
+                </span>
+                <span style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%">{{th.name}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-for list="{{sliders}}" as="sl" hint-placeholder-count="1">
+          <div style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 4px">
+            <span style="width: 92px; font-size: 13px; color: rgba(255,255,255,.75)">{{sl.name}}</span>
+            <div onPointerDown="{{sl.sl.down}}" onPointerMove="{{sl.sl.move}}" onPointerUp="{{sl.sl.up}}" onPointerCancel="{{sl.sl.cancel}}" onDoubleClick="{{sl.sl.reset}}" style="{{sl.slWrap}}">
+              <div style="{{sl.sl.track}}"><div style="{{sl.sl.fill}}"></div></div>
+              <div style="{{sl.sl.knob}}"></div>
+              <input type="range" aria-label="{{sl.name}}" min="0" max="1000" step="1" value="{{sl.sl.k1000}}" onInput="{{sl.sl.key}}" style="position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none">
+            </div>
+            <span style="{{sl.valStyle}}">{{sl.value}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="position: absolute; left: 50%; top: 604px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 26px; background: #1C1C1E; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.1)">
+    <sc-for list="{{zooms}}" as="z" hint-placeholder-count="4">
+      <button aria-label="{{z.aria}}" aria-pressed="{{z.pressed}}" onClick="{{z.pick}}" style="{{z.style}}">{{z.label}}</button>
+    </sc-for>
+  </div>
+
+  <div style="position: absolute; left: 52px; right: 52px; top: 670px; display: flex; align-items: center; justify-content: space-between">
+    <button aria-label="Галерея" style="{{galleryStyle}}">
+      <sc-if value="{{busy}}" hint-placeholder-val="{{ false }}">
+        <span style="position: absolute; inset: -5px; border-radius: 22px; border: 2.5px solid rgba(255,214,10,.25); border-top-color: #FFD60A; animation: scamSpin .9s linear infinite"></span>
+      </sc-if>
+      <sc-if value="{{hasShots}}" hint-placeholder-val="{{ false }}">
+        <span style="position: absolute; right: -6px; top: -6px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; background: #FFFFFF; color: #000000; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center">{{shots}}</span>
+      </sc-if>
+    </button>
+    <button aria-label="Снять" onClick="{{shoot}}" style="width: 86px; height: 86px; border-radius: 43px; border: 0; padding: 0; background: #3A3A3C; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <span style="{{shutterCore}}"></span>
+    </button>
+    <button aria-label="Сменить камеру" onClick="{{flipCam}}" style="width: 58px; height: 58px; flex: none; border: 0; padding: 0; border-radius: 18px; background: #1C1C1E; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.1); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{flipStyle}}"><path d="{{I.flip}}"/></svg>
+    </button>
+  </div>
+
+  <div style="position: absolute; left: 18px; right: 18px; top: 774px; display: flex; align-items: center; justify-content: space-between">
+    <a href="Hybrid.dc.html" aria-label="Настройки" style="width: 50px; height: 50px; flex: none; border-radius: 16px; background: #1C1C1E; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.1); color: #FFFFFF; display: flex; align-items: center; justify-content: center">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{I.gear}}"/></svg>
+    </a>
+    <div role="radiogroup" aria-label="Режим съёмки" style="height: 52px; box-sizing: border-box; padding: 4px; border-radius: 26px; background: #1C1C1E; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.1); display: flex; align-items: center; gap: 10px">
+      <sc-for list="{{modes}}" as="m" hint-placeholder-count="2">
+        <button role="radio" aria-checked="{{m.checked}}" aria-label="{{m.label}}" onClick="{{m.pick}}" style="{{m.style}}">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="{{m.fill}}" fill-rule="evenodd" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{m.d}}"/></svg>
+        </button>
+      </sc-for>
+    </div>
+    <button onClick="{{togglePro}}" aria-label="Ручной режим" aria-pressed="{{proPressed}}" style="{{proBtn}}">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{I.sliders}}"/></svg>
+    </button>
+  </div>
+
+  <button aria-label="Быстрые настройки (свайп снизу вверх)" onClick="{{openShade}}" style="position: absolute; left: 50%; bottom: 3px; margin-left: -22px; width: 44px; height: 10px; border: 0; padding: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center">
+    <span style="width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.35)"></span>
+  </button>
+
+  <sc-if value="{{fmtOpen}}" hint-placeholder-val="{{ false }}">
+    <button aria-label="Закрыть" onClick="{{closeFmt}}" style="position: absolute; inset: 0; border: 0; padding: 0; background: rgba(0,0,0,.45); cursor: pointer"></button>
+    <div role="dialog" aria-label="Формат и размер" style="position: absolute; left: 8px; right: 8px; bottom: 8px; max-height: 760px; overflow-y: auto; box-sizing: border-box; padding: 8px 14px 18px; border-radius: 36px; background: #1C1C1E; box-shadow: inset 0 0.5px 0 rgba(255,255,255,.14), 0 -12px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 12px">
+      <button aria-label="Закрыть (свайп вниз)" onClick="{{closeFmt}}" style="align-self: center; width: 44px; height: 14px; border: 0; padding: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer"><span style="width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.3)"></span></button>
+      <div role="tablist" style="{{fmtTabsK.track}}">
+        <div style="{{fmtTabsK.thumb}}"></div>
+        <sc-for list="{{fmtTabs}}" as="ft" hint-placeholder-count="2">
+          <button role="tab" aria-selected="{{ft.selected}}" onClick="{{ft.pick}}" style="{{ft.style}}">{{ft.label}}</button>
+        </sc-for>
+      </div>
+      <sc-if value="{{fmtFormat}}" hint-placeholder-val="{{ true }}">
+        <span style="padding: 2px 6px 0; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: rgba(255,255,255,.55)">ФОТО</span>
+        <div role="radiogroup" aria-label="Фото" style="{{photoK.track}}">
+          <div style="{{photoK.thumb}}"></div>
+          <sc-for list="{{photoSeg}}" as="o" hint-placeholder-count="4">
+            <button role="radio" aria-checked="{{o.checked}}" onClick="{{o.pick}}" style="{{o.style}}">{{o.label}}</button>
+          </sc-for>
+        </div>
+        <span style="padding: 0 6px; font-size: 13px; line-height: 18px; color: rgba(255,255,255,.65)">{{photoHint}}</span>
+        <span style="padding: 6px 6px 0; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: rgba(255,255,255,.55)">RAW (DNG)</span>
+        <div role="radiogroup" aria-label="RAW (DNG)" style="{{rawK.track}}">
+          <div style="{{rawK.thumb}}"></div>
+          <sc-for list="{{rawSeg}}" as="o" hint-placeholder-count="3">
+            <button role="radio" aria-checked="{{o.checked}}" onClick="{{o.pick}}" style="{{o.style}}">{{o.label}}</button>
+          </sc-for>
+        </div>
+        <span style="padding: 0 6px; font-size: 13px; line-height: 18px; color: rgba(255,255,255,.65)">{{rawHint}}</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 0 16px; border-radius: 16px; background: #4A3D00">
+          <span style="font-size: 14px; color: rgba(255,255,255,.8)">Сохранится</span>
+          <span style="font-size: 16px; font-weight: 700; color: #FFD60A">{{saved}}</span>
+        </div>
+        <div style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 16px; background: #2C2C2E">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFD60A" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 11v5.5 M12 7.6h.01"/></svg>
+          <span style="font-size: 13px; line-height: 18px; color: rgba(255,255,255,.7)">Не знаете, что выбрать — JPEG без RAW. RAW нужен для обработки в Lightroom или RawTherapee.</span>
+        </div>
+      </sc-if>
+      <sc-if value="{{fmtSize}}" hint-placeholder-val="{{ false }}">
+        <div role="radiogroup" aria-label="Размер фото" style="display: flex; flex-direction: column; border-radius: 24px; overflow: hidden; background: #2C2C2E">
+          <sc-for list="{{sizeRows}}" as="z" hint-placeholder-count="3">
+            <button role="radio" aria-checked="{{z.checked}}" aria-disabled="{{z.disabled}}" onClick="{{z.pick}}" style="{{z.style}}">
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span style="font-size: 16px; font-weight: 600">{{z.title}}</span>
+                <span style="font-size: 13px; line-height: 17px; color: rgba(255,255,255,.65)">{{z.hint}}</span>
+              </span>
+              <span style="{{z.check}}"><svg width="17" height="14" viewBox="0 0 15 13" fill="none" stroke="#FFD60A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 7l4 4.2 8-9.7"/></svg></span>
+            </button>
+          </sc-for>
+        </div>
+        <span style="padding: 0 6px; font-size: 12.5px; line-height: 17px; color: rgba(255,255,255,.5)">Какие размеры есть, зависит от объектива: попробуй выбрать 0,6 или 3,7 на зуме.</span>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{shadeOpen}}" hint-placeholder-val="{{ false }}">
+    <button aria-label="Закрыть шторку" onClick="{{closeAll}}" style="position: absolute; inset: 0; border: 0; padding: 0; background: rgba(0,0,0,.45); cursor: pointer"></button>
+    <div role="dialog" aria-label="Быстрые настройки" style="position: absolute; left: 8px; right: 8px; bottom: 8px; max-height: 760px; overflow-y: auto; box-sizing: border-box; padding: 8px 14px 16px; border-radius: 36px; background: #1C1C1E; box-shadow: inset 0 0.5px 0 rgba(255,255,255,.14), 0 -12px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 12px">
+      <button aria-label="Закрыть (свайп вниз)" onClick="{{closeAll}}" onPointerDown="{{sheetDown}}" onPointerUp="{{sheetUp}}" style="align-self: stretch; height: 22px; margin: -8px 0 -6px; border: 0; padding: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: none"><span style="width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.3)"></span></button>
+      <sc-if value="{{hasInfo}}" hint-placeholder-val="{{ false }}">
+        <div role="status" style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 20px; background: #2C2C2E; box-shadow: inset 0 0 0 1px rgba(255,214,10,.4); animation: scamPop .25s ease-out">
+          <span style="font-size: 16px; font-weight: 700">{{info.name}}</span>
+          <span style="font-size: 14px; line-height: 19px; color: rgba(255,255,255,.75)">{{info.desc}}</span>
+          <span style="font-size: 13px; color: #FFD60A">Сейчас: {{info.value}}</span>
+          <button onClick="{{closeInfo}}" style="align-self: flex-end; height: 34px; padding: 0 16px; border: 0; border-radius: 17px; background: #48484A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Понятно</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{notShadeEdit}}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <button onClick="{{toggleProfiles}}" aria-expanded="{{profilesOpen}}" style="height: 40px; padding: 0 14px 0 12px; border: 0; border-radius: 20px; background: #2C2C2E; color: #FFFFFF; display: flex; align-items: center; gap: 8px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFD60A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{I.save}}"/></svg>
+            {{profile}}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{chevStyle}}"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <span style="flex: 1"></span>
+          <button onClick="{{toggleShadeEdit}}" style="height: 40px; padding: 0 12px; border: 0; border-radius: 20px; background: transparent; color: #FFD60A; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">Изменить</button>
+          <a href="Hybrid.dc.html" aria-label="Все настройки" style="width: 40px; height: 40px; border-radius: 20px; background: #2C2C2E; color: #FFFFFF; display: flex; align-items: center; justify-content: center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{I.gear}}"/></svg>
+          </a>
+        </div>
+        <sc-if value="{{profilesOpen}}" hint-placeholder-val="{{ false }}">
+          <div role="menu" style="display: flex; flex-direction: column; padding: 4px 0; border-radius: 24px; background: rgba(44,44,46,.86); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14), 0 16px 40px rgba(0,0,0,.5); transform-origin: top left; animation: iosMenuIn .42s cubic-bezier(.34,1.3,.64,1)">
+            <sc-for list="{{profiles}}" as="pf" hint-placeholder-count="4">
+              <button role="menuitemradio" aria-checked="{{pf.checked}}" onClick="{{pf.pick}}" style="{{pf.style}}">
+                <span style="{{pf.check}}"><svg width="15" height="13" viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 7l4 4.2 8-9.7"/></svg></span>
+                <span style="flex: 1; text-align: left">{{pf.name}}</span>
+                <span style="font-size: 12px; color: rgba(255,255,255,.55)">{{pf.hint}}</span>
+              </button>
+            </sc-for>
+            <button onClick="{{saveProfile}}" style="height: 46px; border: 0; padding: 0 16px 0 38px; background: transparent; box-shadow: inset 0 .5px 0 rgba(84,84,88,.65); color: #FFD60A; font: inherit; font-size: 16px; text-align: left; cursor: pointer">Сохранить текущие как новый…</button>
+          </div>
+        </sc-if>
+      </sc-if>
+      <sc-if value="{{shadeEdit}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px">
+          <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 18px; font-weight: 600">Изменить плитки</span><span style="font-size: 12.5px; color: rgba(255,255,255,.6)">Нажмите две плитки — они поменяются местами</span></span>
+          <button onClick="{{toggleShadeEdit}}" style="height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: #FFD60A; color: #2B2200; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer">Готово</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{steppers}}" as="sp" hint-placeholder-count="2">
+            <div style="height: 48px; border-radius: 24px; background: #2C2C2E; display: flex; align-items: center; padding: 0 4px 0 14px; gap: 2px">
+              <span style="flex: 1; font-size: 14px; color: rgba(255,255,255,.7)">{{sp.name}}</span>
+              <button aria-label="{{sp.lessLabel}}" onClick="{{sp.less}}" style="width: 36px; height: 36px; border: 0; padding: 0; border-radius: 18px; background: transparent; color: #FFD60A; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+              <span style="min-width: 22px; text-align: center; font-size: 17px; font-weight: 700">{{sp.value}}</span>
+              <button aria-label="{{sp.moreLabel}}" onClick="{{sp.more}}" style="width: 36px; height: 36px; border: 0; padding: 0; border-radius: 18px; background: transparent; color: #FFD60A; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14 M12 5v14"/></svg></button>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{viewTiles}}" hint-placeholder-val="{{ true }}">
+        <div onPointerDown="{{gridDown}}" onPointerUp="{{gridUp}}" style="{{gridStyle}}">
+          <sc-for list="{{tiles}}" as="q" hint-placeholder-count="8">
+            <div style="position: relative; min-width: 0; min-height: 0">
+              <button onClick="{{q.flip}}" onPointerDown="{{q.down}}" onPointerUp="{{q.up}}" onPointerLeave="{{q.up}}" onContextMenu="{{q.ctx}}" aria-label="{{q.aria}}" aria-pressed="{{q.pressed}}" style="{{q.style}}">
+                <sc-if value="{{q.showIcon}}" hint-placeholder-val="{{ true }}">
+                  <svg width="{{q.icon}}" height="{{q.icon}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="{{q.d}}"/></svg>
+                </sc-if>
+                <sc-if value="{{q.showName}}" hint-placeholder-val="{{ true }}">
+                  <span style="{{q.nameStyle}}">{{q.name}}</span>
+                </sc-if>
+                <sc-if value="{{q.showValue}}" hint-placeholder-val="{{ true }}">
+                  <span style="{{q.valueStyle}}">{{q.value}}</span>
+                </sc-if>
+              </button>
+              <sc-if value="{{q.showX}}" hint-placeholder-val="{{ false }}">
+                <button aria-label="{{q.removeLabel}}" onClick="{{q.remove}}" style="{{q.xStyle}}"><svg width="60%" height="60%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; justify-content: center; align-items: center; gap: 6px; height: 14px">
+          <sc-for list="{{dots}}" as="dt" hint-placeholder-count="3">
+            <button aria-label="{{dt.aria}}" onClick="{{dt.pick}}" style="{{dt.style}}"></button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{viewPicker}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px">
+            <span style="font-size: 16px; font-weight: 600">Добавить плитку</span>
+            <button onClick="{{closePicker}}" style="height: 34px; padding: 0 14px; border: 0; border-radius: 17px; background: #48484A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Готово</button>
+          </div>
+          <sc-if value="{{pickerEmpty}}" hint-placeholder-val="{{ false }}">
+            <span style="padding: 12px 6px; font-size: 14px; color: rgba(255,255,255,.6)">Все плитки уже в шторке. Уберите плитку крестиком в «Изменить», и она появится здесь.</span>
+          </sc-if>
+          <sc-for list="{{pickerItems}}" as="pk" hint-placeholder-count="3">
+            <button onClick="{{pk.add}}" style="display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 0 14px; border: 0; border-radius: 16px; background: #2C2C2E; color: #FFFFFF; font: inherit; font-size: 15px; cursor: pointer; text-align: left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="{{pk.d}}"/></svg>
+              <span style="flex: 1">{{pk.name}}</span>
+              <span style="color: #FFD60A; font-size: 22px; line-height: 1">+</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{viewExpert}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <button onClick="{{closeExpert}}" style="display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 6px; border: 0; background: transparent; color: #FFD60A; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; align-self: flex-start">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Плитки
+          </button>
+          <span style="padding: 0 6px 8px; font-size: 20px; font-weight: 700">Для опытных</span>
+          <sc-for list="{{expert}}" as="ex" hint-placeholder-count="5">
+            <div style="{{ex.row}}">
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">{{ex.name}}</span><span style="font-size: 12.5px; line-height: 16px; color: rgba(255,255,255,.6)">{{ex.hint}}</span></span>
+              <button role="switch" aria-checked="{{ex.checked}}" aria-label="{{ex.name}}" onClick="{{ex.flip}}" style="{{ex.track}}"><span style="{{ex.knob}}"></span></button>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{showCard}}" hint-placeholder-val="{{ false }}">
+        <div style="border-radius: 22px; background: #2C2C2E; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; align-items: flex-start; gap: 10px">
+            <span style="flex: 1; min-width: 0; font-size: 17px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere">{{card.name}}</span>
+            <span style="flex: none; height: 30px; padding: 0 12px; border-radius: 15px; background: #4A3D00; display: flex; align-items: center"><span style="{{card.valStyle}}">{{card.value}}</span></span>
+          </div>
+          <div onPointerDown="{{card.sl.down}}" onPointerMove="{{card.sl.move}}" onPointerUp="{{card.sl.up}}" onPointerCancel="{{card.sl.cancel}}" onDoubleClick="{{card.sl.reset}}" style="{{card.sl.wrap}}">
+            <div style="{{card.sl.track}}"><div style="{{card.sl.fill}}"></div></div>
+            <div style="{{card.sl.knob}}"></div>
+            <input type="range" aria-label="{{card.name}}" min="{{card.min}}" max="{{card.max}}" step="{{card.step}}" value="{{card.v}}" onInput="{{card.set}}" style="position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none">
+          </div>
+        </div>
+      </sc-if>
+      <div style="{{rowsStyle}}">
+        <button onClick="{{openExpert}}" style="display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px 0 16px; border: 0; border-radius: 20px 20px 6px 6px; background: #2C2C2E; color: #FFFFFF; font: inherit; cursor: pointer; text-align: left">
+          <span style="flex: none; font-size: 16px; font-weight: 600">Для опытных</span>
+          <span style="flex: 1; min-width: 0; font-size: 13px; color: rgba(255,255,255,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right">Кадры светов, пик фокуса, лица, RAW</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <a href="Hybrid.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px 0 16px; border-radius: 6px 6px 20px 20px; background: #2C2C2E">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="{{I.gear}}"/></svg>
+          <span style="flex: 1; font-size: 16px; font-weight: 600">Все настройки</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M9 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{edit}}" hint-placeholder-val="{{ false }}">
+    <button aria-label="Закрыть" onClick="{{cancelEdit}}" style="position: absolute; inset: 0; border: 0; padding: 0; background: rgba(0,0,0,.45); cursor: pointer"></button>
+    <div role="dialog" aria-label="Верхняя строка" style="position: absolute; left: 8px; right: 8px; top: 8px; box-sizing: border-box; padding: 14px 14px 8px; border-radius: 36px; background: #1C1C1E; box-shadow: inset 0 -0.5px 0 rgba(255,255,255,.14), 0 12px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button onClick="{{cancelEdit}}" style="height: 34px; padding: 0 14px; border: 0; border-radius: 17px; background: #2C2C2E; color: #FFFFFF; font: inherit; font-size: 15px; cursor: pointer">Отмена</button>
+        <span style="font-size: 15px; font-weight: 600">Верхняя строка</span>
+        <button onClick="{{doneEdit}}" style="height: 34px; padding: 0 16px; border: 0; border-radius: 17px; background: #FFD60A; color: #2B2200; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer">Готово</button>
+      </div>
+      <div style="height: 50px; border-radius: 25px; background: #000000; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); display: flex; justify-content: center; align-items: center; gap: 12px">
+        <sc-for list="{{editItems}}" as="b" hint-placeholder-count="5">
+          <span style="position: relative; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center">
+            <sc-if value="{{b.isText}}" hint-placeholder-val="{{ false }}">
+              <span style="display: flex; flex-direction: column; align-items: center; line-height: 1; gap: 3px"><span style="font-size: 12px; font-weight: 700">{{b.text}}</span><span style="font-size: 9px; font-weight: 600; opacity: .85">{{b.sub}}</span></span>
+            </sc-if>
+            <sc-if value="{{b.isIcon}}" hint-placeholder-val="{{ true }}">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{b.d}}"/></svg>
+            </sc-if>
+            <button aria-label="{{b.removeLabel}}" onClick="{{b.remove}}" style="position: absolute; right: -6px; top: -6px; width: 20px; height: 20px; border: 0; padding: 0; border-radius: 10px; background: #8E8E93; color: #1C1C1E; display: flex; align-items: center; justify-content: center; cursor: pointer">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+            </button>
+          </span>
+        </sc-for>
+      </div>
+      <span style="padding-left: 6px; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: rgba(255,255,255,.6)">ДОБАВИТЬ</span>
+      <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 4px">
+        <sc-for list="{{library}}" as="q" hint-placeholder-count="10">
+          <button onClick="{{q.add}}" aria-label="{{q.addLabel}}" style="{{q.wrap}}">
+            <span style="width: 48px; height: 48px; border-radius: 24px; background: #2C2C2E; display: flex; align-items: center; justify-content: center">
+              <sc-if value="{{q.isText}}" hint-placeholder-val="{{ false }}">
+                <span style="display: flex; flex-direction: column; align-items: center; line-height: 1; gap: 3px"><span style="font-size: 11px; font-weight: 700">{{q.text}}</span><span style="font-size: 8px; font-weight: 600; opacity: .85">{{q.sub}}</span></span>
+              </sc-if>
+              <sc-if value="{{q.isIcon}}" hint-placeholder-val="{{ true }}">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{q.d}}"/></svg>
+              </sc-if>
+            </span>
+            <span style="font-size: 10px; font-weight: 600; text-align: center">{{q.label}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <button onClick="{{resetTop}}" style="align-self: center; height: 34px; padding: 0 16px; border: 0; border-radius: 17px; background: transparent; color: #FFD60A; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Вернуть основные</button>
+      <button aria-label="Закрыть (свайп вверх)" onClick="{{cancelEdit}}" style="align-self: center; width: 44px; height: 12px; border: 0; padding: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer"><span style="width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.3)"></span></button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"screen":{"editor":"enum","options":["main","shade","edit","pro","lut"],"default":"main"},"cols":{"editor":"int","min":1,"max":10,"default":4},"rows":{"editor":"int","min":1,"max":10,"default":2},"shadeEdit":{"editor":"boolean","default":false},"page":{"editor":"int","min":0,"max":9,"default":0},"open":{"editor":"text","default":""},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const s = props.screen || 'main';
+    this.y0 = null;
+    this.state = { mode: 'photo', zoom: '1', shade: s === 'shade', edit: s === 'edit', pro: s === 'pro', lut: s === 'lut',
+      chip: 'shutter', tab: 'lut', photo: 'JPEG', raw: 0, size: 0, fmt: props.screen === 'format' ? 'format' : null, timerIdx: 0, shots: 0, busy: false, blink: false, count: null, front: false, toast: null,
+      proIdx: { iso: 1, shutter: 4, ev: 4, focus: 4, wb: 5 }, proAuto: {},
+      profile: 'Стандартный', profilesOpen: false, shadeView: 'tiles', picker: false, info: null, swapSel: null, order: null, hidden: [], expertOn: { peak: false, faces: true, hlf: true, stab: true, raw: false }, pickLut: 1, pickFilter: 2, pickFilm: 2,
+      on: { torch: false, timer: false, grid: true, dcg: true, ev: false, level: false, hdr: true, uhdr: false },
+      top: ['format', 'torch', 'timer', 'lut', 'dcg'], saved: null,
+      page: Number(props.page) || 0, open: props.open ? String(props.open) : null, sliders: {}, cols: Math.max(1, Math.min(10, Number(props.cols) || 4)), rows: Math.max(1, Math.min(10, Number(props.rows) || 2)), shadeEdit: props.shadeEdit === true || props.shadeEdit === "true", vals: { grid: 1, hdr: 0 } };
+  }
+  componentDidMount() {
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => this.forceUpdate());
+  }
+  /* <ios-kit> shared iOS controls of the concept (the same code in every artboard) */
+  // slider: drag anywhere (relative, no jump), tap jumps, double tap resets; rubber band past the ends, glass knob while held, spring on release
+  iosSlider(id, k, onK, o) {
+    o = o || {};
+    const st = this.state, ACC = o.acc || '#0A84FF', SPR = 'cubic-bezier(.34,1.56,.64,1)';
+    const clamp = (x) => Math.max(0, Math.min(1, x));
+    const d = st.drag && st.drag.id === id ? st.drag : null;
+    const n = (st.bump && st.bump[id]) || 0;
+    const pos = 'calc(14px + ' + clamp(k).toFixed(4) + ' * (100% - 28px))', over = d ? d.over : 0, live = !!(d && d.moving);
+    const w = (this._sl && this._sl.id === id && this._sl.w) || 300;
+    const bump = () => { const b = { ...(this.state.bump || {}) }; b[id] = (b[id] || 0) + 1; this.setState({ drag: null, bump: b });
+      clearTimeout(this['_b' + id]); this['_b' + id] = setTimeout(() => { const c = { ...(this.state.bump || {}) }; delete c[id]; this.setState({ bump: c }); }, 700); };
+    const end = (e, cancel) => { const s = this._sl; if (!s || s.id !== id) return; this._sl = null;
+      if (!cancel && !s.moved && e && e.clientX != null) onK(clamp((e.clientX - s.r.left - 14) / Math.max(1, s.r.width - 28)));
+      bump(); };
+    const anim = (a, b) => n ? '; animation: ' + (n % 2 ? a : b) + ' .55s ' + SPR : '';
+    return {
+      down: (e) => { const el = e.currentTarget, r = el.getBoundingClientRect(); try { el.setPointerCapture(e.pointerId); } catch (x) { /* old browsers */ }
+        this._sl = { id, r, w: Math.max(1, (r.width || 300) - 28), x0: e.clientX, k0: clamp(k), moved: false }; this.setState({ drag: { id, over: 0, moving: false } }); },
+      move: (e) => { const s = this._sl; if (!s || s.id !== id) return; const dx = e.clientX - s.x0;
+        if (!s.moved && Math.abs(dx) < 4) return; s.moved = true;
+        const raw = s.k0 + dx / s.w, ex = raw < 0 ? raw * s.w : raw > 1 ? (raw - 1) * s.w : 0;
+        onK(clamp(raw)); this.setState({ drag: { id, over: Math.sign(ex) * 20 * (1 - Math.exp(-Math.abs(ex) / 70)), moving: true } }); },
+      up: (e) => end(e, false), cancel: (e) => end(e, true),
+      reset: () => { if (o.def != null) { onK(o.def); bump(); } },
+      key: (e) => { onK(clamp(Number(e.target.value) / 1000)); },
+      k1000: Math.round(clamp(k) * 1000),
+      wrap: 'position: relative; height: 38px; touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none',
+      track: 'position: absolute; left: 0; right: 0; top: 50%; height: ' + (d ? 9 : 6) + 'px; margin-top: ' + (d ? -4.5 : -3) + 'px; border-radius: 5px; overflow: hidden; background: rgba(120,120,128,.36); transform-origin: '
+        + (over < 0 ? 'right' : 'left') + '; transform: ' + (over ? 'scaleX(' + (1 + Math.abs(over) / w).toFixed(4) + ')' : 'none')
+        + '; transition: ' + (live ? 'height .25s ' + SPR + ', margin .25s ' + SPR : 'transform .6s ' + SPR + ', height .35s ' + SPR + ', margin .35s ' + SPR),
+      fill: 'height: 100%; width: ' + pos + '; background: ' + ACC + '; transition: width ' + (live ? '.05s linear' : '.5s ' + SPR),
+      knob: 'position: absolute; top: 50%; left: ' + pos + '; width: ' + (d ? 42 : 28) + 'px; height: ' + (d ? 26 : 28) + 'px; margin: ' + (d ? '-13px 0 0 -21px' : '-14px 0 0 -14px')
+        + '; border-radius: 14px; pointer-events: none; translate: ' + (over * .9).toFixed(1) + 'px 0; '
+        + (d ? 'background: rgba(255,255,255,.18); -webkit-backdrop-filter: blur(2px) saturate(2); backdrop-filter: blur(2px) saturate(2); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.9), inset 0 -6px 10px rgba(255,255,255,.25), 0 8px 20px rgba(0,0,0,.35)'
+          : 'background: #FFFFFF; box-shadow: 0 2px 8px rgba(0,0,0,.35), 0 0 0 .5px rgba(0,0,0,.05)')
+        + '; transition: left ' + (live ? '.05s linear' : '.5s ' + SPR) + ', translate ' + (live ? '.05s linear' : '.6s ' + SPR) + ', width .4s ' + SPR + ', height .4s ' + SPR + ', margin .4s ' + SPR + ', background .25s, box-shadow .25s'
+        + (d ? '' : anim('iosKnobA', 'iosKnobB')),
+      value: (base) => base + '; display: inline-block; transform-origin: right center; transition: transform .45s ' + SPR + ', color .2s; transform: scale(' + (d ? 1.16 : 1) + ')'
+        + (d ? '; color: ' + ACC : '') + (d ? '' : anim('iosPopA', 'iosPopB'))
+    };
+  }
+  // segmented control with a sliding thumb
+  iosSeg(items, cur, pick, o) {
+    o = o || {};
+    const k = items.length, i = Math.max(0, items.findIndex((x) => x[1] === cur)), SPR = 'cubic-bezier(.34,1.4,.64,1)';
+    return {
+      track: 'position: relative; display: grid; grid-template-columns: repeat(' + k + ', minmax(0, 1fr)); padding: 3px; border-radius: 20px; background: rgba(118,118,128,.24)' + (o.margin ? '; margin: ' + o.margin : ''),
+      thumb: 'position: absolute; top: 3px; bottom: 3px; left: calc(3px + ' + i + ' * (100% - 6px) / ' + k + '); width: calc((100% - 6px) / ' + k + '); border-radius: 17px; background: ' + (o.thumb || '#636366')
+        + '; box-shadow: 0 3px 8px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.04); transition: left .45s ' + SPR + '; pointer-events: none',
+      segs: items.map(([label, v]) => ({ label, on: v === cur ? 'true' : 'false', pick: () => pick(v),
+        style: 'position: relative; min-height: 34px; padding: 4px 6px; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 13px; line-height: 16px; font-weight: 600; transition: color .2s; color: '
+          + (v === cur ? (o.onInk || '#FFFFFF') : 'rgba(235,235,245,.75)') }))
+    };
+  }
+  // switch: the app's one switch (owner's mix of the concept and Material You); on, the theme's colour
+  iosSwitch(on, o) {
+    o = o || {};
+    const A = o.acc || '#FFD60A', SPR = 'cubic-bezier(.34,1.4,.64,1)';
+    const hex = (c) => [1, 3, 5].map((i) => parseInt(c.substr(i, 2), 16));
+    const mix = (a, b, k) => { const x = hex(a), y = hex(b); return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * k).toString(16).padStart(2, '0')).join(''); };
+    return {
+      track: 'position: relative; width: 51px; height: 31px; flex: none; box-sizing: border-box; border-radius: 16px; transition: background .25s, border-color .25s; border: .6px solid '
+        + (on ? A : 'rgba(255,255,255,.13)') + '; background: ' + (on ? A : '#39393C'),
+      knob: 'position: absolute; top: 50%; transform: translateY(-50%); border-radius: 50%; transition: all .35s ' + SPR + '; box-shadow: 0 2px 6px rgba(0,0,0,.3); '
+        + (on ? 'left: 22px; width: 26.5px; height: 26.5px; background: ' + mix('#FFFFFF', A, .18) : 'left: 2.5px; width: 24px; height: 24px; background: rgba(255,255,255,.88)')
+    };
+  }
+  /* </ios-kit> */
+  renderVals() {
+    const I = {
+      bolt: 'M13.2 2.8L5.5 13.4h5.7l-1 7.8 7.8-10.6h-5.8z',
+      timer: 'M12 6.5a7.3 7.3 0 1 0 0 14.6a7.3 7.3 0 1 0 0-14.6z M12 14V10.5 M9.5 2.8h5 M12 2.8v3.7',
+      run: 'M14 6a1.6 1.6 0 1 0 0-3.2a1.6 1.6 0 1 0 0 3.2z M7 11.5l3-3.5 4.2 1.2 2.3 3.3 2.7.8 M12.6 9l-1.8 6.5 3.2 2.5V22 M10.8 15.5L8 21',
+      photo: 'M4 8.5h3l1.6-2.2h6.8L17 8.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z M12 10.4a3.4 3.4 0 1 0 0 6.8a3.4 3.4 0 1 0 0-6.8z',
+      gear: 'M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16z M12 9.8a2.2 2.2 0 1 0 0 4.4a2.2 2.2 0 1 0 0-4.4z M12 9.8V4 M13.9 13.1l5 2.9 M10.1 13.1l-5 2.9',
+      sun: 'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z M12 2.5v2 M12 19.5v2 M2.5 12h2 M19.5 12h2 M5.3 5.3l1.4 1.4 M17.3 17.3l1.4 1.4 M5.3 18.7l1.4-1.4 M17.3 6.7l1.4-1.4',
+      sliders: 'M4 7h9 M17 7h3 M15 5v4 M4 17h3 M11 17h9 M9 15v4',
+      lut: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M20 4L4 20',
+      flip: 'M19.5 10.5a7.8 7.8 0 0 0-14.2-3 M4.5 13.5a7.8 7.8 0 0 0 14.2 3 M5 3.5V7.8h4.3 M19 20.5v-4.3h-4.3',
+      grid: 'M4 9.3h16 M4 14.7h16 M9.3 4v16 M14.7 4v16',
+      ev: 'M12 4v8 M8 8h8 M7 17h10',
+      level: 'M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16z M2.5 12h19',
+      sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
+      horizon: 'M3 15h4l2-3h6l2 3h4',
+      image: 'M6 4.5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2z M4.5 16l4.5-4 3.5 3 2.5-2 4.5 3.5 M15.5 8.5h.01',
+      save: 'M6 4h10l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M8 4v5h7V4 M8 20v-6h8v6',
+      iso: 'M5 5h14v14H5z M8.5 8.5h.01 M12 8.5h.01 M15.5 8.5h.01 M8.5 12h.01 M12 12h.01 M15.5 12h.01 M8.5 15.5h.01 M12 15.5h.01 M15.5 15.5h.01',
+      shutter: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M14.6 3.4L10.9 9.8 M20.3 8.6h-7.4 M19.4 17.2l-3.7-6.4 M9.4 20.6l3.7-6.4 M3.7 15.4h7.4 M4.6 6.8l3.7 6.4',
+      focus: 'M4 9V6.5A2.5 2.5 0 0 1 6.5 4H9 M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9 M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15 M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15 M12 10.5a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3z',
+      thermo: 'M10 13.5V5a2 2 0 0 1 4 0v8.5a4 4 0 1 1-4 0z M12 9v7',
+      auto: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M8.5 16l3.5-9 3.5 9 M9.8 13h4.4',
+      res: 'M4 9V5h4 M20 9V5h-4 M4 15v4h4 M20 15v4h-4 M9 12h6',
+      target: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M12 12h.01',
+      layers: 'M12 3.5l8.5 4.3-8.5 4.3-8.5-4.3z M3.5 12l8.5 4.3 8.5-4.3 M3.5 16.2l8.5 4.3 8.5-4.3',
+      dcg: 'M4 12h4l2-5 4 10 2-5h4',
+      filter: 'M9 4a5 5 0 1 0 0 10a5 5 0 1 0 0-10z M15 10a5 5 0 1 0 0 10a5 5 0 1 0 0-10z',
+      film: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M8.5 4v16 M15.5 4v16 M4 9h4.5 M4 15h4.5 M15.5 9H20 M15.5 15H20',
+      crop: 'M7 3v12a2 2 0 0 0 2 2h12 M3 7h12a2 2 0 0 1 2 2v12',
+      wave: 'M3 12h2.5l2-5 3 10 3-12 3 10 2-3H21',
+      sharp: 'M12 3l8 9-8 9-8-9z M12 3v18',
+      peak: 'M3 17l5-7 4 5 3-4 6 6',
+      info: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 11v5.5 M12 7.6h.01',
+      sunFull: 'M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M12 2.5v2 M12 19.5v2 M2.5 12h2 M19.5 12h2 M5.3 5.3l1.4 1.4 M17.3 17.3l1.4 1.4 M5.3 18.7l1.4-1.4 M17.3 6.7l1.4-1.4',
+      prism: 'M10 4.5l7 13H3z M2 13.5h4.5 M14.8 11.5L22 9 M15.6 13.4L22 14.5 M16.4 15.4L21.5 19.5',
+      plus: 'M12 5v14 M5 12h14'
+    };
+    const st = this.state, YEL = '#FFD60A';
+    // the format badge follows the format sheet; the sizes and the lenses they exist on (a sample: 200 Мп on the main lens only)
+    const SIZES = [['Обычный', '12,6 Мп', 'Быстро и немного места. Подходит почти всегда'], ['Подробный', '50 Мп', 'Больше деталей при хорошем свете. Снимок дольше'],
+      ['Максимум', '200 Мп', 'Для печати и кадрирования']];
+    const sizeOk = (i) => i === 0 || (!st.front && (i === 1 || st.zoom === '1' || st.zoom === '2'));
+    const size = sizeOk(st.size) ? st.size : 0;
+    const fmtText = st.raw === 2 ? 'DNG' : st.photo + (st.raw === 1 ? '+RAW' : '');
+    const fmtSub = SIZES[size][1];
+    const TIMERS = ['Выкл.', '3 с', '10 с'], TSEC = [0, 3, 10];
+    const DEF = {
+      format: { name: 'Формат и размер', label: 'Формат', text: fmtText, sub: fmtSub },
+      torch: { name: 'Фонарик', label: 'Фонарик', d: I.bolt, fillOn: true },
+      timer: { name: 'Таймер', label: 'Таймер', d: I.timer },
+      lut: { name: 'LUT и плёнка', label: 'LUT', d: I.lut },
+      dcg: { name: 'DCG', label: 'DCG', text: 'DCG', sub: '' },
+      grid: { name: 'Сетка', label: 'Сетка', d: I.grid },
+      ev: { name: 'Экспозиция', label: 'Экспоз.', d: I.ev },
+      level: { name: 'Горизонт', label: 'Горизонт', d: I.level },
+      hdr: { name: 'HDR', label: 'HDR', d: I.sparkle },
+      uhdr: { name: 'UHDR', label: 'UHDR', d: I.sparkle }
+    };
+    const isOn = (id) => id === 'lut' ? st.lut : id === 'timer' ? st.timerIdx > 0 : id === 'format' ? !!st.fmt : id === 'grid' ? (st.vals.grid || 0) > 0 : !!st.on[id];
+    const toast = (t) => { this.setState({ toast: t }); clearTimeout(this._toast); this._toast = setTimeout(() => this.setState({ toast: null }), 1600); };
+    const flip = (id) => () => {
+      if (id === 'format') { this.setState({ fmt: st.fmt ? null : 'format', lut: false, pro: false }); return; }
+      if (id === 'timer') { const k = (st.timerIdx + 1) % 3; this.setState({ timerIdx: k }); toast('Таймер: ' + TIMERS[k]); return; }
+      if (id === 'lut') { this.setState({ lut: !st.lut, pro: false }); return; }
+      if (id === 'grid') { this.setState({ vals: { ...st.vals, grid: (st.vals.grid || 0) > 0 ? 0 : 1 } }); return; }
+      this.setState({ on: { ...st.on, [id]: !st.on[id] } });
+    };
+    const topItems = st.top.map((id) => {
+      const d = DEF[id], on = isOn(id);
+      return { name: d.name, isText: !!d.text, isIcon: !d.text, text: d.text, sub: d.sub, d: d.d, pressed: on ? 'true' : 'false',
+        fill: on && d.fillOn ? YEL : 'none', flip: flip(id), hasBadge: id === 'timer' && st.timerIdx > 0, badge: String(TSEC[st.timerIdx]),
+        textStyle: 'font-size: ' + (d.text && d.text.length > 5 ? 11.5 : 13) + 'px; font-weight: 700; white-space: nowrap',
+        style: 'position: relative; height: 40px; min-width: 40px; padding: 0 6px; border: 0; border-radius: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer; font: inherit; transition: background .25s; '
+          + (on ? 'background: rgba(255,214,10,.16); color: ' + YEL : 'background: transparent; color: #FFFFFF') };
+    });
+    const editItems = st.top.map((id) => {
+      const d = DEF[id];
+      return { isText: !!d.text, isIcon: !d.text, text: d.text, sub: d.sub, d: d.d, removeLabel: 'Убрать: ' + d.name,
+        remove: () => this.setState({ top: st.top.filter((x) => x !== id) }) };
+    });
+    const library = ['format', 'torch', 'timer', 'lut', 'dcg', 'grid', 'ev', 'level', 'hdr', 'uhdr'].map((id) => {
+      const d = DEF[id], added = st.top.indexOf(id) >= 0;
+      return { label: d.label, isText: !!d.text, isIcon: !d.text, text: d.text, sub: d.sub, d: d.d, addLabel: 'Добавить: ' + d.name,
+        add: () => { if (!added && st.top.length < 6) this.setState({ top: [...st.top, id] }); },
+        wrap: 'border: 0; padding: 0; background: transparent; color: #FFFFFF; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; font: inherit; opacity: ' + (added ? '.35' : '1') };
+    });
+    /* <shade-layout> the shade's tiles on the user's grid (1..10 columns and rows, paged): every tile shows its name and value, fitted
+       to its own box - the name on up to two lines at the largest font that fits both the width (its longest word) and the height
+       (with the icon and the value), its short form only when the full one would go below the readable size; a slider tile opens
+       its slider in a card under the grid, inside the sheet */
+    function shadeLayout(st, I, YEL, set, measure, dyn) {
+      dyn = dyn || {};
+      const T = (id, name, d, kind, values, extra) => ({ id, name, d, kind, values, ...(extra || {}) });
+      const CAT = [
+        T('torch', 'Фонарик', I.bolt, 'bool', ['Выкл.', 'Вкл.']), T('timer', 'Таймер', I.timer, 'list', ['Выкл.', '3 с', '10 с']),
+        T('grid', 'Сетка', I.grid, 'list', ['Выкл.', '3×3', '4×4']), T('fmt', 'Формат', I.image, 'list', ['JPEG', 'HEIF', 'RAW']),
+        T('res', 'Разрешение', I.res, 'list', ['1×', '1,5×', '2×']), T('hdr', 'HDR', I.sparkle, 'bool', ['Вкл.', 'Выкл.'], { onAt: 0 }),
+        T('uhdr', 'UHDR', I.sparkle, 'bool', ['Выкл.', 'Вкл.']), T('level', 'Горизонт', I.horizon, 'bool', ['Выкл.', 'Вкл.']),
+        T('peak', 'Фокус-пик', I.peak, 'list', ['Авто', 'Вкл.', 'Выкл.']), T('hl', 'Света', I.sun, 'list', ['Всегда', 'Авто']),
+        T('info', 'Инфо', I.info, 'bool', ['Выкл.', 'Вкл.']),
+        T('mhl', 'Приоритет умеренных светов', I.sunFull, 'slider', null, { min: 0, max: 2, v: 1, fmt: (v) => v.toFixed(2).replace('.', ',') }),
+        T('hlf', 'Кадры светов', I.layers, 'list', ['Авто', 'Выкл.']), T('ca', 'Подавление аберраций', I.prism, 'list', ['Нейросеть', 'Классика']),
+        T('rl', 'Деконволюция RL', I.target, 'list', ['Выкл.', 'Слабая', 'Сильная']),
+        T('ghost', 'Сила против двоения', I.run, 'slider', null, { min: 0, max: 1, v: .6, fmt: (v) => Math.round(v * 100) + ' %' }),
+        T('frames', 'Кадров в склейке', I.layers, 'slider', null, { min: 1, max: 30, v: 8, fmt: (v) => String(Math.round(v)) }),
+        T('flicker', 'Без мерцания ламп', I.bolt, 'bool', ['Вкл.', 'Выкл.'], { onAt: 0 }),
+        T('proc', 'Режим обработки', I.layers, 'list', ['Быстрый', 'Качество']), T('focus', 'Фокус', I.focus, 'list', ['Авто', 'Ручной']),
+        T('meter', 'Замер', I.target, 'list', ['Матрица', 'Центр', 'Точка']), T('dcg', 'DCG', I.dcg, 'bool', ['Вкл.', 'Выкл.'], { onAt: 0 }),
+        T('noise', 'Шумоподавление', I.wave, 'list', ['Авто', 'Слабое', 'Сильное']), T('sharp', 'Резкость', I.sharp, 'list', ['0', '+1', '−1'])
+      ];
+      // short names, with soft hyphens (\u00AD) at the syllables where a narrow tile may break them
+      const SHORT_NAME = { 'Фонарик': 'Фо\u00ADнарь', 'Разрешение': 'Раз\u00ADре\u00ADше\u00ADние', 'Горизонт': 'Го\u00ADри\u00ADзонт', 'Фокус-пик': 'Пик',
+        'Приоритет умеренных светов': 'Уме\u00ADрен. све\u00ADта', 'Кадры светов': 'Кад\u00ADры све\u00ADтов', 'Подавление аберраций': 'Абер\u00ADра\u00ADции',
+        'Деконволюция RL': 'RL', 'Сила против двоения': 'Ан\u00ADти\u00ADдво\u00ADе\u00ADние', 'Кадров в склейке': 'Кад\u00ADры', 'Без мерцания ламп': 'Мер\u00ADца\u00ADние',
+        'Режим обработки': 'Об\u00ADра\u00ADбот\u00ADка', 'Шумоподавление': 'Шум', 'Резкость': 'Рез\u00ADкость', 'Таймер': 'Тай\u00ADмер', 'Формат': 'Фор\u00ADмат',
+        'Яркость': 'Яр\u00ADкость', 'Замер': 'За\u00ADмер', 'Фокус': 'Фо\u00ADкус', 'Сетка': 'Сет\u00ADка' };
+      const SHORT = { 'Вкл.': 'Вкл', 'Выкл.': 'Выкл', 'Матрица': 'Матр.', 'Быстрый': 'Быстр.', 'Качество': 'Кач.', 'Ручной': 'Руч.',
+        'Нейросеть': 'Нейро', 'Классика': 'Класс.', 'Слабая': 'Слаб.', 'Сильная': 'Сильн.', 'Слабое': 'Слаб.', 'Сильное': 'Сильн.', 'Точка': 'Точ.' };
+      // a value's two-line form (at a soft hyphen), only when even its short form does not fit one line
+      const HYPH = { 'Нейро': 'Ней\u00ADро', 'Быстр.': 'Быст\u00ADр.', 'Быстрый': 'Быст\u00ADрый', 'Всегда': 'Все\u00ADгда', 'Матрица': 'Мат\u00ADри\u00ADца', 'Качество': 'Ка\u00ADче\u00ADство',
+        'Нейросеть': 'Ней\u00ADро\u00ADсеть', 'Классика': 'Клас\u00ADси\u00ADка', 'Сильное': 'Силь\u00ADное', 'Слабое': 'Сла\u00ADбое' };
+      const cols = st.cols, rows = st.rows, gap = Math.max(cols, rows) > 6 ? 4 : 8;
+      const gridW = 346, gridH = rows <= 3 ? rows * 84 + (rows - 1) * gap : Math.min(470, rows * 84 + (rows - 1) * gap);
+      const w = (gridW - (cols - 1) * gap) / cols, h = (gridH - (rows - 1) * gap) / rows;
+      const level = w >= 72 && h >= 72 ? 2 : w >= 46 && h >= 46 ? 1 : 0;
+      const pad = level ? 6 : 3, inner = w - 2 * pad, LH = 1.18;
+      // measured widths (measure: text, font px, weight -> px), with 4 % to spare for the font's own rounding
+      const room = inner * 0.93;
+      const plain = (t) => t.replace(/\u00AD/g, '');
+      const fitLine = (t, max, wgt) => Math.min(max, max * room / Math.max(1, measure(plain(t), max, wgt)));
+      // n lines: the best way to break the text at its spaces and soft hyphens (a broken soft hyphen shows as «-»); greedy wrapping
+      // then fits in n lines as well
+      const fitN = (t, n, max, wgt) => {
+        if (n <= 1) return fitLine(t, max, wgt);
+        const parts = t.split(/( |\u00AD)/), cuts = [];
+        for (let i = 1; i < parts.length; i += 2) cuts.push(i);
+        let best = fitLine(t, max, wgt);
+        const tryCuts = (chosen) => {
+          let fs = max, from = 0;
+          for (const c of [...chosen, parts.length]) {
+            const line = parts.slice(from, c).join('') + (c < parts.length && parts[c] === '\u00AD' ? '-' : '');
+            fs = Math.min(fs, fitLine(line, max, wgt)); from = c + 1;
+          }
+          best = Math.max(best, fs);
+        };
+        const rec = (start, chosen) => { if (chosen.length) tryCuts(chosen); if (chosen.length >= n - 1) return;
+          for (let k = start; k < cuts.length; k++) rec(k + 1, [...chosen, cuts[k]]); };
+        rec(0, []);
+        return best;
+      };
+      const order = st.order || CAT.map((t) => t.id), hidden = st.hidden || [];
+      const shown = order.filter((id) => hidden.indexOf(id) < 0).map((id) => CAT.find((t) => t.id === id)).filter(Boolean);
+      const perPage = cols * rows, items = [...shown.map((t) => ({ t })), { add: true }];
+      const pages = Math.max(1, Math.ceil(items.length / perPage)), page = Math.min(st.page || 0, pages - 1);
+      const valueOf = (t) => {
+        if (dyn[t.id]) return dyn[t.id];
+        if (t.kind === 'slider') { const v = st.sliders[t.id] == null ? t.v : st.sliders[t.id]; return { v, text: t.fmt(v), on: false }; }
+        const idx = st.vals[t.id] || 0, on = t.onAt === 0 ? idx === 0 : idx > 0;
+        return { idx, text: t.values[idx], on };
+      };
+      const tiles = items.slice(page * perPage, page * perPage + perPage).map((it) => {
+        const r = Math.min(22, Math.max(6, w / 3.2));
+        if (it.add) return { add: true, isTile: false, aria: 'Добавить плитку', name: level ? 'Добавить' : '', d: I.plus, icon: Math.round(Math.min(22, h * .3, w * .4)),
+          id: 'add', flip: () => set({ picker: true }), pressed: 'false', showIcon: true, showName: level > 0, showValue: false, showX: false,
+          nameStyle: 'font-size: ' + fitLine('Добавить', 12, 400).toFixed(1) + 'px; color: rgba(255,255,255,.7); white-space: nowrap',
+          style: 'position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; border: 1px dashed rgba(255,255,255,.22); border-radius: ' + r
+            + 'px; background: transparent; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: rgba(255,255,255,.7); cursor: pointer; font: inherit' };
+        const t = it.t, val = valueOf(t);
+        const icon = level === 2 ? Math.round(Math.min(22, h * .26, w * .4)) : level === 1 ? Math.round(Math.min(18, h * .24, w * .34)) : 0;
+        const gapV = level ? 2 : 1;
+        const vMax = level === 2 ? 11.5 : level === 1 ? 10.5 : 10, vWgt = level === 0 ? 700 : 400;
+        // the value: its short form when the full one would go below 7 px
+        const valueText = level === 0 || fitLine(val.text, vMax, vWgt) < 7 ? (SHORT[val.text] || val.text) : val.text;
+        // a value that would go below 6.5 px on one line takes two (at its soft hyphens) when the tile is tall enough
+        let valueLines = 1, valueFs = fitLine(valueText, vMax, vWgt), valueShown = valueText;
+        const hy = HYPH[valueText] || HYPH[val.text];
+        if (valueFs < 6.5 && hy && h - 2 * pad >= 6.5 * LH * 4) { valueLines = 2; valueShown = hy; valueFs = fitN(valueShown, 2, vMax, vWgt) * 0.95; }
+        valueFs = Math.max(6.5, valueFs);
+        // the name: full or short, on as many lines (up to 3) as gives the largest font that fits the width and the height; the
+        // icon goes on a crowded medium tile when the name would not fit with it
+        const nMax = level === 2 ? 12.5 : level === 1 ? 11 : 9.5, minFs = level === 2 ? 9 : level === 1 ? 8 : 6.5;
+        const short = SHORT_NAME[t.name] || t.name;
+        let pick = null, iconUsed = icon;
+        for (const ic of icon ? [icon, 0] : [0]) {
+          const free = h - 2 * pad - ic - (ic ? gapV : 0) - gapV - valueFs * LH * valueLines;
+          const maxLines = Math.max(1, Math.min(3, Math.floor(free / (minFs * LH))));
+          let local = null;
+          for (const text of t.name === short ? [t.name] : [t.name, short]) {
+            for (let n = 1; n <= maxLines; n++) {
+              if (n > 1 && !/[ \u00AD]/.test(text)) break;
+              const fs = Math.min(fitN(text, n, nMax, 600), free / (n * LH));
+              if (!local || fs > local.fs + 0.3) local = { text, lines: n, fs };
+            }
+            if (local && local.fs >= minFs) break;
+          }
+          if (!pick || local.fs > pick.fs) { pick = local; iconUsed = ic; }
+          if (pick.fs >= minFs) break;
+        }
+        pick.fs = Math.max(6.5, pick.fs);
+        if (valueFs > pick.fs + 1.5) valueFs = pick.fs + 1.5;
+        const sel = st.open === t.id, swapSel = st.shadeEdit && st.swapSel === t.id;
+        // edit mode: a tile tapped, then another - the two trade places
+        const swap = () => {
+          if (st.swapSel == null) { set({ swapSel: t.id }); return; }
+          if (st.swapSel === t.id) { set({ swapSel: null }); return; }
+          const o = order.slice(), a = o.indexOf(st.swapSel), b = o.indexOf(t.id);
+          o[a] = t.id; o[b] = st.swapSel; set({ order: o, swapSel: null });
+        };
+        return {
+          id: t.id, isTile: true, add: false, d: t.d, name: pick.text, value: valueShown, aria: t.name + ': ' + val.text, pressed: (val.on || sel) ? 'true' : 'false', icon: iconUsed,
+          flip: () => st.shadeEdit ? swap() : dyn[t.id] ? dyn[t.id].flip() : t.kind === 'slider' ? set({ open: sel ? null : t.id })
+            : set({ vals: { ...st.vals, [t.id]: ((val.idx || 0) + 1) % t.values.length } }),
+          remove: () => set({ hidden: [...hidden, t.id], swapSel: null }), removeLabel: 'Убрать: ' + t.name,
+          showIcon: iconUsed > 0, showName: true, showValue: true, showX: !!st.shadeEdit,
+          nameStyle: 'max-width: 100%; overflow: hidden; text-align: center; line-height: ' + LH + '; font-size: ' + pick.fs.toFixed(1) + 'px; font-weight: 600; color: #FFFFFF; '
+            + (pick.lines > 1 ? 'display: -webkit-box; -webkit-line-clamp: ' + pick.lines + '; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: normal; hyphens: manual' : 'white-space: nowrap; text-overflow: ellipsis'),
+          valueStyle: 'max-width: 100%; overflow: hidden; text-align: center; line-height: ' + LH + '; font-size: ' + valueFs.toFixed(1) + 'px; '
+            + (valueLines > 1 ? 'display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; hyphens: manual; ' : 'text-overflow: ellipsis; white-space: nowrap; ')
+            + (level === 0 ? 'font-weight: 700' : 'opacity: .72'),
+          xStyle: 'position: absolute; right: -5px; top: -5px; z-index: 2; border: 0; padding: 0; cursor: pointer; width: ' + Math.round(Math.max(12, Math.min(20, w * .3))) + 'px; height: ' + Math.round(Math.max(12, Math.min(20, w * .3)))
+            + 'px; border-radius: 50%; background: #48484A; color: #FFFFFF; display: flex; align-items: center; justify-content: center',
+          style: 'position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: visible; border: 0; padding: ' + pad + 'px; border-radius: ' + r + 'px; '
+            + 'display: flex; flex-direction: column; align-items: center; justify-content: center; gap: ' + gapV + 'px; cursor: pointer; font: inherit; transition: background .25s, box-shadow .25s; '
+            + (val.on ? 'background: #4A3D00; color: ' + YEL : 'background: #2C2C2E; color: #FFFFFF') + (sel || swapSel ? '; box-shadow: inset 0 0 0 1.5px ' + YEL : '') + (swapSel ? '; transform: scale(.94)' : '') + (st.shadeEdit ? '; animation: scamWiggle .5s ease-in-out infinite alternate' : '')
+        };
+      });
+      const openT = CAT.find((t) => t.id === st.open && t.kind === 'slider');
+      let card = null;
+      if (openT) {
+        const v = valueOf(openT).v, k = (v - openT.min) / (openT.max - openT.min);
+        card = { name: openT.name, value: openT.fmt(v), min: openT.min, max: openT.max, def: openT.v, step: (openT.max - openT.min) / 100, v,
+          set: (e) => set({ sliders: { ...st.sliders, [openT.id]: Number(e.target.value) } }),
+          fill: 'position: absolute; left: 0; width: ' + (k * 100).toFixed(1) + '%; height: 6px; border-radius: 3px; background: ' + YEL,
+          knob: 'position: absolute; left: calc(' + (k * 100).toFixed(1) + '% - 13px); width: 26px; height: 26px; border-radius: 13px; background: #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,.45); pointer-events: none' };
+      }
+      const dots = Array.from({ length: pages }, (_, i) => ({ aria: 'Страница ' + (i + 1), pick: () => set({ page: i }),
+        style: 'height: 6px; border: 0; padding: 0; border-radius: 3px; cursor: pointer; ' + (i === page ? 'width: 18px; background: #FFFFFF' : 'width: 6px; background: rgba(255,255,255,.3)') }));
+      return { tiles, card, dots, w, h, level, page, pages, catalog: CAT.map((t) => ({ id: t.id, name: t.name, d: t.d })), hiddenIds: hidden,
+        gridStyle: 'display: grid; grid-template-columns: repeat(' + cols + ', minmax(0, 1fr)); grid-auto-rows: ' + h.toFixed(1) + 'px; gap: ' + gap + 'px' };
+    }
+    /* </shade-layout> */
+    // the tiles' text is fitted on its measured width (the app: Paint.measureText)
+    const mctx = this._mctx || (this._mctx = document.createElement('canvas').getContext('2d'));
+    const measure = (text, px, wgt) => { mctx.font = wgt + ' 100px "Roboto Flex", -apple-system, system-ui, sans-serif'; return mctx.measureText(text).width * px / 100; };
+    // tiles that are the same control as the top bar (one state), and the format tile that opens the format sheet
+    const dyn = {
+      torch: { text: st.on.torch ? 'Вкл.' : 'Выкл.', on: !!st.on.torch, flip: () => this.setState({ on: { ...st.on, torch: !st.on.torch } }) },
+      timer: { text: TIMERS[st.timerIdx], on: st.timerIdx > 0, flip: () => { const k = (st.timerIdx + 1) % 3; this.setState({ timerIdx: k }); toast('Таймер: ' + TIMERS[k]); } },
+      fmt: { text: fmtText, on: false, flip: () => this.setState({ fmt: 'format', shade: false }) }
+    };
+    const SH = shadeLayout(st, I, YEL, (patch) => this.setState(patch), measure, dyn);
+    // long press: the tile's description (the app: P15)
+    const DESC = { torch: 'Постоянный свет для съёмки в темноте.', timer: 'Задержка перед снимком: 3 или 10 секунд.', grid: 'Линии для композиции в кадре: 3×3 или 4×4.',
+      fmt: 'Формат файла и RAW. Нажмите, чтобы выбрать.', res: 'Во сколько раз склейка увеличивает разрешение снимка.', hdr: 'Склейка кадров с разной экспозицией: детали и в светах, и в тенях.',
+      uhdr: 'Сохраняет HDR-яркость для экранов с поддержкой Ultra HDR.', level: 'Линия горизонта посреди кадра.', peak: 'Подсвечивает резкие края при ручном фокусе.',
+      hl: 'Когда добавлять короткие кадры для ярких мест.', info: 'Показывает параметры съёмки поверх кадра.', mhl: 'Насколько бережно сохранять умеренно яркие места.',
+      hlf: 'Короткие кадры для ярких мест в серии.', ca: 'Чем убирать цветную кайму на контрастных краях.', rl: 'Добавляет резкость, восстанавливая размытие объектива.',
+      ghost: 'Насколько сильно убирать двоение движущихся объектов.', frames: 'Сколько кадров серии складывается в снимок.', flicker: 'Подбирает выдержку под мерцание ламп.',
+      proc: 'Быстрый — снимок готов быстрее, Качество — склейка тщательнее.', focus: 'Автофокус или ручная наводка.', meter: 'Как камера оценивает яркость сцены.',
+      dcg: 'Режим сенсора с двойным усилением: больше деталей в тенях и светах.', noise: 'Сила шумоподавления.', sharp: 'Резкость готового снимка.' };
+    const tiles = SH.tiles.map((q) => q.isTile ? { ...q,
+      flip: () => { if (this._lpFired) { this._lpFired = false; return; } q.flip(); },
+      down: () => { clearTimeout(this._lp); this._lpFired = false; this._lp = setTimeout(() => { this._lpFired = true; this.setState({ info: { name: SH.catalog.find((c) => c.id === q.id).name, desc: DESC[q.id] || '', value: q.value.replace(/\u00AD/g, '') } }); }, 520); },
+      up: () => clearTimeout(this._lp), ctx: (e) => e.preventDefault() } : { ...q, down: () => {}, up: () => {}, ctx: () => {} });
+    const gridStyle = SH.gridStyle;
+    // the shade's slider card: the same iOS slider as everywhere (double tap = the tile's default)
+    let cardX = SH.card;
+    if (SH.card) { const c = SH.card, span = (c.max - c.min) || 1, k = (c.v - c.min) / span, def = c.def;
+      const sl = this.iosSlider('card' + c.name, k, (kk) => c.set({ target: { value: c.min + kk * span } }), { acc: YEL, def: def == null ? null : (def - c.min) / span });
+      cardX = { ...c, sl, valStyle: sl.value('color: #FFD60A; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums') }; }
+    const PROFILES = [['Стандартный', 'как по умолчанию', {}], ['Ночь', 'Качество, HDR, без мерцания', { proc: 1, hdr: 0, flicker: 0 }],
+      ['Спорт', 'Быстрый, против двоения', { proc: 0 }], ['Портрет', 'мягче резкость', { sharp: 2 }]];
+    const profiles = PROFILES.map(([name, hint, vals]) => ({ name, hint, checked: st.profile === name ? 'true' : 'false',
+      pick: () => { this.setState({ profile: name, profilesOpen: false, vals: { ...st.vals, ...vals }, sliders: name === 'Спорт' ? { ...st.sliders, ghost: .9 } : st.sliders }); toast('Профиль: ' + name); },
+      check: 'width: 18px; flex: none; display: flex; justify-content: center; opacity: ' + (st.profile === name ? 1 : 0),
+      style: 'display: flex; align-items: center; gap: 8px; min-height: 46px; border: 0; padding: 0 16px 0 12px; background: transparent; cursor: pointer; font: inherit; font-size: 16px; color: #FFFFFF' }));
+    const EXPERT = [['hlf', 'Кадры светов', 'Короткие кадры для ярких мест'], ['peak', 'Пик фокуса', 'Подсветка резких краёв'], ['faces', 'Лица', 'Фокус и экспозиция по лицам'],
+      ['raw', 'RAW рядом с фото', 'Сохранять DNG к каждому снимку'], ['stab', 'Стабилизация', 'Оптическая стабилизация в видоискателе']];
+    const expert = EXPERT.map(([id, name, hint], i) => {
+      const on = id === 'raw' ? st.raw === 1 : !!st.expertOn[id];
+      return { name, hint, checked: on ? 'true' : 'false',
+        flip: () => id === 'raw' ? this.setState({ raw: on ? 0 : 1 }) : this.setState({ expertOn: { ...st.expertOn, [id]: !on } }),
+        row: 'display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px 8px 16px; background: #2C2C2E; border-radius: ' + (i === 0 ? '24px 24px 0 0' : i === EXPERT.length - 1 ? '0 0 24px 24px' : '0') + (i ? '; box-shadow: inset 0 .5px 0 rgba(84,84,88,.65)' : ''),
+        track: this.iosSwitch(on).track + '; border: 0; padding: 0; cursor: pointer', knob: this.iosSwitch(on).knob };
+    });
+    const pickerItems = SH.catalog.filter((c) => SH.hiddenIds.indexOf(c.id) >= 0).map((c) => ({ name: c.name, d: c.d,
+      add: () => this.setState({ hidden: st.hidden.filter((x) => x !== c.id) }) }));
+    // the viewfinder follows the tiles: grid lines, level, info
+    const g = st.vals.grid || 0, n = g === 2 ? 4 : 3, gridLines = [];
+    if (g > 0) for (let k = 1; k < n; k++) {
+      gridLines.push({ style: 'position: absolute; left: ' + (k * 100 / n).toFixed(2) + '%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.28)' });
+      gridLines.push({ style: 'position: absolute; top: ' + (k * 100 / n).toFixed(2) + '%; left: 0; right: 0; height: 1px; background: rgba(255,255,255,.28)' });
+    }
+    const stepper = (name, key) => ({ name, value: st[key], lessLabel: name + ': меньше', moreLabel: name + ': больше',
+      less: () => this.setState({ [key]: Math.max(1, st[key] - 1), page: 0 }), more: () => this.setState({ [key]: Math.min(10, st[key] + 1), page: 0 }) });
+    const steppers = [stepper('Столбцы', 'cols'), stepper('Строки', 'rows')];
+    const zooms = (st.front ? [['1', '1', '1×']] : [['0.6', '0,6', '0,6'], ['1', '1', '1×'], ['2', '2', '2×'], ['3.7', '3,7', '3,7×']]).map(([id, off, on1]) => {
+      const on = st.front ? true : st.zoom === id;
+      return { label: on ? on1 : off, aria: 'Зум ' + off, pressed: on ? 'true' : 'false', pick: () => this.setState({ zoom: id }),
+        style: 'width: 48px; height: 44px; border: 0; padding: 0; border-radius: 22px; cursor: pointer; font: inherit; font-weight: 600; transition: all .25s; '
+          + (on ? 'font-size: 15px; background: #3A3A3C; color: ' + YEL : 'font-size: 14px; background: transparent; color: #FFFFFF') };
+    });
+    const modes = [['sport', 'Спорт', I.run], ['photo', 'Фото', I.photo]].map(([id, label, d]) => {
+      const on = st.mode === id;
+      return { label, d, fill: on && id === 'photo' ? 'currentColor' : 'none', checked: on ? 'true' : 'false', pick: () => this.setState({ mode: id }),
+        style: 'width: 44px; height: 44px; flex: none; border: 0; padding: 0; border-radius: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .3s, color .25s; '
+          + (on ? 'background: #3A3A3C; color: ' + YEL : 'background: transparent; color: #FFFFFF') };
+    });
+    // Pro: our controls (ISO, shutter, brightness, focus, colour, all auto); the dial scrolls through each one's values
+    const PRO = { iso: ['50', '72', '100', '200', '400', '800', '1600', '3200'],
+      shutter: ['1/4000', '1/2000', '1/1000', '1/500', '1/400', '1/250', '1/125', '1/60', '1/30', '1/15', '1/4', '1"'],
+      ev: ['−2', '−1,5', '−1', '−0,5', '0', '+0,5', '+1', '+1,5', '+2'], focus: ['0,1 м', '0,3 м', '0,5 м', '1 м', '1,4 м', '3 м', '10 м', '∞'],
+      wb: ['2500K', '3200K', '4000K', '5200K', '6500K', '7400K', '8000K'] };
+    const proVal = (id) => st.proAuto[id] ? 'Авто' : PRO[id][st.proIdx[id]];
+    const cdef = [['iso', 'ISO', I.iso], ['shutter', 'Выдержка', I.shutter], ['ev', 'Яркость', I.sun], ['focus', 'Фокус', I.focus], ['wb', 'Цвет', I.thermo], ['all', 'на авто', I.auto]];
+    const chips = cdef.map(([id, name, d]) => {
+      const on = st.chip === id && id !== 'all';
+      return { name, value: id === 'all' ? 'Всё' : proVal(id), d, pressed: on ? 'true' : 'false',
+        pick: () => { if (id === 'all') { this.setState({ proAuto: { iso: true, shutter: true, ev: true, focus: true, wb: true } }); toast('Всё на авто'); } else this.setState({ chip: id }); },
+        style: 'height: 66px; border: 0; padding: 0; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; cursor: pointer; font: inherit; min-width: 0; '
+          + (on ? 'background: #2C2C2E; color: ' + YEL + '; box-shadow: inset 0 0 0 1.5px ' + YEL : 'background: transparent; color: #FFFFFF') };
+    });
+    const chipId = st.chip in PRO ? st.chip : 'shutter', vals = PRO[chipId], idx = st.proIdx[chipId], auto = !!st.proAuto[chipId];
+    const dialLabels = vals.map((v, i) => ({ label: v,
+      style: 'width: 58px; flex: none; text-align: center; transition: color .2s, font-size .2s; ' + (i === idx && !auto ? 'font-size: 16px; font-weight: 700; color: ' + YEL : 'font-size: 12px; font-weight: 600; color: rgba(255,255,255,' + (auto ? '.3' : '.6') + ')') }));
+    const ticks = Array.from({ length: 33 }, (_, i) => ({
+      style: 'width: 2px; border-radius: 1px; height: ' + (i % 4 === 0 ? 14 : 8) + 'px; background: rgba(255,255,255,' + (i % 4 === 0 ? '.7' : '.35') + ')'
+    }));
+    // LUT tray (our tabs: LUT, Filter, Film, Colour)
+    const look = (name, a, b, hill, water, sun, haze) => ({ name, a, b, hill, water, sun, haze: haze || 0 });
+    const LOOKS = {
+      lut: [look('Нет', '#C9A27E', '#8C7A86', '#3B4258', '#9A8086', '#F4E3C2'), look('Тёплая 400', '#E3A46E', '#A57E6E', '#45435A', '#B08670', '#FFE7B8'),
+        look('Прохладная 160', '#B9B8BE', '#7F8CA0', '#38465C', '#8E98A8', '#F1F1EE'), look('Слайд 100', '#EE9558', '#9A6A7A', '#2C3150', '#A2706C', '#FFE2A8'),
+        look('Кино 500', '#D9A47A', '#5E7480', '#2A3A48', '#7D8C8C', '#F7E1BE')],
+      filter: [look('Нет', '#C9A27E', '#8C7A86', '#3B4258', '#9A8086', '#F4E3C2'), look('Black Pro-Mist', '#CDA886', '#93818C', '#4A5068', '#A08A8E', '#FFF0D6', .22),
+        look('Glimmerglass', '#D2AE8C', '#988690', '#4B5169', '#A38D90', '#FFF3DD', .16), look('CineBloom', '#D6AE88', '#9A8590', '#4E536A', '#A88E8E', '#FFF2D4', .28),
+        look('Туман', '#D8C4B2', '#ABA2A8', '#7A7E8C', '#B9AEB0', '#FFF6E8', .4)],
+      film: [look('Без плёнки', '#C9A27E', '#8C7A86', '#3B4258', '#9A8086', '#F4E3C2'), look('Portra 160', '#D9AE88', '#94838A', '#434A5E', '#A88C88', '#F8E8CA'),
+        look('Portra 400', '#DFA97E', '#97808A', '#454A60', '#AC8A84', '#FBE6C4'), look('Portra 800', '#E3A677', '#9A7E88', '#474A62', '#B08880', '#FDE4BE'),
+        look('Ektar 100', '#F09A5C', '#8D6F84', '#2E3552', '#A87068', '#FFDFA0')]
+    };
+    const pickKey = { lut: 'pickLut', filter: 'pickFilter', film: 'pickFilm' };
+    const tabDefs = [['lut', 'LUT'], ['filter', 'Фильтр'], ['film', 'Плёнка'], ['colour', 'Цвет']];
+    const tabsK = this.iosSeg(tabDefs.map(([id, label]) => [label, id]), st.tab, (id) => this.setState({ tab: id }), { onInk: YEL });
+    tabsK.track = 'flex: 1; ' + tabsK.track;
+    const tabs = tabsK.segs.map((s) => ({ label: s.label, selected: s.on, pick: s.pick, style: s.style.replace('min-height: 34px', 'min-height: 28px') }));
+    const list = LOOKS[st.tab] || [];
+    const thumbs = list.map((l, i) => {
+      const on = st[pickKey[st.tab]] === i;
+      return { name: l.name, pressed: on ? 'true' : 'false', pick: () => this.setState({ [pickKey[st.tab]]: i }),
+        sun: l.sun, hill: l.hill, water: l.water,
+        sky: 'position: relative; width: 100%; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, ' + l.a + ' 0%, ' + l.b + ' 70%)',
+        haze: 'position: absolute; inset: 0; background: rgba(255,255,255,' + l.haze + ')',
+        wrap: 'border: 0; padding: 4px 4px 6px; border-radius: 18px; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; font: inherit; min-width: 0; '
+          + (on ? 'background: #3A3A3C; color: ' + YEL + '; box-shadow: inset 0 0 0 1.5px ' + YEL : 'background: transparent; color: #FFFFFF') };
+    });
+    const pctF = (k) => Math.round(k * 100) + ' %', f2 = (k) => k.toFixed(2).replace('.', ','), pmF = (k) => { const v = Math.round((k - .5) * 200); return v > 0 ? '+' + v : v < 0 ? '−' + (-v) : '0'; };
+    const slider = (name, k0, fmt) => {
+      const id = 'tray' + st.tab + name, k = st.trayV && st.trayV[id] != null ? st.trayV[id] : k0;
+      const sl = this.iosSlider(id, k, (kk) => this.setState({ trayV: { ...(this.state.trayV || {}), [id]: kk } }), { acc: YEL, def: k0 });
+      return { name, value: fmt(k), sl, slWrap: 'flex: 1; ' + sl.wrap, valStyle: sl.value('width: 48px; text-align: right; font-size: 13px; font-weight: 600; color: #FFD60A; font-variant-numeric: tabular-nums') };
+    };
+    const sliders = st.tab === 'lut' ? [slider('Сила', 1, pctF)] : st.tab === 'filter' ? [slider('Сила фильтра', .5, f2)]
+      : st.tab === 'film' ? [slider('Сила', 1, pctF)] : [slider('Тепло', .5, pmF), slider('Оттенок', .5, pmF)];
+    // the format sheet: our «Формат файла» and «Размер фото» (texts as in CameraSheets)
+    const PHOTOS = [['JPEG', 'Обычное фото, открывается везде'], ['HEIC', 'Как JPEG, но вдвое меньше места'], ['WebP', 'Для сайтов и мессенджеров'], ['AVIF', 'Самый компактный, открывается не везде']];
+    const RAWS = [['Нет', 'Сохраняется только фото'], ['+ RAW', 'Фото и сырой снимок DNG рядом — для обработки на компьютере'], ['Только RAW', 'Только DNG, без готового фото']];
+    const seg = (on, off) => 'height: 40px; border: 0; padding: 0; border-radius: 13px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; min-width: 0; transition: background .25s; '
+      + (on ? 'background: #48484A; color: ' + YEL : 'background: transparent; color: ' + (off ? 'rgba(255,255,255,.35)' : '#FFFFFF'));
+    const photoK = this.iosSeg(PHOTOS.map(([id]) => [id, id]), st.photo, (id) => this.setState({ photo: id }), { onInk: YEL });
+    if (st.raw === 2) photoK.track += '; opacity: .4';
+    const photoSeg = photoK.segs.map((s) => ({ label: s.label, checked: s.on, pick: s.pick, style: s.style + '; font-size: 14px; min-height: 36px' }));
+    const rawK = this.iosSeg(RAWS.map(([label], i) => [label, i]), st.raw, (i) => this.setState({ raw: i }), { onInk: YEL });
+    const rawSeg = rawK.segs.map((s) => ({ label: s.label, checked: s.on, pick: s.pick, style: s.style + '; font-size: 14px; min-height: 36px' }));
+    const sizeRows = SIZES.map(([name, mp, hint], i) => {
+      const ok = sizeOk(i), on = size === i;
+      return { title: name + ' · ' + mp, hint: ok ? hint : 'Нет на этом объективе', on, checked: on ? 'true' : 'false', disabled: ok ? 'false' : 'true',
+        pick: () => { if (ok) this.setState({ size: i }); else toast(mp + ' — нет на этом объективе'); },
+        style: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; box-sizing: border-box; padding: 10px 18px 10px 16px; border: 0; text-align: left; cursor: pointer; font: inherit; color: #FFFFFF; background: transparent'
+          + (i ? '; box-shadow: inset 0 .5px 0 rgba(84,84,88,.65)' : '') + (ok ? '' : '; opacity: .45'),
+        check: 'flex: none; display: flex; transition: transform .4s cubic-bezier(.34,1.56,.64,1), opacity .2s; ' + (on ? 'opacity: 1; transform: scale(1)' : 'opacity: 0; transform: scale(.4)') };
+    });
+    const fmtTabsK = this.iosSeg([['Формат', 'format'], ['Размер', 'size']], st.fmt, (id) => this.setState({ fmt: id }), { onInk: YEL });
+    const fmtTabs = fmtTabsK.segs.map((s) => ({ label: s.label, selected: s.on, pick: s.pick, style: s.style + '; font-size: 14px; min-height: 36px' }));
+    const saved = st.raw === 2 ? 'DNG' : st.raw === 1 ? st.photo + ' + DNG' : st.photo;
+    const closeAll = () => this.setState({ shade: false, shadeEdit: false, shadeView: 'tiles', picker: false, profilesOpen: false, info: null });
+    return {
+      I, topItems, editItems, library, tiles, gridStyle, steppers, card: cardX, hasCard: !!SH.card, dots: SH.dots,
+      shadeEdit: st.shadeEdit, notShadeEdit: !st.shadeEdit, toggleShadeEdit: () => this.setState({ shadeEdit: !st.shadeEdit, swapSel: null, open: null, profilesOpen: false, shadeView: 'tiles', picker: false }), zooms, modes, chips, ticks, tabs, tabsK, photoK, rawK, fmtTabsK, thumbs, sliders,
+      gridLines, showLevel: (st.vals.level || 0) > 0, showInfo: (st.vals.info || 0) > 0,
+      infoText: (st.proAuto.iso || !st.pro ? 'ISO авто' : 'ISO ' + PRO.iso[st.proIdx.iso]) + ' · ' + (st.pro && !st.proAuto.shutter ? PRO.shutter[st.proIdx.shutter] : '1/120') + '\n' + fmtText + ' · ' + fmtSub + (st.timerIdx ? ' · таймер ' + TIMERS[st.timerIdx] : ''),
+      profile: st.profile, profilesOpen: st.profilesOpen, profiles, chevStyle: 'transition: transform .25s; transform: rotate(' + (st.profilesOpen ? 180 : 0) + 'deg)',
+      toggleProfiles: () => this.setState({ profilesOpen: !st.profilesOpen }),
+      saveProfile: () => { this.setState({ profilesOpen: false }); toast('Профиль сохранён как «Мой профиль»'); },
+      viewTiles: st.shadeView === 'tiles' && !st.picker, viewPicker: !!st.picker, viewExpert: st.shadeView === 'expert' && !st.picker,
+      pickerItems, pickerEmpty: pickerItems.length === 0, closePicker: () => this.setState({ picker: false }),
+      expert, openExpert: () => this.setState({ shadeView: 'expert', open: null }), closeExpert: () => this.setState({ shadeView: 'tiles' }),
+      showCard: !!SH.card && st.shadeView === 'tiles' && !st.picker, rowsStyle: 'display: ' + (st.shadeView === 'tiles' && !st.picker ? 'flex' : 'none') + '; flex-direction: column; gap: 2px',
+      hasInfo: !!st.info, info: st.info || { name: '', desc: '', value: '' }, closeInfo: () => this.setState({ info: null }),
+      gridDown: (e) => { this._gx = e.clientX; this._gy = e.clientY; },
+      gridUp: (e) => { if (this._gx == null) return; const dx = e.clientX - this._gx, dy = e.clientY - this._gy; this._gx = null;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) { this._lpFired = true; clearTimeout(this._lp); this.setState({ page: Math.max(0, Math.min(SH.pages - 1, SH.page + (dx < 0 ? 1 : -1))) }); } },
+      sheetDown: (e) => { this._sy = e.clientY; },
+      sheetUp: (e) => { if (this._sy != null && e.clientY - this._sy > 60) { this._sy = null; this.setState({ shade: false, shadeEdit: false, shadeView: 'tiles', picker: false, profilesOpen: false }); } this._sy = null; },
+      pro: st.pro, lutOpen: st.lut && !st.pro, showThumbs: st.tab !== 'colour',
+      shadeOpen: st.shade, edit: st.edit,
+      dialLabels, dialName: chipId, dialMax: vals.length - 1, dialIdx: idx,
+      dialRow: 'position: absolute; left: 50%; top: 6px; display: flex; transition: transform .25s cubic-bezier(.2,.8,.2,1); transform: translateX(' + (-(idx * 58 + 29)) + 'px)',
+      setDial: (e) => this.setState({ proIdx: { ...st.proIdx, [chipId]: Number(e.target.value) }, proAuto: { ...st.proAuto, [chipId]: false } }),
+      proPressed: st.pro ? 'true' : 'false', autoPressed: auto ? 'true' : 'false',
+      autoBtn: 'width: 64px; height: 50px; flex: none; border: 0; border-radius: 16px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 700; '
+        + (auto ? 'background: #4A3D00; color: ' + YEL : 'background: #2C2C2E; color: #FFFFFF'),
+      toggleAuto: () => this.setState({ proAuto: { ...st.proAuto, [chipId]: !auto } }),
+      fmtOpen: !!st.fmt, fmtFormat: st.fmt === 'format', fmtSize: st.fmt === 'size', fmtTabs, photoSeg, rawSeg, sizeRows, saved,
+      photoHint: st.raw === 2 ? 'Не сохраняется: выбрано «Только RAW»' : PHOTOS.find((x) => x[0] === st.photo)[1], rawHint: RAWS[st.raw][1],
+      closeFmt: () => this.setState({ fmt: null }),
+      blink: st.blink, busy: st.busy, shots: st.shots, hasShots: st.shots > 0, counting: st.count != null, count: st.count,
+      countStyle: 'font-size: 120px; font-weight: 700; color: #FFFFFF; text-shadow: 0 4px 30px rgba(0,0,0,.5); animation: scamPop .9s ease-out',
+      hasToast: !!st.toast, toast: st.toast,
+      galleryStyle: 'position: relative; width: 58px; height: 58px; flex: none; border: 0; padding: 0; border-radius: 18px; cursor: pointer; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.22); '
+        + 'background: linear-gradient(160deg, hsl(' + (210 + st.shots * 47) % 360 + ', 22%, 52%), hsl(' + (210 + st.shots * 47) % 360 + ', 25%, 20%))',
+      shutterCore: 'width: 70px; height: 70px; border-radius: 35px; background: #FFFFFF; transition: transform .15s; transform: scale(' + (st.blink ? .86 : 1) + ')',
+      flipStyle: 'transition: transform .45s cubic-bezier(.2,.8,.2,1); transform: rotate(' + (st.front ? 180 : 0) + 'deg)',
+      flipCam: () => { const f = !st.front; this.setState({ front: f, zoom: '1' }); toast(f ? 'Фронтальная камера' : 'Основная камера'); },
+      shoot: () => {
+        if (st.busy || st.count != null) return;
+        const capture = () => {
+          this.setState({ blink: true, busy: true, count: null });
+          setTimeout(() => this.setState({ blink: false }), 140);
+          setTimeout(() => { this.setState({ busy: false, shots: this.state.shots + 1 }); toast('Сохранено: ' + saved + ' · ' + fmtSub); }, 1500);
+        };
+        const sec = TSEC[st.timerIdx];
+        if (!sec) { capture(); return; }
+        let n = sec; this.setState({ count: n });
+        const tick = () => { n -= 1; if (n <= 0) capture(); else { this.setState({ count: n }); setTimeout(tick, 1000); } };
+        setTimeout(tick, 1000);
+      },
+      togglePro: () => this.setState({ pro: !st.pro, lut: false }),
+      openShade: () => this.setState({ shade: true, edit: false }),
+      openEdit: () => this.setState({ edit: true, shade: false, saved: st.top }),
+      closeAll,
+      cancelEdit: () => this.setState({ edit: false, top: st.saved || st.top }),
+      doneEdit: () => this.setState({ edit: false, saved: null }),
+      resetTop: () => this.setState({ top: ['format', 'torch', 'timer', 'lut', 'dcg'] }),
+      vfDown: (e) => { this.y0 = e.clientY; },
+      vfUp: (e) => {
+        if (this.y0 == null) return;
+        const dy = e.clientY - this.y0; this.y0 = null;
+        if (dy > 60) this.setState({ edit: true, shade: false, saved: st.top });
+        else if (dy < -60) this.setState({ shade: true, edit: false });
+      },
+      proBtn: 'width: 50px; height: 50px; flex: none; border: 0; padding: 0; border-radius: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .25s, color .25s; '
+        + (st.pro ? 'background: #4A3D00; color: ' + YEL + '; box-shadow: inset 0 0 0 1.5px ' + YEL : 'background: #1C1C1E; color: #FFFFFF; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.1)')
+    };
+  }
+}
+</script>
+</body>
+</html>

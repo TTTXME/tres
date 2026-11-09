@@ -90,10 +90,11 @@ public final class IosMenu {
             row.setPadding(Math.round(12 * d), Math.round(6 * d), Math.round(18 * d), Math.round(6 * d));
             row.setBackground(pressed(c));
             final ImageView tick = new ImageView(c);
-            tick.setImageResource(R.drawable.ios_menu_check);
+            tick.setImageResource(R.drawable.cs_tick);   // P584: the concept's tick (15 x 13, 2.4 stroke) in the accent
+            tick.setScaleType(ImageView.ScaleType.CENTER);
             tick.setColorFilter(accent);
             tick.setVisibility(i == checked ? View.VISIBLE : View.INVISIBLE);
-            row.addView(tick, new LinearLayout.LayoutParams(Math.round(18 * d), Math.round(18 * d)));
+            row.addView(tick, new LinearLayout.LayoutParams(Math.round(18 * d), Math.round(13 * d)));
             final TextView label = new TextView(c);
             label.setText(labels[i]);
             label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
@@ -122,6 +123,7 @@ public final class IosMenu {
             });
             list.addView(row);
         }
+        com.particlesdevs.photoncamera.ui.settings.ConceptFonts.apply(card);   // P584: the concept's font, sizes in dp
         // where: under the anchor, its end aligned 20 dp from the screen's edge; above when there is no room; centred when neither
         final Rect frame = new Rect();
         anchor.getWindowVisibleDisplayFrame(frame);

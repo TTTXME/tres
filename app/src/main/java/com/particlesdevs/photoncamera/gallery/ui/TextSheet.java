@@ -128,7 +128,7 @@ public final class TextSheet {
             } catch (RuntimeException ignored) {
             }
         });
-        status.setTypeface(Typeface.DEFAULT);
+        status.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(status.getContext(), 400));
         BottomSheetDialog d = GallerySheets.show(c, s);
         d.setOnDismissListener(x -> {
             run[0]++;

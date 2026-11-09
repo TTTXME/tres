@@ -110,6 +110,12 @@
     <string name="prefs_scam_hybrid_s61_min_motion_summary">Для «Авто» днём, с «Локальным выравниванием F6»: с какой дрожи рук включать новое ядро. Меньше — чаще (на штативе шумнее), больше — реже.</string>
     <string name="prefs_scam_hybrid_kernel_title">Масштаб ядра склейки</string>
     <string name="prefs_scam_hybrid_kernel_summary">Ширина смешивания кадров. Больше — мягче и чище, меньше — резче, но шумнее.</string>
+    <string name="prefs_scam_hybrid_kernel_texture_title">Размер ядра на текстурах</string>
+    <string name="prefs_scam_hybrid_kernel_texture_summary">%s. Ширина смешивания кадров на фактурных поверхностях (песок, асфальт, листва). Больше — глаже и чище, меньше — чётче микротекстура, но больше зерна. 1 — как раньше.</string>
+    <string name="prefs_scam_hybrid_kernel_bokeh_title">Размер ядра в боке</string>
+    <string name="prefs_scam_hybrid_kernel_bokeh_summary">%s. Ширина смешивания на ровных и размытых участках (небо, стены, боке). Больше — чище и глаже, меньше — сохраняется мелкое зерно. 1 — как раньше.</string>
+    <string name="prefs_scam_hybrid_kernel_transition_title">Переход текстура / боке</string>
+    <string name="prefs_scam_hybrid_kernel_transition_summary">%s. С какого уровня деталей начинается ядро боке. Больше — больше кадра считается ровным (глаже), меньше — больше считается текстурой. 1 — как раньше.</string>
     <string name="prefs_scam_hybrid_snr_scale_title">Масштаб шума для ключа SNR</string>
     <string name="prefs_scam_hybrid_snr_scale_summary">Только для прежнего ядра: насколько шумным считать снимок. Больше — мягче и чище, меньше — резче и шумнее.</string>
     <string name="prefs_scam_hybrid_tensor_noise_title">Шумовая поправка тензора</string>

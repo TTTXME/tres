@@ -2,6 +2,15 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-09 — The interface as the concept, OnePlus 16
+
+- Camera, settings and gallery as the concept: icons, Roboto Flex font, sizes.
+- The phone's display size and font size no longer change the interface.
+- OnePlus 16: FULLRES 50 and 200 MP, ISZ without remosaic, DCG and DAG.
+- nubia: FULLRES without root through the maximum resolution.
+- Merge: texture and bokeh kernel footprints and the transition between them.
+- Flash: Off / Auto / On / Torch; a new lens switch animation.
+
 ## 2026-11-09 — New interface, FULLRES on nubia
 
 - New camera, shade, settings and gallery interface.

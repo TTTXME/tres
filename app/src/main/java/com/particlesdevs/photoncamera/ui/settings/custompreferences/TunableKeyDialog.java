@@ -72,7 +72,7 @@ public class TunableKeyDialog {
                 boolean on = pill.getText().toString().equals(chosenType[0]);
                 pill.setSelected(on);
                 pill.setTextColor(on ? accent : SettingsStyle.ROW_TITLE);
-                pill.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+                pill.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(pill.getContext(), on ? 700 : 400));
                 pill.setBackground(SettingsStyle.shape(c, on ? SettingsStyle.pillFill(accent) : SettingsStyle.ROW,
                         on ? 0 : SettingsStyle.HAIRLINE, 14));
             }

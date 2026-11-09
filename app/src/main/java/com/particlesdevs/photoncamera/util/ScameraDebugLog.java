@@ -247,7 +247,11 @@ public final class ScameraDebugLog {
                     CameraCharacteristics c = cm.getCameraCharacteristics(id);
                     sb.append("unlisted camera ").append(id).append(": characteristics readable, focal ")
                             .append(join(c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)))
-                            .append(" mm, physical ").append(c.getPhysicalCameraIds()).append("\n");
+                            .append(" mm, physical ").append(c.getPhysicalCameraIds())
+                            .append(", pixel array ").append(c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE))
+                            .append(", RAW ").append(rawSizes(c))
+                            .append(", iso ").append(c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE))
+                            .append(", modes ").append(com.particlesdevs.photoncamera.capture.SensorModeBand.describe(c)).append("\n");
                 } catch (Throwable t) {
                     sb.append("unlisted camera ").append(id).append(": ").append(t.getClass().getSimpleName()).append("\n");
                 }
@@ -255,7 +259,48 @@ public final class ScameraDebugLog {
         } catch (Throwable t) {
             sb.append("enumeration failed: ").append(t).append('\n');
         }
+        cameraProperties(sb);
         rawWrite(sb.toString());
+    }
+
+    private static String rawSizes(CameraCharacteristics c) {
+        try {
+            final StreamConfigurationMap map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            final Size[] raw = map == null ? null : map.getOutputSizes(android.graphics.ImageFormat.RAW_SENSOR);
+            if (raw == null || raw.length == 0) return "none";
+            final List<String> sizes = new ArrayList<>();
+            for (Size s : raw) sizes.add(s.getWidth() + "x" + s.getHeight());
+            return String.join("/", sizes);
+        } catch (Throwable t) {
+            return "n/a";
+        }
+    }
+
+    /**
+     * P585: the system properties about the camera that an app may read (getprop, filtered): the nubia's camera HAL advertised
+     * 8192x6144 one day and 4096x3072 the next on the same firmware - the properties of each session tell what changed.
+     */
+    private static void cameraProperties(StringBuilder sb) {
+        sb.append("--- camera properties ---\n");
+        Process p = null;
+        try {
+            p = new ProcessBuilder("getprop").redirectErrorStream(true).start();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+                String line;
+                int n = 0;
+                while ((line = r.readLine()) != null && n < 200) {
+                    final String l = line.toLowerCase(java.util.Locale.ROOT);
+                    if (l.contains("camera") || l.contains("camx") || l.contains("chi.") || l.contains("sensor")) {
+                        sb.append(line).append('\n');
+                        n++;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            sb.append("getprop failed: ").append(t).append('\n');
+        } finally {
+            if (p != null) p.destroy();
+        }
     }
 
     private static String describeCamera(CameraManager cm, String id) {
@@ -317,6 +362,8 @@ public final class ScameraDebugLog {
             android.util.Range<Integer> iso = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
             android.util.Range<Long> exp = c.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
             sb.append("  iso range: ").append(iso == null ? "n/a" : iso).append('\n');
+            // P585: the HAL's own mode table (the nubia's FULLRES row lives there; its static sizes changed between sessions)
+            sb.append("  sensor mode table: ").append(com.particlesdevs.photoncamera.capture.SensorModeBand.describe(c)).append('\n');
             sb.append("  exposure range: ").append(exp == null ? "n/a" : exp + " ns").append('\n');
 
             int[] caps = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);

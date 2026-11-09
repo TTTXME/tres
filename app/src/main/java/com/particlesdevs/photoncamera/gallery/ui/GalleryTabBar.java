@@ -60,7 +60,7 @@ public final class GalleryTabBar {
             ImageView icon = GalleryUi.icon(c, res[i], GalleryUi.MUTED, 22);
             tab.addView(icon, new LinearLayout.LayoutParams(GalleryUi.dp(c, 22), GalleryUi.dp(c, 22)));
             TextView label = GalleryUi.text(c, names[i], 11, GalleryUi.MUTED);
-            label.setTypeface(GalleryUi.semibold());
+            label.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(label.getContext(), 600));
             label.setMaxLines(1);
             label.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

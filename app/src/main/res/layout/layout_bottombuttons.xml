@@ -28,8 +28,6 @@
             android:layout_height="wrap_content"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:paddingStart="22dp"
-            android:paddingEnd="22dp"
             >
 
         <FrameLayout
@@ -37,7 +35,7 @@
                 android:layout_width="@dimen/vf_side_button_size"
                 android:layout_height="@dimen/vf_side_button_size"
                 android:background="@drawable/shade_gallery_card"
-                android:layout_marginStart="24dp"
+                android:layout_marginStart="52dp"
                 app:layout_constraintHorizontal_bias="0"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toStartOf="@id/shutter_button_container"
@@ -83,6 +81,7 @@
                 app:layout_constraintDimensionRatio="1.0"
                 android:id="@+id/shutter_button_container"
                 app:layout_constraintVertical_chainStyle="packed"
+                app:layout_constraintVertical_bias="1.0"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toTopOf="@id/bottom_row"
                 app:layout_constraintStart_toStartOf="parent"
@@ -136,7 +135,7 @@
                 android:id="@+id/camera_switch_container"
                 android:layout_width="@dimen/vf_side_button_size"
                 android:layout_height="@dimen/vf_side_button_size"
-                android:layout_marginEnd="24dp"
+                android:layout_marginEnd="52dp"
                 app:layout_constraintHorizontal_bias="1"
                 app:layout_constraintStart_toEndOf="@id/shutter_button_container"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -152,8 +151,8 @@
                     android:contentDescription="@string/shade_flip_camera"
                     android:tooltipText="@string/shade_flip_camera"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ui_ic_flip"
-                    android:padding="15dp"
+                    android:src="@drawable/cv_flip"
+                    android:padding="16dp"
                     android:visibility="visible"
                     android:layout_height="match_parent"
                     android:layout_width="match_parent"/>
@@ -165,7 +164,9 @@
                 android:id="@+id/bottom_row"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="18dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:clipChildren="false"
@@ -182,7 +183,7 @@
                     android:minHeight="0dp"
                     android:padding="14dp"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ui_ic_gear"
+                    android:src="@drawable/cv_gear"
                     android:contentDescription="@string/sheet_all_settings"
                     android:tooltipText="@string/sheet_all_settings"
                     android:onClick="@{bottom_bar_click_listener}"
@@ -209,9 +210,9 @@
                         android:layout_height="44dp"
                         android:minWidth="0dp"
                         android:minHeight="0dp"
-                        android:padding="10dp"
+                        android:padding="10.5dp"
                         android:scaleType="fitCenter"
-                        android:src="@drawable/ui_ic_motion"
+                        android:src="@drawable/cv_run_m"
                         android:onClick="@{bottom_bar_click_listener}"
                         bindRotate="@{uimodel}"/>
 
@@ -222,9 +223,9 @@
                         android:layout_marginStart="10dp"
                         android:minWidth="0dp"
                         android:minHeight="0dp"
-                        android:padding="10dp"
+                        android:padding="10.5dp"
                         android:scaleType="fitCenter"
-                        android:src="@drawable/ui_ic_camera"
+                        android:src="@drawable/cv_photo_m"
                         android:onClick="@{bottom_bar_click_listener}"
                         bindRotate="@{uimodel}"/>
             </LinearLayout>
@@ -254,7 +255,7 @@
                             android:layout_width="22dp"
                             android:layout_height="22dp"
                             android:layout_gravity="center"
-                            android:src="@drawable/ui_ic_sliders"
+                            android:src="@drawable/cv_sliders"
                             android:importantForAccessibility="no"/>
                 </FrameLayout>
             </FrameLayout>

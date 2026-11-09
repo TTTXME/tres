@@ -87,7 +87,7 @@ public class ViewfinderUiTest {
         View chipsCard=manual.findViewById(R.id.buttons_container),toggleCard=manual.findViewById(R.id.manual_toggle);
         assertEquals("ruler card",64,container.getHeight());
         assertEquals(View.GONE,toggleCard.getVisibility());assertTrue(chipsCard.getHeight()>=58);   // SIMPLE_UI: «Про» in the bottom bar, no toggle card
-        assertEquals(container.getHeight()+8+chipsCard.getHeight(),manual.getHeight());
+        assertEquals(container.getHeight()+6+chipsCard.getHeight(),manual.getHeight());   // P583: the concept's 6px gap
         // SIMPLE_UI §1 top bar; P574 (the approved concept): one centred row - the format badge (format over size), torch,
         // timer, LUT (40dp round items, 16dp apart, x UiScale); nothing overlaps, the row stays inside and centred.
         float k=com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(context);
@@ -100,14 +100,14 @@ public class ViewfinderUiTest {
         TextView format=top.findViewById(R.id.format_badge),size=top.findViewById(R.id.size_badge);
         assertTrue(format.getContentDescription().toString().endsWith("JPEG"));assertEquals("JPEG",format.getText().toString());assertEquals(png.isEmpty()?"12 Мп":"12 MP",size.getText().toString());
         assertEquals(View.GONE,top.findViewById(R.id.dcg_badge).getVisibility());assertEquals(View.GONE,top.findViewById(R.id.timer_badge).getVisibility());
-        assertEquals(78,bottom.findViewById(R.id.shutter_button).getWidth());   // SIMPLE_UI: the concept's 78dp
+        assertEquals(86,bottom.findViewById(R.id.shutter_button).getWidth());   // P583: the concept's 86dp
         assertEquals(R.id.galery_button_container,((View)bottom.findViewById(R.id.processing_progress_bar).getParent()).getId());
         // Shutter row: gallery card | shutter exactly in the centre | front / back switch, none overlapping.
         View shutterBox=bottom.findViewById(R.id.shutter_button_container),gallery=bottom.findViewById(R.id.galery_button_container),
                 flipBox=bottom.findViewById(R.id.camera_switch_container),row=(View)shutterBox.getParent();
         assertEquals(row.getWidth()/2f,(shutterBox.getLeft()+shutterBox.getRight())/2f,1f);
         assertTrue(gallery.getRight()<=shutterBox.getLeft());assertTrue(flipBox.getLeft()>=shutterBox.getRight());
-        assertEquals(54,gallery.getWidth());assertEquals(54,flipBox.getWidth());   // SIMPLE_UI: 54dp
+        assertEquals(58,gallery.getWidth());assertEquals(58,flipBox.getWidth());   // P583: the concept's 58dp
         // P574: the bottom row under the shutter row - the gear, the Sport | Photo switch in the centre, «Про»; none overlapping
         View gearRow=bottom.findViewById(R.id.settings_button),modes=bottom.findViewById(R.id.mode_switch),pro=bottom.findViewById(R.id.pro_button);
         assertTrue(((View)gearRow.getParent()).getTop()>=shutterBox.getBottom());
@@ -118,7 +118,7 @@ public class ViewfinderUiTest {
         // The strip: a centred pill above the shutter row, the ruler's place above it, all inside the bottom bar.
         View slot=bottom.findViewById(R.id.zoom_ruler_slot),rowRoot=bottom.findViewById(R.id.bottom_buttons);
         assertEquals(bottom.getWidth()/2f,(lenses.getLeft()+lenses.getRight())/2f,1f);
-        assertTrue(lenses.getBottom()<=rowRoot.getTop());assertTrue(slot.getBottom()<=lenses.getTop());assertTrue(slot.getTop()>=0);
+        assertTrue(lenses.getBottom()<=rowRoot.getTop());assertTrue(slot.getBottom()<=lenses.getTop());assertTrue("P583: the strip inside the bar",lenses.getTop()>=0);   // the zoom ruler's empty slot (no ruler since P574) may reach over the preview
         for(int i=0;i<lenses.getChildCount();i++){TextView t=(TextView)lenses.getChildAt(i);assertFalse(t.getText().toString().isEmpty());if(png.isEmpty())assertFalse("decimal comma in Russian",t.getText().toString().contains("."));else assertFalse("decimal point in English",t.getText().toString().matches(".*\\d,\\d.*"));assertTrue("Lens label must stay within its button",t.getLayout().getWidth()<=t.getWidth());}
         Bitmap image=Bitmap.createBitmap(400,880,Bitmap.Config.ARGB_8888);screen.draw(new Canvas(image));
         java.io.File dir=new java.io.File("build/reports/viewfinder");dir.mkdirs();
@@ -128,7 +128,7 @@ public class ViewfinderUiTest {
         for(int orientation:new int[]{90,180,-90,0}){
             lenses.rotateLabels(orientation,0);screen.measure(View.MeasureSpec.makeMeasureSpec(400,exact),View.MeasureSpec.makeMeasureSpec(880,exact));screen.layout(0,0,400,880);
             for(int i=0;i<lenses.getChildCount();i++){var lens=(com.particlesdevs.photoncamera.ui.camera.views.LensButton)lenses.getChildAt(i);
-                assertEquals(0f,lens.getRotation(),0f);assertEquals((orientation+360)%360,(lens.getLabelRotation()+360)%360,0f);assertEquals(widths[i],lens.getWidth());assertEquals("every lens 38dp high, the active one too, x the screen scale (P185, SIMPLE_UI)",Math.round(38*com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.scale(400f)),lens.getHeight());}
+                assertEquals(0f,lens.getRotation(),0f);assertEquals((orientation+360)%360,(lens.getLabelRotation()+360)%360,0f);assertEquals(widths[i],lens.getWidth());assertEquals("every lens 44dp high, the active one too, x the screen scale (P583, the concept)",Math.round(44*com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.scale(400f)),lens.getHeight());}
             if(orientation==90){screen.draw(new Canvas(image));try(java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(dir,"concept-controls-landscape"+png+".png"))){image.compress(Bitmap.CompressFormat.PNG,100,out);}}
         }
         scale.setListener(new LinearScaleView.OnValueChangedListener(){

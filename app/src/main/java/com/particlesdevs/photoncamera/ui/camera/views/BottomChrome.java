@@ -32,7 +32,7 @@ public final class BottomChrome {
     /** Least gap between the HIDDEN handle and the lens strip or the zoom ruler. */
     static final float CLEARANCE_DP = 8f;
     /** Gap between the manual palette's bottom and the HIDDEN handle's top (P43 concept: 12dp). */
-    public static final float MANUAL_GAP_DP = 12f;
+    public static final float MANUAL_GAP_DP = 8f;   // P583: the concept's Pro panel and LUT tray, 8px over the preview's bottom
     static final long YIELD_MS = 120, RETURN_MS = 220;
 
     private BottomChrome() {
@@ -41,7 +41,7 @@ public final class BottomChrome {
     /**
      * P157: the screen width at which the bottom bar's dp sizes hold as written (the shutter a fifth of the width). SIMPLE_UI
      * step 0: one formula for the whole camera chrome, {@link com.particlesdevs.photoncamera.circularbarlib.ui.UiScale} (the
-     * concept's 392dp phone); the bar's dp values are the concept's.
+     * concept's 390dp phone); the bar's dp values are the concept's.
      */
     public static final float REFERENCE_WIDTH_DP = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.REFERENCE_DP;
     static final float MIN_SCALE = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.MIN,
@@ -76,11 +76,11 @@ public final class BottomChrome {
     }
 
     /** Corner radius of the gallery card (dp before the scale): the concept's 54dp thumbnail with 16dp corners. */
-    public static final float SIDE_RADIUS_DP = 16f;
+    public static final float SIDE_RADIUS_DP = 18f;
     /** P495: «Про» / «Ещё»: the gallery card's 16dp corners on its 54dp side, scaled to their 44dp disc. */
     static final float SIDE_DISC_RADIUS_DP = 13f;
     /** Corner radius of the lens strip (dp before the scale): a capsule (the concept's 999px), round ends. */
-    public static final float STRIP_RADIUS_DP = 24f;
+    public static final float STRIP_RADIUS_DP = 26f;
     /**
      * The strip fill: the card colour at 74 % (owner, 2026-11-05: «что-то между тем что сейчас и А» - the shade's glass, a little
      * more see-through than the old 85 % capsule, with {@link #STRIP_LINE}'s light hairline in place of the card line).
@@ -110,15 +110,29 @@ public final class BottomChrome {
         int card = com.particlesdevs.photoncamera.ui.settings.SettingsStyle.CARD;
         View gallery = bar.findViewById(R.id.galery_button_container), flip = bar.findViewById(R.id.flip_camera_button);
         View strip = bar.findViewById(R.id.aux_buttons_container);
-        if (gallery != null) gallery.setBackground(tonalShape(card, 0, SIDE_RADIUS_DP * d * f, d));
+        if (gallery != null) {
+            gallery.setBackground(tonalShape(card, 0, SIDE_RADIUS_DP * d * f, d));
+            // P583: the concept's thumbnail edge, inset 0 0 0 1.5px rgba(255, 255, 255, .22), over the picture
+            android.graphics.drawable.GradientDrawable edge = new android.graphics.drawable.GradientDrawable();
+            edge.setColor(0);
+            edge.setCornerRadius(SIDE_RADIUS_DP * d * f);
+            edge.setStroke(Math.max(1, Math.round(1.5f * d * f)), 0x38FFFFFF);
+            gallery.setForeground(edge);
+        }
         // P495 (owner, 2026-11-03: «Про», «Ещё» and the front / back switch as the top bar): tonal discs without a line
         // the switch the gallery card's shape (owner: «такой же формы как иконку галереи»): a tonal rounded square
-        if (flip != null) flip.setBackground(rounded(CONTROL, accent, SIDE_RADIUS_DP * d * f, d));
+        if (flip != null) {
+            flip.setBackground(rounded(CONTROL, accent, SIDE_RADIUS_DP * d * f, d));
+            if (flip instanceof android.widget.ImageView)   // P583: the concept's flip glyph, white, a plain tint
+                com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon((android.widget.ImageView) flip, R.drawable.cv_flip,
+                        com.particlesdevs.photoncamera.ui.settings.SettingsStyle.TEXT);
+        }
         // P574: the bottom row - the gear and «Про» solid squares, the mode switch a solid capsule
         View gear = bar.findViewById(R.id.settings_button), modes = bar.findViewById(R.id.mode_switch);
         if (gear instanceof android.widget.ImageView) {
             gear.setBackground(rounded(CONTROL, accent, ROW_RADIUS_DP * d * f, d));
-            com.particlesdevs.photoncamera.ui.Icons.mono((android.widget.ImageView) gear, com.particlesdevs.photoncamera.ui.settings.SettingsStyle.TEXT);
+            com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon((android.widget.ImageView) gear, R.drawable.cv_gear,
+                    com.particlesdevs.photoncamera.ui.settings.SettingsStyle.TEXT);
         }
         if (modes != null) modes.setBackground(glassShape(CONTROL, 26 * d * f, d));
         View grip = bar.findViewById(R.id.more_grip);
@@ -151,6 +165,9 @@ public final class BottomChrome {
         Context c = bar.getContext();
         boolean on = com.particlesdevs.photoncamera.settings.MotionMode.on();
         int accent = com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.accent(c);
+        // P583: the concept's glyphs at the switch's 1.9 stroke; the chosen photo glyph filled (its lens a hole)
+        sport.setImageResource(R.drawable.cv_run_m);
+        photo.setImageResource(on ? R.drawable.cv_photo_m : R.drawable.cv_photo_m_fill);
         modeDisc(sport, on, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Спорт", "Sport"));
         modeDisc(photo, !on, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Фото", "Photo"));
     }
@@ -164,7 +181,8 @@ public final class BottomChrome {
         disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         disc.setColor(fill);
         b.setBackground(disc);
-        com.particlesdevs.photoncamera.ui.Icons.mono(b, ink);
+        b.clearColorFilter();
+        b.setImageTintList(android.content.res.ColorStateList.valueOf(ink));
         b.setSelected(chosen);
         b.setActivated(chosen);
         b.setContentDescription(name);
@@ -183,7 +201,7 @@ public final class BottomChrome {
         a.addUpdateListener(v -> {
             final float k = (float) v.getAnimatedValue();
             disc.setColor(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(fromFill, fill, k));
-            b.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(fromInk, ink, k)));
+            b.setImageTintList(android.content.res.ColorStateList.valueOf(com.particlesdevs.photoncamera.ui.settings.SettingsMotion.mix(fromInk, ink, k)));
         });
         a.start();
     }
@@ -213,11 +231,11 @@ public final class BottomChrome {
                 && ((android.graphics.drawable.RippleDrawable) bg).getDrawable(0) instanceof android.graphics.drawable.GradientDrawable) {
             android.graphics.drawable.GradientDrawable shape = (android.graphics.drawable.GradientDrawable) ((android.graphics.drawable.RippleDrawable) bg).getDrawable(0);
             float d = c.getResources().getDisplayMetrics().density;
-            shape.setColor(on ? tone(CONTROL, accent, .26f) : CONTROL);
+            shape.setColor(on ? com.particlesdevs.photoncamera.ui.camera.ConceptStyle.dark(accent) : CONTROL);
             shape.setStroke(Math.max(1, Math.round(on ? 1.5f * d : d / 2)), on ? accent : STRIP_LINE);
         }
         // P574: the glyph in the accent while open, white while closed (and its pressed pose)
-        com.particlesdevs.photoncamera.ui.Icons.mono(icon, on ? accent : text);
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon(icon, R.drawable.cv_sliders, on ? accent : text);
         icon.setActivated(on);
         // P495: the switched side's glyph breathes (Pro opened / closed)
         if (side.isActivated() != on) com.particlesdevs.photoncamera.ui.Motion.pop(icon);

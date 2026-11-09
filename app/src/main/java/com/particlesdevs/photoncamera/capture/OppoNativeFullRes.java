@@ -75,6 +75,58 @@ public final class OppoNativeFullRes {
         return manufacturer != null && manufacturer.equalsIgnoreCase("OPPO");
     }
 
+    /** P586: the OnePlus 16 (PYB110, SM8975, SCAM TEST 2026-11-09). */
+    static final String PYB110 = "PYB110";
+
+    static boolean pyb110(@Nullable String manufacturer, @Nullable String model) {
+        return manufacturer != null && manufacturer.equalsIgnoreCase("OnePlus") && model != null && PYB110.equalsIgnoreCase(model.trim());
+    }
+
+    /** P586: this phone is the OnePlus 16 (PYB110). */
+    public static boolean pyb110() {
+        return pyb110(android.os.Build.MANUFACTURER, android.os.Build.MODEL);
+    }
+
+    /**
+     * P586: the PYB110's sensor-mode tables as its SCAM TEST report (2026-11-09) recorded them through the NDK (tag 0x80d00000, 3
+     * values a row): camera 2 (and logical 0, line 634) the 200 MP main, line 7340; camera 4 the 50 MP tele, line 13964. The
+     * report's Java characteristics list no vendor key (103 keys, 0 vendor), so the app may read no table by name: these stand in
+     * then, on this model only (the session key must still be listed). Row 0 of both is the HAL's «highpixel fullsize hwremosaic»
+     * (CameraHWConfiguration.config [OemCamSeamlessSettingMap]); main row 9 / tele row 9 «full size qbc», row 11 «izoom qbc», main
+     * row 24 the second 16320x12288 row (in no seamless entry), main row 28 «pro 1x dcg sensor fusion», tele rows 2 / 4 «SAT 30fps DAG».
+     */
+    static final int[] PYB110_MAIN = {39, 3, 16320, 12288, 8, 4080, 3072, 30, 4080, 2552, 30, 4080, 2304, 60, 4080, 2552, 30,
+            4080, 2304, 60, 4080, 2296, 30, 4080, 3072, 30, 4080, 3072, 30, 8160, 6144, 30, 4080, 3072, 30, 4080, 3072, 30,
+            4080, 2552, 30, 4080, 2552, 30, 4080, 2552, 30, 4080, 2552, 30, 1920, 1080, 240, 1920, 1080, 480, 4080, 2304, 60,
+            4080, 2304, 60, 8160, 4592, 30, 8160, 4592, 30, 3840, 2160, 120, 3840, 2160, 120, 16320, 12288, 8, 8160, 6144, 16,
+            4080, 3072, 30, 4080, 3072, 30, 4080, 3072, 30, 4080, 3072, 30, 1968, 1476, 30, 4080, 2296, 120, 4080, 3072, 30,
+            4080, 3072, 60, 4080, 3072, 30, 4080, 3072, 30, 4080, 2552, 30, 4080, 2304, 60, 4080, 3072, 30};
+    static final int[] PYB110_TELE = {19, 3, 8192, 6144, 15, 4096, 3072, 30, 4096, 2560, 30, 4096, 2304, 60, 4096, 2560, 30,
+            4096, 2304, 60, 4096, 2304, 30, 4096, 3072, 30, 4096, 3072, 30, 8192, 6144, 15, 4096, 3072, 30, 4096, 3072, 30,
+            4096, 2560, 30, 4096, 2560, 30, 4096, 2560, 30, 4096, 2560, 30, 2048, 1152, 240, 4096, 3072, 30, 4096, 3072, 60};
+
+    /** P586: the recorded table of a PYB110 camera ({@link #PYB110_MAIN} for "2", {@link #PYB110_TELE} for "4"); null otherwise. */
+    @Nullable
+    static int[] recordedTable(boolean pyb110, @Nullable String cameraId) {
+        if (!pyb110 || !PreferenceKeys.scamDevSwitch("oplus_table_fallback", true)) return null;
+        return recorded(cameraId);
+    }
+
+    /** P586: the recorded PYB110 table of a camera (a copy), null for another camera; the model is the caller's to check. */
+    @Nullable
+    static int[] recorded(@Nullable String cameraId) {
+        if ("2".equals(cameraId)) return PYB110_MAIN.clone();
+        if ("4".equals(cameraId)) return PYB110_TELE.clone();
+        return null;
+    }
+
+    /** P586: a camera's sensor-mode table: the one Java reads, else the PYB110's recorded one ({@link #recordedTable}). */
+    @Nullable
+    public static int[] table(@Nullable String cameraId, @Nullable android.hardware.camera2.CameraCharacteristics c) {
+        final int[] own = SensorModeBand.table(c);
+        return own != null ? own : family() ? recordedTable(pyb110(), cameraId) : null;
+    }
+
     /**
      * P214j: the phones of the route - OPPO and its ColorOS siblings OnePlus and realme (Build.MANUFACTURER "OPPO", "OnePlus",
      * "realme"), whose Qualcomm HAL has the engineer-camera session key; a camera of theirs still needs {@link #candidates}.
@@ -167,28 +219,126 @@ public final class OppoNativeFullRes {
         return (long) width * height > 100_000_000L ? 4 : 2;
     }
 
+
+    /**
+     * P586: what a camera offers - its candidates per size, each {mode, width, height, fps, block}: {@code small} the 50 MP class
+     * (a sensor up to 100 MP: its full-size rows as P214j found them; above 100 MP: the rows of half its sides at 24 fps or more,
+     * its full-size Quad - the PYB110 main's row 9, 8160x6144 at 30 fps, block 2), {@code large} the full size of a sensor above
+     * 100 MP (the PYB110 main's row 24, 16320x12288 at 8 fps, its own 4x4 mosaic, block 4).
+     */
+    static final class Offer {
+        static final Offer NONE = new Offer(new int[0][], new int[0][]);
+        final int[][] small, large;
+
+        Offer(int[][] small, int[][] large) {
+            this.small = small;
+            this.large = large;
+        }
+
+        boolean empty() {
+            return small.length == 0 && large.length == 0;
+        }
+    }
+
+    /** What the camera offers ({@link Offer}); NONE without the mode key or a table. */
+    private static final Map<String, Offer> OFFER = new ConcurrentHashMap<>();
+
+    /** P586: the fps a 50 MP-class row of a sensor above 100 MP needs (its 16 fps twin, row 25, is the HAL's izoom QBC2 stream). */
+    static final int MIN_FPS = 24;
+
+    /**
+     * P586: the candidates of a table ({@link Offer}). The full size must exceed the camera's public RAW size ({@code publicWidth}
+     * x {@code publicHeight}, 0 when unknown): the PYB110 front lists 4096x3072 at rows 0-2 beside 2048x1536 - its plain RAW, no
+     * FULLRES. A size of the OEM's custom RAW list ({@code custom}, {w, h} pairs of CameraHWConfiguration.config
+     * [OemSupportedCustomRAWFullSizes]) goes first among the 50 MP-class rows. Up to 100 MP every row keeps the table's full-size fps
+     * (P214j's frame time, as before).
+     */
+    static Offer rows(@Nullable int[] table, int publicWidth, int publicHeight, @Nullable java.util.List<int[]> custom) {
+        final int[] full = fullModes(table);
+        if (full == null) return Offer.NONE;
+        final int w = full[0], h = full[1];
+        if (publicWidth > 0 && publicHeight > 0 && (long) w * h <= (long) publicWidth * publicHeight) return Offer.NONE;
+        if ((long) w * h <= 100_000_000L) {
+            final int[][] small = new int[full.length - 3][];
+            for (int i = 3; i < full.length; i++) small[i - 3] = new int[]{full[i], w, h, full[2], block(w, h)};
+            return new Offer(preferCustom(small, custom), new int[0][]);
+        }
+        final int[][] large = new int[full.length - 3][];
+        for (int i = 3; i < full.length; i++) {
+            final int[] e = SensorModeBand.modeEntry(table, full[i]);
+            large[i - 3] = new int[]{full[i], w, h, e == null ? full[2] : e[2], 4};
+        }
+        final java.util.ArrayList<int[]> small = new java.util.ArrayList<>();
+        for (int i = 1; i < table[0]; i++) {
+            final int[] e = SensorModeBand.modeEntry(table, i);
+            if (e == null || e[2] < MIN_FPS || Math.abs(e[0] * 2 - w) > w / 50 || Math.abs(e[1] * 2 - h) > h / 50) continue;
+            if (publicWidth > 0 && publicHeight > 0 && (long) e[0] * e[1] <= (long) publicWidth * publicHeight) continue;
+            small.add(new int[]{i, e[0], e[1], e[2], 2});
+        }
+        return new Offer(preferCustom(small.toArray(new int[0][]), custom), large);
+    }
+
+    /** P586: the rows whose size the OEM's custom RAW list names first, the others after them, each group in table order. */
+    static int[][] preferCustom(int[][] rows, @Nullable java.util.List<int[]> custom) {
+        if (custom == null || custom.isEmpty() || rows.length < 2) return rows;
+        final java.util.ArrayList<int[]> in = new java.util.ArrayList<>(), out = new java.util.ArrayList<>();
+        for (int[] r : rows) (listed(custom, r[1], r[2]) ? in : out).add(r);
+        in.addAll(out);
+        return in.toArray(new int[0][]);
+    }
+
+    static boolean listed(@Nullable java.util.List<int[]> custom, int width, int height) {
+        if (custom != null) for (int[] c : custom) if (c[0] == width && c[1] == height) return true;
+        return false;
+    }
+
+    /** P586: {width, height, fps, modes...} of a size's rows (the first row's size and fps), the P214j form; null for none. */
+    @Nullable
+    static int[] legacy(@Nullable int[][] rows) {
+        if (rows == null || rows.length == 0) return null;
+        final int[] out = new int[3 + rows.length];
+        out[0] = rows[0][1];
+        out[1] = rows[0][2];
+        out[2] = rows[0][3];
+        for (int i = 0; i < rows.length; i++) out[3 + i] = rows[i][0];
+        return out;
+    }
+
+    static int[] modes(int[][] rows) {
+        final int[] out = new int[rows.length];
+        for (int i = 0; i < rows.length; i++) out[i] = rows[i][0];
+        return out;
+    }
+
     /**
      * P214j: the capability gate of a camera - {width, height, fps, candidate modes...} or null (no FULLRES on it). The camera lists
      * the mode key among its session keys and its sensor-mode table has full-size rows ({@link #fullModes}); only the PHY110
      * ({@code measuredPhone}, {@link #model}) falls back to its measured modes ({@link #mode}) without a readable table - never a
-     * OnePlus, realme or another OPPO.
+     * OnePlus, realme or another OPPO. P586: the 50 MP-class rows of {@link #rows} in that form (a sensor above 100 MP: its 200 MP
+     * rows when it has no other).
      */
     @Nullable
     static int[] candidates(@Nullable String cameraId, boolean modeKey, @Nullable int[] table, boolean measuredPhone) {
-        if (!modeKey) return null;
-        final int[] full = fullModes(table);
-        if (full != null) return full;
-        return measuredPhone && mode(cameraId) >= 0 ? new int[]{8192, 6144, 24, mode(cameraId)} : null;
+        final Offer o = offerOf(cameraId, modeKey, table, measuredPhone, 0, 0, null);
+        return legacy(o.small.length > 0 ? o.small : o.large);
     }
 
-    /** What the camera offers: {width, height, fps, candidate modes...}; none without the mode key or a table. */
-    private static final Map<String, int[]> OFFER = new ConcurrentHashMap<>();
-    private static final int[] NONE = new int[0];
+    /** P586: the camera's {@link Offer} from what it lists: the mode key, its table (or the PHY110's measured modes), its public RAW. */
+    static Offer offerOf(@Nullable String cameraId, boolean modeKey, @Nullable int[] table, boolean measuredPhone, int publicWidth,
+                         int publicHeight, @Nullable java.util.List<int[]> custom) {
+        if (!modeKey) return Offer.NONE;
+        final Offer o = rows(table, publicWidth, publicHeight, custom);
+        if (!o.empty()) return o;
+        return measuredPhone && mode(cameraId) >= 0
+                ? new Offer(new int[][]{{mode(cameraId), 8192, 6144, 24, 2}}, new int[0][]) : Offer.NONE;
+    }
+
 
     /**
      * The camera's characteristics as the app read them (the FULLRES button, the session setup): the table is taken from them.
      * A CameraManager of its own failed on the PHY110 with the owner's package spoof (BadParcelableException), so nothing is read
-     * here but what the app hands over; a failure is not remembered. P214j: any phone of the {@link #family}.
+     * here but what the app hands over; a failure is not remembered. P214j: any phone of the {@link #family}. P586: the public RAW
+     * size from the stream map, the PYB110's recorded table when Java reads none, the OEM's custom RAW sizes from its config.
      */
     public static void learn(@Nullable String cameraId, @Nullable android.hardware.camera2.CameraCharacteristics c) {
         if (cameraId == null || c == null || OFFER.containsKey(cameraId) || !family()) return;
@@ -197,8 +347,22 @@ public final class OppoNativeFullRes {
             for (CaptureRequest.Key<?> k : c.getAvailableSessionKeys())
                 if (MODE_KEY.equals(k.getName())) { key = true; break; }
             int[] table = null;
+            String source = "none";
             if (key) try { table = c.get(TABLE); } catch (IllegalArgumentException noTag) { table = null; }
-            learn(cameraId, key, table, model());
+            if (table != null) source = table.length + " values";
+            else if (key && (table = recordedTable(pyb110(), cameraId)) != null) source = "none by name, the PYB110 report's recorded table (" + table[0] + " rows)";
+            int pw = 0, ph = 0;
+            try {
+                final android.hardware.camera2.params.StreamConfigurationMap map =
+                        c.get(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                final android.util.Size[] raw = map == null ? null : map.getOutputSizes(android.graphics.ImageFormat.RAW_SENSOR);
+                if (raw != null) for (android.util.Size s : raw)
+                    if ((long) s.getWidth() * s.getHeight() > (long) pw * ph) { pw = s.getWidth(); ph = s.getHeight(); }
+            } catch (RuntimeException noMap) {
+                pw = 0;
+                ph = 0;
+            }
+            learn(cameraId, key, table, model(), pw, ph, OplusRawSizes.custom(), source);
         } catch (RuntimeException e) {
             com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + ": characteristics unreadable: " + e);
         }
@@ -207,14 +371,38 @@ public final class OppoNativeFullRes {
     /** P214j: the camera's offer from what it lists ({@link #candidates}), kept for this run and logged; returns it (null: none). */
     @Nullable
     static int[] learn(String cameraId, boolean modeKey, @Nullable int[] table, boolean measuredPhone) {
-        final int[] full = candidates(cameraId, modeKey, table, measuredPhone);
-        OFFER.put(cameraId, full == null ? NONE : full);
-        com.particlesdevs.photoncamera.util.Log.i("OppoNativeFullRes", "camera " + cameraId + " (" + android.os.Build.MANUFACTURER
-                + " " + android.os.Build.MODEL + "): mode key " + modeKey + ", table " + (table == null ? "none" : table.length + " values")
-                + (full == null ? ", no full-size NoRemosaic candidate" : String.format(Locale.ROOT, ", %dx%d at %d fps, block %d, modes %s",
-                full[0], full[1], full[2], block(full[0], full[1]),
-                java.util.Arrays.toString(java.util.Arrays.copyOfRange(full, 3, full.length)))));
-        return full;
+        final Offer o = learn(cameraId, modeKey, table, measuredPhone, 0, 0, null, table == null ? "none" : table.length + " values");
+        return legacy(o.small.length > 0 ? o.small : o.large);
+    }
+
+    /** P586: {@link #learn(String, boolean, int[], boolean)} with the public RAW size and the OEM list; one log line a camera. */
+    static Offer learn(String cameraId, boolean modeKey, @Nullable int[] table, boolean measuredPhone, int publicWidth, int publicHeight,
+                       @Nullable java.util.List<int[]> custom, String source) {
+        final Offer o = offerOf(cameraId, modeKey, table, measuredPhone, publicWidth, publicHeight, custom);
+        OFFER.put(cameraId, o);
+        com.particlesdevs.photoncamera.util.Log.i("OppoNativeFullRes", line(cameraId, android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL,
+                modeKey, source, publicWidth, publicHeight, o, custom, OplusIsz.row(pyb110(), cameraId, table), OplusDcg.rows(pyb110(), cameraId, table)));
+        return o;
+    }
+
+    /**
+     * P586: the camera's learn line - «OPPO family camera 2 (OnePlus PYB110): mode key true, table …, public RAW 4080x3072,
+     * FULLRES mode 9 8160x6144@30 block 2, 200 MP mode 24 16320x12288@8 block 4 (not in OemSupportedCustomRAWFullSizes), ISZ mode
+     * 11 4080x3072, DCG mode 28».
+     */
+    static String line(String cameraId, String phone, boolean modeKey, String source, int publicWidth, int publicHeight, Offer o,
+                       @Nullable java.util.List<int[]> custom, @Nullable int[] isz, @Nullable int[] dcg) {
+        final StringBuilder b = new StringBuilder("OPPO family camera ").append(cameraId).append(" (").append(phone).append("): mode key ")
+                .append(modeKey).append(", table ").append(source);
+        if (publicWidth > 0) b.append(", public RAW ").append(publicWidth).append('x').append(publicHeight);
+        if (o.empty()) b.append(", no full-size NoRemosaic candidate");
+        for (int[] r : o.small) b.append(String.format(Locale.ROOT, ", FULLRES mode %d %dx%d@%d block %d", r[0], r[1], r[2], r[3], r[4]));
+        for (int[] r : o.large) b.append(String.format(Locale.ROOT, ", %s mode %d %dx%d@%d block %d%s", o.small.length > 0 ? "200 MP" : "FULLRES",
+                r[0], r[1], r[2], r[3], r[4], custom == null || custom.isEmpty() ? "" : listed(custom, r[1], r[2]) ? "" : " (not in OemSupportedCustomRAWFullSizes)"));
+        if (isz != null) b.append(String.format(Locale.ROOT, ", ISZ mode %d %dx%d", isz[0], isz[1], isz[2]));
+        if (dcg != null) b.append(", ").append(OplusDcg.name("4".equals(cameraId))).append(" mode").append(dcg.length > 1 ? "s " : " ")
+                .append(java.util.Arrays.toString(dcg).replace("[", "").replace("]", ""));
+        return b.toString();
     }
 
     /** Tests only: the camera's offer is learned again. */
@@ -222,27 +410,137 @@ public final class OppoNativeFullRes {
         if (cameraId != null) OFFER.remove(cameraId);
     }
 
+    /** {width, height, fps, modes...} of the camera's first size (P214j's form; null: none or not learned). */
     @Nullable
     static int[] offer(@Nullable String cameraId) {
         if (cameraId == null) return null;
-        final int[] known = OFFER.get(cameraId);
-        return known == null || known.length == 0 ? null : known;
+        final Offer o = OFFER.get(cameraId);
+        return o == null ? null : legacy(o.small.length > 0 ? o.small : o.large);
     }
 
-    /** The frame time of the camera's full-size mode (24 fps when unknown). */
+    /** The frame time of the camera's full-size mode now (24 fps when unknown). */
     static long frameNs(@Nullable String cameraId) {
+        final Offer all = cameraId == null ? null : OFFER.get(cameraId);
+        final VivoSdkFullRes.Profile p = profile(cameraId, PixelPro10.tele200());
+        if (all != null && p != null) {
+            int at = indexOf(all.large, p);
+            final int[] r = at >= 0 ? all.large[at] : (at = indexOf(all.small, p)) >= 0 ? all.small[at] : null;
+            if (r != null && r[3] > 0) return 1_000_000_000L / r[3];
+        }
         final int[] o = offer(cameraId);
         return o != null && o[2] > 0 ? 1_000_000_000L / o[2] : 41_666_666L;
+    }
+
+    /** P586: the index of the profile's row (mode and size) among {@code rows}, -1 when it is none of them. */
+    static int indexOf(int[][] rows, VivoSdkFullRes.Profile p) {
+        for (int i = 0; i < rows.length; i++)
+            if (rows[i][0] == p.sensorMode && rows[i][1] == p.size.getWidth() && rows[i][2] == p.size.getHeight()) return i;
+        return -1;
+    }
+
+    /** P586: the 200 MP size may run (scam_dev.txt "oplus_200mp 0": not). */
+    static boolean largeAllowed() {
+        return PreferenceKeys.scamDevSwitch("oplus_200mp", true);
+    }
+
+    /** P586: the camera has both sizes (50 MP and 200 MP): the size sheet offers «200 Мп» beside «50 Мп». */
+    public static boolean twoSizes(@Nullable String cameraId) {
+        final Offer o = cameraId == null ? null : OFFER.get(cameraId);
+        return o != null && o.small.length > 0 && o.large.length > 0 && largeAllowed();
+    }
+
+    /** P586: the trial keys of the camera's large rows: their own with a 50 MP size beside them, else the camera's (one size). */
+    static int triedLarge(String cameraId, Offer o) {
+        return o.small.length > 0 ? failures(cameraId, true) : failures(cameraId);
+    }
+
+    @Nullable
+    private static int[] live(int[][] rows, int tried) {
+        return tried < 0 || tried >= rows.length ? null : rows[tried];
     }
 
     /** The profile the camera tries now: the first candidate not yet failed; Tetra above 100 MP, else Quad; null: none left. */
     @Nullable
     static VivoSdkFullRes.Profile profile(@Nullable String cameraId) {
-        final int[] o = offer(cameraId);
-        if (o == null) return null;
-        final int tried = failures(cameraId);
-        if (tried < 0 || 3 + tried >= o.length) return null;
-        return new VivoSdkFullRes.Profile(o[0], o[1], o[3 + tried], block(o[0], o[1]));
+        return profile(cameraId, false);
+    }
+
+    /**
+     * P586: the profile of the size asked ({@code large}: the 200 MP one of a camera with two): its first row not yet failed; a size
+     * with no row left gives way to the other (as the X100 / X300 Ultra's, P186); null when none is left.
+     */
+    @Nullable
+    static VivoSdkFullRes.Profile profile(@Nullable String cameraId, boolean large) {
+        final Offer o = cameraId == null ? null : OFFER.get(cameraId);
+        if (o == null || o.empty()) return null;
+        int[] r = large && twoSizes(cameraId) ? live(o.large, triedLarge(cameraId, o)) : null;
+        if (r == null) r = live(o.small, failures(cameraId));
+        if (r == null && largeAllowed()) r = live(o.large, triedLarge(cameraId, o));
+        return r == null ? null : new VivoSdkFullRes.Profile(r[1], r[2], r[0], blockOf(cameraId, r));
+    }
+
+    /** P586: that size of a camera with two has no row left (its entry in the size sheet stays, dimmed). */
+    public static boolean sizeExhausted(@Nullable String cameraId, boolean large) {
+        final Offer o = cameraId == null ? null : OFFER.get(cameraId);
+        if (o == null || !twoSizes(cameraId)) return false;
+        return large ? live(o.large, triedLarge(cameraId, o)) == null : live(o.small, failures(cameraId)) == null;
+    }
+
+    /**
+     * P586: the block a row runs: its declared one, but a 200 MP row whose frames proved a Quad (block 2) on this firmware runs as
+     * a Quad ({@link #acceptQuad}).
+     */
+    static int blockOf(String cameraId, int[] row) {
+        if (row[4] != 4) return row[4];
+        final android.content.SharedPreferences p = prefs();
+        return p != null && quadNoted(p, cameraId, row[0], stamp()) ? 2 : 4;
+    }
+
+    static boolean quadNoted(android.content.SharedPreferences p, String cameraId, int mode, String stamp) {
+        try {
+            final String key = base200(cameraId) + QUAD + mode;
+            return FullResTrials.counts(p, base200(cameraId), key, stamp) && p.getBoolean(key, false);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    static final String QUAD = "_quad_";
+
+    /**
+     * P586: the 200 MP row's viewfinder frames are a confident Quad (block 2), not its declared 4x4: noted for this firmware, the
+     * row runs as a Quad from the next session on (a log line); true when it was not noted before (the caller restarts the session).
+     */
+    public static boolean acceptQuad(@Nullable String cameraId, @Nullable VivoSdkFullRes.Profile profile) {
+        final android.content.SharedPreferences p = prefs();
+        if (p == null || cameraId == null || profile == null || profile.nativeBlock != 4) return false;
+        noteQuad(p, cameraId, profile.sensorMode, stamp());
+        com.particlesdevs.photoncamera.util.Log.i("SCAM_CAPTURE", "OPPO family camera " + cameraId + " 200 MP mode " + profile.sensorMode
+                + ": the frames are a Quad (block 2), not the declared 4x4 - accepted as a Quad, the session restarts with block 2");
+        return true;
+    }
+
+    static void noteQuad(android.content.SharedPreferences p, String cameraId, int mode, String stamp) {
+        try {
+            FullResTrials.edit(p, base200(cameraId), stamp).putBoolean(base200(cameraId) + QUAD + mode, true).apply();
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    /** P586: a 200 MP row failed: noted under its own keys, the owner's message (the 50 MP size stays as it is). */
+    static String failedLarge(String cameraId, Offer all, VivoSdkFullRes.Profile profile, String why) {
+        final int tried = failures(cameraId, true);
+        if (tried < all.large.length && all.large[tried][0] == profile.sensorMode)
+            noteAt(prefs(), base200(cameraId), tried + 1, profile.sensorMode, why, stamp());
+        final int[] next = live(all.large, failures(cameraId, true));
+        final String reason = FullResTrials.phrase(FullResTrials.code(why), false);
+        com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + " 200 MP mode " + profile.sensorMode + " "
+                + profile.size + " failed (" + why + "); next " + (next == null ? "none: 200 MP off, 50 MP stays" : "mode " + next[0]));
+        return next != null
+                ? com.particlesdevs.photoncamera.util.Lang.t("FULLRES 200 Мп: режим " + profile.sensorMode + " не работает (" + reason + "); в следующий раз попробую режим " + next[0],
+                        "FULLRES 200 MP: mode " + profile.sensorMode + " does not work (" + reason + "); the next time mode " + next[0] + " is tried")
+                : com.particlesdevs.photoncamera.util.Lang.t("FULLRES 200 Мп недоступен на этой камере (" + reason + "); 50 Мп работает как прежде",
+                        "FULLRES 200 MP is not available on this camera (" + reason + "); 50 MP works as before");
     }
 
     private static final String FAILED = "module_oppo_fullres_fail_";
@@ -275,6 +573,27 @@ public final class OppoNativeFullRes {
         return failures(prefs(), cameraId, stamp());
     }
 
+    /** P586: the base of the 200 MP size's trials of a camera with two sizes (a key of the camera's own: «Попробовать снова» clears it). */
+    static String base200(String cameraId) {
+        return base(cameraId) + LARGE;
+    }
+
+    static final String LARGE = "_200";
+
+    /** P586: the tried count of a size ({@code large}: the 200 MP one, its own keys). */
+    static int failures(String cameraId, boolean large) {
+        return large ? countAt(prefs(), cameraId == null ? null : base200(cameraId), stamp()) : failures(cameraId);
+    }
+
+    static int countAt(@Nullable android.content.SharedPreferences p, @Nullable String key, String stamp) {
+        if (p == null || key == null) return 0;
+        try {
+            return FullResTrials.counts(p, key, key, stamp) ? p.getInt(key, 0) : 0;
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
     /** P214h: {@link #failures(String)} in {@code p} under the stamp {@code stamp} (another stamp's trials are passed over). */
     static int failures(@Nullable android.content.SharedPreferences p, @Nullable String cameraId, String stamp) {
         if (p == null || cameraId == null) return 0;
@@ -297,10 +616,17 @@ public final class OppoNativeFullRes {
     static void note(@Nullable android.content.SharedPreferences p, String cameraId, int tried, int mode, @Nullable String why,
                      String stamp) {
         if (p == null || cameraId == null) return;
+        noteAt(p, base(cameraId), tried, mode, why, stamp);
+    }
+
+    /** P586: {@link #note} under the trial keys {@code base} (a camera's 50 MP size: base(), its 200 MP size: base200()). */
+    static void noteAt(@Nullable android.content.SharedPreferences p, String base, int tried, int mode, @Nullable String why, String stamp) {
+        if (p == null || base == null) return;
         try {
-            final String reasons = FullResTrials.withReason(reasons(p, cameraId, stamp), mode, FullResTrials.code(why));
-            FullResTrials.edit(p, base(cameraId), stamp).putInt(base(cameraId), tried)
-                    .putString(base(cameraId) + FullResTrials.WHY, reasons).apply();
+            final String key = base + FullResTrials.WHY;
+            final String stored = FullResTrials.counts(p, base, key, stamp) ? FullResTrials.string(p, key) : null;
+            final String reasons = FullResTrials.withReason(stored, mode, FullResTrials.code(why));
+            FullResTrials.edit(p, base, stamp).putInt(base, tried).putString(key, reasons).apply();
         } catch (RuntimeException ignored) {
         }
     }
@@ -313,7 +639,7 @@ public final class OppoNativeFullRes {
 
     /** P214h: the camera offers full-size modes (its table, read this run) but every one failed: its button stays, dimmed. */
     static boolean exhausted(@Nullable String cameraId) {
-        return offer(cameraId) != null && profile(cameraId) == null;
+        return offer(cameraId) != null && profile(cameraId, false) == null;
     }
 
     /**
@@ -324,10 +650,18 @@ public final class OppoNativeFullRes {
     static String status(@Nullable android.content.SharedPreferences p, @Nullable String cameraId, String stamp) {
         if (p == null || cameraId == null) return null;
         final int tried = failures(p, cameraId, stamp);
-        if (tried <= 0) return null;
+        final Offer all = OFFER.get(cameraId);
+        // P586: a camera with two sizes says each size's rows (its 200 MP trials have keys of their own)
+        final int tried200 = all == null || all.large.length == 0 || all.small.length == 0 ? 0 : countAt(p, base200(cameraId), stamp);
+        if (tried <= 0 && tried200 <= 0) return null;
         final int[] o = offer(cameraId);
-        return FullResTrials.sizeLine(o == null ? 0 : com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(o[0], o[1]),
+        final String fifty = tried <= 0 ? null : FullResTrials.sizeLine(o == null ? 0 : com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(o[0], o[1]),
                 o == null ? null : java.util.Arrays.copyOfRange(o, 3, o.length), tried, FullResTrials.reasons(reasons(p, cameraId, stamp)));
+        if (tried200 <= 0) return fifty;
+        final String key = base200(cameraId) + FullResTrials.WHY;
+        final String large = FullResTrials.sizeLine(com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(all.large[0][1], all.large[0][2]),
+                modes(all.large), tried200, FullResTrials.reasons(FullResTrials.counts(p, base200(cameraId), key, stamp) ? FullResTrials.string(p, key) : null));
+        return fifty == null ? large : large == null ? fifty : fifty + "\n" + large;
     }
 
     /**
@@ -335,11 +669,15 @@ public final class OppoNativeFullRes {
      * the next candidate is tried at the next FULLRES. Returns the owner's message.
      */
     public static String failed(String cameraId, @Nullable VivoSdkFullRes.Profile profile, String why) {
+        final Offer all = cameraId == null ? null : OFFER.get(cameraId);
+        // P586: the 200 MP size of a camera with two has trials of its own; its failure leaves the 50 MP size as it is
+        if (all != null && profile != null && all.small.length > 0 && indexOf(all.large, profile) >= 0)
+            return failedLarge(cameraId, all, profile, why);
         final int[] o = offer(cameraId);
         final int tried = failures(cameraId);
         if (o != null && profile != null && 3 + tried < o.length && o[3 + tried] == profile.sensorMode)
             note(prefs(), cameraId, tried + 1, profile.sensorMode, why, stamp()); // P214h: with the mode's reason, stamped
-        final VivoSdkFullRes.Profile next = profile(cameraId);
+        final VivoSdkFullRes.Profile next = profile(cameraId, false);
         final int mode = profile == null ? -1 : profile.sensorMode;
         com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + " mode " + mode + " failed (" + why
                 + "); next " + (next == null ? "none" : "mode " + next.sensorMode));
@@ -755,6 +1093,8 @@ public final class OppoNativeFullRes {
 
     /** Tests: what a camera offers ({width, height, fps, modes...}), as learn() would find it. */
     static void offerForTest(String cameraId, int[] offer) {
-        OFFER.put(cameraId, offer);
+        final int[][] rows = new int[Math.max(0, offer.length - 3)][];
+        for (int i = 3; i < offer.length; i++) rows[i - 3] = new int[]{offer[i], offer[0], offer[1], offer[2], block(offer[0], offer[1])};
+        OFFER.put(cameraId, new Offer(rows, new int[0][]));
     }
 }

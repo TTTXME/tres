@@ -32,6 +32,6 @@ public class TorchToggleTest {
     }
 
     @Test public void theShotKeepsTheTorchOn() throws Exception {
-        assertTrue(src().contains("if (mFlashed || (mFlashSupported && PreferenceKeys.getAeMode() == 0)) captureBuilder.set(FLASH_MODE, FLASH_MODE_TORCH);"));
+        assertTrue(src().contains("if (flash == null && mFlashSupported && PreferenceKeys.getAeMode() == FlashMode.TORCH) captureBuilder.set(FLASH_MODE, FLASH_MODE_TORCH);"));
     }
 }

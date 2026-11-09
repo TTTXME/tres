@@ -336,7 +336,7 @@ public class ToneCurvePreference extends Preference {
             body.addView(open, op);
         }
         TextView pick = SettingsStyle.text(c, Lang.t(c, "Из файла…", "From a file…"), 16, SettingsStyle.accent(c));
-        pick.setTypeface(null, Typeface.BOLD);
+        pick.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(pick.getContext(), 700));
         pick.setGravity(Gravity.CENTER);
         pick.setPadding(0, SettingsStyle.dp(c, 14), 0, SettingsStyle.dp(c, 14));
         pick.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(SettingsStyle.accent(c)), 0, 16));
@@ -376,7 +376,7 @@ public class ToneCurvePreference extends Preference {
         bin.setTag("curve_bin_" + name);
         binSlot.addView(bin, new FrameLayout.LayoutParams(SettingsStyle.dp(c, 44), SettingsStyle.dp(c, 44), Gravity.CENTER));
         TextView confirm = SettingsStyle.text(c, Lang.t(c, "Удалить", "Delete"), 13.5f, SettingsStyle.RED);
-        confirm.setTypeface(null, Typeface.BOLD);
+        confirm.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(confirm.getContext(), 700));
         confirm.setGravity(Gravity.CENTER);
         confirm.setPadding(SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 8));
         confirm.setBackground(SettingsStyle.shape(c, 0x26FF453A, 0, 12));
@@ -485,11 +485,11 @@ public class ToneCurvePreference extends Preference {
             prev = arrow(c, "‹", "tone_curve_prev", Lang.t(c, "Предыдущая точка", "Previous point"));
             next = arrow(c, "›", "tone_curve_next", Lang.t(c, "Следующая точка", "Next point"));
             label = SettingsStyle.text(c, "", 14, SettingsStyle.ROW_TITLE);
-            label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            label.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(label.getContext(), 600));
             label.setGravity(Gravity.CENTER);
             label.setTag("tone_curve_point_label");
             delete = SettingsStyle.text(c, Lang.t(c, "Удалить", "Delete"), 13.5f, SettingsStyle.RED);
-            delete.setTypeface(null, Typeface.BOLD);
+            delete.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(delete.getContext(), 700));
             delete.setGravity(Gravity.CENTER);
             delete.setPadding(SettingsStyle.dp(c, 12), 0, SettingsStyle.dp(c, 12), 0);
             delete.setBackground(SettingsStyle.shape(c, 0x26FF453A, 0, 12));
@@ -646,7 +646,7 @@ public class ToneCurvePreference extends Preference {
     private static TextView arrow(Context c, String glyph, String tag, CharSequence description) {
         int accent = SettingsStyle.accent(c);
         TextView t = SettingsStyle.text(c, glyph, 22, accent);
-        t.setTypeface(null, Typeface.BOLD);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 700));
         t.setGravity(Gravity.CENTER);
         t.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(accent), 0, 12));
         t.setTag(tag);
@@ -661,7 +661,7 @@ public class ToneCurvePreference extends Preference {
     private static TextView chip(Context c, CharSequence label, String tag, Runnable click) {
         int accent = SettingsStyle.accent(c);
         TextView t = SettingsStyle.text(c, label, 14, accent);
-        t.setTypeface(null, Typeface.BOLD);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 700));
         t.setGravity(Gravity.CENTER);
         t.setPadding(0, SettingsStyle.dp(c, 10), 0, SettingsStyle.dp(c, 10));
         t.setBackground(SettingsStyle.shape(c, SettingsStyle.pillFill(accent), 0, 12));

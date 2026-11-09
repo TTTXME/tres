@@ -273,7 +273,10 @@ public class Utilities {
         return ResourcesCompat.getDrawable(context.getResources(), attributeResourceId, context.getTheme());
     }
 
+    /** P582: at the app's concept density (UiFixedScale), not Resources.getSystem()'s display-size density. */
     public static int dpToPx(float dp) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, Resources.getSystem().getDisplayMetrics());
+        Context app = com.particlesdevs.photoncamera.app.ScameraApp.getAppContext();
+        Resources r = app != null ? app.getResources() : Resources.getSystem();
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, r.getDisplayMetrics());
     }
 }

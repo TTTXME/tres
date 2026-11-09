@@ -1,0 +1,10 @@
+@keyframes iosKnobA{0%{transform:scale(1)}30%{transform:scale(1.2,.84)}60%{transform:scale(.94,1.07)}100%{transform:scale(1)}}
+@keyframes iosKnobB{0%{transform:scale(1)}30%{transform:scale(1.2,.84)}60%{transform:scale(.94,1.07)}100%{transform:scale(1)}}
+@keyframes iosPopA{0%{transform:scale(1)}35%{transform:scale(1.22)}100%{transform:scale(1)}}
+@keyframes iosPopB{0%{transform:scale(1)}35%{transform:scale(1.22)}100%{transform:scale(1)}}
+@keyframes iosMenuIn{0%{transform:scale(.25);opacity:0;filter:blur(6px)}60%{opacity:1;filter:blur(0)}100%{transform:scale(1);opacity:1}}
+@keyframes iosMenuOut{to{transform:scale(.6);opacity:0;filter:blur(4px)}}
+@keyframes iosFade{from{opacity:0}to{opacity:1}}
+@keyframes iosAlertIn{0%{transform:scale(1.15);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes iosHud{0%{transform:translate(-50%,-30px) scale(.8);opacity:0}100%{transform:translate(-50%,0) scale(1);opacity:1}}
+@keyframes iosFlash{0%,100%{background:#1C1C1E}25%,60%{background:#3A3A3C}}

@@ -7,16 +7,21 @@ import android.content.res.Configuration;
  * SIMPLE_UI step 0 (owner: «одинаково на любом экране»): the camera chrome keeps the concept's proportions on every phone,
  * display size and font size. The concept is drawn for a {@link #REFERENCE_DP} window; every dp / sp of the camera screen
  * and of what lies over it (top bar, bottom rows, Pro panel, quick sheet, catalog, format / size sheets, focus ring, lock
- * pill) is multiplied by {@code k = clamp(short side / 392, 0.85, 1.35)}: 360dp gives 0.92, the X200 Ultra's 411dp 1.05, a
- * 1440 px panel at the smallest display size (480dp) 1.22. Settings, gallery lists and sheets with running text are not
- * scaled. The window's short side comes from the current {@link Configuration} (multi-window and display size included), not
- * the physical display; the activity is recreated on a density change, so {@code k} is cached per configuration only.
+ * pill) is multiplied by {@code k = clamp(short side / 390, 0.85, 1.35)}: 360dp gives 0.92, 411dp 1.05, 480dp 1.23.
+ * Settings, gallery lists and sheets with running text are not scaled. The window's short side comes from the current
+ * {@link Configuration} (multi-window included), not the physical display; the activity is recreated on a density change, so
+ * {@code k} is cached per configuration only.
+ *
+ * <p>P582: the app's activities are laid out at the concept's density (app UiFixedScale: the display's short side is always
+ * 390dp and the font scale 1, whatever the phone's display and font size), so on a phone {@code k} is 1 and the camera's dp
+ * are the concept's as written; {@code k} still differs in a split-screen window and on a large screen (sw600dp+, which keeps
+ * the system density). The font scale is 1 there too, so {@link UiTokens#FONT_SCALE_CAP} no longer applies on top.
  */
 public final class UiScale {
     private UiScale() {}
 
-    /** The concept's phone width, at which every camera dp holds as written. */
-    public static final float REFERENCE_DP = 392f;
+    /** The concept's phone width (research/concept, 390 CSS px; 392 before P582), at which every camera dp holds as written. */
+    public static final float REFERENCE_DP = 390f;
     public static final float MIN = 0.85f, MAX = 1.35f;
 
     private static int cachedSeq = Integer.MIN_VALUE;

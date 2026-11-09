@@ -339,7 +339,7 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
             int cardW = UiTokens.dp(c, 92);
             card.addView(thumb, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round((cardW - UiTokens.dp(c, 8)) * .75f)));
             TextView name = SettingsStyle.text(c, LensFilters.name(c, id), 12, SettingsStyle.ROW_TITLE);
-            name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            name.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(name.getContext(), 600));
             name.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 5), UiTokens.dp(c, 3), 0);
             name.setMaxLines(2);
             card.addView(name);

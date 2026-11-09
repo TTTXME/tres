@@ -13,6 +13,10 @@
     <!-- P384: the Preference a settings row is bound to (SettingsCardDecoration reads it, also while the row fades out) and the
          rise animator of a row coming in (SettingsMotion.ItemAnimator) -->
     <item name="settings_bound_preference" type="id"/>
+    <!-- P584: ConceptFonts.follow - its layout listener on a root -->
+    <item name="concept_fonts" type="id"/>
+    <!-- P584: FilmSimPreference - a chip row drawn as the concept's segmented track -->
+    <item name="film_seg" type="id"/>
     <!-- P574: the settings page's collapsing header (CoordinatorLayout + AppBarLayout): fixed ids so its collapsed state is
          restored on the way back -->
     <item name="settings_header_coordinator" type="id"/>

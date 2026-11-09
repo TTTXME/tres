@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- P574: a group's title over its card - 12sp, semibold, upper case, 0.08em apart, white at 55 % (the camera sheets' look). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -17,19 +18,24 @@
         android:id="@android:id/title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="sans-serif-medium"
-        android:letterSpacing="0.08"
+        android:fontFamily="@font/roboto_flex_600"
+            app:fontFamily="@font/roboto_flex_600"
+        android:includeFontPadding="false"
+        android:letterSpacing="0.0833"
+        android:lineHeight="16dp"
         android:textColor="@color/settings_section"
-        android:textFontWeight="600"
         android:textAllCaps="true"
-        android:textSize="12sp" />
+        android:textSize="12dp" />
     <TextView
+        android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
         android:id="@android:id/summary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:lineSpacingExtra="2dp"
+        android:lineHeight="17dp"
+            android:includeFontPadding="false"
         android:textColor="@color/settings_section"
-        android:textSize="13sp"
+        android:textSize="13dp"
         android:visibility="gone" />
 </LinearLayout>

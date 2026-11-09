@@ -196,7 +196,9 @@ public class GalleryUiTest {
             if (l != null && text.length() > 0) {
                 int avail = t.getWidth() - t.getTotalPaddingLeft() - t.getTotalPaddingRight();
                 for (int i = 0; i < l.getLineCount(); ++i) {
-                    assertTrue("\"" + text + "\" line " + i + " " + l.getLineWidth(i) + " px > " + avail, l.getLineWidth(i) <= avail + 1);
+                    // P582: the drawn extent (getLineMax): getLineWidth counts the space a line breaks after, which with
+                    // Roboto Flex's metrics put «…(SCAM » 3 px over while «(SCAM» fits
+                    assertTrue("\"" + text + "\" line " + i + " " + l.getLineMax(i) + " px > " + avail, l.getLineMax(i) <= avail + 1);
                     assertEquals("\"" + text + "\" ellipsized", 0, l.getEllipsisCount(i));
                 }
             }

@@ -4,6 +4,7 @@
      release), then the slider (IosSlider) between its minimum and maximum, indented under the title when the row has a tile
      (SettingsStyle.bind). The knob under the finger and the rubber band reach past the slider: no view up to the row clips. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/settings_row"
@@ -28,8 +29,8 @@
             android:background="@drawable/settings_icon_tile">
             <ImageView
                 android:id="@android:id/icon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="19dp"
+                android:layout_height="19dp"
                 android:layout_gravity="center"
                 android:importantForAccessibility="no"
                 android:scaleType="fitCenter" />
@@ -43,19 +44,26 @@
                 android:id="@android:id/title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="@font/roboto_flex_600"
+            app:fontFamily="@font/roboto_flex_600"
                 android:textColor="@color/settings_row_title"
-                android:textFontWeight="600"
-                android:textSize="16sp" />
+                android:textSize="16dp"
+            android:lineHeight="21dp"
+            android:includeFontPadding="false" />
             <TextView
+                android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
                 android:id="@android:id/summary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:lineSpacingExtra="2dp"
+                android:lineHeight="17dp"
+            android:includeFontPadding="false"
                 android:textColor="@color/settings_summary"
-                android:textSize="13sp" />
+                android:textSize="13dp" />
             <TextView
+                android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
                 android:id="@+id/settings_restart"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -64,10 +72,12 @@
                 android:paddingTop="1dp"
                 android:paddingEnd="7dp"
                 android:paddingBottom="1dp"
-                android:textSize="11sp"
+                android:textSize="11dp"
                 android:visibility="gone" />
         </LinearLayout>
         <TextView
+            android:fontFamily="@font/roboto_flex_700"
+            app:fontFamily="@font/roboto_flex_700"
             android:id="@+id/seekbar_value"
             android:layout_width="wrap_content"
             android:layout_height="30dp"
@@ -80,8 +90,7 @@
             android:minWidth="44dp"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:textSize="15dp" />
     </LinearLayout>
     <LinearLayout
         android:id="@+id/seekbar_row"
@@ -94,6 +103,8 @@
         android:orientation="horizontal"
         android:paddingStart="44dp">
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@+id/seekbar_min"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -103,13 +114,15 @@
             android:maxLines="1"
             android:minWidth="18dp"
             android:textColor="@color/settings_range"
-            android:textSize="12sp" />
+            android:textSize="12dp" />
         <com.particlesdevs.photoncamera.ui.controls.IosSlider
             android:id="@+id/seekbar"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1" />
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@+id/seekbar_max"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -118,7 +131,7 @@
             android:maxLines="1"
             android:minWidth="18dp"
             android:textColor="@color/settings_range"
-            android:textSize="12sp" />
+            android:textSize="12dp" />
     </LinearLayout>
     <LinearLayout
         android:id="@android:id/widget_frame"

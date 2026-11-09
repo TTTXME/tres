@@ -16,8 +16,10 @@
     <string name="shade_title_format">File format</string>
     <string name="shade_title_metering_std">Camera metering</string>
     <string-array name="shade_l_flash">
-        <item>Torch</item>
         <item>Off</item>
+        <item>Auto</item>
+        <item>On</item>
+        <item>Torch</item>
     </string-array>
     <string-array name="shade_l_timer">
         <item>Off</item>
@@ -32,7 +34,7 @@
     </string-array>
 
     <!-- Tile names -->
-    <string name="shade_t_flash">Torch</string>
+    <string name="shade_t_flash">Flash</string>
     <string name="shade_t_timer">Timer</string>
     <string name="shade_t_format">Format</string>
     <string name="shade_t_metering_std">Camera metering</string>
@@ -56,8 +58,10 @@
 
     <!-- Short values on tiles and segments -->
     <string-array name="shade_s_flash">
-        <item>Torch</item>
         <item>Off</item>
+        <item>Auto</item>
+        <item>On</item>
+        <item>Torch</item>
     </string-array>
     <string-array name="shade_s_timer">
         <item>Off</item>

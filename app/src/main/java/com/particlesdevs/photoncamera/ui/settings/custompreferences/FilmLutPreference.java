@@ -302,7 +302,7 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
     /** A group's title on the custom pages: P574 12sp semibold, upper case, white at 55 % (the settings' section titles; was the accent). */
     static TextView groupTitle(Context c, String text, int accent) {
         TextView t = SettingsStyle.text(c, text.toUpperCase(java.util.Locale.ROOT), 12, SettingsStyle.SECTION);
-        t.setTypeface(SettingsStyle.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setLetterSpacing(.08f);
         t.setPadding(UiTokens.dp(c, 16), UiTokens.dp(c, 4), UiTokens.dp(c, 16), 0);
         return t;
@@ -360,7 +360,7 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
             thumb.setClipToOutline(true);
             card.addView(thumb, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round((cardW - UiTokens.dp(c, 8)) * .75f)));
             TextView name = SettingsStyle.text(c, displayName(c, value), 12, SettingsStyle.ROW_TITLE);
-            name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            name.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(name.getContext(), 600));
             name.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 5), UiTokens.dp(c, 3), 0);
             name.setMaxLines(2);
             card.addView(name);

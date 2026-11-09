@@ -132,7 +132,7 @@ public final class GalleryUndo {
         TextView t = GalleryUi.text(c, text, 14, GalleryUi.TEXT);
         p.addView(t);
         TextView back = GalleryUi.text(c, Lang.t("Вернуть", "Undo"), 14, GalleryUi.accent(c));
-        back.setTypeface(GalleryUi.semibold());
+        back.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(back.getContext(), 600));
         back.setGravity(Gravity.CENTER);
         back.setMinHeight(GalleryUi.dp(c, 40));
         back.setPadding(GalleryUi.dp(c, 14), 0, GalleryUi.dp(c, 14), 0);

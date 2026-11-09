@@ -30,7 +30,8 @@ import com.particlesdevs.photoncamera.settings.ShadeCatalog;
 public class ShadeTileView extends FrameLayout {
     private static final float CARD_PADDING_DP = 2f;
     /** The card's least height (the concept's .tile min-height) before the scale. */
-    static final float CARD_HEIGHT_DP = 50f;    /** The sheet's alpha the cards share (the concept's 40 % transparency: the fill at 60 %); SettingsBarLayout sets it. */
+    // P583 (the concept's 4 x 2 shade: tiles 84px high, 8px apart): the card's least height
+    static final float CARD_HEIGHT_DP = 84f;    /** The sheet's alpha the cards share (the concept's 40 % transparency: the fill at 60 %); SettingsBarLayout sets it. */
     static float sheetAlpha = .6f;
     final LinearLayout card;
     final ImageView icon;
@@ -51,7 +52,8 @@ public class ShadeTileView extends FrameLayout {
 
     public ShadeTileView(Context context) {
         super(context);
-        int half = Math.round(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(context, 2.5f));
+        // P583: half of the concept's 8px gap inside each tile
+        int half = Math.round(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(context, 4f));
         setPadding(half, half, half, half);
         setClipToPadding(false);
         setClipChildren(false);
@@ -59,8 +61,7 @@ public class ShadeTileView extends FrameLayout {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
         int p = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, CARD_PADDING_DP);
-        card.setPadding(p, com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 4), p,
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 3));
+        card.setPadding(p, p, p, p);
         card.setDuplicateParentStateEnabled(true);
         com.particlesdevs.photoncamera.ui.Motion.press(card); // P495: gives under the finger, springs back
         addView(card, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -68,41 +69,44 @@ public class ShadeTileView extends FrameLayout {
         icon = new ImageView(context);
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        int iconSize = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 20);
+        // P583: the concept's 22px icon, 2px over the name
+        int iconSize = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 22);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(iconSize, iconSize);
         ip.bottomMargin = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 2);
         card.addView(icon, ip);
 
         // the concept's order: the name (11sp, 600) over the value (10sp, muted)
         name = text(context, 11, ShadeStyle.TEXT);
-        name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        name.setLetterSpacing(-.01f);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(name, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         card.addView(name, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         value = text(context, 10, ShadeStyle.MUTED);
         LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        vp.topMargin = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 1);
+        vp.topMargin = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 2);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(value, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         card.addView(value, vp);
 
-        // the concept's .x: a 20dp card disc with a line, the «×» in the text colour
+        // the concept's .x: a 20px #48484A disc (right -5, top -5) with its bold cross (60 %) in white
         remove = new TextView(context);
-        remove.setText("×");
         remove.setGravity(Gravity.CENTER);
-        remove.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        remove.setTextColor(ShadeStyle.TEXT);
         remove.setIncludeFontPadding(false);
         GradientDrawable dot = new GradientDrawable();
         dot.setShape(GradientDrawable.OVAL);
-        dot.setColor(0xFF232A2E);
-        dot.setStroke(Math.max(1, ShadeStyle.dp(context, 1)), ShadeStyle.LINE);
-        remove.setBackground(dot);
+        dot.setColor(com.particlesdevs.photoncamera.ui.camera.ConceptStyle.GREY);
+        int crossSize = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 12);
+        remove.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{dot,
+                com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon(context, R.drawable.cv_cross, ShadeStyle.TEXT, crossSize)}) {{
+            setLayerSize(1, crossSize, crossSize);
+            setLayerGravity(1, Gravity.CENTER);
+        }});
+        remove.setContentDescription(com.particlesdevs.photoncamera.util.Lang.t(context, "Убрать плитку", "Remove the tile"));
         remove.setVisibility(GONE);
         remove.setTag("shade_tile_remove");
         int size = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 20);
         LayoutParams rp = new LayoutParams(size, size, Gravity.TOP | Gravity.END);
         // Over the card's corner, up to the tile's edge (the grid clips anything further out).
-        rp.topMargin = -half;
-        rp.setMarginEnd(-half);
+        rp.topMargin = -com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 1);
+        rp.setMarginEnd(-com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(context, 1));
         addView(remove, rp);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         setFocusable(true);
@@ -129,7 +133,7 @@ public class ShadeTileView extends FrameLayout {
         key = entry.key;
         addTile = false;
         accent = ShadeStyle.accent(getContext());
-        active = catalog.changed(entry);
+        active = catalog.lit(entry);   // P583: lit while on, as the concept
         // P495: a switched tile's icon «breathes» (the same tile bound again with the other state)
         if (sameKey && wasActive != active) com.particlesdevs.photoncamera.ui.Motion.pop(icon);
         dimmed = reason != null;
@@ -141,7 +145,7 @@ public class ShadeTileView extends FrameLayout {
         name.setVisibility(VISIBLE);
         applyColors();
         String description = getContext().getString(R.string.shade_toast_value, entry.shortTitle, catalog.valueText(entry, false));
-        if (active) description += ", " + getContext().getString(R.string.shade_changed);
+        if (catalog.changed(entry)) description += ", " + getContext().getString(R.string.shade_changed);
         if (dimmed) description += ". " + reason;
         setContentDescription(description);
         requestLayout();
@@ -162,14 +166,15 @@ public class ShadeTileView extends FrameLayout {
         value.setVisibility(GONE);
         remove.setVisibility(GONE);
         GradientDrawable dashed = new GradientDrawable();
-        dashed.setCornerRadius(com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 20));
+        // P583 (the concept's add tile): a 1px dashed rgba(255, 255, 255, .22) outline, the plus and «Добавить» at 70 %
+        dashed.setCornerRadius(radius());
         dashed.setColor(0);
-        dashed.setStroke(ShadeStyle.dp(getContext(), 1), ShadeStyle.LINE, ShadeStyle.dp(getContext(), 5), ShadeStyle.dp(getContext(), 4));
+        dashed.setStroke(Math.max(1, Math.round(getResources().getDisplayMetrics().density)), 0x38FFFFFF, ShadeStyle.dp(getContext(), 5), ShadeStyle.dp(getContext(), 4));
         card.setBackground(dashed);
-        com.particlesdevs.photoncamera.ui.Icons.mono(icon, ShadeStyle.MUTED); // P570: tonal mono
+        com.particlesdevs.photoncamera.ui.camera.ConceptStyle.icon(icon, R.drawable.cv_plus, 0xB3FFFFFF);
         icon.setActivated(false);
-        name.setTextColor(ShadeStyle.MUTED);
-        name.setTypeface(Typeface.DEFAULT);
+        name.setTextColor(0xB3FFFFFF);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(name, com.particlesdevs.photoncamera.ui.style.Fonts.REGULAR);
         card.setAlpha(1f);
         setContentDescription(getContext().getString(R.string.shade_add_description));
         requestLayout();
@@ -192,11 +197,18 @@ public class ShadeTileView extends FrameLayout {
         value.setVisibility(value.getText().length() > 0 ? VISIBLE : GONE);
         // P574 (the approved concept's tiles): a changed setting is a deep accent tile with the accent's own ink (the camera's
         // yellow on a dark yellow), not a full accent fill
+        // P583 (the concept): on, the accent's dark tone (#4A3D00 for the yellow) with the accent's ink; off, #2C2C2E and white;
+        // the open slider tile an inset 1.5px accent edge
         final int ink = active ? accent : ShadeStyle.TEXT;
-        final int fill = active ? ShadeStyle.tint(accent, .28f) : ShadeStyle.TONAL;
-        final int stroke = open && !active ? accent : 0;
-        card.setBackground(ShadeStyle.pressable(getContext(), fill, stroke,
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(getContext(), 20) / getResources().getDisplayMetrics().density));
+        final int fill = active ? com.particlesdevs.photoncamera.ui.camera.ConceptStyle.dark(accent) : com.particlesdevs.photoncamera.ui.camera.ConceptStyle.ROW;
+        final GradientDrawable shape = new GradientDrawable();
+        shape.setColor(fill);
+        shape.setCornerRadius(radius());
+        if (open) shape.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), accent);
+        final GradientDrawable mask = new GradientDrawable();
+        mask.setColor(0xFFFFFFFF);
+        mask.setCornerRadius(radius());
+        card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x29FFFFFF), shape, mask));
         // P570: a colour icon in its own colours on the tonal tile; on the accent, tonal mono in its ink and in its pressed pose
         if (!colourIcon) {
             icon.clearColorFilter();
@@ -206,8 +218,25 @@ public class ShadeTileView extends FrameLayout {
         icon.setActivated(active);
         value.setTextColor((ink & 0x00FFFFFF) | 0xB8000000);
         name.setTextColor(ink);
-        name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(name, com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD);
         card.setAlpha(dimmed ? ShadeStyle.DIMMED : 1f);
+    }
+
+    /** The concept's tile corner: min(22, max(6, width / 3.2)) px of its width (22px on the 4-column page). */
+    private float radius() {
+        float d = getResources().getDisplayMetrics().density, k = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(getContext());
+        float w = card.getWidth() > 0 ? card.getWidth() / (d * k) : 80f;
+        return Math.min(22f, Math.max(6f, w / 3.2f)) * d * k;
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int ow, int oh) {
+        super.onSizeChanged(w, h, ow, oh);
+        if (w != ow) post(() -> {
+            if (addTile) {
+                if (card.getBackground() instanceof GradientDrawable) ((GradientDrawable) card.getBackground()).setCornerRadius(radius());
+            } else if (key != null) applyColors();
+        });
     }
 
     /** Edit mode: «×» on the tile and a gentle wobble (none when animations are off). */
@@ -261,8 +290,9 @@ public class ShadeTileView extends FrameLayout {
         int inner = width - getPaddingLeft() - getPaddingRight() - 2 * com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), CARD_PADDING_DP);
         float k = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.k(getContext());
         // P517: narrow tiles (up to 10 columns, P515) shrink the text further before an ellipsis
-        ShadeStyle.fit(name, inner, 11 * k, 9 * k, 6.5f, 1);
-        ShadeStyle.fit(value, inner, 10 * k, 9 * k, 6.5f, 1);
+        // P583: the concept's level-2 tile - the name 12.5px semibold, the value 11.5px at 72 %
+        ShadeStyle.fit(name, inner, 12.5f * k, 9 * k, 6.5f, 1);
+        ShadeStyle.fit(value, inner, 11.5f * k, 9 * k, 6.5f, 1);
         // Content height at this width, at least the concept's 50dp card (a compact rectangle, wider than tall).
         super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
         int least = com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dp(getContext(), CARD_HEIGHT_DP) + getPaddingTop() + getPaddingBottom();

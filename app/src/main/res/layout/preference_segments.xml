@@ -3,6 +3,7 @@
      as a segmented control (IosSegmented: a capsule track, one thumb gliding to the chosen segment, the chosen label in the
      accent). SegmentedListPreference fills it. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/settings_row"
@@ -25,8 +26,8 @@
             android:background="@drawable/settings_icon_tile">
             <ImageView
                 android:id="@android:id/icon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="19dp"
+                android:layout_height="19dp"
                 android:layout_gravity="center"
                 android:importantForAccessibility="no"
                 android:scaleType="fitCenter" />
@@ -40,18 +41,23 @@
                 android:id="@android:id/title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="@font/roboto_flex_600"
+            app:fontFamily="@font/roboto_flex_600"
                 android:textColor="@color/settings_row_title"
-                android:textFontWeight="600"
-                android:textSize="16sp" />
+                android:textSize="16dp"
+            android:lineHeight="21dp"
+            android:includeFontPadding="false" />
             <TextView
+                android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
                 android:id="@android:id/summary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:lineSpacingExtra="2dp"
+                android:lineHeight="17dp"
+            android:includeFontPadding="false"
                 android:textColor="@color/settings_summary"
-                android:textSize="13sp" />
+                android:textSize="13dp" />
         </LinearLayout>
     </LinearLayout>
     <com.particlesdevs.photoncamera.ui.controls.IosSegmented

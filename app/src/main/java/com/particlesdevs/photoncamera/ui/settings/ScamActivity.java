@@ -16,6 +16,12 @@ import com.particlesdevs.photoncamera.util.Lang;
  * scam_capture_report), to read and copy. P129: the SCAM HDR launch checks that used to live here are gone with SCAM HDR.
  */
 public final class ScamActivity extends Activity {
+    /** P582: laid out at the concept's 390dp width with the font scale 1, whatever the phone's display / font size. */
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(com.particlesdevs.photoncamera.ui.style.UiFixedScale.wrap(base));
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);setTitle(Lang.t(this,"Отчёт последней съёмки SHDR","Last SHDR capture report"));
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);

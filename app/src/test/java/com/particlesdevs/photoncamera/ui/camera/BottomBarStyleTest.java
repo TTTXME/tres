@@ -151,7 +151,7 @@ public class BottomBarStyleTest {
             }
             String at = name + "dp: ";
             Rect shutter = box(row.shutterButtonContainer, binding.getRoot());
-            assertEquals(at + "the shutter a fifth of the width", w / 5f, shutter.width(), w * .02f);
+            assertEquals(at + "P583: the shutter 86 / 390 of the width", w * 86f / 390f, shutter.width(), w * .02f);
             float s = BottomChrome.scale(w / density);
             // SIMPLE_UI: the concept's containers - the card colour (the strip at 85 %), the gallery card 16dp corners
             int card = SettingsStyle.CARD;
@@ -168,7 +168,7 @@ public class BottomBarStyleTest {
             assertEquals(at + "strip: capsule corners", BottomChrome.STRIP_RADIUS_DP * density * s, stripBg.getCornerRadius(), .5f);
             for (int i = 0; i < strip.getChildCount(); i++) {
                 View lens = strip.getChildAt(i);
-                assertEquals(at + "lens height", Math.round(38 * density * s), lens.getHeight(), 1);
+                assertEquals(at + "lens height", Math.round(com.particlesdevs.photoncamera.ui.camera.views.LensButton.HEIGHT_DP * density * s), lens.getHeight(), 1);
                 if (lens.isSelected()) assertTrue(at + "the active lens a pill wider than tall", lens.getWidth() > lens.getHeight());
             }
             assertEquals(at + "the processing ring is shown", View.VISIBLE, ring.getVisibility());

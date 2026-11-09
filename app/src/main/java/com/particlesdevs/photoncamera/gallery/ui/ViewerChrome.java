@@ -100,7 +100,7 @@ public final class ViewerChrome {
         meta.setOrientation(LinearLayout.VERTICAL);
         meta.setGravity(Gravity.CENTER_VERTICAL);
         metaTitle = GalleryUi.fitText(c, "", 15, GalleryUi.TEXT);
-        metaTitle.setTypeface(GalleryUi.semibold());
+        metaTitle.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(metaTitle.getContext(), 600));
         metaTitle.setShadowLayer(GalleryUi.dp(c, 3), 0, 0, 0x66000000);
         metaSub = GalleryUi.fitText(c, "", 13, 0xB3FFFFFF);
         metaSub.setShadowLayer(GalleryUi.dp(c, 3), 0, 0, 0x66000000);
@@ -113,7 +113,7 @@ public final class ViewerChrome {
         row.addView(meta, mp);
         // the Ultra HDR switch: a pill at the right of the top row (Ultra HDR photos only)
         hdrPill = GalleryUi.text(c, "", 12.5f, accent);
-        hdrPill.setTypeface(GalleryUi.semibold());
+        hdrPill.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(hdrPill.getContext(), 600));
         hdrPill.setGravity(Gravity.CENTER);
         hdrPill.setMinHeight(GalleryUi.dp(c, 36));
         hdrPill.setPadding(GalleryUi.dp(c, 12), 0, GalleryUi.dp(c, 12), 0);

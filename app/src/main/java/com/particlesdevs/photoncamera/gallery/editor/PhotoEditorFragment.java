@@ -327,7 +327,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         card.setBackground(GallerySheets.alertCard(c)); // P579: the alert's card (30dp corners)
         card.setPadding(GalleryUi.dp(c, 20), GalleryUi.dp(c, 20), GalleryUi.dp(c, 20), GalleryUi.dp(c, 20));
         exportText = GalleryUi.text(c, Lang.t("Сохраняю копию…", "Saving a copy…"), 16, GalleryUi.TEXT);
-        exportText.setTypeface(GalleryUi.semibold());
+        exportText.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(exportText.getContext(), 600));
         exportText.setGravity(Gravity.CENTER);
         card.addView(exportText);
         exportBar = new ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal);
@@ -419,7 +419,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             tabIcons[i] = GalleryUi.icon(c, icons[i], colour, 22);
             b.addView(tabIcons[i]);
             TextView t = GalleryUi.fitText(c, names[i], 10.5f, colour);
-            t.setTypeface(GalleryUi.semibold());
+            t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
             t.setGravity(Gravity.CENTER);
             tabNames[i] = t;
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

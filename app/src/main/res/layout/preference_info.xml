@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- P6b information row: the note of the module screen (i + text), no card. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="top"
@@ -16,7 +17,7 @@
         android:layout_marginEnd="14dp"
         android:importantForAccessibility="no"
         android:duplicateParentState="true"
-        android:src="@drawable/settings_ic_info" />
+        android:src="@drawable/cs_ic_info" />
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -24,18 +25,23 @@
         android:orientation="vertical">
         <TextView
             android:id="@android:id/title"
-            android:fontFamily="sans-serif-medium"
+            android:fontFamily="@font/roboto_flex_500"
+            app:fontFamily="@font/roboto_flex_500"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="3dp"
             android:textColor="@color/settings_text"
-            android:textSize="14sp" />
+            android:textSize="14dp" />
         <TextView
+            android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
             android:id="@android:id/summary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:lineSpacingExtra="3dp"
             android:textColor="@color/settings_summary"
-            android:textSize="13sp" />
+            android:lineHeight="17dp"
+            android:includeFontPadding="false"
+            android:textSize="13dp" />
     </LinearLayout>
 </LinearLayout>

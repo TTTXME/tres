@@ -68,8 +68,9 @@ public final class ShadeStyle {
      */
     public static Drawable sheet(Context c) {
         // P495 (concept G): a floating glass panel - all corners round (18dp), a hairline light edge, the glass alpha
+        // P583 (the concept's sheets): #1C1C1E with 36px corners (still at «Прозрачность шторки»)
         return new GlassPlates((SHEET_FILL & 0x00FFFFFF) | (Math.round(255 * glassAlpha(c)) << 24),
-                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 18),
+                com.particlesdevs.photoncamera.circularbarlib.ui.UiScale.dpF(c, 36),
                 Math.max(1, Math.round(c.getResources().getDisplayMetrics().density * .5f)), dp(c, 10));
     }
 
@@ -122,17 +123,20 @@ public final class ShadeStyle {
     }
 
     /** The concept's sheet colour (--sheet). */
-    public static final int SHEET_FILL = 0xFF15191C;
+    public static final int SHEET_FILL = 0xFF1C1C1E;
     /** «Прозрачность шторки» (0..80 %, default 40 %): the key of the setting. */
     public static final String TRANSPARENCY_KEY = "pref_shade_transparency";
-    public static final int TRANSPARENCY_DEFAULT = 40;
+    // P583: the concept's sheet is opaque (a stored choice stays as it is)
+    public static final int TRANSPARENCY_DEFAULT = 0;
 
     /**
      * P495 (owner, 2026-11-03, concept G): the shade's glass panel is 10 points more see-through than «Прозрачность шторки» says
      * (the default 40 % shows as 50 %; owner: first +30, then «на 20% менее прозрачной»), still following the setting, at most 90 %.
      */
     public static float glassAlpha(Context c) {
-        return Math.max(.1f, sheetAlpha(c) - GLASS_EXTRA / 100f);
+        // P583: an opaque sheet (the concept's, 0 %) stays opaque; any see-through choice gets the glass's extra
+        final float a = sheetAlpha(c);
+        return a >= 1f ? 1f : Math.max(.1f, a - GLASS_EXTRA / 100f);
     }
 
     /** The sheet's and its cards' alpha: 1 - the transparency. */
@@ -192,7 +196,8 @@ public final class ShadeStyle {
             return;
         }
         TextPaint paint = new TextPaint(view.getPaint());
-        float scaled = view.getResources().getDisplayMetrics().scaledDensity;
+        // P583: the concept's px as dp (the system's font size does not count on the camera screen)
+        float scaled = view.getResources().getDisplayMetrics().density;
         for (float sp = maxSp; sp >= oneLineMinSp - 1e-3f; sp -= .5f) {
             paint.setTextSize(sp * scaled);
             if (fits(text, paint, widthPx, 1)) {
@@ -214,7 +219,7 @@ public final class ShadeStyle {
     }
 
     private static void setSp(TextView view, float sp) {
-        float px = sp * view.getResources().getDisplayMetrics().scaledDensity;
+        float px = sp * view.getResources().getDisplayMetrics().density;
         if (Math.abs(view.getTextSize() - px) > .01f) view.setTextSize(TypedValue.COMPLEX_UNIT_PX, px);
     }
 

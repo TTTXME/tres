@@ -83,6 +83,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             if (ScameraApp.getSettings() != null) ScameraApp.getSettings().loadCache();
         }
         setContentView(R.layout.activity_settings);
+        // P584: every text of the settings in the concept's Roboto Flex, its size in dp
+        ConceptFonts.follow(getWindow().getDecorView());
         
         // Get camera mode from intent
         sCameraMode = getIntent().getIntExtra("camera_mode", -1);
@@ -461,7 +463,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             android.widget.LinearLayout page = new android.widget.LinearLayout(c);
             page.setOrientation(android.widget.LinearLayout.VERTICAL);
             page.setBackgroundColor(SettingsStyle.PAGE);
-            page.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 12), SettingsStyle.dp(c, 16), 0);
+            // P584: the concept's bar - 16dp over its 44dp (the 40dp discs centred in it)
+            page.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 16), 0);
             // SIMPLE_UI §4: as the concept, the search is a pill under the root's header only; P189: a module page has none
             // (a hit would open the usual page)
             header = SettingsStyle.header(c, () -> requireActivity().getOnBackPressedDispatcher().onBackPressed(), null, this::resetPage);
@@ -477,7 +480,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             top.addView(header.titles, new android.widget.LinearLayout.LayoutParams(-1, -2));
             if (root && moduleProfile() == null) {
                 android.widget.LinearLayout.LayoutParams sp = new android.widget.LinearLayout.LayoutParams(-1, -2);
-                sp.bottomMargin = SettingsStyle.dp(c, 8);
+                sp.bottomMargin = SettingsStyle.dp(c, 10);   // P584: the concept's 10dp under the search
                 top.addView(SettingsStyle.searchPill(c, this::openSearch), sp);
                 // 2026-10-27 (owner: settings anyone can set up alone): the two gestures that explain a setting and put its
                 // default back (DoubleTapReset: the long press of a slider row reaches its help too)
@@ -588,8 +591,9 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             final CharSequence title = screen.getTitle();
             // P574 (the concept): the centred confirmation, «Отмена» / red «Сбросить»
             DialogStyle.confirm(c, Lang.t(c, "Сбросить «" + title + "»?", "Reset «" + title + "»?"),
-                    Lang.t(c, "Все параметры этой страницы вернутся к значениям по умолчанию. Вложенные страницы не затрагиваются.",
-                            "Every setting of «" + title + "» goes back to its default. Pages inside it stay as they are."),
+                    // P584: the concept's alert text (the pages inside it keep theirs: PageReset resets this page's rows only)
+                    Lang.t(c, "Пункты этой страницы вернутся к значениям по умолчанию.",
+                            "The settings of this page go back to their defaults."),
                     Lang.t(c, "Сбросить", "Reset"), () -> {
                         int n = PageReset.reset(c, screen);
                         // the developer rows write scam_dev.txt, not the preferences
@@ -619,12 +623,15 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             if (header == null || !isAdded()) return;
             PreferenceScreen screen = getPreferenceScreen();
             CharSequence title = screen == null ? null : screen.getTitle();
-            header.heading.setText(title == null || title.length() == 0 ? Lang.t(getContext(),"Настройки камеры","Camera settings") : title);
+            // P584 (the concept): the main page is «Настройки», as its crumb names it on every other page
+            boolean main = getArguments() == null || getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) == null;
+            header.heading.setText(main || title == null || title.length() == 0 ? Lang.t(getContext(), "Настройки", "Settings") : title);
             header.subtitle.setVisibility(View.GONE);
             header.crumb.setText(crumb(screen));
             // P574 (the concept): a page's description under its large title
             if (screen != null && getArguments() != null && getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) != null
-                    && !android.text.TextUtils.isEmpty(screen.getSummary())) {
+                    && !android.text.TextUtils.isEmpty(screen.getSummary())
+                    && !ModuleRows.PAGE.equals(screen.getKey())) {   // P584: «Камеры и модули» has no description (Modules.dc.html)
                 header.subtitle.setText(screen.getSummary());
                 header.subtitle.setVisibility(View.VISIBLE);
             }

@@ -30,6 +30,7 @@ public final class CroppedRaw {
     /** Whether this camera's RAW stream can take the CROPPED_RAW use case. */
     public static boolean supported(@Nullable CameraCharacteristics c) {
         if (c == null || Build.VERSION.SDK_INT < 34 || !PreferenceKeys.scamDevSwitch("cropped_raw", true)) return false;
+        if (!familyAllows(OppoNativeFullRes.family(), PreferenceKeys.scamDevSwitch("oplus_cropped_raw", false))) return false;
         try {
             long[] cases = c.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES);
             if (cases == null) return false;
@@ -38,6 +39,15 @@ public final class CroppedRaw {
             // key unknown on this platform
         }
         return false;
+    }
+
+    /**
+     * P586: not on the OPPO family (OPPO, OnePlus, realme) - their CROPPED_RAW is the HAL's own ISZ, «izoom hwRemosaic» (the OnePlus 16
+     * lists it on cameras 0, 2 and 4: a remosaicked Bayer, which the owner does not want; its ISZ is the sensor's own Quad, OplusIsz);
+     * scam_dev "oplus_cropped_raw 1" turns it on again. Every other phone as before.
+     */
+    static boolean familyAllows(boolean family, boolean reenabled) {
+        return !family || reenabled;
     }
 
     /** The frame's raw crop (null: none reported). */

@@ -21,7 +21,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * SIMPLE_UI §1: the brightness sun beside the focus ring - 136dp x k, 0 EV in the middle, a drag up brightens in thirds of
+ * SIMPLE_UI §1: the brightness sun beside the focus brackets - 96dp x k, 0 EV 43 % down (P583), a drag up brightens in thirds of
  * a stop within the camera's range, it sits right of the ring (left where the right has no room).
  */
 @RunWith(RobolectricTestRunner.class)
@@ -46,7 +46,7 @@ public class ExposureSunViewTest {
         assertEquals(UiScale.dp(context, ExposureSunView.HEIGHT_DP), sun.getHeight());
         sun.setRange(-2f, 2f);
         sun.setEv(0f);
-        assertEquals(sun.getHeight() / 2f, sun.knobY(), .5f);
+        assertEquals("P583: 0 EV 43 % down, as the concept draws it", sun.getHeight() * ExposureSunView.ZERO, sun.knobY(), .5f);
         List<Float> evs = new ArrayList<>();
         sun.setListener(evs::add);
         float x = UiScale.dpF(context, 14), y = sun.knobY(), perEv = sun.pxPerEv();
@@ -60,7 +60,7 @@ public class ExposureSunViewTest {
         assertEquals("never past the range", 2f, sun.getEv(), 1e-4f);
         sun.onTouchEvent(ev(MotionEvent.ACTION_UP, 64, x, y - perEv * 10));
         assertFalse(sun.isDragging());
-        assertTrue("the knob moved up", sun.knobY() < sun.getHeight() / 2f);
+        assertTrue("the knob moved up", sun.knobY() < sun.getHeight() * ExposureSunView.ZERO);
         // a touch on the label's room is not taken
         assertFalse(sun.onTouchEvent(ev(MotionEvent.ACTION_DOWN, 80, UiScale.dpF(context, 60), y)));
     }

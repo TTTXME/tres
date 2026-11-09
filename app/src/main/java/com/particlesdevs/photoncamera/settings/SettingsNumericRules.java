@@ -37,6 +37,7 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_bento_chroma_sigma": return new double[]{0.5,4,0};
             case "pref_scam_hybrid_cdm": return new double[]{0.01,2,0};
             case "pref_scam_hybrid_kernel": return new double[]{0.5,2,0};
+            case "pref_scam_hybrid_kernel_texture": case "pref_scam_hybrid_kernel_bokeh": case "pref_scam_hybrid_kernel_transition": return new double[]{0.25,4,0}; // P587
             case "pref_scam_hybrid_weight_cap": return new double[]{1,50,0};
             case "pref_scam_hybrid_fwe": return new double[]{0,1,0};
             case "pref_scam_hybrid_dilate": return new double[]{0.5,8,0};

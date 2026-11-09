@@ -483,7 +483,7 @@ final class ShadeRows {
         TextView pill = new TextView(context);
         pill.setTextColor(accent);
         pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        pill.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        com.particlesdevs.photoncamera.ui.style.Fonts.apply(pill, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
         pill.setFontFeatureSettings("tnum");
         pill.setPadding(ShadeStyle.dp(context, 11), ShadeStyle.dp(context, 3), ShadeStyle.dp(context, 11), ShadeStyle.dp(context, 3));
         pill.setBackground(ShadeStyle.card(context, ShadeStyle.tint(accent, .28f), 0, 100));

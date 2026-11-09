@@ -194,7 +194,8 @@ public class BottomChromeTest {
             // P574 (the approved concept): the bottom row (gear, Sport | Photo, «Про») under the shutter row makes the controls
             // 22 + (78 + 14 + 52) + 14 + 46dp; on this 244dp panel that leaves no room above the 28dp handle and its 8dp: no raise.
             int handleRoom = slot.getHeight() + dp(context, BottomChrome.CLEARANCE_DP);
-            int controls34 = dp(context, 22) + row.getHeight() + dp(context, 14) + strip.getHeight();
+            // P583: the concept's 18dp under the bottom row and 16dp between the strip and the shutter row
+            int controls34 = dp(context, 18) + row.getHeight() + dp(context, 16) + strip.getHeight();
             int raise = BottomChrome.raise(976, controls34, 0, slot.getHeight(), dp(context, BottomChrome.CLEARANCE_DP));
             assertEquals(Math.max(0, Math.min(98, 976 - controls34 - handleRoom)), raise);
             assertTrue("the controls fit under the viewfinder", 976 - controls34 >= 0);
@@ -230,10 +231,11 @@ public class BottomChromeTest {
             assertTrue(handle.isEnabled());
 
             // A preview 40 px taller (its size rounded down the other way): the handle moves under it.
-            viewfinder.getLayoutParams().height = VIEWFINDER + 40;
+            // (P583: 8 px - the concept's controls fill this 244dp panel all but 30 px)
+            viewfinder.getLayoutParams().height = VIEWFINDER + 8;
             viewfinder.requestLayout();
             settle();
-            assertEquals(handleAt(TOP_BAR + VIEWFINDER + 40, y(strip), slot.getHeight(), context), y(slot));
+            assertEquals(handleAt(TOP_BAR + VIEWFINDER + 8, y(strip), slot.getHeight(), context), y(slot));
             assertEquals(stripTop - raise, y(strip));
             // A 9:16 preview under the controls: the handle stops 8dp above the strip.
             viewfinder.getLayoutParams().height = WIDTH * 16 / 9;
@@ -262,17 +264,17 @@ public class BottomChromeTest {
             assertEquals(BAR_169, bar.getHeight());
             // About 150dp of controls (P161: the strip its 38dp lens tiles and 2 x 4dp): the bar leaves them less than the
             // 66 px tenth.
-            int controls = dp(context, 22) + row.getHeight() + dp(context, 14) + strip.getHeight();
-            // SIMPLE_UI: concept sizes - the 78dp shutter row (this bar is not run through scaleBar) and the strip of 38dp x k lens
-            // tiles (they scale themselves) in its 2 x 4dp padding
+            int controls = dp(context, 18) + row.getHeight() + dp(context, 16) + strip.getHeight();
+            // P583: concept sizes - the 86dp shutter (this bar is not run through scaleBar) and the strip of 44dp x k lens
+            // tiles (they scale themselves) in its 2 x 3dp padding
             float k = BottomChrome.scale(context);
-            assertEquals(dp(context, 78), shutter.getHeight(), 2);
-            assertEquals("P574: the shutter row and the bottom row", dp(context, 78 + 14 + 52), row.getHeight(), 3);
-            assertEquals(dp(context, 8) + dp(context, LensButton.HEIGHT_DP * k), strip.getHeight(), 3);
+            assertEquals(dp(context, 86), shutter.getHeight(), 2);
+            assertEquals("P583: the shutter row and the bottom row (the concept's 86 + 18 + 52)", dp(context, 86 + 18 + 52), row.getHeight(), 3);
+            assertEquals(dp(context, 6) + dp(context, LensButton.HEIGHT_DP * k), strip.getHeight(), 3);
             assertTrue(BAR_169 - controls < Math.round(BAR_169 * BottomChrome.RAISE_FRACTION));
             int lift = Math.max(0, Math.min(Math.round(BAR_169 * BottomChrome.RAISE_FRACTION), BAR_169 - controls));
             assertEquals(y(bar) + BAR_169 - controls - lift, y(strip));
-            assertEquals(y(bar) + BAR_169 - dp(context, 22) - lift, y(row) + row.getHeight());
+            assertEquals(y(bar) + BAR_169 - dp(context, 18) - lift, y(row) + row.getHeight());
             assertEquals(y(strip) - clearance, y(slot) + slot.getHeight());
             assertEquals(y(slot) - dp(context, BottomChrome.MANUAL_GAP_DP), y(manual) + manual.getHeight());
             // The ruler has no room inside the bar and is clipped away: the handle stays.

@@ -44,7 +44,7 @@ public final class GalleryToast {
         FrameLayout root = (FrameLayout) content;
         dismissNow();
         TextView t = GalleryUi.text(a, text, 14, GalleryUi.TEXT);
-        t.setTypeface(GalleryUi.semibold());
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         t.setGravity(Gravity.CENTER);
         t.setMaxLines(4);
         t.setLineSpacing(0, 1.15f);

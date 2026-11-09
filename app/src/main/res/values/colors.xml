@@ -10,5 +10,5 @@
     <color name="white_theme_background">#F0EEE9</color>
     <!-- Settings sheet (SHADE_SPEC): text, dim text and icons, accent, text on a light chip. -->
     <!-- Scrim under the FULL quick-settings shade (P25 concept: #000a) -->
-    <color name="shade_scrim">#AA000000</color>
+    <color name="shade_scrim">#73000000</color>
 </resources>

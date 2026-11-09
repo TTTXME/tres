@@ -39,7 +39,7 @@ public class ManualSummaryView extends ViewGroup {
         mark = new TextView(context);
         mark.setText("M");
         mark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        mark.setTypeface(Typeface.DEFAULT_BOLD);
+        mark.setTypeface(UiFonts.of(context, UiFonts.BOLD));
         mark.setIncludeFontPadding(false);
         mark.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         addView(mark);

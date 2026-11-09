@@ -47,18 +47,18 @@ public abstract class ModuleConceptFragment extends Fragment {
     protected LinearLayout card(){LinearLayout c=column();c.setBackground(shape(CARD,0,24));c.setClipToOutline(true);c.setPadding(dp(2),dp(2),dp(2),dp(2));body.addView(c,space(-1,-2,10));return c;}
     /** P384 / P574: as the preference pages' group titles: 12sp semibold, upper case, white at 55 % (was the accent). */
     protected void caption(String title){
-        TextView t=text(title,12,MUTED);t.setTypeface(SettingsStyle.semibold());t.setAllCaps(true);t.setLetterSpacing(.08f);
+        TextView t=text(title,12,MUTED);t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));t.setAllCaps(true);t.setLetterSpacing(.08f);
         t.setPadding(dp(16),0,dp(16),0);body.addView(t,space(-1,-2,22));
     }
     /** P384: the info glyph of the preference notes (it was the «ⓘ» character). */
     protected void note(String value){
-        LinearLayout n=row();n.setGravity(Gravity.TOP);ImageView icon=new ImageView(requireContext());icon.setImageResource(R.drawable.settings_ic_info);icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout n=row();n.setGravity(Gravity.TOP);ImageView icon=new ImageView(requireContext());icon.setImageResource(R.drawable.cs_ic_info);icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(dp(18),dp(18));ip.rightMargin=dp(10);ip.topMargin=dp(1);n.addView(icon,ip);
         TextView label=text(value,12.5f,MUTED);label.setLineSpacing(dp(3),1);n.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         n.setPadding(dp(6),0,dp(6),0);body.addView(n,space(-1,-2,16));
     }
     /** P574: {@code filled} an accent capsule with dark ink (the main action), else a #2C2C2E capsule with white text. */
-    protected TextView button(String title,boolean filled,Runnable action){TextView t=text(title,filled?17:15,filled?SettingsStyle.INK:TEXT);t.setTypeface(SettingsStyle.semibold());t.setGravity(Gravity.CENTER);t.setPadding(dp(8),dp(12),dp(8),dp(12));t.setMinHeight(dp(44));
+    protected TextView button(String title,boolean filled,Runnable action){TextView t=text(title,filled?17:15,filled?SettingsStyle.INK:TEXT);t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));t.setGravity(Gravity.CENTER);t.setPadding(dp(8),dp(12),dp(8),dp(12));t.setMinHeight(dp(44));
         t.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(filled?0x33000000:0x1FFFFFFF),shape(filled?accent:CARD,0,25),null));t.setOnClickListener(v->action.run());t.setFocusable(true);t.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName("android.widget.Button");}});return t;}
     protected void actions(Runnable all,Runnable none){LinearLayout r=row();TextView a=button(Lang.t(getContext(),"Выбрать всё","Select all"),false,all),b=button(Lang.t(getContext(),"Отменить выбор","Clear selection"),false,none);a.setTag("select_all");b.setTag("clear_selection");LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.rightMargin=dp(10);r.addView(a,lp);r.addView(b,new LinearLayout.LayoutParams(0,-2,1));body.addView(r,space(-1,-2,12));}
     protected void primary(String title,boolean enabled,Runnable action){TextView t=button(title,true,action);t.setMinHeight(dp(52));t.setEnabled(enabled);t.setAlpha(enabled?1:.4f);t.setTag("primary_action");footer.addView(t,new FrameLayout.LayoutParams(-1,-2));}
@@ -66,19 +66,19 @@ public abstract class ModuleConceptFragment extends Fragment {
     protected ImageView icon(String name){
         ImageView v=new ImageView(requireContext());int resource;
         switch(name){ // P6b: the concept icon set shared with the preference pages
-            case "▣":resource=R.drawable.settings_ic_camera;break;
-            case "☷":resource=R.drawable.settings_ic_list;break;
-            case "◇":resource=R.drawable.settings_ic_tag;break;
+            case "▣":resource=R.drawable.cs_ic_camera;break;
+            case "☷":resource=R.drawable.cs_ic_list;break;
+            case "◇":resource=R.drawable.cs_ic_tag;break;
             case "▢":case "⧉":resource=R.drawable.settings_ic_copy;break;
-            case "back":resource=R.drawable.settings_ic_back;break;
-            case "◉":resource=R.drawable.settings_ic_palette;break;
-            case "⌕":resource=R.drawable.settings_ic_zoom;break;
-            case "⚙︎":resource=R.drawable.settings_ic_chip;break;
-            case "●":resource=R.drawable.settings_ic_eye;break;
-            case "○":resource=R.drawable.settings_ic_view;break;
-            case "✕":resource=R.drawable.settings_ic_reset;break;
-            case "≡":resource=R.drawable.settings_ic_sliders;break; // P189: the module group
-            case "▦":resource=R.drawable.settings_ic_mosaic;break; // P189: a FULLRES profile
+            case "back":resource=R.drawable.cs_back;break;
+            case "◉":resource=R.drawable.cs_ic_palette;break;
+            case "⌕":resource=R.drawable.cs_ic_zoom;break;
+            case "⚙︎":resource=R.drawable.cs_ic_chip;break;
+            case "●":resource=R.drawable.cs_ic_eye;break;
+            case "○":resource=R.drawable.cs_ic_view;break;
+            case "✕":resource=R.drawable.cs_ic_reset;break;
+            case "≡":resource=R.drawable.cs_ic_sliders;break; // P189: the module group
+            case "▦":resource=R.drawable.cs_ic_mosaic;break; // P189: a FULLRES profile
             default:resource=R.drawable.settings_ic_gear;
         }
         v.setImageResource(resource);v.clearColorFilter(); // P136: multi-tone glyphs, drawn as they are
@@ -91,7 +91,7 @@ public abstract class ModuleConceptFragment extends Fragment {
     }
     /** P384: the chevron of the preference pages (settings_widget_chevron), not a «›» character. */
     protected ImageView chevron(){
-        ImageView v=new ImageView(requireContext());v.setImageResource(R.drawable.settings_ic_chevron);v.setColorFilter(SettingsStyle.CHEVRON,PorterDuff.Mode.SRC_IN);
+        ImageView v=new ImageView(requireContext());v.setImageResource(R.drawable.cs_chevron);v.setColorFilter(SettingsStyle.CHEVRON,PorterDuff.Mode.SRC_IN);
         v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);return v;
     }
     protected void navigation(String icon,String title,String summary,Runnable action){

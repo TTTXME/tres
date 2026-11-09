@@ -75,7 +75,7 @@ public class IosSegmented extends LinearLayout {
             t.setMaxLines(2);
             t.setEllipsize(TextUtils.TruncateAt.END);
             t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(getContext(), com.particlesdevs.photoncamera.ui.style.Fonts.MEDIUM));
             t.setMinHeight(Math.round(dp(34)));
             final int px = Math.round(dp(6));
             t.setPadding(px, Math.round(dp(4)), px, Math.round(dp(4)));

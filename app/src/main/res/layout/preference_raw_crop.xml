@@ -2,6 +2,7 @@
 <!-- P162: «Обрезка кадра» - title, hint and the picture of the frame (RawCropView): the black stripes the automatic crop
      found, the own margins, the kept frame with its size; its edges drag. One settings card. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginTop="@dimen/settings_card_gap"
@@ -13,19 +14,24 @@
     android:paddingBottom="12dp">
     <TextView
         android:id="@android:id/title"
-        android:fontFamily="sans-serif-medium"
+        android:fontFamily="@font/roboto_flex_500"
+            app:fontFamily="@font/roboto_flex_500"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="@color/settings_row_title"
-        android:textSize="16sp" />
+        android:textSize="16dp"
+            android:lineHeight="21dp"
+            android:includeFontPadding="false" />
     <TextView
+        android:fontFamily="@font/roboto_flex_400"
+            app:fontFamily="@font/roboto_flex_400"
         android:id="@android:id/summary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:lineSpacingExtra="2dp"
         android:textColor="@color/settings_summary"
-        android:textSize="12.5sp" />
+        android:textSize="12.5dp" />
     <FrameLayout
         android:id="@+id/raw_crop_host"
         android:layout_width="match_parent"

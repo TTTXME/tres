@@ -20,7 +20,8 @@ final class Dcg14Button {
             return com.particlesdevs.photoncamera.util.Lang.t("Нет обычного модуля этой камеры для DCG", "No plain module of this camera for DCG");
         Log.i(TAG, "DCG 14 bit mode " + Dcg14Mode.name(mode));
         if (fragment.captureController != null) fragment.captureController.restartCamera();
-        return mode != Dcg14Mode.OFF ? com.particlesdevs.photoncamera.util.Lang.t("14 бит (DCG): вкл. · перезапуск", "14-bit (DCG): on · restart")
-                : com.particlesdevs.photoncamera.util.Lang.t("14 бит (DCG): выкл. · перезапуск", "14-bit (DCG): off · restart");
+        // P586: «DAG (телевик)» on the OnePlus 16 tele
+        return Dcg14Mode.title() + (mode != Dcg14Mode.OFF ? com.particlesdevs.photoncamera.util.Lang.t(": вкл. · перезапуск", ": on · restart")
+                : com.particlesdevs.photoncamera.util.Lang.t(": выкл. · перезапуск", ": off · restart"));
     }
 }

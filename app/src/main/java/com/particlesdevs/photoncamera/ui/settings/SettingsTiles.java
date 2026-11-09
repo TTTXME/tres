@@ -53,9 +53,15 @@ public final class SettingsTiles {
         return found;
     }
 
-    /** The pair of the palette colour nearest to {@code colour} (0: none drawn, or a grey: the grey pair). */
+    /**
+     * The pair of the palette colour nearest to {@code colour} (0: none drawn, or a grey: the grey pair). P584: the concept's own
+     * row icons (res/drawable/cs_ic_*, tools/icons/concept_icons.py --tones) are drawn in their hue's light tone: that tone gives
+     * its pair as it is (the concept's ICONS / HUES of research/concept/Hybrid.dc.html).
+     */
     static int[] forColour(int colour) {
         if (Color.alpha(colour) == 0) return GREY;
+        if (near(colour, GREY[1])) return GREY;
+        for (int[] pair : PAIRS) if (near(colour, pair[1])) return pair;
         final float[] hsv = new float[3];
         Color.colorToHSV(colour, hsv);
         if (hsv[1] < .2f) return GREY;
@@ -68,6 +74,57 @@ public final class SettingsTiles {
             if (d < bestD) { bestD = d; best = i; }
         }
         return best < 0 ? GREY : PAIRS[best];
+    }
+
+    /** {@code a} and {@code b} the same colour but for the rounding of an edge pixel. */
+    private static boolean near(int a, int b) {
+        return Math.abs(Color.red(a) - Color.red(b)) <= 6 && Math.abs(Color.green(a) - Color.green(b)) <= 6
+                && Math.abs(Color.blue(a) - Color.blue(b)) <= 6;
+    }
+
+    private static final WeakHashMap<Drawable.ConstantState, Boolean> FLAT = new WeakHashMap<>();
+
+    /**
+     * P584: whether {@code icon} is drawn in one colour (the concept's line glyphs, cs_*): those take the tone as it is (SRC_IN);
+     * the older colour icons take the tonal mono of Icons.mono (their light pieces fainter).
+     */
+    public static boolean flat(@Nullable Drawable icon) {
+        if (icon == null) return false;
+        final Drawable.ConstantState state = icon.getConstantState();
+        if (state != null) {
+            final Boolean known = FLAT.get(state);
+            if (known != null) return known;
+        }
+        boolean flat = false;
+        try {
+            final Drawable copy = (state != null ? state.newDrawable() : icon).mutate();
+            copy.setColorFilter(null);
+            final int size = 24;
+            final Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            copy.setBounds(0, 0, size, size);
+            copy.draw(new Canvas(b));
+            final int[] px = new int[size * size];
+            b.getPixels(px, 0, size, 0, 0, size, size);
+            b.recycle();
+            int first = 0;
+            flat = true;
+            for (int p : px) {
+                if (Color.alpha(p) < 160) continue;
+                if (first == 0) first = p;
+                else if (!near(p, first)) { flat = false; break; }
+            }
+            if (first == 0) flat = false;
+        } catch (RuntimeException ignored) {
+            // not drawable off screen: the tonal mono
+        }
+        if (state != null) FLAT.put(state, flat);
+        return flat;
+    }
+
+    /** {@code v}'s icon in {@code ink}: a one-colour glyph as it is, a colour icon in tonal mono. */
+    public static void ink(android.widget.ImageView v, int ink) {
+        if (flat(v.getDrawable())) v.setColorFilter(new android.graphics.PorterDuffColorFilter(ink, android.graphics.PorterDuff.Mode.SRC_IN));
+        else v.setColorFilter(com.particlesdevs.photoncamera.ui.Icons.mono(ink));
     }
 
     /** The most saturated opaque colour the drawable paints (0 when it paints nothing). */

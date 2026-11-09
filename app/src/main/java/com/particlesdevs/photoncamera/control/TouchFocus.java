@@ -651,7 +651,8 @@ public class TouchFocus {
             final boolean manualExposure = manualExposure(builder);
             int aeMode = manualExposure ? CameraMetadata.CONTROL_AE_MODE_OFF
                     : supportedMode(characteristics, CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES,
-                    Math.max(PreferenceKeys.getAeMode(), 1),
+                    // P590: the preview's own automatic mode (its flash mode: ON_AUTO_FLASH / ON_ALWAYS_FLASH), else ON
+                    com.particlesdevs.photoncamera.capture.FlashMode.touchAeMode(builder.get(CaptureRequest.CONTROL_AE_MODE)),
                     valueOr(builder.get(CaptureRequest.CONTROL_AE_MODE), CameraMetadata.CONTROL_AE_MODE_ON));
             Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
             boolean lensCanFocus = minFocusDistance == null || minFocusDistance > 0;

@@ -245,7 +245,7 @@ public final class ModuleRows {
             actions.setOrder(1000);
             actions.setPersistent(false);
             add(group, actions);
-            add = row(c, ADD, R.drawable.settings_ic_plus, c.getString(R.string.module_row_add), null);
+            add = row(c, ADD, R.drawable.cs_ic_plus, c.getString(R.string.module_row_add), null);
             add.setAccentTile(true);   // P574: the accent «+» of the approved concept
             add.setOnPreferenceClickListener(p -> {
                 List<String> sources = new ArrayList<>();
@@ -261,7 +261,7 @@ public final class ModuleRows {
             perLens.setPersistent(false);
             perLens.setDefaultValue(PreferenceKeys.isPerLensSettingsOn());
             perLens.setTitle(c.getString(R.string.module_row_per_lens));
-            perLens.setIcon(R.drawable.settings_ic_lenses);
+            perLens.setIcon(R.drawable.cs_ic_lenses);
             perLens.setOnPreferenceChangeListener((p, value) -> {
                 ModuleActions.perLensSwitch(Boolean.TRUE.equals(value));
                 // the main settings may take another profile: the page is built again (the open card is in its arguments)
@@ -367,10 +367,10 @@ public final class ModuleRows {
     /** A card's rows: name, zoom, the viewfinder button, a copy's crop, copying, a copy's delete, its own photo settings, FULLRES trials. */
     private void buildCard(Context c, ModuleSection card, String slot, @Nullable String trialsCamera) {
         String source = ModuleRegistry.duplicateOf(slot);
-        ModuleRowPreference name = row(c, NAME + slot, R.drawable.settings_ic_tag, c.getString(R.string.module_row_name), null);
+        ModuleRowPreference name = row(c, NAME + slot, R.drawable.cs_ic_tag, c.getString(R.string.module_row_name), null);
         name.setOnPreferenceClickListener(p -> { ModuleActions.rename(host.context(), slot, this::sync); return true; });
         add(card, name);
-        ModuleRowPreference zoom = row(c, ZOOM + slot, R.drawable.settings_ic_zoom, c.getString(R.string.module_row_zoom), null);
+        ModuleRowPreference zoom = row(c, ZOOM + slot, R.drawable.cs_ic_zoom, c.getString(R.string.module_row_zoom), null);
         zoom.setOnPreferenceClickListener(p -> { ModuleActions.zoomDialog(host.context(), slot, this::sync); return true; });
         add(card, zoom);
         // P413: the module's Camera ID in its card (was the separate «Camera ID модулей» list)
@@ -385,7 +385,7 @@ public final class ModuleRows {
         button.setTitle(c.getString(R.string.module_row_button));
         button.setOnPreferenceChangeListener((p, value) -> {
             prefs().edit().putBoolean("module_visible_" + slot, Boolean.TRUE.equals(value)).apply();
-            p.setIcon(Boolean.TRUE.equals(value) ? R.drawable.settings_ic_eye : R.drawable.settings_ic_eye_off);
+            p.setIcon(Boolean.TRUE.equals(value) ? R.drawable.cs_ic_eye : R.drawable.settings_ic_eye_off);
             p.setSummary(c.getString(Boolean.TRUE.equals(value) ? R.string.module_row_button_on : R.string.module_row_button_off));
             if (host.list() != null) host.list().post(this::sync); else sync();
             return true;
@@ -396,7 +396,7 @@ public final class ModuleRows {
             crop.setOnPreferenceClickListener(p -> { ModuleActions.cropCopy(host.context(), slot, this::sync); return true; });
             add(card, crop);
         }
-        ModuleRowPreference copy = row(c, COPY + slot, R.drawable.settings_ic_plus, c.getString(R.string.module_row_copy),
+        ModuleRowPreference copy = row(c, COPY + slot, R.drawable.cs_ic_plus, c.getString(R.string.module_row_copy),
                 c.getString(R.string.module_row_copy_summary));
         copy.setOnPreferenceClickListener(p -> {
             ModuleActions.cropSheet(host.context(), slot, 1f, k -> ModuleActions.copyWithCrop(host.context(), slot, k, this::created));
@@ -421,7 +421,7 @@ public final class ModuleRows {
         // P413: the lens page of the module and of each of its FULLRES shots (the reference's Binning / Full-Res of a lens)
         for (String id : profiles) {
             boolean variant = FullResProfiles.isVariant(id);
-            ModuleRowPreference lens = row(c, LENS_ROW + id, variant ? R.drawable.settings_ic_mosaic : R.drawable.settings_ic_sensor,
+            ModuleRowPreference lens = row(c, LENS_ROW + id, variant ? R.drawable.cs_ic_mosaic : R.drawable.settings_ic_sensor,
                     variant ? c.getString(R.string.module_row_lens) + " · " + FullResProfiles.label(id) : c.getString(R.string.module_row_lens),
                     c.getString(R.string.module_row_lens_summary));
             lens.setOnPreferenceClickListener(x -> { ModuleActions.openLens(host, id); return true; });
@@ -429,13 +429,13 @@ public final class ModuleRows {
         }
         for (String id : profiles) {
             boolean variant = FullResProfiles.isVariant(id);
-            ModuleRowPreference p = row(c, PROFILE + id, variant ? R.drawable.settings_ic_mosaic : R.drawable.settings_ic_sliders,
+            ModuleRowPreference p = row(c, PROFILE + id, variant ? R.drawable.cs_ic_mosaic : R.drawable.cs_ic_sliders,
                     variant ? FullResProfiles.label(id) : c.getString(R.string.module_row_profile), null);
             p.setOnPreferenceClickListener(x -> { ModuleActions.openProfile(host, id); return true; });
             add(card, p);
         }
         if (trialsCamera != null) {
-            ModuleRowPreference trials = row(c, TRIALS + trialsCamera, R.drawable.settings_ic_diag,
+            ModuleRowPreference trials = row(c, TRIALS + trialsCamera, R.drawable.cs_ic_diag,
                     c.getString(R.string.module_row_trials, trialsCamera), null);
             trials.setOnPreferenceClickListener(p -> { ModuleActions.retryTrials(host.context(), trialsCamera, this::sync); return true; });
             add(card, trials);
@@ -457,7 +457,7 @@ public final class ModuleRows {
         if (button != null) {
             boolean shown = ModuleRegistry.visible(slot);
             if (button.isChecked() != shown) button.setChecked(shown);
-            button.setIcon(shown ? R.drawable.settings_ic_eye : R.drawable.settings_ic_eye_off);
+            button.setIcon(shown ? R.drawable.cs_ic_eye : R.drawable.settings_ic_eye_off);
             button.setSummary(c.getString(shown ? R.string.module_row_button_on : R.string.module_row_button_off));
         }
         String source = ModuleRegistry.duplicateOf(slot);

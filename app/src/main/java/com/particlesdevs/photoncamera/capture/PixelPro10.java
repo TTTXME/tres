@@ -287,13 +287,21 @@ public final class PixelPro10 {
     /** P179: the telephoto's FULLRES is 200 MP (the default, as before the choice) rather than 50 MP. */
     public static boolean tele200() {
         SharedPreferences p = prefs();
-        return p == null || p.getBoolean(KEY_TELE_200, true);
+        return p == null ? tele200Default() : p.getBoolean(KEY_TELE_200, tele200Default());
+    }
+
+    /**
+     * P586: the size FULLRES takes before the owner chose one: 200 MP on the vivo telephotos (P179, as before the choice), 50 MP on
+     * the OPPO family (the OnePlus 16 main's «50 Мп» row 9 is its default FULLRES, «200 Мп» row 24 only when chosen).
+     */
+    static boolean tele200Default() {
+        return !OppoNativeFullRes.family();
     }
 
     public static void setTele200(boolean on) {
         SharedPreferences p = prefs();
         if (p == null) return;
-        final boolean changed = p.getBoolean(KEY_TELE_200, true) != on;
+        final boolean changed = p.getBoolean(KEY_TELE_200, tele200Default()) != on;
         p.edit().putBoolean(KEY_TELE_200, on).apply();
         if (changed) syncProfile();
     }

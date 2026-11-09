@@ -5,6 +5,6 @@
     android:layout_width="13dp"
     android:layout_height="17dp"
     android:importantForAccessibility="no"
-    android:src="@drawable/settings_ic_updown"
+    android:src="@drawable/cs_updown"
     android:tint="@color/settings_row_value"
     android:tintMode="src_in" />

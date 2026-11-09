@@ -255,7 +255,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             row.setPadding(GalleryUi.dp(c, 8), GalleryUi.dp(c, 16), GalleryUi.dp(c, 8), GalleryUi.dp(c, 8));
             label = GalleryUi.text(c, "", 12, GalleryUi.SECTION);
             label.setLetterSpacing(.06f);
-            label.setTypeface(GalleryUi.semibold());
+            label.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(label.getContext(), 600));
             label.setAllCaps(true);
             count = GalleryUi.text(c, "", 12, GalleryUi.SECTION);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -452,7 +452,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         b.addView(GalleryUi.icon(c, R.drawable.ui_ic_play, GalleryUi.TEXT, 14));
         if (durationMs > 0) {
             TextView t = GalleryUi.text(c, com.particlesdevs.photoncamera.gallery.files.GalleryVideo.clock(durationMs), 11, GalleryUi.TEXT);
-            t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 700));
             LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             tp.leftMargin = GalleryUi.dp(c, 3);
             b.addView(t, tp);
