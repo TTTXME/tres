@@ -2,6 +2,10 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-09 — Fast mode without stripes
+
+- «Fast»: thin coloured stripes on moving subjects removed.
+
 ## 2026-11-09 — The interface as the concept, OnePlus 16
 
 - Camera, settings and gallery as the concept: icons, Roboto Flex font, sizes.

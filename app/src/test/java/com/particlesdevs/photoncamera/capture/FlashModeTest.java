@@ -203,7 +203,8 @@ public class FlashModeTest {
         assertTrue(branch > 0 && branch < body.indexOf("mPendingZslNormalFrames = drainZslNormalFrames("));
         assertTrue(body.contains("final boolean manualPsl = flash == null &&"));
         assertTrue(body.contains(": HybridPlan.flash(FlashMode.stillAeMode(flash.mode));"));
-        assertTrue(body.contains("mImageSaver.mosaicWbAtPress = flash != null ? null : mShutterMosaicWb;"));
+        // the press hand-off check's form (tools/check_press_handoff.py): the press's value, then none for the flash frame
+        assertTrue(body.contains("mImageSaver.mosaicWbAtPress = mShutterMosaicWb;\n            if (flash != null) mImageSaver.mosaicWbAtPress = null;"));
         assertTrue(body.contains("if (mScamRouted && flash == null) queueScamAeRestore();"));
         // the frame's own FLASH_STATE: FIRED releases the held ring, anything else the normal shot of the press
         assertTrue(body.contains("final boolean fired = FlashMode.fired(flashState);"));

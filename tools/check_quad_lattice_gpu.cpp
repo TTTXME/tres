@@ -4,6 +4,7 @@
 // and the lattice falls.
 #include "../app/src/main/cpp/scam-capture.h"
 #include "../app/src/main/cpp/scam-hybrid.h"
+#include <algorithm>
 #include <cstdio>
 #include <random>
 
@@ -25,16 +26,28 @@ static std::vector<float> reference(const std::vector<float>& rgb, int W, int H,
     for (size_t i = 0; i < Y.size(); ++i) { r[i] = Y[i] - b4[i]; a[i] = std::fabs(r[i]); }
     const auto s32 = box(a, -16, 15);
     for (size_t i = 0; i < Y.size(); ++i) { const float sg = k * 1.2533f * s32[i]; c[i] = std::clamp(r[i], -sg, sg); }
+    // P591: the median of 8 phase samples along x, then of 8 along y (the GPU's med8: the mean of the middle two)
+    auto med8 = [](float v[8]) { std::sort(v, v + 8); return 0.5f * (v[3] + v[4]); };
+    std::vector<float> Mx(Y.size());
     for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
-        const int px = x & 3, py = y & 3, nx = (W - px + 3) >> 2, ny = (H - py + 3) >> 2;
-        double m = 0;
-        for (int dj = -4; dj <= 3; ++dj) for (int di = -4; di <= 3; ++di)
-            m += c[size_t(py + 4 * std::clamp((y >> 2) + dj, 0, ny - 1)) * W + px + 4 * std::clamp((x >> 2) + di, 0, nx - 1)];
-        L[size_t(y) * W + x] = float(m / 64.0);
+        const int px = x & 3, nx = (W - px + 3) >> 2;
+        float v[8];
+        for (int di = -4; di <= 3; ++di) v[di + 4] = c[size_t(y) * W + px + 4 * std::clamp((x >> 2) + di, 0, nx - 1)];
+        Mx[size_t(y) * W + x] = med8(v);
+    }
+    for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
+        const int py = y & 3, ny = (H - py + 3) >> 2;
+        float v[8];
+        for (int dj = -4; dj <= 3; ++dj) v[dj + 4] = Mx[size_t(py + 4 * std::clamp((y >> 2) + dj, 0, ny - 1)) * W + x];
+        L[size_t(y) * W + x] = med8(v);
     }
     const auto l4 = box(L, -2, 1);
     std::vector<float> out(rgb);
-    for (size_t i = 0; i < Y.size(); ++i) { const float l = L[i] - l4[i]; for (int q = 0; q < 3; ++q) out[3 * i + q] -= l; }
+    for (size_t i = 0; i < Y.size(); ++i) {
+        const float l = L[i] - l4[i], Yi = Y[i];
+        if (Yi > 1.0e-4f) { const float g = std::clamp((Yi - l) / Yi, 0.25f, 1.75f); for (int q = 0; q < 3; ++q) out[3 * i + q] *= g; }
+        else for (int q = 0; q < 3; ++q) out[3 * i + q] -= l;
+    }
     return out;
 }
 

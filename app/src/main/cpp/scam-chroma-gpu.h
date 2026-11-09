@@ -331,8 +331,8 @@ void main(){
 // periodic part of the luma where the merge has few frames (the base's own Quad interpolation; nubia burst, dark wall: peaks 4.9 /
 // 5.9 x the background at 0.5 cycles / px against the quality route's 2.4 / 3.2). Per pixel: r = Y - box4(Y) (a 4 x 4 box passes no
 // 4-periodic part, so r holds it), clipped at 2.5 sigma of its own (sigma = 1.2533 x the 32 x 32 mean of |r|: edges do not leak into
-// the estimate), averaged per phase (x mod 4, y mod 4) over 8 x 8 samples of its phase (a 32 x 32 window); that pattern less its own
-// 4 x 4 mean is taken off R, G and B alike. Window ends as scipy's uniform_filter with mode 'nearest' (each phase plane clamped
+// the estimate), averaged per phase (x mod 4, y mod 4) over 8 x 8 samples of its phase (a 32 x 32 window; P591: the median of 8 along x,
+// then of 8 along y); that pattern less its own 4 x 4 mean is taken off the luma as a gain on R, G and B (P591). Window ends as scipy's uniform_filter with mode 'nearest' (each phase plane clamped
 // to its own samples). One pass per MODE; the strip's rows: image rows strip.x + row, the image strip.y rows high.
 static const char* kQuadLatticeGlsl = R"(
 layout(local_size_x=8,local_size_y=8) in;
@@ -344,6 +344,9 @@ uniform float clipK;
 int rowOf(int gy){gy=clamp(gy,0,strip.y-1);return clamp(gy-strip.x,0,size.y-1);}
 int phaseX(int x,int d){int p=x&3,n=(size.x-p+3)>>2;return p+4*clamp((x>>2)+d,0,n-1);}
 int phaseY(int gy,int d){int p=gy&3,n=(strip.y-p+3)>>2;return rowOf(p+4*clamp((gy>>2)+d,0,n-1));}
+// P591: the median of 8 phase samples (the mean before let a moving edge in one or two of them leak into the pattern: rows of
+// 1 px lines 4 rows apart across legs, a curb, a car's sill on the burst 20261026_142159); the mean of the middle two
+float med8(float v[8]){for(int a=0;a<7;a++)for(int b=0;b<7-a;b++){float lo=min(v[b],v[b+1]),hi=max(v[b],v[b+1]);v[b]=lo;v[b+1]=hi;}return 0.5*(v[3]+v[4]);}
 void main(){
     int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
     if(x>=size.x||y>=size.y)return;
@@ -365,18 +368,23 @@ void main(){
     float sg=clipK*1.2533*m*(1.0/1024.0);
     dst[i]=clamp(aux[i],-sg,sg);
 #elif MODE==5
-    float m=0.0;
-    for(int d=-4;d<=3;d++)m+=src[y*size.x+phaseX(x,d)];
-    dst[i]=m*0.125;
+    float v[8];
+    for(int d=-4;d<=3;d++)v[d+4]=src[y*size.x+phaseX(x,d)];
+    dst[i]=med8(v);
 #elif MODE==6
-    float m=0.0;
-    for(int d=-4;d<=3;d++)m+=src[phaseY(gy,d)*size.x+x];
-    dst[i]=m*0.125;
+    float v[8];
+    for(int d=-4;d<=3;d++)v[d+4]=src[phaseY(gy,d)*size.x+x];
+    dst[i]=med8(v);
 #elif MODE==7
     float m=0.0;
     for(int dy=-2;dy<=1;dy++){int yy=rowOf(gy+dy);for(int dx=-2;dx<=1;dx++)m+=src[yy*size.x+clamp(x+dx,0,size.x-1)];}
     float l=src[i]-m*0.0625;
-    dst[3*i]=aux[3*i]-l;dst[3*i+1]=aux[3*i+1]-l;dst[3*i+2]=aux[3*i+2]-l;
+    vec3 c=vec3(aux[3*i],aux[3*i+1],aux[3*i+2]);
+    float Y=0.25*c.x+0.5*c.y+0.25*c.z;
+    // P591: the luma's lattice off as a gain (the colour kept: an equal subtraction from R, G and B before the white balance
+    // tinted the corrected rows magenta / green), a dark pixel by subtraction
+    if(Y>1.0e-4)c*=clamp((Y-l)/Y,0.25,1.75);else c-=vec3(l);
+    dst[3*i]=c.x;dst[3*i+1]=c.y;dst[3*i+2]=c.z;
 #endif
 }
 )";
