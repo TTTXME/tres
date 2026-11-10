@@ -47,6 +47,15 @@ public class HighlightDetailTest {
         assertEquals(12f, u[3], 1e-6f);
         final String why = read("src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyCombine.java");
         assertTrue(why.contains("if (hlLocal[0] > 0f) glProg.setDefine(\"HL_LOCAL\", 1);"));
-        assertTrue(why.contains("glProg.setVar(\"hlLocalU\", hlLocal[0], hlLocal[1], hlLocal[2], hlLocal[3]);"));
+        assertTrue(why.contains("glProg.setVar(\"hlLocalU\", hlLocal[0] * nightFade, hlLocal[1], hlLocal[2], hlLocal[3]);"));
+    }
+
+    /** P607 round 3: at night HL_LOCAL and the hr detail fade with WhyAe's night weight (scam_dev hybrid_why_hl_local_night). */
+    @Test public void theHighlightDetailFadesAtNight() throws IOException {
+        assertEquals(1f, WhyTone.hlLocalNight(), 1e-6f);
+        final String why = read("src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyCombine.java");
+        assertTrue(why.contains("final float nightFade = 1f - Math.max(0f, Math.min(1f, r.nightW)) * WhyTone.hlLocalNight();"));
+        assertTrue("the hr detail fades too", why.contains("hrTone[2] * nightFade"));
+        assertTrue("HL_LOCAL stays compiled: a day shot is as before", why.contains("if (hlLocal[0] > 0f) glProg.setDefine(\"HL_LOCAL\", 1);"));
     }
 }

@@ -95,13 +95,24 @@ public final class NubiaFullRes {
         if (cameraId == null || c == null || OFFER.containsKey(cameraId) || !device()) return;
         try {
             final Size array = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
-            final int[] full = learn(cameraId, SensorModeBand.table(c), array == null ? 0 : array.getWidth(), array == null ? 0 : array.getHeight());
-            if (full == null) learnMaxRes(cameraId, PixelPro10.fullResStream(c), array);
+            final int[] full = learn(cameraId, SensorModeBand.table(c), array, PixelPro10.fullResStream(c));
             // P598: the session keys the remosaic probe's settings may use on this camera
             if (full == null && MAXRES.containsKey(cameraId)) NubiaRemosaicProbe.learn(cameraId, c);
         } catch (RuntimeException e) {
             Log.w(TAG, "camera " + cameraId + ": characteristics unreadable: " + e);
         }
+    }
+
+    /**
+     * P608: what a camera offers from its table, its advertised pixel array and its maximum-resolution RAW: its full-size row
+     * (returned), else the maximum-resolution route with that RAW's row of the table ({@link #learnMaxRes}). The stock NX721J's
+     * tele (camera 3, OV64B40: array 4624x3472, row 0 9248x6944@15, maximum-resolution RAW_SENSOR 9248x6944) takes the second.
+     */
+    @Nullable
+    static int[] learn(String cameraId, @Nullable int[] table, @Nullable Size array, @Nullable PixelPro10.FullRes maxRes) {
+        final int[] full = learn(cameraId, table, array == null ? 0 : array.getWidth(), array == null ? 0 : array.getHeight());
+        if (full == null) learnMaxRes(cameraId, maxRes, array, table);
+        return full;
     }
 
     /** The offer of a camera from its table and pixel array, kept for this run and logged; returns it (null: none). */
@@ -146,14 +157,116 @@ public final class NubiaFullRes {
      * firmware with one notice, a confident Quad keeps the setting for the camera.
      */
     private static final Map<String, Size> MAXRES = new ConcurrentHashMap<>();
+    /** P608: the SensorModeTable row of the maximum-resolution RAW's size (camera 2: row 0 8192x6144, camera 3: row 0 9248x6944). */
+    private static final Map<String, Integer> MAXRES_ROW = new ConcurrentHashMap<>();
 
     static void learnMaxRes(String cameraId, @Nullable PixelPro10.FullRes fr, @Nullable Size array) {
+        learnMaxRes(cameraId, fr, array, null);
+    }
+
+    /**
+     * P608 (owner's log of 31252, camera 2 at «50 Мп (ремозаик)»: a black viewfinder with two squeezed copies of the scene at one
+     * edge): the maximum-resolution session ran the sensor's binned mode - its results reported com.qti.sensorbps.mode_index 1
+     * (row 1, 4096x3072) and the HAL wrote that frame at its own row pitch into the 8192x6144 buffer (a quarter of the rows hold
+     * the picture, two half-width copies of even and odd rows, the rest zeros). The session now asks for the table's row of
+     * the maximum-resolution size ({@link #maxResRow}) and proves it (ModeWatch, {@link #partialFrame}).
+     */
+    static void learnMaxRes(String cameraId, @Nullable PixelPro10.FullRes fr, @Nullable Size array, @Nullable int[] table) {
         if (fr == null || fr.size == null || !PreferenceKeys.scamDevSwitch("nubia_maxres", true)) return;
         final long area = array == null ? 0 : (long) array.getWidth() * array.getHeight();
         if ((long) fr.size.getWidth() * fr.size.getHeight() < area * 3 / 2) return;
         MAXRES.put(cameraId, fr.size);
+        final int row = rowOfSize(table, fr.size.getWidth(), fr.size.getHeight());
+        if (row >= 0) MAXRES_ROW.put(cameraId, row);
+        else MAXRES_ROW.remove(cameraId);
         Log.i("SCAM_CAPTURE", "nubia camera " + cameraId + ": FULLRES through the maximum-resolution RAW " + fr.size
-                + " (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION, no ISP stream, the frames must be a mosaic - P588)");
+                + " (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION, no ISP stream - P588), " + (row >= 0 ? "sensor mode row " + row
+                + " asked (" + SensorModePick.QCOM_KEY + ", P608)" : "no SensorModeTable row of that size: the mode is not asked"));
+    }
+
+    /** P608: the first row of {@code table} of exactly {@code width} x {@code height}, -1 without one. */
+    static int rowOfSize(@Nullable int[] table, int width, int height) {
+        for (int[] r : SensorModePick.rows(table)) if (r[1] == width && r[2] == height) return r[0];
+        return -1;
+    }
+
+    /** P608: the SensorModeTable row the camera's maximum-resolution session asks for (-1: none learned). */
+    public static int maxResRow(@Nullable String cameraId) {
+        final Integer r = cameraId == null ? null : MAXRES_ROW.get(cameraId);
+        return r == null ? -1 : r;
+    }
+
+    /**
+     * P608: the camera's maximum-resolution size in the gallery's words («50 Мп», the tele's «64 Мп»), null without one: the size
+     * switch and the notices name the size the camera really has.
+     */
+    @Nullable
+    public static String sizeText(@Nullable String cameraId) {
+        final Size s = maxResSize(cameraId);
+        if (s == null) return null;
+        return Math.round((double) s.getWidth() * s.getHeight() / 1e6) + Lang.t(" Мп", " MP");
+    }
+
+    /** «50 Мп» or the camera's own size ({@link #sizeText}). */
+    static String sizeOr50(@Nullable String cameraId) {
+        final String s = sizeText(cameraId);
+        return s != null ? s : Lang.t("50 Мп", "50 MP");
+    }
+
+    // ---------------------------------------------------------------- P608: a binned frame packed into the max-resolution buffer
+
+    /**
+     * P608: whether a maximum-resolution frame holds a smaller one at its top: its lower rows (from 9/16 of the height down,
+     * {@link #LOWER_ROWS} of them sampled every {@link #STEP} pixels) are all one value below the black level (the HAL left them
+     * empty: a real RAW never reads below its pedestal, a dark one scatters round it), while its top rows vary. A binned frame
+     * written at its own row pitch fills a quarter of the rows, at the buffer's pitch a half; an in-sensor-zoom crop of the binned
+     * size as much. {@code buffer}: 16-bit little-endian samples from its position, {@code stride} bytes a row. Cheap: twelve
+     * sampled rows.
+     */
+    static boolean partialFrame(@Nullable java.nio.ByteBuffer buffer, int width, int height, int stride, float black) {
+        if (buffer == null || width < 64 || height < 64 || stride < width * 2) return false;
+        final int base = buffer.position();
+        if ((long) base + (long) (height - 1) * stride + width * 2L > buffer.limit()) return false;
+        final int floor = Math.max(1, (int) Math.ceil(black));
+        int constant = -1;
+        final int from = height * 9 / 16;
+        for (int i = 0; i < LOWER_ROWS; i++) {
+            final int y = from + (int) ((long) (height - 1 - from) * i / (LOWER_ROWS - 1));
+            for (int x = 0; x < width; x += STEP) {
+                final int v = sample(buffer, base + y * stride + x * 2);
+                if (constant < 0) constant = v;
+                else if (v != constant) return false;
+            }
+        }
+        if (constant < 0 || constant >= floor) return false;
+        int first = -1;
+        for (int i = 0; i < TOP_ROWS; i++) {
+            final int y = (int) ((long) (height / 8) * i / (TOP_ROWS - 1));
+            for (int x = 0; x < width; x += STEP) {
+                final int v = sample(buffer, base + y * stride + x * 2);
+                if (first < 0) first = v;
+                else if (v != first) return true;
+            }
+        }
+        return false; // the top as flat as the bottom: no picture at all, not a smaller one
+    }
+
+    static final int LOWER_ROWS = 8, TOP_ROWS = 4, STEP = 7;
+
+    private static int sample(java.nio.ByteBuffer b, int at) {
+        return (b.get(at) & 0xff) | (b.get(at + 1) & 0xff) << 8;
+    }
+
+    /** P608: the reason codes (NubiaRemosaicProbe.code) of a session in the binned mode and of a crop of the field. */
+    static final String BINNED_TAG = "(binned)", CROP_TAG = "(crop)";
+
+    /** P608: why a maximum-resolution session whose frame is {@link #partialFrame} fails ({@code modeRuns}: the full row was reported). */
+    static String partialWhy(int width, int height, boolean modeRuns) {
+        return modeRuns
+                ? "nubia: the results report the full sensor mode but the frames fill only the top of the " + width + "x" + height
+                + " buffer: an in-sensor-zoom crop, not the whole field " + CROP_TAG
+                : "nubia: the frames fill only the top of the " + width + "x" + height + " buffer: the HAL stays in its binned sensor mode "
+                + "(a quarter-size frame in the full-size buffer) " + BINNED_TAG;
     }
 
     /** P605: the maximum-resolution RAW size of the camera's FULLRES (null: none learned). */
@@ -241,8 +354,15 @@ public final class NubiaFullRes {
     // ---------------------------------------------------------------- the trials (FullResTrials)
 
     private static final String FAILED = "module_nubia_fullres_fail_";
-    /** The route's revision of the trials' stamp (with Build.FINGERPRINT: a firmware update tries the row again). */
-    static final int ROW_TRIALS = 1;
+    /**
+     * The route's revision of the trials' stamp (with Build.FINGERPRINT: a firmware update tries the row again). P608: 2 - every
+     * stored verdict of the maximum-resolution sessions of revision 1 came from binned frames packed into the full-size buffer
+     * (all their results reported mode 1): camera 2's «verified before» («frames» / «shot») of P605 and the eight «hwremosaic»
+     * fails of the P598 probe say nothing of the full mode. The stamp, not a new key suffix, so a camera's whole nubia memory
+     * (the route, the probe, a row) goes at once - each is tried once again with the full mode asked; the row trials of a
+     * Magisk-module firmware go too (another revision of the same firmware: tried again once, then remembered).
+     */
+    static final int ROW_TRIALS = 2;
 
     static String base(String cameraId) {
         return FAILED + cameraId;
@@ -340,35 +460,52 @@ public final class NubiaFullRes {
         final String who;
         final String camera;
         final int expected;
-        private int mismatches;
-        private boolean logged, settled;
+        /** P608: the maximum-resolution session's watch (its full row asked; the failure says the HAL stays binned). */
+        final boolean maxRes;
+        private int mismatches, last = -1;
+        private boolean logged, settled, runs;
 
         ModeWatch(String camera, int expected) {
             this("nubia", camera, expected);
         }
 
         ModeWatch(String who, String camera, int expected) {
+            this(who, camera, expected, false);
+        }
+
+        ModeWatch(String who, String camera, int expected, boolean maxRes) {
             this.who = who;
             this.camera = camera;
             this.expected = expected;
+            this.maxRes = maxRes;
+        }
+
+        /** P608: 1 the asked row was reported, -1 another one so far (waiting or failed), 0 nothing reported (or no row asked). */
+        int state() {
+            if (expected < 0) return 0;
+            return runs ? 1 : mismatches > 0 ? -1 : 0;
         }
 
         /** One result's reported mode (null: none): the log line to write (or null) and, through {@link #failure}, the verdict. */
         @Nullable
         String observe(@Nullable Integer reported) {
             if (settled || reported == null) return null;
+            last = reported;
             if (expected < 0) {
                 settled = true;
                 return who + " camera " + camera + " normal session: the results report sensor mode " + reported;
             }
             if (reported == expected) {
                 settled = true;
-                return who + " camera " + camera + ": the results report sensor mode " + reported + " (asked " + expected + "): the row runs";
+                runs = true;
+                return who + " camera " + camera + (maxRes ? " maximum-resolution session" : "") + ": the results report sensor mode "
+                        + reported + " (asked " + expected + "): the row runs";
             }
             mismatches++;
             if (!logged) {
                 logged = true;
-                return who + " camera " + camera + ": the results report sensor mode " + reported + ", asked " + expected + " (waiting)";
+                return who + " camera " + camera + (maxRes ? " maximum-resolution session" : "") + ": the results report sensor mode "
+                        + reported + ", asked " + expected + " (waiting)";
             }
             return null;
         }
@@ -378,6 +515,9 @@ public final class NubiaFullRes {
         String failure() {
             if (settled || expected < 0 || mismatches < PATIENCE) return null;
             settled = true;
+            if (maxRes) // P608: its own code - the frames of such a session are the binned one in the full-size buffer
+                return "nubia: the results report sensor mode " + last + ", not the full row " + expected + " in " + PATIENCE
+                        + " results: the HAL stays in its binned sensor mode " + BINNED_TAG;
             return "the sensor mode is not active (the results report another mode than row " + expected + ")";
         }
     }
@@ -387,6 +527,20 @@ public final class NubiaFullRes {
     /** CaptureController: a session of {@code camera} starts with {@code pick} (null: its normal session). */
     public static void watchSession(@Nullable String camera, @Nullable SensorModePick.Pick pick) {
         watch = camera == null || !device() ? null : new ModeWatch(camera, pick == null ? -1 : pick.mode);
+    }
+
+    /**
+     * P608, CaptureController: a maximum-resolution FULLRES session of {@code camera} starts; its results must report the full
+     * row it asks ({@link #maxResRow}; none learned: it only logs, as a normal session).
+     */
+    public static void watchMaxRes(@Nullable String camera) {
+        watch = camera == null || !device() ? null : new ModeWatch("nubia", camera, maxResRow(camera), true);
+    }
+
+    /** P608: what the running maximum-resolution session's results said of its mode (ModeWatch.state), 0 without one. */
+    public static int maxResModeState(@Nullable String camera) {
+        final ModeWatch w = watch;
+        return w == null || !w.maxRes || camera == null || !camera.equals(w.camera) ? 0 : w.state();
     }
 
     /** CaptureController: a result of the session's camera; a failure reason (the row is not active) or null. */
@@ -447,7 +601,17 @@ public final class NubiaFullRes {
     static void resetForTest() {
         OFFER.clear();
         MAXRES.clear();
+        MAXRES_ROW.clear();
         watch = null;
+    }
+
+    /** Tests: one result of the running session's camera reporting {@code reported} (watchResult without a CaptureResult). */
+    @Nullable
+    static String observeForTest(@Nullable Integer reported) {
+        final ModeWatch w = watch;
+        if (w == null) return null;
+        w.observe(reported);
+        return w.failure();
     }
 
     /** Tests: what a camera offers ({row, width, height, fps}). */

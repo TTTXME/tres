@@ -57,6 +57,16 @@ int main() {
         for (size_t i = 0; i < 16; ++i) guards &= copied[i] == 0xa5 && copied[n + 16 + i] == 0xa5;
         expect(guards, "parallel copy stays inside the destination");
     }
+    // P610: allocateAndCopy (the reference RAW out of the shot arena) through copyBytes: the same bytes from the offset, any size
+    for (size_t n : {size_t(4096), (size_t(32) << 20) + 5, (size_t(40) << 20) + 1}) {
+        std::vector<uint8_t> source(n + 7);
+        for (size_t i = 0; i < source.size(); ++i) source[i] = uint8_t(i * 131u + 7u);
+        jobject origin = newDirect(&env, source.data(), jlong(source.size()));
+        jobject copy = Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopy(&env, nullptr, jint(n), origin, 7);
+        expect(copy && capacity(&env, copy) == jlong(n) && std::memcmp(address(&env, copy), source.data() + 7, n) == 0,
+               "allocateAndCopy copies the bytes from the offset: " + std::to_string(n));
+        if (copy) Java_com_particlesdevs_photoncamera_util_Allocator_free(&env, nullptr, copy);
+    }
 
     // a result as the worker leaves it: halves (here 72 MB + a page), then a 12 MB trailer of clip flags
     const size_t rgb = (size_t(72) << 20) + 4096, clip = size_t(12) << 20, total = rgb + clip;

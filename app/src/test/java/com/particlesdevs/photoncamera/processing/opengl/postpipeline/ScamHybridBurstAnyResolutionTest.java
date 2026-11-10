@@ -306,6 +306,17 @@ public class ScamHybridBurstAnyResolutionTest {
         assertTrue(cut, cut.contains("8") && cut.contains("20"));
         assertNull("a dropped ultrashort is only logged", ScamHybridBurst.notice(whole,
                 "HYBRID SERIES: merged 7 of 8 sent (N frames 7 of 7)", "gpu"));
+        // P609 (OnePlus 16 tele, log 2026-11-10 19:39:41): the fast merge left out 2 normal frames of another exposure - not the memory
+        final String fast = "HYBRID FAST MERGE: Sabre per-frame merge, 4 frames (base 0 + 2 normal donors + 1 long; 0 of 2 short frames; "
+                + "left out: 0 weak short, 2 other; 0 long as normal), 8192x6144, SNR=16.65\nHYBRID SERIES: merged 4 of 8 sent (N frames 3 of 5)";
+        assertEquals(2, ScamHybridBurst.fastMergeOther(fast));
+        assertEquals(0, ScamHybridBurst.fastMergeOther("HYBRID SERIES: merged 8 of 20 sent (N frames 8 of 20)"));
+        assertEquals(0, ScamHybridBurst.fastMergeOther(null));
+        final String exposure = ScamHybridBurst.notice(whole, fast, "gpu");
+        assertNotNull(exposure);
+        assertTrue(exposure, exposure.contains("3") && exposure.contains("5") && exposure.contains("2"));
+        assertFalse("not the memory: " + exposure, exposure.contains("не вместила") || exposure.contains("held no more"));
+        assertTrue("the memory's own cut keeps its words", cut.contains("не вместила") || cut.contains("held no more"));
         ScamHybridBurst.lastFallbackFrames = 16;
         assertTrue(ScamHybridBurst.notice(whole, null, "gpu-conservative").contains("16"));
         assertTrue(ScamHybridBurst.notice(whole, null, "cpu-single").contains("1"));

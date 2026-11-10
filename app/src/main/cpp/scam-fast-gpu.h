@@ -73,6 +73,17 @@ uniform float u_moire;   // P497: Quad colour moire suppression (0 = off)
 uniform float u_step;    // P501: OUT px per sensor px (the sabre_scale; the Quad filters' sensor offsets scaled, 1 = as before)
 ivec2 sc(int dx, int dy) { return ivec2(round(vec2(float(dx), float(dy)) * u_step)); }
 uniform int u_fill;       // P497: > 0 = the reach (OUT px) of the hole fill below (short frames merged), 0 = off
+// P607 (owner, 2026-11-10, a street lamp at night: «артефакты на источниках света», dark blotches and a ragged star in its core):
+// > 0 = the hole fill only between two sides. A light's short frames are refused on the rim of the base's clipped disc (its
+// steep falloff 1 - 2 px off in their registration reads as 8x darker than the clipped base), and the fill stamped the light's
+// peak into that rim from the inside alone: a hard step at the base's clip edge (13 -> 1, a dark outline once toned), and on a
+// small lamp, whose rays all stopped, the fallback's rays through the dark reached its centre only along eight lines (bright
+// spokes beside the rim's own 2 - 5: holes). The wire it was made for (P497) is a band inside a plateau, recovered light on both
+// sides; now the fill brings its level only when two opposite rays found light (or one found it and the other the frame's edge) and
+// it is not darker than the merged light; elsewhere it brings the colour alone, at the pixel's own level (its brightest channel): the
+// rim keeps the short frames' falloff, and a refused pixel still loses the base's partial clip colour (a cyan G + B clip beside a
+// lit window's measured R stayed a cyan patch with the fill off there) (0 = as before)
+uniform float u_fill_light;
 uniform float u_quad_lift; // P506: > 0 = a Quad stream with short frames merged: the lattice round recovered lights notched
 // P596 (owner, 2026-11-10: «улучшить детализацию/резкость ... шарпинг трогать запрещаю»): deGrid's «flat ground» is a local change
 // under 4 .. 10 % of the luma, a single 50 MP frame's noise. After 30 merged frames the noise is a few tenths of that, and fine
@@ -112,15 +123,16 @@ float baseClip(ivec2 p){
 // such a pixel: the recovered highlight around it, rays in eight directions to their first pixel the short frames filled (past the
 // mask's soft rim while it still rises), weighted 1 / distance; a ray stops at a structure (the wire, outside the mask). One average
 // of all rays, not one chosen line: the line's switches drew boxes and roofs
-vec4 fill(ivec2 p,bool cross){ // cross: through structures (the fallback when nothing is in reach otherwise)
+vec4 fill(ivec2 p,bool cross,out bool paired){ // cross: through structures (the fallback when nothing is in reach otherwise)
     ivec2 lo=ivec2(0,u_acc_row0),hi=ivec2(u_size.x-1,u_acc_row0+textureSize(u_accum_color_r,0).y-1);
     ivec2 dirs[8]=ivec2[8](ivec2(1,0),ivec2(-1,0),ivec2(0,1),ivec2(0,-1),ivec2(1,1),ivec2(-1,-1),ivec2(1,-1),ivec2(-1,1));
     vec3 sum=vec3(0.0);float wsum=0.0;
+    uint hit=0u,edge=0u; // P607: the rays that found light, the rays that reached the frame's edge (bit d)
     for(int d=0;d<8;++d){
         ivec2 dd=dirs[d];float f=d<4?1.0:1.4142;
         for(int s=1;s<=u_fill;++s){
             ivec2 t=p+dd*s;
-            if(any(lessThan(t,lo))||any(greaterThan(t,hi)))break;
+            if(any(lessThan(t,lo))||any(greaterThan(t,hi))){edge|=1u<<uint(d);break;}
             vec3 u=at(t);float m=max(u.r,max(u.g,u.b));
             if(m<0.85||baseClip(t)<0.5||baseMask(t)<=0.5){if(cross)continue;break;} // the wire itself, or outside the mask
             if(refusal(t)>0.5)continue;
@@ -134,9 +146,13 @@ vec4 fill(ivec2 p,bool cross){ // cross: through structures (the fallback when n
             }
             float wt=1.0/(float(dist)*f);
             sum+=u*wt;wsum+=wt;
+            hit|=1u<<uint(d);
             break;
         }
     }
+    // opposite rays are the pairs (0, 1), (2, 3), (4, 5), (6, 7)
+    uint ok=hit|edge,two=ok&(ok>>1u)&0x55u,one=(hit|(hit>>1u))&0x55u;
+    paired=(two&one)!=0u;
     return vec4(wsum>0.0?sum/wsum:vec3(0.0),wsum);
 }
 // P497 (owner, 2026-11-04, a 50 MP Quad shot: «муар на шторах», purple outlines, lavender speaker grilles): a 2 x 2 Quad samples
@@ -262,7 +278,15 @@ void main(){
             float a=refusal(p)*baseClip(p)*smoothstep(0.8,0.9,max(v.r,max(v.g,v.b)));
             // across the wire only when nothing else is in reach: a strip the flow left without data between the frame's edge and
             // a wire (SCA_20261104_073312, its top left corner) stayed the base's pink clip
-            if(a>0.0){vec4 fv=fill(p,false);if(fv.a<=0.0)fv=fill(p,true);if(fv.a>0.0)v=mix(v,fv.rgb,a);}
+            if(a>0.0){
+                bool two;vec4 fv=fill(p,false,two);if(fv.a<=0.0)fv=fill(p,true,two);
+                if(fv.a>0.0&&u_fill_light>0.0){ // P607: the level only between two sides and never darker; else the colour alone
+                    float vm=max(v.r,max(v.g,v.b)),fm=max(fv.r,max(fv.g,fv.b));
+                    float full=(two?1.0:0.0)*smoothstep(0.95,1.05,fm/max(vm,1.0e-6));
+                    fv.rgb=mix(fv.rgb,mix(fv.rgb*(vm/max(fm,1.0e-6)),fv.rgb,full),clamp(u_fill_light,0.0,1.0));
+                }
+                if(fv.a>0.0)v=mix(v,fv.rgb,a);
+            }
         }
         if(u_quad_lift>0.0)v=quadDeLattice(p,v);
         if(u_moire>0.0)v=deGrid(p,antiMoire(p,v));

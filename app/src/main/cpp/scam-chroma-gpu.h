@@ -447,6 +447,7 @@ class ChromaMedianGpu {
     GLuint pQl[8]{}; // P571: quadLattice's passes 1..7 (built by ensureQuadLattice)
     enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kPostA, kPostB, kPostEff, kPostT0, kPostT1, kPostCnt, kQA, kQB, kQ1, kQ2, kQ3, kSlots };
     GLuint buf[kSlots]{};
+    size_t bufBytes[kSlots]{}; // P610: the bytes of each slot's storage (alloc)
     int w = 0, h = 0;
     int stripRow0 = 0; // P571: the image row of the current quadLattice strip's row 0
     void cleanup() noexcept {
@@ -485,6 +486,14 @@ class ChromaMedianGpu {
     void alloc(int slot, size_t bytes) {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[slot]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(bytes, 16)), nullptr, GL_DYNAMIC_DRAW);
+        bufBytes[slot] = std::max<size_t>(bytes, 16);
+    }
+    // P610 (speed, 50 MP): the slot's storage kept when it holds bytes already (bound as alloc binds it): the chroma median's bands
+    // of one frame (10 at 50 MP, ~275 MB each) took new storage every band. Every pass writes every value it reads later and reads
+    // only inside size (clamped taps), so what an earlier call left in the storage is never read.
+    void ensure(int slot, size_t bytes) {
+        if (bufBytes[slot] >= std::max<size_t>(bytes, 16)) glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[slot]);
+        else alloc(slot, bytes);
     }
     void bind(int binding, int slot) { glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GLuint(binding), buf[slot]); }
     // rows in dispatches of 256 (a single long dispatch can trip the GPU hang detection), flushed together
@@ -571,10 +580,7 @@ public:
     std::string quadLattice(std::vector<float>& rgb, int W, int H, float clipK = 2.5f) {
         if (W < 16 || H < 16 || rgb.size() < size_t(W) * H * 3) throw std::runtime_error("QUAD LATTICE GPU: sizes");
         auto t0 = Clock::now();
-        if (!pQl[7]) {
-            for (int m = 1; m <= 7; ++m) pQl[m] = compile(("#define MODE " + std::to_string(m) + "\n").c_str(), kQuadLatticeGlsl);
-            check("quad lattice programs");
-        }
+        ensureQuadLattice();
         GLint64 maxBlock = 0;
         glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxBlock);
         int strip = std::min(H, std::max(qlStrip, 64));
@@ -583,7 +589,7 @@ public:
         const size_t cap = size_t(W) * size_t(std::min(H, strip + 2 * kQlHalo));
         alloc(kQA, cap * 12); alloc(kQB, cap * 12); alloc(kQ1, cap * 4); alloc(kQ2, cap * 4); alloc(kQ3, cap * 4);
         check("quad lattice buffers");
-        std::vector<float> saved(size_t(kQlHalo) * W * 3), in;
+        std::vector<float> saved(size_t(kQlHalo) * W * 3);
         const double prep = ms(t0);
         double upMs = 0, passMs = 0, readMs = 0;
         int strips = 0;
@@ -597,11 +603,11 @@ public:
         for (int y0 = 0; y0 < H; y0 += strip, ++strips) {
             const int y1 = std::min(H, y0 + strip), ga = std::max(0, y0 - kQlHalo), gb = std::min(H, y1 + kQlHalo), rows = gb - ga, top = y0 - ga;
             auto u = Clock::now();
-            in.resize(size_t(rows) * W * 3);
-            if (top > 0) std::memcpy(in.data(), saved.data() + size_t(kQlHalo - top) * W * 3, size_t(top) * W * 12);
-            std::memcpy(in.data() + size_t(top) * W * 3, rgb.data() + size_t(y0) * W * 3, size_t(gb - y0) * W * 12);
+            // P610: the strip's rows uploaded from where they are (the kept originals above it, then the frame's rows): the same
+            // bytes in the buffer as through a copy of the strip
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kQA]);
-            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(in.size() * 4), in.data());
+            if (top > 0) glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(size_t(top) * W * 12), saved.data() + size_t(kQlHalo - top) * W * 3);
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, GLintptr(size_t(top) * W * 12), GLsizeiptr(size_t(gb - y0) * W * 12), rgb.data() + size_t(y0) * W * 3);
             check("quad lattice upload");
             upMs += ms(u); u = Clock::now();
             w = W; h = rows; stripRow0 = ga;
@@ -631,6 +637,12 @@ public:
         for (int sl : {kQA, kQB, kQ1, kQ2, kQ3}) alloc(sl, 16);
         return "programs " + std::to_string(int(prep)) + " upload " + std::to_string(int(upMs)) + " passes " + std::to_string(int(passMs))
             + " readback " + std::to_string(int(readMs)) + " (" + std::to_string(strips) + " strips) ms";
+    }
+    // P610: quadLattice's programs (on the prewarm's thread when chromaPrewarm(.., true) built the context, else on first use)
+    void ensureQuadLattice() {
+        if (pQl[7]) return;
+        for (int m = 1; m <= 7; ++m) pQl[m] = compile(("#define MODE " + std::to_string(m) + "\n").c_str(), kQuadLatticeGlsl);
+        check("quad lattice programs");
     }
     // P531: the post passes' programs (on the prewarm's thread when chromaPrewarm(true) built the context, else on first use)
     void ensurePost() {
@@ -773,8 +785,18 @@ public:
     // GPU memory of one call (B): rgb 12, ratios / medians / wide ratios 3 x 8, scalars 3 x 4 per pixel
     static size_t bytesFor(int w, int h) { return size_t(w) * h * 48; }
     void process(std::vector<float>& rgb, int width, int height, int block, const std::vector<float>* osc) {
+        if (rgb.size() < size_t(width) * size_t(height) * 3) throw std::runtime_error("CHROMA GPU: sizes");
+        processRows(nullptr, 0, rgb.data(), width, height, block, osc, rgb.data(), 0, height);
+    }
+    // P610 (speed, 50 MP: mosaicChromaMedianBands): one call on width x height rows given in two parts - the first topRows from top,
+    // the rest from rest (the band's kept originals above it and the frame's own rows: no copy of the band) - and the result's rows
+    // [readFirst, readEnd) read back into dst. The same bytes in the buffers as process() of the band copied together.
+    void processRows(const float* top, int topRows, const float* rest, int width, int height, int block, const std::vector<float>* osc,
+                     float* dst, int readFirst, int readEnd) {
         w = width; h = height;
         const size_t P = size_t(w) * h;
+        if (topRows < 0 || topRows > h || (topRows > 0 && !top) || !rest || !dst || readFirst < 0 || readEnd < readFirst || readEnd > h)
+            throw std::runtime_error("CHROMA GPU: rows");
         auto t = Clock::now();
         GLint64 maxBlock = 0;
         glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxBlock);
@@ -783,11 +805,13 @@ public:
         if (r3 > 32) throw std::runtime_error("CHROMA GPU: block " + std::to_string(block) + " beyond the box tiles");
         const bool rawOsc = osc && int(osc->size()) == bw * bh;
         const float eps = 0.002f;
-        alloc(kRgb, P * 12);
-        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(P * 12), rgb.data());
-        alloc(kUv, P * 8); alloc(kT, P * 8); alloc(kX, P * 8);
-        alloc(kL, P * 4); alloc(kA, P * 4); alloc(kS, P * 4);
-        alloc(kOsc, rawOsc ? osc->size() * 4 : 16);
+        const size_t topBytes = size_t(topRows) * w * 12;
+        ensure(kRgb, P * 12);
+        if (topBytes) glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(topBytes), top);
+        if (P * 12 > topBytes) glBufferSubData(GL_SHADER_STORAGE_BUFFER, GLintptr(topBytes), GLsizeiptr(P * 12 - topBytes), rest);
+        ensure(kUv, P * 8); ensure(kT, P * 8); ensure(kX, P * 8);
+        ensure(kL, P * 4); ensure(kA, P * 4); ensure(kS, P * 4);
+        ensure(kOsc, rawOsc ? osc->size() * 4 : 16);
         if (rawOsc) glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(osc->size() * 4), osc->data());
         check("upload");
         glFinish(); times += " upload " + std::to_string(int(ms(t))); t = Clock::now();
@@ -841,16 +865,20 @@ public:
         // readback (direct map; Adreno may return a NULL map for a large range: then in chunks)
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kRgb]);
         constexpr size_t kChunk = size_t(32) << 20;
-        const size_t bytes = P * 12;
+        const size_t first = size_t(readFirst) * w * 12, bytes = size_t(readEnd - readFirst) * w * 12;
         for (size_t off = 0; off < bytes; off += kChunk) {
             const size_t n = std::min(kChunk, bytes - off);
-            const void* m = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, GLintptr(off), GLsizeiptr(n), GL_MAP_READ_BIT);
+            const void* m = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, GLintptr(first + off), GLsizeiptr(n), GL_MAP_READ_BIT);
             if (!m) throw std::runtime_error("CHROMA GPU readback failed");
-            std::memcpy(reinterpret_cast<char*>(rgb.data()) + off, m, n);
+            std::memcpy(reinterpret_cast<char*>(dst) + off, m, n);
             if (!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER)) throw std::runtime_error("CHROMA GPU storage invalidated");
         }
         check("readback");
         times += " readback " + std::to_string(int(ms(t)));
+    }
+    // P610: the chroma median's storage given back (kept by ensure() between the bands of a frame) once a frame is done
+    void releaseBuffers() {
+        for (int slot : {kRgb, kUv, kT, kX, kL, kA, kS, kOsc}) if (bufBytes[slot] > 16) alloc(slot, 16);
     }
 };
 
@@ -886,6 +914,9 @@ inline uint16_t floatToHalf(float f) {
 struct ChromaGpuSlot {
     std::future<std::unique_ptr<ChromaMedianGpu>> ahead;
     std::thread teardown;
+    // P610 (speed): the next chromaGiveBack keeps the context for a later chromaTake (the fast route's Quad lattice after the chroma
+    // median: it made a context of its own and compiled every program again, ~0.1 - 0.3 s of a 50 MP shot)
+    bool keepNext = false;
     void join() { if (teardown.joinable()) teardown.join(); }
     ~ChromaGpuSlot() {
         join();
@@ -893,13 +924,15 @@ struct ChromaGpuSlot {
     }
 };
 inline ChromaGpuSlot& chromaGpuSlot() { static ChromaGpuSlot slot; return slot; }
-inline void chromaPrewarm(bool post = false) {
+// P610: lattice = also the fast route's Quad lattice programs (quadLattice after the chroma median)
+inline void chromaPrewarm(bool post = false, bool lattice = false) {
     ChromaGpuSlot& s = chromaGpuSlot();
     if (s.ahead.valid()) return;
     try {
-        s.ahead = std::async(std::launch::async, [post] {
+        s.ahead = std::async(std::launch::async, [post, lattice] {
             auto g = std::make_unique<ChromaMedianGpu>();
             if (post) g->ensurePost(); // P531: the native merge's post passes
+            if (lattice) g->ensureQuadLattice();
             g->release();
             return g;
         });
@@ -928,12 +961,20 @@ inline void chromaKeep(std::unique_ptr<ChromaMedianGpu> g) {
 }
 inline void chromaGiveBack(std::unique_ptr<ChromaMedianGpu> g) {
     if (!g) return;
-    g->release();
     ChromaGpuSlot& s = chromaGpuSlot();
+    if (s.keepNext) { // P610: a later pass takes this context (its storage given back first)
+        s.keepNext = false;
+        try { g->acquire(); g->releaseBuffers(); } catch (const std::exception&) {}
+        chromaKeep(std::move(g));
+        return;
+    }
+    g->release();
     s.join();
     ChromaMedianGpu* p = g.release();
     try { s.teardown = std::thread([p] { delete p; }); }
     catch (const std::exception&) { delete p; } // no thread: torn down here
 }
+// P610: the next chromaGiveBack keeps its context for the next chromaTake (ChromaGpuSlot::keepNext)
+inline void chromaKeepNext(bool keep = true) { chromaGpuSlot().keepNext = keep; }
 
 } // namespace scam

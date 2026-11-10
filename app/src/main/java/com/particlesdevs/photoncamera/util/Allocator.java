@@ -21,6 +21,12 @@ public class Allocator{
     /** Packed MIPI RAW formats that are unpacked to uint16 on copy. */
     public static boolean isPackedRaw(int format) { return format == 0x25 || format == 0x26 || RawUnpack.isRaw14(format); }
     public native static ByteBuffer allocateAndCopyBinning(int capacity, ByteBuffer origin, int width, int height, int row_stride);
+    /**
+     * P609 (processing/TetraBin): each 2x2 box of {@code origin}'s rows (from {@code offset}, {@code rowStride} bytes apart; RAW16,
+     * or packed RAW10 0x25 / RAW12 0x26) averaged into {@code dst} - a Tetra frame (4x4 colour cells) becomes the Quad of half its
+     * sides, whole 8x8 periods only; false when the geometry does not fit either buffer.
+     */
+    public native static boolean binBlocks2(ByteBuffer dst, ByteBuffer origin, int offset, int format, int width, int height, int rowStride);
 
     /** Reconstructs a synthetic Bayer SR mosaic while preserving CFA phases. */
     public native static ByteBuffer reconstructMosaicSr(ByteBuffer origin,

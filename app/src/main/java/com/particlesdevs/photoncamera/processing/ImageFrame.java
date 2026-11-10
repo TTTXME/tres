@@ -200,6 +200,15 @@ public class ImageFrame {
 
     private ImageFrame() {}
 
+    /** P609: a frame over a buffer already made (TetraBin's binned still: an arena view or a native buffer), no copy; null: none. */
+    public static ImageFrame wrap(ByteBuffer buffer, int width, int height) {
+        final ImageFrame frame = new ImageFrame();
+        frame.buffer = buffer;
+        frame.width = width;
+        frame.height = height;
+        return frame;
+    }
+
     public static ImageFrame deferred(Image image, int format, int width, int rowStride, int shift, int capacity) {
         return deferred(RingFrame.of(image), format, width, rowStride, shift, capacity);
     }

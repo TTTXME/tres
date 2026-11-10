@@ -450,7 +450,8 @@ public final class CameraSheets {
         String[][] rows = {
                 // P319: the lens's own normal size, not a fixed «12»
                 {Lang.t(c, "Обычный · ", "Normal · ") + (normalSize != null ? normalSize : PhotoSize.normalBadge()), Lang.t(c, "Быстро и немного места. Подходит почти всегда", "Fast and small. Fits nearly always")},
-                {Lang.t(c, "Подробный · 50 Мп", "Detailed · 50 MP"), Lang.t(c, "Больше деталей при хорошем свете. Снимок дольше", "More detail in good light. A slower shot")},
+                // P608: the lens's own full size (the nubia tele's «64 Мп»)
+                {Lang.t(c, "Подробный · ", "Detailed · ") + PhotoSize.fullName(), Lang.t(c, "Больше деталей при хорошем свете. Снимок дольше", "More detail in good light. A slower shot")},
                 {Lang.t(c, "Максимум · 200 Мп", "Maximum · 200 MP"), Lang.t(c, "Для печати и кадрирования", "For prints and cropping")}};
         int[] sizes = {PhotoSize.NORMAL, PhotoSize.FULL, PhotoSize.MAX};
         int accent = ShadeStyle.accent(c);

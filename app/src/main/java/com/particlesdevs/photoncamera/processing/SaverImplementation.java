@@ -26,6 +26,11 @@ public class SaverImplementation {
     public volatile com.particlesdevs.photoncamera.util.ShotArena shotArena;
     public int frameCount = 0;
     public boolean iszAspect4x3;
+    /**
+     * P609: the shot's stills come from the 200 MP Tetra row of a 50 MP shot (VivoSdkFullRes.Profile.tetraBin): each is binned 2x2
+     * per Tetra cell into an 8160x6144 Quad while it is copied (TetraBin; the arena slot holds the binned frame only).
+     */
+    public boolean tetraBin;
     /** The shot's digital-zoom crop and camera at the press (ImageSaver.zoomResidual / cameraIdAtPress). */
     public float zoomResidual = 1f;
     public String cameraIdAtPress;
@@ -91,6 +96,7 @@ public class SaverImplementation {
             capacity = rowStride * height;
         }
         Allocator.binning = ScameraApp.getSettings().binning;
+        if (tetraBin) return tetraBinned(image, buffer, format, payload, rowStride, height);
         ImageFrame frame = new ImageFrame(buffer, format, width, rowStride, offset, capacity, shotArena);
         frame.rawPayloadError = payload.error;
         frame.sourceFormat = format;
@@ -104,6 +110,35 @@ public class SaverImplementation {
             frame.height = height;
         }
 
+        return frame;
+    }
+
+    /**
+     * P609: a still of the 200 MP Tetra row as its 50 MP Quad (TetraBin: 2x2 boxes inside each 4x4 cell averaged, the levels kept,
+     * the noise of a site the sensor's over 4). A frame that does not bin (another format, a packed RAW14, no memory) gets no
+     * buffer and its reason (rawPayloadError): the series refuses it, as a still whose RAW is not plain 16-bit.
+     */
+    private ImageFrame tetraBinned(Image image, ByteBuffer buffer, int format, RawPayloadCheck.Result payload, int rowStride, int height) {
+        final int width = image.getWidth();
+        final long started = System.nanoTime();
+        final com.particlesdevs.photoncamera.util.ShotArena arena = shotArena;
+        final ByteBuffer binned = payload.plain() || format == 0x25 || format == 0x26
+                ? TetraBin.binnedInto(arena, buffer, 0, format, width, height, rowStride) : null;
+        final ImageFrame frame;
+        if (binned == null) {
+            frame = ImageFrame.wrap(null, width, height);
+            frame.rawPayloadError = payload.error != null ? payload.error : "the 200 MP still did not bin into its 50 MP Quad (format " + format + ")";
+            com.particlesdevs.photoncamera.util.Log.w(TAG, "P609 " + frame.rawPayloadError);
+        } else {
+            frame = TetraBin.frame(binned, width, height);
+            frame.rawPayloadError = payload.plain() || format == 0x25 || format == 0x26 ? null : payload.error;
+            final long ms = (System.nanoTime() - started) / 1_000_000;
+            final boolean inArena = arena != null && Allocator.arenaOf(binned) != null;
+            com.particlesdevs.photoncamera.util.Log.i("SCAM_CAPTURE", TetraBin.describe(width, height, ms, inArena));
+            ShotTimeline.captureNote("tetra_bin", "50 MP from 200 MP, 2x2 per Tetra cell, " + ms + " ms the first still"); // P609
+        }
+        frame.sourceFormat = format;
+        frame.timestamp = image.getTimestamp();
         return frame;
     }
 

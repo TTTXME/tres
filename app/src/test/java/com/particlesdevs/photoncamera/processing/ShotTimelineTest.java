@@ -135,4 +135,24 @@ public class ShotTimelineTest {
         assertTrue(s, s.contains(" hold=-1") && s.contains(" merge=-1") && s.contains("post_compile_ms=36/790"));
         assertTrue(processing().describe().contains(" post_compile="));
     }
+
+    /**
+     * P611: the summary says what the viewfinder drew through the merge and the post pipeline (fps / longest gap), from the
+     * stage marks; a stage without both marks has no note.
+     */
+    @Test public void theSummaryCarriesTheViewfinderThroughTheMergeAndThePost() throws Exception {
+        ShotTimeline.attach(null);
+        final long t0 = android.os.SystemClock.elapsedRealtimeNanos();
+        ShotTimeline.markAt("job", t0);
+        ShotTimeline.markAt("w_ok", t0 + 1_000_000_000L);
+        ShotTimeline.markAt("post_start", t0 + 1_100_000_000L);
+        ShotTimeline.markAt("post_done", t0 + 1_600_000_000L);
+        processing().viewfinderSpans();
+        final String s = processing().summary();
+        assertTrue(s, s.matches(".* vf_merge=([0-9.]+fps/[0-9]+ms|\\?) vf_post=([0-9.]+fps/[0-9]+ms|\\?)$"));
+        ShotTimeline.attach(null);
+        ShotTimeline.mark("post_start");
+        processing().viewfinderSpans();
+        assertFalse("no post_done, no merge marks: no note", processing().summary().contains("vf_"));
+    }
 }

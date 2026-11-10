@@ -670,6 +670,18 @@ struct HybridTuning {
     // Default 1 (P364, OPPO Find X7 Ultra, five bursts): the F6 residual after it 2-4x smaller than after CRE (median 0.06-0.11 px
     // against 0.13-0.33), merge factors equal or higher (led1934 0.619 -> 0.658), the merge 0.05-0.9 s sooner.
     int gpuAlign=1;
+    // P607 (owner, 2026-11-10, a street lamp at night on «Качество»: a grey oval in its core, ghost arcs, specks in lit signs): an
+    // ultrashort frame whose GPU homography RANSAC solved but refused for too few inliers (>= 30 at rms <= 1.5 px; a night x8 frame
+    // tracks 46 - 59 of 569) starts its registration from that homography, not from a global translation - a hand-held burst's
+    // rotation left lights at the frame's edge several px off, Bento refused their cores and blended the misplaced halo; its centre
+    // within 6 px of the coarse translation, else as before; 0 = the global translation, as before
+    int usWeakHom=1;
+    // P607: the Bento blend's «ultrashort colour at its own clip» (flag bit 5 and the colour bits) where the frames holding at least
+    // half the blend's weight are at their clip there, not only where every frame is: one frame a hair under its clip (registration,
+    // noise) left a lamp's ring unflagged at 0.95 of the clip beside the flagged core - ScamRgb recovered the core's clipped green to
+    // 16 and took the ring as measured light at 10 (a magenta near-white neutralised at its luminance): a grey contour inside the
+    // light; 0 = every frame, as before
+    int usClipVote=1;
     int gpuAlignUsRegister=0;    // P364: 1 = the ultrashort registration after a good GPU homography too (0: only after a weak one)
     int isoKernel=0;             // diagnostics, round-4 kernel only (sabre61 off): 1 = isotropic sigma = base (no edge shaping), 2 = also no
                                  // flat widening: a "spatial RGB"-like isotropic Gaussian (SCAM 9.6 spatial_rgb: sigma 0.28..0.40 px)
@@ -1135,6 +1147,10 @@ struct HybridTuning {
     // picked per 4 x 4 HALF block among the L0 tiles around it where the tile field misfits the block (kFastFlowPick: a static
     // subject beside a moving occluder kept the occluder's dragged flow and lost its donors); 0 = the tile field, as before
     int fastFlowPick=2;
+    // P607 (owner, 2026-11-10, a street lamp: dark holes and a ragged star in its clipped core): the fast route's hole fill
+    // (kFastOutput fill, P497) only between two sides of recovered light (two opposite rays found it, or one and the frame's edge
+    // the other) and never darker than the merged light; 0 = the fill everywhere it ran, as before
+    float fastLightFill=1.f;
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
@@ -1456,7 +1472,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("rimRatio",nullptr,&t.rimRatio)||set("rimSigma",&t.rimSigma)||set("rimLo",&t.rimLo)||set("rimHi",&t.rimHi)||set("rimStride",nullptr,&t.rimStride)||set("rimLift",nullptr,&t.rimLift)
             ||set("localAlign",nullptr,&t.localAlign)||set("laWin",nullptr,&t.laWin)||set("laStride",nullptr,&t.laStride)||set("laIters",nullptr,&t.laIters)
             ||set("laItersCoarse",nullptr,&t.laItersCoarse)||set("laMu",&t.laMu)||set("laKappa",&t.laKappa)||set("laMaxShift",&t.laMaxShift)
-            ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
+            ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("usWeakHom",nullptr,&t.usWeakHom)||set("usClipVote",nullptr,&t.usClipVote)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
             ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicTetraRadius",&t.baseDemosaicTetraRadius)||set("baseDemosaicSharpLo",&t.baseDemosaicSharpLo)||set("baseDemosaicSharpHi",&t.baseDemosaicSharpHi)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("mosaicAlongEdge",&t.mosaicAlongEdge)||set("mosaicAlongEdgeK",&t.mosaicAlongEdgeK)||set("mosaicTetraAlongEdgeK",&t.mosaicTetraAlongEdgeK)||set("mosaicTetraAlongEdgeClipK",&t.mosaicTetraAlongEdgeClipK)||set("mosaicTetraAlongEdgeClipReach",&t.mosaicTetraAlongEdgeClipReach)||set("mosaicClipShare",&t.mosaicClipShare)||set("mosaicBorderShare",&t.mosaicBorderShare)||set("baseDemosaicCover",nullptr,&t.baseDemosaicCover)||set("baseDemosaicTetraCover",&t.baseDemosaicTetraCover)||set("mosaicLatticeNotch",&t.mosaicLatticeNotch)||set("mosaicTetraLatticeNotch",&t.mosaicTetraLatticeNotch)||set("mosaicTetraNotchClipReach",&t.mosaicTetraNotchClipReach)||set("mosaicTetraFrameSat",&t.mosaicTetraFrameSat)||set("mosaicTetraFrameSatLo",&t.mosaicTetraFrameSatLo)||set("mosaicTetraFrameSatHi",&t.mosaicTetraFrameSatHi)||set("mosaicQuadFrameSat",&t.mosaicQuadFrameSat)||set("mosaicQuadFrameSatLo",&t.mosaicQuadFrameSatLo)||set("mosaicQuadFrameSatHi",&t.mosaicQuadFrameSatHi)||set("mosaicDezip",nullptr,&t.mosaicDezip)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
             ||set("caCorrect",nullptr,&t.caCorrect)||set("caMinShift",&t.caMinShift)
             // P29 native mosaic path
@@ -1489,6 +1505,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("fastQuadFlatNoise",&t.fastQuadFlatNoise)||set("fastQuadLineFrames",&t.fastQuadLineFrames)||set("baseDemosaicQuadRadius",&t.baseDemosaicQuadRadius)||set("mosaicQuadFine",&t.mosaicQuadFine)||set("fastQuadCone",&t.fastQuadCone)||set("mosaicQuadTexture",&t.mosaicQuadTexture) // P596
             ||set("mosaicQuadTextureFrames",&t.mosaicQuadTextureFrames) // P596
             ||set("fastFlowPick",nullptr,&t.fastFlowPick) // P601
+            ||set("fastLightFill",&t.fastLightFill) // P607
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax) // P488
             ||set("denoise",nullptr,&t.denoise); // P600
@@ -3783,6 +3800,7 @@ bool usAt(vec2 p,bool inLight,out vec3 U,out float cover,out uint uclip,out bool
     float lo01=min(s0,s1),hi01=max(s0,s1),lo23=min(s2,s3),hi23=max(s2,s3);
     float med=n==1?s0:n==2?0.5*(s0+s1):n==3?max(min(s0,s1),min(max(s0,s1),s2)):0.5*(max(lo01,lo23)+min(hi01,hi23));
     float sw=0.0,sww=0.0;uclip=7u;
+    vec3 wcl=vec3(0.0); // US_CLIP_VOTE: the weight of the frames whose colour is at its clip
     for(int j=0;j<n;j++){
         float r=lum[j]/max(med,1.0e-6)-1.0;
         float w=wv[j]*exp(-(r*r)/max(blendU.x*blendU.x,1.0e-6));
@@ -3793,8 +3811,12 @@ bool usAt(vec2 p,bool inLight,out vec3 U,out float cover,out uint uclip,out bool
         lvl+=w*mxw[j];
         sw+=w;sww+=w*w;
         uclip&=cl;
+        for(int c=0;c<3;c++)if((cl&(1u<<uint(c)))!=0u)wcl[c]+=w;
     }
     if(sw<1.0e-4){uclip=0u;lvl=0.0;return false;}
+#ifdef US_CLIP_VOTE
+    uclip=0u;for(int c=0;c<3;c++)if(wcl[c]>=0.5*sw)uclip|=1u<<uint(c);
+#endif
     U/=sw;lvl/=sw;
     // the cover: the effective frames of the weighted mean (unequal weights count less; the plain sum told the noise reduction
     // of three frames where one dominated). On a lamp's clipped glow their grain against the N merge's (0.56 % against 0.33 %)
@@ -3885,6 +3907,7 @@ bool usAtP(vec2 p,bool inLight,vec4 Tv,vec4 Tv1,vec4 Tm,float c,vec3 lift,out ve
     float med=n==1?s0:n==2?0.5*(s0+s1):n==3?max(min(s0,s1),min(max(s0,s1),s2)):0.5*(max(lo01,lo23)+min(hi01,hi23));
     vec3 Uv=vec3(0.0),Um=vec3(0.0);
     float sv=0.0,sv0=0.0,sm=0.0,sm0=0.0,sww=0.0;uclip=7u;
+    vec3 wcl=vec3(0.0); // US_CLIP_VOTE: the weight of the frames whose colour is at its clip
     for(int j=0;j<n;j++){
         float r=lum[j]/max(med,1.0e-6)-1.0;
         float wr=exp(-(r*r)/max(blendU.x*blendU.x,1.0e-6));
@@ -3900,9 +3923,13 @@ bool usAtP(vec2 p,bool inLight,vec4 Tv,vec4 Tv1,vec4 Tm,float c,vec3 lift,out ve
         Uv+=wa*col;Um+=wb*col;sv+=wa;sm+=wb;
         lvl+=(wa+wb)*mxw[j];sww+=(wa+wb)*(wa+wb);
         uclip&=cl;
+        for(int c=0;c<3;c++)if((cl&(1u<<uint(c)))!=0u)wcl[c]+=wa+wb;
     }
     float sw=sv+sm;
     if(sw<1.0e-4){uclip=0u;lvl=0.0;return false;}
+#ifdef US_CLIP_VOTE
+    uclip=0u;for(int c=0;c<3;c++)if(wcl[c]>=0.5*sw)uclip|=1u<<uint(c);
+#endif
     lvl/=sw;
     cover=min(sw*sw/max(sww,1.0e-6),7.9);
     if(coloured){
@@ -6944,6 +6971,7 @@ inline std::string hybridPartialSpec(const HybridTuning& t,bool native=false){
         +(!native&&t.bentoBlend>0&&t.bentoBlendFieldBilinear>0?"#define US_FIELD_BILIN 1\n":"") // P441: kHybUsBlend's F6 field
         +(!native&&t.bentoBlend>0&&t.bentoBlendPixelMark>0?"#define US_PIXMARK 1\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsBox>0?"#define US_BOX 1\n":"")
+        +(!native&&t.bentoBlend>0&&t.usClipVote>0?"#define US_CLIP_VOTE 1\n":"") // P607
         +(!native&&t.bentoBlend>0&&t.bentoUsCache>0?"#define US_CACHE 1\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsAa>0.f?"#define US_AA "+std::to_string(std::clamp(t.bentoBlendUsAa,0.f,1.f))+"\n":"")
         +(!native&&t.bentoBlend>0&&t.bentoBlendUsSoftClip>0.f?"#define US_SOFTCLIP "+std::to_string(std::clamp(t.bentoBlendUsSoftClip,0.5f,0.99f))+"\n":"") // P441
@@ -7836,7 +7864,8 @@ public:
                 +hybridSpecLine(partialSpec,"#define US_SOFTCLIP ")
                 +(partialSpec.find("US_PIXMARK")!=std::string::npos?"#define US_PIXMARK 1\n":"")
                 +hybridSpecLine(partialSpec,"#define US_AA ")
-                +(partialSpec.find("US_BOX")!=std::string::npos?"#define US_BOX 1\n":"")+mergeCommon()+kHybUsBlend; // P310; P392; P441
+                +(partialSpec.find("US_BOX")!=std::string::npos?"#define US_BOX 1\n":"")
+                +(partialSpec.find("US_CLIP_VOTE")!=std::string::npos?"#define US_CLIP_VOTE 1\n":"")+mergeCommon()+kHybUsBlend; // P310; P392; P441
                 // P364: one program per stage (stage 1's registers kept out of the others); P377: on every GPU, the stages named apart
                 // (blend0 - blend4: a compiler crash on one takes the single program, «blend» alone is the blend itself)
                 if(!hybridBlendStagesOff()&&!std::getenv("SCAM_BLEND_STAGES_OFF")){
@@ -13906,14 +13935,20 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         std::vector<int> usFallbackWait;
         std::vector<std::pair<int,std::future<bool>>> usFallback;
         std::shared_future<std::vector<Guide>> usFallbackRef;
+        std::vector<std::array<float,8>> usWeak(static_cast<size_t>(n));std::vector<char> usWeakOn(static_cast<size_t>(n),0); // P607
+        // P607: the start of a failed ultrashort frame's registration: its weak GPU homography, else the global translation
+        auto usStart=[&](int f,const std::vector<Guide>& ref){
+            if(usWeakOn[size_t(f)]){BackwardHomography m;m.h=usWeak[size_t(f)];H[f]=m;return;}
+            Burst one=b;one.raw[1]=input.frames[f].raw;one.exposure[1]=input.frames[f].exposure;
+            const Shift t=globalShift(ref,guides(one,1),input.frames[f].exposure);
+            BackwardHomography m;m.h={1,0,t.x,0,1,t.y,0,0};H[f]=m;
+        };
         auto usFallbackStart=[&](int f){
             startUsBase(); // (lazy: the registrations' base side from here)
             usRegDone[size_t(f)]=1; // (as usReg: registered once)
             if(!usFallbackRef.valid())usFallbackRef=std::async(std::launch::async,[&b]{return guides(b,0);}).share();
             usFallback.emplace_back(f,std::async(std::launch::async,[&,f,ref=usFallbackRef]{
-                Burst one=b;one.raw[1]=input.frames[f].raw;one.exposure[1]=input.frames[f].exposure;
-                const Shift t=globalShift(ref.get(),guides(one,1),input.frames[f].exposure);
-                BackwardHomography m;m.h={1,0,t.x,0,1,t.y,0,0};H[f]=m;
+                usStart(f,ref.get());
                 return usRegRun(f);
             }));
         };
@@ -13944,6 +13979,13 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 // as a frame the corner tracker refused: a normal one from its coarse translation with F6 (left out of the motion
                 // tests), an ultrashort one from the global translation when its registration accepts it, the others dropped
                 const auto role=input.frames[f].role;
+                if(role==kRoleUltrashort&&r.weak&&tune.usWeakHom>0&&tune.bentoUsRegister>=2){ // P607: its centre near the coarse shift
+                    const float cx=0.5f*float(w),cy=0.5f*float(h),d=r.hw[6]*cx+r.hw[7]*cy+1.f;
+                    if(std::abs(d)>1e-6f){
+                        const float x=(r.hw[0]*cx+r.hw[1]*cy+r.hw[2])/d-cx,y=(r.hw[3]*cx+r.hw[4]*cy+r.hw[5])/d-cy;
+                        if(std::hypot(x-r.coarseX,y-r.coarseY)<=6.f){usWeak[size_t(f)]=r.hw;usWeakOn[size_t(f)]=1;}
+                    }
+                }
                 // no GPU answer at all (the worker failed after the first frame, e.g. a GL error in a field; this frame's upload or
                 // readback threw): no coarse translation either (a normal frame started from the identity, out of F6's reach past
                 // laMaxShift; a bracketed one was dropped). A normal or bracketed frame is aligned by the global translation of the
@@ -13966,11 +14008,9 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 }
                 else if(tune.bentoUsRegister>=2&&role==kRoleUltrashort){
                     if(fallbackRef.empty())fallbackRef=guides(b,0);
-                    Burst one=b;one.raw[1]=input.frames[f].raw;one.exposure[1]=input.frames[f].exposure;
-                    const Shift t=globalShift(fallbackRef,guides(one,1),input.frames[f].exposure);
-                    BackwardHomography m;m.h={1,0,t.x,0,1,t.y,0,0};H[f]=m;aligned[f]=true;
+                    usStart(f,fallbackRef);aligned[f]=true;
                     if(!usReg(f)){aligned[f]=false;H[f]=BackwardHomography{};usRegLine[size_t(f)]+=" (GPU alignment failed: dropped)";}
-                    else usRegLine[size_t(f)]+=" (GPU alignment failed: from the global translation)";
+                    else usRegLine[size_t(f)]+=usWeakOn[size_t(f)]?" (GPU alignment failed: from its weak homography)":" (GPU alignment failed: from the global translation)";
                 }
                 else aligned[f]=false;
             }
@@ -14028,16 +14068,14 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 catch(const std::system_error&){ // no thread: here
                     usRegDone[size_t(f)]=1;
                     if(fallbackRef.empty())fallbackRef=guides(b,0);
-                    Burst one=b;one.raw[1]=input.frames[f].raw;one.exposure[1]=input.frames[f].exposure;
-                    const Shift t=globalShift(fallbackRef,guides(one,1),input.frames[f].exposure);
-                    BackwardHomography m;m.h={1,0,t.x,0,1,t.y,0,0};H[f]=m;
+                    usStart(f,fallbackRef);
                     std::promise<bool> here;here.set_value(usRegRun(f));usFallback.emplace_back(f,here.get_future());
                 }
             }
             usFallbackWait.clear();
         }
         for(auto& [f,done]:usFallback){ // in frame order, as the inline branch decided
-            if(done.get()){aligned[f]=true;usRegLine[size_t(f)]+=" (GPU alignment failed: from the global translation)";streamFeed(f);}
+            if(done.get()){aligned[f]=true;usRegLine[size_t(f)]+=usWeakOn[size_t(f)]?" (GPU alignment failed: from its weak homography)":" (GPU alignment failed: from the global translation)";streamFeed(f);}
             else{aligned[f]=false;H[f]=BackwardHomography{};usRegLine[size_t(f)]+=" (GPU alignment failed: dropped)";}
         }
         usFallback.clear();
@@ -16806,16 +16844,16 @@ inline bool mosaicChromaMedianBands(std::vector<float>& rgb,int w,int h,int bloc
     if(band<4*halo){if(why)*why="a band of "+std::to_string(band)+" rows";chromaGiveBack(std::move(g));return false;}
     const bool rawOsc=osc&&osc->size()==size_t(w/block)*size_t(h/block);
     const int bw=w/block;
-    std::vector<float> in,saved(size_t(halo)*w*3),bandOsc;
+    std::vector<float> in,saved(size_t(halo)*w*3),next(size_t(halo)*w*3),bandOsc;
     const auto t0=std::chrono::steady_clock::now();
     int bands=0,cpuBands=0;bool cpuRest=false;std::string cpuWhy;
     for(int y0=0;y0<h;y0+=band,++bands){
         const int y1=std::min(h,y0+band),a=std::max(0,y0-halo),b=std::min(h,y1+halo),rows=b-a;
-        in.resize(size_t(rows)*w*3);
         // rows a..y0: the frame's originals (written back already by the last band: kept in `saved`), y0..b: still the originals
         const int top=y0-a;
-        if(top>0)std::memcpy(in.data(),saved.data()+size_t(halo-top)*w*3,size_t(top)*w*3*4);
-        std::memcpy(in.data()+size_t(top)*w*3,rgb.data()+size_t(y0)*w*3,size_t(b-y0)*w*3*4);
+        // the next band's top halo: the originals of rows y1 - halo .. y1, before this band's rows replace them
+        const int keep=std::min(halo,y1);
+        std::memcpy(next.data()+size_t(halo-keep)*w*3,rgb.data()+size_t(y1-keep)*w*3,size_t(keep)*w*3*4);
         const std::vector<float>* o=nullptr;
         if(rawOsc){
             const int J0=a/block,J1=std::min(h/block,(b+block-1)/block);
@@ -16823,15 +16861,21 @@ inline bool mosaicChromaMedianBands(std::vector<float>& rgb,int w,int h,int bloc
             bandOsc.resize(size_t(bw)*size_t(rows/block),bandOsc.empty()?0.f:bandOsc.back());
             o=&bandOsc;
         }
-        // a GPU failure takes this band and the rest on the CPU (MosaicChromaStream on the same band: the same rows read), so no
-        // row is done twice and none is left
-        if(!cpuRest)try{g->times.clear();g->process(in,w,rows,block,o);}
+        // P610 (speed, 50 MP): the band uploaded from where its rows are (`saved`, then the frame) and its own rows read back into
+        // the frame: the same buffer bytes and results as through a copy of the band (two 68 MB copies a band less). A GPU failure
+        // takes this band and the rest on the CPU (MosaicChromaStream on the band's rows as they are then), so no row is done twice
+        // and none is left
+        if(!cpuRest)try{g->times.clear();g->processRows(saved.data()+size_t(halo-top)*w*3,top,rgb.data()+size_t(y0)*w*3,w,rows,block,o,
+                                                         rgb.data()+size_t(y0)*w*3,top,top+(y1-y0));}
         catch(const std::exception& e){cpuRest=true;cpuWhy=e.what();}
-        if(cpuRest){MosaicChromaStream st(in.data(),w,rows,block,o,0,0,nullptr);st.advance(rows);++cpuBands;}
-        // the next band's top halo: the originals of rows y1 - halo .. y1, before this band's rows replace them
-        const int keep=std::min(halo,y1);
-        std::memcpy(saved.data()+size_t(halo-keep)*w*3,rgb.data()+size_t(y1-keep)*w*3,size_t(keep)*w*3*4);
-        std::memcpy(rgb.data()+size_t(y0)*w*3,in.data()+size_t(top)*w*3,size_t(y1-y0)*w*3*4);
+        if(cpuRest){
+            in.resize(size_t(rows)*w*3);
+            if(top>0)std::memcpy(in.data(),saved.data()+size_t(halo-top)*w*3,size_t(top)*w*3*4);
+            std::memcpy(in.data()+size_t(top)*w*3,rgb.data()+size_t(y0)*w*3,size_t(b-y0)*w*3*4);
+            MosaicChromaStream st(in.data(),w,rows,block,o,0,0,nullptr);st.advance(rows);++cpuBands;
+            std::memcpy(rgb.data()+size_t(y0)*w*3,in.data()+size_t(top)*w*3,size_t(y1-y0)*w*3*4);
+        }
+        saved.swap(next);
     }
     if(why)*why=std::to_string(bands)+" bands of "+std::to_string(band)+" rows, halo "+std::to_string(halo)
         +(cpuBands?", the last "+std::to_string(cpuBands)+" on the CPU ("+cpuWhy+")":std::string())+", "

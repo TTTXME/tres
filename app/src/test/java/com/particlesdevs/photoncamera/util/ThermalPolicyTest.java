@@ -155,6 +155,54 @@ public class ThermalPolicyTest {
         assertTrue("a 24 fps stream at most 15 a second: " + shown, shown <= 30 && shown >= 20);
     }
 
+    /**
+     * P611: the cap counts frames instead of a minimum gap after the last one shown. The gap halved a stream slower than twice the
+     * cap: the Adreno 750 log of 2026-11-08 toned 9 - 10 frames a second through the merge from a ~20 fps RAW stream under the
+     * 15 fps processing cap. Now every stream rate keeps min(its rate, the cap), and a 30 fps stream keeps every second frame.
+     */
+    @Test public void theCapKeepsItsRateForAStreamSlowerThanTwiceTheCap() {
+        final double[] streamFps = {30, 24, 20, 17, 15, 12};
+        final int[] cap15 = {15, 15, 15, 15, 15, 12};
+        for (int k = 0; k < streamFps.length; k++) {
+            ThermalPolicy.resetNotice();
+            final long period = Math.round(1e9 / streamFps[k]);
+            int shown = 0;
+            final int frames = (int) Math.round(streamFps[k] * 4); // 4 s
+            for (int i = 0; i < frames; i++) if (ThermalPolicy.due(7_000_000_000L + i * period, 15)) shown++;
+            assertEquals("a " + streamFps[k] + " fps stream under the 15 fps cap", cap15[k] * 4, shown, 1);
+        }
+        // the old minimum gap (one period less an eighth) for the same streams: 15, 12, 10, 17, 15, 12 a second
+        // a 30 fps stream with jitter (28 - 38 ms) at the 30 fps cap (the newer SoCs' processing cap) keeps every frame; the old gap
+        // (29.2 ms) dropped the early ones
+        ThermalPolicy.resetNotice();
+        long t = 3_000_000_000L;
+        int shown = 0;
+        final long[] steps = {33_000_000L, 28_000_000L, 38_000_000L, 31_000_000L, 36_000_000L};
+        for (int i = 0; i < 120; i++) {
+            t += steps[i % steps.length];
+            if (ThermalPolicy.due(t, 30)) shown++;
+        }
+        assertEquals("the stream is 30.1 fps: one frame over the cap in 4 s (the old gap: 96 of 120)", 120, shown, 1);
+        // the jittered stream under the 15 fps cap: 15 a second
+        ThermalPolicy.resetNotice();
+        t = 3_000_000_000L;
+        shown = 0;
+        for (int i = 0; i < 120; i++) {
+            t += steps[i % steps.length];
+            if (ThermalPolicy.due(t, 15)) shown++;
+        }
+        assertEquals(60, shown, 1);
+        // a pause earns at most two frames (the credit's cap): no long burst; a time going back starts again
+        ThermalPolicy.resetNotice();
+        assertTrue(ThermalPolicy.due(1_000_000_000L, 15));
+        assertTrue("half a second later", ThermalPolicy.due(1_500_000_000L, 15));
+        assertTrue(ThermalPolicy.due(1_533_333_333L, 15));
+        assertTrue(ThermalPolicy.due(1_566_666_666L, 15));
+        assertFalse("then the cap again", ThermalPolicy.due(1_600_000_000L, 15));
+        assertTrue(ThermalPolicy.due(1_633_333_333L, 15));
+        assertTrue("a new session's clock", ThermalPolicy.due(500_000_000L, 15));
+    }
+
     @Test public void theHotNoticeComesOnceInFiveMinutes() {
         ThermalPolicy.resetNotice();
         ThermalPolicy.set(4); // CRITICAL

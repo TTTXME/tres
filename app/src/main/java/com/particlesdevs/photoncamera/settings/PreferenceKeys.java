@@ -982,6 +982,16 @@ public class PreferenceKeys {
         // fits within the noise at that flow (worker fastFlowPick 2; 1 = the pick alone); "hybrid_fast_flow_pick 0" = before
         final float flowPick = hybridValue("fast_flow_pick", 2f);
         if (flowPick != 2f) out.append("fastFlowPick ").append(Math.round(Math.max(0f, Math.min(2f, flowPick)))).append('\n');
+        // P607 (owner, 2026-11-10, a street lamp at night: dark blotches and a ragged star in its clipped core): the fast route's
+        // hole fill only between two sides of recovered light, never darker than the merged light (worker fastLightFill, default
+        // 1; its share 0..1); "hybrid_fast_light_fill 0" = before
+        final float lightFill = hybridValue("fast_light_fill", 1f);
+        if (lightFill != 1f) out.append("fastLightFill ").append(Math.max(0f, Math.min(1f, lightFill))).append('\n');
+        // P607 «Качество»: an ultrashort frame the GPU homography refused for too few inliers starts its registration from that
+        // homography (worker usWeakHom 1), and the Bento blend flags a colour at the ultrashort clip where the frames holding half
+        // its weight are clipped (usClipVote 1); "hybrid_us_weak_hom 0" / "hybrid_us_clip_vote 0" = before
+        if (hybridValue("us_weak_hom", 1f) == 0f) out.append("usWeakHom 0\n");
+        if (hybridValue("us_clip_vote", 1f) == 0f) out.append("usClipVote 0\n");
         // P568: the Quad native merge with shared-memory tiles (worker mosaicNatTile: 0 off, 1 always, 2 the faster measured once per GPU)
         final float natTile = hybridValue("mosaic_nat_tile", 2f);
         if (natTile != 2f) out.append("mosaicNatTile ").append(Math.round(Math.max(0f, Math.min(2f, natTile)))).append('\n');

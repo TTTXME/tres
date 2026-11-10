@@ -335,6 +335,10 @@ public final class WhyCombine extends Node {
             if (lightWarm != null && lightWarm[0] > 0f) glProg.setDefine("LIGHT_WARM", 1);
             final float[] hlLocal = WhyTone.hlLocal();
             if (hlLocal[0] > 0f) glProg.setDefine("HL_LOCAL", 1);   // P508: the photo only (the viewfinder has no whyLow grid)
+            // P607: a line of taps that leaves the light (a glow's falloff) does not darken the pixel (no grey band along a sign's glow)
+            if (hlLocal[0] > 0f && WhyTone.hlLocalRim()) glProg.setDefine("HL_LOCAL_RIM", 1);
+            // P607 round 3: at night HL_LOCAL and the hr detail fade with WhyAe's night weight (no faint marks in lit signs' cores)
+            final float nightFade = 1f - Math.max(0f, Math.min(1f, r.nightW)) * WhyTone.hlLocalNight();
             if (WhyTone.whyLayout()) glProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
             if (WhyTone.insetStrength() < 0.999f) glProg.setDefine("AGX_INSET", 1);   // P402: the inset's strength
             if (WhyTone.gammaType() != 0) glProg.setDefine("GAMMA_TYPE", WhyTone.gammaType());   // P404: the display standard
@@ -468,7 +472,7 @@ public final class WhyCombine extends Node {
                 glProg.setVar("hrKneeU", hrTone[0]);
                 glProg.setVar("hrRoomU", hrTone[1]);
                 glProg.setVar("hrEaseU", 1f - WhyTone.shoulderStrength());   // P402
-                glProg.setVar("hrDetailU", st.inputReleased ? 0f : hrTone[2]);
+                glProg.setVar("hrDetailU", st.inputReleased ? 0f : hrTone[2] * nightFade);   // P607: faded at night
             }
             // P11: the Bento ceiling / roll-off only with real headroom; saturated light fades towards white in the shoulder.
             glProg.setVar("headroomU", ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f ? 1 : 0);
@@ -497,7 +501,7 @@ public final class WhyCombine extends Node {
             if (WhyTone.yellowHue() > 0f) glProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
             if (WhyTone.hlNeutral() > 0f) glProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
             if (lightWarm != null && lightWarm[0] > 0f) glProg.setVar("lightWarmU", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);   // P506
-            if (hlLocal[0] > 0f) glProg.setVar("hlLocalU", hlLocal[0], hlLocal[1], hlLocal[2], hlLocal[3]);   // P508
+            if (hlLocal[0] > 0f) glProg.setVar("hlLocalU", hlLocal[0] * nightFade, hlLocal[1], hlLocal[2], hlLocal[3]);   // P508; P607 night fade
             glProg.setVar("chromaDnU", 0f);
             glProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             glProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));

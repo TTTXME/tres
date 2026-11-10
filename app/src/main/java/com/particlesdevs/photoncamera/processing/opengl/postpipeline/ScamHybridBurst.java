@@ -1447,9 +1447,19 @@ public final class ScamHybridBurst implements ScamTransport {
             java.util.regex.Matcher m = SERIES_LINE.matcher(report);
             String kN = null, nN = null;
             while (m.find()) { kN = m.group(3); nN = m.group(4); }
-            if (kN != null && Integer.parseInt(kN) < Integer.parseInt(nN))
+            if (kN != null && Integer.parseInt(kN) < Integer.parseInt(nN)) {
+                // P609 (OnePlus 16 tele 50 MP, log 2026-11-10 19:39:41: «merged 4 of 8 sent (N frames 3 of 5)», «left out: 0 weak
+                // short, 2 other»): the fast merge leaves out normal frames of another exposure (the ZSL ring widened down to -0.5 EV
+                // over an AE ramp) - not the memory; the notice says which
+                final int other = fastMergeOther(report), missing = Integer.parseInt(nN) - Integer.parseInt(kN);
+                if (other > 0)
+                    return Lang.t("Склеено " + kN + " из " + nN + " обычных кадров: " + Math.min(other, missing)
+                                    + " с другой экспозицией (экспозиция менялась перед снимком) склейка не берёт",
+                            "Merged " + kN + " of " + nN + " normal frames: " + Math.min(other, missing)
+                                    + " of another exposure (it was changing before the shot) are left out of the merge");
                 return Lang.t("Склеено " + kN + " из " + nN + " обычных кадров: больше склейка не вместила",
                         "Merged " + kN + " of " + nN + " normal frames: the merge held no more");
+            }
         }
         if (burst.budgetDropped > 0) {
             final int kept = burst.frames.size();
@@ -1457,6 +1467,18 @@ public final class ScamHybridBurst implements ScamTransport {
                     "Merged " + kept + " of " + (kept + burst.budgetDropped) + " frames: not enough memory (set “Frames per shot”)");
         }
         return null;
+    }
+
+    private static final java.util.regex.Pattern FAST_OTHER_LINE =
+            java.util.regex.Pattern.compile("HYBRID FAST MERGE: Sabre per-frame merge, .*?left out: \\d+ weak short, (\\d+) other");
+
+    /** P609: the frames the fast merge's last head line left out as «other» (normal frames of another exposure); 0 without one. */
+    static int fastMergeOther(String report) {
+        if (report == null) return 0;
+        final java.util.regex.Matcher m = FAST_OTHER_LINE.matcher(report);
+        int other = 0;
+        while (m.find()) other = Integer.parseInt(m.group(1));
+        return other;
     }
 
     private static final java.util.regex.Pattern MOSAIC_BINNED_LINE =

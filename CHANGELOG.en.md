@@ -2,6 +2,14 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-10 — nubia, OnePlus 16, night lights
+
+- nubia: 50 MP on the 0.5x no longer shows a black viewfinder — the camera asks for the full sensor mode and checks that the HAL switched it on; 64 MP on the tele.
+- OnePlus 16: the main camera tries more 50 MP modes with the ISP stream (as the stock camera); if they fail too, 50 MP is shot from the 200 MP mode, 2×2 binned per Tetra cell.
+- RAW viewfinder while a photo is processed: up to 30 fps on the OnePlus 16 (was 15), up to 15 instead of 9-10 on the others.
+- Night lights and signs: no dark specks, holes or dashed outlines inside the clipped core, in both «Fast» and «Quality».
+- 50 and 200 MP: faster processing with less memory, the same picture.
+
 ## 2026-11-10 — Tetra in motion, lens settings in the shade, OnePlus 16, nubia
 
 - Tetra: fewer beads and dots on and behind moving people, static areas unchanged.

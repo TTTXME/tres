@@ -28,6 +28,16 @@ public final class IszAspectCrop {
         return new Rect(x, y, x + w, y + h);
     }
 
+    /**
+     * P610: {@link #crop} for a caller that drops {@code image} after it: the crop in the same bitmap where it can be
+     * (ScamPostDownscale.cropInPlace: the same pixels, no second bitmap), else the copy. The result's size tells it apart.
+     */
+    public static Bitmap cropOwned(Bitmap image, Rect bounds) {
+        if (com.particlesdevs.photoncamera.processing.ml.ScamPostDownscale.cropInPlace(image, bounds.left, bounds.top, bounds.width(), bounds.height()))
+            return image;
+        return crop(image, bounds);
+    }
+
     public static Bitmap crop(Bitmap image, Rect bounds) {
         if (bounds.left == 0 && bounds.top == 0 && bounds.width() == image.getWidth()
                 && bounds.height() == image.getHeight()) return image;

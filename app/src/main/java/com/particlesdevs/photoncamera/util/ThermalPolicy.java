@@ -38,6 +38,8 @@ public final class ThermalPolicy {
     private static volatile int status = -1;
     private static volatile boolean registered;
     private static long lastVfNs;
+    /** P611: the frames the cap allows and the viewfinder has not shown yet (see {@link #due(long, int)}). */
+    private static double vfCredit;
     private static volatile long lastNoticeMs = Long.MIN_VALUE / 2;
 
     private ThermalPolicy() {}
@@ -154,6 +156,7 @@ public final class ThermalPolicy {
         final int limit = severe() ? (busyFps > 0 ? Math.min(SEVERE_VF_FPS, busyFps) : SEVERE_VF_FPS) : busyFps;
         if (limit > 0) return due(nowNs, limit);
         lastVfNs = nowNs;
+        vfCredit = 0;
         return true;
     }
 
@@ -161,10 +164,26 @@ public final class ThermalPolicy {
         return due(nowNs, SEVERE_VF_FPS);
     }
 
+    /**
+     * P611 (owner, 2026-11-10: «Исправь так же тормоза видоискателя во время обработки фото»): the cap counts the frames it allows
+     * (a credit of {@code fps} frames a second of the stream's own time) instead of a minimum gap after the last frame shown. The gap
+     * (one period less an eighth) halved any stream slower than twice the cap: a 20 fps RAW stream under the 15 fps processing cap
+     * showed every second frame, 10 a second (Adreno 750 log 2026-11-08: «toned 9.0 - 10.1/s» through the merge against 17 - 21
+     * before it), a 24 fps one 12 at SEVERE. Now 15 of the 20 and 15 of the 24; a 30 fps stream keeps every second frame at 15 and
+     * all at 30, as before. A frame is shown once the credit reaches 7 / 8 (the old tolerance: a 33.3 ms stream at a 30 fps cap
+     * keeps every frame) and costs one frame; the credit keeps at most 2 frames (after a pause at most two more frames come at the
+     * stream's rate, then the cap). A first frame, a time going back or a gap above a second shows at once.
+     */
     static synchronized boolean due(long nowNs, int fps) {
-        final long period = 1_000_000_000L / fps;
-        if (lastVfNs != 0 && nowNs - lastVfNs < period - period / 8) return false;
+        if (lastVfNs == 0 || nowNs <= lastVfNs || nowNs - lastVfNs > 1_000_000_000L) {
+            lastVfNs = nowNs;
+            vfCredit = 0;
+            return true;
+        }
+        vfCredit = Math.min(2.0, vfCredit + (nowNs - lastVfNs) * (double) fps / 1e9);
         lastVfNs = nowNs;
+        if (vfCredit < 0.875) return false;
+        vfCredit -= 1.0;
         return true;
     }
 
@@ -178,5 +197,5 @@ public final class ThermalPolicy {
     }
 
     /** Test hook: forget the last notice. */
-    static void resetNotice() { lastNoticeMs = Long.MIN_VALUE / 2; lastVfNs = 0; }
+    static void resetNotice() { lastNoticeMs = Long.MIN_VALUE / 2; lastVfNs = 0; vfCredit = 0; }
 }

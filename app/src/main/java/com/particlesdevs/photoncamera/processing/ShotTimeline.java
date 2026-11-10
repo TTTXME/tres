@@ -213,6 +213,7 @@ public final class ShotTimeline {
             final ShotTimeline t = processing;
             processing = null;
             if (t == null || t.marks.isEmpty()) return;
+            t.viewfinderSpans();
             t.notes.put("thermal_end", com.particlesdevs.photoncamera.util.ThermalState.now().toString());
             t.notes.put("vf_fps_end", fps(com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeter.fpsLast2s()));
             line = t.describe();
@@ -221,6 +222,23 @@ public final class ShotTimeline {
         Log.i(TAG, line);
         Log.i(TAG, summary);
         com.particlesdevs.photoncamera.util.ScameraTimingLog.summary(summary);
+    }
+
+    /**
+     * P611 (owner, 2026-11-10: «Исправь так же тормоза видоискателя во время обработки фото»): what the viewfinder drew while the
+     * worker merged (vf_merge: the job to the worker's end) and while the post pipeline ran (vf_post), as "fps/longest gap"
+     * (VfDrawMeter.span, e.g. vf_merge=29.8fps/45ms); the press and end values alone (vf_fps_press / vf_fps_end) were the 2 s
+     * before them, outside the processing. A stage without its marks has no note.
+     */
+    void viewfinderSpans() {
+        viewfinderSpan("vf_merge", first("job", "spawn"), first("w_ok", "client_done"));
+        viewfinderSpan("vf_post", "post_start", "post_done");
+    }
+
+    private void viewfinderSpan(String note, String a, String b) {
+        final Long ta = a == null ? null : marks.get(a), tb = b == null ? null : marks.get(b);
+        if (ta == null || tb == null || notes.containsKey(note)) return;
+        notes.put(note, com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeter.span(ta / 1_000_000, tb / 1_000_000));
     }
 
     /**

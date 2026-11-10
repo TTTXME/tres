@@ -471,6 +471,7 @@ def shader_part(strict: bool) -> None:
                 ('TONE_OP 1 + P3_OUT 1 + COLOUR_LOOK 1', {'TONE_OP': '1', 'P3_OUT': '1', 'COLOUR_LOOK': '1'}),
                 ('RIM_SMOOTH 1', {'RIM_SMOOTH': '1'}),   # P441: the photo's rim rules
                 ('TONE_OP 1 + LIGHT_WARM 1 + HL_LOCAL 1', {'TONE_OP': '1', 'LIGHT_WARM': '1', 'HL_LOCAL': '1'}),   # P506 / P508
+                ('TONE_OP 1 + HL_LOCAL 1 + HL_LOCAL_RIM 1', {'TONE_OP': '1', 'HL_LOCAL': '1', 'HL_LOCAL_RIM': '1'}),   # P607
                 ('FACE_MASK 1 + FACE_AWB 1 + PORTRAIT 1', {'FACE_MASK': '1', 'FACE_AWB': '1', 'PORTRAIT': '1'}))   # P512
     for label, defines in variants:
         with tempfile.TemporaryDirectory() as d:

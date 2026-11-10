@@ -1053,7 +1053,8 @@ public class ScamProcessor extends ProcessorBase {
             final int baseWidth = img.getWidth(), baseHeight = img.getHeight();
             final Rect rest = SabreCrop.cropRect(baseWidth, baseHeight, window);
             if (rest != null) {
-                final Bitmap cut = com.particlesdevs.photoncamera.processing.heif.TenBitBitmaps.crop(img, rest.left, rest.top, rest.width(), rest.height());
+                // P610: in the photo's own bitmap where it can be (cropOwned), else copied
+                final Bitmap cut = com.particlesdevs.photoncamera.processing.IszAspectCrop.cropOwned(img, rest);
                 if (cut != img) { img.recycle(); img = cut; }
                 if (gm != null) try {
                     gm = gm.croppedTo(rest, baseWidth, baseHeight);
@@ -1089,8 +1090,11 @@ public class ScamProcessor extends ProcessorBase {
             processingStage = "ISZ 4:3 crop";
             final int baseWidth = img.getWidth(), baseHeight = img.getHeight();
             android.graphics.Rect crop = com.particlesdevs.photoncamera.processing.IszAspectCrop.bounds(baseWidth, baseHeight);
-            Bitmap cropped = com.particlesdevs.photoncamera.processing.IszAspectCrop.crop(img, crop);
-            if (cropped != img) {
+            final long cropStarted = System.nanoTime();
+            // P610: in the photo's own bitmap where it can be (no 800 MB copy beside it at 200 MP)
+            Bitmap cropped = com.particlesdevs.photoncamera.processing.IszAspectCrop.cropOwned(img, crop);
+            final boolean inPlace = cropped == img;
+            if (!inPlace || img.getWidth() != baseWidth || img.getHeight() != baseHeight) {
                 if (gm != null) try {
                     gm = gm.croppedTo(crop, baseWidth, baseHeight);
                 } catch (RuntimeException | OutOfMemoryError failure) {
@@ -1098,9 +1102,10 @@ public class ScamProcessor extends ProcessorBase {
                     gm.bitmap.recycle();
                     gm = null;
                 }
-                img.recycle();
+                if (!inPlace) img.recycle();
                 img = cropped;
-                Log.i("SCAM_HDR", "ISZ output 4:3 " + img.getWidth() + "x" + img.getHeight() + "; native RAW retained");
+                Log.i("SCAM_HDR", "ISZ output 4:3 " + img.getWidth() + "x" + img.getHeight() + "; native RAW retained ("
+                        + (inPlace ? "cropped in place" : "copied") + ", " + (System.nanoTime() - cropStarted) / 1_000_000 + " ms)");
             }
         }
         processingStage = "image encoding";
@@ -1467,20 +1472,43 @@ public class ScamProcessor extends ProcessorBase {
         }
         final java.util.ArrayList<com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Stat> stats = new java.util.ArrayList<>();
         final double refExposure = (double) ref.measuredExposure * Math.max(1, ref.measuredIso);
+        final java.util.ArrayList<ImageFrame> picked = new java.util.ArrayList<>();
         for (ImageFrame f : frames) {
-            if (stats.size() >= STAT_FRAMES) break;
             if (f != ref && (f == null || f.pair == null || f.pair.isHighlightFrame || f.pair.isLongFrame
                     || f.getCaptureRole() != ImageFrame.CaptureRole.NORMAL || f.width != ref.width || f.height != ref.height
                     || f.rawPayloadError != null
                     || Math.abs((double) f.measuredExposure * Math.max(1, f.measuredIso) / Math.max(1.0, refExposure) - 1) > 0.05))
                 continue;
             if (f.buffer == null || f.buffer.capacity() < (long) f.width * f.height * 2) continue;
-            final com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Stat s =
-                    com.particlesdevs.photoncamera.processing.color.MosaicNeutral.measure2(f.buffer, f.width, f.height, f.width * 2,
-                            p.baseCfaPattern, p.blackLevel, p.whiteLevel, block, setup);
-            if (s != null) stats.add(s);
+            picked.add(f);
         }
+        // P610 (speed, 200 MP: 285 ms of the OnePlus 16's shot before its merge, one frame after the other): measured at once
+        // (measure2 reads its own frame and keeps its scratch per thread: the same Stat each), in the loop's order
+        stats.addAll(firstMeasured(picked.size(), STAT_FRAMES, k -> {
+            final ImageFrame f = picked.get(k);
+            return com.particlesdevs.photoncamera.processing.color.MosaicNeutral.measure2(f.buffer, f.width, f.height, f.width * 2,
+                    p.baseCfaPattern, p.blackLevel, p.whiteLevel, block, setup);
+        }));
         return com.particlesdevs.photoncamera.processing.color.MosaicNeutral.combine(stats);
+    }
+
+    /**
+     * P610: the non-null measure(k) of items 0 .. count - 1 in their order until {@code want} of them - the sequential loop's list:
+     * the first {@code want} items measured at once (ParallelWork), a later one only where one of them gave null. measure must be
+     * independent per item (no shared state); its exception reaches the caller, as from the loop.
+     */
+    static <T> java.util.List<T> firstMeasured(int count, int want, java.util.function.IntFunction<T> measure) {
+        final java.util.ArrayList<T> out = new java.util.ArrayList<>();
+        if (count <= 0 || want <= 0) return out;
+        final Object[] measured = new Object[count];
+        final int first = Math.min(want, count);
+        com.particlesdevs.photoncamera.util.ParallelWork.forEach(first, k -> measured[k] = measure.apply(k));
+        for (int k = 0; k < count && out.size() < want; k++) {
+            if (k >= first) measured[k] = measure.apply(k);
+            @SuppressWarnings("unchecked") final T v = (T) measured[k];
+            if (v != null) out.add(v);
+        }
+        return out;
     }
 
     /** P212d: the rolling shutter skew of a result (ns), null when the HAL gives none. */

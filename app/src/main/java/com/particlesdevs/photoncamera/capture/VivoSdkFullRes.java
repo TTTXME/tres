@@ -21,6 +21,12 @@ public final class VivoSdkFullRes {
          * its normal mode (no forceSensorMode), the full-size RAW stream only takes the stills, the HAL switches the sensor for them.
          */
         public final boolean stillOnly;
+        /**
+         * P609 (owner, 2026-11-10: «Оба пути»): the session runs this 200 MP Tetra row (16320x12288, block 4) but the shot is its
+         * 50 MP: every still is binned 2x2 inside each 4x4 Tetra colour cell when it is copied (processing/TetraBin) into an
+         * 8160x6144 Quad (block 2), the sensor's own Quad at 50 MP; the OnePlus 16 main when its 50 MP rows all failed.
+         */
+        public final boolean tetraBin;
 
         private Profile(int width, int height, int sensorMode) {
             this(width, height, sensorMode, 0);
@@ -31,10 +37,28 @@ public final class VivoSdkFullRes {
         }
 
         Profile(int width, int height, int sensorMode, int nativeBlock, boolean stillOnly) {
+            this(width, height, sensorMode, nativeBlock, stillOnly, false);
+        }
+
+        /** P609: {@code tetraBin} only on a 4x4 row ({@code nativeBlock} 4). */
+        Profile(int width, int height, int sensorMode, int nativeBlock, boolean stillOnly, boolean tetraBin) {
             size = new Size(width, height);
             this.sensorMode = sensorMode;
             this.nativeBlock = nativeBlock;
             this.stillOnly = stillOnly && nativeBlock > 0;
+            this.tetraBin = tetraBin && nativeBlock == 4;
+        }
+
+        /** P609: the colour block the shot merges with (the binned Tetra row's Quad 2, else the row's own block). */
+        public int mergeBlock() {
+            return tetraBin ? 2 : nativeBlock;
+        }
+
+        /** P609: the size of the shot's frames (the binned Tetra row's half sides, whole 8x8 periods; else the row's size). */
+        public Size shotSize() {
+            if (!tetraBin) return size;
+            final int[] out = com.particlesdevs.photoncamera.processing.TetraBin.outSize(size.getWidth(), size.getHeight());
+            return new Size(out[0], out[1]);
         }
 
         /**
@@ -156,8 +180,16 @@ public final class VivoSdkFullRes {
      * column). A 200 MP merge runs with the camera closed: the HAL's four RAW buffers count as free. 0 when nothing fits.
      */
     static int seriesFit(long pixels, int width, long frameBytes, int block, int grid, boolean huge, long availableBytes) {
+        return seriesFit(pixels, width, frameBytes, block, grid, huge, availableBytes, huge ? 4L * frameBytes : 0);
+    }
+
+    /**
+     * {@link #seriesFit} with the HAL's buffers that go back for the merge given ({@code halFreeBytes}; P609: a 50 MP shot binned
+     * from the 200 MP row merges with the camera closed as a 200 MP shot: its four 16320x12288 buffers, 4 x 401 MB, count as free).
+     */
+    static int seriesFit(long pixels, int width, long frameBytes, int block, int grid, boolean huge, long availableBytes, long halFreeBytes) {
         if (availableBytes < 0) return 65;
-        final double halFree = huge ? 4.0 * frameBytes : 0, fixed = (huge ? 20.0 : 40.0) * pixels * grid * grid;
+        final double halFree = Math.max(0, halFreeBytes), fixed = (huge ? 20.0 : 40.0) * pixels * grid * grid;
         final double perFrame = frameBytes + 2.0 * pixels / ((double) block * block) + 3800.0 * width;
         return (int) Math.max(0, Math.min(65, Math.floor((availableBytes + halFree - fixed - frameBytes) / perFrame)));
     }
@@ -167,9 +199,15 @@ public final class VivoSdkFullRes {
      * 2, the merge's minimum), beyond it as many as {@link #seriesFit} gives. Up to 4 frames at 200 MP exactly the P179 count.
      */
     static int seriesCount(int requested, long pixels, int width, long frameBytes, int block, int grid, boolean huge, long availableBytes) {
+        return seriesCount(requested, pixels, width, frameBytes, block, grid, huge, availableBytes, huge ? 4L * frameBytes : 0);
+    }
+
+    /** P609: {@link #seriesCount} with the HAL's buffers freed for the merge given ({@link #seriesFit}'s {@code halFreeBytes}). */
+    static int seriesCount(int requested, long pixels, int width, long frameBytes, int block, int grid, boolean huge, long availableBytes,
+                           long halFreeBytes) {
         final int guard = frameCount(requested, frameBytes, availableBytes);
         final int legacy = Math.min(huge ? 4 : 2, guard);
-        return Math.min(guard, Math.max(legacy, seriesFit(pixels, width, frameBytes, block, grid, huge, availableBytes)));
+        return Math.min(guard, Math.max(legacy, seriesFit(pixels, width, frameBytes, block, grid, huge, availableBytes, halFreeBytes)));
     }
 
     public static boolean supportsMode(CameraMode mode) {

@@ -171,10 +171,18 @@ public final class DeviceDefaults {
         return rawViewfinderSoc(android.os.Build.VERSION.SDK_INT >= 31 ? Build.SOC_MODEL : null);
     }
 
+    /**
+     * The tier above the 8 Gen 3 (owner, 2026-11-01): Snapdragon 8 Elite (SM8750) and every later SM8 part, Dimensity 9400 / 9500
+     * (MT699x). P611: by the part's number, not a list - the OnePlus 16's SM8975 (SCAM TEST 2026-11-09) fell outside the list and
+     * its RAW viewfinder ran the older tier's 15 fps while a shot was processed (log 2026-11-10: «fresh 14.5 - 16.2/s»).
+     */
     static boolean rawViewfinderSoc(String soc) {
         if (soc == null) return false;
         final String s = soc.toUpperCase(java.util.Locale.ROOT);
-        return s.startsWith("SM8750") || s.startsWith("SM8850") || s.startsWith("MT699");
+        if (s.startsWith("MT699")) return true;
+        if (s.length() < 6 || !s.startsWith("SM8")) return false;
+        for (int i = 3; i < 6; i++) if (!Character.isDigit(s.charAt(i))) return false;
+        return Integer.parseInt(s.substring(2, 6)) >= 8750;
     }
 
     public static boolean pixel7() {

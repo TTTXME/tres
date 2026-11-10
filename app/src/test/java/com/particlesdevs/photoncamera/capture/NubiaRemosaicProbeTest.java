@@ -37,6 +37,7 @@ public class NubiaRemosaicProbeTest {
             "com.zte.camera.sessionParameters.rawaiprocess", "com.zte.camera.sessionParameters.reprocesrawbpp",
             "com.zte.camera.sessionParameters.skip_stream_check", "org.codeaurora.qcamera3.sessionParameters.EISMode",
             "org.codeaurora.qcamera3.sessionParameters.EnableIdealRAW", "org.codeaurora.qcamera3.sessionParameters.EnableInsensorZoom",
+            "org.codeaurora.qcamera3.sessionParameters.EnableSnapshotOnlyInsensorZoom",
             "org.codeaurora.qcamera3.sessionParameters.EnableXCFAOptimization", "org.codeaurora.qcamera3.sessionParameters.RawCbSourceType",
             "org.codeaurora.qcamera3.sessionParameters.availableStreamMap");
     static final String BAYER = "nubia: the maximum-resolution frames are remosaicked by the HAL (plain Bayer, no mosaic)";
@@ -259,8 +260,9 @@ public class NubiaRemosaicProbeTest {
         NubiaRemosaicProbe.Choice c = NubiaRemosaicProbe.routeChoose(p, "2", STAMP);
         assertNotNull(c);
         assertTrue(c.route);
-        assertEquals("remosaic", c.candidate.id);
-        assertTrue("no vendor key: the plain maximum-resolution session", c.candidate.keys.isEmpty());
+        // P608: the route's first way (was «remosaic», the plain session): the full-size row asked, no other vendor key
+        assertEquals("fullmode", c.candidate.id);
+        assertTrue("no vendor key besides the mode: the plain maximum-resolution session", c.candidate.keys.isEmpty());
         assertEquals(1, c.start);
         assertEquals("run:1", NubiaRemosaicProbe.routeState(p, "2", STAMP));
         assertNull("a confident Bayer at 8192x6144: taken",
@@ -337,7 +339,7 @@ public class NubiaRemosaicProbeTest {
         assertEquals("another camera's session: the Quad routes as before", 2, NubiaRemosaicProbe.fullResBlock("0"));
         assertFalse("no session parameters", NubiaRemosaicProbe.wantsSession("2"));
         assertEquals(0, NubiaRemosaicProbe.operationMode("2"));
-        assertEquals("|probe-remosaic", NubiaRemosaicProbe.streamKey());
+        assertEquals("P608: the way's own stream (the old «remosaic» block came from binned frames)", "|probe-fullmode", NubiaRemosaicProbe.streamKey());
         assertNull("the HAL's remosaic at 8192x6144: taken", NubiaRemosaicProbe.frames("2", 1, 8192, 6144));
         assertNull("a completed shot proves it", NubiaRemosaicProbe.shot("2", true, null));
         assertEquals(NubiaRemosaicProbe.SHOT, NubiaRemosaicProbe.routeState(p, "2", NubiaFullRes.stamp()));
@@ -353,13 +355,19 @@ public class NubiaRemosaicProbeTest {
         FullResTrials.clear(p, NubiaFullRes.base("2"));
         assertTrue("«Попробовать снова»", NubiaFullRes.offered("2"));
 
-        // a refused session / wrong frames through failed(): one notice, no next setting
-        assertTrue(NubiaRemosaicProbe.sessionStart("2"));
-        final String wrong = NubiaRemosaicProbe.frames("2", 1, 4096, 3072);
-        assertNotNull(wrong);
-        final NubiaRemosaicProbe.Outcome o = NubiaRemosaicProbe.failed("2", wrong);
-        assertNotNull(o);
-        assertFalse(o.next);
+        // a refused session / wrong frames through failed(): P608 the next way (the camera lists both in-sensor zoom keys), then
+        // the next, then one notice
+        String wrong = null;
+        NubiaRemosaicProbe.Outcome o = null;
+        for (String id : new String[]{"fullmode", "fullmode_isz", "fullmode_isz_snap"}) {
+            assertTrue(id, NubiaRemosaicProbe.sessionStart("2"));
+            assertEquals("|probe-" + id, NubiaRemosaicProbe.streamKey());
+            wrong = NubiaRemosaicProbe.frames("2", 1, 4096, 3072);
+            assertNotNull(wrong);
+            o = NubiaRemosaicProbe.failed("2", wrong);
+            assertNotNull(o);
+            assertEquals(id, !"fullmode_isz_snap".equals(id), o.next);
+        }
         assertEquals(NubiaRemosaicProbe.routeUnavailable(NubiaRemosaicProbe.WRONG_SIZE), o.message);
         assertFalse(NubiaFullRes.offered("2"));
 
@@ -370,5 +378,120 @@ public class NubiaRemosaicProbeTest {
         assertTrue(NubiaRemosaicProbe.sessionStart("2"));
         assertFalse("a probe setting, not the route", NubiaRemosaicProbe.routeRunning("2"));
         assertEquals("plain", NubiaRemosaicProbe.describe().substring(1, 6));
+    }
+
+    // ---------------------------------------------------------------- P608: the full mode asked and proven
+
+    private static void nubia() {
+        ShadowBuild.setManufacturer("nubia");
+        ShadowBuild.setBrand("nubia");
+        ShadowBuild.setFingerprint("nubia/NX721J/test");
+        NubiaRemosaicProbe.probeForTest(false);
+    }
+
+    private static void learn(String camera, int w, int h) {
+        NubiaFullRes.learnMaxRes(camera, new PixelPro10.FullRes(android.graphics.ImageFormat.RAW_SENSOR, new android.util.Size(w, h)),
+                new android.util.Size(w / 2, h / 2), camera.equals("3") ? NubiaFullResTest.TELE_STOCK : NubiaFullResTest.WIDE_STOCK);
+        NubiaRemosaicProbe.listedForTest(camera, NX721J);
+    }
+
+    @Test public void theRouteTriesItsWaysToTheFullModeInTurnThenOneNotice() {
+        assertEquals("fullmode fullmode_isz fullmode_isz_snap", ids(NubiaRemosaicProbe.attempts(NX721J)));
+        assertEquals("not learned: the mode key alone", "fullmode", ids(NubiaRemosaicProbe.attempts(null)));
+        final NubiaRemosaicProbe.Candidate isz = NubiaRemosaicProbe.attempts(NX721J).get(1);
+        assertEquals(NubiaRemosaicProbe.INSENSOR_ZOOM, isz.keys.get(0).name);
+        assertTrue(isz.keys.get(0).session);
+        assertEquals(1, isz.keys.get(0).value);
+        final String binned = "nubia: the results report sensor mode 1, not the full row 0 in 15 results: the HAL stays in its binned sensor mode "
+                + NubiaFullRes.BINNED_TAG;
+        for (int way = 1; way <= 3; way++) {
+            final NubiaRemosaicProbe.Choice c = NubiaRemosaicProbe.routeChoose(p, "2", NX721J, STAMP);
+            assertNotNull(c);
+            assertEquals(way, c.index);
+            assertEquals(3, c.total);
+            assertEquals(1, c.start);
+            final NubiaRemosaicProbe.Outcome o = NubiaRemosaicProbe.routeFail(p, NX721J, STAMP, c, binned);
+            assertEquals(way < 3, o.next);
+            assertTrue(o.message, o.message.contains(NubiaRemosaicProbe.phrase(NubiaRemosaicProbe.BINNED)));
+        }
+        assertNull("every way failed: off on this firmware", NubiaRemosaicProbe.routeChoose(p, "2", NX721J, STAMP));
+        assertEquals("fail:" + NubiaRemosaicProbe.BINNED, NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        final String status = NubiaRemosaicProbe.routeStatus(p, "2", STAMP);
+        assertNotNull(status);
+        assertTrue(status, status.contains("3 (") && status.contains("fullmode_isz_snap"));
+    }
+
+    @Test public void aWayWithoutAVerdictGivesWayToTheNext() {
+        for (int start = 1; start <= NubiaRemosaicProbe.STARTS; start++)
+            assertEquals("fullmode", NubiaRemosaicProbe.routeChoose(p, "2", NX721J, STAMP).candidate.id);
+        final NubiaRemosaicProbe.Choice next = NubiaRemosaicProbe.routeChoose(p, "2", NX721J, STAMP);
+        assertEquals("fullmode_isz", next.candidate.id);
+        assertEquals(1, next.start);
+        assertEquals(NubiaRemosaicProbe.NO_VERDICT, NubiaRemosaicProbe.failsOf(p, "2", NubiaRemosaicProbe.ATTEMPT_FAIL, STAMP).get("fullmode"));
+    }
+
+    @Test public void aShotOfUnprovenFramesProvesNothing() {
+        final NubiaRemosaicProbe.Choice c = NubiaRemosaicProbe.routeChoose(p, "2", STAMP);
+        assertFalse("run:1 - no frame verdict yet", NubiaRemosaicProbe.routeShot(p, STAMP, c));
+        assertEquals("run:1", NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        assertNull(NubiaRemosaicProbe.routeFrames(p, STAMP, c, 1, 8192, 6144, 8192, 6144));
+        assertTrue("proven frames, then a shot", NubiaRemosaicProbe.routeShot(p, STAMP, c));
+    }
+
+    @Test public void theBinnedPhraseNamesTheCamerasSizes() {
+        nubia();
+        learn("2", 8192, 6144);
+        learn("3", 9248, 6944);
+        final String wide = NubiaRemosaicProbe.phrase(NubiaRemosaicProbe.BINNED, "2"), tele = NubiaRemosaicProbe.phrase(NubiaRemosaicProbe.BINNED, "3");
+        final String quarter = NubiaRemosaicProbe.megapixels(8192 * 6144 / 4e6);
+        assertEquals(com.particlesdevs.photoncamera.util.Lang.ru() ? "12,6" : "12.6", quarter);
+        assertTrue(wide, wide.contains(quarter) && wide.contains("50"));
+        assertTrue(tele, tele.contains(NubiaRemosaicProbe.megapixels(9248 * 6944 / 4e6)) && tele.contains("64"));
+        assertEquals("64", NubiaRemosaicProbe.megapixels(64.2));
+        assertEquals("16", NubiaRemosaicProbe.megapixels(16.0));
+        assertTrue("the tele's notice names its 64 MP", NubiaRemosaicProbe.routeUnavailable(NubiaRemosaicProbe.BINNED, "3").startsWith("64 "));
+        assertNotNull(NubiaRemosaicProbe.phrase(NubiaRemosaicProbe.CROP));
+        assertTrue("the notice of an unlearned camera keeps «50»", NubiaRemosaicProbe.routeUnavailable(NubiaRemosaicProbe.BINNED, "7").startsWith("50 "));
+    }
+
+    @Test public void theSessionAsksForTheFullRowAndItsVerdictWaitsForTheMode() {
+        nubia();
+        learn("2", 8192, 6144);
+        assertTrue(NubiaRemosaicProbe.sessionStart("2"));
+        assertTrue("the row's key on the session parameters too", NubiaRemosaicProbe.wantsSession("2"));
+        assertTrue(NubiaRemosaicProbe.describe(), NubiaRemosaicProbe.describe().contains(SensorModePick.QCOM_KEY + "=0"));
+        NubiaFullRes.watchMaxRes("2");
+        assertFalse("nothing reported: the verdict counts", NubiaRemosaicProbe.defer("2", 1, 8192, 6144));
+        NubiaFullRes.observeForTest(1);
+        assertTrue("the results report the binned row: the verdict waits", NubiaRemosaicProbe.defer("2", 1, 8192, 6144));
+        assertNull("the mode not proven: nothing to take", NubiaRemosaicProbe.takePending("2"));
+        assertEquals("run:1", NubiaRemosaicProbe.routeState(p, "2", NubiaFullRes.stamp()));
+        NubiaFullRes.observeForTest(0);
+        final int[] pending = NubiaRemosaicProbe.takePending("2");
+        assertNotNull("the full row reported: the kept verdict goes on", pending);
+        assertEquals(1, pending[0]);
+        assertEquals(8192, pending[1]);
+        assertNull("taken once", NubiaRemosaicProbe.takePending("2"));
+        assertFalse("proven: no more waiting", NubiaRemosaicProbe.defer("2", 1, 8192, 6144));
+        assertNull(NubiaRemosaicProbe.frames("2", pending[0], pending[1], pending[2]));
+        assertEquals(NubiaRemosaicProbe.FRAMES, NubiaRemosaicProbe.routeState(p, "2", NubiaFullRes.stamp()));
+        NubiaRemosaicProbe.noSession();
+        assertFalse(NubiaRemosaicProbe.wantsSession("2"));
+    }
+
+    @Test public void theVerdictsOfTheBinnedSessionsAreForgotten() {
+        nubia();
+        learn("2", 8192, 6144);
+        // the owner's phone before P608: «frames» of the route and the probe's eight «hwremosaic», all from binned frames
+        final String old = FullResTrials.stamp(1);
+        p.edit().putString(NubiaFullRes.base("2") + FullResTrials.STAMP, old)
+                .putString(NubiaFullRes.base("2") + NubiaRemosaicProbe.ROUTE, NubiaRemosaicProbe.FRAMES)
+                .putString(NubiaFullRes.base("2") + NubiaRemosaicProbe.FAIL, "plain:hwremosaic,zte_qcfa:hwremosaic").commit();
+        assertEquals(NubiaRemosaicProbe.FRAMES, NubiaRemosaicProbe.routeState(p, "2", old));
+        assertNull("revision 2 passes them over", NubiaRemosaicProbe.routeState(p, "2", NubiaFullRes.stamp()));
+        assertTrue(NubiaRemosaicProbe.fails(p, "2", NubiaFullRes.stamp()).isEmpty());
+        assertTrue(NubiaRemosaicProbe.sessionStart("2"));
+        assertEquals("tried once again, unverified", "run:1", NubiaRemosaicProbe.routeState(p, "2", NubiaFullRes.stamp()));
+        assertFalse("the old keys went with the new trial", p.contains(NubiaFullRes.base("2") + NubiaRemosaicProbe.FAIL));
     }
 }

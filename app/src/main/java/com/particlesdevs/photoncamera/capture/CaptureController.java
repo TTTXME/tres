@@ -937,8 +937,21 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 final String nubiaWhy = NubiaFullRes.watchResult(physicalID, result);
                 if (nubiaWhy != null) {
                     final SensorModePick.Pick nubiaPick = SensorModePick.session();
+                    // P608: a maximum-resolution session whose results never report its full row (the HAL stays binned) fails its way
+                    final Object nubiaRun = mFullResSession ? NubiaRemosaicProbe.token() : null;
                     new Handler(Looper.getMainLooper()).post(() -> {
                         if (nubiaPick != null && SensorModePick.session() == nubiaPick) retryWithoutRequestedSensorMode(mCaptureSession, nubiaWhy);
+                        else if (nubiaRun != null && mFullResSession && NubiaRemosaicProbe.token() == nubiaRun)
+                            retryWithoutFullRes(mCaptureSession, nubiaWhy);
+                    });
+                }
+                // P608: a frame verdict of the maximum-resolution session that waited for the mode, once the full row is reported
+                final int[] nubiaPending = mFullResSession ? NubiaRemosaicProbe.takePending(physicalID) : null;
+                if (nubiaPending != null) {
+                    final Object nubiaRun = NubiaRemosaicProbe.token();
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (mFullResSession && NubiaRemosaicProbe.token() == nubiaRun)
+                            nubiaMaxResVerdict(nubiaPending[0], nubiaPending[1], nubiaPending[2]);
                     });
                 }
                 // P586: the OnePlus 16's ISZ / DCG / DAG row or native FULLRES mode its results report; one that never shows fails over
@@ -2111,6 +2124,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     /** P179: a shot above this many pixels (200 MP) is merged with the camera in its plain session. */
     static final long HUGE_SHOT_PIXELS = 100_000_000L;
+    /** P609: the stream key suffix of a 50 MP shot binned from the 200 MP Tetra row (its own stored block: the Quad). */
+    static final String TETRA_BIN_KEY = "|tetra-bin2";
     /** P179 (owner): frames of a 200 MP series, the last one ultrashort; the shortest ultrashort exposure asked for. */
     static final int HUGE_SERIES = 4;
     static final long ULTRASHORT_MIN_NS = 50_000L;
@@ -3029,6 +3044,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         return profile != null && profile.nativeRoute();
     }
 
+    /** P609: the ISP stream of this OPPO-family native FULLRES session (OppoNativeFullRes.ispStream: 0 none, 1 fake off, 2 on). */
+    private int oppoIspStream() {
+        return mVivoSdkRawSession == null || !VivoSdkFullRes.oppo() ? 0
+                : OppoNativeFullRes.ispStream(mVivoSdkCameraId, VivoSdkFullRes.profile(mVivoSdkCameraId));
+    }
+
     /** P208: the native FULLRES session keeps its viewfinder in the normal mode, the full-size stream takes the stills only. */
     private boolean stillOnlyFullRes() {
         VivoSdkFullRes.Profile profile = mVivoSdkRawSession == null ? null : VivoSdkFullRes.profile(mVivoSdkCameraId);
@@ -3324,9 +3345,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mNativeAeStoredTotal = 0;
             mNativeAe = ae;
             OppoNativeFullRes.begin(mVivoSdkCameraId, ae);
+            final VivoSdkFullRes.Profile oppoProfile = VivoSdkFullRes.profile(mVivoSdkCameraId);
             Log.i("SCAM_CAPTURE", "OPPO native FULLRES camera " + mVivoSdkCameraId + ": mode "
-                    + VivoSdkFullRes.profile(mVivoSdkCameraId).sensorMode + " " + fullRes + " block " + VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
-                    + ", ISP stream off (RAW viewfinder), own AE from " + ae + " (" + seed.source
+                    + oppoProfile.sensorMode + " " + fullRes + " block " + oppoProfile.nativeBlock
+                    + (oppoProfile.tetraBin ? " (P609: the 50 MP size = this 200 MP mode, every still 2x2 binned per Tetra cell -> "
+                    + oppoProfile.shotSize() + " Quad, block 2; the sensor mode unchanged)" : "")
+                    + ", " + OppoNativeFullRes.ispWords(OppoNativeFullRes.ispStream(mVivoSdkCameraId, oppoProfile))
+                    + " [trial " + OppoNativeFullRes.rowLabel(OppoNativeFullRes.currentId(mVivoSdkCameraId, oppoProfile)) + "]"
+                    + ", own AE from " + ae + " (" + seed.source
                     + (cap == Integer.MAX_VALUE ? "" : ", ISO cap " + cap) + ")");
         }
         if (!sdkFullRes && isRawFormat(mTargetFormat) && !sFullResRefused.contains(physicalID) && !mIsRecordingVideo) {
@@ -3351,8 +3377,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         SensorModePick.session(physicalID, modePick);
         if (modePick != null) Log.i("SCAM_CAPTURE", "camera " + physicalID + ": the module's sensor mode " + modePick
                 + " (SensorModeTable, P276)");
-        // P575: a nubia session watches the mode its results report (the picked row proves itself; a normal one logs its own)
-        NubiaFullRes.watchSession(physicalID, modePick);
+        // P575: a nubia session watches the mode its results report (the picked row proves itself; a normal one logs its own).
+        // P608: a maximum-resolution FULLRES session must report the full row it asks (NubiaFullRes.maxResRow)
+        if (mFullResSession && NubiaRemosaicProbe.running(physicalID)) NubiaFullRes.watchMaxRes(physicalID);
+        else NubiaFullRes.watchSession(physicalID, modePick);
         // P586: the OnePlus 16's sessions watch their reported mode too (an ISZ / DCG / DAG row, a native FULLRES mode, or the own one)
         OplusIsz.watchSession(physicalID, modePick, sdkFullRes && VivoSdkFullRes.oppo() ? VivoSdkFullRes.profile(mVivoSdkCameraId) : null);
         // P593: a DCG / DAG row has to prove its depth by its frames (the tele's row 2 ran as a plain 10-bit row, log 2026-11-09)
@@ -4123,9 +4151,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         VivoPd2454NativeRaw.apply(scamSession, physicalID);
                         if (SensorModePick.session() != null) // P276: the picked mode on the session (and on every request)
                             Log.i("SCAM_CAPTURE", "camera " + physicalID + " sensor mode pick on the session: " + SensorModePick.apply(scamSession));
-                        // P598: the remosaic probe's keys came with builderSessionApply (on every request as well)
+                        // P598: the remosaic probe's keys came with builderSessionApply (on every request as well); P608: the full-size
+                        // route's way and the full row's mode key too
                         if (NubiaRemosaicProbe.wantsSession(physicalID)) Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + physicalID
-                                + " remosaic probe on the session: " + NubiaRemosaicProbe.describe());
+                                + " maximum-resolution session parameters: " + NubiaRemosaicProbe.describe());
                         if (rawFps > 0) scamSession.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(rawFps, rawFps)); // P266
                         if (VivoQcomIsz.device()) Log.i("SCAM_CAPTURE", "X300 Ultra camera " + physicalID + " sensor mode: "
                                 + VivoQcomIsz.sessionBuilt(scamSession));
@@ -4366,6 +4395,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private List<Surface> configureSurfaces(boolean isBurstSession) {
         if (stillOnlyFullRes() && mImageReaderRawView != null)
             return Arrays.asList(mImageReaderRawView.getSurface(), mImageReaderRaw.getSurface());
+        // P609: an OPPO-family FULLRES row tried with the viewfinder's ISP stream in its session (fake off / on), as the stock camera
+        if (nativeVivoFullRes() && oppoIspStream() > 0 && surface != null) return Arrays.asList(surface, mImageReaderRaw.getSurface());
         if (nativeVivoFullRes() || VivoPd2454NativeRaw.active(physicalID))
             return java.util.Collections.singletonList(mImageReaderRaw.getSurface());
         if (mVivoSdkRawSession != null)
@@ -4403,6 +4434,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         if (mVivoSdkRawSession != null) {
             if (nativeVivoFullRes()) mPreviewRequestBuilder.addTarget(stillOnlyFullRes() && mImageReaderRawView != null
                     ? mImageReaderRawView.getSurface() : mImageReaderRaw.getSurface());
+            // P609: the «ISP stream on» variant repeats the viewfinder's ISP stream too (fake off: in the session, in no request)
+            if (nativeVivoFullRes() && oppoIspStream() == 2 && surface != null) mPreviewRequestBuilder.addTarget(surface);
             clearZslPreviewFrames();
             mInitialMeteringAF = mPreviewRequestBuilder.get(CONTROL_AF_REGIONS);
             mPreviewMeteringAF = mInitialMeteringAF;
@@ -5860,6 +5893,30 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
     }
 
+    /**
+     * The frame verdict of a nubia maximum-resolution FULLRES session ({@code verdict}: MosaicStream's block of its own frames);
+     * true when the session failed (the camera restarts). P605: the route takes a confident Bayer (block 1) at the maximum-resolution
+     * size as the HAL's remosaic, a Quad as the sensor's own mosaic; another block or size fails its way. P598: a probe setting is
+     * kept by a Quad, failed by anything else. P608: the verdict waits while the results report another mode than the full row
+     * (NubiaRemosaicProbe.defer: the frames are the binned mode's; the mode watch fails the session, or the verdict is applied
+     * once the row is reported).
+     */
+    private boolean nubiaMaxResVerdict(int verdict, int width, int height) {
+        if (NubiaRemosaicProbe.defer(physicalID, verdict, width, height)) return false;
+        if (NubiaRemosaicProbe.routeRunning(physicalID)) {
+            final String routeWhy = NubiaRemosaicProbe.frames(physicalID, verdict, width, height);
+            return routeWhy != null && retryWithoutFullRes(mCaptureSession, routeWhy);
+        }
+        if (verdict == 2) {
+            final String kept = NubiaRemosaicProbe.quad(physicalID);
+            if (kept != null) showToast(kept);
+            return false;
+        }
+        return retryWithoutFullRes(mCaptureSession, verdict == 1
+                ? "nubia: the maximum-resolution frames are remosaicked by the HAL (plain Bayer, no mosaic)"
+                : "nubia: the maximum-resolution frames are a block " + verdict + " mosaic, not the sensor's Quad");
+    }
+
     /** Key of the stream's sensor mode for MosaicStream: the physical sensor, its vendor requests and the RAW size. */
     private String mosaicStreamKey() {
         String size = mImageReaderRaw == null ? "" : mImageReaderRaw.getWidth() + "x" + mImageReaderRaw.getHeight();
@@ -5936,6 +5993,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     samples.position(0); samples.limit(bytes);
                     sampleStride = img.getWidth() * 2;
                 }
+                // P608: a binned frame packed into the nubia's maximum-resolution buffer (or an in-sensor-zoom crop) fails the
+                // session from its rows alone - MosaicStream took the quarter of rows that hold it for a «confident plain Bayer»
+                if (NubiaFullRes.device() && mFullResSession && NubiaRemosaicProbe.running(physicalID)
+                        && NubiaFullRes.partialFrame(samples, img.getWidth(), img.getHeight(), sampleStride, black)
+                        && retryWithoutFullRes(mCaptureSession, NubiaFullRes.partialWhy(img.getWidth(), img.getHeight(),
+                        NubiaFullRes.maxResModeState(physicalID) == 1))) return;
                 final com.particlesdevs.photoncamera.processing.MosaicBlockDetector.Result measured =
                         com.particlesdevs.photoncamera.processing.MosaicBlockDetector.detect(samples, img.getWidth(), img.getHeight(),
                                 sampleStride, black, white, 32);
@@ -5961,17 +6024,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // failed - FULLRES off on this firmware with one notice); a confident Quad keeps the setting for the camera
                 if (NubiaFullRes.device() && mFullResSession) {
                     final int verdict = com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict();
-                    // P605: the remosaic route takes a confident Bayer (block 1) at the maximum-resolution size as a 50 MP Bayer
-                    // (a Quad as the sensor's own mosaic); another block or size fails it (off on this firmware, one notice)
-                    if (NubiaRemosaicProbe.routeRunning(physicalID)) {
-                        final String routeWhy = verdict == 0 ? null : NubiaRemosaicProbe.frames(physicalID, verdict, img.getWidth(), img.getHeight());
-                        if (routeWhy != null && retryWithoutFullRes(mCaptureSession, routeWhy)) return;
-                    } else if (verdict == 2) {
-                        final String kept = NubiaRemosaicProbe.quad(physicalID);
-                        if (kept != null) showToast(kept);
-                    } else if (verdict != 0 && retryWithoutFullRes(mCaptureSession, verdict == 1
-                            ? "nubia: the maximum-resolution frames are remosaicked by the HAL (plain Bayer, no mosaic)"
-                            : "nubia: the maximum-resolution frames are a block " + verdict + " mosaic, not the sensor's Quad")) return;
+                    if (verdict != 0 && nubiaMaxResVerdict(verdict, img.getWidth(), img.getHeight())) return;
                 }
                 // P188 (owner, 2026-10-17: «Нам нужен фулрез без ремозаика»): a native FULLRES row whose frames are a plain Bayer
                 // was remosaicked by the HAL (X300 Ultra main camera, 50 MP row 2): that row counts as failed and the next start
@@ -8265,11 +8318,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             failPendingShutter(new IllegalStateException(Lang.t("Сессия SDK RAW закрыта", "SDK RAW session closed")));
             return;
         }
-        final long frameBytes = (long) mImageReaderRaw.getWidth() * mImageReaderRaw.getHeight() * 2;
+        // P609: a «50 Мп» binned from the 200 MP Tetra row: the series is a 50 MP one of its binned frames (8160x6144, 1/4 of the
+        // bytes) taken after the shutter in the 200 MP session; the HAL's 200 MP buffers go back for the merge (camera closed)
+        final VivoSdkFullRes.Profile shotProfile = VivoSdkFullRes.profile(mVivoSdkCameraId);
+        final boolean tetraBin = shotProfile != null && shotProfile.tetraBin && nativeVivoFullRes();
+        final long readerBytes = (long) mImageReaderRaw.getWidth() * mImageReaderRaw.getHeight() * 2;
+        final android.util.Size shotSize = tetraBin ? shotProfile.shotSize() : new android.util.Size(mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight());
+        final long frameBytes = (long) shotSize.getWidth() * shotSize.getHeight() * 2;
         android.app.ActivityManager manager = (android.app.ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
         android.app.ActivityManager.MemoryInfo memory = new android.app.ActivityManager.MemoryInfo();
         if (manager != null) manager.getMemoryInfo(memory);
-        final int rawWidth = mImageReaderRaw.getWidth(), rawHeight = mImageReaderRaw.getHeight();
+        final int rawWidth = shotSize.getWidth(), rawHeight = shotSize.getHeight();
+        final long halFree = tetraBin ? 4L * readerBytes : 0; // P609 (VivoSdkFullRes.seriesFit)
         final boolean hugeSeries = (long) rawWidth * rawHeight > HUGE_SHOT_PIXELS && nativeVivoFullRes();
         // P179 (owner, 2026-10-16: «в склейке участвовало хотя бы 3 кадра и один из них был ультракороткий», «Сделай 4 кадра»):
         // a 200 MP series is its own count of frames whatever the merge's frame setting - the normal ones, then one ultrashort - as
@@ -8283,10 +8343,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final int grid = !hugeSeries && !"sensor".equals(PreferenceKeys.hybridOutputMode()) ? 2 : 1;
         // P194: the native route's own colour block (Quad 2, the X100 / X300 Ultra's hardware-remosaic Bayer 1); the SDK route 1
         // P586: a 200 MP row its frames proved a Quad (the OnePlus 16) merges as one; the vivo 200 MP profiles are block 4 as before
-        final int block = nativeVivoFullRes() ? Math.max(1, VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock) : hugeSeries ? 4 : 1;
+        final int block = nativeVivoFullRes() ? Math.max(1, VivoSdkFullRes.profile(mVivoSdkCameraId).mergeBlock()) : hugeSeries ? 4 : 1; // P609
         final int guarded = VivoSdkFullRes.frameCount(requested, frameBytes, availableBytes);
         final int frames = seriesMode ? VivoSdkFullRes.seriesCount(requested, (long) rawWidth * rawHeight, rawWidth, frameBytes, block, grid,
-                hugeSeries, availableBytes) : guarded;
+                hugeSeries, availableBytes, hugeSeries ? 4L * frameBytes : halFree) : guarded;
         if (hugeSeries) {
             if (frames < 3) {
                 failPendingShutter(new IllegalStateException(Lang.t("Недостаточно памяти для серии 200 Мп", "Not enough memory for a 200 MP series")));
@@ -8298,7 +8358,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // every frame of another mode or mosaic): the serial PSL series as before, whose stills keep the failure bookkeeping
         // P201: a hand-set shutter longer than the viewfinder's (PSL_SHUTTER_NS) is never in the ring: the series after the shutter
         final long manualPslNs = paramController.pslShutterNs();
-        final NativeZslShot zsl = hugeSeries || !nativeZslSession() || manualPslNs > 0 ? null
+        final NativeZslShot zsl = hugeSeries || tetraBin || !nativeZslSession() || manualPslNs > 0 ? null
                 : takeNativeZsl(VivoSdkFullRes.profile(mVivoSdkCameraId), requested);
         final int count, shotN;
         boolean zslTrimmed = false;
@@ -8328,7 +8388,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P202 (owner, 2026-10-17: «В PSL у нас тоже должны быть брекет кадры»): a native 50 MP series after the shutter is N
             // and the 12 MP Hybrid plan's bracketed / ultrashort frames, as a ZSL shot's frames after the shutter
             pslPlanBuilt = hugeSeries || !nativeVivoFullRes() ? null : pslPlan(requested, all -> seriesMode
-                    ? VivoSdkFullRes.seriesCount(all, (long) rawWidth * rawHeight, rawWidth, frameBytes, block, grid, false, availableBytes)
+                    ? VivoSdkFullRes.seriesCount(all, (long) rawWidth * rawHeight, rawWidth, frameBytes, block, grid, false, availableBytes, halFree)
                     : VivoSdkFullRes.frameCount(all, frameBytes, availableBytes), manualPslNs, block);
             count = pslPlanBuilt != null ? pslPlanBuilt.requests.size() : frames;
             shotN = 0;
@@ -8348,6 +8408,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final int taken = zsl != null ? VivoSdkFullResCapture.zslTaken(shotN, zslTopUp) : count;
         final String cut = zsl != null ? (taken >= requested ? "" : zslTrimmed ? "memory" : "ring")
                 : count >= requested ? "" : count < guarded && grid == 2 ? "2x" : "memory";
+        if (tetraBin) Log.i("SCAM_CAPTURE", "50 MP from the 200 MP mode " + shotProfile.sensorMode + " " + shotProfile.size
+                + ", 2x2 binned per Tetra cell -> " + shotSize + " Quad (block 2, P609): " + count + " stills after the shutter, "
+                + (frameBytes >> 20) + " MB a frame (" + (readerBytes >> 20) + " MB unbinned), the HAL's " + (halFree >> 20)
+                + " MB back for the merge");
         Log.i("SCAM_CAPTURE", (nativeVivoFullRes() ? "NATIVE FULLRES" : "SDK FULLRES50") + " frames=" + total
                 + (zsl != null ? " (ZSL: N " + shotN + " from the ring + " + count + " after the shutter, N " + zslTopUp + " of them)" : "")
                 + " requested=" + requested
@@ -8358,6 +8422,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 "Took " + taken + " of " + requested + " frames: " + (memory.availMem >> 20) + " MB free" + ("2x".equals(cut) ? ", 2× output" : "")));
         final ImageSaver saver = new ImageSaver(cameraEventsListener);
         saver.iszAspect4x3 = mShutterIszAspect4x3 || nativeVivoFullRes();
+        saver.tetraBin = tetraBin; // P609
         saver.manualWbAtPress = mShutterManualWb;
         saver.mosaicWbAtPress = mShutterMosaicWb;
         saver.dcgShot = dcgShotNow();
@@ -8429,7 +8494,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // camera in its plain session as well (its shutter waits for the merge anyway); back to FULLRES after it.
         final boolean plainForMerge = hugeShot || PreferenceKeys.scamDevSwitch("fullres_plain_merge", true);
         final int shotMegapixels = com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(
-                mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight());
+                shotSize.getWidth(), shotSize.getHeight()); // P609: a binned 50 MP shot is merged as 50 MP
         saver.shotArena = arena;
         mShotArena = arena;
         final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean();
@@ -8496,7 +8561,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     if (arena != null) arena.release();
                     ScameraApp.getGyro().CompleteSequence();
                     final ArrayList<GyroBurst> shakiness = new ArrayList<>(BurstShakiness);
-                    final String mosaicKey = com.particlesdevs.photoncamera.processing.MosaicStream.key();
+                    // P609: the binned frames are a stream of their own (8160x6144 Quad, block 2 declared), not the 200 MP row's
+                    final String mosaicKey = com.particlesdevs.photoncamera.processing.MosaicStream.key() + (tetraBin ? TETRA_BIN_KEY : "");
                     final com.particlesdevs.photoncamera.processing.ShotTimeline timeline =
                             com.particlesdevs.photoncamera.processing.ShotTimeline.detach();
                     sScamPending.incrementAndGet();
@@ -8508,7 +8574,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     SCAM_PROCESSING.execute(() -> {
                         com.particlesdevs.photoncamera.processing.ShotTimeline.attach(timeline);
                         try {
-                            com.particlesdevs.photoncamera.processing.MosaicBlockStore.setShotKey(mosaicKey, 1);
+                            com.particlesdevs.photoncamera.processing.MosaicBlockStore.setShotKey(mosaicKey, tetraBin ? 2 : 1);
                             if (plainForMerge) {
                                 awaitClosedForProcessing();
                                 com.particlesdevs.photoncamera.processing.ShotTimeline.mark("plain_ready"); // P236

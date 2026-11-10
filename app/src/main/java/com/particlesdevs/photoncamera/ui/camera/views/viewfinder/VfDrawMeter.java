@@ -29,8 +29,11 @@ public final class VfDrawMeter {
         shotAtMs = SystemClock.elapsedRealtime();
     }
 
-    /** P236: the draw times of the last {@link #RECENT} frames (any time, not only after a shot), for {@link #fpsLast2s}. */
-    static final int RECENT = 256;
+    /**
+     * P236: the draw times of the last {@link #RECENT} frames (any time, not only after a shot), for {@link #fpsLast2s}; P611: 4096
+     * (2 min at 30 fps, 32 KB) so that {@link #span} covers a 200 MP shot's merge and post pipeline (36 s on the OnePlus 16).
+     */
+    static final int RECENT = 4096;
     private static final long[] recentMs = new long[RECENT];
     private static int recentNext;
 
@@ -46,6 +49,37 @@ public final class VfDrawMeter {
         int n = 0;
         for (long t : recentMs) if (t > 0 && nowMs - t <= windowMs && t <= nowMs) n++;
         return windowMs > 0 ? n * 1000.0 / windowMs : 0;
+    }
+
+    /**
+     * P611 (owner, 2026-11-10: «Исправь так же тормоза видоискателя во время обработки фото»): the viewfinder through one stage of
+     * a shot (ShotTimeline: the merge, the post pipeline), from the recent draw times: "fps/longest gap", e.g. "29.8fps/45ms" - the
+     * draws from {@code fromMs} to {@code toMs} (SystemClock.elapsedRealtime) per second and the longest time without a draw there,
+     * its edges included (a draw before the start and none until 300 ms in is a 300 ms gap). "-" for a span under 100 ms or the
+     * wrong way round, "?" when the draws kept no longer reach back to its start. Any thread.
+     */
+    public static String span(long fromMs, long toMs) {
+        synchronized (VfDrawMeter.class) {
+            return spanOf(recentMs, recentNext, fromMs, toMs);
+        }
+    }
+
+    /** {@link #span} over the ring {@code times} whose oldest slot is {@code next} (0 = never drawn). */
+    static String spanOf(long[] times, int next, long fromMs, long toMs) {
+        if (toMs - fromMs < 100) return "-";
+        final long oldest = times[next % times.length];
+        if (oldest > 0 && oldest > fromMs) return "?";
+        long prev = fromMs, maxGap = 0;
+        int n = 0;
+        for (int k = 0; k < times.length; k++) {
+            final long t = times[(next + k) % times.length];
+            if (t <= 0 || t < fromMs || t > toMs) continue;
+            maxGap = Math.max(maxGap, t - prev);
+            prev = t;
+            n++;
+        }
+        maxGap = Math.max(maxGap, toMs - prev);
+        return String.format(Locale.ROOT, "%.1ffps/%dms", n * 1000.0 / (toMs - fromMs), maxGap);
     }
 
     static synchronized void recent(long nowMs) {

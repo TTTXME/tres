@@ -769,7 +769,6 @@ public final class LiveRawFrame {
                                float minGain,float maxGain,boolean sceneLuma,boolean means,boolean pin,long startNs,long exposureTimeNs,
                                boolean faceDetected,float[] faces){
         if (!enabled || plane == null) return false;
-        if (!means) pendingSource = null; // P597: a bin whose frame was not published names no later frame
         // P108: a full-resolution Quad-Bayer frame (Pixel 10 Pro: 8160x6144 RAW10, the ISP's own viewfinder is green in that
         // mode) is shown 2x2-binned as the plain Bayer 4080x3072, at most every QUAD_BIN_INTERVAL_NS (the camera thread); P194 a
         // plain Bayer frame as large (the hardware-remosaic FULLRES) one 2x2 quad of each 4x4, the same (w/2) x (h/2)
@@ -787,10 +786,17 @@ public final class LiveRawFrame {
             // P597: what the frame on the screen was made of (VF_RAW "stages")
             pendingSource = w + "x" + h + " stride " + stride + " fmt " + format + " block " + bin + " -> "
                     + (cellMeans ? "cell means " : "bin ") + w / cell + "x" + h / cell + (lastBinWide ? " swar" : " rows");
-            // P365: a ring view was read by the bin (cached memory) and is not kept
-            publishFrame(binned, w / cell, h / cell, w / cell * 2, cfa, white, black, gains, ccm, lensShading, sw, sh, cropRect, 1, sensorIso, analogIso,
-                    automatic, shotNoise, readNoise, android.graphics.ImageFormat.RAW_SENSOR, minGain, maxGain, sceneLuma, cellMeans, false, startNs,
-                    exposureTimeNs,faceDetected,faces);
+            // P365: a ring view was read by the bin (cached memory) and is not kept. P608: the source is cleared after the nested
+            // call, not at its top - the nested call of a 50 / 200 MP bin (means false) wiped it there, and VF_RAW «stages» named the
+            // binned frame («4096x3072 stride 8192 … -> copied») instead of the camera's; a bin whose frame was not published still
+            // names no later frame
+            try {
+                publishFrame(binned, w / cell, h / cell, w / cell * 2, cfa, white, black, gains, ccm, lensShading, sw, sh, cropRect, 1, sensorIso, analogIso,
+                        automatic, shotNoise, readNoise, android.graphics.ImageFormat.RAW_SENSOR, minGain, maxGain, sceneLuma, cellMeans, false, startNs,
+                        exposureTimeNs,faceDetected,faces);
+            } finally {
+                pendingSource = null;
+            }
             return false;
         }
         // P266: the module's «Разрешение видоискателя RAW» - a plain Bayer frame halved until it fits. P316 (settings audit): a

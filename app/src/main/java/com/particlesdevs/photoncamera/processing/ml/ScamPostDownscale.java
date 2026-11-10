@@ -12,6 +12,36 @@ public final class ScamPostDownscale {
     }
     private static native boolean nativeResize(Bitmap source, Bitmap destination, int lobes);
     private static native boolean nativeResample(Bitmap source, Bitmap destination, int lobes);
+    private static native boolean nativeCropInPlace(Bitmap bitmap, int stride, int width, int height, long bytes, int x, int y, int w, int h, int bpp);
+
+    /**
+     * P610 (speed and memory, 200 MP: the ISZ 4:3 crop copied the OnePlus 16's 800 MB photo into a second bitmap, 1.15 s with both
+     * held): the region packed to the start of the bitmap's own pixels (bitmap-crop.h) and the bitmap reconfigured to it - the
+     * pixels of {@code Bitmap.createBitmap(image, x, y, w, h)}, in the same object. Only a mutable, unpadded ARGB_8888 /
+     * RGBA_1010102 / RGBA_F16 bitmap whose owner drops the original; false: the bitmap as it came (the caller copies).
+     */
+    public static boolean cropInPlace(Bitmap image, int x, int y, int w, int h) {
+        if (image == null || image.isRecycled() || !image.isMutable()) return false;
+        final Bitmap.Config config = image.getConfig();
+        final int bpp = config == Bitmap.Config.ARGB_8888 ? 4 : config == Bitmap.Config.RGBA_F16 ? 8
+                : com.particlesdevs.photoncamera.processing.heif.TenBitBitmaps.isTenBit(image) ? 4 : 0;
+        final int width = image.getWidth(), height = image.getHeight(), stride = image.getRowBytes();
+        if (bpp == 0 || stride != width * bpp || x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > width || y + h > height) return false;
+        if (w == width && h == height) return true;
+        boolean reconfigured = false;
+        try {
+            Native.load();
+            final long bytes = image.getAllocationByteCount();
+            image.reconfigure(w, h, config); // the pixel bytes stay where they are (reconfigure does not touch them)
+            reconfigured = true;
+            if (image.getRowBytes() == w * bpp && nativeCropInPlace(image, stride, width, height, bytes, x, y, w, h, bpp)) return true;
+        } catch (Throwable notHere) { // no native library (host tests), a refused reconfigure
+            Log.d("ScamDownscale", "crop in place not taken: " + notHere);
+        }
+        if (reconfigured) try { image.reconfigure(width, height, config); } // nothing moved: the photo as it was
+        catch (RuntimeException e) { throw new IllegalStateException("crop in place: the photo could not be restored", e); }
+        return false;
+    }
 
     /**
      * P226 «Увеличивать кадр с кропом»: a cropped photo brought back to {@code width} x {@code height}, up (at most 1:4 per side)

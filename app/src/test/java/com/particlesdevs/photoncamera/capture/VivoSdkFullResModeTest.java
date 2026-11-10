@@ -280,6 +280,25 @@ public class VivoSdkFullResModeTest {
     }
 
     /**
+     * P609: a 50 MP shot binned from the OnePlus 16 main's 200 MP row (the owner's 200 MP press, log 2026-11-10 19:38:16: 2390 MB
+     * free) is a series of 8160x6144 frames (100 MB, a quarter of the 401 MB RAW) merged with the camera closed: the HAL's four 200 MP
+     * buffers come back for the merge as for a 200 MP shot. Counted as free they let 12 binned frames fit (the RAW guard's 12 too);
+     * not counted, 2 - the 200 MP shot itself got 3 of 4 there.
+     */
+    @Test public void aBinned50MpSeriesCountsTheHalsTetraBuffersAsFree() {
+        final long mib = 1L << 20;
+        final long px50 = 8160L * 6144, raw50 = px50 * 2, raw200 = 16320L * 12288 * 2;
+        assertEquals(12, VivoSdkFullRes.seriesFit(px50, 8160, raw50, 2, 1, false, 2390 * mib, 4 * raw200));
+        assertEquals("without the HAL's buffers", 2, VivoSdkFullRes.seriesFit(px50, 8160, raw50, 2, 1, false, 2390 * mib, 0));
+        assertEquals("the old overload: no HAL buffers at 50 MP", 2, VivoSdkFullRes.seriesFit(px50, 8160, raw50, 2, 1, false, 2390 * mib));
+        assertEquals("12 N + 3 plan frames asked: 12 by the memory", 12,
+                VivoSdkFullRes.seriesCount(15, px50, 8160, raw50, 2, 1, false, 2390 * mib, 4 * raw200));
+        assertEquals("the RAW guard binds above it", 15, VivoSdkFullRes.seriesCount(15, px50, 8160, raw50, 2, 1, false, 2874 * mib, 4 * raw200));
+        assertEquals("unbinned 200 MP frames there: the 4-frame floor of P179", VivoSdkFullRes.seriesCount(4, 16320L * 12288, 16320, raw200, 4, 1, true, 2390 * mib),
+                VivoSdkFullRes.seriesCount(4, 16320L * 12288, 16320, raw200, 4, 1, true, 2390 * mib, 4 * raw200));
+    }
+
+    /**
      * P190: an explicit FULLRES series is sized by the merge's memory beyond its legacy count (200 MP: 4, the camera closed for the
      * merge; 50 MP: 2); up to 4 frames at 200 MP the count is exactly the P179 one.
      */

@@ -305,9 +305,10 @@ public class DeviceDefaultsTest {
     }
 
     @Test public void rawViewfinderRequiresANewerTierThanEightGenThree() {
-        for (String soc : new String[]{"SM8750", "SM8850", "MT6991", "MT6993", "sm8750"})
+        for (String soc : new String[]{"SM8750", "SM8850", "MT6991", "MT6993", "sm8750", "SM8975", "SM8845", "SM8750-AC"})
             assertTrue(soc, DeviceDefaults.rawViewfinderSoc(soc));
-        for (String soc : new String[]{"SM8650", "SM8650-AB", "SM8550", "MSM8998", "MT6989", "MT6983", "", null})
+        for (String soc : new String[]{"SM8650", "SM8650-AB", "SM8550", "MSM8998", "MT6989", "MT6983", "", null,
+                "SM8735", "SM7750", "SM875", "SM8X50", "SDM845"})
             assertFalse(String.valueOf(soc), DeviceDefaults.rawViewfinderSoc(soc));
     }
 }

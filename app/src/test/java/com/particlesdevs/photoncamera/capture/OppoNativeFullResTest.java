@@ -486,12 +486,18 @@ public class OppoNativeFullResTest {
             assertFalse("OPPO-family default: 50 MP until 200 is chosen", PixelPro10.tele200Default());
             final OppoNativeFullRes.Offer o = OppoNativeFullRes.learn("p586-main", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072,
                     Arrays.asList(new int[]{8160, 6144}), "test");
-            assertEquals("P604: row 25 at the HAL's 8192x6144, row 25 in opMode 0x8001, row 9 at 8192x6144, then the table's rows", 5, o.small.length);
-            assertArrayEquals(new int[]{25, 8192, 6144, 16, 2, 1025}, o.small[0]);
-            assertArrayEquals(new int[]{25, 8160, 6144, 16, 2, 2025}, o.small[1]);
-            assertArrayEquals(new int[]{9, 8192, 6144, 30, 2, 1009}, o.small[2]);
-            assertArrayEquals("P593: the row that died (9) after its 16 fps twin", new int[]{25, 8160, 6144, 16, 2}, o.small[3]);
-            assertArrayEquals(new int[]{9, 8160, 6144, 30, 2}, o.small[4]);
+            assertEquals("P609: rows 25 / 9 at 8192x6144 with the ISP stream (fake off, on), then P604's row 25 at the HAL's 8192x6144, "
+                    + "row 25 in opMode 0x8001, row 9 at 8192x6144, then the table's rows", 9, o.small.length);
+            assertArrayEquals(new int[]{25, 8192, 6144, 16, 2, 3025}, o.small[0]);
+            assertArrayEquals(new int[]{25, 8192, 6144, 16, 2, 4025}, o.small[1]);
+            assertArrayEquals(new int[]{9, 8192, 6144, 30, 2, 3009}, o.small[2]);
+            assertArrayEquals(new int[]{9, 8192, 6144, 30, 2, 4009}, o.small[3]);
+            assertArrayEquals(new int[]{25, 8192, 6144, 16, 2, 1025}, o.small[4]);
+            assertArrayEquals(new int[]{25, 8160, 6144, 16, 2, 2025}, o.small[5]);
+            assertArrayEquals(new int[]{9, 8192, 6144, 30, 2, 1009}, o.small[6]);
+            assertArrayEquals("P593: the row that died (9) after its 16 fps twin", new int[]{25, 8160, 6144, 16, 2}, o.small[7]);
+            assertArrayEquals(new int[]{9, 8160, 6144, 30, 2}, o.small[8]);
+            assertTrue(OppoNativeFullRes.learnLine("p586-main"), OppoNativeFullRes.learnLine("p586-main").contains("P609: first rows 25 / 9"));
             assertEquals("the first row runs the normal session", 0, OppoNativeFullRes.operationMode("p586-main", OppoNativeFullRes.profile("p586-main", false)));
             assertTrue(OppoNativeFullRes.twoSizes("p586-main"));
             VivoSdkFullRes.Profile fifty = OppoNativeFullRes.profile("p586-main", false);
@@ -639,6 +645,100 @@ public class OppoNativeFullResTest {
                 OppoNativeFullRes.liveRow(op.small, 3, FullResTrials.reasons("25:died,9:died,1025:died").keySet()));
         assertArrayEquals("its own failure moves on to row 9's HAL frame", new int[]{9, 8192, 6144, 30, 2, 1009},
                 OppoNativeFullRes.liveRow(op.small, 4, FullResTrials.reasons("25:died,9:died,1025:died,2025:refused").keySet()));
+    }
+
+    /**
+     * P609 (owner, 2026-11-10: «Оба пути», «Fake off так же стоит попробовать»): after the four stored RAW-only deaths of P604 the
+     * PYB110 main tries rows 25 and 9 at 8192x6144 with the ISP stream in the session - fake off, then on - each a trial of its own;
+     * then row 9 at 8160x6144; then none (the binned 200 MP route).
+     */
+    @Test public void theIspVariantsComeAfterTheStoredFailures() {
+        final OppoNativeFullRes.Offer base = OppoNativeFullRes.opModes(OppoNativeFullRes.halFrames(OppoNativeFullRes.demoted(
+                OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_MAIN, 4080, 3072, null), OppoNativeFullRes.PYB110_MAIN_DEAD), 8192, 6144),
+                1, OppoNativeFullRes.PYB110_OPMODE_ROWS);
+        final OppoNativeFullRes.Offer o = OppoNativeFullRes.ispVariants(base, 8192, 6144, OppoNativeFullRes.PYB110_ISP_ROWS);
+        assertArrayEquals(new int[]{3025, 4025, 3009, 4009, 1025, 2025, 1009, 25, 9}, OppoNativeFullRes.ids(o.small));
+        assertSame("no such row: the same offer", base, OppoNativeFullRes.ispVariants(base, 8192, 6144, 31));
+        assertEquals("the tele's single row gets them too only when asked", 3,
+                OppoNativeFullRes.ispVariants(OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_TELE, 4096, 3072, null), 8192, 6144, 9).small.length);
+        // the owner's phone: module_oppo_fullres_fail_2=4, why=1025:died,2025:died,1009:died,25:died (no new ROW_TRIALS needed)
+        java.util.Set<Integer> failed = new java.util.HashSet<>(FullResTrials.reasons("1025:died,2025:died,1009:died,25:died").keySet());
+        assertEquals(1, OppoNativeFullRes.ROW_TRIALS);
+        final int[] order = {3025, 4025, 3009, 4009, 9};
+        for (int i = 0; i < order.length; i++) {
+            final int[] live = OppoNativeFullRes.liveRow(o.small, 4 + i, failed);
+            assertEquals("trial " + (5 + i), order[i], OppoNativeFullRes.trialId(live));
+            failed.add(order[i]);
+        }
+        assertNull("every 50 MP variant failed", OppoNativeFullRes.liveRow(o.small, 9, failed));
+        assertNull("a 50 MP ask never becomes the 200 MP row itself", OppoNativeFullRes.rowFor(o, false, true, 9, failed, 0));
+        // the session each variant asks for
+        assertEquals(1, OppoNativeFullRes.ispOf(3025));
+        assertEquals(2, OppoNativeFullRes.ispOf(4025));
+        assertEquals(1, OppoNativeFullRes.ispOf(3009));
+        assertEquals(2, OppoNativeFullRes.ispOf(4009));
+        for (int id : new int[]{25, 9, 1025, 1009, 2025}) assertEquals("RAW only: " + id, 0, OppoNativeFullRes.ispOf(id));
+        assertTrue(OppoNativeFullRes.ispWords(1).contains("fake off"));
+        assertTrue(OppoNativeFullRes.ispWords(2).contains("repeating request"));
+        assertTrue(OppoNativeFullRes.ispWords(0).contains("ISP stream off"));
+        assertTrue(OppoNativeFullRes.rowLabel(3025).startsWith("25 (") && OppoNativeFullRes.rowLabel(3025).contains("ISP"));
+        assertTrue(OppoNativeFullRes.rowLabel(4009).startsWith("9 (") && OppoNativeFullRes.rowLabel(4009).contains("ISP"));
+        assertTrue("P604's labels stay", OppoNativeFullRes.rowLabel(2025).contains("0x8001") && OppoNativeFullRes.rowLabel(1009).startsWith("9 ("));
+        // the fake-off / on variants run the normal operation mode (only 2025 is 0x8001)
+        assertEquals(1, OppoNativeFullRes.ispOf(OppoNativeFullRes.trialId(o.small[0])));
+    }
+
+    /**
+     * P609: once no 50 MP-class row is left, «50 Мп» on the PYB110 main is its live 200 MP Tetra row binned 2x2 per cell: the
+     * sensor mode stays 24 (16320x12288 in the session), the shot is an 8160x6144 Quad (block 2); a 200 MP row whose frames proved
+     * a Quad does not bin (plain Bayer = a HAL remosaic), nor a failed 200 MP row.
+     */
+    @Test public void the50MpIsThe200MpRowBinnedOnceItsRowsAreGone() {
+        final OppoNativeFullRes.Offer o = OppoNativeFullRes.ispVariants(OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_MAIN, 4080, 3072, null),
+                8192, 6144, OppoNativeFullRes.PYB110_ISP_ROWS);
+        final java.util.Set<Integer> none = java.util.Collections.emptySet();
+        assertNull("rows left: no binning", OppoNativeFullRes.binnedRowFor(o, 0, none, 0, 4));
+        final java.util.Set<Integer> all = new java.util.HashSet<>();
+        for (int id : OppoNativeFullRes.ids(o.small)) all.add(id);
+        final int[] big = OppoNativeFullRes.binnedRowFor(o, o.small.length, all, 0, 4);
+        assertArrayEquals(new int[]{24, 16320, 12288, 8, 4}, big);
+        assertNull("the 200 MP row ran as a Quad: no Tetra to bin", OppoNativeFullRes.binnedRowFor(o, o.small.length, all, 0, 2));
+        assertNull("the 200 MP row failed too: 50 MP off", OppoNativeFullRes.binnedRowFor(o, o.small.length, all, 1, 4));
+        assertNull("one size only: nothing to bin", OppoNativeFullRes.binnedRowFor(new OppoNativeFullRes.Offer(new int[0][], o.large), 0, none, 0, 4));
+        assertFalse(OppoNativeFullRes.binnable(new int[]{24, 16324, 12288, 8, 4}, 4));
+        assertFalse(OppoNativeFullRes.binnable(new int[]{9, 8160, 6144, 30, 2}, 2));
+        final VivoSdkFullRes.Profile p = new VivoSdkFullRes.Profile(big[1], big[2], big[0], 4, false, true);
+        assertTrue(p.tetraBin && p.nativeRoute() && !p.stillOnly);
+        assertEquals("the session's sensor mode unchanged", 24, p.sensorMode);
+        assertEquals("the reader: the 200 MP row's size", 16320, p.size.getWidth());
+        assertEquals("the frames' check: its 4x4", 4, p.nativeBlock);
+        assertEquals("the merge: a Quad", 2, p.mergeBlock());
+        assertEquals(8160, p.shotSize().getWidth());
+        assertEquals(6144, p.shotSize().getHeight());
+        assertFalse("a Quad row never bins", new VivoSdkFullRes.Profile(8192, 6144, 9, 2, false, true).tetraBin);
+        final VivoSdkFullRes.Profile plain = new VivoSdkFullRes.Profile(16320, 12288, 24, 4);
+        assertFalse(plain.tetraBin);
+        assertEquals(4, plain.mergeBlock());
+        assertEquals(16320, plain.shotSize().getWidth());
+    }
+
+    /** P609: the PYB110 main learned with its last 50 MP row failed routes «50 Мп» to the binned 200 MP row, «200 Мп» to row 24. */
+    @Test public void theSizeSwitchRoutesFiftyToTheBinnedRow() {
+        ShadowBuild.setManufacturer("OnePlus");
+        ShadowBuild.setModel("PYB110");
+        try {
+            OppoNativeFullRes.learn("p609-main", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072, null, "test");
+            assertTrue(OppoNativeFullRes.learnLine("p609-main").contains("binned per Tetra cell"));
+            final VivoSdkFullRes.Profile fifty = OppoNativeFullRes.profile("p609-main", false);
+            assertFalse("rows left (no trials here): a row of its own", fifty.tetraBin);
+            assertEquals(1, OppoNativeFullRes.ispStream("p609-main", fifty));
+            assertFalse(OppoNativeFullRes.binnedFifty("p609-main"));
+            assertFalse(OppoNativeFullRes.sizeExhausted("p609-main", false));
+            assertEquals("a binned profile has no ISP variant", 0,
+                    OppoNativeFullRes.ispStream("p609-main", new VivoSdkFullRes.Profile(16320, 12288, 24, 4, false, true)));
+        } finally {
+            OppoNativeFullRes.forget("p609-main");
+        }
     }
 
     /** P586: the recorded tables stand in on the PYB110 only, for its main and tele. */

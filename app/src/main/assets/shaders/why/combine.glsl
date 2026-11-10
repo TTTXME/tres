@@ -89,6 +89,16 @@ precision highp int;
 // brighten above white), so a smooth sky or a glow (log-linear / log-harmonic, its log mean is its own value) stays as it is; no
 // darkening beside a light 4 - 8 x brighter within the footprint (a sun's or lamp's core: no grey ring round it).
 #define HL_LOCAL 0
+// P607 HL_LOCAL_RIM 1 (owner, 2026-11-10, lamps and lit signs at night: a dashed dark line along a sign's glow, dark specks in a lit
+// window): HL_LOCAL's edge-aware mean is one-sided on a light's falloff - its brighter side (the core, 2 - 4 x, under the guard)
+// weighs fully while its dimmer side (outside the light, under white, 3 - 5 EV down) weighs nothing - so a pixel one tap inside a
+// glow was darkened into a grey band. With 1, a line of opposite taps that crosses out of the light (one side under white) cannot
+// raise the mean above the pixel: its brighter tap counts at most at the pixel's own level. Lines inside the light count as
+// before, and every line where the pixel is a fine dip of its own (a letter's stroke, a pictogram near a sign's edge: its whyLow
+// neighbours brighter on both sides), so a lit sign's lettering and a window's detail keep their contrast; a dark object's edge
+// against a light (a leaf before a lit sign) is darkened a little less (<= 15 levels on Ark hc) (WhyCombine sets 1; 0 = HL_LOCAL
+// as before)
+#define HL_LOCAL_RIM 0
 // P314 POINT_FUSED 1 (the RAW viewfinder, LiveWhyTone; never the photo): with fU 1 the fused luma is the pixel's own guide
 // through the fusion's curve (FusedCurve: why/gf.glsl fusedAt with its P291 monotonic envelope, tabulated on the CPU after each
 // viewfinder AE run - the guided filter's value on a flat area) instead of WhyFused, and WhyColour is the viewfinder's linear
@@ -2045,12 +2055,40 @@ void main() {
             int st = max(int(hlLocalU.z + 0.5), 1);
             float lp = log2(yP), inv = 1.0 / max(2.0 * hlLocalU.y * hlLocalU.y, 0.01);
             float sw = 0.0, sl = 0.0, yMax = 0.0;
+#if HL_LOCAL_RIM == 1
+            // P607: the centre, then the 12 lines of opposite taps (the taps before the centre in the 5 x 5 grid, each with its mirror)
+            { // the centre tap as the 5 x 5 loop reads it (bit for bit where no line leaves the light)
+                float yc = max(dot(texelFetch(WhyLow, clamp(lc, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
+                float lc0 = log2(yc), wc = exp(-(lc0 - lp) * (lc0 - lp) * inv);
+                sw = wc; sl = wc * lc0; yMax = yc;
+            }
+            // detail: the pixel a fine dip of its own (both whyLow neighbours along some line 0.15 .. 0.35 EV brighter: a letter's
+            // stroke, a sign's pictogram) - a falloff is monotonic there; detail keeps every line, as before
+            float fine = 0.0;
+            for (int k = 0; k < 4; k++) {
+                ivec2 o = k == 0 ? ivec2(1, 0) : k == 1 ? ivec2(0, 1) : k == 2 ? ivec2(1, 1) : ivec2(1, -1);
+                float y1 = max(dot(texelFetch(WhyLow, clamp(lc + o, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
+                float y2 = max(dot(texelFetch(WhyLow, clamp(lc - o, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
+                fine = max(fine, smoothstep(0.15, 0.35, log2(min(y1, y2)) - lp));
+            }
+            for (int k = 0; k < 12; k++) {
+                ivec2 o = ivec2(k % 5 - 2, k / 5 - 2);
+                float ya = max(dot(texelFetch(WhyLow, clamp(lc + o * st, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
+                float yb = max(dot(texelFetch(WhyLow, clamp(lc - o * st, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
+                float leave = (1.0 - smoothstep(0.7, 1.0, min(ya, yb))) * (1.0 - fine); // the line leaves the light on one side
+                float la = log2(ya), lb = log2(yb);
+                la = mix(la, min(la, lp), leave); lb = mix(lb, min(lb, lp), leave);
+                float wa = exp(-(la - lp) * (la - lp) * inv), wb = exp(-(lb - lp) * (lb - lp) * inv);
+                sw += wa + wb; sl += wa * la + wb * lb; yMax = max(yMax, max(ya, yb));
+            }
+#else
             for (int dy = -2; dy <= 2; dy++)
                 for (int dx = -2; dx <= 2; dx++) {
                     float yt = max(dot(texelFetch(WhyLow, clamp(lc + ivec2(dx, dy) * st, ivec2(0), lastL), 0).rgb, LUMA) * ae, 0.000001);
                     float lt = log2(yt), d = lt - lp, w = exp(-d * d * inv);
                     sw += w; sl += w * lt; yMax = max(yMax, yt);
                 }
+#endif
             float lm = sl / sw, guard = hlLocalU.w > 0.0 ? hlLocalU.w : 4.0;
             float gate = smoothstep(0.9, 1.6, yP) * smoothstep(0.9, 1.6, exp2(lm)) * (1.0 - smoothstep(guard, 2.0 * guard, yMax / yP));
             // a soft threshold of 0.15 EV: the noise's own contrast (a grey cloud, a frosted pane) stays as it was

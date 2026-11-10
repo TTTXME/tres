@@ -347,6 +347,12 @@ public final class DevKeys {
                 "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
                 "«Fast»: the frame's alignment per 4 px block next to a moving subject (a nearby tile's shift close to the surroundings') and its frames where the block matches the base within the noise - a static face beside a walking person stays sharp (2 on, 1 the alignment alone, 0 as before)")));
+        k.add(n(merge, "hybrid_fast_light_fill", "1", Lang.t("«Быстрый»: заполнение отвергнутых коротких кадров в светах только между двумя сторонами света и не темнее склейки - фонарь ночью без тёмных пятен и рваной звезды в ядре, края сохраняют спад яркости (1 вкл., 0 как раньше; 0..1)",
+                "«Fast»: the fill where the short frames were refused in highlights only between two sides of light and never darker than the merge - a street lamp at night without dark blotches and a ragged star in its core, its rim keeps the falloff (1 on, 0 as before; 0..1)")));
+        k.add(n(merge, "hybrid_us_weak_hom", "1", Lang.t("«Качество», ночь: короткий кадр, у которого выравнивание нашло мало точек, начинает со своей гомографии, а не со сдвига всего кадра - фонари у края кадра на месте, без серого овала и призрачной дуги (1 вкл., 0 как раньше)",
+                "«Quality», at night: a short frame whose alignment found few points starts from its own homography, not a shift of the whole frame - lights at the frame's edge in place, no grey oval or ghost arc (1 on, 0 as before)")));
+        k.add(n(merge, "hybrid_us_clip_vote", "1", Lang.t("«Качество»: цвет короткого кадра считается упёршимся в предел, где упёрлась большая часть кадров, а не все - без серого контура внутри фонаря (1 вкл., 0 как раньше)",
+                "«Quality»: a short frame colour counts as at its clip where most frames are, not all - no grey contour inside a lamp (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_mosaic_nat_tile", "2", Lang.t("Quad «Качество»: блоки склейки в общей памяти GPU (0 выкл., 1 всегда, 2 быстрее из двух, замер один раз на телефоне; результат тот же)",
                 "Quad «Quality»: merge blocks in GPU shared memory (0 off, 1 always, 2 the faster of the two, measured once per phone; same result)")));
         k.add(n(merge, "hybrid_gain_measured", null, Lang.t("Измерять усиление кадров (1/0)", "Measure the frames' gain (1/0)")));
@@ -554,6 +560,10 @@ public final class DevKeys {
         // P508: detail of the light above white (why/combine HL_LOCAL)
         k.add(n(post, "hybrid_why_hl_local", "0.8", Lang.t("Тон: деталь в светах выше белого (окно, стена на солнце): локальный контраст светов, только затемнение; ровное небо и свечение солнца не трогает; 0 — выкл.",
                 "Tone: detail in the light above white (a window, a sunlit wall): the highlights' local contrast, darkening only; a smooth sky and the sun's glow untouched; 0 = off")));
+        k.add(n(post, "hybrid_why_hl_local_rim", "1", Lang.t("Тон: деталь в светах не затемняет спад яркости источника света (без серой полосы вдоль свечения вывески, без тёмных точек в светящемся окне); 1 вкл., 0 как раньше",
+                "Tone: highlight detail does not darken a light's falloff (no grey band along a sign's glow, no dark specks in a lit window); 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_hl_local_night", "1", Lang.t("Тон: ночью деталь в светах и деталь запаса Bento гаснут по доле ночи (без бледных точек и штрихов в белых ядрах вывесок и фонарей); 1 вкл., 0 как раньше",
+                "Tone: at night the highlight detail and the Bento headroom detail fade with the night share (no pale dots or strokes in the white cores of signs and lamps); 1 on, 0 as before")));
         // P513: the portrait offsets with a face found (WhyTone.portraitOffsets)
         k.add(n(post, "hybrid_why_portrait_off_ae_target", "0.05", Lang.t("Портрет: прибавка к цели AE, когда найдено лицо",
                 "Portrait: added to the AE target when a face is found")));
@@ -623,6 +633,10 @@ public final class DevKeys {
                 "OnePlus 16, main, 50 MP: first a RAW frame of 8192x6144 (the HAL's buffer size), then the table's 8160x6144")));
         k.add(s(cap, "oplus_fullres_opmode", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 25 ещё и в режиме сессии 0x8001 (его запись в карте сенсора)",
                 "OnePlus 16, main, 50 MP: mode 25 also in the session operation mode 0x8001 (its entry of the sensor map)")));
+        k.add(s(cap, "oplus_fullres_isp", true, Lang.t("OnePlus 16, основная, 50 Мп: сначала режимы 25 и 9 (8192×6144) с потоком ISP в сессии — фиктивно выкл., затем вкл.",
+                "OnePlus 16, main, 50 MP: first modes 25 and 9 (8192x6144) with the ISP stream in the session - fake off, then on")));
+        k.add(s(cap, "oplus_binned_50", true, Lang.t("OnePlus 16, основная: когда строки 50 Мп кончились, 50 Мп — режим 200 Мп с бинингом 2×2 в ячейке Tetra. Выкл — 50 Мп тускнеет",
+                "OnePlus 16, main: with no 50 MP row left, 50 MP is the 200 MP mode binned 2x2 per Tetra cell. Off: 50 MP is dimmed")));
         k.add(s(cap, "oplus_dead_rows_last", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 9 (камера падала) после режима 25. Выкл — по порядку таблицы",
                 "OnePlus 16, main, 50 MP: mode 9 (the camera died in it) after mode 25. Off — in the table's order")));
         k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",
@@ -689,8 +703,8 @@ public final class DevKeys {
                 "The merge worker starts at the press (up to 16 MP, no shot queued): its start and GPU warm-up run during the series (a fork of the camera process in those 0.4 s; for a phone measurement). Off: started after the frames' preparation, as before P371")));
         k.add(n(merge, "worker_nice", "10", Lang.t("Приоритет процессора воркера склейки (nice −8…19; 10 — приоритет потока обработки, как до P371; 0 — для замера на телефоне; вне диапазона — не менять)",
                 "CPU priority of the merge worker (nice -8..19; 10: the processing thread's, as before P371; 0: for a phone measurement; outside the range: unchanged)")));
-        k.add(s(merge, "zero_copy_read", true, Lang.t("Результат воркера (RGB и флаги клипа) читается на месте из его памяти (memfd), без копии в новые буферы (до 1 ГБ). Выкл — копия, как до P371",
-                "The worker's result (the RGB and the clip flags) is read in place from its memory (memfd), without a copy into fresh buffers (up to 1 GB). Off: copied, as before P371")));
+        k.add(s(merge, "zero_copy_read", true, Lang.t("Результат воркера (RGB и флаги клипа) читается на месте из его памяти (memfd), без копии в новые буферы (P610: любого размера, и 200 Мп). Выкл — копия, как до P371",
+                "The worker's result (the RGB and the clip flags) is read in place from its memory (memfd), without a copy into fresh buffers (P610: any size, 200 MP too). Off: copied, as before P371")));
         // P482: the fast merge writes its RGB into a hardware buffer of the app (AhbRoute), the post reads it there on the GPU
         k.add(s(merge, "ahb_transport", false, Lang.t("Быстрая склейка (до 16 Мп, без RAW-склейки) пишет результат прямо в аппаратный буфер приложения, обработка читает его там на GPU: без копии в общую память и без загрузки 72 МБ (те же байты). Пока выкл: на OPPO сбои GPU обработки (P482). Выкл — через memfd, как до P482",
                 "The fast merge (up to 16 MP, no merged RAW) writes its result straight into a hardware buffer of the app and the processing reads it there on the GPU: no copy into the shared memory, no 72 MB upload (the same bytes). Off for now: GPU faults in the processing on the OPPO (P482). Off: through the memfd, as before P482")));

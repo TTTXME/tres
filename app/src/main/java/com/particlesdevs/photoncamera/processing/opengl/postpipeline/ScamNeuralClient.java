@@ -678,18 +678,20 @@ public final class ScamNeuralClient {
                 ScamHybridBurst.lastDcgNoise=dcgNoise(rep); // P320
                 ScamHybridBurst.lastRgbHalf=rgbHalf;}
             final long readStart=android.os.SystemClock.elapsedRealtime();
-            // P179 (200 MP: the app was killed for LOW_MEMORY): an output above 1 GiB is read from its end and the memfd shortened
-            // behind each read, so the result and the memfd are never both whole at once (the same bytes; trailers first, then
-            // the RGB in slices from its end).
-            final boolean shrink=scamOut!=null&&outputBytes>(1L<<30);
             // P371 (speed, zero_copy_read): the RGB and the clip flags are views of the result memfd (an adopted arena: its pages
             // mapped in place) instead of a parallel pread into 85 MB of fresh native buffers (36-54 ms, their first-touch faults
             // included); the same bytes, freed by their consumers as before (Allocator.free). scam_dev zero_copy_read 0: read.
+            // P610 (speed, 200 MP): at any size - the memfd itself is the result, so it and a copy are never both whole either (the
+            // OnePlus 16's 200 MP shot read its 1338 MB into a copy from the end in 582 ms)
             int adoptedArena=0;
-            if(!shrink&&scamOut!=null&&com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("zero_copy_read",true)){
+            if(scamOut!=null&&com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("zero_copy_read",true)){
                 try{adoptedArena=com.particlesdevs.photoncamera.util.Allocator.arenaAdopt(scamOut.fd.getFd(),outputBytes);}
                 catch(RuntimeException|LinkageError e){adoptedArena=0;}
             }
+            // P179 (200 MP: the app was killed for LOW_MEMORY): an output above 1 GiB read into a copy (zero_copy_read off, or the
+            // memfd not mapped) is read from its end and the memfd shortened behind each read, so the result and the memfd are never
+            // both whole at once (the same bytes; trailers first, then the RGB in slices from its end).
+            final boolean shrink=adoptedArena==0&&scamOut!=null&&outputBytes>(1L<<30);
             ByteBuffer result=null,clip=null;
             boolean viewed=false,clipKept=false,taken=false;
             // P371 (review B1): the adopted arena is released only once every trailer is read (its release used to punch the gap

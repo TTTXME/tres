@@ -46,6 +46,13 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-mosaic-cfa
 # free punches its pages, unmapped after the last view; review B1: the trailers between the views survive the release)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_allocator_adopt.cpp -o /tmp/check-allocator-adopt
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-allocator-adopt
+# P609: the OnePlus 16 main's 50 MP from its 200 MP row - allocator.cpp binBlocks2 averages each 2x2 box of a Tetra frame into the
+# sensor's own Quad (colour order, levels, rounding, whole 8x8 periods, padded strides, packed RAW10 / RAW12, refusals)
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_tetra_bin.cpp -o /tmp/check-tetra-bin
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-tetra-bin
+# P610: the photo's crop packed in its own pixel buffer (ScamPostDownscale.cropInPlace) gives the bytes of a copy of the region
+g++ -std=c++17 -O1 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all tools/check_bitmap_crop.cpp -o /tmp/check-bitmap-crop
+/tmp/check-bitmap-crop
 g++ -std=c++17 -O1 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all tools/check_dcg_noise.cpp -o /tmp/check-dcg-noise
 /tmp/check-dcg-noise
 python3 tools/check_scam_reference_metadata.py

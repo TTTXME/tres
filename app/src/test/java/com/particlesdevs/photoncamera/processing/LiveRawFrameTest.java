@@ -749,4 +749,35 @@ public class LiveRawFrameTest {
             assertTrue(LiveRawFrame.copyStats(), LiveRawFrame.copyStats().matches("copy vf=\\d+\\.\\d ring=3\\.0 ms pinned=\\d+"));
         } finally { LiveRawFrame.copyWindow = LiveRawFrame.COPY_WINDOW_NS; }
     }
+
+    /**
+     * P608 (owner's log of 31252: VF_RAW «stages … | 4096x3072 stride 8192 fmt 32 block 1 -> copied» for the 8192x6144 frames):
+     * a 50 / 200 MP bin names the camera's frame and the bin, not the binned copy the nested publish copies; a bin whose frame
+     * was not published names no later frame.
+     */
+    @Test public void aLargeBinNamesItsSourceFrame() throws Exception {
+        final int w = 6144, h = 4896; // 30.1 MP: binsLarge
+        assertTrue(LiveRawFrame.binsLarge(w, h, 1, 0));
+        final ByteBuffer plane = ByteBuffer.allocate(w * h * 2).order(java.nio.ByteOrder.nativeOrder());
+        for (int i = 0; i < w * h; i += 97) plane.putShort(i * 2, (short) (64 + i % 900));
+        final ByteBuffer small = ByteBuffer.allocate(16 * 8 * 2).order(java.nio.ByteOrder.nativeOrder());
+        for (int i = 0; i < 16 * 8; i++) small.putShort(i * 2, (short) (64 + i));
+        VfStages.reset();
+        LiveRawFrame.setEnabled(false); LiveRawFrame.setEnabled(true);
+        try {
+            LiveRawFrame.publish(plane, w, h, w * 2, 0, 1023, null, null, null, null, 1, 1, null, 1, 100, 6400, true, 0, 0, android.graphics.ImageFormat.RAW_SENSOR);
+            assertNotNull(LiveRawFrame.acquire());
+            String line = VfStages.take();
+            assertTrue(line, line.contains(w + "x" + h + " stride " + w * 2 + " fmt 32 block 1 -> bin " + w / 2 + "x" + h / 2));
+            // the binned frame's inner publish fails (an invalid CFA): the next frame names itself, not the bin
+            LiveRawFrame.setEnabled(false); LiveRawFrame.setEnabled(true);
+            LiveRawFrame.publish(plane, w, h, w * 2, 7, 1023, null, null, null, null, 1, 1, null, 1, 100, 6400, true, 0, 0, android.graphics.ImageFormat.RAW_SENSOR);
+            LiveRawFrame.publish(small, 16, 8, 32, 0, 1023, null, null, null, null, 1, 1, null, 1, 100, 6400, true, 0, 0, android.graphics.ImageFormat.RAW_SENSOR);
+            line = VfStages.take();
+            assertTrue(line, line.contains("| 16x8 stride 32 fmt 32 block 1 -> "));
+        } finally {
+            LiveRawFrame.setEnabled(false);
+            VfStages.reset();
+        }
+    }
 }

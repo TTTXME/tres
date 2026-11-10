@@ -298,6 +298,59 @@ public final class OppoNativeFullRes {
         return new Offer(out.toArray(new int[0][]), o.large);
     }
 
+    /**
+     * P609 (owner, 2026-11-10: «Оба пути», «Fake off так же стоит попробовать»): the PYB110 main's four RAW-only 50 MP variants of
+     * P604 died ~0.7 s after their sessions were configured (log 2026-11-10 19:38:58-19:39:24: 25 / 9 at 8192x6144, 25 in 0x8001,
+     * 25 at 8160x6144; camera error 4, no frame), while the stock camera never runs a RAW stream alone: its sessions carry the ISP
+     * preview stream. Two more variants of rows 25 and 9 at the HAL's 8192x6144 frame, each a trial of its own (no new
+     * {@link #ROW_TRIALS}: the stored «1025:died,2025:died,1009:died,25:died» does not name them): {@link #ISP_FAKE} + the mode - the
+     * viewfinder's ISP stream (the 1440x1080 SurfaceTexture) configured in the session, no request targets it (P276's «Фиктивное
+     * откл.», WhyCam's fake off); {@link #ISP_ON} + the mode - the ISP stream in the repeating request too (the stills stay RAW
+     * only). Order: 25 fake off, 25 on, 9 fake off, 9 on, then the old variants (row 9 at 8160x6144 is the one never retried).
+     * The frames still prove the sensor's own Quad (a plain Bayer is a fail, as every row's).
+     */
+    static final int ISP_FAKE = 3000, ISP_ON = 4000;
+    static final int[] PYB110_ISP_ROWS = {25, 9};
+
+    /**
+     * P609: {@code o} with a {@link #ISP_FAKE} and an {@link #ISP_ON} variant of each 50 MP-class row of {@code modes} at {@code w} x
+     * {@code h} (a row of that height within 2 % of that width: the HAL's frame of a table row), first, in that order; the same
+     * offer when none is added.
+     */
+    static Offer ispVariants(Offer o, int w, int h, int... modes) {
+        if (o == null || o.small.length == 0 || modes == null) return o;
+        final java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        for (int m : modes)
+            for (int[] r : o.small)
+                if (r.length <= 5 && r[0] == m && r[2] == h && Math.abs(r[1] - w) <= w / 50) {
+                    out.add(new int[]{m, w, h, r[3], r[4], ISP_FAKE + m});
+                    out.add(new int[]{m, w, h, r[3], r[4], ISP_ON + m});
+                    break;
+                }
+        if (out.isEmpty()) return o;
+        for (int[] r : o.small) out.add(r);
+        return new Offer(out.toArray(new int[0][]), o.large);
+    }
+
+    /** P609: the session's ISP stream of the camera's running FULLRES row - 0 none (RAW only), 1 configured only (fake off), 2 repeated. */
+    public static int ispStream(@Nullable String cameraId, @Nullable VivoSdkFullRes.Profile profile) {
+        if (profile == null || profile.tetraBin || !PreferenceKeys.scamDevSwitch("oplus_fullres_isp", true)) return 0;
+        final int id = currentId(cameraId, profile);
+        return ispOf(id);
+    }
+
+    /** P609: {@link #ispStream} of a trial id. */
+    static int ispOf(int id) {
+        return id >= ISP_ON && id < ISP_ON + HAL_FRAME ? 2 : id >= ISP_FAKE && id < ISP_FAKE + HAL_FRAME ? 1 : 0;
+    }
+
+    /** P609: the session's ISP stream in words (the native session's log line). */
+    public static String ispWords(int isp) {
+        return isp == 2 ? "ISP stream in the session and the repeating request (P609), RAW viewfinder"
+                : isp == 1 ? "ISP stream in the session, no request targets it (fake off, P609), RAW viewfinder"
+                : "ISP stream off (RAW viewfinder)";
+    }
+
     /** P604: the trial id of the running row of {@code profile} - the camera's live row when it is that profile's. */
     static int currentId(@Nullable String cameraId, @Nullable VivoSdkFullRes.Profile profile) {
         final Offer all = cameraId == null ? null : OFFER.get(cameraId);
@@ -326,6 +379,8 @@ public final class OppoNativeFullRes {
 
     /** P604: «25» or «25 (кадр 8192×6144)» for a trial id. */
     static String rowLabel(int id) {
+        if (ispOf(id) == 2) return (id - ISP_ON) + com.particlesdevs.photoncamera.util.Lang.t(" (8192×6144, поток ISP вкл.)", " (8192×6144, ISP stream on)");
+        if (ispOf(id) == 1) return (id - ISP_FAKE) + com.particlesdevs.photoncamera.util.Lang.t(" (8192×6144, поток ISP фикт. откл.)", " (8192×6144, ISP stream fake off)");
         if (id >= OP_MODE && id < OP_MODE + HAL_FRAME)
             return (id - OP_MODE) + com.particlesdevs.photoncamera.util.Lang.t(" (сессия 0x" + Integer.toHexString(PYB110_OPMODE) + ")", " (session 0x" + Integer.toHexString(PYB110_OPMODE) + ")");
         return id >= HAL_FRAME ? (id - HAL_FRAME) + com.particlesdevs.photoncamera.util.Lang.t(" (кадр по размеру HAL)", " (the HAL's frame size)") : String.valueOf(id);
@@ -511,11 +566,16 @@ public final class OppoNativeFullRes {
         // P604: row 25 in its seamless entry's operation mode 0x8001, after the first HAL-frame reader
         if (pyb110() && java.util.Arrays.equals(table, PYB110_MAIN) && PreferenceKeys.scamDevSwitch("oplus_fullres_opmode", true))
             o = opModes(o, halFrame ? 1 : 0, PYB110_OPMODE_ROWS);
+        // P609: rows 25 and 9 at 8192x6144 with the ISP stream in the session (fake off, then on) before every RAW-only variant
+        final boolean isp = pyb110() && java.util.Arrays.equals(table, PYB110_MAIN) && PreferenceKeys.scamDevSwitch("oplus_fullres_isp", true);
+        if (isp) o = ispVariants(o, PYB110_HAL_W, PYB110_HAL_H, PYB110_ISP_ROWS);
         OFFER.put(cameraId, o);
         final String line = line(cameraId, android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL, modeKey, source, publicWidth,
                 publicHeight, o, custom, OplusIsz.row(pyb110(), cameraId, table), OplusDcg.rows(pyb110(), cameraId, table))
                 + (deadFirst && o.small.length > 1 ? " (row " + PYB110_MAIN_DEAD[0] + " last: the camera died in it, log 2026-11-09)" : "")
-                + (halFrame && o.small.length > 0 && o.small[0].length > 5 ? " (P604: the 8192x6144 readers first - the HAL's 50 MP buffer size; the 8160-wide ones died, log 2026-11-10)" : "");
+                + (halFrame && o.small.length > 0 && o.small[0].length > 5 ? " (P604: the 8192x6144 readers first - the HAL's 50 MP buffer size; the 8160-wide ones died, log 2026-11-10)" : "")
+                + (isp && o.small.length > 0 && ispOf(trialId(o.small[0])) > 0 ? " (P609: first rows 25 / 9 at 8192x6144 with the ISP stream in the session, fake off then on; every RAW-only variant died, log 2026-11-10 19:38-19:39)" : "")
+                + (binnedOffered(o) ? " (P609: when the 50 MP rows are gone, the 50 MP size is the 200 MP row 2x2 binned per Tetra cell)" : "");
         LINES.put(cameraId, line);
         com.particlesdevs.photoncamera.util.Log.i("OppoNativeFullRes", line);
         return o;
@@ -673,7 +733,53 @@ public final class OppoNativeFullRes {
         final Offer o = cameraId == null ? null : OFFER.get(cameraId);
         if (o == null || o.empty()) return null;
         final int[] r = rowFor(o, large, largeAllowed(), failures(cameraId), failedModes(prefs(), cameraId, stamp()), triedLarge(cameraId, o));
-        return r == null ? null : new VivoSdkFullRes.Profile(r[1], r[2], r[0], blockOf(cameraId, r));
+        if (r != null) return new VivoSdkFullRes.Profile(r[1], r[2], r[0], blockOf(cameraId, r));
+        // P609: «50 Мп» with no row left is the 200 MP row's frames binned 2x2 per Tetra cell (the sensor mode stays the 200 MP one)
+        final int[] big = large ? null : binnedRow(o, cameraId);
+        return big == null ? null : new VivoSdkFullRes.Profile(big[1], big[2], big[0], 4, false, true);
+    }
+
+    /**
+     * P609 (owner, 2026-11-10: «Оба пути»): a camera whose 50 MP-class rows all failed and which has a live 200 MP row of its own 4x4
+     * Tetra (block 4 - a row its frames proved a Quad would bin into plain Bayer, a HAL remosaic by our rule) takes its «50 Мп»
+     * from that row: the frames binned 2x2 inside each colour cell (TetraBin) - an 8160x6144 Quad, the sensor's own mosaic at 50
+     * MP. scam_dev oplus_binned_50 0: off (P593's dimmed «50 Мп»). Null: not so.
+     */
+    @Nullable
+    static int[] binnedRow(Offer o, String cameraId) {
+        if (!binnedOffered(o) || cameraId == null) return null;
+        final int[] big = live(o.large, triedLarge(cameraId, o));
+        return binnedRowFor(o, failures(cameraId), failedModes(prefs(), cameraId, stamp()), triedLarge(cameraId, o),
+                big == null ? 4 : blockOf(cameraId, big));
+    }
+
+    /**
+     * P609: {@link #binnedRow} from the trials ({@code triedSmall} / {@code failedSmall}: the 50 MP class, {@code triedLarge}: the
+     * 200 MP rows, {@code largeBlock}: the block the live 200 MP row runs) - the live 200 MP row once no 50 MP-class row is left,
+     * when it bins; null otherwise (the switch is the caller's).
+     */
+    @Nullable
+    static int[] binnedRowFor(Offer o, int triedSmall, @Nullable java.util.Set<Integer> failedSmall, int triedLarge, int largeBlock) {
+        if (o == null || o.small.length == 0 || o.large.length == 0) return null;
+        if (liveRow(o.small, triedSmall, failedSmall) != null) return null;
+        final int[] r = live(o.large, triedLarge);
+        return binnable(r, largeBlock) ? r : null;
+    }
+
+    /** P609: the offer could give its «50 Мп» by binning (both sizes, the switch on); its rows decide (binnedRow). */
+    static boolean binnedOffered(@Nullable Offer o) {
+        return o != null && o.small.length > 0 && o.large.length > 0 && largeAllowed() && PreferenceKeys.scamDevSwitch("oplus_binned_50", true);
+    }
+
+    /** P609: a 200 MP row whose block (as it runs, {@code block}) is the declared 4x4 Tetra, at whole 8x8 periods. */
+    static boolean binnable(@Nullable int[] row, int block) {
+        return row != null && row[4] == 4 && block == 4 && row[1] >= 16 && row[2] >= 16 && row[1] % 8 == 0 && row[2] % 8 == 0;
+    }
+
+    /** P609: the camera's «50 Мп» is the binned 200 MP row now. */
+    public static boolean binnedFifty(@Nullable String cameraId) {
+        final Offer o = cameraId == null ? null : OFFER.get(cameraId);
+        return o != null && binnedRow(o, cameraId) != null;
     }
 
     /**
@@ -694,7 +800,7 @@ public final class OppoNativeFullRes {
     public static boolean sizeExhausted(@Nullable String cameraId, boolean large) {
         final Offer o = cameraId == null ? null : OFFER.get(cameraId);
         if (o == null || !twoSizes(cameraId)) return false;
-        return large ? live(o.large, triedLarge(cameraId, o)) == null : liveSmall(cameraId, o) == null;
+        return large ? live(o.large, triedLarge(cameraId, o)) == null : liveSmall(cameraId, o) == null && binnedRow(o, cameraId) == null; // P609
     }
 
     /**
@@ -754,7 +860,11 @@ public final class OppoNativeFullRes {
         final int[] next = live(all.large, failures(cameraId, true));
         final String reason = FullResTrials.phrase(FullResTrials.code(why), false);
         com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + " 200 MP mode " + profile.sensorMode + " "
-                + profile.size + " failed (" + why + "); next " + (next == null ? "none: 200 MP off, 50 MP stays" : "mode " + next[0]));
+                + profile.size + (profile.tetraBin ? " (the binned 50 MP, P609)" : "") + " failed (" + why + "); next "
+                + (next == null ? profile.tetraBin ? "none: 200 MP off and the binned 50 MP with it" : "none: 200 MP off, 50 MP stays" : "mode " + next[0]));
+        if (next == null && profile.tetraBin) // P609: the binned 50 MP was this row
+            return com.particlesdevs.photoncamera.util.Lang.t("FULLRES 50 Мп из режима 200 Мп не работает на этой камере (" + reason + "); 50 и 200 Мп выключены",
+                    "FULLRES 50 MP from the 200 MP mode does not work on this camera (" + reason + "); 50 and 200 MP are off");
         return next != null
                 ? com.particlesdevs.photoncamera.util.Lang.t("FULLRES 200 Мп: режим " + profile.sensorMode + " не работает (" + reason + "); в следующий раз попробую режим " + next[0],
                         "FULLRES 200 MP: mode " + profile.sensorMode + " does not work (" + reason + "); the next time mode " + next[0] + " is tried")
@@ -907,8 +1017,16 @@ public final class OppoNativeFullRes {
         final String nextMode = next == null ? null : rowLabel(currentId(cameraId, next));
         final boolean other = next == null && twoSizes(cameraId) && profile(cameraId, true) != null; // the 200 MP size is left
         com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + " mode " + mode + " " + (profile == null ? "" : profile.size) + " failed (" + why
-                + "); next " + (next != null ? "mode " + nextMode + " " + next.size : other ? "none: 50 MP off, 200 MP stays its own size" : "none"));
+                + "); next " + (next != null && next.tetraBin ? "none of the 50 MP rows: 50 MP from the 200 MP mode " + next.sensorMode + " "
+                + next.size + ", 2x2 binned per Tetra cell -> " + next.shotSize() + " Quad (P609)"
+                : next != null ? "mode " + nextMode + " " + next.size : other ? "none: 50 MP off, 200 MP stays its own size" : "none"));
         final String reason = FullResTrials.phrase(FullResTrials.code(why), false);
+        // P609: the one notice of the switch to the binned route (the last 50 MP row failed)
+        if (next != null && next.tetraBin)
+            return com.particlesdevs.photoncamera.util.Lang.t("FULLRES: режим " + mode + " не работает (" + reason + "); строки 50 Мп кончились. Теперь 50 Мп снимается в режиме 200 Мп ("
+                            + next.sensorMode + ") с бинингом 2×2 в каждой ячейке Tetra — собственная мозаика Quad сенсора",
+                    "FULLRES: mode " + mode + " does not work (" + reason + "); no 50 MP row is left. 50 MP is now shot in the 200 MP mode ("
+                            + next.sensorMode + "), 2×2 binned in each Tetra cell: the sensor's own Quad mosaic");
         return next != null
                 ? com.particlesdevs.photoncamera.util.Lang.t("FULLRES: режим " + mode + " не работает на этой камере (" + reason + "); в следующий раз попробую режим " + nextMode,
                         "FULLRES: mode " + mode + " does not work on this camera (" + reason + "); the next time mode " + nextMode + " is tried")

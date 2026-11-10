@@ -32,6 +32,10 @@ public class NubiaFullResTest {
     /** Camera 3: OV64B40 periscope, pixel array 9248x6944. */
     static final int[] TELE = {9, 3, 9248, 6944, 30, 4624, 3472, 30, 4624, 3472, 60, 3840, 2160, 60, 3840, 2160, 120, 1920, 1080, 240,
             1280, 720, 480, 4624, 3472, 30, 4624, 3472, 15};
+    /** P608: the stock HAL's tables (the owner's log of 31252, no Magisk module): camera 2 OV50E40, camera 3 OV64B40. */
+    static final int[] WIDE_STOCK = {6, 3, 8192, 6144, 20, 4096, 3072, 30, 4096, 3072, 60, 4096, 3072, 10, 3840, 2160, 120, 2048, 1152, 30};
+    static final int[] TELE_STOCK = {9, 3, 9248, 6944, 15, 4624, 3472, 30, 4624, 3472, 60, 3840, 2160, 60, 3840, 2160, 120, 1920, 1080, 240,
+            1280, 720, 480, 4624, 3472, 30, 4624, 3472, 15};
     /** Camera 1, the front: its table lists 3840x2160 over a 1928x1088 pixel array. */
     static final int[] FRONT = {2, 3, 3840, 2160, 30, 1920, 1080, 30};
 
@@ -184,5 +188,141 @@ public class NubiaFullResTest {
         NubiaFullRes.learnMaxRes("p588small", new PixelPro10.FullRes(android.graphics.ImageFormat.RAW_SENSOR, new android.util.Size(4096, 3072)), array);
         org.junit.Assert.assertNull("no row pick for it", NubiaFullRes.offer("p588"));
         org.junit.Assert.assertFalse("not larger than the binned array: none", NubiaFullRes.maxRes("p588small") && NubiaFullRes.device());
+    }
+
+    // ---------------------------------------------------------------- P608: the full mode asked and proven
+
+    private static void nubia() {
+        ShadowBuild.setManufacturer("nubia");
+        ShadowBuild.setBrand("nubia");
+        ShadowBuild.setModel("NX721J");
+    }
+
+    private static PixelPro10.FullRes raw(int w, int h) {
+        return new PixelPro10.FullRes(android.graphics.ImageFormat.RAW_SENSOR, new android.util.Size(w, h));
+    }
+
+    /**
+     * P608 (owner: «Ты так же не дал возможность включить 64мп на телевике»): the stock tele (camera 3) advertises 4624x3472 and a
+     * maximum-resolution RAW of 9248x6944 - no streamable row, the maximum-resolution route, its full row 0 asked, «64 Мп».
+     */
+    @Test public void theTeleOffersItsSixtyFourMegapixelsThroughTheMaximumResolutionRoute() {
+        nubia();
+        assertNull("no row of the advertised array", NubiaFullRes.learn("3", TELE_STOCK, new android.util.Size(4624, 3472), raw(9248, 6944)));
+        assertTrue(NubiaFullRes.maxRes("3"));
+        assertEquals("the maximum-resolution size's row", 0, NubiaFullRes.maxResRow("3"));
+        assertTrue(NubiaFullRes.offered("3"));
+        assertFalse(NubiaFullRes.exhausted("3"));
+        assertEquals(60, NubiaFullRes.megapixels("3"));
+        assertTrue(NubiaFullRes.sizeText("3"), NubiaFullRes.sizeText("3").startsWith("64 "));
+        assertEquals(new android.util.Size(9248, 6944), NubiaFullRes.maxResSize("3"));
+        // the 0.5x (camera 2) the same way: row 0 8192x6144, «50»
+        assertNull(NubiaFullRes.learn("2", WIDE_STOCK, new android.util.Size(4096, 3072), raw(8192, 6144)));
+        assertEquals(0, NubiaFullRes.maxResRow("2"));
+        assertTrue(NubiaFullRes.sizeText("2").startsWith("50 "));
+        // no row of that size in the table: the mode is not asked (-1), the route as before
+        NubiaFullRes.learnMaxRes("9", raw(8000, 6000), new android.util.Size(4000, 3000), TELE_STOCK);
+        assertEquals(-1, NubiaFullRes.maxResRow("9"));
+        assertEquals(-1, NubiaFullRes.maxResRow("1"));
+        assertEquals(-1, NubiaFullRes.maxResRow(null));
+        assertEquals(1, NubiaFullRes.rowOfSize(TELE_STOCK, 4624, 3472));
+        assertEquals(-1, NubiaFullRes.rowOfSize(null, 4624, 3472));
+    }
+
+    @Test public void theMaximumResolutionSessionMustReportItsFullRow() {
+        nubia();
+        NubiaFullRes.learn("2", WIDE_STOCK, new android.util.Size(4096, 3072), raw(8192, 6144));
+        NubiaFullRes.watchMaxRes("2");
+        assertEquals("nothing reported yet", 0, NubiaFullRes.maxResModeState("2"));
+        assertNull(NubiaFullRes.observeForTest(1));
+        assertEquals("the binned row so far", -1, NubiaFullRes.maxResModeState("2"));
+        assertEquals("another camera's state is none", 0, NubiaFullRes.maxResModeState("3"));
+        String why = null;
+        for (int i = 1; i < NubiaFullRes.ModeWatch.PATIENCE && why == null; i++) why = NubiaFullRes.observeForTest(1);
+        assertNotNull("the 31252 log: mode 1 in every result", why);
+        assertTrue(why, why.contains(NubiaFullRes.BINNED_TAG));
+        assertEquals(NubiaRemosaicProbe.BINNED, NubiaRemosaicProbe.code(why));
+        assertNull("said once", NubiaFullRes.observeForTest(1));
+
+        NubiaFullRes.watchMaxRes("2");
+        NubiaFullRes.observeForTest(1);
+        assertNull(NubiaFullRes.observeForTest(0));
+        assertEquals("the full row runs", 1, NubiaFullRes.maxResModeState("2"));
+        for (int i = 0; i < 40; i++) assertNull(NubiaFullRes.observeForTest(1));
+
+        NubiaFullRes.watchSession("2", null);
+        assertEquals("the normal session is no maximum-resolution one", 0, NubiaFullRes.maxResModeState("2"));
+        for (int i = 0; i < 40; i++) assertNull("the normal session never fails over", NubiaFullRes.observeForTest(1));
+
+        // a camera whose maximum-resolution size has no row: nothing asked, nothing failed (logged as a normal session)
+        NubiaFullRes.learnMaxRes("9", raw(8000, 6000), new android.util.Size(4000, 3000), TELE_STOCK);
+        NubiaFullRes.watchMaxRes("9");
+        for (int i = 0; i < 40; i++) assertNull(NubiaFullRes.observeForTest(1));
+        assertEquals(0, NubiaFullRes.maxResModeState("9"));
+    }
+
+    // ---- the data guard: a binned frame packed into the maximum-resolution buffer
+
+    private static final int W = 256, H = 192;
+
+    private static java.nio.ByteBuffer frame(int stride, int offset) {
+        final java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(offset + stride * H).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        b.position(offset);
+        return b;
+    }
+
+    private static void put(java.nio.ByteBuffer b, int at, int v) {
+        b.put(at, (byte) v);
+        b.put(at + 1, (byte) (v >> 8));
+    }
+
+    @Test public void aBinnedFramePackedIntoTheFullBufferIsFound() {
+        final java.util.Random r = new java.util.Random(608);
+        // the HAL's way (31252): the (W/2)x(H/2) binned frame at its own row pitch W bytes - a quarter of the rows
+        java.nio.ByteBuffer b = frame(W * 2, 0);
+        for (int i = 0; i < (W / 2) * (H / 2); i++) put(b, i * 2, 64 + r.nextInt(900));
+        assertTrue(NubiaFullRes.partialFrame(b, W, H, W * 2, 64));
+        // at the buffer's pitch: the left half of half the rows
+        b = frame(W * 2, 0);
+        for (int y = 0; y < H / 2; y++) for (int x = 0; x < W / 2; x++) put(b, y * W * 2 + x * 2, 64 + r.nextInt(900));
+        assertTrue(NubiaFullRes.partialFrame(b, W, H, W * 2, 64));
+        // padded rows and a buffer that starts further on
+        final int stride = W * 2 + 64, offset = 128;
+        b = frame(stride, offset);
+        for (int y = 0; y < H / 4; y++) for (int x = 0; x < W; x++) put(b, offset + y * stride + x * 2, 64 + r.nextInt(900));
+        assertTrue(NubiaFullRes.partialFrame(b, W, H, stride, 64));
+        assertTrue("black unknown: an empty bottom (0) is still below any pedestal", NubiaFullRes.partialFrame(b, W, H, stride, 0));
+    }
+
+    @Test public void aRealFrameIsNoPartialOne() {
+        final java.util.Random r = new java.util.Random(6080);
+        java.nio.ByteBuffer b = frame(W * 2, 0);
+        for (int i = 0; i < W * H; i++) put(b, i * 2, 64 + r.nextInt(900));
+        assertFalse("a full frame", NubiaFullRes.partialFrame(b, W, H, W * 2, 64));
+        b = frame(W * 2, 0);
+        for (int i = 0; i < W * H; i++) put(b, i * 2, 60 + r.nextInt(9));
+        assertFalse("a dark frame scatters round its pedestal", NubiaFullRes.partialFrame(b, W, H, W * 2, 64));
+        b = frame(W * 2, 0);
+        for (int i = 0; i < W * H; i++) put(b, i * 2, i < W * H / 4 ? 64 + r.nextInt(900) : 64);
+        assertFalse("a flat bottom at the pedestal is a picture (a dark lower half), not an empty buffer", NubiaFullRes.partialFrame(b, W, H, W * 2, 64));
+        b = frame(W * 2, 0);
+        for (int i = 0; i < W * H; i++) put(b, i * 2, i < W * H / 4 ? 64 + r.nextInt(900) : 1023);
+        assertFalse("a clipped bottom is no empty one", NubiaFullRes.partialFrame(b, W, H, W * 2, 64));
+        assertFalse("all empty: no smaller frame in it", NubiaFullRes.partialFrame(frame(W * 2, 0), W, H, W * 2, 64));
+        assertFalse(NubiaFullRes.partialFrame(null, W, H, W * 2, 64));
+        assertFalse("a buffer shorter than its rows", NubiaFullRes.partialFrame(java.nio.ByteBuffer.allocate(W * 2 * 10), W, H, W * 2, 64));
+        assertFalse("a stride under the row", NubiaFullRes.partialFrame(frame(W * 2, 0), W, H, W, 64));
+    }
+
+    @Test public void thePartialFrameNamesTheBinnedModeOrACrop() {
+        final String binned = NubiaFullRes.partialWhy(8192, 6144, false), crop = NubiaFullRes.partialWhy(8192, 6144, true);
+        assertEquals(NubiaRemosaicProbe.BINNED, NubiaRemosaicProbe.code(binned));
+        assertEquals("the full row reported, the frame a part: an in-sensor-zoom crop", NubiaRemosaicProbe.CROP, NubiaRemosaicProbe.code(crop));
+        assertTrue(binned.contains("8192x6144"));
+    }
+
+    @Test public void theTrialsOfTheBinnedSessionsAreForgotten() {
+        assertEquals("P608: revision 2 - every verdict of revision 1 came from binned frames", 2, NubiaFullRes.ROW_TRIALS);
+        assertEquals(FullResTrials.stamp(2), NubiaFullRes.stamp());
     }
 }

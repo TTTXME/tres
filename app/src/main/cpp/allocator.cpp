@@ -466,8 +466,9 @@ Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopy(JNIEnv *env, 
         LOGD("Failed to get direct buffer address of originBuffer, disabling copying");
         return buffer;
     } else {
-        // Copy the contents of the original buffer to the new buffer
-        memcpy(allocation, reinterpret_cast<uint8_t*>(ptr) + offset, capacity);
+        // Copy the contents of the original buffer to the new buffer. P610 (speed): on 4 threads from 32 MB (copyBytes, P200): the
+        // reference RAW out of the shot arena before the post pipeline (382 MB at 200 MP, ~0.4 s of the OnePlus 16's shot on one core)
+        copyBytes(static_cast<uint8_t*>(allocation), reinterpret_cast<const uint8_t*>(ptr) + offset, size_t(capacity));
         LOGD("Buffer allocated and copied successfully");
     }
     memoryCount += capacity;
@@ -898,4 +899,60 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaCopyUnpack(JNIEnv* env, 
         if (i >= 0 && --arenas[size_t(i)].refs == 0 && arenas[size_t(i)].released) unmapLocked(size_t(i), work);
     }
     return view;
+}
+
+// P609 (processing/TetraBin, the OnePlus 16 main's 50 MP from its 200 MP row): each 2x2 box of the source rows averaged into one
+// site ((sum + 2) >> 2: the levels stay) - a Tetra frame (4x4 sites of one colour) becomes the sensor's own Quad of half its sides,
+// in the same colour order; whole 8x8 colour periods only (out = side / 8 * 4). RAW16 rows are read in place, packed RAW10 / RAW12
+// rows are unpacked two at a time first. Rows split over up to four threads. The caller's buffers; false when either is too small.
+static bool binBlocks2Rows(uint16_t* out, size_t outCapacity, const uint8_t* in, size_t inCapacity, int format, int width, int height,
+                           int rowStride) {
+    if (!out || !in || width < 8 || height < 8 || rowStride <= 0) return false;
+    const bool packed = format == 0x25 || format == 0x26;
+    if (!packed && format != 0x20) return false;
+    const int ow = width / 8 * 4, oh = height / 8 * 4;
+    const long rowBytes = packed ? packedRowBytes(format, width) : long(width) * 2;
+    if (rowStride < rowBytes) return false;
+    if (size_t(2 * oh - 1) * size_t(rowStride) + size_t(rowBytes) > inCapacity) return false;
+    if (size_t(ow) * size_t(oh) * 2 > outCapacity) return false;
+    const int threads = std::max(1, std::min(4, int(std::thread::hardware_concurrency())));
+    auto rows = [&](int y0, int y1) {
+        std::vector<uint16_t> a(packed ? size_t(width) : 0), b(packed ? size_t(width) : 0);
+        for (int y = y0; y < y1; ++y) {
+            const uint8_t* p0 = in + size_t(2 * y) * size_t(rowStride);
+            const uint8_t* p1 = p0 + rowStride;
+            uint16_t* o = out + size_t(y) * size_t(ow);
+            if (packed) {
+                decodePackedRow(format, p0, a.data(), width);
+                decodePackedRow(format, p1, b.data(), width);
+                const uint16_t *r0 = a.data(), *r1 = b.data();
+                for (int x = 0; x < ow; ++x)
+                    o[x] = uint16_t((uint32_t(r0[2 * x]) + r0[2 * x + 1] + r1[2 * x] + r1[2 * x + 1] + 2u) >> 2);
+                continue;
+            }
+            // RAW16: the samples read bytewise (a buffer or stride need not be 2-byte aligned)
+            uint16_t s0[2], s1[2];
+            for (int x = 0; x < ow; ++x) {
+                memcpy(s0, p0 + 4 * size_t(x), 4); memcpy(s1, p1 + 4 * size_t(x), 4);
+                o[x] = uint16_t((uint32_t(s0[0]) + s0[1] + s1[0] + s1[1] + 2u) >> 2);
+            }
+        }
+    };
+    std::vector<std::thread> pool;
+    for (int t = 1; t < threads; ++t) pool.emplace_back(rows, int(int64_t(oh) * t / threads), int(int64_t(oh) * (t + 1) / threads));
+    rows(0, oh / threads);
+    for (auto& t : pool) t.join();
+    return true;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_particlesdevs_photoncamera_util_Allocator_binBlocks2(JNIEnv* env, jclass, jobject dst, jobject origin, jint offset, jint format,
+                                                             jint width, jint height, jint rowStride) {
+    auto* out = dst ? static_cast<uint16_t*>(env->GetDirectBufferAddress(dst)) : nullptr;
+    auto* in = origin ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;
+    if (!out || !in || offset < 0) return JNI_FALSE;
+    const jlong outCapacity = env->GetDirectBufferCapacity(dst), inCapacity = env->GetDirectBufferCapacity(origin);
+    if (outCapacity <= 0 || inCapacity <= offset) return JNI_FALSE;
+    return binBlocks2Rows(out, size_t(outCapacity), in + offset, size_t(inCapacity - offset), format, width, height, rowStride)
+            ? JNI_TRUE : JNI_FALSE;
 }

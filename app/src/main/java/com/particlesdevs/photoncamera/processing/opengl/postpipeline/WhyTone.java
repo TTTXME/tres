@@ -504,6 +504,28 @@ public final class WhyTone {
         return new float[]{Math.max(0f, Math.min(2f, value("hl_local", 0.8f))), 1.5f, 6f, 12f};
     }
 
+    /**
+     * P607 (owner, 2026-11-10, lamps and lit signs at night: a dashed grey line along a sign's glow, dark specks in a lit window):
+     * why/combine HL_LOCAL_RIM - a line of HL_LOCAL's taps that leaves the light on one side (under white) cannot raise the mean
+     * above the pixel, so a light's falloff is not darkened into a band; lines inside the light count as before. scam_dev
+     * hybrid_why_hl_local_rim (0 = HL_LOCAL as before).
+     */
+    static boolean hlLocalRim() {
+        return value("hl_local_rim", 1f) > 0f;
+    }
+
+    /**
+     * P607 round 3 (owner, 2026-11-10, «Качество» at night: pale grey dot clusters and strokes inside lit signs' white cores): at
+     * night HL_LOCAL and the Bento headroom's hr detail fall on light cores the ultrashort frames measure at 2 - 16 x white (a
+     * sign's letters, its panel gap, the frames' clip border). The headroom shoulder takes all of it to the top 5 - 15 levels, so
+     * their darkening only draws faint marks (host: «Быстрый» without the headroom path shows the same marks, fewer). Both fade
+     * with WhyAe's night weight by this share; P508's daylight windows and sun scenes (night 0) are as before. scam_dev
+     * hybrid_why_hl_local_night (0 = no fade, as before).
+     */
+    static float hlLocalNight() {
+        return Math.max(0f, Math.min(1f, value("hl_local_night", 1f)));
+    }
+
     static float vibranceHl() {
         // P419: the visible «Сочность в светах» in the reference app's units (its config 0.25 = P407's factor 1), x the dev factor
         return Math.max(0f, value("vibrance_hl", 1.0f) * value("vibrance_hl_str", VIBRANCE_HL_STR) / VIBRANCE_HL_STR);

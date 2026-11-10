@@ -142,10 +142,28 @@ public final class PhotoSize {
         fragment.refreshTopBar();
     }
 
-    /** «12 Мп» / «50 Мп» / «200 Мп»; P605: «50 Мп (ремозаик)» where the 50 MP is the nubia HAL's remosaic. */
+    /** «12 Мп» / «50 Мп» / «200 Мп»; P605: «50 Мп (ремозаик)» where the 50 MP is the nubia HAL's remosaic; P608: the nubia tele's «64 Мп». */
     public static String label(int size) {
-        if (size == FULL && remosaicHere()) return Lang.t("50 Мп (ремозаик)", "50 MP (remosaic)");
+        if (size == FULL) {
+            final String full = fullName();
+            return remosaicHere() ? full + Lang.t(" (ремозаик)", " (remosaic)") : full;
+        }
         return size + Lang.t(" Мп", " MP");
+    }
+
+    /**
+     * P608 (owner, 2026-11-10: «Ты так же не дал возможность включить 64мп на телевике»): the «50 Мп» size by what the bound camera
+     * really has - the nubia tele's maximum-resolution 9248x6944 is «64 Мп»; «50 Мп» elsewhere.
+     */
+    public static String fullName() {
+        try {
+            if (com.particlesdevs.photoncamera.capture.NubiaFullRes.device()) {
+                final String s = com.particlesdevs.photoncamera.capture.NubiaFullRes.sizeText(boundCamera);
+                if (s != null) return s;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return FULL + Lang.t(" Мп", " MP");
     }
 
     /** P605 (owner, 2026-11-10: «На Нубии же включаем 50мп с ремозаиком, если только они работают»): the bound camera's 50 MP is the HAL's remosaic. */
@@ -153,6 +171,16 @@ public final class PhotoSize {
         try {
             return com.particlesdevs.photoncamera.capture.NubiaFullRes.device()
                     && com.particlesdevs.photoncamera.capture.NubiaRemosaicProbe.remosaicRoute(boundCamera);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** P609: the bound camera's «50 Мп» is its 200 MP row binned 2x2 per Tetra cell (OppoNativeFullRes.binnedFifty). */
+    static boolean binnedHere() {
+        try {
+            return com.particlesdevs.photoncamera.capture.OppoNativeFullRes.device()
+                    && com.particlesdevs.photoncamera.capture.OppoNativeFullRes.binnedFifty(boundCamera);
         } catch (RuntimeException e) {
             return false;
         }
@@ -198,8 +226,14 @@ public final class PhotoSize {
      * (12 / 50 / 200) only until the session has its stream.
      */
     public static String badge() {
-        final int w = streamWidth, h = streamHeight;
+        int w = streamWidth, h = streamHeight;
         if (w <= 0 || h <= 0) return label(current());
+        // P609: the OnePlus 16 main's «50 Мп» binned from its 200 MP row: the session's stream is 16320x12288, the photo 8160x6144
+        if (current() == FULL && (long) w * h > 100_000_000L && binnedHere()) {
+            final int[] half = com.particlesdevs.photoncamera.processing.TetraBin.outSize(w, h);
+            w = half[0];
+            h = half[1];
+        }
         final int[] out = output(w, h);
         final String text = com.particlesdevs.photoncamera.gallery.ui.PhotoInfo.megapixels(out[0], out[1]);
         if (text != null && current() == FULL && remosaicHere()) return text + Lang.t(" (ремозаик)", " (remosaic)"); // P605
@@ -236,7 +270,7 @@ public final class PhotoSize {
             explain(fragment, size);
             return null;
         }
-        if (size != NORMAL && !fullHere) return Lang.t("50 Мп — нет на этом объективе", "50 MP: not on this lens");
+        if (size != NORMAL && !fullHere) return Lang.t(fullName() + " — нет на этом объективе", fullName() + ": not on this lens");
         if (size == MAX && !maxAvailable()) return Lang.t("200 Мп — нет на этом объективе", "200 MP: not on this lens");
         if (PixelPro10.fullResSuspended()) // P179: a FULLRES merge runs: the switch waits for it (P214h: names its size)
             return PixelPro10.suspendedText();

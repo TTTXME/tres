@@ -566,7 +566,9 @@ struct LaGpuGrid { int nx=0,ny=0,win=16,stride=8,s=2; };
 struct LaGpuTune { float mu=0.1f,kappa=2.f,maxShift=6.f;int iters=3,itersCoarse=3,medians=2; };
 struct LaGpuResult { std::vector<float> field,motion;std::vector<uint32_t> flags;float median=0,p90=0,maxAbsY=0,accepted=0,fromCoarse=0;double ms=0; };
 // P364: a donor's GPU homography (base canonical RAW px -> donor canonical RAW px, h33 = 1)
-struct LaGpuHom { bool ok=false;std::array<float,8> h{1,0,0,0,1,0,0,0};int corners=0,tracked=0,inliers=0;float rms=0,coarseX=0,coarseY=0;double ms=0,msGray=0,msCoarse=0,msKlt=0,msRansac=0;std::string why; };
+// P607 weak/hw: RANSAC solved it but refused it for too few inliers (>= 30 at rms <= 1.5 px): a night ultrashort frame (x8 noise, 46 -
+// 59 inliers of 569 tracks on a hand-held burst) may start from it instead of a global translation (hybrid tuning usWeakHom)
+struct LaGpuHom { bool ok=false,weak=false;std::array<float,8> h{1,0,0,0,1,0,0,0},hw{1,0,0,0,1,0,0,0};int corners=0,tracked=0,inliers=0;float rms=0,coarseX=0,coarseY=0;double ms=0,msGray=0,msCoarse=0,msKlt=0,msRansac=0;std::string why; };
 // The GPU field's memory per RAW pixel from the alignment to the F6 stage, as the merge's memory guard counts it: two RAW uploads
 // and the base and donor levels (field); P364, with the GPU homography: two more RAW uploads, the L0..L3 levels of two donors in
 // flight and the base's L2 / L3 as well (homography: 18.51 B measured with the tile buffers by LaGpu::bytesHeld in
@@ -1038,7 +1040,10 @@ public:
         out.rms=float(rms);
         out.msRansac=std::chrono::duration<double,std::milli>(Clock::now()-homAt[p]).count();
         if(!solved)out.why="RANSAC failed";
-        else if(out.inliers<60||out.inliers<0.2*out.tracked)out.why="too few inliers"; // (a night ultrashort frame: ~1/3 of the tracks)
+        else if(out.inliers<60||out.inliers<0.2*out.tracked){
+            out.why="too few inliers"; // (a night ultrashort frame: ~1/3 of the tracks)
+            if(out.inliers>=30&&rms<=1.5){out.weak=true;for(int i=0;i<8;++i)out.hw[size_t(i)]=float(H[size_t(i)]);} // P607
+        }
         else {for(int i=0;i<8;++i)out.h[size_t(i)]=float(H[size_t(i)]);out.ok=true;out.why="ok";}
         out.ms=std::chrono::duration<double,std::milli>(Clock::now()-homAt[p]).count();
         return out;
