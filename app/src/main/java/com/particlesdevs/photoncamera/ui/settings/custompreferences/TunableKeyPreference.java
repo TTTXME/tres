@@ -69,6 +69,11 @@ public class TunableKeyPreference extends Preference {
         VendorTagUtils.TunableKey key = keys.get(index);
         enabled = key.enabled;
         setTitle(key.name);
+        // P592: «Сессия · Integer 20 · принят камерой» is the key's state: it stays under the name
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.summaryIsState(this);
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(this, Lang.t(getContext(),
+                "Ключ камеры (vendor tag) этого модуля. Он уходит в сессию камеры или в каждый запрос кадра. Переключатель включает и выключает ключ, нажатие открывает его имя, тип и значение. Под названием видно, приняла ли камера ключ.",
+                "A camera key (vendor tag) of this module. It goes into the camera session or into every frame request. The switch turns the key on and off, a tap opens its name, type and value. The line under the name says whether the camera took the key."));
         setSummary(summary(getContext(), key));
         setIcon(statusIcon(getContext(), key.enabled ? getStatusColor(key) : DOT_UNKNOWN));
     }

@@ -1,6 +1,8 @@
 package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -172,5 +174,35 @@ public class ScamDiagnosticsReadmeTest {
             for (int c = 0; c < 3; c++)
                 for (int k = 0; k < 3; k++) o[r * 3 + c] += a[r * 3 + k] * b[k * 3 + c];
         return o;
+    }
+    /**
+     * P602: the GPU stages' sample pass takes the samples the read-back took - every step-th texel of every step-th row, at most
+     * 1024 a side - and only from textures whose texelFetch gives the read-back's floats (half floats, floats sampled GL_NEAREST).
+     */
+    @Test public void theSamplePassTakesTheReadBacksGrid() {
+        assertArrayEquals(new int[]{4, 1020, 768}, ScamDiagnostics.sampleGrid(4080, 3072));
+        assertArrayEquals(new int[]{2, 1020, 768}, ScamDiagnostics.sampleGrid(2040, 1536));
+        assertArrayEquals(new int[]{8, 1020, 768}, ScamDiagnostics.sampleGrid(8160, 6144));
+        assertArrayEquals(new int[]{1, 1000, 750}, ScamDiagnostics.sampleGrid(1000, 750));
+        for (int[] size : new int[][]{{4080, 3072}, {2040, 1536}, {8160, 6144}, {16320, 12288}, {4096, 3072}, {1000, 750}, {4100, 3000}}) {
+            final int[] g = ScamDiagnostics.sampleGrid(size[0], size[1]);
+            // the read-back's own formula (gpuStage): the same step and counts
+            final int step = Math.max(1, (Math.max(size[0], size[1]) + 1023) / 1024);
+            assertArrayEquals(new int[]{step, size[0] / step, size[1] / step}, g);
+            assertTrue(Math.max(g[1], g[2]) <= 1024);
+        }
+        final com.particlesdevs.photoncamera.processing.opengl.GLFormat half =
+                new com.particlesdevs.photoncamera.processing.opengl.GLFormat(com.particlesdevs.photoncamera.processing.opengl.GLFormat.DataType.FLOAT_16, 4);
+        half.filter = android.opengl.GLES20.GL_LINEAR;
+        assertTrue(ScamDiagnostics.sampleable(half));
+        final com.particlesdevs.photoncamera.processing.opengl.GLFormat floats =
+                new com.particlesdevs.photoncamera.processing.opengl.GLFormat(com.particlesdevs.photoncamera.processing.opengl.GLFormat.DataType.FLOAT_32, 1);
+        floats.filter = android.opengl.GLES20.GL_NEAREST;
+        assertTrue(ScamDiagnostics.sampleable(floats));
+        floats.filter = android.opengl.GLES20.GL_LINEAR;
+        assertFalse(ScamDiagnostics.sampleable(floats));
+        assertFalse(ScamDiagnostics.sampleable(new com.particlesdevs.photoncamera.processing.opengl.GLFormat(
+                com.particlesdevs.photoncamera.processing.opengl.GLFormat.DataType.SIMPLE_8, 4)));
+        assertFalse(ScamDiagnostics.sampleable(null));
     }
 }

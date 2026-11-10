@@ -542,13 +542,14 @@ public class ModuleRowsTest {
             View row = bound(lens, mode);
             String value = text(row, R.id.settings_value) + text(row, R.id.settings_value_below);
             assertEquals("Mode #4: 8192x6144 @ 15fps", value);
-            String summary = text(row, android.R.id.summary);
-            assertFalse(summary, summary.startsWith(value));
-            // P574: at most three lines, cut after a whole word with «…»: the start of the hint
-            String hint = context.getString(R.string.module_sensor_mode_hint);
-            assertTrue(summary, summary.startsWith(hint) || summary.endsWith("…") && hint.startsWith(summary.substring(0, summary.length() - 1)));
+            // P592: no description under the title; the table's explanation is the row's long press
+            assertEquals("", text(row, android.R.id.summary));
+            String help = String.valueOf(SettingHelp.text(context, mode));
+            assertTrue(help, help.startsWith(context.getString(R.string.help_sensor_mode)));
             assertEquals("Sensor mode", text(row, android.R.id.title));
-            assertEquals("restarts the camera", View.VISIBLE, row.findViewById(R.id.settings_restart).getVisibility());
+            // P592: no restart badge on the row; its help says the camera restarts
+            assertEquals(View.GONE, row.findViewById(R.id.settings_restart).getVisibility());
+            assertTrue("restarts the camera", SettingHelp.restarts(mode));
             // the camera key of 3×
             com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableKeyPreference key = null;
             for (int i = 0; i < adapter(lens).getItemCount(); i++)

@@ -176,6 +176,7 @@ public class SettingsDialogsTest {
             SettingsActivity.SettingsFragment page = page(activity, "photo_style_screen");
             ListPreference mono = page.findPreference("pref_scam_hybrid_colour_mono");
             mono.setValue("neutral");
+            ShadowToast.reset();   // P592: the first opening's one-time tip is not the reset's toast
             View reset = page.requireView().findViewWithTag("settings_page_reset");
             reset.performClick();
             idle();

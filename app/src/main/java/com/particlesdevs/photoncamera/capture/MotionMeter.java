@@ -127,7 +127,12 @@ public final class MotionMeter {
         if (busy.get()) return; // the previous pair is still being compared: this frame is skipped
         final long epoch = generation.get();
         final Region roi = region;
+        final long thumbStart = System.nanoTime();
         final Thumb cur = thumb(s, width, height, rowPixels, black, timestampNs, mosaicBlock);
+        // P597: the thumbnail's time on the camera thread (VF_RAW "stages": motion) - a Tetra frame sums 128 sites a sample, a
+        // Bayer frame 8 (host: 6 - 16 ms against ~1 ms for 4080 x 3072)
+        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.MOTION,
+                System.nanoTime() - thumbStart);
         if (cur == null) return;
         final float[] bins = rowProfile(cur);
         final Thumb before;

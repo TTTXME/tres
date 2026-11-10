@@ -147,7 +147,7 @@ def gpu_sharpen(ya, P=R.X8U, scale=1.0):
         half, q = psf(kern, rad * s)
         common = dict(psfHalfU=half, psfU=tuple(float(v) for v in q), amountU=amt * (comp(s, SCALE2_RL_GAUSS) if kern == 0 else 1.0), haloU=P['rl_halo_control'] / 100.0,
                       marginU=P['rl_halo_margin'], macroU=P['rl_halo_macro'], protectShadowsU=P['protect_shadows'] / 100.0,
-                      protectHighlightsU=P['protect_highlights'] / 100.0, nbU=nb)
+                      protectHighlightsU=P['protect_highlights'] / 100.0, nbU=nb, edgeGuardU=P.get('rl_edge_guard', 0.0))
         est = obs
         for k in range(it):
             ratio = run('why/sharp_rl', empty(W, H, 1), {'Observed': obs, 'Estimate': est}, modeU=0, **common)

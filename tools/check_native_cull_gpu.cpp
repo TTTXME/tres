@@ -43,6 +43,7 @@ precision highp float;
 precision highp int;
 #define NAT_CULL_TIGHT 1
 #define NAT_CULL_EXP 10.0
+#define NAT_B 2
 layout(local_size_x=64) in;
 struct Input {vec4 p;vec4 center;vec4 params;};
 layout(std430,binding=0) readonly buffer Inputs {Input cases[];};

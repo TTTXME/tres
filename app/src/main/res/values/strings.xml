@@ -98,10 +98,10 @@
         <item>2</item>
     </string-array>
     <string name="pref_zsl_buffer_count_default" translatable="false">50</string>
-    <string name="zsl_buffer_count">ZSL buffer frames</string>
-    <string name="zsl_buffer_count_summary">RAW frames kept before the press. Higher: more memory used; lower: the merge may run short of frames.</string>
+    <string name="zsl_buffer_count">Shutter buffer capacity</string>
+    <string name="zsl_buffer_count_summary">How many raw frames the camera keeps in memory before the press. Higher: the merge has enough frames without shutter lag. Lower: saves RAM.</string>
     <string name="live_viewfinder_raw">RAW viewfinder</string>
-    <string name="live_viewfinder_raw_summary">The viewfinder develops the RAW itself. Off: the standard camera preview, except on modules without an ISP stream (ISZ, FULLRES, a sensor mode with “ISP stream” Auto, “ISP stream” Off or Fake off) and modules streaming a Quad / Tetra mosaic: there the viewfinder is always from the RAW. The photo is not affected.</string>
+    <string name="live_viewfinder_raw_summary">The viewfinder develops the raw frames itself and shows colour and tone close to the finished photo. Off: the camera\'s ordinary preview is shown. Modules without an ISP stream (ISZ, FULLRES and other sensor modes) and modules with a Quad or Tetra mosaic always show the RAW viewfinder. It does not affect the photo.</string>
     <!-- Settings sheet handles (TalkBack) -->
     <string name="sheet_handle_open">Open settings panel</string>
     <string name="sheet_handle_close">Close settings panel</string>
@@ -115,22 +115,22 @@
     <string name="motion_mode_on_toast">Sport: fast buffer, sharp moving subjects</string>
     <string name="motion_mode_off_toast">Photo</string>
     <string name="prefs_scam_motion_on_title">Sport mode</string>
-    <string name="prefs_scam_motion_on_summary">Short exposures and a fast buffer for moving subjects. Stronger denoising in low light.</string>
+    <string name="prefs_scam_motion_on_summary">A short shutter and a fast frame buffer for moving subjects: children, animals, sport. In low light the noise reduction is stronger.</string>
     <string name="prefs_scam_motion_screen_title">Sport</string>
-    <string name="prefs_scam_motion_screen_summary">The values of the “Sport” mode (the top bar button): shutter and frame count for sharp moving subjects</string>
+    <string name="prefs_scam_motion_screen_summary">The values of Sport mode (the button in the top bar): shutter and frame count for crisp moving subjects.</string>
     <string name="prefs_scam_motion_shutter_title">Shutter at most</string>
-    <string name="prefs_scam_motion_shutter_summary">%s. Longest shutter in Sport mode. Shorter: sharper motion but more noise (the camera raises the sensitivity, ISO).</string>
+    <string name="prefs_scam_motion_shutter_summary">The longest shutter in Sport mode. Shorter: crisper motion but a noisier shot, as the camera raises ISO.</string>
     <string name="prefs_scam_motion_flicker_title">No lamp flicker</string>
-    <string name="prefs_scam_motion_flicker_summary">Under flickering lamps the exposure is rounded to the lamp cycle (at least 1/100 or 1/120 s): no flicker or bands in the viewfinder and photos, at the cost of a little more motion blur.</string>
+    <string name="prefs_scam_motion_flicker_summary">Under flickering lamps the shutter follows their cycle (no shorter than 1/100 or 1/120 s): no flicker or bands, but motion is a little more blurred.</string>
     <string name="prefs_scam_motion_frames_title">Frames to merge</string>
-    <string name="prefs_scam_motion_frames_summary">Frames merged in Sport mode. Higher: less noise but slower; lower: faster.</string>
-    <string name="prefs_scam_motion_shasta_summary">Sport mode takes no shadow brackets.</string>
-    <string name="prefs_scam_motion_bento_summary">%s. Sport mode takes no highlight brackets.</string>
-    <string name="prefs_scam_motion_boost_summary">In Sport mode, removes double outlines harder where parts of the frame move differently.</string>
-    <string name="prefs_scam_motion_boost_value_summary">Higher: fewer double outlines but more noise; lower: the opposite.</string>
-    <string name="prefs_scam_motion_threshold_summary">From what shift (in sensor pixels) an area counts as moving. Lower: less ghosting; higher: less noise.</string>
+    <string name="prefs_scam_motion_frames_summary">How many frames to merge in Sport mode. Higher: less noise but slower. Lower: faster.</string>
+    <string name="prefs_scam_motion_shasta_summary">Whether long frames for the shadows are taken in Sport mode.</string>
+    <string name="prefs_scam_motion_bento_summary">Whether short frames for the highlights are taken in Sport mode.</string>
+    <string name="prefs_scam_motion_boost_summary">In Sport mode removes doubled outlines harder where parts of the frame move differently.</string>
+    <string name="prefs_scam_motion_boost_value_summary">Higher: fewer doubled outlines but a noisier shot. Lower: the other way round.</string>
+    <string name="prefs_scam_motion_threshold_summary">From which shift, in sensor pixels, an area counts as moving. Lower: less doubling. Higher: less noise.</string>
     <string name="prefs_low_light_boost_title">Night viewfinder</string>
-    <string name="prefs_low_light_boost_summary">In the dark the viewfinder is brighter but updates less often, and the frames for the photo are longer. Android 15, not in Sport.</string>
+    <string name="prefs_low_light_boost_summary">In the dark the viewfinder gets brighter, but updates less often and the frames for the shot get longer. Needs Android 15; does not work in Sport mode.</string>
     <string name="dcg14_on">DCG 14-bit: on</string>
     <string name="dcg14_off">DCG 14-bit: off</string>
     <string name="dcg14_on_toast">DCG 14-bit on: the sensor\'s dual-gain HDR mode is requested, the camera restarts</string>
@@ -140,7 +140,7 @@
     <string name="full_res_on_toast">Full resolution on: 50 MP RAW, frames after the shutter, the camera restarts</string>
     <string name="full_res_off_toast">Full resolution off</string>
     <string name="prefs_developer_settings_screen_title">For developers</string>
-    <string name="prefs_developer_settings_screen_summary">Hidden scam_dev.txt switches for experiments and debugging</string>
+    <string name="prefs_developer_settings_screen_summary">Hidden parameters of the scam_dev.txt file for experiments and debugging.</string>
     <!-- P240: the overlay while the camera is brought back after an error -->
     <string name="camera_restarting">Camera is restarting…</string>
     <!-- P241: the viewfinder badge while diagnostics dumps are on -->

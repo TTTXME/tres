@@ -175,7 +175,156 @@ public class ViewfinderMosaicWbTest {
         assertTrue(off(shown, new float[]{1f / 2.434f, 1f, 1f / 1.569f}) > 0.05);
     }
 
+    /** P597: a Measure whose copy (detached) counts how often it is taken and measures the same frame. */
+    private static ViewfinderMosaicWb.Measure detachable(ByteBuffer frame, int[] copies) {
+        final ViewfinderMosaicWb.Measure same = measure(frame);
+        return new ViewfinderMosaicWb.Measure() {
+            @Override public MosaicNeutral.Stat stat() { return same.stat(); }
+            @Override public MosaicNeutral.Result own() { return same.own(); }
+            @Override public float[] hal() { return same.hal(); }
+            @Override public ViewfinderMosaicWb.Measure detached() {
+                copies[0]++;
+                return measure(frame);
+            }
+        };
+    }
+
+    /**
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»): the measurement leaves the camera thread once a neutral is
+     * shown - the same neutrals as measured on the caller (run at once they are the same frame by frame), the first one still
+     * measured at once, one copy at a time (frames due meanwhile keep the shown neutral), a reset meanwhile drops the result.
+     */
+    @Test public void theMeasurementRunsOnItsOwnThreadWithTheSameNeutrals() {
+        final ByteBuffer frame = quadFrame(0.36f, 0.68f), other = quadFrame(0.30f, 0.75f);
+        teachCamera3(measure(frame).stat());
+        final List<String> same = Collections.singletonList("3");
+        final java.util.ArrayList<Runnable> queued = new java.util.ArrayList<>();
+        try {
+            // run at once: frame by frame the neutrals of the caller's measurement
+            ViewfinderMosaicWb.workerHook = Runnable::run;
+            final ViewfinderMosaicWb sync = new ViewfinderMosaicWb(), async = new ViewfinderMosaicWb();
+            final int[] copies = {0};
+            for (int i = 0; i < 60; i++) {
+                final ByteBuffer f = i < 30 ? frame : other;
+                final CaptureResult r = result(1_000_000_000L + 33_000_000L * i, 2.434f, 1.569f);
+                final float[] a = sync.frame("4", 1, r, true, measure(f), prior(), same, i * 33L);
+                final float[] b = async.frame("4", 1, r, true, detachable(f, copies), prior(), same, i * 33L);
+                assertTrue("frame " + i, a == null ? b == null : b != null && java.util.Arrays.equals(a, b));
+            }
+            assertTrue("the measurements after the first one took copies: " + copies[0], copies[0] >= 3);
+            // queued: the first neutral is measured at once, a later one on the worker, one at a time
+            ViewfinderMosaicWb.workerHook = queued::add;
+            final ViewfinderMosaicWb vf = new ViewfinderMosaicWb();
+            copies[0] = 0;
+            float[] first = null;
+            int i = 0;
+            for (; i < 40 && first == null; i++)
+                first = vf.frame("4", 1, result(1_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, detachable(other, copies), prior(), same, i * 33L);
+            assertNotNull("the first neutral at once", first);
+            assertEquals("no copy for it", 0, copies[0]);
+            assertTrue(queued.isEmpty());
+            float[] shown = first;
+            for (int n = 0; n < 40; n++, i++)
+                shown = vf.frame("4", 1, result(1_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, detachable(frame, copies), prior(), same, i * 33L);
+            assertEquals("one copy while it is measured", 1, copies[0]);
+            assertEquals(1, queued.size());
+            assertTrue(vf.measuring());
+            assertTrue("the shown neutral until the result is in", java.util.Arrays.equals(first, shown));
+            queued.remove(0).run();
+            org.junit.Assert.assertFalse(vf.measuring());
+            shown = vf.frame("4", 1, result(1_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, detachable(frame, copies), prior(), same, i * 33L);
+            i++;
+            assertTrue("the result moved it", off(shown, first) > 0.01);
+            // a reset while a measurement runs: its result is not shown
+            for (int n = 0; n < 40 && queued.isEmpty(); n++, i++)
+                vf.frame("4", 1, result(1_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, detachable(other, copies), prior(), same, i * 33L);
+            assertEquals(1, queued.size());
+            vf.reset();
+            queued.remove(0).run();
+            org.junit.Assert.assertFalse(vf.measuring());
+            assertNull("a plain stream after the reset", vf.frame("4", 1, result(20_000_000_000L, 2.434f, 1.569f), false, measure(frame), prior(), same, 0L));
+        } finally {
+            ViewfinderMosaicWb.workerHook = null;
+        }
+    }
+
+    private static long ts(int i) {
+        return 1_000_000_000L + 33_000_000L * i;
+    }
+
+    /**
+     * The video's sequence: a running AWB while the phone moves (its gains drift), then 5 s held still (the converged gains held
+     * exactly). Returns the frame (index) at which the viewfinder first showed its own neutral, -1 when it kept the HAL's gains.
+     */
+    private static int heldStill(ViewfinderMosaicWb vf, ByteBuffer frame, List<String> same) {
+        for (int i = 0; i < 30; i++)
+            assertNull("moving: the HAL's gains", vf.frame("4", 1, result(ts(i), 2.30f + 0.01f * i, 1.569f), true, measure(frame), prior(), same, i * 33L));
+        for (int i = 30; i < 180; i++)
+            if (vf.frame("4", 1, result(ts(i), 2.59f, 1.569f), true, measure(frame), prior(), same, i * 33L) != null) return i;
+        return -1;
+    }
+
+    /**
+     * P599 (owner, 2026-11-10: «Баланс белого сначала правильный, но если удержать какое-то время камеру на месте он меняется на
+     * неверный»; screen recording 11:59:38, the 4.8x module): a running AWB that converged on a still scene holds its gains as an
+     * ISP that runs no 3A does - before, ~2 s after the phone came to rest the idle test passed and the viewfinder's own neutral
+     * replaced the HAL's in one step. Gains that moved in the session prove a running AWB: the HAL's white balance stays for the
+     * session however long the camera is held, the press carries the proof; a new session or camera starts without it.
+     */
+    @Test public void aConvergedAwbHeldStillKeepsTheHalsWhiteBalance() {
+        final ByteBuffer frame = quadFrame(0.36f, 0.68f);
+        teachCamera3(measure(frame).stat());
+        final List<String> same = Collections.singletonList("3");
+        final ViewfinderMosaicWb vf = new ViewfinderMosaicWb();
+        assertEquals("held still for 5 s: the HAL's white balance stays", -1, heldStill(vf, frame, same));
+        assertTrue(vf.awbMoves("4", 1));
+        org.junit.Assert.assertFalse("another session", vf.awbMoves("4", 2));
+        org.junit.Assert.assertFalse("another camera", vf.awbMoves("3", 1));
+        // the press: the reference app's rule with the proof (ScamProcessor keeps it over a still burst's frozen gains)
+        final MosaicNeutralResolver.Press press = MosaicNeutralResolver.Press.why(new float[]{0.386f, 1f, 0.637f});
+        org.junit.Assert.assertFalse(press.awbMoves);
+        org.junit.Assert.assertSame(press, press.awbMoves(false));
+        final MosaicNeutralResolver.Press moved = press.awbMoves(true);
+        assertTrue(moved.awbMoves);
+        assertEquals(MosaicNeutralResolver.ROUTE_WHY, moved.route);
+        assertArrayEquals(press.viewfinder, moved.viewfinder, 0f);
+        assertTrue(moved.toString(), moved.toString().endsWith("0.386 / 0.637 (the HAL's AWB moved in this session)"));
+        // a new session of the same camera starts without the proof (a frozen ISP from its start is idle again)
+        float[] shown = null;
+        for (int i = 0; i < 60; i++) shown = vf.frame("4", 2, result(ts(200 + i), 2.434f, 1.569f), true, measure(frame), prior(), same, i * 33L);
+        assertNotNull("frozen from the start: the ISP runs no 3A", shown);
+        org.junit.Assert.assertFalse(vf.awbMoves("4", 2));
+    }
+
+    /** P599: scam_dev mosaic_awb_moves 0 - as before: the held camera turns to the own neutral (the owner's video). */
+    @Test public void withoutTheProofAHeldCameraTookTheOwnNeutral() {
+        keys.when(() -> PreferenceKeys.scamDevSwitch("mosaic_awb_moves", true)).thenReturn(false);
+        final ByteBuffer frame = quadFrame(0.36f, 0.68f);
+        teachCamera3(measure(frame).stat());
+        final int at = heldStill(new ViewfinderMosaicWb(), frame, Collections.singletonList("3"));
+        // the gains held for the idle test's second, then the next 12th frame: ~1.3 - 1.7 s after the AWB settled
+        assertTrue("switched at frame " + at, at >= 30 + 30 && at <= 30 + 30 + 12);
+    }
+
+    /** P599: an ISP that runs no 3A whose first results carry start values is still idle (the base is its first settled result). */
+    @Test public void aFrozenIspWithStartValuesIsStillIdle() {
+        final ByteBuffer frame = quadFrame(0.36f, 0.68f);
+        teachCamera3(measure(frame).stat());
+        final List<String> same = Collections.singletonList("3");
+        final ViewfinderMosaicWb vf = new ViewfinderMosaicWb();
+        float[] shown = null;
+        for (int i = 0; i < 80; i++) {
+            final float r = i < ViewfinderMosaicWb.SETTLE_RESULTS ? 1f : 2.434f + (i % 3) * 0.002f; // 1/1024 steps of the HAL
+            shown = vf.frame("4", 1, result(ts(i), r, i < ViewfinderMosaicWb.SETTLE_RESULTS ? 1f : 1.569f), true, measure(frame), prior(), same, i * 33L);
+        }
+        assertNotNull(shown);
+        org.junit.Assert.assertFalse(vf.awbMoves("4", 1));
+    }
+
     @Test public void aRunningIspOrAPlainStreamKeepsTheHalsGains() {
+        // P599: frozen gains after moving ones in the same session are a converged AWB (the HAL's gains stay, by default): the
+        // frozen phase runs in session 2 here (an ISP that runs no 3A from its start), and as before in session 1 with
+        // mosaic_awb_moves 0 (runningThenFrozenInOneSession below)
         final ByteBuffer frame = quadFrame(0.36f, 0.68f);
         teachCamera3(measure(frame).stat());
         final List<String> same = Collections.singletonList("3");
@@ -185,11 +334,32 @@ public class ViewfinderMosaicWbTest {
                     measure(frame), prior(), same, i * 33L));
         float[] shown = null;
         for (int i = 0; i < 40; i++)
-            shown = vf.frame("4", 1, result(5_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, measure(frame), prior(), same, i * 33L);
+            shown = vf.frame("4", 2, result(5_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, measure(frame), prior(), same, i * 33L);
         assertNotNull(shown);
-        assertNull("a plain Bayer stream", vf.frame("4", 1, result(9_000_000_000L, 2.434f, 1.569f), false, measure(frame), prior(), same, 0L));
+        assertNull("a plain Bayer stream", vf.frame("4", 2, result(9_000_000_000L, 2.434f, 1.569f), false, measure(frame), prior(), same, 0L));
         // and its state is gone: a mosaic stream starts over (no stale neutral at the first frame)
-        assertNull(vf.frame("4", 1, result(9_100_000_000L, 2.434f, 1.569f), true, measure(frame), prior(), same, 0L));
+        assertNull(vf.frame("4", 2, result(9_100_000_000L, 2.434f, 1.569f), true, measure(frame), prior(), same, 0L));
+    }
+
+    /** The test above as it was before P599 (one session): mosaic_awb_moves 0 reaches it; by default the HAL's gains stay. */
+    @Test public void runningThenFrozenInOneSession() {
+        final ByteBuffer frame = quadFrame(0.36f, 0.68f);
+        teachCamera3(measure(frame).stat());
+        final List<String> same = Collections.singletonList("3");
+        for (boolean kept : new boolean[]{true, false}) {
+            keys.when(() -> PreferenceKeys.scamDevSwitch("mosaic_awb_moves", true)).thenReturn(kept);
+            final ViewfinderMosaicWb vf = new ViewfinderMosaicWb();
+            for (int i = 0; i < 40; i++)
+                assertNull("moving gains", vf.frame("4", 1, result(1_000_000_000L + 33_000_000L * i, 2.30f + 0.01f * i, 1.569f), true,
+                        measure(frame), prior(), same, i * 33L));
+            float[] shown = null;
+            for (int i = 0; i < 40; i++)
+                shown = vf.frame("4", 1, result(5_000_000_000L + 33_000_000L * i, 2.434f, 1.569f), true, measure(frame), prior(), same, i * 33L);
+            if (kept) assertNull("P599: a converged AWB keeps the HAL's gains", shown);
+            else assertNotNull(shown);
+            assertNull("a plain Bayer stream", vf.frame("4", 1, result(9_000_000_000L, 2.434f, 1.569f), false, measure(frame), prior(), same, 0L));
+            assertNull(vf.frame("4", 1, result(9_100_000_000L, 2.434f, 1.569f), true, measure(frame), prior(), same, 0L));
+        }
     }
 
     @Test public void theShownNeutralMovesPastADeadBand() {

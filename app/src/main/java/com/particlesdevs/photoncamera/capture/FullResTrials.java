@@ -37,6 +37,8 @@ public final class FullResTrials {
     /** Reason codes of a failed row (stored, never shown: {@link #phrase} is the text). */
     static final String NO_FRAME = "noframe", DIED = "died", REFUSED = "refused", HW_REMOSAIC = "hwremosaic", MOSAIC = "mosaic",
             MODE = "mode", OTHER = "other";
+    /** P593: a DCG / DAG row that ran but whose frames are no wider than the declared depth (OplusDcg.DepthWatch). */
+    static final String NOT_WIDE = "not14";
 
     private FullResTrials() { }
 
@@ -117,6 +119,7 @@ public final class FullResTrials {
      */
     static String code(@Nullable String why) {
         final String w = why == null ? "" : why.toLowerCase(Locale.ROOT);
+        if (w.contains("no dual-gain raw")) return NOT_WIDE; // P593
         if (w.contains("no preview frame") || w.contains("no frame")) return NO_FRAME;
         if (w.contains("camera error") || w.contains("disconnected")) return DIED;
         if (w.contains("remosaicked by the hal")) return HW_REMOSAIC;
@@ -162,6 +165,7 @@ public final class FullResTrials {
             case HW_REMOSAIC: return Lang.t("это аппаратный ремозаик камеры (обычный Байер)", "it is the camera's hardware remosaic (plain Bayer)");
             case MOSAIC: return Lang.t("не та мозаика", "the wrong mosaic");
             case MODE: return Lang.t("режим не включился", "the mode did not switch on");
+            case NOT_WIDE: return Lang.t("кадры не шире обычных, двойного усиления в RAW нет", "the frames are no wider than the normal ones, no dual gain in the RAW");
             default: return many ? Lang.t("не работают", "do not work") : Lang.t("не работает", "does not work");
         }
     }

@@ -53,6 +53,8 @@ final class DeveloperPreferences {
                 "Hidden switches for experiments and debugging. Values are written to " + path
                         + ". «default»: no line in the file, the code's value applies."));
         screen.addPreference(note);
+        // P592: the note has no title, so it is no row any more (SettingsStyle.emptyNote); its text is the page's long press
+        SettingHelp.describe(screen, note.getSummary());
         Preference reset = new Preference(context);
         reset.setKey("dev_reset");
         reset.setIconSpaceReserved(false);
@@ -120,11 +122,11 @@ final class DeveloperPreferences {
         p.setIconSpaceReserved(false);
         p.setTitle(k.key);
         p.setChecked(cur != null ? number(cur) != 0f : k.def != null && k.switchDefault());
-        p.setSummary(summary(context, k, cur));
+        texts(context, p, k, cur);
         p.setOnPreferenceChangeListener((pref, value) -> {
             String v = Boolean.TRUE.equals(value) ? "1" : "0";
             boolean ok = ScamDevFile.set(app, k.key, v);
-            if (ok) pref.setSummary(summary(context, k, v));
+            if (ok) texts(context, pref, k, v);
             else refused(context, askGrant);
             return ok;
         });
@@ -141,7 +143,7 @@ final class DeveloperPreferences {
         p.setDialogMessage(k.text + "\n" + Lang.t(context, "Пусто — по умолчанию", "Empty: default")
                 + (k.def != null ? " (" + k.def + ")" : ""));
         p.setText(cur == null ? "" : cur);
-        p.setSummary(summary(context, k, cur));
+        texts(context, p, k, cur);
         p.setOnBindEditTextListener(input -> input.setInputType(InputType.TYPE_CLASS_NUMBER
                 | InputType.TYPE_NUMBER_FLAG_SIGNED | InputType.TYPE_NUMBER_FLAG_DECIMAL));
         p.setOnPreferenceChangeListener((pref, value) -> {
@@ -157,19 +159,30 @@ final class DeveloperPreferences {
             boolean ok = ScamDevFile.set(app, k.key, v);
             if (ok) {
                 ((EditTextPreference) pref).setText(v == null ? "" : v);
-                pref.setSummary(summary(context, k, v));
+                texts(context, pref, k, v);
             } else refused(context, askGrant);
             return false; // the text is set above (not stored as a preference)
         });
         return p;
     }
 
+    /**
+     * P592: a line's row - under its name only its state («задано: 1», «по умолчанию: 0»: whether the file sets the line); what
+     * the line does ({@code k.text}) is the row's description, the long press.
+     */
+    private static void texts(Context context, Preference p, DevKeys.Key k, String cur) {
+        SettingHelp.state(p, state(context, k, cur));
+        p.setSummary(summary(context, k, cur));
+    }
+
+    private static String state(Context context, DevKeys.Key k, String cur) {
+        if (cur != null) return Lang.t(context, "задано: ", "set: ") + cur;
+        if (k.def != null) return Lang.t(context, "по умолчанию: ", "default: ") + k.def;
+        return Lang.t(context, "по умолчанию (решает приложение)", "default (chosen by the app)");
+    }
+
     private static String summary(Context context, DevKeys.Key k, String cur) {
-        String state;
-        if (cur != null) state = Lang.t(context, "задано: ", "set: ") + cur;
-        else if (k.def != null) state = Lang.t(context, "по умолчанию: ", "default: ") + k.def;
-        else state = Lang.t(context, "по умолчанию (решает приложение)", "default (chosen by the app)");
-        return k.text + "\n" + state;
+        return k.text + "\n" + state(context, k, cur);
     }
 
     private static float number(String v) {

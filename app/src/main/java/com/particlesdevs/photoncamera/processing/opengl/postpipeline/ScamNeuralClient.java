@@ -886,6 +886,42 @@ public final class ScamNeuralClient {
                 +"|"+com.particlesdevs.photoncamera.util.WorkerEnv.gpuNormalPriority()+"|"+com.particlesdevs.photoncamera.util.WorkerEnv.workerNice();
     }
 
+    // ---- P602 (owner, 2026-11-10, Pixel 7 log of 31249: «context made (no prewarm) 102 ms»): a worker spawned at the shutter read its
+    // tuning before the job had written hybrid_tuning.txt (P371: everything per shot after the spawn), so it started with the
+    // worker's defaults: fastMerge 0 and laGpu 0 - no warm-up of the fast route's context (P501: the Adreno phones' context off the
+    // shot's path), the GPU F6 context built instead (the fast route never takes it) and the CRE loaded and warmed (creLazy needs
+    // laGpu; the CRE ready 85 ms after the start on the Pixel 7, never used by the fast merge). Its job's tuning reached it only
+    // after the go. The keys it reads before the go are now written into its folder at the spawn (the settings' lines and the
+    // lines of the burst tuning that do not depend on the burst), and a job whose own tuning gives other values there does not take
+    // it (as for its other pre-go markers): the worker starts as one spawned by the job would. The job's whole tuning replaces the
+    // file before the go, as before. The merge does not depend on the warm-up (P30 / P440 / P501): the same result.
+    /** P602: the tuning keys scam-neural-worker.cpp reads before its go byte (the CRE's lazy load, the fast route's warm-up). */
+    static final String[] PRE_GO_KEYS={"fastMerge","creLazy","gpuAlign","laGpu","localAlign"};
+
+    /**
+     * P602: the {@link #PRE_GO_KEYS} lines of a tuning text as the worker reads it - "key value" pairs split on white space, a
+     * later pair wins, the read stops at a value that is not a number - in PRE_GO_KEYS order with the value as written; "" when
+     * none is set.
+     */
+    static String preGoTuning(String tuning){
+        if(tuning==null||tuning.trim().isEmpty())return "";
+        final String[] t=tuning.trim().split("\\s+");
+        final java.util.Map<String,String> last=new java.util.HashMap<>();
+        for(int i=0;i+1<t.length;i+=2){
+            try{Float.parseFloat(t[i+1]);}catch(NumberFormatException e){break;}
+            last.put(t[i],t[i+1]);
+        }
+        final StringBuilder out=new StringBuilder();
+        for(String k:PRE_GO_KEYS){final String v=last.get(k);if(v!=null)out.append(k).append(' ').append(v).append('\n');}
+        return out.toString();
+    }
+
+    /** P602: the pre-go lines a job of the current settings will send (its burst's own lines are not known at the shutter). */
+    static String expectedPreGoTuning(){
+        try{return preGoTuning(com.particlesdevs.photoncamera.settings.PreferenceKeys.hybridTuningText()+ScamHybridBurst.preGoBurstTuning());}
+        catch(RuntimeException|LinkageError e){return "";}
+    }
+
     /** Warm during capture only when the native launcher can avoid copying the camera process. */
     private static boolean prespawnOn(){
         try{return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("worker_prespawn",
@@ -927,6 +963,8 @@ public final class ScamNeuralClient {
     static final class Standby {
         final File dir;final com.particlesdevs.photoncamera.util.WorkerSpawn.Child child;final SharedMemory out;
         final android.os.ParcelFileDescriptor goWrite;final long arenaIno,arenaDev,spawnedNs;final String preGo;
+        /** P602: the tuning lines it read before the go (written into its folder at the spawn; "" = none: the worker's defaults). */
+        String preTuning="";
         final boolean normalGpu;final int nice;
         final LineRoute route=new LineRoute();final Thread reader;
         /** The burst's arena as job() reads it (take: the header written into it). */
@@ -1020,6 +1058,10 @@ public final class ScamNeuralClient {
                 if(creOff&&!new File(dir,"cre-off").createNewFile())throw new IOException("CRE marker");
                 writeGlCache(context,dir);
                 writeDumpForward(context,dir);
+                // P602: the keys the worker reads before its go, as this session's job will send them (the job's whole tuning
+                // replaces the file before the go)
+                final String preTuning=expectedPreGoTuning();
+                if(!preTuning.isEmpty())try(java.io.FileWriter tw=new java.io.FileWriter(new File(dir,"hybrid_tuning.txt"))){tw.write(preTuning);}
                 out=SharedMemory.create("scamera-scam-out");
                 if(out==null)throw new IOException("no memfd");
                 go=android.os.ParcelFileDescriptor.createPipe();
@@ -1041,6 +1083,7 @@ public final class ScamNeuralClient {
                 if(ahb!=null)ahb.spawned();
                 arena.close();arena=null; // the worker holds its own fd 3
                 made=new Standby(dir,child,out,go[1],st.st_ino,st.st_dev,spawnedNs,preGo,normalGpu,nice);
+                made.preTuning=preTuning;
                 made.ahb=ahb;ahb=null;
                 made.reader.start();
                 Log.i("SCAM_HDR","CLIENT: worker started at the shutter for arena "+arenaId+" in "
@@ -1113,6 +1156,7 @@ public final class ScamNeuralClient {
             else if(!burst.hybrid())why="not a hybrid merge";
             else if(!prespawnOn())why="worker_prespawn 0";
             else if(!s.preGo.equals(preGoKey(context,burst.creOff())))why="the markers changed";
+            else if(!s.preTuning.equals(preGoTuning(burst.settingsTuning()+burst.burstTuning())))why="the tuning it read before the go changed"; // P602
             if(why==null){
                 final android.os.ParcelFileDescriptor arena=burst.sharedBurst();
                 if(arena==null)why="the burst is not in an arena";

@@ -177,14 +177,17 @@ public final class VivoSdkFullRes {
     }
 
     public static boolean available(String cameraId) {
-        return offered(cameraId) && !SensorModeSwitches.sensorPreset(
+        // P593: the size asked must have a row itself (an OPPO-family camera with two sizes: a dead «50 Мп» is no 200 MP session)
+        return offered(cameraId) && profile(cameraId) != null && !SensorModeSwitches.sensorPreset(
                 com.particlesdevs.photoncamera.settings.ModuleRegistry.active()) && !Dcg14Mode.on();
     }
 
     public static boolean offered(String cameraId) {
         // P192: the OPPO Find X7 Ultra's native modes, its telephotos listed through the Oplus package (OppoNativeFullRes); P214j:
         // OnePlus and realme by what their cameras list (OppoNativeFullRes.candidates)
-        if (OppoNativeFullRes.device()) return profile(cameraId) != null;
+        // P593: offered while any of its sizes has a row (the sheet keeps «200 Мп» beside a dimmed «50 Мп»); the session itself
+        // needs the asked size's row (available)
+        if (OppoNativeFullRes.device()) return profile(cameraId) != null || OppoNativeFullRes.anyLive(cameraId);
         // P180: the X100 / X300 Ultra only by the native route (the CTS package; their switch not off)
         return (VivoQcomModes.device() || nativeRaw()) && profile(cameraId) != null
                 && "off".equals(CameraPackageSpoof.signature(ScameraApp.getAppContext()))
@@ -211,6 +214,14 @@ public final class VivoSdkFullRes {
     public static boolean teleButtons(String cameraId) {
         if (OppoNativeFullRes.device()) return OppoNativeFullRes.twoSizes(cameraId); // P586
         return nativeRaw() && VivoNativeFullRes.twoSizes(VivoNativeFullRes.phone(), cameraId, false);
+    }
+
+    /**
+     * P593: a «50 Мп» of this camera whose rows all failed stays off - it does not turn into 200 MP by itself (the OPPO family;
+     * the vivo phones' sizes give way to each other, P186).
+     */
+    public static boolean fiftyStaysFifty(String cameraId) {
+        return OppoNativeFullRes.device() && OppoNativeFullRes.twoSizes(cameraId);
     }
 
     /** P214h: that size ({@code large}: 200 MP) of a camera with two buttons has no row left (dimmed). */

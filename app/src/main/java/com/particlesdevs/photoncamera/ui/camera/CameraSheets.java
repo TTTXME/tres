@@ -275,10 +275,7 @@ public final class CameraSheets {
                 // the tick follows what the camera took (a size it refused keeps the old one)
                 sizePage.post(fill[0]);
             }, sizes::refuse, sizes::dead));
-            TextView foot = line(c, Lang.t(c, "Какие размеры есть, зависит от объектива: выберите другой на зуме, чтобы увидеть его размеры.",
-                    "The sizes depend on the lens: choose another one on the zoom to see its sizes."), 12.5f, 0x80FFFFFF);
-            foot.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 10), UiScale.dp(c, 6), 0);
-            sizePage.addView(foot);
+            // P592: the line under the sizes («Какие размеры есть, зависит от объектива…») is in each size's long press
         };
         fill[0].run();
         final int[] shownTab = {tab};
@@ -309,7 +306,7 @@ public final class CameraSheets {
         return d;
     }
 
-    /** The choice itself («Фото», «RAW (DNG)», «Сохранится», the note): the camera's sheet and the settings' «Формат файла» page. */
+    /** The choice itself (the «Фото» and «RAW (DNG)» controls): the camera's sheet and the settings' «Формат файла» page. */
     public static LinearLayout formatContent(Context c, List<FormatChoice> offered, FormatChoice current, PhotoFormat storedCodec,
                                              Consumer<FormatChoice> apply) {
         LinearLayout content = new LinearLayout(c);
@@ -324,88 +321,82 @@ public final class CameraSheets {
         for (PhotoFormat f : photos) names.add(photoName(f));
         List<String> raws = new ArrayList<>();
         for (int m = 0; m < 3; m++) raws.add(rawName(c, m));
-        TextView pd = line(c, "", 13, ShadeStyle.MUTED);
-        pd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 8), UiScale.dp(c, 6), UiScale.dp(c, 14));
-        pd.setTag("format_photo_line");
-        TextView rd = line(c, "", 13, ShadeStyle.MUTED);
-        rd.setPadding(UiScale.dp(c, 6), UiScale.dp(c, 8), UiScale.dp(c, 6), UiScale.dp(c, 14));
-        TextView sum = line(c, "", 16, ShadeStyle.accent(c));
-        com.particlesdevs.photoncamera.ui.style.Fonts.apply(sum, com.particlesdevs.photoncamera.ui.style.Fonts.BOLD);
-        sum.setTag("format_summary");
+        // P592 (owner, 2026-11-10, the crossed-out «Формат файла»: the hints under the controls, the «Сохранится» card and the
+        // note go): the two controls alone; what each choice means and the advice are their long press (SettingHelp's sheet),
+        // and TalkBack still hears a choice's meaning with its name
         Runnable[] update = new Runnable[1];
         com.particlesdevs.photoncamera.ui.controls.IosSegmented[] photoSeg = new com.particlesdevs.photoncamera.ui.controls.IosSegmented[1];
-        content.addView(groupTitle(c, Lang.t(c, "Фото", "Photo")));
+        final String photoTitle = Lang.t(c, "Фото", "Photo");
+        content.addView(groupTitle(c, photoTitle));
         photoSeg[0] = segmented(c, names, photos.indexOf(state.photo), state.raw == RAW_ONLY, i -> {
             state.photo = photos.get(i);
             store(state, offered, apply);
             update[0].run();
         });
+        photoSeg[0].setTag("format_photo");
+        for (int i = 0; i < photoSeg[0].getChildCount() && i < photos.size(); i++)
+            photoSeg[0].getChildAt(i).setContentDescription(photoName(photos.get(i)) + ", " + photoLine(c, photos.get(i)));
+        described(photoSeg[0], photoTitle, photoHelp(c, photos));
         content.addView(photoSeg[0]);
-        content.addView(pd);
         content.addView(groupTitle(c, "RAW (DNG)"));
-        content.addView(segmented(c, raws, state.raw, false, m -> {
+        com.particlesdevs.photoncamera.ui.controls.IosSegmented rawSeg = segmented(c, raws, state.raw, false, m -> {
             state.raw = m;
             store(state, offered, apply);
             update[0].run();
-        }));
-        content.addView(rd);
-        content.addView(savedCard(c, sum));
-        content.addView(note(c, Lang.t(c, "Не знаете, что выбрать — JPEG без RAW. RAW нужен для обработки в Lightroom или RawTherapee.",
-                "Not sure? JPEG without RAW. RAW is for editing in Lightroom or RawTherapee.")));
+        });
+        rawSeg.setTag("format_raw");
+        for (int m = 0; m < rawSeg.getChildCount() && m < 3; m++)
+            rawSeg.getChildAt(m).setContentDescription(rawName(c, m) + ", " + rawLine(c, m));
+        described(rawSeg, "RAW (DNG)", rawHelp(c));
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.bottomMargin = UiScale.dp(c, 12);
+        content.addView(rawSeg, rp);
         update[0] = () -> {
             boolean rawOnly = state.raw == RAW_ONLY;
             setDisabled(photoSeg[0], rawOnly);
-            pd.setText(rawOnly ? Lang.t(c, "Не сохраняется: выбрано «Только RAW»", "Not saved: «RAW only» is chosen") : photoLine(c, state.photo));
-            rd.setText(rawLine(c, state.raw));
-            sum.setText(summary(state.photo, state.raw));
-            sum.setContentDescription(Lang.t(c, "Сохранится: ", "Saved: ") + summary(state.photo, state.raw));
+            // «Только RAW»: the photo control is dimmed; TalkBack hears why
+            androidx.core.view.ViewCompat.setStateDescription(photoSeg[0],
+                    rawOnly ? Lang.t(c, "Не сохраняется: выбрано «Только RAW»", "Not saved: «RAW only» is chosen") : null);
+            content.setContentDescription(Lang.t(c, "Сохранится: ", "Saved: ") + summary(state.photo, state.raw));
         };
         update[0].run();
         return content;
     }
 
-    /** P574: the concept's «Сохранится» card - the label on the left, {@code value} (the summary, in the accent) on the right. */
-    static View savedCard(Context c, TextView value) {
-        LinearLayout card = new LinearLayout(c);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setMinimumHeight(UiScale.dp(c, 48));
-        card.setPadding(UiScale.dp(c, 16), UiScale.dp(c, 8), UiScale.dp(c, 16), UiScale.dp(c, 8));
-        int accent = ShadeStyle.accent(c);
-        // P583: the concept's #4A3D00 - the accent's dark tone
-        card.setBackground(ConceptStyle.shape(c, ConceptStyle.dark(accent), 16, false));
-        card.addView(line(c, Lang.t(c, "Сохранится", "Saved"), 14, 0xCCFFFFFF), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        value.setGravity(Gravity.END);
-        card.addView(value);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = UiScale.dp(c, 12);
-        card.setLayoutParams(lp);
-        return card;
+    /** P592: what each photo format is and which to take - the long press of the «Фото» control. */
+    static String photoHelp(Context c, List<PhotoFormat> photos) {
+        StringBuilder b = new StringBuilder();
+        for (PhotoFormat f : photos) {
+            if (b.length() > 0) b.append('\n');
+            b.append(photoName(f)).append(" — ").append(photoLine(c, f)).append('.');
+        }
+        return b + "\n\n" + Lang.t(c, "Не знаете, что выбрать — берите JPEG.", "Not sure which to take? JPEG.");
+    }
+
+    /** P592: what the three RAW choices save - the long press of the «RAW (DNG)» control. */
+    static String rawHelp(Context c) {
+        return Lang.t(c, "«Нет» — сохраняется только готовое фото.\n«+ RAW» — рядом с фото ложится сырой снимок DNG, чтобы обработать его на компьютере, например в Lightroom или RawTherapee.\n«Только RAW» — один DNG, без готового фото.\n\nЕсли вы не обрабатываете снимки сами, RAW не нужен.",
+                "«None»: only the finished photo is saved.\n«+ RAW»: a raw DNG is saved beside the photo, to edit on a computer in Lightroom or RawTherapee, for example.\n«RAW only»: just the DNG, no finished photo.\n\nIf you do not edit your photos yourself, you do not need RAW.");
+    }
+
+    /**
+     * P592: {@code control}'s description on a long press of it or of any of its parts (a segmented control's buttons take the
+     * touch themselves): the settings' help sheet.
+     */
+    static void described(View control, CharSequence title, CharSequence help) {
+        final View.OnLongClickListener open = v -> {
+            com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(v.getContext(), title, help);
+            return true;
+        };
+        control.setOnLongClickListener(open);
+        if (control instanceof ViewGroup)
+            for (int i = 0; i < ((ViewGroup) control).getChildCount(); i++) ((ViewGroup) control).getChildAt(i).setOnLongClickListener(open);
     }
 
     /** Stores the state's choice when this phone offers it (AVIF without its encoder, HEIC before Android 9: not offered). */
     static void store(FormatState state, List<FormatChoice> offered, Consumer<FormatChoice> apply) {
         FormatChoice choice = choice(state.photo, state.raw);
         if (offered.contains(choice)) apply.accept(choice);
-    }
-
-    /** The concept's .note: the info icon in the accent and a muted text on the second card colour, 18dp corners. */
-    static View note(Context c, CharSequence text) {
-        LinearLayout n = new LinearLayout(c);
-        n.setOrientation(LinearLayout.HORIZONTAL);
-        int ph = UiScale.dp(c, 14), pv = UiScale.dp(c, 12);
-        n.setPadding(ph, pv, ph, pv);
-        n.setBackground(SettingsStyle.shape(c, ROW, 0, UiScale.dpF(c, 16) / c.getResources().getDisplayMetrics().density)); // P574
-        ImageView icon = new ImageView(c);
-        ConceptStyle.icon(icon, R.drawable.cv_info, ShadeStyle.accent(c)); // P583: the concept's info glyph in the accent
-        int s = UiScale.dp(c, 18);
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(s, s);
-        ip.setMarginEnd(UiScale.dp(c, 10));
-        n.addView(icon, ip);
-        TextView nt = line(c, text, 13, 0xB3FFFFFF);
-        nt.setLineSpacing(0f, 18f / 13f / 1.17f);
-        n.addView(nt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        return n;
     }
 
     // ───── «Размер фото»
@@ -485,9 +476,14 @@ public final class CameraSheets {
             texts.addView(t);
             // P217 / P267: without our remosaic a FULLRES shot is saved as its merged mosaic DNG only
             final boolean binned = i > 0 && available && !off && !ourRemosaic();
-            texts.addView(line(c, off ? Lang.t(c, "Режимы не сработали · подробнее", "Its modes failed · details")
+            // P592: under the name only a state (why the size is off, what is saved); what the size gives is its long press
+            final String state = off ? Lang.t(c, "Режимы не сработали · подробнее", "Its modes failed · details")
                     : binned ? Lang.t(c, "«Наш ремозаик» выключен: сохранится только DNG", "«Our remosaic» is off: only the DNG is saved")
-                    : available ? rows[i][1] : Lang.t(c, "Нет на этом объективе", "Not on this lens"), 13f, ShadeStyle.MUTED));
+                    : available ? null : Lang.t(c, "Нет на этом объективе", "Not on this lens");
+            if (state != null) texts.addView(line(c, state, 13f, ShadeStyle.MUTED));
+            final String about = rows[i][1] + ".\n\n" + Lang.t(c, "Какие размеры есть, зависит от объектива: выберите другой на зуме, чтобы увидеть его размеры.",
+                    "The sizes depend on the lens: choose another one on the zoom to see its sizes.");
+            described(row, rows[i][0], about);
             row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             // P574: the chosen size's trailing tick in the accent (the concept, iOS' list choice) instead of a radio circle
             View tick = check(c, size == current, accent);
@@ -497,7 +493,7 @@ public final class CameraSheets {
             row.addView(tick, tp);
             row.setSelected(size == current);
             // the subtitle too: TalkBack hears why a size is unavailable (the row's own description hides its children)
-            row.setContentDescription(rows[i][0] + ", " + ((TextView) texts.getChildAt(1)).getText());
+            row.setContentDescription(rows[i][0] + ", " + (state != null ? state : rows[i][1]));
             androidx.core.view.ViewCompat.setStateDescription(row, size == current ? Lang.t(c, "выбрано", "selected") : null);
             row.setOnClickListener(v -> {
                 if (!available && !off) {

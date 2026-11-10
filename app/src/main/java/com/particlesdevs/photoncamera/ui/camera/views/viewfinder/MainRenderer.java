@@ -282,6 +282,15 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                 if (version != mVfFreshVersion) {
                     mVfFreshVersion = version;
                     mVfRawFresh++;
+                    // P597: a new frame's whole draw on this thread (its upload and meters in it); the GL calls only queue the
+                    // GPU's work - scam_dev vf_stage_gpu 1 waits for it (glFinish) so that "gpu" is the GPU's time of the frame
+                    final long drawn = System.nanoTime();
+                    com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.DRAW, drawn - now);
+                    if (com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_stage_gpu", false)) {
+                        GLES20.glFinish();
+                        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.GPU,
+                                System.nanoTime() - drawn);
+                    }
                 }
             }
             fusedFailedNow = fused && mWhyTone.fusedFailed();
@@ -298,7 +307,9 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                     Log.i("VF_RAW", String.format(java.util.Locale.ROOT, "fresh %.1f/s toned %.1f/s reused %.1f/s dropped %.1f/s tone %dx%d passes=%d %s",
                             mVfRawFresh / s, mVfRawToned / s, mVfRawReused / s, (dropped - mVfRawDropped0) / s, tone[0], tone[1], mVfRawPasses,
                             com.particlesdevs.photoncamera.processing.LiveRawFrame.copyStats()));
-                }
+                    // P597: the same 2 s stage by stage and thread by thread (VfStages)
+                    Log.i("VF_RAW", com.particlesdevs.photoncamera.processing.VfStages.take());
+                } else com.particlesdevs.photoncamera.processing.VfStages.take(); // the first window starts here
                 mVfRawAtNs = now;
                 mVfRawToned = mVfRawReused = mVfRawFresh = 0;
                 mVfRawDropped0 = dropped;

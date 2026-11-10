@@ -290,9 +290,8 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
                     text[i + 1] = new String[]{s.brand, s.name, FilmSim.typeName(c, s)};
                 }
                 content.addView(strip(c, ids, text, stockId, id -> store(FilmSim.STOCK_KEY, id), "film_stock_"));
-                note(c, stock == null ? Lang.t(c, "Выберите плёнку: снимок пройдёт через её слои, проявку и печать. Выбранный LUT накладывается после неё.",
-                        "Choose a film: the photo goes through its layers, development and print. The chosen LUT is applied after it.")
-                        : FilmSim.typeName(c, stock) + Lang.t(c, " · зерно RMS " + stock.rms, " · grain RMS " + stock.rms));
+                // P592: only the chosen film's own data (a state); what the simulation does is the page's long press
+                if (stock != null) note(c, FilmSim.typeName(c, stock) + Lang.t(c, " · зерно RMS " + stock.rms, " · grain RMS " + stock.rms));
                 break;
             }
             case 1: {
@@ -319,8 +318,6 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
                     text[i] = new String[]{f.longMm > 0 ? Lang.t(c, "Формат кадра", "Frame format") : "", FilmSim.formatName(c, f), FilmSim.formatHint(c, f)};
                 }
                 content.addView(strip(c, ids, text, FilmSim.format(stored(FilmSim.FORMAT_KEY, "135")).id, id -> store(FilmSim.FORMAT_KEY, id), "film_format_"));
-                note(c, Lang.t(c, "Чем меньше кадр, тем крупнее зерно, шире ореол и мягче картинка: всё считается в микрометрах плёнки.",
-                        "The smaller the frame, the larger the grain, the wider the halation and the softer the picture: all in micrometres of film."));
                 break;
             }
             case 4: dirTab(c, stock); break;
@@ -365,11 +362,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
                 // P357: every slider of the tab back to its default
                 resetAll(c);
                 // P487: the DIR amount and the film exposure moved to their tabs (the reference app's pages)
-                note(c, Lang.t(c, "Цветоразделение — на вкладке «DIR», экспозиция плёнки — на вкладке «Проявка», тонкая настройка ореола — на вкладке «Ореол».",
-                        "Colour separation is on the «DIR» tab, the film exposure on «Development», the halation's fine tuning on «Halation»."));
                 // P369: approximate - the preview's film works on a finished sample picture, the photo's on the scene light
-                note(c, Lang.t(c, "Превью показывает диффузию, зерно, ореол и мягкость примерно как на фото в полном размере (кусок кадра 1:1). В видоискателе — цвет, тон и диффузия плёнки.",
-                        "The preview shows the diffusion, grain, halation and softness roughly as on the full-size photo (a 1:1 crop). The viewfinder shows the film's colour, tone and diffusion."));
             }
         }
     }
@@ -467,8 +460,6 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         if (!advancedNote(c, stock)) return;
         if (!amountSwitch(c, FilmSim.DIR_KEY, Lang.t(c, "DIR — сочнее цвета и чётче цветные края", "DIR couplers - richer colours, crisper colour edges"),
                 "100", "film_dir_switch_")) {
-            note(c, Lang.t(c, "Выключено: цвета мягче и спокойнее. Включите, чтобы цвета стали сочнее, как на настоящей плёнке.",
-                    "Off: softer, calmer colours. Turn it on for richer colours, as on real film."));
             return;
         }
         caption(c, Lang.t(c, "Компоненты", "Couplers"));
@@ -501,8 +492,6 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         }
         if (!amountSwitch(c, FilmSim.HALATION_KEY, Lang.t(c, "Ореол — свечение вокруг ярких источников", "Halation - a glow round bright lights"),
                 "100", "film_halation_switch_")) {
-            note(c, Lang.t(c, "Выключено. Включите, чтобы вокруг фонарей, окон и солнца появилось мягкое свечение, как на плёнке.",
-                    "Off. Turn it on for a soft glow round street lamps, windows and the sun, as on film."));
             return;
         }
         caption(c, Lang.t(c, "Рассеяние", "Scatter"));
@@ -547,6 +536,7 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
         resetAll(c);
     }
 
+    /** P592: a state of the tab only (the chosen film's data, why its controls are not shown); explanations are the long press. */
     private void note(Context c, String s) {
         final TextView t = SettingsStyle.text(c, s, 12, SettingsStyle.SECTION);
         t.setLineSpacing(UiTokens.dp(c, 3), 1);
@@ -701,17 +691,9 @@ public class FilmSimPreference extends Preference implements SharedPreferences.O
 
     /** A parameter's description in the settings' help sheet (SettingHelp's look). */
     static void showHelp(Context c, CharSequence title, String text) {
-        final LinearLayout body = SettingsStyle.sheetBody(c, title, null);
-        body.setTag("film_param_help");
-        final TextView t = SettingsStyle.text(c, text, 15, SettingsStyle.ROW_TITLE);
-        t.setLineSpacing(0, 1.15f);
-        t.setPadding(UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 4), UiTokens.dp(c, 8));
-        body.addView(t);
-        final TextView tip = SettingsStyle.text(c, Lang.t(c, "Двойное касание ползунка возвращает значение по умолчанию.",
-                "A double tap on the slider puts the default back."), 13, SettingsStyle.SECTION);
-        tip.setPadding(UiTokens.dp(c, 4), 0, UiTokens.dp(c, 4), UiTokens.dp(c, 4));
-        body.addView(tip);
-        SettingsStyle.sheet(c, body).show();
+        // P592: the settings' help sheet (the #2C2C2E card); the slider's double tap is said once, after the text
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(c, title, text + "\n\n"
+                + Lang.t(c, "Двойное касание ползунка возвращает значение по умолчанию.", "A double tap on the slider puts the default back."));
     }
 
     /** The preview: the sample, and the sample through the simulation and the chosen LUT. */

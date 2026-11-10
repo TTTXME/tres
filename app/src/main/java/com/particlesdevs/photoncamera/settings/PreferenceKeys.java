@@ -967,6 +967,17 @@ public class PreferenceKeys {
         if (hybridValue("fast_site_gain", 1f) == 0f) out.append("fastSiteGain 0\n");
         // P571: the fast route's Quad lattice off the luma after its merge (worker fastQuadLattice, default 1)
         if (hybridValue("fast_quad_lattice", 1f) == 0f) out.append("fastQuadLattice 0\n");
+        // P596: Quad detail - the fast route's de-grid «flat» from the merged noise and its line notch only where few frames merged,
+        // its few-donor cone along the edge, the native merge's green-site structure tensor where it sees more and its base demosaic's 1.8-site cone on
+        // structure (worker fastQuadFlatNoise 1.5, fastQuadLineFrames 8, fastQuadCone 1.2, mosaicQuadFine 64, mosaicQuadTexture 0.5 (the Quad texture kernel x0.5), baseDemosaicQuadRadius
+        // 1.8); "hybrid_quad_detail 0" = before
+        if (hybridValue("quad_detail", 1f) == 0f)
+            out.append("fastQuadFlatNoise 0\nfastQuadLineFrames 0\nfastQuadCone 0\nmosaicQuadFine 0\nbaseDemosaicQuadRadius 2.2\nmosaicQuadTexture 1\n");
+        // P601 (owner, 2026-11-10: «лицо женщины в автобусе за парнем видно только на качестве»): the fast route's donor flow picked
+        // per 4 x 4 block among the tiles near the surroundings' flow where the tile field misfits, and a donor kept where its block
+        // fits within the noise at that flow (worker fastFlowPick 2; 1 = the pick alone); "hybrid_fast_flow_pick 0" = before
+        final float flowPick = hybridValue("fast_flow_pick", 2f);
+        if (flowPick != 2f) out.append("fastFlowPick ").append(Math.round(Math.max(0f, Math.min(2f, flowPick)))).append('\n');
         // P568: the Quad native merge with shared-memory tiles (worker mosaicNatTile: 0 off, 1 always, 2 the faster measured once per GPU)
         final float natTile = hybridValue("mosaic_nat_tile", 2f);
         if (natTile != 2f) out.append("mosaicNatTile ").append(Math.round(Math.max(0f, Math.min(2f, natTile)))).append('\n');
@@ -1130,6 +1141,8 @@ public class PreferenceKeys {
         if (shiftMax > 0f) out.append("donorShiftMax ").append(shiftMax).append('\n');
         if (fastSport > 0 && fastProcessing()) out.append("fastMergeSport ").append(fastSport & 3).append('\n');
         if (fastProcessing()) out.append(FAST_TUNING); // P474: last, over the lines above
+        // P600: «Все шумодавы» off - the worker's own denoise stages off too ("denoise 0", applied after every line); on: no line
+        out.append(com.particlesdevs.photoncamera.processing.opengl.postpipeline.DenoiseStages.workerTuning());
         return out.toString();
     }
 
@@ -1200,9 +1213,15 @@ public class PreferenceKeys {
      * Its knobs are pref_scam_hybrid_why_&lt;key&gt; (read with {@link #hybridValue}, defaults = WhyCam 2.85 X8U).
      */
     /**
-     * Master switch of every noise reduction of the hybrid (pref_scam_hybrid_denoise, on by default; scam_dev.txt
-     * "hybrid_denoise 0/1"): off skips the denoise after the merge (SCAM finish or NLM, despeckle), the Bento
-     * highlight denoise of the WHY fusion and the chroma denoise of lifted shadows. The merge itself is untouched.
+     * Master switch of every noise reduction of the photo (pref_scam_hybrid_denoise «Все шумодавы», on by default; scam_dev.txt
+     * "hybrid_denoise 0/1"). P600: every stage whose purpose is noise removal asks it - the registry
+     * {@link com.particlesdevs.photoncamera.processing.opengl.postpipeline.DenoiseStages} (DenoiseStagesTest keeps a new stage from
+     * bypassing it). Off skips, on every route (Bayer, Quad / Tetra, the fast and the quality merge, 12 / 50 / 200 MP): the
+     * Resolve denoise after the merge (ScamHdrDenoise), the pyramid denoise with its corner chroma cleanup (WhyMsDenoise), the
+     * highlight frames' denoise of the WHY fusion (bracket_dn), and in the worker ("denoise 0") the plain Bayer chroma median and the
+     * chroma smoothing of the ultrashort colour; the chroma denoise of lifted shadows is 0 on every route. Left as they are: the merge
+     * (alignment, rejection, frame weights, the kernel, the base demosaic), the Quad / Tetra lattice and moire passes, hot pixels,
+     * CA / fringes, highlights, colour, tone and sharpening (the shot's SNR is still measured for it).
      */
     public static boolean isHybridDenoiseEnabled() {
         return hybridSwitch("denoise", true);

@@ -112,22 +112,22 @@
     </string-array>
     <string name="noise_model_profile">Noise model profile</string>
     <string name="noise_model_import">Import noise model</string>
-    <string name="noise_model_import_summary">Load your own noise calibration file (.c)</string>
+    <string name="noise_model_import_summary">Loads your noise calibration file (.c) and makes it this sensor\'s profile.</string>
     <string name="noise_model_export">Export noise model</string>
-    <string name="noise_model_export_summary">Save the current profile to Download/SCAMERA</string>
+    <string name="noise_model_export_summary">Saves the current noise profile to the Download/SCAMERA folder.</string>
     <string name="antibanding_hz">Lamp flicker</string>
-    <string name="antibanding_hz_summary">Long frames are timed to the lamp flicker so the photo has no stripes. Auto: as the camera detects it.</string>
-    <string name="noise_model_profile_desc">How the sensor is noisy. Decides what the merge and the denoise treat as noise and what as detail. Auto: the camera\'s own profile of every frame.</string>
-    <string name="wide169_desc">A 16:9 frame instead of the full sensor frame: cropped at the top and bottom.</string>
-    <string name="hide_gallery_icon_desc">Removes the SGallery icon from the app list. The SCAMERA icon stays.</string>
-    <string name="show_grid_desc">Composition lines over the viewfinder</string>
-    <string name="show_roundedge_desc">Rounded viewfinder corners. Off: square corners.</string>
-    <string name="show_watermark_desc">A caption on saved photos; its text and look are set below.</string>
-    <string name="af_mode_desc">How focus works: continuous (photo is faster, video is smoother) or once (Auto).</string>
-    <string name="peak_method_desc">Highlights sharp areas in the viewfinder. Auto: only during manual focus.</string>
-    <string name="show_afdata_desc">What to show over the viewfinder: HUD (shutter, ISO, focus, white balance), histogram or AF / AE boxes.</string>
-    <string name="cfa_desc">Order of the colour pixels of the sensor. Auto: as the camera reports; a wrong one breaks colours.</string>
-    <string name="color_method_desc">Where the colour matrix comes from: the camera calibration or each shot. Changes the colours. Where the camera reports its ISP matrix (vivo, OPPO), 12 MP photos use it; the choice acts on mosaic shots with the app\'s own white balance.</string>
+    <string name="antibanding_hz_summary">The shutter speed follows the flicker of lamps so that photos have no bands. Auto finds the frequency itself.</string>
+    <string name="noise_model_profile_desc">A description of how the sensor makes noise. The merge and the denoiser use it to tell noise from detail. Auto takes the camera\'s own data for every frame. Any other profile replaces it in the merge, the denoiser, the alignment and the DNG.</string>
+    <string name="wide169_desc">A wide 16:9 frame instead of the sensor\'s full frame: the shot is cropped at the top and bottom.</string>
+    <string name="hide_gallery_icon_desc">Removes the SGallery icon from the app list. The SCAMERA icon stays, and the gallery still opens from the camera.</string>
+    <string name="show_grid_desc">Lines over the viewfinder that help you compose. They do not end up in the photo.</string>
+    <string name="show_roundedge_desc">Rounds the viewfinder\'s corners. It does not affect the photo.</string>
+    <string name="show_watermark_desc">Adds a caption to saved photos. Its text and look are set in the rows below.</string>
+    <string name="af_mode_desc">How the camera keeps focus: it keeps adjusting it (faster for photos, smoother for video) or focuses once.</string>
+    <string name="peak_method_desc">Highlights the parts of the viewfinder that are in focus. Auto turns it on only with manual focus.</string>
+    <string name="show_afdata_desc">What to show over the viewfinder: shutter, ISO, focus and white balance, a histogram, or the focus and exposure boxes.</string>
+    <string name="cfa_desc">The order of the colour pixels on the sensor. Auto takes what the camera reports. A wrong choice mixes up the colours of the photo.</string>
+    <string name="color_method_desc">Where the colour matrix comes from: the camera\'s calibration or each shot\'s own data. Every colour depends on it. Where the camera reports its own ISP matrix (vivo, OPPO), 12 MP shots take that one, and this choice applies to mosaic shots with their own white balance.</string>
     <string name="horizon_desc">A level line in the viewfinder to keep the horizon straight.</string>
-    <string name="theme_desc">Light or dark gallery. The camera and the settings are always dark.</string>
+    <string name="theme_desc">A light or dark gallery. The camera and the settings are always dark.</string>
 </resources>

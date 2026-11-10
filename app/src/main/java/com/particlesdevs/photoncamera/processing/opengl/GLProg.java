@@ -105,12 +105,65 @@ public class GLProg implements AutoCloseable {
     public static synchronized String takeProgramStats() {
         GLProgramDiskCache cache = disk;
         String text = "programs: " + compiled + " compiled in " + compileMs + " ms, " + fromBinary + " from driver binaries in " + binaryMs + " ms"
-                + (cache == null ? "" : " (" + cache.takeStats() + ")"); // P237
+                + (cache == null ? "" : " (" + cache.takeStats() + ")") // P237
+                + compiledNames(); // P602
         // P236 (speed-ux F): the shot's shader compiling (the first shot after an install or a driver update: 0.5-0.8 s)
         com.particlesdevs.photoncamera.processing.ShotTimeline.markIfShot("post_compile");
         com.particlesdevs.photoncamera.processing.ShotTimeline.note("post_compile_ms", compiled + "/" + compileMs + "+" + fromBinary + "bin/" + binaryMs);
         compileMs = binaryMs = 0; compiled = fromBinary = 0;
+        COMPILED.clear();
+        compiledMore = 0;
         return text;
+    }
+
+    // ---- P602 (owner, 2026-11-10, Pixel 7 log of 31249: «runAll programs: 4 compiled in 1041 ms, 0 from driver binaries ... 4 miss /
+    // 4 written»): the line named no program. Every other program of that shot was linked already in the post context kept for the
+    // process (P353: nothing to load, so 0 from binaries), and the 4 had no binary on disk (miss), were compiled and stored (written):
+    // programs this install had never linked - a scene's own defines (sky, sun bloom, a clipped light ...) or a setting changed.
+    // Which ones, how long each and in which node is what the next log needs to tell a one-off from a cost of every shot.
+    /** P602: the programs compiled since the last {@link #takeProgramStats}: "node:name{defines} ms", at most {@link #COMPILED_NAMED}. */
+    private static final java.util.ArrayList<String> COMPILED = new java.util.ArrayList<>();
+    private static int compiledMore;
+    static final int COMPILED_NAMED = 12;
+    /** P602: the post node running on this thread (GLBasePipeline), for the compiled programs' names. */
+    private static final ThreadLocal<String> NODE = new ThreadLocal<>();
+
+    /** P602: the node whose programs this thread makes from here on (null: none). */
+    public static void compileNode(String node) {
+        if (node == null) NODE.remove(); else NODE.set(node);
+    }
+
+    /** P602: one compiled program for the shot's line. */
+    private static synchronized void noteCompiled(String name, java.util.List<String[]> defines, long ms) {
+        if (COMPILED.size() >= COMPILED_NAMED) { compiledMore++; return; }
+        COMPILED.add(compiledName(NODE.get(), name, defines) + " " + ms + " ms");
+    }
+
+    /**
+     * P602: "node:name{A,B=2}" - the asset (or "source") and its defines in their order, a value only when it is not 1; the compute
+     * layout left out, long values cut; at most ~160 characters.
+     */
+    static String compiledName(String node, String name, java.util.List<String[]> defines) {
+        final StringBuilder s = new StringBuilder();
+        if (node != null && !node.isEmpty()) s.append(node).append(':');
+        s.append(name != null ? name : "source");
+        if (defines == null) return s.toString();
+        final StringBuilder d = new StringBuilder();
+        for (String[] define : defines) {
+            if (define == null || define.length < 2 || "LAYOUT".equals(define[0])) continue;
+            if (d.length() > 0) d.append(',');
+            if (s.length() + d.length() > 150) { d.append("..."); break; }
+            d.append(define[0]);
+            if (!"1".equals(define[1])) d.append('=').append(define[1].length() > 12 ? define[1].substring(0, 12) + "~" : define[1]);
+        }
+        if (d.length() > 0) s.append('{').append(d).append('}');
+        return s.toString();
+    }
+
+    /** P602: " compiled: a 412 ms; b 230 ms" (nothing when none was compiled). */
+    private static String compiledNames() {
+        if (COMPILED.isEmpty()) return "";
+        return " compiled: " + String.join("; ", COMPILED) + (compiledMore > 0 ? "; +" + compiledMore + " more" : "");
     }
     /** P237: idle warm-ups run once per process; the programs compiled by the last one. */
     private static final java.util.concurrent.atomic.AtomicBoolean WARMED = new java.util.concurrent.atomic.AtomicBoolean();
@@ -643,7 +696,9 @@ public class GLProg implements AutoCloseable {
                 int[] linked = new int[1];
                 glGetProgramiv(program, GL_LINK_STATUS, linked, 0);
                 if (linked[0] != 0) keepBinary(key, program);
-                synchronized (GLProg.class) { compiled++; compileMs += android.os.SystemClock.elapsedRealtime() - t0; }
+                final long ms = android.os.SystemClock.elapsedRealtime() - t0;
+                synchronized (GLProg.class) { compiled++; compileMs += ms; }
+                noteCompiled(recipeId, changedDef ? Defines : null, ms); // P602
             }
             currentShader = nShader;
             glGetError();

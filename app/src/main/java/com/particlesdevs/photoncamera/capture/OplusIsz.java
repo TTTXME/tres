@@ -116,10 +116,43 @@ public final class OplusIsz {
                 Log.i("SCAM_CAPTURE", "OPPO family ISZ module " + target + " («" + label(zoom) + "») on camera " + camera + ": sensor mode row "
                         + r[0] + " " + r[1] + "x" + r[2] + " (izoom QBC, the sensor's Quad, no remosaic), zoom " + zoom + ", sensor crop, ISP stream off");
             }
+            alignNoiseProfiles(p);
             return true;
         } catch (RuntimeException e) {
             Log.w(TAG, "ISZ modules not created: " + e);
             return true;
+        }
+    }
+
+    static final String NOISE_KEY = "pref_noise_model_profile_key", NOISE_ALIGNED = "module_oplus_isz_noise_";
+
+    /** P593: the two modules' «Профиль модели шума» differ (a missing one is «Авто»). */
+    static boolean noiseDiffers(@Nullable Object own, @Nullable Object source) {
+        final String a = own == null ? "auto" : own.toString(), b = source == null ? "auto" : source.toString();
+        return !a.equals(b);
+    }
+
+    /**
+     * P593 (owner's log 2026-11-09 22:07:24: the main's «2×» ISZ shot ran with «Noise model profile: IMX363_0 (LG V50) at ISO
+     * 5197», slope 0.0144 - about 13x the camera's own profile - while its source module and the tele's «2×» took the HAL's): an
+     * ISZ module copy takes its source module's «Профиль модели шума», once a module (the copy keeps whatever its slot's profile
+     * held where the source has the default, ModuleProfiles.copy); a later choice of the owner on the copy stays.
+     */
+    private static void alignNoiseProfiles(SharedPreferences p) {
+        try {
+            for (String slot : ModuleRegistry.slots()) {
+                final String source = ModuleRegistry.duplicateOf(slot), camera = ModuleRegistry.camera(slot);
+                if (source == null || !slot.startsWith("back") || !("2".equals(camera) || "4".equals(camera))
+                        || SensorModePick.picked(slot) != ROW || p.getBoolean(NOISE_ALIGNED + slot, false)) continue;
+                p.edit().putBoolean(NOISE_ALIGNED + slot, true).apply();
+                final Object own = PreferenceKeys.profiles().snapshot(slot).get(NOISE_KEY), src = PreferenceKeys.profiles().snapshot(source).get(NOISE_KEY);
+                if (!noiseDiffers(own, src)) continue;
+                PreferenceKeys.profiles().copy(source, java.util.Collections.singletonList(slot), java.util.Collections.singleton(NOISE_KEY));
+                Log.i("SCAM_CAPTURE", "OPPO family ISZ module " + slot + " (camera " + camera + "): noise model profile " + own + " -> "
+                        + (src == null ? "auto" : src) + ", its source module " + source + "'s (once; P593)");
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "ISZ modules' noise profile not aligned: " + e);
         }
     }
 
@@ -193,6 +226,9 @@ public final class OplusIsz {
             watch = null;
             return;
         }
+        // P593: the camera's learn line again with every session (the owner's log of 2026-11-09 began after the camera was learned)
+        final String learned = OppoNativeFullRes.learnLine(camera);
+        if (learned != null) Log.i("SCAM_CAPTURE", learned);
         final int expected = pick != null && pick.route != null ? pick.mode : nativeProfile != null ? nativeProfile.sensorMode : -1;
         watchWhat = pick != null && pick.route != null ? pick.route : nativeProfile != null ? "FULLRES" : "normal";
         watch = new NubiaFullRes.ModeWatch("OPPO family (" + watchWhat + ")", camera, expected);

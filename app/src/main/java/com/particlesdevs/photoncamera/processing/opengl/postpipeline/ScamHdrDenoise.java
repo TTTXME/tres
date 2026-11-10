@@ -135,7 +135,21 @@ public final class ScamHdrDenoise extends Node {
         final PostPipeline pipeline = (PostPipeline) basePipeline;
         WorkingTexture = previousNode.WorkingTexture;
         glProg.closed = true;
-        if (!PreferenceKeys.isHybridDenoiseEnabled()) return;
+        if (!DenoiseStages.on()) {
+            // P600: «Все шумодавы» off - the merged RGB passes as it is. The shot's SNR is still measured on it (the same
+            // statistics of the same input the denoise starts with): the sharpening's low-light share and the detail boost read
+            // it, so the switch takes the denoise away and leaves the sharpening as it is with the switch on (before P600 an
+            // unknown SNR gave the full sharpening at night and no daylight detail boost)
+            final StringBuilder log = new StringBuilder("denoise off (P600, ").append(DenoiseStages.summary()).append("): the merge as it is");
+            try {
+                DenoiseStats.finishSnr(glProg, pipeline, WorkingTexture, log);
+            } catch (RuntimeException e) {
+                log.append(", SNR failed (").append(e).append(')');
+            }
+            glProg.closed = true;
+            Log.i("SCAM_PIPELINE", log.toString());
+            return;
+        }
         dumpInput(pipeline);
         WorkingTexture = WhyResolveDenoise.process(glProg, pipeline, WorkingTexture);
         pipeline.signedRgb = false;

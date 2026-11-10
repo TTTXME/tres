@@ -50,4 +50,19 @@ public class OpposedLandingMapTest {
         assertFalse("a film at 100 %: the film alone", WhyCombine.landingDrawn(0.7f, portra(1f)));
         assertTrue("a film under 100 % keeps our landing", WhyCombine.landingDrawn(0.7f, portra(0.6f)));
     }
+    /**
+     * P602: the landing's block statistics - the read in place (scam_dev hybrid_highlight_landing_async 0) and the logged shot's read
+     * at the end of the run give the same line from the same weights.
+     */
+    @Test public void theStatisticsCountTheFilledBlocksAndTheGlow() {
+        final java.nio.FloatBuffer v = java.nio.FloatBuffer.wrap(new float[]{0f, 0f, 0f, 0f, 0.5f, 0f, 0.25f, 10f, 1f, 0f, 0.375f, 30f});
+        final double[] st = ScamRgb.opposedStats(v, 3);
+        assertEquals(2, st[0], 0);
+        assertEquals(40, st[1], 0);
+        assertEquals(0.25 * 10 + 0.375 * 30, st[2], 1e-9);
+        assertEquals("highlight opposed landing: 2 of 255x192@16 blocks filled, radius 6.25, glow saturation 0.344 over 40 px",
+                ScamRgb.opposedStatsLine((int) st[0], pt(255, 192), 16, 6.25f, true, st[1], st[2]));
+        assertEquals("highlight opposed landing: 0 of 255x192@16 blocks filled, radius 6.25 (no clip flags), glow saturation none",
+                ScamRgb.opposedStatsLine(0, pt(255, 192), 16, 6.25f, false, 0, 0));
+    }
 }

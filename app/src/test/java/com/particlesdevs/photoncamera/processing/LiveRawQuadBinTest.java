@@ -156,6 +156,56 @@ public class LiveRawQuadBinTest {
         }
     }
 
+    /**
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»): the cell means summed eight bytes at a time are the per-site
+     * ones bit for bit - every 16-bit value (65535 in all of a cell's samples included: no carry between a long's samples),
+     * padded rows, an offset that is no multiple of 8, many rows on several threads; and rows that are no whole longs keep the
+     * per-site path.
+     */
+    @Test public void wideRowsMatchThePerSiteBinningBitForBit() {
+        java.util.Random random = new java.util.Random(597);
+        for (int[] g : new int[][] {{64, 48, 64 * 2 + 16, 6}, {4080, 96, 8160, 0}, {4080, 96, 8192, 2}, {72, 40, 72 * 2, 5}}) {
+            final int w = g[0], h = g[1], stride = g[2], offset = g[3];
+            ByteBuffer data = ByteBuffer.allocateDirect(offset + stride * h).order(ByteOrder.nativeOrder());
+            for (int i = 0; i < data.capacity(); i++) data.put(i, (byte) random.nextInt(256));
+            // a cell of all-ones and one of zeros beside it: a carry would show in the neighbour
+            for (int y = 0; y < 4; y++) for (int x = 0; x < 8; x++) data.putShort(offset + y * stride + x * 2, (short) (x < 4 ? 0xffff : 0));
+            data.position(offset);
+            for (int block : new int[] {2, 4}) {
+                assertTrue(LiveRawFrame.wideRows(block, false, w, stride, true));
+                ByteBuffer wide = LiveRawFrame.binMosaic(data, w, h, stride, 0x20, block, false, true).order(ByteOrder.nativeOrder());
+                final int bw = w / block, bh = h / block;
+                assertEquals(bw * bh * 2, wide.remaining());
+                final short[] got = new short[bw * bh];
+                wide.asShortBuffer().get(got);
+                ByteBuffer rows = LiveRawFrame.binMosaic(data, w, h, stride, 0x20, block, false, false).order(ByteOrder.nativeOrder());
+                final short[] want = new short[bw * bh];
+                rows.asShortBuffer().get(want);
+                org.junit.Assert.assertArrayEquals("block " + block + " of " + w + "x" + h + " stride " + stride, want, got);
+                for (int y = 0; y < bh; y += 7) for (int x = 0; x < bw; x += 5) {
+                    int s = 0;
+                    for (int dy = 0; dy < block; dy++) for (int dx = 0; dx < block; dx++) s += site(data, offset, stride, block * y + dy, block * x + dx);
+                    assertEquals((s + block * block / 2) / (block * block), got[y * bw + x] & 0xffff);
+                }
+                assertEquals(offset, data.position());
+            }
+        }
+        assertEquals("the all-ones Tetra cell", 0xffff, 0xffff & LiveRawFrame.binMosaic(allOnesBesideZeros(), 8, 8, 16, 0x20, 4, false, true)
+                .order(ByteOrder.nativeOrder()).getShort(0));
+        assertEquals("and nothing of it in its neighbour", 0, 0xffff & LiveRawFrame.binMosaic(allOnesBesideZeros(), 8, 8, 16, 0x20, 4, false, true)
+                .order(ByteOrder.nativeOrder()).getShort(2));
+        assertFalse("rows of 138 bytes are no whole longs", LiveRawFrame.wideRows(4, false, 64, 138, true));
+        assertFalse("the sparse bins read a quarter of the sites already", LiveRawFrame.wideRows(4, true, 16320, 32640, true));
+        assertFalse("a plain Bayer frame has no cells", LiveRawFrame.wideRows(1, false, 4096, 8192, true));
+        assertFalse("vf_bin_swar 0", LiveRawFrame.wideRows(4, false, 4080, 8160, false));
+    }
+
+    private static ByteBuffer allOnesBesideZeros() {
+        ByteBuffer data = ByteBuffer.allocateDirect(8 * 8 * 2).order(ByteOrder.nativeOrder());
+        for (int y = 0; y < 4; y++) for (int x = 0; x < 8; x++) data.putShort((y * 8 + x) * 2, (short) (x < 4 ? 0xffff : 0));
+        return data;
+    }
+
     private static int site(ByteBuffer data, int offset, int stride, int y, int x) {
         return data.getShort(offset + y * stride + x * 2) & 0xffff;
     }

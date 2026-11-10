@@ -1900,6 +1900,180 @@ void main() {
     oFlow = vec4(uvFlow, localFlowVariation, localAffineResidualRawPixels);
 }
 )FM";
+// P601 (owner, 2026-11-10, 140309: the woman's face behind the bus glass beside a walking man, «видно только на качестве»): the
+// donor's flow per 4 x 4 HALF block. The tile LK follows whatever dominates its window: next to a moving occluder a static
+// subject's tile (and the bilinear field between it and the occluder's tiles) carries a flow dragged 1 .. 9 HALF px off (140309
+// face, late donors: the field's residual 4 .. 12 against 1.2 .. 1.4 for the best constant shift) and the rejection threw the
+// subject out. Per block (texel (i, j) = the node at HALF (4 i, 4 j); the tile field's own nodes are among them, so a block that
+// keeps the field reads back as the field): the field at the node unless its 8 x 8 window misfits - the rejection's own distance
+// (the difference beyond the noise over max(texture, noise), the donor's guide sampled with sh118's cubic B-spline against the
+// base's at the pixel centres) above u_geom.z; then the 2 reach x 2 reach tile flows around the node that lie within u_tol HALF px
+// of the surroundings' flow (kFastFlowBg: a flow that follows a mover is never taken) and that flow itself are tried (each once:
+// one within 0.25 px of a flow already tried is skipped), and the best taken when it beats the field by the gain (u_geom.w) and
+// by u_geom.z. Synthetic burst with its truth: the picked flows within
+// 0.05 HALF px of the true ones. The rejection and the merge read this grid with their unchanged code (flow_scale_offset of the
+// grid); .zw (flow variation, affine residual) stay the field's. o_fit: the chosen flow's fit within the noise alone and its
+// distance to the surroundings' flow, for kFastCyclopsRescue.
+static const char* kFastFlowPick=R"FM(#version 310 es
+precision highp float;
+precision highp int;
+layout(location = 0) out vec4 o_flow;
+layout(location = 1) out vec2 o_fit;
+uniform sampler2D u_flow;
+uniform sampler2D u_bg;
+uniform sampler2D u_base;
+uniform sampler2D u_cur;
+uniform sampler2D u_noise;
+uniform vec4 u_tex_size;
+uniform vec4 u_flow_so;
+uniform vec4 u_noise_sb;
+uniform ivec2 u_grid;
+uniform vec4 u_geom;
+uniform int u_reach;
+uniform float u_tol;
+uniform float u_bgpref;
+
+vec4 bt[16];
+vec3 nvb;
+
+// the donor's guide as the rejection reads it (sh118's SampleBicubicAbsolute: the cubic B-spline by four bilinear fetches), against
+// the base's (kFastBaseRefColor: the same B-spline at the pixel centres) - both smoothed alike at any sub-pixel phase
+vec4 curAt(vec2 uv) {
+  vec2 t = uv * u_tex_size.xy + 0.5;
+  vec2 i = floor(t);
+  vec2 a = t - i;
+  vec2 w0 = (1.0 / 6.0) * (a * (a * (-a + 3.0) - 3.0) + 1.0);
+  vec2 w1 = (1.0 / 6.0) * (a * a * (3.0 * a - 6.0) + 4.0);
+  vec2 w2 = (1.0 / 6.0) * (a * (a * (-3.0 * a + 3.0) + 3.0) + 1.0);
+  vec2 w3 = (1.0 / 6.0) * (a * a * a);
+  vec2 g0 = w0 + w1;
+  vec2 g1 = w2 + w3;
+  vec2 p0 = (i - 1.0 + w1 / g0 - 0.5) * u_tex_size.zw;
+  vec2 p1 = (i + 1.0 + w3 / g1 - 0.5) * u_tex_size.zw;
+  return g0.y * (g0.x * abs(texture(u_cur, p0)) + g1.x * abs(texture(u_cur, vec2(p1.x, p0.y)))) +
+         g1.y * (g0.x * abs(texture(u_cur, vec2(p0.x, p1.y))) + g1.x * abs(texture(u_cur, p1)));
+}
+
+// 16 pixel centres at stride 2 over the block's 8 x 8 window around its node (HALF 4 b)
+vec2 tapAt(ivec2 b, int k) {
+  return vec2(b * 4 - 4 + 2 * ivec2(k & 3, k >> 2)) + 0.5;
+}
+
+// the rejection's distance (sh118 without its weights: the difference beyond the noise over max(texture, noise), per colour) as
+// the mean of the 16 taps: ~0 where the rejection accepts the donor, ~1 and more where it throws it out; costNoise: the same
+// difference over the noise alone (no texture tolerance)
+float costNoise;
+float costOf(ivec2 b, vec2 fuv) {
+  vec3 s = vec3(0.0), sn = vec3(0.0);
+  for (int k = 0; k < 16; ++k) {
+    vec4 c = curAt(tapAt(b, k) * u_tex_size.zw + fuv);
+    vec3 d = c.xyz - bt[k].xyz;
+    float sd = min(bt[k].w, c.w);
+    vec3 e = max(d * d - nvb, vec3(0.0));
+    s += e / max(vec3(sd * sd), nvb);
+    sn += e / nvb;
+  }
+  costNoise = dot(sn, vec3(1.0 / 48.0));
+  return dot(s, vec3(1.0 / 48.0));
+}
+
+void main() {
+  ivec2 b = ivec2(gl_FragCoord.xy);
+  vec2 c = vec2(b) * u_geom.y;
+  vec2 tc = c * u_tex_size.zw;
+  vec2 ftc = tc * u_flow_so.xy + u_flow_so.zw;
+  vec4 f0 = texture(u_flow, ftc);
+  vec2 bg = texture(u_bg, ftc).xy;
+  o_flow = f0;
+  ivec2 lim = ivec2(u_tex_size.xy) - ivec2(1);
+  for (int k = 0; k < 16; ++k) {
+    bt[k] = abs(texelFetch(u_base, clamp(ivec2(tapAt(b, k)), ivec2(0), lim), 0));
+  }
+  vec3 ref = abs(texture(u_base, tc).xyz);
+  vec4 rn = texture(u_noise, vec2(ref.x, 0.0) * u_noise_sb.xy + u_noise_sb.zw);
+  vec4 cn = texture(u_noise, vec2(ref.x, 1.0) * u_noise_sb.xy + u_noise_sb.zw);
+  nvb = max((rn.xyz + cn.xyz) * 0.0976597, vec3(1.0e-7)) / (4.0 * max(ref * ref, vec3(0.002)));
+  float c0 = costOf(b, f0.xy);
+  float n0 = costNoise;
+  // the start: the field, or the surroundings' flow where that fits about as well (within u_bgpref of the field's misfit). Next to
+  // a mover the field is dragged by a fraction of a pixel that the guides cannot tell from the truth on fine periodic texture
+  // (P601 round 2, synthetic coat beside a ribbed facade: the field 0.5 .. 1.4 HALF px off, the surroundings' median 0.02 .. 0.04)
+  vec2 fs = f0.xy;
+  float cs = c0, ns = n0;
+  if (length((bg - f0.xy) * u_tex_size.xy) > 0.25) {
+    float kb = costOf(b, bg);
+    if (kb <= c0 * (1.0 + u_bgpref)) {
+      fs = bg;
+      cs = kb;
+      ns = costNoise;
+    }
+  }
+  float cb = cs, nb = ns;
+  vec2 fb = fs;
+  if (cs > u_geom.z) {
+    ivec2 t0 = ivec2(floor(c / u_geom.x - 1.5));
+    for (int dj = 1 - u_reach; dj <= u_reach; ++dj) {
+      for (int di = 1 - u_reach; di <= u_reach; ++di) {
+        vec2 f = texelFetch(u_flow, clamp(t0 + ivec2(di, dj), ivec2(0), u_grid - ivec2(1)), 0).xy;
+        // (only flows near the surroundings', and not one already tried: within 0.25 HALF px of the start or the best so far)
+        if (length((f - bg) * u_tex_size.xy) > u_tol || length((f - fs) * u_tex_size.xy) < 0.25 || length((f - fb) * u_tex_size.xy) < 0.25) continue;
+        float k = costOf(b, f);
+        if (k < cb) {
+          cb = k;
+          nb = costNoise;
+          fb = f;
+        }
+      }
+    }
+    float k = length((bg - fb) * u_tex_size.xy) < 0.25 ? cb : costOf(b, bg);
+    if (k < cb) {
+      cb = k;
+      nb = costNoise;
+      fb = bg;
+    }
+    if (!(cb < min(u_geom.w * cs, cs - u_geom.z))) {
+      cb = cs;
+      nb = ns;
+      fb = fs;
+    }
+  }
+  o_flow = vec4(fb, f0.zw);
+  // the block's fit within the noise at its flow and how far that flow is from the surroundings' (HALF px): kFastCyclopsRescue's
+  o_fit = vec2(min(nb, 1000.0), length((fb - bg) * u_tex_size.xy));
+}
+)FM";
+// P601: the surroundings' flow of every L0 tile: the median (per component) of the 5 x 5 tiles at stride u_stride around it (4:
+// +-8 tiles, +-128 HALF px at 16 px tiles): a mover covering less than half of that window does not move it
+static const char* kFastFlowBg=R"FM(#version 310 es
+precision highp float;
+precision highp int;
+layout(location = 0) out vec4 o_bg;
+uniform sampler2D u_flow;
+uniform ivec2 u_grid;
+uniform int u_stride;
+float vx[25];
+float vy[25];
+void main() {
+  ivec2 t = ivec2(gl_FragCoord.xy);
+  for (int k = 0; k < 25; ++k) {
+    ivec2 q = clamp(t + u_stride * ivec2(k % 5 - 2, k / 5 - 2), ivec2(0), u_grid - ivec2(1));
+    vec2 f = texelFetch(u_flow, q, 0).xy;
+    vx[k] = f.x;
+    vy[k] = f.y;
+  }
+  float mx = 0.0, my = 0.0;
+  for (int i = 0; i < 25; ++i) {
+    int lx = 0, ex = 0, ly = 0, ey = 0;
+    for (int j = 0; j < 25; ++j) {
+      lx += vx[j] < vx[i] ? 1 : 0; ex += vx[j] == vx[i] ? 1 : 0;
+      ly += vy[j] < vy[i] ? 1 : 0; ey += vy[j] == vy[i] ? 1 : 0;
+    }
+    if (lx <= 12 && lx + ex > 12) mx = vx[i];
+    if (ly <= 12 && ly + ey > 12) my = vy[i];
+  }
+  o_bg = vec4(mx, my, 0.0, 0.0);
+}
+)FM";
 // sh118: rejection (+0x9c)
 static const char* kFastRejection=R"FM(#version 310 es
 precision highp float;
@@ -2342,6 +2516,83 @@ void main() {
 
   float donor_weight = clamp(1.0 - rejection, 0.0, 1.0);
   donor_weight = smoothstep(0.20, 0.80, donor_weight);
+
+  o_frag_color = vec4(donor_weight, 0.0, 0.0, 0.0);
+}
+)FM";
+// P601: sh006 with the static rescue of kFastFlowPick (fastFlowPick 2); kFastCyclops stays the program of fastFlowPick 0 / 1
+static const char* kFastCyclopsRescue=R"FM(#version 310 es
+#extension GL_EXT_gpu_shader5 : enable
+precision highp float;
+layout(location = 0) out vec4 o_frag_color;
+in highp vec2 tex_coord;
+uniform vec4 tex_size;
+uniform sampler2D rejection_texture;
+uniform float u_rejection_dilate_div;
+uniform sampler2D u_fit;
+uniform vec4 u_rescue;
+uniform vec2 u_rescue_mass;
+
+// P601: the donor's weight raised back where its own data say the base is there: its 8 x 8 block fits within the noise at its
+// flow (kFastFlowPick's fit, from u_rescue.x to .y), that flow is the surroundings' (u_rescue.zw HALF px) and the dilated rejection
+// at the pixel is low (u_rescue_mass: the 5 x 5 mass of sh009 from x to y). Where a moving subject's rejected rim was spread over
+// static detail beside it (the filter, dilate and this pass reach ~9 HALF px) that detail keeps its donors; a mover's own region
+// keeps the chain's weight (its flow follows it, or it does not fit within the noise, or its rejection is dense).
+float rescueWeight() {
+  vec2 fit = texture(u_fit, tex_coord).xy;
+  float mass = texture(rejection_texture, tex_coord).r;
+  return (1.0 - smoothstep(u_rescue.x, u_rescue.y, fit.x)) * (1.0 - smoothstep(u_rescue.z, u_rescue.w, fit.y)) *
+         (1.0 - smoothstep(u_rescue_mass.x, u_rescue_mass.y, mass));
+}
+
+void main() {
+  float rejection = 0.0;
+  float div = max(0.1, u_rejection_dilate_div);
+  float zero_weight_limit = 0.2 + 0.80 * div;
+
+  // Use gather instructions to accelerate it.
+  vec4 gather;
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(-1.5, -1.5) * tex_size.zw);
+  rejection += dot(gather, vec4(1.0, 1.0, 1.0, 1.0));
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(0.5, -1.5) * tex_size.zw);
+  rejection += dot(gather, vec4(1.0, 1.0, 1.0, 1.0));
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(-1.5, 0.5) * tex_size.zw);
+  rejection += dot(gather, vec4(1.0, 1.0, 1.0, 1.0));
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(0.5,  0.5) * tex_size.zw);
+  rejection += dot(gather, vec4(1.0, 1.0, 1.0, 1.0));
+
+  if (rejection >= zero_weight_limit) {
+    o_frag_color = vec4(rescueWeight(), 0.0, 0.0, 0.0);
+    return;
+  }
+
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(1.5, -1.5) * tex_size.zw);
+  rejection += gather.z;
+  rejection += gather.y;
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(1.5,  0.5) * tex_size.zw);
+  rejection += gather.z;
+  rejection += gather.y;
+
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(-1.5, 1.5) * tex_size.zw);
+  rejection += gather.x; rejection += gather.y;
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(0.5,  1.5) * tex_size.zw);
+  rejection += gather.x; rejection += gather.y;
+  gather = textureGather(rejection_texture,
+                         tex_coord + vec2(1.5,  1.5) * tex_size.zw);
+  rejection += gather.y;
+  rejection = clamp((rejection - 0.2) / div, 0.0, 1.0);
+
+  float donor_weight = clamp(1.0 - rejection, 0.0, 1.0);
+  donor_weight = smoothstep(0.20, 0.80, donor_weight);
+  if (donor_weight < 1.0) donor_weight = max(donor_weight, rescueWeight());
 
   o_frag_color = vec4(donor_weight, 0.0, 0.0, 0.0);
 }
@@ -4565,6 +4816,10 @@ uniform sampler2D accumulated_frame_weights;
 uniform float accumulated_weight_scale;
 uniform vec2 u_quad_kernel_scale;
 uniform float u_quad_color_reg_thresh;
+// P596 (owner, 2026-11-10, 140309: the face behind the bus glass «хорошо обработано только на качестве»): > 0 = the base frame's
+// fallback cone (linear_kernel_mix, few donors) stretched along the local edge as the native base demosaic's (P282: anisotropy
+// x |w_row - w_col| of the 3 x 3 cells' row / column variation; narrower across the edge); 0 = the round cone, as before
+uniform float u_quad_cone;
 
 uniform sampler2D bayer_texture;
 uniform sampler2D flow_texture;
@@ -4643,6 +4898,31 @@ void SampleNeighborhoodQuadRBF(
     ivec2 q_min = (position - ivec2(2)) >> 1;
 
     bool has_lin = (linear_kernel_mix > 0.001);
+    vec2 cone_ax = vec2(1.0);
+    if (has_lin && u_quad_cone > 0.0) { // P596: the cone's axes from the 3 x 3 colour cells around (as the colour step below)
+        float cvx = 0.0, cvy = 0.0, c_own = 0.0;
+        float cm0 = 0.0, cm1 = 0.0, cm2 = 0.0, cm3 = 0.0, cm5 = 0.0, cm6 = 0.0, cm7 = 0.0, cm8 = 0.0;
+        for (int qy = 0; qy < 3; ++qy) {
+            for (int qx = 0; qx < 3; ++qx) {
+                ivec2 fp = clamp(q_min + ivec2(qx, qy), ivec2(0), max_q);
+                int cch = get_cfa_channel(((fp.y & 1) << 1) | (fp.x & 1), u_cfa_pattern);
+                vec4 qc = max(vec4(0.0), texelFetch(bayer_texture, fp, 0) * gains[cch] + black_levels_times_gains[cch]);
+                float qm = (qc.x + qc.y + qc.z + qc.w) * 0.25;
+                cvx += 0.5 * abs((qc.y - qc.x) + (qc.w - qc.z));
+                cvy += 0.5 * abs((qc.z - qc.x) + (qc.w - qc.y));
+                int q = qy * 3 + qx;
+                if (q == 0) cm0 = qm; else if (q == 1) cm1 = qm; else if (q == 2) cm2 = qm; else if (q == 3) cm3 = qm;
+                else if (q == 4) c_own = qm; else if (q == 5) cm5 = qm; else if (q == 6) cm6 = qm; else if (q == 7) cm7 = qm; else cm8 = qm;
+            }
+        }
+        cvx += abs(cm2 - cm0) + abs(cm5 - cm3) + abs(cm8 - cm6); // the same colour two cells apart
+        cvy += abs(cm6 - cm0) + abs(cm7 - cm1) + abs(cm8 - cm2);
+        float ce = 1.0e-4 + 0.015 * c_own;
+        float cvx2 = (cvx + ce) * (cvx + ce), cvy2 = (cvy + ce) * (cvy + ce);
+        float cw_row = cvy2 / (cvx2 + cvy2), cw_col = 1.0 - cw_row;
+        float cst = u_quad_cone * abs(cw_row - cw_col);
+        cone_ax = vec2(1.0 + 2.0 * cst * cw_col, 1.0 + 2.0 * cst * cw_row);
+    }
 
     float dx[5];
     float dx2_cov_x[5];
@@ -4691,7 +4971,7 @@ void SampleNeighborhoodQuadRBF(
             float w = rbf_w;
             if (has_lin) {
                 vec2 offset = vec2(dx[col_idx], cur_dy);
-                float lin_w = max(1.0 - length(offset) * 0.45, 0.0);
+                float lin_w = max(1.0 - (u_quad_cone > 0.0 ? sqrt(cone_ax.x * offset.x * offset.x + cone_ax.y * offset.y * offset.y) : length(offset)) * 0.45, 0.0);
                 w = mix(rbf_w, lin_w, linear_kernel_mix);
             }
 

@@ -97,6 +97,8 @@ public final class NubiaFullRes {
             final Size array = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
             final int[] full = learn(cameraId, SensorModeBand.table(c), array == null ? 0 : array.getWidth(), array == null ? 0 : array.getHeight());
             if (full == null) learnMaxRes(cameraId, PixelPro10.fullResStream(c), array);
+            // P598: the session keys the remosaic probe's settings may use on this camera
+            if (full == null && MAXRES.containsKey(cameraId)) NubiaRemosaicProbe.learn(cameraId, c);
         } catch (RuntimeException e) {
             Log.w(TAG, "camera " + cameraId + ": characteristics unreadable: " + e);
         }
@@ -138,7 +140,10 @@ public final class NubiaFullRes {
      * the binned 4096x3072 but a maximum-resolution map (android.scaler.streamConfigurationMapMaximumResolution: RAW_SENSOR
      * 8192x6144, binning factor 2x2, «RAW_SENSOR 8192x6144 in SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION -> true» on cameras 0 / 2;
      * camera 3 9248x6944): FULLRES runs the generic MAXIMUM_RESOLUTION session (P108's route, PixelPro10.fullResStream) with no
-     * ISP stream; its frames must be the sensor's mosaic (MosaicStream: a plain Bayer = the HAL's remosaic -> FULLRES off).
+     * ISP stream; its frames must be the sensor's mosaic (MosaicStream: a plain Bayer = the HAL's remosaic). P598: each session
+     * runs one setting against that remosaic (NubiaRemosaicProbe: the stock camera's 50 MP keys and QCFA mode, the camera's
+     * Qualcomm session keys); a plain Bayer fails the setting and the next one runs, every one failed - 50 Мп off on this
+     * firmware with one notice, a confident Quad keeps the setting for the camera.
      */
     private static final Map<String, Size> MAXRES = new ConcurrentHashMap<>();
 
@@ -179,9 +184,12 @@ public final class NubiaFullRes {
         return o == null ? 0 : com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(o[1], o[2]);
     }
 
-    /** The camera has a FULLRES row that has not failed on this firmware. */
+    /**
+     * The camera has a FULLRES row that has not failed on this firmware, or its maximum-resolution route has a setting left
+     * against the HAL's remosaic (P598, NubiaRemosaicProbe).
+     */
     public static boolean offered(@Nullable String cameraId) {
-        return device() && (offer(cameraId) != null && failures(cameraId) == 0 || maxRes(cameraId));
+        return device() && (offer(cameraId) != null && failures(cameraId) == 0 || maxRes(cameraId) && !NubiaRemosaicProbe.exhausted(cameraId));
     }
 
     /** The size switch of the active module: the camera's FULLRES, on a module without its own sensor mode (not the «2×»). */
@@ -189,9 +197,12 @@ public final class NubiaFullRes {
         return offered(cameraId) && !iszModule(activeSlot());
     }
 
-    /** The camera's row failed (FULLRES stays in the sheet, dimmed: a tap says why, «Попробовать снова»). */
+    /**
+     * The camera's row failed, or every setting of its maximum-resolution route gave the HAL's remosaic (P598): FULLRES stays in
+     * the sheet, dimmed (a tap says why, «Попробовать снова»).
+     */
     public static boolean exhausted(@Nullable String cameraId) {
-        return device() && offer(cameraId) != null && failures(cameraId) > 0;
+        return device() && (offer(cameraId) != null && failures(cameraId) > 0 || maxRes(cameraId) && NubiaRemosaicProbe.exhausted(cameraId));
     }
 
     /** A module of this phone with its own picked row (the «2×» ISZ module, or a row the owner picked): a sensor preset. */
@@ -284,6 +295,10 @@ public final class NubiaFullRes {
     @Nullable
     static String status(@Nullable SharedPreferences p, @Nullable String cameraId, String stamp) {
         if (p == null || cameraId == null) return null;
+        if (maxRes(cameraId)) { // P598: the maximum-resolution route's settings against the HAL's remosaic
+            final String probe = NubiaRemosaicProbe.status(p, cameraId, stamp);
+            if (probe != null) return probe;
+        }
         if (failures(p, cameraId, stamp) <= 0) return null;
         final int[] o = offer(cameraId);
         return FullResTrials.sizeLine(o == null ? 0 : com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(o[1], o[2]),
@@ -425,6 +440,7 @@ public final class NubiaFullRes {
     /** Tests: a new process. */
     static void resetForTest() {
         OFFER.clear();
+        MAXRES.clear();
         watch = null;
     }
 

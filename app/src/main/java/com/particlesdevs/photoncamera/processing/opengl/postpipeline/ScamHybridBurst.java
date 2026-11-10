@@ -1140,6 +1140,16 @@ public final class ScamHybridBurst implements ScamTransport {
     /** Crash site that leaves no GPU merge (a required program, the context): the session goes to the CPU fallback. */
     static final String STEP_GPU = "GPU";
 
+    /**
+     * P602: the lines of {@link #tuningOverride} that do not depend on the burst and can hold a key the worker reads before its go
+     * byte (ScamNeuralClient.PRE_GO_KEYS) - the steps a worker of this process died in, then the fast route of P501 - in that order,
+     * for a worker spawned at the shutter (worker_prespawn), before the burst is there. A retry's conservative lines never meet a
+     * standby (a retry spawns its own).
+     */
+    static String preGoBurstTuning() {
+        return avoidedTuning() + (scamMergeBlack && !avoidedSteps.contains(STEP_FAST) && !fastRouteHung ? PreferenceKeys.FAST_TUNING : "");
+    }
+
     static String avoidedTuning() {
         StringBuilder t = new StringBuilder();
         if (avoidedSteps.contains(STEP_OUTLIERS)) t.append("hotSigma 0\nhotBaseSigma 0\n");

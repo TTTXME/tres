@@ -28,6 +28,7 @@ uniform float protectShadowsU;
 uniform float protectHighlightsU;
 uniform int nbU;                    // radius of the local min / max window (1 = 3x3); <= 0 -> 1
 uniform float dampU;                // P404: total-variation damping of the update (0 = off)
+uniform float edgeGuardU;           // P595: the halo clamp relative at a dark / bright edge (0 / unset = off, as before)
 out vec4 Output;
 
 // The kernel's blur buffers are half: round the convolutions to fp16 as OpenCL stores them.
@@ -141,6 +142,27 @@ void main() {
         float s = clamp(haloU, 0.0, 1.0);
         if (v > lmax + mg) v = lmax + mg + (v - lmax - mg) * (1.0 - s);
         else if (v < lmin - mg) v = lmin - mg - (lmin - mg - v) * (1.0 - s);
+    }
+    if (edgeGuardU > 0.0 && haloU > 0.001) {
+        // P595 (owner, 2026-11-10: white dots on the edges of dark objects against a bright sky or window, beads along thin
+        // lines; «ограничитель выбросов можно поправить»): the clamp above is absolute - its margin 0.03 + 0.15 x the window's
+        // range and its strong-edge test (range 0.15 .. 0.4) are levels of this plane (G_CLEAN: the scene light before the AE),
+        // so under a short exposure (a backlit sky at 0.15, AE x3.5) a dark / bright edge counts as weak and every stage may
+        // overshoot it by a third of the sky. Where the window (2 px round the pixel) spans a dark / bright edge - its darkest
+        // pixel 0.5 .. 1 stop under its brightest - the result stays within the window's own range +-1 %: no pixel above the
+        // bright side or under the dark side. Texture (a fraction of a stop) keeps the clamp above as before.
+        int gr = nb + 1;
+        float gmin = lmin, gmax = lmax;
+        for (int dy = -gr; dy <= gr; dy++) {
+            for (int dx = -gr; dx <= gr; dx++) {
+                if (max(abs(dx), abs(dy)) <= nb) continue;
+                float w = texelFetch(Observed, clamp(xy + ivec2(dx, dy), ivec2(0), last), 0).r;
+                gmin = min(gmin, w);
+                gmax = max(gmax, w);
+            }
+        }
+        float g = edgeGuardU * clamp(haloU, 0.0, 1.0) * smoothstep(1.0, 2.0, log2((gmax + 0.002) / (gmin + 0.002)));
+        v = mix(v, clamp(v, gmin * 0.99, gmax * 1.01), g);
     }
     Output = vec4(max(v, 0.0), 0.0, 0.0, 1.0);
 }

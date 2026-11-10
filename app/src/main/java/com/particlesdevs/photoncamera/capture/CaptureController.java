@@ -952,6 +952,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         } else if (oplusPick != null && SensorModePick.session() == oplusPick) retryWithoutRequestedSensorMode(mCaptureSession, oplusWhy);
                     });
                 }
+                // P593: the DCG / DAG row's frames must be wider than declared; a plain row is noted and the next candidate starts
+                final String dcgWhy = OplusDcg.watchResult(physicalID, result);
+                if (dcgWhy != null) {
+                    final SensorModePick.Pick dcgPick = SensorModePick.session();
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (dcgPick != null && dcgPick.dcg() && SensorModePick.session() == dcgPick) retryWithoutRequestedSensorMode(mCaptureSession, dcgWhy);
+                    });
+                }
                 // Restarts count as successful only after a second of frames: one result per new session reset the count and the
                 // stall restarts never stopped (Xiaomi 13 Ultra, 14 restarts in a row, 2026-10-10)
                 if (mPreviewSessionStartMs > 0 && mLastPreviewResultMs - mPreviewSessionStartMs > 1000) mStallRestarts = 0;
@@ -1150,6 +1158,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 return;
             }
             if (retryWithoutVivoSdkFullRes(null, "camera error " + error)) return;
+            // P598: a nubia remosaic-probe session the camera died in before its first frame: that setting failed, the next one
+            if (mFullResSession && mLastPreviewResultMs == 0 && NubiaRemosaicProbe.running(physicalID)
+                    && retryNubiaProbe(null, "camera error " + error)) return;
             // P315: a picked sensor mode is blamed only when its session never delivered a frame - the X8U's mode 8 had streamed
             // for minutes when its HAL died at a shot, and the module went back to Auto with «Режим сенсора 8 отклонён камерой»;
             // an error after the mode's own frames takes the quiet path below (the same module and mode reopen)
@@ -2185,6 +2196,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
         clearZslPreviewFrames();
         mMeterUnpacked = null; // P365 (review): the meters' unpacked frame (meterSamples), made again when a meter needs it
+        mVfWbCopy = null; // P597: the white balance's copy (24 MB at 4080 x 3072; a measurement still running holds its own reference)
         resetEttr(); // P356: the next camera meters its own boost (the ISP viewfinder's display gain goes with it)
         LiveRawFrame.setEnabled(false);
         LiveRawFrame.setMosaicPreview(false);
@@ -2645,6 +2657,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         if (mLastPreviewResultMs == 0 && SensorModePick.session() != null
                 && (NubiaFullRes.device() || SensorModePick.session().route != null) // P586: an OPPO-family ISZ / DCG / DAG row too
                 && retryWithoutRequestedSensorMode(mCaptureSession, "no preview frame for " + noFrame + " ms")) {
+            mPreviewSessionStartMs = 0;
+            handler.removeCallbacks(mStallCheck);
+            return;
+        }
+        // P598: a nubia remosaic-probe session that never gave a frame: that setting failed, the next one runs
+        if (mLastPreviewResultMs == 0 && mFullResSession && NubiaRemosaicProbe.running(physicalID)
+                && retryNubiaProbe(mCaptureSession, "no preview frame for " + noFrame + " ms")) {
             mPreviewSessionStartMs = 0;
             handler.removeCallbacks(mStallCheck);
             return;
@@ -3270,6 +3289,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
         // P108: the Pixel 10 Pro / Pro XL's full-resolution switch: the RAW stream of the max-resolution map (RAW10 8160x6144)
         mFullResSession = false;
+        NubiaRemosaicProbe.noSession(); // P598: a maximum-resolution nubia FULLRES below starts its setting again
         Size fullRes = sdkFullRes ? VivoSdkFullRes.profile(mVivoSdkCameraId).size : null;
         if (sdkFullRes && VivoSdkFullRes.oppo()) {
             // P192: the own AE of the OPPO native mode meters the native RAW. P212b: it starts from this camera's own history
@@ -3303,8 +3323,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
         if (!sdkFullRes && isRawFormat(mTargetFormat) && !sFullResRefused.contains(physicalID) && !mIsRecordingVideo) {
             PixelPro10.FullRes fr = PixelPro10.fullRes(characteristics);
-            // P588: the nubia's FULLRES without root is the generic maximum-resolution session
-            if (fr == null && PixelPro10.fullResOn() && NubiaFullRes.maxRes(physicalID)) fr = PixelPro10.fullResStream(characteristics);
+            // P588: the nubia's FULLRES without root is the generic maximum-resolution session. P598: each such session runs one
+            // setting against the HAL's remosaic (NubiaRemosaicProbe); none left on this firmware: the normal session, 12 Мп
+            if (fr == null && PixelPro10.fullResOn() && NubiaFullRes.maxRes(physicalID)) {
+                if (NubiaRemosaicProbe.sessionStart(physicalID)) fr = PixelPro10.fullResStream(characteristics);
+                else PixelPro10.setFullRes(false);
+            }
             if (fr != null) {
                 mTargetFormat = fr.format;
                 fullRes = fr.size;
@@ -3323,6 +3347,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         NubiaFullRes.watchSession(physicalID, modePick);
         // P586: the OnePlus 16's sessions watch their reported mode too (an ISZ / DCG / DAG row, a native FULLRES mode, or the own one)
         OplusIsz.watchSession(physicalID, modePick, sdkFullRes && VivoSdkFullRes.oppo() ? VivoSdkFullRes.profile(mVivoSdkCameraId) : null);
+        // P593: a DCG / DAG row has to prove its depth by its frames (the tele's row 2 ran as a plain 10-bit row, log 2026-11-09)
+        OplusDcg.watchSession(physicalID, modePick, characteristics);
         if (modePick != null && modePick.route != null)
             Log.i("SCAM_CAPTURE", "OPPO family " + modePick.route + " camera " + physicalID + ": sensor mode row " + modePick.mode + " "
                     + modePick.size + ", " + OppoNativeFullRes.MODE_KEY + " on the session and every request, merge block "
@@ -3480,7 +3506,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // (readers f20 in the owner's logs, «setting raw10» printed beside them), whose black its HAL delivers drifted (64 ->
             // 60.6) or lost (P114 / P315): green shadows. The resolved packed format (RAW10 / RAW12: P388's RAW10 on the X8U) is kept;
             // a mode whose session refuses it falls back to RAW_SENSOR once (retryConfigureFallback, sRaw16)
-            final boolean packed = (mTargetFormat == ImageFormat.RAW10 || mTargetFormat == ImageFormat.RAW12) && !sRaw16.contains(physicalID);
+            // P593: a DCG / DAG row's frames are wider than RAW10 / RAW12 hold (the OnePlus 16's row 28: 14 bit): RAW_SENSOR whatever
+            // «Формат RAW» says (the module's «raw10» would pack them into 10 bits)
+            final boolean packed = (mTargetFormat == ImageFormat.RAW10 || mTargetFormat == ImageFormat.RAW12) && !sRaw16.contains(physicalID)
+                    && !modePick.dcg();
+            if (modePick.dcg() && mTargetFormat != ImageFormat.RAW_SENSOR)
+                Log.i("SCAM_CAPTURE", "camera " + physicalID + " DCG / DAG row: RAW stream format " + mTargetFormat + " -> " + ImageFormat.RAW_SENSOR + " (its frames are wider than the packed formats)");
             mPickPacked = packed;
             if (!packed) mTargetFormat = ImageFormat.RAW_SENSOR;
             else Log.i("SCAM_CAPTURE", "camera " + physicalID + " sensor mode pick: RAW stream format " + mTargetFormat + " (the setting's, P559)");
@@ -3992,6 +4023,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 SensorModeBand.sessionStart(dcgRoute, mCameraCharacteristics, dcgOperationMode != 0 ? XiaomiDcg.dcgMode() : -1);
                 XiaomiDcg.newSession();
                 mVendorOperationMode = xiaomiLogical || dcgOperationMode != 0 ? 0 : vendorMode;
+                // P598: the nubia remosaic probe's setting may be the stock QCFA mode's session operation mode (0x8012); a refusal
+                // fails that setting (retryWithoutFullRes), not the module's mode
+                final int probeMode = mFullResSession && !xiaomiLogical && dcgOperationMode == 0 ? NubiaRemosaicProbe.operationMode(physicalID) : 0;
+                if (probeMode != 0) Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + physicalID + ": session operation mode 0x"
+                        + Integer.toHexString(probeMode) + " (remosaic probe " + NubiaRemosaicProbe.describe() + ")");
                 if (!xiaomiLogical && sessionType != 0)
                     Log.i("SCAM_CAPTURE", "camera " + physicalID + ": session operation mode " + vendorMode + " (setting " + sessionType
                             + (vendorMode == sessionType ? ")" : sdkFullRes || mFullResSession ? ": FULLRES runs 0)"
@@ -4000,7 +4036,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     Log.i("SCAM_CAPTURE", "camera " + physicalID + ": DCG session operation mode 0x" + Integer.toHexString(dcgOperationMode)
                             + " (" + dcgOperationMode + ")" + (sessionType != 0 ? ", instead of the module's " + sessionType : ""));
                 SessionConfiguration configuration = new SessionConfiguration(
-                        xiaomiLogical ? XiaomiTeleZoom.operationMode(xiaomiOperationModeSetting()) : dcgOperationMode != 0 ? dcgOperationMode : vendorMode,
+                        xiaomiLogical ? XiaomiTeleZoom.operationMode(xiaomiOperationModeSetting()) : dcgOperationMode != 0 ? dcgOperationMode
+                                : probeMode != 0 ? probeMode : vendorMode,
                         outputConfigurations,
                         processExecutor,
                         stateCallback
@@ -4039,7 +4076,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     }
                     configuration.setSessionParameters(sdkSession.build());
                 } else if (scamPreview || mForcedStabEis || xiaomiLogical || vivoEis || moduleKeys || hiddenKeys || dcg14 || vivoQcomIsz || vivoQcomStreams
-                        || rawFps > 0 || SensorModePick.session() != null
+                        || rawFps > 0 || SensorModePick.session() != null || NubiaRemosaicProbe.wantsSession(physicalID)
                         || vsMode != CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF) {
                     try {
                         CaptureRequest.Builder scamSession = sessionDevice.createCaptureRequest(
@@ -4073,6 +4110,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         VivoPd2454NativeRaw.apply(scamSession, physicalID);
                         if (SensorModePick.session() != null) // P276: the picked mode on the session (and on every request)
                             Log.i("SCAM_CAPTURE", "camera " + physicalID + " sensor mode pick on the session: " + SensorModePick.apply(scamSession));
+                        // P598: the remosaic probe's keys came with builderSessionApply (on every request as well)
+                        if (NubiaRemosaicProbe.wantsSession(physicalID)) Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + physicalID
+                                + " remosaic probe on the session: " + NubiaRemosaicProbe.describe());
                         if (rawFps > 0) scamSession.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(rawFps, rawFps)); // P266
                         if (VivoQcomIsz.device()) Log.i("SCAM_CAPTURE", "X300 Ultra camera " + physicalID + " sensor mode: "
                                 + VivoQcomIsz.sessionBuilt(scamSession));
@@ -4159,7 +4199,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     : OplusDcg.failed(physicalID, pick.mode, why);
             SensorModePick.session(null, null);
             if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
-            showError(note);
+            // P593: a DCG / DAG row that gave a plain RAW while a candidate is left: an info, the restart takes the next row
+            if (pick.dcg() && OplusDcg.searching()) showToast(note);
+            else showError(note);
             new Handler(Looper.getMainLooper()).post(this::restartCamera);
             return true;
         }
@@ -4207,6 +4249,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     }
 
     private boolean retryWithoutFullRes(@Nullable CameraCaptureSession session, String why) {
+        // P598: a nubia remosaic-probe session: its setting failed, not the camera's FULLRES
+        if (mFullResSession && NubiaFullRes.device() && NubiaRemosaicProbe.running(physicalID)) return retryNubiaProbe(session, why);
         if (!mFullResSession || !sFullResRefused.add(physicalID)) return false;
         Log.w("SCAM_CAPTURE", "camera " + physicalID + ": full resolution refused (" + why + "), binned RAW again");
         mFullResSession = false;
@@ -4215,6 +4259,24 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         showError(Lang.t("Полное разрешение: камера отказала, обычный режим", "Full resolution: refused by the camera, normal mode"));
         final Handler main = new Handler(android.os.Looper.getMainLooper());
         main.post(this::restartCamera);
+        return true;
+    }
+
+    /**
+     * P598: the setting of a nubia maximum-resolution FULLRES session (NubiaRemosaicProbe) failed for {@code why} - a plain Bayer
+     * (the HAL's remosaic), another block, a refused session, a camera error, no frame: noted per camera and firmware; the camera
+     * restarts with FULLRES on and the next setting while one is left (a short notice), else with FULLRES off and the one notice
+     * that this firmware gives only the remosaic (the camera's 50 Мп dimmed from now on). Bounded by the settings: each fails once.
+     */
+    private boolean retryNubiaProbe(@Nullable CameraCaptureSession session, String why) {
+        final NubiaRemosaicProbe.Outcome outcome = NubiaRemosaicProbe.failed(physicalID, why);
+        if (outcome == null) return false;
+        mFullResSession = false;
+        if (!outcome.next) PixelPro10.setFullRes(false);
+        if (session != null) try { session.close(); } catch (Exception ignored) {}
+        if (outcome.next) showToast(outcome.message);
+        else showError(outcome.message);
+        new Handler(android.os.Looper.getMainLooper()).post(this::restartCamera);
         return true;
     }
 
@@ -5507,6 +5569,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         if (n >= 4 && n % 30 != 0) return;
         com.particlesdevs.photoncamera.processing.RawPayloadCheck.Result payload =
                 com.particlesdevs.photoncamera.processing.RawPayloadCheck.check(img, rawPayloadWhite(null));
+        OplusDcg.watchFrame(img.getFormat() == ImageFormat.RAW_SENSOR); // P593: a frame the depth watch can count on
         if (payload.plain()) { mPayloadBad = false; mPreviewLayouts.clear(); return; }
         if (img.getFormat() == ImageFormat.RAW_SENSOR) {
             // Xiaomi 17 Ultra tele on the logical camera: packed MIPI RAW10 / RAW14 behind RAW_SENSOR, read in that layout by the
@@ -5585,8 +5648,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private void onMatchedLiveRaw(Image img, TotalCaptureResult result) {
         boolean retained = false;
         java.nio.ByteBuffer ringView = null; // P365: a view of the frame's ring slot until the viewfinder takes it
+        // P597: the camera thread's time of this frame, its gap to the frame before and its delivery lag (VF_RAW "stages")
+        final long stageStart = System.nanoTime();
         try {
             if (!isCameraResumed || !mLiveRawSession || mZslCapturing || mHybridZslCapture || mScamRingFrozen) return;
+            final long lag = android.os.SystemClock.elapsedRealtimeNanos() - img.getTimestamp();
+            com.particlesdevs.photoncamera.processing.VfStages.arrived(stageStart, lag >= 0 && lag < 2_000_000_000L ? lag : Long.MIN_VALUE);
             watchRawPayload(img);
             observeRawLevel(img, result);
             observeMosaic(img);
@@ -5653,12 +5720,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (ringView != null) {
                 final java.nio.ByteBuffer view = ringView;
                 ringView = null;
-                LiveRawFrame.publishRef(view, ringMeta); // takes the view (kept pinned or freed)
-                if (mTextureView != null) mTextureView.requestRender();
+                // takes the view (kept pinned or freed); P597: a frame that is binned first is published on the viewfinder's own
+                // thread, and its draw is asked for there, once it is published
+                LiveRawFrame.publishRef(view, ringMeta, () -> {
+                    final GLPreview preview = mTextureView;
+                    if (preview != null) preview.requestRender();
+                });
             }
         } finally {
             if (!retained) img.close();
             if (ringView != null) Allocator.free(ringView); // never handed over (an exception on the way)
+            com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.CAMERA,
+                    System.nanoTime() - stageStart);
         }
     }
 
@@ -5781,7 +5854,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 + (nativeVivoFullRes() ? "|native-full-" + VivoSdkFullRes.profile(mVivoSdkCameraId).sensorMode : "")
                 // P315: a picked SensorModeTable row is a stream of its own (the X8U's mode 1 and its Quad mode 8 are both 4096x3072:
                 // the block of one was used for the other for ~100 ms after each switch)
-                + (SensorModePick.session() != null ? "|pick-" + SensorModePick.session().mode : "");
+                + (SensorModePick.session() != null ? "|pick-" + SensorModePick.session().mode : "")
+                // P598: each nubia remosaic-probe setting is a stream of its own
+                + (mFullResSession ? NubiaRemosaicProbe.streamKey() : "");
     }
 
     /** P214i: the frame check of this session's X300 Ultra ISZ module (VivoQcomIsz.check), null for any other session. */
@@ -5867,10 +5942,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         && SensorModePick.session() != null
                         && SensorModePick.sessionBlock(c) > 1
                         && retryWithoutRequestedSensorMode(mCaptureSession, "the frames are remosaicked by the HAL (plain Bayer, no mosaic)")) return;
-                // P588: the nubia's maximum-resolution FULLRES whose frames are a plain Bayer is the HAL's remosaic: off, with a notice
-                if (NubiaFullRes.device() && mFullResSession
-                        && com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict() == 1
-                        && retryWithoutFullRes(mCaptureSession, "nubia: the maximum-resolution frames are remosaicked by the HAL (plain Bayer, no mosaic)")) return;
+                // P588: the nubia's maximum-resolution FULLRES whose frames are a plain Bayer is the HAL's remosaic. P598: that
+                // session's setting against the remosaic failed (NubiaRemosaicProbe: the next setting in the next session, every one
+                // failed - FULLRES off on this firmware with one notice); a confident Quad keeps the setting for the camera
+                if (NubiaFullRes.device() && mFullResSession) {
+                    final int verdict = com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict();
+                    if (verdict == 2) {
+                        final String kept = NubiaRemosaicProbe.quad(physicalID);
+                        if (kept != null) showToast(kept);
+                    } else if (verdict != 0 && retryWithoutFullRes(mCaptureSession, verdict == 1
+                            ? "nubia: the maximum-resolution frames are remosaicked by the HAL (plain Bayer, no mosaic)"
+                            : "nubia: the maximum-resolution frames are a block " + verdict + " mosaic, not the sensor's Quad")) return;
+                }
                 // P188 (owner, 2026-10-17: «Нам нужен фулрез без ремозаика»): a native FULLRES row whose frames are a plain Bayer
                 // was remosaicked by the HAL (X300 Ultra main camera, 50 MP row 2): that row counts as failed and the next start
                 // tries the next row of the table, instead of shooting the HAL's remosaic
@@ -6130,8 +6213,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         try {
             // P408: «Баланс белого Quad / Tetra» as the reference app - the live stream's last result at the press
             if (com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.whyMode()) {
+                // P599: with the viewfinder's proof that the HAL's AWB runs in this session (a still burst looks frozen)
+                final String vfId = physicalID == null ? null : physicalID.substring(physicalID.lastIndexOf('/') + 1);
                 final com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.Press p =
-                        mVfNeutrals.why(physicalID, android.os.SystemClock.elapsedRealtime());
+                        mVfNeutrals.why(physicalID, android.os.SystemClock.elapsedRealtime()).awbMoves(mVfMosaicWb.awbMoves(vfId, mVfCcmSession));
                 Log.i("SCAM_CAPTURE", "mosaic white balance at the press: " + p);
                 return p;
             }
@@ -7220,12 +7305,67 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                             if (n == null || n.length < 3 || !(n[1].floatValue() > 0f)) return null;
                             return new float[]{n[0].floatValue() / n[1].floatValue(), 1f, n[2].floatValue() / n[1].floatValue()};
                         }
+
+                        // P597: the same measurement on a copy of the frame (whole rows), read on ViewfinderMosaicWb's thread
+                        @Override public com.particlesdevs.photoncamera.processing.color.ViewfinderMosaicWb.Measure detached() {
+                            final java.nio.ByteBuffer s = samples();
+                            if (s == null) return null;
+                            final long copyStart = System.nanoTime();
+                            final int w = img.getWidth(), h = img.getHeight();
+                            final java.nio.ByteBuffer copy = vfWbCopy(s, w, h, mMeterStride);
+                            if (copy == null) return null;
+                            com.particlesdevs.photoncamera.processing.VfStages.note(
+                                    com.particlesdevs.photoncamera.processing.VfStages.Stage.WB_COPY, System.nanoTime() - copyStart);
+                            final float[] neutral = hal(), levels = black.clone();
+                            final com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Setup setup = mosaicSetup(c, result);
+                            return new com.particlesdevs.photoncamera.processing.color.ViewfinderMosaicWb.Measure() {
+                                @Override public com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Stat stat() {
+                                    return com.particlesdevs.photoncamera.processing.color.MosaicNeutral.measure2(copy, w, h, w * 2, cfa,
+                                            levels, white, effBlock, setup);
+                                }
+                                @Override public com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Result own() {
+                                    return com.particlesdevs.photoncamera.processing.color.MosaicNeutral.estimate(id, copy, w, h, w * 2,
+                                            cfa, levels, white, effBlock, prior);
+                                }
+                                @Override public float[] hal() {
+                                    return neutral;
+                                }
+                            };
+                        }
                     };
             return mVfMosaicWb.frame(id, mVfCcmSession, result, true, measure, prior, mVfSameSensor, android.os.SystemClock.elapsedRealtime());
         } catch (RuntimeException e) {
             Log.w("SCAM_CAPTURE", "mosaic viewfinder white balance: " + e);
             return null;
         }
+    }
+
+    /** P597: the frame the mosaic viewfinder's white balance measures on its own thread (reused; released with the camera). */
+    private java.nio.ByteBuffer mVfWbCopy;
+
+    /**
+     * P597: {@code h} rows of {@code w} 16-bit samples of {@code samples} ({@code stride} bytes a row) into {@link #mVfWbCopy}
+     * (rows of w * 2 bytes, native order); null when the frame does not hold them. ViewfinderMosaicWb asks for a copy only while
+     * none is being measured, so the buffer is never refilled under its reader.
+     */
+    @Nullable
+    private java.nio.ByteBuffer vfWbCopy(java.nio.ByteBuffer samples, int w, int h, int stride) {
+        final long bytes = (long) w * h * 2;
+        if (w <= 0 || h <= 0 || stride < w * 2 || bytes > Integer.MAX_VALUE || (long) (h - 1) * stride + w * 2L > samples.capacity()) return null;
+        java.nio.ByteBuffer copy = mVfWbCopy;
+        if (copy == null || copy.capacity() < bytes)
+            mVfWbCopy = copy = java.nio.ByteBuffer.allocateDirect((int) bytes).order(java.nio.ByteOrder.nativeOrder());
+        copy.clear();
+        final java.nio.ByteBuffer src = samples.duplicate();
+        if (stride == w * 2) {
+            src.limit((int) bytes).position(0);
+            copy.put(src);
+        } else for (int y = 0; y < h; y++) {
+            src.limit(y * stride + w * 2).position(y * stride);
+            copy.put(src);
+        }
+        copy.flip();
+        return copy.duplicate().order(java.nio.ByteOrder.nativeOrder());
     }
 
     /**

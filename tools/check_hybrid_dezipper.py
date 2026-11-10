@@ -77,6 +77,12 @@ def main():
             'layout(std430,binding=4) writeonly buffer Eff{float eff[];};\n')
     check(stream.count(p525[0]) == 1, 'P525: Eff read-write, once')
     stream = stream.replace(*p525)
+    # P596 round 2: the fine (green site) tensor taken only where it finds more structure than the quad one, when k61cU.z > 0
+    # (the native Quad only; 0 elsewhere = P332's line): its block is put back to P332's one line
+    p596 = ("    if(fine.x>=0.0){ // P332: single sites, half the step\n        float nf=nTensor*16.0*k61cU.y;bool useFine=true;\n        if(k61cU.z>0.0){ // P596 (Quad): the fine tensor only where it finds more structure over its noise than the quad one (a\n            // facade's 4.5 px grooves); the quad one keeps what it sees (brick joints in the shade under the fine one's noise)\n            float lq=c0+sqrt(c.z*c.z+c1*c1),lf=0.5*(fine.x+fine.y)+sqrt(fine.z*fine.z+0.25*(fine.y-fine.x)*(fine.y-fine.x));\n            useFine=lf*lf/(lf+nf+1.0e-20)>lq*lq/(lq+nTensor+1.0e-20);\n        }\n        if(useFine){c=fine;c0=0.5*(c.x+c.y);c1=0.5*(c.y-c.x);nTensor=nf;}\n    }\n",
+            '    if(fine.x>=0.0){c=fine;c0=0.5*(c.x+c.y);c1=0.5*(c.y-c.x);nTensor*=16.0*k61cU.y;} // P332: single sites, half the step\n')
+    check(stream.count(p596[0]) == 1, 'P596: the fine tensor choice in kHybHelpers, once')
+    stream = stream.replace(*p596)
     got = hashlib.sha256(stream.encode()).hexdigest()
     check(got == MERGE_SOURCES, 'the merge program\'s sources unchanged without the dezipper (%s)' % got[:12])
     spec = re.search(r'inline std::string hybridPartialSpec\(.*?\n\}', SRC, re.S).group(0)

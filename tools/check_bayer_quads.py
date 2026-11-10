@@ -25,15 +25,16 @@ def main():
     qmain=literal(quads,'kHybQzMain','QZ');old=literal(base,'kHybMergeMain1')
     needle='for(int q=0;q<4;q++){'
     assert old.count(needle)==1 and qmain==old.replace(needle,'{ int q=int(gl_WorkGroupID.z);',1),'Q-site merge changed beyond invocation ownership'
+    # P596 round 2: kHybHelpers' fine-tensor choice (k61cU.z > 0 only on the native Quad; 0 elsewhere = the old branch)
     expected=[
-        'c1579fcfe3773556b1af67cfeb7d0c8eb91f4926714de587e29c890995d4f522',
-        '8efcb27dcbae3f464f66e8ed5ccc65a0abaaf42ede279ac1a55236733e45885b',
-        '078f4c00337ef4f5ac6ab4ca19160a3de92a1e765361f5c9835d5fdb39fff5a1',
-        '69a75731a4d6492159b5d8403e8f018fce5c9cdc032ffcb29a01e7485e889777',
-        '6ea4c1b9807573920124c5586ff59a8a0b68980401b71c8260e0a723a9604dab',
-        'f04cd44c2cfcebcbec40a8aacf5e4ec67e84a597c7c0ccd9ec17d8fe82c00c5a',
-        '350bb550e32c7965fb71dbb221684848df5599f51b251c557a0e511efca6b6c5',
-        '4694ea54cf92a7acd2ca5907a6ac18aaa45ba445565bb165e99bd7a1256b4d02']
+        '654a77c370645a4a3ba27d045243c8cf300cd3ce0daef73df36a74f963faa6f0',
+        '36ddccac170cd87b255c16ec544b4e7482486a2cac7f20a9f8e908286d3170ed',
+        '7914987e579f7ec825c50004b6804ccab85336fa4a57c4b9492580e61cbcd93a',
+        '1d8c4bf85be6e7c0ec342f469c49d233be936e969afd68a6cddc51026137daac',
+        'dcea9ba59d7a89c008a34e00b92c3cb6877d1161304744793ed7cdc9db4efc23',
+        '567ed507bdc0b438c07d1d59f1b8930318c71b278aa9c1af077479a454e45fef',
+        'c278589991379a06dc6b5bea2ccfc7f6cf32a7b314b3be5b354ca66b0a51b44f',
+        'c6da09ff3ef8d1d46bfd3d50e053d9bfdd39712c80f95c7068997fcf11bfa88e']
     common=literal(base,'kHybCommon');helpers=literal(base,'kHybHelpers');rows=[];programs=[]
     for index,(local,dezip,jsr) in enumerate(itertools.product([False,True],repeat=3)):
         prefix=common+''.join('#define '+name+' 1\n'for name,on in [('LOCAL_ALIGN',local),('JSR_LCA',jsr)]if on)+helpers

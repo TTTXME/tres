@@ -74,6 +74,17 @@ uniform float u_step;    // P501: OUT px per sensor px (the sabre_scale; the Qua
 ivec2 sc(int dx, int dy) { return ivec2(round(vec2(float(dx), float(dy)) * u_step)); }
 uniform int u_fill;       // P497: > 0 = the reach (OUT px) of the hole fill below (short frames merged), 0 = off
 uniform float u_quad_lift; // P506: > 0 = a Quad stream with short frames merged: the lattice round recovered lights notched
+// P596 (owner, 2026-11-10: «улучшить детализацию/резкость ... шарпинг трогать запрещаю»): deGrid's «flat ground» is a local change
+// under 4 .. 10 % of the luma, a single 50 MP frame's noise. After 30 merged frames the noise is a few tenths of that, and fine
+// low-contrast texture (asphalt, foliage, fabric, a face) under 4 % was blurred by the period-4 notch in both directions (its
+// response 0.6 at 1/8 cycles / px, 0 at 1/4 - 1/2). x, y = the base frame's noise model (variance S v + O, normalised units),
+// z > 0: «flat» from z .. 2.5 z times the merged luma noise's own value of that measure (sqrt((S Y + O) / frames) / Y, the
+// frames from the merge's weights), never above the old 0.04 .. 0.10 - where few frames merged (moving subjects) as before.
+// w > 0: the notch along a line (the beads of one frame's colour phase) fades out from w / 2 to w merged frames: with many
+// frames of scattered sub-pixel shifts the phase is averaged out, and the notch blurred everything oriented (bark, twigs, hair,
+// a slanted edge across 4 px) to its [1 2 2 2 1] / 8; the site response's static lattice is the lattice pass's (P566 / P571).
+// 0 = as before.
+uniform vec4 u_flat_noise;
 layout(std430,binding=0) writeonly buffer Rgb{uint rgb[];};
 layout(std430,binding=1) writeonly buffer Flags{uint flags[];};
 layout(std430,binding=2) writeonly buffer Eff{float eff[];};
@@ -150,9 +161,33 @@ vec3 deGrid(ivec2 p, vec3 v) {
     float gx = abs(xp2 - xm2) + 0.5 * abs(lumaAt(p + sc(2, 1), lo, hi) - lumaAt(p + sc(-2, 1), lo, hi)) + 0.5 * abs(lumaAt(p + sc(2, -1), lo, hi) - lumaAt(p + sc(-2, -1), lo, hi));
     float gy = abs(yp2 - ym2) + 0.5 * abs(lumaAt(p + sc(1, 2), lo, hi) - lumaAt(p + sc(1, -2), lo, hi)) + 0.5 * abs(lumaAt(p + sc(-1, 2), lo, hi) - lumaAt(p + sc(-1, -2), lo, hi));
     float rel = (gx + gy) / (4.0 * y0);
-    float flatK = 1.0 - smoothstep(0.04, 0.10, rel); // a single 50 MP frame's noise alone reaches ~0.04
+    float flatLo = 0.04, flatHi = 0.10; // a single 50 MP frame's noise alone reaches ~0.04
+    float frames = u_flat_noise.z > 0.0 || u_flat_noise.w > 0.0 ? texelFetch(u_frame_weights, p * u_half / u_size, 0).r + 1.0 : 1.0;
+    float relF = rel, dx4 = 0.0, dy4 = 0.0, m = 1.0;
+    if (u_flat_noise.z > 0.0 || u_flat_noise.w > 0.0) { // P596: +-4 px, blind to the Quad lattice's periods 4 and 2
+        dx4 = abs(lumaAt(p + sc(4, 0), lo, hi) - lumaAt(p + sc(-4, 0), lo, hi));
+        dy4 = abs(lumaAt(p + sc(0, 4), lo, hi) - lumaAt(p + sc(0, -4), lo, hi));
+        m = max(sqrt(max(u_flat_noise.x * y0 + u_flat_noise.y, 0.0) / max(frames, 1.0)) / y0, 1.0e-6); // the merged noise's level
+    }
+    if (u_flat_noise.z > 0.0) {
+        flatLo = min(flatLo, u_flat_noise.z * m);
+        flatHi = max(min(flatHi, 2.5 * u_flat_noise.z * m), flatLo + 1.0e-6);
+        // the +-2 px differences span a whole period 4 (blind to the Quad lattice, as meant) and so nearly a whole 4.5 px stripe
+        // too (0.68 of it: a facade's grooves read as flat, 140309); +-4 px is as blind to the periods 4 and 2 and sees them
+        // (1.3), less its noise
+        relF = max(rel, max((dx4 + dy4) / (2.0 * y0) - 1.5 * m, 0.0));
+    }
+    float flatK = 1.0 - smoothstep(flatLo, flatHi, relF);
     float hline = smoothstep(1.5, 3.0, gy / max(gx, 1.0e-5 * y0)) * (1.0 - flatK); // a horizontal line: notch along x
     float vline = smoothstep(1.5, 3.0, gx / max(gy, 1.0e-5 * y0)) * (1.0 - flatK);
+    if (u_flat_noise.w > 0.0) { // P596: the line notch where few frames merged
+        float few = 1.0 - smoothstep(0.5 * u_flat_noise.w, u_flat_noise.w, frames);
+        // and not on a line with structure along it at other periods than the beads' 4 (vertical grooves crossing a horizontal
+        // seam or letter: the notch along x took them where the beads' period 4 gives no +-4 px change)
+        // (above the noise: 2 .. 4 times its level, so noise and the beads' field are notched as before)
+        hline *= few * (1.0 - smoothstep(0.15, 0.4, dx4 / max(0.5 * gy, 1.0e-5 * y0)) * smoothstep(2.0 * m, 4.0 * m, dx4 / y0));
+        vline *= few * (1.0 - smoothstep(0.15, 0.4, dy4 / max(0.5 * gx, 1.0e-5 * y0)) * smoothstep(2.0 * m, 4.0 * m, dy4 / y0));
+    }
     float yt = y0;
     yt = mix(yt, nx, hline);
     yt = mix(yt, ny, vline);
@@ -436,6 +471,7 @@ public:
                 pGuideQuad,pMergeQuad,pQpcEstimate,pQpcSmooth,pRawToGray,pHotPixel,pMergeQuadQuad,
                 pCoarseShift,pHomoPick, // P497: the KLT seed of a frame after the press (coarse translation search), the better homography
                 pHlMaskOut, // P480: built on first use (hlMaskOutProgram), not at init: a burst without the highlight path never builds it
+                pFlowPick,pFlowBg,pCyclopsRescue, // P601: built with the rest when they can be (flowPickProgram / flowPickReady)
                 kProgs };
     GLuint prog[kProgs]{};
     std::vector<GLuint> textures,fbos,buffers;
@@ -484,6 +520,9 @@ public:
             prog[pGuideQuad]=fs(kFastGuideQuad);prog[pMergeQuad]=fs(kFastMergeQuad);prog[pQpcEstimate]=cs(kFastQpcEstimate);
             prog[pQpcSmooth]=cs(kFastQpcSmooth);prog[pRawToGray]=fs(kFastRawToGray);prog[pHotPixel]=cs(kFastHotPixel);
             prog[pMergeQuadQuad]=fs(kFastMergeQuadQuad);
+            // P601: the flow pick's programs with the rest (the default fastFlowPick 2 uses them on every shot); one that does not
+            // build leaves the pick off for the merge (flowPickReady), not the route
+            try{flowPickProgram(true);}catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: flow pick programs unavailable (")+e.what()+")");}
             if(compiled>0)trimCache();
             check("init");
         }catch(...){cleanup();throw;}
@@ -508,6 +547,15 @@ public:
         prog[pRejFilter]=rejFilterProgram(gather);rejFilterGather=gather;locs.clear(); // (uniform locations are per program)
     }
     void hlMaskOutProgram(){if(!prog[pHlMaskOut])prog[pHlMaskOut]=cs(fastmerge::kFastHlMaskOut);} // P480
+    void flowPickProgram(bool rescue){ // P601 (throws when one does not build)
+        if(!prog[pFlowPick])prog[pFlowPick]=fs(fastmerge::kFastFlowPick);
+        if(!prog[pFlowBg])prog[pFlowBg]=fs(fastmerge::kFastFlowBg);
+        if(rescue&&!prog[pCyclopsRescue])prog[pCyclopsRescue]=fs(fastmerge::kFastCyclopsRescue);
+    }
+    bool flowPickReady(bool rescue){ // P601: the programs, built now if missing; false (and a note) when they do not build
+        try{flowPickProgram(rescue);return true;}
+        catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: flow pick off (")+e.what()+")");return false;}
+    }
     void acquire(){if(!eglMakeCurrent(display,surface,surface,context))throw std::runtime_error("FAST MERGE GPU: context not current");}
     // GPU objects of one merge (the programs stay)
     void freeObjects(){

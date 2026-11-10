@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -440,11 +441,12 @@ public class OppoNativeFullResTest {
     /** P586: the main's 50 MP-class FULLRES is row 9 (8160x6144 @ 30, Quad), its 200 MP row 24 (16320x12288, 4x4); row 0 never. */
     @Test public void theOnePlus16MainOffersRow9AndRow24() {
         final OppoNativeFullRes.Offer o = OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_MAIN, 4080, 3072, null);
-        assertEquals(1, o.small.length);
-        assertArrayEquals("row 9 full size QBC; row 25 (8160x6144 @ 16) is below 24 fps", new int[]{9, 8160, 6144, 30, 2}, o.small[0]);
+        assertEquals("P593: both 50 MP-class rows", 2, o.small.length);
+        assertArrayEquals("row 9 full size QBC (30 fps: the rows at 24 fps or more first)", new int[]{9, 8160, 6144, 30, 2}, o.small[0]);
+        assertArrayEquals("P593: row 25 (8160x6144 @ 16, [0x8038][0x8001]) after it", new int[]{25, 8160, 6144, 16, 2}, o.small[1]);
         assertEquals(1, o.large.length);
         assertArrayEquals("row 24, not row 0 (the HAL's highpixel hwremosaic)", new int[]{24, 16320, 12288, 8, 4}, o.large[0]);
-        assertArrayEquals("the P214j form: the 50 MP class", new int[]{8160, 6144, 30, 9},
+        assertArrayEquals("the P214j form: the 50 MP class", new int[]{8160, 6144, 30, 9, 25},
                 OppoNativeFullRes.candidates("2", true, OppoNativeFullRes.PYB110_MAIN, false));
         assertNull("no session key: nothing", OppoNativeFullRes.candidates("2", false, OppoNativeFullRes.PYB110_MAIN, false));
         assertArrayEquals("the same table on logical 0", OppoNativeFullRes.PYB110_MAIN, OppoNativeFullRes.PYB110_MAIN.clone());
@@ -484,10 +486,14 @@ public class OppoNativeFullResTest {
             assertFalse("OPPO-family default: 50 MP until 200 is chosen", PixelPro10.tele200Default());
             final OppoNativeFullRes.Offer o = OppoNativeFullRes.learn("p586-main", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072,
                     Arrays.asList(new int[]{8160, 6144}), "test");
-            assertEquals(1, o.small.length);
+            assertEquals(2, o.small.length);
+            assertEquals("P593: on the PYB110 the row that died (9) goes after its 16 fps twin", 25, o.small[0][0]);
+            assertEquals(9, o.small[1][0]);
             assertTrue(OppoNativeFullRes.twoSizes("p586-main"));
             VivoSdkFullRes.Profile fifty = OppoNativeFullRes.profile("p586-main", false);
-            assertEquals(9, fifty.sensorMode);
+            assertEquals(25, fifty.sensorMode);
+            assertEquals("the row's own frame time: 16 fps (the request's frame duration is at least this)", 1_000_000_000L / 16,
+                    OppoNativeFullRes.frameNs("p586-main"));
             assertEquals(8160, fifty.size.getWidth());
             assertEquals(6144, fifty.size.getHeight());
             assertEquals(2, fifty.nativeBlock);
@@ -498,7 +504,9 @@ public class OppoNativeFullResTest {
             assertEquals(12288, large.size.getHeight());
             assertEquals("its own 4x4 mosaic (the Tetra route)", 4, large.nativeBlock);
             assertTrue(large.nativeRoute() && !large.stillOnly);
-            assertEquals("the profile of the 50 MP size (P214j's call)", 9, OppoNativeFullRes.profile("p586-main").sensorMode);
+            assertEquals("the profile of the 50 MP size (P214j's call)", 25, OppoNativeFullRes.profile("p586-main").sensorMode);
+            assertTrue(OppoNativeFullRes.anyLive("p586-main"));
+            assertTrue("the learn line is kept for the session log", OppoNativeFullRes.learnLine("p586-main").contains("row 9 last"));
             assertFalse(OppoNativeFullRes.sizeExhausted("p586-main", true));
             assertFalse(OppoNativeFullRes.exhausted("p586-main"));
             final OppoNativeFullRes.Offer tele = OppoNativeFullRes.learn("p586-tele", true, OppoNativeFullRes.PYB110_TELE, false, 4096, 3072,
@@ -510,14 +518,71 @@ public class OppoNativeFullResTest {
                     Arrays.asList(new int[]{8160, 6144}), OplusIsz.row(true, "2", OppoNativeFullRes.PYB110_MAIN),
                     OplusDcg.rows(true, "2", OppoNativeFullRes.PYB110_MAIN));
             assertTrue(line, line.startsWith("OPPO family camera 2 (OnePlus PYB110): mode key true, table fallback"));
-            assertTrue(line, line.contains("FULLRES mode 9 8160x6144@30 block 2"));
+            assertTrue(line, line.contains("FULLRES mode 25 8160x6144@16 block 2, FULLRES mode 9 8160x6144@30 block 2"));
             assertTrue(line, line.contains("200 MP mode 24 16320x12288@8 block 4 (not in OemSupportedCustomRAWFullSizes)"));
             assertTrue(line, line.contains("ISZ mode 11 4080x3072"));
-            assertTrue(line, line.contains("DCG mode 28"));
+            assertTrue("P593: row 28, then its PDAF-short twin 38: " + line, line.contains("DCG modes 28, 38"));
             assertEquals(9, tele.small[0][0]);
         } finally {
             OppoNativeFullRes.forget("p586-main");
             OppoNativeFullRes.forget("p586-tele");
+        }
+    }
+
+    /**
+     * P593 (owner's log 2026-11-09: the main's row 9 died twice, its trial is stored as «9:died» with the count 1): the trials go
+     * on from the rows that failed, whatever the order of the candidates - row 25 next, never the 200 MP row for a 50 MP ask.
+     */
+    @Test public void aStoredDeathOfRow9MovesOnToRow25NotTo200Mp() {
+        final OppoNativeFullRes.Offer table = OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_MAIN, 4080, 3072, null);
+        final OppoNativeFullRes.Offer o = OppoNativeFullRes.demoted(table, OppoNativeFullRes.PYB110_MAIN_DEAD);
+        assertEquals(25, o.small[0][0]);
+        assertEquals(9, o.small[1][0]);
+        assertEquals("the 200 MP rows untouched", 24, o.large[0][0]);
+        assertSame("nothing to demote: the same offer", table, OppoNativeFullRes.demoted(table, 31));
+        final OppoNativeFullRes.Offer tele = OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_TELE, 4096, 3072, null);
+        assertSame("one row: as it is", tele, OppoNativeFullRes.demoted(tele, 9));
+
+        final SharedPreferences p = RuntimeEnvironment.getApplication().getSharedPreferences("p593_trials", 0);
+        p.edit().clear().commit();
+        assertEquals("no trial: the first row", 25, OppoNativeFullRes.liveRow(o.small, 0, OppoNativeFullRes.failedModes(p, "2", "s1"))[0]);
+        OppoNativeFullRes.note(p, "2", 1, 9, "camera error 4", "s1"); // as the owner's phone has it
+        assertEquals(1, OppoNativeFullRes.failures(p, "2", "s1"));
+        final java.util.Set<Integer> failed = OppoNativeFullRes.failedModes(p, "2", "s1");
+        assertTrue(failed.contains(9));
+        assertEquals("«9:died» moves on to row 25, in either order of the candidates", 25, OppoNativeFullRes.liveRow(o.small, 1, failed)[0]);
+        assertEquals(25, OppoNativeFullRes.liveRow(table.small, 1, failed)[0]);
+        assertEquals("50 MP asked: row 25", 25, OppoNativeFullRes.rowFor(o, false, true, 1, failed, 0)[0]);
+        assertEquals("200 MP asked: row 24", 24, OppoNativeFullRes.rowFor(o, true, true, 1, failed, 0)[0]);
+        OppoNativeFullRes.note(p, "2", 2, 25, "no preview frame for 3000 ms", "s1");
+        final java.util.Set<Integer> both = OppoNativeFullRes.failedModes(p, "2", "s1");
+        assertNull("both 50 MP rows failed: none left", OppoNativeFullRes.liveRow(o.small, 2, both));
+        assertNull("a 50 MP ask never becomes 200 MP", OppoNativeFullRes.rowFor(o, false, true, 2, both, 0));
+        assertEquals("200 MP stays its own choice", 24, OppoNativeFullRes.rowFor(o, true, true, 2, both, 0)[0]);
+        assertEquals("200 MP asked with its row failed: the 50 MP row", 25, OppoNativeFullRes.rowFor(o, true, true, 1, failed, 1)[0]);
+        assertNull(OppoNativeFullRes.rowFor(o, true, true, 2, both, 1));
+        // a camera whose only FULLRES rows are its 200 MP ones keeps them
+        final OppoNativeFullRes.Offer only = new OppoNativeFullRes.Offer(new int[0][], o.large);
+        assertEquals(24, OppoNativeFullRes.rowFor(only, false, true, 0, null, 0)[0]);
+        // trials of a build before P214h count rows without naming them: the first rows in order
+        assertEquals(9, OppoNativeFullRes.liveRow(o.small, 1, java.util.Collections.<Integer>emptySet())[0]);
+        assertEquals(25, OppoNativeFullRes.liveRow(o.small, 0, null)[0]);
+        assertNull(OppoNativeFullRes.liveRow(o.small, 2, null));
+        // the status names the rows as they failed: 9 first, though 25 is offered before it
+        assertArrayEquals(new int[]{9, 25}, OppoNativeFullRes.trialOrder(new int[]{25, 9}, java.util.Arrays.asList(9)));
+        assertArrayEquals(new int[]{25, 9}, OppoNativeFullRes.trialOrder(new int[]{25, 9}, java.util.Collections.<Integer>emptyList()));
+        ShadowBuild.setManufacturer("OnePlus");
+        ShadowBuild.setModel("PYB110");
+        try {
+            OppoNativeFullRes.learn("2", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072, null, "test");
+            final String status = OppoNativeFullRes.status(p, "2", "s1");
+            assertTrue(status, status.contains("9") && status.contains("25"));
+            p.edit().clear().commit();
+            OppoNativeFullRes.note(p, "2", 1, 9, "camera error 4", "s1");
+            final String next = OppoNativeFullRes.status(p, "2", "s1");
+            assertTrue("mode 9 failed, mode 25 next: " + next, next.indexOf("9") >= 0 && next.indexOf("25") > next.indexOf("9"));
+        } finally {
+            OppoNativeFullRes.forget("2");
         }
     }
 

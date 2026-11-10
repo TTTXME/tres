@@ -364,10 +364,7 @@ public class FilmLutPreference extends Preference implements SharedPreferences.O
             name.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 5), UiTokens.dp(c, 3), 0);
             name.setMaxLines(2);
             card.addView(name);
-            TextView hint = SettingsStyle.text(c, hint(c, value), 10.5f, SettingsStyle.SECTION);
-            hint.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 3), UiTokens.dp(c, 3), 0);
-            hint.setMaxLines(2);
-            card.addView(hint);
+            // P592: the name alone under the picture; the look's hint stays in the card's spoken description
             card.setTag("lut_card_" + value);
             card.setContentDescription(displayName(c, value) + ": " + hint(c, value));
             card.setSelected(on);

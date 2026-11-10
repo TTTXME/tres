@@ -77,28 +77,28 @@
         <item>Диск Эйри (волновая дифракция)</item>
     </string-array>
     <string name="live_viewfinder_raw">RAW-видоискатель</string>
-    <string name="live_viewfinder_raw_summary">Видоискатель сам проявляет RAW. Выкл. — обычное превью камеры, кроме модулей без потока ISP (ISZ, FULLRES, режим сенсора при «Поток ISP» Авто, «Поток ISP» Выкл. или «Фиктивное откл.») и модулей с мозаикой Quad / Tetra: там видоискатель всегда из RAW. На готовое фото не влияет.</string>
+    <string name="live_viewfinder_raw_summary">Видоискатель сам проявляет сырые кадры и показывает цвет и тон, близкие к готовому фото. Если выключить, показывается обычное превью камеры. Модули без потока ISP (ISZ, FULLRES и другие режимы сенсора) и модули с мозаикой Quad или Tetra всегда показывают видоискатель из RAW. На готовое фото не влияет.</string>
     <string name="motion_mode_on">Режим «Спорт»: вкл</string>
     <string name="motion_mode_off">Режим «Спорт»: выкл</string>
     <string name="motion_mode_on_toast">Спорт: быстрый буфер, резкие движущиеся объекты</string>
     <string name="motion_mode_off_toast">Фото</string>
     <string name="prefs_scam_motion_on_title">Режим «Спорт»</string>
-    <string name="prefs_scam_motion_on_summary">Короткая выдержка и быстрый буфер для движущихся объектов. При слабом свете усилено шумоподавление.</string>
+    <string name="prefs_scam_motion_on_summary">Короткая выдержка и быстрый буфер кадров для движущихся объектов: детей, животных, спорта. При слабом свете шумоподавление сильнее.</string>
     <string name="prefs_scam_motion_screen_title">Спорт</string>
-    <string name="prefs_scam_motion_screen_summary">Значения режима «Спорт» (кнопка в верхней панели): выдержка и число кадров для чётких движущихся объектов</string>
+    <string name="prefs_scam_motion_screen_summary">Значения режима «Спорт» (кнопка в верхней панели): выдержка и число кадров для чётких движущихся объектов.</string>
     <string name="prefs_scam_motion_shutter_title">Выдержка не длиннее</string>
-    <string name="prefs_scam_motion_shutter_summary">%s. Самая длинная выдержка в режиме «Спорт». Короче — чётче движение, но шумнее (камера поднимает чувствительность, ISO).</string>
+    <string name="prefs_scam_motion_shutter_summary">Самая длинная выдержка в режиме «Спорт». Короче — движение чётче, но снимок шумнее: камера поднимает ISO.</string>
     <string name="prefs_scam_motion_flicker_title">Без мерцания ламп</string>
-    <string name="prefs_scam_motion_flicker_summary">Под мерцающими лампами выдержка округляется по их циклу (не короче 1/100 или 1/120 с): без мерцания и полос в видоискателе и на фото, ценой чуть большего смаза движения.</string>
+    <string name="prefs_scam_motion_flicker_summary">Под мерцающими лампами выдержка подстраивается под их цикл (не короче 1/100 или 1/120 с): ни мерцания, ни полос, но движение чуть смазаннее.</string>
     <string name="prefs_scam_motion_frames_title">Кадров в склейке</string>
-    <string name="prefs_scam_motion_frames_summary">Сколько кадров склеивать в режиме «Спорт». Больше — меньше шума, но дольше; меньше — быстрее.</string>
-    <string name="prefs_scam_motion_shasta_summary">В режиме «Спорт» кадры теней не снимаются.</string>
-    <string name="prefs_scam_motion_bento_summary">%s. В режиме «Спорт» кадры светов не снимаются.</string>
+    <string name="prefs_scam_motion_frames_summary">Сколько кадров склеивать в режиме «Спорт». Больше — меньше шума, но дольше. Меньше — быстрее.</string>
+    <string name="prefs_scam_motion_shasta_summary">Снимать ли длинные кадры для теней в режиме «Спорт».</string>
+    <string name="prefs_scam_motion_bento_summary">Снимать ли короткие кадры для светов в режиме «Спорт».</string>
     <string name="prefs_scam_motion_boost_summary">В режиме «Спорт» сильнее убирает двоящиеся контуры там, где части кадра движутся по-разному.</string>
-    <string name="prefs_scam_motion_boost_value_summary">Больше — меньше двоящихся контуров, но шумнее; меньше — наоборот.</string>
-    <string name="prefs_scam_motion_threshold_summary">С какого сдвига (в пикселях сенсора) участок считается движущимся. Меньше — меньше двоения, больше — меньше шума.</string>
+    <string name="prefs_scam_motion_boost_value_summary">Больше — двоящихся контуров меньше, но снимок шумнее. Меньше — наоборот.</string>
+    <string name="prefs_scam_motion_threshold_summary">С какого сдвига, в пикселях сенсора, участок считается движущимся. Меньше — меньше двоения, больше — меньше шума.</string>
     <string name="prefs_low_light_boost_title">Ночной видоискатель</string>
-    <string name="prefs_low_light_boost_summary">В темноте видоискатель ярче, но обновляется реже, а кадры для снимка длиннее. Android 15, не в «Движении».</string>
+    <string name="prefs_low_light_boost_summary">В темноте видоискатель становится ярче, но обновляется реже, а кадры для снимка выходят длиннее. Нужен Android 15; в режиме «Спорт» не работает.</string>
     <string name="dcg14_on">DCG 14 бит: вкл</string>
     <string name="dcg14_off">DCG 14 бит: выкл</string>
     <string name="dcg14_on_toast">DCG 14 бит вкл: запрошен режим сенсора с двойным усилением, камера перезапускается</string>
@@ -108,7 +108,7 @@
     <string name="full_res_on_toast">Полное разрешение вкл: RAW 50 Мп, кадры после нажатия, камера перезапускается</string>
     <string name="full_res_off_toast">Полное разрешение выкл</string>
     <string name="prefs_developer_settings_screen_title">Для разработчика</string>
-    <string name="prefs_developer_settings_screen_summary">Скрытые параметры scam_dev.txt для опытов и отладки</string>
+    <string name="prefs_developer_settings_screen_summary">Скрытые параметры файла scam_dev.txt для опытов и отладки.</string>
     <!-- P240: the overlay while the camera is brought back after an error -->
     <string name="camera_restarting">Камера перезапускается…</string>
 </resources>

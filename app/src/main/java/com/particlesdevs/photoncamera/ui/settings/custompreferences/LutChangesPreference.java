@@ -99,17 +99,9 @@ public class LutChangesPreference extends Preference implements SharedPreference
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bp.topMargin = UiTokens.dp(c, 6);
         page.addView(box, bp);
-        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        np.topMargin = UiTokens.dp(c, 14);
-        page.addView(note(c), np);
+        // P592: the «Импортируйте свой .cube…» note is the long press of the LUT page's rows (help_film_lut)
         host.addView(page, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         refresh();
-    }
-
-    static View note(Context c) {
-        return noteView(c, Lang.t(c,
-                "Импортируйте свой .cube плиткой «Импорт .cube» — он сразу появится в ленте с превью до/после, кривой и разбором, что меняется. Файлы лежат в Download/SCAMERA/LUT.",
-                "Import your own .cube with the «Import .cube» tile: it appears in the strip at once, with the before / after preview, the curve and what it changes. The files live in Download/SCAMERA/LUT."));
     }
 
     /** The concept's .note: the info icon in the accent, the text muted, on the second card colour. */

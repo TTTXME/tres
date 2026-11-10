@@ -710,6 +710,15 @@ struct HybridTuning {
     // baseDemosaicSharpLo to Hi. Moving subjects of Ark's Tetra bursts through the app chain, fine detail against Ark's JPEG:
     // 0.586 -> 0.676 (bus), 0.920 -> 1.022 (palace, its trees), flat noise at Ark's or below; 1.6 / 1.4 grainier than Ark's
     float baseDemosaicTetraRadius=1.8f,baseDemosaicSharpLo=1.5f,baseDemosaicSharpHi=4.f;
+    // P596: the Quad luma cone's radius in sites on structure (the same ratio; 2.2 = the flat cone, as before)
+    float baseDemosaicQuadRadius=1.8f;
+    // P596 (owner, 2026-11-10, 140309: «деталь на стенке здания гораздо лучше у Арк»): the native Quad merge's 6.1 structure tensor
+    // also from the green sites (P332's fine tensor, its noise x16 x this), taken where it finds more structure over its noise than
+    // the 2x2 quad lumas' one, which cannot see a period under ~5 px (a facade's 4.5 px grooves read as flat and took the flat
+    // kernel x2.4; groove amplitude +69 %); the quad one keeps what it sees (brick joints in the shade). 64: a noisy synthetic flat
+    // patch's noise as with the quad tensor alone. Quad (block 2) native merges only, the user's s61Fine first (it replaces);
+    // not on a Mali GPU (P505: its compiler died on the fine build). 0 = the quad tensor, as before.
+    float mosaicQuadFine=64.f;
     // P335: Bayer base demosaic, share of the false-colour damping by the Gr / Gb step above its noise (0 = off, replays
     // unchanged; the app sends 1)
     float baseDemosaicAlias=0.f;
@@ -775,6 +784,18 @@ struct HybridTuning {
     // notch at +-(1/8, 1/8) within this many px of a clipped pixel (the clipped ones left out of its estimate; full share to half the
     // reach, none at 1.5x). 0 = off
     float mosaicTetraNotchClipReach=32.f;
+    // P594 (owner, 2026-11-10, Tetra burst 20261109_135446: «Посмотри как с текущей обработкой снимает Tetra, постарайся улучшить»):
+    // the luma guide of the Tetra native merge. Along a horizontal (vertical) edge a 4x4 colour block row holds only two colours,
+    // a colour's nearest same-row sites alternate every 4 px with sites across the edge, and a burst whose frames share their
+    // vertical (horizontal) block phase - a hand-held burst drifting along one axis (this one: 11 px along x, 1.3 px along y) -
+    // cannot fill them: every colour of the merge printed 8 px beads along edges (R, G and B alike; a thin rail as a chain). The
+    // guide takes the luma in green units from every colour's sums weighted by their kernel support (the colour sampled on the
+    // edge's own side leads; red / blue x mosaicTetraLumaGuideRB) and the colour ratios from every frame's wide window (R / Gr and
+    // B / Gb over separable 8 (x) 4 px trapezoids, one weight per 2x2 cell): out = mix(own, L rho, mosaicTetraLumaGuide); 0 = off
+    // (the merge as before, bit for bit). Through the app chain, the new burst: the 8 px beads -57 % (buildings), -37 % (rails,
+    // people), the chroma lattice -50 .. -60 %, mid detail of textured areas 1.646 -> 1.601 of Ark's; the older Tetra bursts' crops
+    // (palace, bus, car): beads -10 .. -75 %, mid detail -1 .. -5 % (P594 in PLAN.md).
+    float mosaicTetraLumaGuide=1.f,mosaicTetraLumaGuideRB=1.f;
     // P544: the Tetra native merge's saturated sums (natSatU: (1 + it) den / (den + it) per colour and frame) where the donors' mean
     // robustness is below Hi (fully below Lo); 0 = off. Tetra burst 2: the 4 px checker's energy -86 % (a car far down the road) and
     // -83 % (cars by a sign); the fine detail 0.998 (Tetra 2), 0.999 (Tetra 1), the roof tiles 1.006 (before: the frames' weights).
@@ -1071,6 +1092,32 @@ struct HybridTuning {
     int mosaicNatTile=2;
     // P571: the fast route's Quad lattice off the luma after its merge (ChromaMedianGpu::quadLattice): 0 off
     int fastQuadLattice=1;
+    // P596 (owner, 2026-11-10: «с quad режимом улучшить детализацию/резкость картинки, шарпинг трогать запрещаю»): the fast
+    // route's Quad de-grid (kFastOutput deGrid) takes «flat ground» from the merged noise: from this many times its level (to
+    // 2.5 x), never above the old fixed 0.04 .. 0.10 (0 = the fixed thresholds alone, as before)
+    float fastQuadFlatNoise=1.5f;
+    // P596: its notch along lines fades out from half this many merged frames to this many (0 = everywhere, as before)
+    float fastQuadLineFrames=8.f;
+    // P596: the fast route's Quad base-frame fallback (merge_quad's linear cone where few donors merged) stretched along the local
+    // edge by this anisotropy (0 = the round cone, as before). Synthetic burst, the 3 px / frame object's outline 34.8 -> 36.6 dB
+    // at 1.2 (0.6: 36.1, 2: 36.5); 140309 one frame alone, the facade's grooves 0.028 -> 0.050 (quality's demosaic 0.082); static
+    // areas untouched
+    float fastQuadCone=1.2f;
+    // P596 (owner, 2026-11-10: «Узкое ядро склейки», after 140309's facade by stage): the Quad (block 2) merges' texture kernel
+    // footprint, both routes, times this on top of the user's kernelTexture (the P587 multiplier; 1 = as before). 140309, the
+    // facade's grooves: «Качество» +5 % (x0.7 +3.6 %, x0.6 +4.3 %), «Быстрый» +8.5 %; the clean sky's fine noise +23 % / +28 %
+    // (x0.6: +9 % / +22 %) - the owner's trade
+    float mosaicQuadTexture=0.5f;
+    // P596 round 5 (owner on 142001: «у "качество" появились артефакты вокруг девушки»): the native merge's narrower texture kernel
+    // back to the user's where few frames merged: the base precision's share of each kernel (natQtex) x mosaicQuadTexture by
+    // 1 - smoothstep(N / 2, N, the output pixel's accepted donor frames), N at most 3/4 of the burst's donors. A moving subject
+    // (the base and a few partly accepted donors) printed the Quad's 2x2 blocks as a checker / dots over its sleeves, hair and
+    // face with the narrow kernel. 0 = the narrow kernel everywhere (round 4)
+    float mosaicQuadTextureFrames=24.f;
+    // P601 (owner, 2026-11-10, 140309: «лицо женщины в автобусе за парнем видно только на качестве»): the fast route's donor flow
+    // picked per 4 x 4 HALF block among the L0 tiles around it where the tile field misfits the block (kFastFlowPick: a static
+    // subject beside a moving occluder kept the occluder's dragged flow and lost its donors); 0 = the tile field, as before
+    int fastFlowPick=2;
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
@@ -1098,7 +1145,30 @@ struct HybridTuning {
     // before the merge (the reference Sport's donor gate, 15 of its photo 35 thumbnail px; 120 = 15 at the fast merge's 1/8
     // thumbnails); 0 = off
     float donorShiftMax=0.f;
+    // P600 (owner, 2026-11-10: «при его отключении абсолютно весь шумодав отключается ПОЛНОСТЬЮ»): the app's master switch «Все
+    // шумодавы» (pref_scam_hybrid_denoise; the app writes "denoise 0" only when it is off). 0 = every stage of the worker whose
+    // purpose is noise removal is off, on every route and in both twins (the CPU stream and the GPU passes take the same tuning):
+    // the plain Bayer chroma median (plainChromaMedian) and the 5 x 5 chroma smoothing of the ultrashort colour (bentoBlendChroma).
+    // The merge itself (alignment, rejection, frame weights, the kernel's accumulation, the base demosaic) and the passes against
+    // the mosaic's lattice / moire (mosaicChroma, fastMosaicChroma, fastQuadLattice, the native post passes), hot pixels, CA and
+    // the highlights stay. hybridDenoiseSwitch applies it once (then -1); 1 (default) = everything as before, bit for bit.
+    int denoise=1;
 };
+
+// P600: the worker's denoise stages, as hybridDenoiseSwitch turns them off (tools/check_denoise_switch.cpp and the app's
+// DenoiseStagesTest read this list: a new stage goes here, into the switch below and into the app's DenoiseStages).
+static const char* const kHybridDenoiseStages[]={"plainChromaMedian","bentoBlendChroma"};
+// P600: denoise 0 -> every stage of kHybridDenoiseStages off and denoise -1 (applied); true when it changed the tuning. The report
+// names them (the log line the app's switch is checked by); a second call does nothing.
+inline bool hybridDenoiseSwitch(HybridTuning& t,const std::function<void(const std::string&)>& report){
+    if(t.denoise!=0)return false;
+    t.denoise=-1;
+    t.plainChromaMedian=0;
+    t.bentoBlendChroma=0.f;
+    if(report)report("HYBRID DENOISE: off (the app's «All denoisers»): plainChromaMedian 0, bentoBlendChroma 0; kept: the merge, "
+        "the mosaic lattice / moire passes, hot pixels, CA, highlights");
+    return true;
+}
 
 // restoreSensorOrigin() of scam-capture.h for a grid scaled by `scale` (CFA phase shift in output pixels).
 /**
@@ -1305,6 +1375,11 @@ inline HybridKernelFootprint hybridKernelFootprint(const HybridTuning& t){
     auto f=[](float v){return std::isfinite(v)&&v>0.f?std::clamp(v,0.25f,4.f):1.f;};
     return {f(t.kernelTexture),f(t.kernelBokeh),f(t.kernelTransition)};
 }
+// P596 (owner, 2026-11-10: «Узкое ядро склейки»): a Quad (block 2) stream's texture footprint x HybridTuning::mosaicQuadTexture on top
+// of the user's kernelTexture (its meaning kept); 1 / unset = as the user's alone
+inline void hybridQuadTexture(HybridKernelFootprint& fp,const HybridTuning& t){
+    if(std::isfinite(t.mosaicQuadTexture)&&t.mosaicQuadTexture>0.f&&t.mosaicQuadTexture!=1.f)fp.texture=std::clamp(fp.texture*t.mosaicQuadTexture,0.25f,4.f);
+}
 inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::function<void(const std::string&)>& report) {
     HybridTuning t;
     const std::string paths[]={jobDir+"/hybrid_tuning.txt","/sdcard/Download/SCAMERA/hybrid_tuning.txt","/data/local/tmp/hybrid_tuning.txt"};
@@ -1377,6 +1452,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("mosaicTetra",nullptr,&t.mosaicTetra)||set("mosaicNativeWiden",nullptr,&t.mosaicNativeWiden)||set("mosaicGeneric",nullptr,&t.mosaicGeneric)
             ||set("mosaicNativeWidenMul",&t.mosaicNativeWidenMul)||set("mosaicNativeWidenFrames",&t.mosaicNativeWidenFrames)
             ||set("mosaicTetraWidenMul",&t.mosaicTetraWidenMul)||set("mosaicTetraWidenFrames",&t.mosaicTetraWidenFrames)
+            ||set("mosaicTetraLumaGuide",&t.mosaicTetraLumaGuide)||set("mosaicTetraLumaGuideRB",&t.mosaicTetraLumaGuideRB) // P594
             ||set("mosaicUsRows",nullptr,&t.mosaicUsRows)||set("usLocal",nullptr,&t.usLocal)||set("usLocalAlign",nullptr,&t.usLocalAlign)||set("mosaicUsRowsMin",&t.mosaicUsRowsMin) // P197
             ||set("usSceneEv",&t.usSceneEv)||set("usDaylightEv",&t.usDaylightEv)||set("usIncoherent",&t.usIncoherent) // P366
             ||set("mosaicNativePick",nullptr,&t.mosaicNativePick) // P219
@@ -1389,14 +1465,19 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
             ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit)
             ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMosaicChroma",nullptr,&t.fastMosaicChroma)||set("fastSiteGain",nullptr,&t.fastSiteGain)||set("mosaicNatTile",nullptr,&t.mosaicNatTile)||set("fastQuadLattice",nullptr,&t.fastQuadLattice)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
+            ||set("fastQuadFlatNoise",&t.fastQuadFlatNoise)||set("fastQuadLineFrames",&t.fastQuadLineFrames)||set("baseDemosaicQuadRadius",&t.baseDemosaicQuadRadius)||set("mosaicQuadFine",&t.mosaicQuadFine)||set("fastQuadCone",&t.fastQuadCone)||set("mosaicQuadTexture",&t.mosaicQuadTexture) // P596
+            ||set("mosaicQuadTextureFrames",&t.mosaicQuadTextureFrames) // P596
+            ||set("fastFlowPick",nullptr,&t.fastFlowPick) // P601
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
-            ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax); // P488
+            ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax) // P488
+            ||set("denoise",nullptr,&t.denoise); // P600
         }
         if(report&&!applied.empty())report("HYBRID TUNING FILE "+path+":"+applied);
         break;
     }
     hybridCellsPlain()=t.cellsPlain!=0;
     hybridBlendStagesOff()=t.blendStages==0;
+    hybridDenoiseSwitch(t,report); // P600: after every line (the master switch wins over a stage's own line, wherever it stands)
     return t;
 }
 
@@ -1620,7 +1701,15 @@ vec3 sabreCov61Q(int f,float Y[9],float gd,float lum,vec3 fine){
         dxx+=dx*dx;dyy+=dy*dy;dxy+=dx*dy;
     }
     vec3 c=vec3(dxx,dyy,dxy)*0.125;float c0=0.5*(c.x+c.y),c1=0.5*(c.y-c.x);
-    if(fine.x>=0.0){c=fine;c0=0.5*(c.x+c.y);c1=0.5*(c.y-c.x);nTensor*=16.0*k61cU.y;} // P332: single sites, half the step
+    if(fine.x>=0.0){ // P332: single sites, half the step
+        float nf=nTensor*16.0*k61cU.y;bool useFine=true;
+        if(k61cU.z>0.0){ // P596 (Quad): the fine tensor only where it finds more structure over its noise than the quad one (a
+            // facade's 4.5 px grooves); the quad one keeps what it sees (brick joints in the shade under the fine one's noise)
+            float lq=c0+sqrt(c.z*c.z+c1*c1),lf=0.5*(fine.x+fine.y)+sqrt(fine.z*fine.z+0.25*(fine.y-fine.x)*(fine.y-fine.x));
+            useFine=lf*lf/(lf+nf+1.0e-20)>lq*lq/(lq+nTensor+1.0e-20);
+        }
+        if(useFine){c=fine;c0=0.5*(c.x+c.y);c1=0.5*(c.y-c.x);nTensor=nf;}
+    }
     vec3 s=vec3(c0+c.z,c0-c.z,c1);                                   // RotateCovariance
     float tr=s.x+s.y,df=s.x-s.y,sq=sqrt(max(df*df+4.0*s.z*s.z,0.0)),l1=0.5*(tr+sq),l2=0.5*(tr-sq);
     vec2 e1=vec2(1.0,0.0),e2=vec2(0.0,1.0);
@@ -5187,6 +5276,18 @@ uniform vec4 natK;     // as kHybMergeMosaic
 uniform int natRy1;
 uniform int natWidenU;
 uniform vec2 natWidenS; // as kHybMergeMosaic
+uniform vec4 natQtexU;  // P596 round 5: x = 1 - mosaicQuadTexture, y / w = the 6.1 base / blurred precision (sqrt of P's units: k61a[3]
+                        // / k61b[0] x sqrt(0.693 k61b[2])), z = N frames (0 = off)
+// P596 round 5: sabreCov61Q's smaller axis is s2 = mix(mix(base, along, coh), blurred, blur) (sqrt of P's eigenvalue); its base
+// share (s2 - blurred) / (base - blurred) of the base precision goes back by mosaicQuadTexture's factor x g, and both eigenvalues
+// lose what that one lost: texture as with the user's kernel alone, the flat (blurred) kernel and the across-edge one as they are
+vec3 natQtex(vec3 P,float g){
+    if(g<=0.0)return P;
+    float l2=max(0.5*(P.x+P.y)-sqrt(max(0.25*(P.x-P.y)*(P.x-P.y)+P.z*P.z,0.0)),0.0),s2=sqrt(l2);
+    float beta=clamp((s2-natQtexU.w)/max(natQtexU.y-natQtexU.w,1.0e-20),0.0,1.0);
+    float sn=s2-natQtexU.x*g*beta*natQtexU.y,k=l2-sn*sn;
+    return vec3(P.x-k,P.y-k,P.z);
+}
 uniform float natClipShareU; // P534: as kHybMergeMosaic
 uniform float natBorderShareU; // P535: as kHybMergeMosaic
 uniform vec2 natDzU;    // P530: the dezipper on the native merge: x = HybridTuning::dezipper (0 = off), y = the donor frames merged
@@ -5302,10 +5403,20 @@ void natTileLoad(uvec4 geo,bool use,vec2 O){
     memoryBarrierShared();barrier();
 }
 #endif
+#if NAT_B==4
+// P594: wn / wd = the luma guide's wide sums per site phase (R, Gr, Gb, B; natWideOn: mosaicTetraLumaGuide on)
+struct NatSums{vec3 nm;vec3 dn;vec3 cn;vec3 cd;vec4 wn;vec4 wd;};
+uniform vec2 natLumU; // P594: x = mosaicTetraLumaGuide (share), y = red / blue say in the luma (mosaicTetraLumaGuideRB)
+bool natWideOn=false;
+#else
 struct NatSums{vec3 nm;vec3 dn;vec3 cn;vec3 cd;};
+#endif
 NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCover){
     ivec2 N=ivec2(floor(O+0.5)),q0=(N-NAT_R)>>1;
     NatSums s;s.nm=vec3(0.0);s.dn=vec3(0.0);s.cn=vec3(0.0);s.cd=vec3(0.0);
+#if NAT_B==4
+    s.wn=vec4(0.0);s.wd=vec4(0.0);
+#endif
     // P555 (speed, same values): a window whose blocks all lie inside the frame's columns and held rows reads them at base + J BW + I
     // (natBlock's reflections and clamps are the identity there)
     int BWi=natU.y>>1;
@@ -5332,6 +5443,13 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
         bool green=ph==1||ph==2;
         if(selfCover&&!green)continue;
         float kk=-0.72135*(green?natK.y:natK.z);
+#if NAT_B==4
+        // P594: the luma guide's wide window, one weight per 2x2 cell at its centre: separable trapezoids (an 8 px box convolved
+        // with a 4 px one) with no response at any harmonic of the 8 px colour period - each phase's weights over the rows /
+        // columns do not move with the pixel's place in the lattice - and 4 px ramps that keep the ratios smooth as it slides
+        float wq=0.0;bool sharpOff=false;
+        if(natWideOn){vec2 dc=abs(vec2(float(2*bx)+0.5,float(2*by)+0.5)-O);wq=clamp(1.5-0.25*dc.x,0.0,1.0)*clamp(1.5-0.25*dc.y,0.0,1.0);}
+#endif
 #ifdef NAT_CULL
 #ifndef NAT_CULL_EXP
 #define NAT_CULL_EXP 10.0
@@ -5350,7 +5468,11 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
                 bound=max(bound,0.99*max(k.x*d.x*d.x+P.y*e.x*e.x,k.y*d.y*d.y+P.x*e.y*e.y));
             }
 #endif
+#if NAT_B==4
+            if(-kk*bound>NAT_CULL_EXP){if(!(wq>0.0))continue;sharpOff=true;} // P594: a culled cell still feeds the wide sums
+#else
             if(-kk*bound>NAT_CULL_EXP)continue;
+#endif
         }
 #endif
 #ifdef NAT_TEX
@@ -5361,12 +5483,19 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
         uvec4 u=inner?natNormAt(geo.w,uint(base+J*BWi+I)):natBlock(geo,bx,by);
 #endif
         float nm=0.0,dn=0.0,cn=0.0,cd=0.0;
+#if NAT_B==4
+        float wn=0.0,wd=0.0;
+#endif
         for(int t=0;t<4;t++){
             int sx=2*bx+(t&1),sy=2*by+(t>>1);
             if(abs(sx-N.x)>NAT_R||abs(sy-N.y)>NAT_R)continue; // P555: outside the window before its kernel (15 of 64 Quad sites)
             float dx=float(sx)-O.x,dy=float(sy)-O.y;
             bool ok,cl;
             float v=natVal(u[t],ok,cl);
+#if NAT_B==4
+            if(wq>0.0&&ok&&!cl){wn+=v;wd+=1.0;} // P594
+            if(sharpOff)continue;
+#endif
             float kw=exp2(kk*(dx*dx*P.x+dy*dy*P.y+2.0*dx*dy*P.z))+kD.z;
             bool use=ok;
 #if NAT_B==4
@@ -5380,6 +5509,9 @@ NatSums natTaps(uvec4 geo,vec2 O,vec3 P,bool skipSmall,bool skipClip,bool selfCo
         }
         vec3 m=ph==0?vec3(1.0,0.0,0.0):ph==3?vec3(0.0,0.0,1.0):vec3(0.0,1.0,0.0);
         s.nm+=m*nm;s.dn+=m*dn;s.cn+=m*cn;s.cd+=m*cd;
+#if NAT_B==4
+        if(wq>0.0){vec4 m4=wq*vec4(equal(ivec4(ph),ivec4(0,1,2,3)));s.wn+=m4*wn;s.wd+=m4*wd;}
+#endif
     }
     return s;
 }
@@ -5442,11 +5574,36 @@ void natFillC(inout vec3 num,inout vec3 den,vec3 cd,uvec4 geo,vec2 O,float g){
 uniform float natSatU;
 uniform vec2 natSatG; // P544: the donors' mean robustness from which (y) to which (x) the saturated sums take over
 vec3 natSN=vec3(0.0),natSD=vec3(0.0);float natRs=0.0;
+#if NAT_B==4
+// P594 (HybridTuning::mosaicTetraLumaGuide): along an edge a Tetra block row holds two colours, each colour's nearest same-row sites
+// alternate every 4 px with sites across the edge, and frames sharing their block phase across the edge cannot fill them: 8 px
+// beads in R, G and B alike. The luma in green units from every colour's sharp sums weighted by their kernel support (the colour
+// sampled on the edge's own side leads), the colour ratios rho from the frames' wide windows: out = mix(own, L rho, share).
+vec4 natWN=vec4(0.0),natWD=vec4(0.0);
+void natLumGuide(inout Acc a){
+    if(any(lessThanEqual(a.den,vec3(1.0e-7)))||any(greaterThan(a.clipDen,vec3(0.0)))||any(lessThanEqual(natWD,vec4(1.0e-7))))return;
+    vec4 w=natWN/natWD;
+    if(min(w.y,w.z)<=1.0e-6)return;
+    // red against the greens of its own rows (Gr), blue against Gb: the same rows, so a horizontal edge mixes into both alike
+    vec3 rho=vec3(w.x/w.y,1.0,w.w/w.z);
+    if(min(rho.x,rho.z)<0.02||max(rho.x,rho.z)>50.0)return; // a near-black or one-colour window: no ratio to trust
+    vec3 own=a.num/a.den;
+    vec3 k=vec3(natLumU.y,1.0,natLumU.y)*a.den; // each colour's say: its kernel support (red / blue x natLumU.y)
+    float L=dot(k*own/rho,vec3(1.0))/dot(k,vec3(1.0));
+    a.num=mix(own,L*rho,natLumU.x)*a.den;
+}
+#endif
 void natFrame(inout Acc a,int f,vec2 O,float r,float cover,vec3 P){
     float g=fParam[f].x;
     int role=int(fParam[f].w);
     uvec4 geo=nGeo[clamp(f,0,127)];
+#if NAT_B==4
+    natWideOn=natLumU.x>0.0&&role!=5; // P594: the luma guide's colour ratios from every frame's wide window
+#endif
     NatSums s=natTaps(geo,O,P,f!=0&&role!=5,role==3,false);
+#if NAT_B==4
+    if(natWideOn){natWN+=r*g*s.wn;natWD+=r*s.wd;natWideOn=false;}
+#endif
     vec3 num=s.nm*g,den=s.dn,cn=s.cn*g,cd=s.cd;
     if(natSatU>0.0){vec3 k=(1.0+natSatU)/(den+vec3(natSatU));natSN+=r*num*k;natSD+=r*den*k;if(f!=0)natRs+=r;}
 #if NAT_FILL
@@ -5793,7 +5950,17 @@ void main(){
         return;
     }
 #endif
-    vec3 P=natCov(B0);
+    float qg=0.0; // P596 round 5: the narrow texture kernel's share back to the user's below natQtexU.z accepted donor frames
+    if(natQtexU.z>0.0){
+        float F=0.0;
+        for(int f=1;f<frameCount&&F<natQtexU.z;f++){
+            if(int(fParam[f].w)==5)continue;
+            float r=natRobust(f,B0,cx,cy,w2);
+            if(r>=0.004)F+=r/max(fParam[f].y,1.0e-6);
+        }
+        qg=1.0-smoothstep(0.5*natQtexU.z,natQtexU.z,F);
+    }
+    vec3 P=natQtex(natCov(B0),qg);
     float m=kD.w>0.5?bmask[(cy-cy0)*w2+cx]:0.0;
     vec2 cell=vec2(float(2*cx),float(2*cy));
     int mode=mergeModeU.x;
@@ -5816,7 +5983,7 @@ void main(){
         bool us=int(fParam[f].w)==5;
         vec3 Pf;
         if(us)Pf=vec3(kE.y,kE.y,0.0);
-        else if((mode&1)!=0)Pf=natDcov(f,Ob)*fParam[f].z;
+        else if((mode&1)!=0)Pf=natQtex(natDcov(f,Ob),qg)*fParam[f].z;
         else Pf=P*fParam[f].z;
         float rw=r/max(fParam[f].y,1.0e-6);
         if(!us)frames+=rw;
@@ -5860,6 +6027,9 @@ void main(){
         float m=1.0-smoothstep(natSatG.x,natSatG.y,natRs/float(frameCount-1));
         if(m>0.0){a.num=mix(a.num,natSN,m);a.den=mix(a.den,natSD,m);}
     }
+#if NAT_B==4
+    if(natLumU.x>0.0&&wb>0.0)natLumGuide(a); // P594
+#endif
     vec3 col;uint cfl=0u;
     for(int c=0;c<3;c++){
         // P268 (owner, 2026-10-19: X200 Ultra 2x / wide crops, dark dots and ragged borders along every clipped highlight
@@ -8413,10 +8583,24 @@ public:
                      hi=t4?tune.mosaicTetraFrameSatHi:tune.mosaicQuadFrameSatHi;
                  glUniform1f(loc(mosaicProgram,"natSatU"),std::max(u,0.f)); // P544
                  glUniform2f(loc(mosaicProgram,"natSatG"),lo,std::max(hi,lo+0.01f));}
+                if(nb==4)glUniform2f(loc(mosaicProgram,"natLumU"),std::clamp(tune.mosaicTetraLumaGuide,0.f,1.f),std::clamp(tune.mosaicTetraLumaGuideRB,0.05f,4.f)); // P594
                 glUniform4f(loc(mosaicProgram,"natDemU"),std::clamp(tune.baseDemosaic,0.f,1.f),std::clamp(tune.baseDemosaicAniso,0.f,2.f),
                             nb==4?1.f/2.6f:1.f/2.2f,nb==4?5.f:3.f);
                 glUniform3f(loc(mosaicProgram,"natDemR"),nb==4?1.f/std::clamp(tune.baseDemosaicTetraRadius,1.f,3.5f):1.f/2.2f,
                             tune.baseDemosaicSharpLo,std::max(tune.baseDemosaicSharpHi,tune.baseDemosaicSharpLo+0.01f)); // P547
+                if(nb==2)glUniform3f(loc(mosaicProgram,"natDemR"),1.f/std::clamp(tune.baseDemosaicQuadRadius,1.f,3.5f),tune.baseDemosaicSharpLo,
+                                     std::max(tune.baseDemosaicSharpHi,tune.baseDemosaicSharpLo+0.01f)); // P596: the Quad cone on structure
+                { // P596 round 5: the Quad texture kernel back to the user's where few frames merged (6.1 kernel only)
+                    HybridKernelFootprint fu=hybridKernelFootprint(tune),fq=fu;
+                    if(nb==2)hybridQuadTexture(fq,tune);
+                    int donors=0; // N at most 3/4 of the burst's donors (a short burst keeps the narrow kernel on its static texture)
+                    for(size_t f=1;f<in.role.size()&&f<in.weight.size();++f)if(in.role[f]!=5&&in.weight[f]>0.f)donors++;
+                    const float tq=fq.texture/fu.texture,
+                                N=std::isfinite(tune.mosaicQuadTextureFrames)?std::min(std::clamp(tune.mosaicQuadTextureFrames,0.f,64.f),0.75f*float(donors)):0.f;
+                    const float u=std::sqrt(0.693147f*(in.k61b[2]>0.f?in.k61b[2]:1.f)),pb=in.k61a[3]*u,pf=in.k61b[0]*u;
+                    const bool on=nb==2&&in.k61a[3]>0.f&&tq<1.f&&N>0.f&&pb>pf;
+                    glUniform4f(loc(mosaicProgram,"natQtexU"),on?1.f-tq:0.f,pb,on?N:0.f,pf);
+                }
                 glUniform2f(loc(mosaicProgram,"natDemD"),tune.baseDemosaicDetailLo,std::max(tune.baseDemosaicDetailHi,tune.baseDemosaicDetailLo+0.01f));
                 glUniform4f(loc(mosaicProgram,"natDemN"),nat->neutral[0],nat->neutral[1],std::clamp(tune.baseDemosaicNeutral,0.f,1.f),
                             tune.baseDemosaicCover>0?(nb==4?(tune.baseDemosaicTetraCover>0.f?std::clamp(tune.baseDemosaicTetraCover,1.f,30.f):0.f):1.f):0.f); // P523, P525, P549
@@ -12967,6 +13151,11 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                                             std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,
                                             HybridStats* statsOut=nullptr,std::vector<uint8_t>* clipFlags=nullptr,
                                             const HybridPresetAlignment* preset=nullptr,const HybridMosaicNative* native=nullptr) {
+    // P600: a tuning built in code with denoise 0 (the file's is applied by loadHybridTuning): the denoise stages off first
+    if(tune.denoise==0){
+        HybridTuning t=tune;hybridDenoiseSwitch(t,report);
+        return hybridReconstruct(input,t,alignment,report,mergedDng,effMap,statsOut,clipFlags,preset,native);
+    }
     // Owner, 2026-11-03 («Быстрый» = the reference scheme): the burst's own merge (no mosaic split / preset / native data) on the fast
     // merge route first; a burst it does not take, or any failure of it, goes on below with the same input and fastMerge 0
     // P320 / owner (never one noise curve over a DCG frame): a DCG burst takes the noise check below first (its zones measured, the
@@ -13900,12 +14089,15 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                     :sabreSnr(baseSlope,keyOffset,tune.snrScale);
     snrKernel(kernel,snr);
     kernel.base*=tune.kernelScale;kernel.shrunk*=tune.kernelScale;kernel.stretched*=tune.kernelScale;kernel.flat*=tune.kernelScale;
-    const HybridKernelFootprint footprint=hybridKernelFootprint(tune); // P587
+    HybridKernelFootprint footprint=hybridKernelFootprint(tune); // P587
+    if(native&&native->block==2)hybridQuadTexture(footprint,tune); // P596
     if(footprint.active()){
         footprint.applyRound4(kernel);
         report("HYBRID KERNEL: footprint texture x"+std::to_string(footprint.texture)+", bokeh x"+std::to_string(footprint.bokeh)
             +", transition x"+std::to_string(footprint.transition));
     }
+    if(native&&native->block==2&&tune.mosaicQuadTexture>0.f&&tune.mosaicQuadTexture<1.f&&tune.mosaicQuadTextureFrames>0.f) // P596 round 5
+        report("HYBRID KERNEL: Quad texture kernel back to the user's below "+std::to_string(tune.mosaicQuadTextureFrames)+" accepted donor frames");
     if(tune.isoKernel){kernel.shrunk=kernel.stretched=kernel.base;if(tune.isoKernel>=2)kernel.flat=kernel.base;}
     // Sabre 6.1 kernel (sabre2x_61.md F1): key = 0.18/sqrt(O + 0.18 S) of the base frame (no snrScale), 6.1 curves f0..f3
     // (the Sabre 6.1 curves in research), f4 = 4, f5 = 2.2; uniforms exactly as the reference library 0x723f04-0x724008.
@@ -13986,6 +14178,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         k61b={1.f/(f0*f1),1.f/f3,1.f/(ks*ks),tn>0?tn:1.f};
         if(native&&flatScale!=1.f)k61b[0]/=std::clamp(flatScale,0.25f,4.f); // P34
         k61c={gn>0?gn:1.f,tune.s61Fine>0.f?tune.s61Fine:0.f,0,0};
+        if(native&&native->block==2&&!(tune.s61Fine>0.f)&&tune.mosaicQuadFine>0.f)k61c={k61c[0],std::clamp(tune.mosaicQuadFine,0.1f,64.f),1,1}; // P596 (z: the stronger of the two tensors, w: Quad's own)
         footprint.apply61(k61a,k61b); // P587
         auto sigma=[&](float p){return std::to_string(ks/(p*std::sqrt(std::log(2.f))));};
         report("HYBRID KERNEL: Sabre 6.1 baseNoise slope="+std::to_string(baseSlope)+" offset="+std::to_string(baseOffset)+" key="+std::to_string(key)
@@ -15155,6 +15348,8 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         }
         if(movedH.size()>1) // P335: for the plain chroma median's share (any cellClip setting)
             stillSeen=hybridStillBurst(hybridMovedDonors(movedH,w,h,tune.staticShift>0.f?tune.staticShift:0.75f),int(movedH.size())-1)?1:0;
+        if(in.k61c[3]>0.f&&gpu.renderer.find("Mali")!=std::string::npos){ // P596: the Quad fine tensor not on a Mali (P505)
+            in.k61c[1]=0.f;in.k61c[3]=0.f;report("HYBRID KERNEL: Quad fine tensor off on "+gpu.renderer+" (P505: a Mali compiler died on its build): the quad tensor");}
         gpu.merge(in,mergeTune,kernel,bento.active,out,effective,share,grid,clipFlags?&flagsRaw:nullptr,effMap!=nullptr);
         in.restartRows=nullptr;
         if(in.maskReady)in.maskReady(1<<30); // P353: the blend weight complete (and reported) even where no strip blended

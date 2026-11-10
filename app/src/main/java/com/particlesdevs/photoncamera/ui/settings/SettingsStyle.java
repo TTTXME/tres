@@ -78,7 +78,10 @@ public final class SettingsStyle {
     /** P384: the expert groups of the main page (their title carries the «для опытных» pill). */
     static final Set<String> EXPERT_GROUPS = new HashSet<>(Arrays.asList("expert_module_sensor"));
     public static final float DIMMED = UiTokens.DIMMED;
-    /** P139 / P574: a row's description, white at 60 % (res: settings_summary); titles are semibold white. */
+    /**
+     * P139 / P574: the line under a row's title, white at 60 % (res: settings_summary); titles are semibold white. P592: that
+     * line is the row's state only - its description is in the long press (SettingHelp).
+     */
     public static final int SUMMARY = 0x99FFFFFF;
 
     /** Rows drawn as tiles three to a line (SIMPLE_UI §4: the profile actions are rows now, as the concept; none left). */
@@ -400,6 +403,7 @@ public final class SettingsStyle {
         rowLayout(p);
         if (parent instanceof ModuleSection && p.getLayoutResource() == R.layout.preference_card)
             p.setLayoutResource(R.layout.preference_card_nested);
+        if (emptyNote(p) && p.isVisible()) p.setVisible(false);   // P592
     }
 
     private static void rowLayout(Preference p) {
@@ -453,6 +457,21 @@ public final class SettingsStyle {
             defaultIcon(p, p.isSelectable() ? R.drawable.cs_gear : R.drawable.cs_ic_info);
         }
         p.setIconSpaceReserved(true);
+    }
+
+    /** P592: a note - a plain row that does nothing and only explains (the info layout): a tap opens its text. */
+    static boolean note(@androidx.annotation.Nullable Preference p) {
+        return p != null && p.getClass() == Preference.class && !p.isSelectable() && p.getLayoutResource() == R.layout.preference_info
+                && p.getKey() != null && !TextUtils.isEmpty(p.getTitle()) && TextUtils.isEmpty(SettingHelp.stateLine(p));
+    }
+
+    /**
+     * P592: a note without a title was nothing but a description under the rows; with the descriptions in the long press it
+     * has nothing to show and leaves the page (its text is in the help of the rows it explained). One that shows a state stays.
+     */
+    static boolean emptyNote(Preference p) {
+        return p.getClass() == Preference.class && !p.isSelectable() && p.getIcon() == null && TextUtils.isEmpty(p.getTitle())
+                && TextUtils.isEmpty(SettingHelp.stateLine(p));
     }
 
     /**
@@ -524,7 +543,9 @@ public final class SettingsStyle {
      * P406 (owner, 2026-10-29: «описание у всех параметров должно быть не больше двух строк, расширенное описание у нас
      * показывается по зажатию по параметру»; P574, 2026-11-09: three lines, never cut in the middle of a word): a row's summary
      * shows at most {@link #SUMMARY_LINES} lines - its whole sentences that fit, else its whole words that fit with «…»; the long
-     * press (SettingHelp) shows the whole text. Fitted again whenever the row's width changes.
+     * press (SettingHelp) shows the whole text. Fitted again whenever the row's width changes. P592 (owner, 2026-11-10: «Убираем
+     * все описания у параметров, оставляем подробное описание только по зажатию»): the line is the row's state alone
+     * ({@link SettingHelp#stateLine}); a description is never drawn in a row.
      */
     static final int SUMMARY_LINES = 3;
 
@@ -640,6 +661,7 @@ public final class SettingsStyle {
                 pill.setTextColor(accent);
                 pill.setBackground(shape(c, pillFill(accent), 0, 999));
             }
+            stateLine(holder, p);   // P592: a group's title alone (its hint is its help)
             ConceptFonts.apply(row);   // P584
             return;
         }
@@ -685,28 +707,13 @@ public final class SettingsStyle {
         // 16:9, live RAW ...): a change takes a new session, the camera restarts with it
         // SIMPLE_UI §4: as the concept, a row with its own restart pill says it in words («Камера перезапустится») under the
         // description; the other rows keep the mark on the title
-        boolean restarts = p instanceof TunableKeyPreference || com.particlesdevs.photoncamera.settings.SessionKeys.needsNewSession(key);
+        // P592 (owner's review, 2026-11-10: the badges go with the descriptions): no pill and no «↻» on the row; that a change
+        // restarts the camera is said in its long press (SettingHelp.restarts), and the camera's message says it when it does
         TextView restart = (TextView) holder.findViewById(R.id.settings_restart);
-        if (restart != null) {
-            restart.setVisibility(restarts ? View.VISIBLE : View.GONE);
-            if (restarts) {
-                restart.setText(Lang.t(c, "Камера перезапустится", "The camera restarts"));
-                restart.setTextColor(accent);
-                restart.setBackground(shape(c, pillFill(accent), 0, 999));
-            }
-        }
-        if (title != null && !TextUtils.isEmpty(p.getTitle()) && restarts && restart == null)
-            title.setText(com.particlesdevs.photoncamera.settings.SessionKeys.marked(p.getTitle()));
-        TextView summary = (TextView) holder.findViewById(android.R.id.summary);
-        // P574: a '%s' left in a description takes the row's current choice (never a literal %s on screen)
-        if (summary != null && summary.getText() != null && PLACEHOLDER.matcher(summary.getText()).find()) {
-            CharSequence entry = valueOf(p);
-            String filled = PLACEHOLDER.matcher(summary.getText().toString())
-                    .replaceAll(java.util.regex.Matcher.quoteReplacement(entry == null ? "" : entry.toString()));
-            filled = filled.replaceAll("^[.\\s]+", "").trim();
-            summary.setText(filled);
-            summary.setVisibility(filled.isEmpty() ? View.GONE : View.VISIBLE);
-        }
+        if (restart != null) restart.setVisibility(View.GONE);
+        // P592: under the title only the row's state (an unavailable row's reason, «Выбран вами», a trial's failure); what the
+        // row does is its help (the long press)
+        TextView summary = stateLine(holder, p);
         TextView value = (TextView) holder.findViewById(R.id.settings_value);
         if (value != null) {
             CharSequence shown = valueOf(p);
@@ -724,15 +731,11 @@ public final class SettingsStyle {
                 below.setTextColor(VALUE);
                 below.setVisibility(under ? View.VISIBLE : View.GONE);
             }
-            if (summary != null && !TextUtils.isEmpty(shown) && summary.getText() != null) {
-                // the value has its own line: do not repeat it at the start of the summary ("%s. …" summaries)
-                String s = summary.getText().toString(), v = shown.toString();
-                if (s.equals(v)) summary.setVisibility(View.GONE);
-                else if (s.startsWith(v + ". ")) summary.setText(s.substring(v.length() + 2));
-                else if (s.startsWith(v + "\n")) summary.setText(s.substring(v.length() + 1));   // P384: "%s\n…" summaries
-            }
+            // the value has its own place: a state that only repeats it is not shown twice
+            if (summary != null && !TextUtils.isEmpty(shown) && summary.getText() != null
+                    && summary.getText().toString().equals(shown.toString())) summary.setVisibility(View.GONE);
         }
-        if (summary != null) {
+        if (summary != null && summary.getVisibility() == View.VISIBLE) {
             if (p.getLayoutResource() != R.layout.preference_module_card) lineHeight(summary, 17);   // P584: 13 / 17dp
             summary.setTextColor(SUMMARY);
             fitLines(summary);
@@ -764,6 +767,22 @@ public final class SettingsStyle {
             }
         }
         ConceptFonts.apply(row);   // P584: the row's texts in the concept's Roboto Flex at their weights, sizes in dp
+    }
+
+    /**
+     * P592: the row's summary view as its state line - {@link SettingHelp#stateLine}'s text, gone without one (the summary of a
+     * row of preferences.xml is its description: never drawn). Returns the view, null when the row's layout has none.
+     */
+    @androidx.annotation.Nullable
+    static TextView stateLine(PreferenceViewHolder holder, Preference p) {
+        TextView summary = (TextView) holder.findViewById(android.R.id.summary);
+        if (summary == null) return null;
+        CharSequence state = SettingHelp.stateLine(p);
+        // a recycled row's fitted text and its full one go with the old preference
+        summary.setTag(R.id.settings_full_summary, null);
+        summary.setText(state);
+        summary.setVisibility(TextUtils.isEmpty(state) ? View.GONE : View.VISIBLE);
+        return summary;
     }
 
     /**

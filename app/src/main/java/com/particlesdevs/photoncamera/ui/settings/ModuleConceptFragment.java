@@ -37,6 +37,7 @@ public abstract class ModuleConceptFragment extends Fragment {
     @Override public void onResume(){super.onResume();View toolbar=requireActivity().findViewById(R.id.settings_toolbar);if(toolbar!=null)toolbar.setVisibility(View.GONE);if(root!=null){accent=SettingsStyle.accent(requireContext());render();}}
     @Override public void onDestroyView(){DialogStyle.dismissShown();root=null;super.onDestroyView();}   // P574: no leaked menu or confirmation
     protected void back(){requireActivity().getOnBackPressedDispatcher().onBackPressed();}
+    /** {@code sub}: a state under the title (the module a page edits); P592: never a description of the page. */
     protected void page(String title,String sub){heading.setText(title);subtitle.setText(sub);subtitle.setVisibility(sub==null||sub.isEmpty()?View.GONE:View.VISIBLE);body.removeAllViews();footer.removeAllViews();}
     protected LinearLayout column(){LinearLayout v=new LinearLayout(requireContext());v.setOrientation(LinearLayout.VERTICAL);return v;}
     protected LinearLayout row(){LinearLayout v=new LinearLayout(requireContext());v.setGravity(Gravity.CENTER_VERTICAL);return v;}
@@ -49,6 +50,30 @@ public abstract class ModuleConceptFragment extends Fragment {
     protected void caption(String title){
         TextView t=text(title,12,MUTED);t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));t.setAllCaps(true);t.setLetterSpacing(.08f);
         t.setPadding(dp(16),0,dp(16),0);body.addView(t,space(-1,-2,22));
+    }
+    /**
+     * P592 (owner, 2026-11-10: the info notes, hints and page subtitles go, «оставляем подробное описание только по зажатию»): an
+     * explanation is not drawn. It is the long press of the control it stood beside - the one before it, the one after it for
+     * an explanation that opened the page - in SettingHelp's sheet under the page's title. {@link #note} is for a state only
+     * (no shots yet, a shot that cannot be read, a render in progress).
+     */
+    protected void explain(String text){
+        final int at=body.getChildCount();final CharSequence title=heading==null?"":heading.getText();
+        body.post(()->{
+            if(root==null||body.getChildCount()==0)return;
+            final View target=body.getChildAt(at>0?Math.min(at,body.getChildCount())-1:0);
+            // two explanations beside one control are one text
+            final String before=explained.get(target);explained.put(target,before==null?text:before+"\n\n"+text);
+            if(before!=null)return;
+            final View.OnLongClickListener open=v->{SettingHelp.show(v.getContext(),title,explained.get(target));return true;};
+            explainOn(target,open,true);
+        });
+    }
+    private final java.util.Map<View,String> explained=new java.util.WeakHashMap<>();
+    private static void explainOn(View v,View.OnLongClickListener open,boolean top){
+        // a part that takes taps takes the long press too; one with its own long press keeps it
+        if((top||v.isClickable())&&!v.isLongClickable())v.setOnLongClickListener(open);
+        if(v instanceof android.view.ViewGroup)for(int i=0;i<((android.view.ViewGroup)v).getChildCount();i++)explainOn(((android.view.ViewGroup)v).getChildAt(i),open,false);
     }
     /** P384: the info glyph of the preference notes (it was the «ⓘ» character). */
     protected void note(String value){
@@ -94,13 +119,18 @@ public abstract class ModuleConceptFragment extends Fragment {
         ImageView v=new ImageView(requireContext());v.setImageResource(R.drawable.cs_chevron);v.setColorFilter(SettingsStyle.CHEVRON,PorterDuff.Mode.SRC_IN);
         v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);return v;
     }
-    protected void navigation(String icon,String title,String summary,Runnable action){
+    /** P592: a row that opens something - its title alone; {@code description} is its long press (SettingHelp's sheet). */
+    protected void navigation(String icon,String title,String description,Runnable action){navigation(icon,title,description,null,action);}
+    /** As above, with the row's {@code state} under the title (a state stays in the row, a description never does). */
+    protected void navigation(String icon,String title,@androidx.annotation.Nullable String description,@androidx.annotation.Nullable String state,Runnable action){
         LinearLayout c=card(),r=row();r.setPadding(dp(12),dp(12),dp(14),dp(12));r.setMinimumHeight(dp(58));
         LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(dp(36),dp(36));tp.rightMargin=dp(12);r.addView(tile(icon),tp);
         LinearLayout labels=column();TextView head=text(title,14.5f,TEXT);com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.title(head);labels.addView(head);
-        if(summary!=null){TextView sub=text(summary,12.5f,SettingsStyle.SUMMARY);sub.setLineSpacing(dp(1),1);labels.addView(sub,space(-1,-2,3));}
+        if(state!=null){TextView sub=text(state,12.5f,SettingsStyle.SUMMARY);sub.setLineSpacing(dp(1),1);sub.setTag("row_state");labels.addView(sub,space(-1,-2,3));}
         r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(dp(16),dp(20));cp.leftMargin=dp(8);r.addView(chevron(),cp);
-        r.setOnClickListener(v->action.run());r.setTag(title);c.addView(r);
+        r.setOnClickListener(v->action.run());r.setTag(title);
+        if(description!=null&&!description.isEmpty())r.setOnLongClickListener(v->{SettingHelp.show(v.getContext(),title,description);return true;});
+        c.addView(r);
     }
     protected View mark(int state,String label,Runnable action){View v=new View(requireContext()){
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);

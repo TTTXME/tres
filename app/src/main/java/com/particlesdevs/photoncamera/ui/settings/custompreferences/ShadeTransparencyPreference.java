@@ -78,16 +78,6 @@ public class ShadeTransparencyPreference extends Preference {
         }
     }
 
-    @Nullable
-    private static String hint(Context c, int percent) {
-        switch (percent) {
-            case 0: return Lang.t(c, "Кадр под шторкой не виден", "The frame under the panel is hidden");
-            case 40: return Lang.t(c, "Кадр просвечивает, текст читается", "The frame shows through, text stays readable");
-            case 60: return Lang.t(c, "Для светлых сцен может читаться хуже", "In bright scenes it may read worse");
-            default: return null;
-        }
-    }
-
     @Override
     public void onBindViewHolder(PreferenceViewHolder holder) {
         super.onBindViewHolder(holder);
@@ -109,16 +99,14 @@ public class ShadeTransparencyPreference extends Preference {
         cp.topMargin = UiTokens.dp(c, 14);
         page.addView(card, cp);
         fill();
-        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        np.topMargin = UiTokens.dp(c, 14);
-        page.addView(note(c), np);
+        // P592: the note under the card is the row's long press (help_shade_transparency)
         host.addView(page, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     /**
      * P574 (owner, 2026-11-09: «Ползунки … ближе к IOS»): the choice is the settings' slider over the six steps 0 / 20 / 30 / 40 /
      * 50 / 60 % (the same values as the radio rows were) - the value in its pill on the title line, lifted while the knob is
-     * held, popped on release; a double tap puts 40 % back; the step's hint under the title.
+     * held, popped on release; a double tap puts 40 % back.
      */
     private void fill() {
         LinearLayout box = card;
@@ -140,10 +128,7 @@ public class ShadeTransparencyPreference extends Preference {
         TextView t = SettingsStyle.text(c, Lang.t(c, "Прозрачность", "Transparency"), 16, SettingsStyle.ROW_TITLE);
         t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
         texts.addView(t);
-        TextView hint = SettingsStyle.text(c, "", 13, SettingsStyle.SUMMARY);
-        hint.setTag("shade_transparency_hint");
-        hint.setPadding(0, UiTokens.dp(c, 2), 0, 0);
-        texts.addView(hint);
+        // P592: no hint under the title (the value is in the pill; what a step looks like is the preview above)
         head.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView pill = SettingsStyle.text(c, "", 15, accent);
         pill.setTag("shade_transparency_value");
@@ -207,16 +192,6 @@ public class ShadeTransparencyPreference extends Preference {
             SettingsStyle.paintPill(pill, now != ShadeStyle.TRANSPARENCY_DEFAULT, accent);
             pill.setContentDescription(label(c, now));
         }
-        TextView hint = box.findViewWithTag("shade_transparency_hint");
-        if (hint != null) {
-            String h = hint(c, now);
-            hint.setText(h != null ? h : label(c, now));
-        }
-    }
-
-    private static View note(Context c) {
-        return LutChangesPreference.noteView(c, Lang.t(c, "Чем прозрачнее, тем лучше виден кадр под шторкой. Текст и значки всегда остаются непрозрачными.",
-                "The more transparent, the more of the frame shows under the panel. Text and icons always stay opaque."));
     }
 
     /** The concept's .prev: the scene, the sheet over its lower 62 % with «Быстрые настройки» and eight tile shapes. */

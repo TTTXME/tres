@@ -477,6 +477,8 @@ public class LiveRawFrameTest {
         LiveRawFrame.pendingNs = Long.MAX_VALUE;
         LiveRawFrame.setMaxLongSide(0);
         LiveRawFrame.setEnabled(true);
+        // P597: the path is scam_dev vf_tetra_ring 1 now (off by default: aTetraRingSlotIsShownAsItsCellMeansAndFreedAtOnce)
+        com.particlesdevs.photoncamera.settings.PreferenceKeys.labDevOverlay(java.util.Collections.singletonMap("vf_tetra_ring", 1f));
         try {
             final int w = 16, h = 8;
             ByteBuffer v = ByteBuffer.allocateDirect(w * h * 2).order(java.nio.ByteOrder.nativeOrder());
@@ -508,6 +510,156 @@ public class LiveRawFrameTest {
             f = LiveRawFrame.acquire();
             assertEquals(w / 4, f.width);
             assertTrue(f.cellMean);
+        } finally {
+            com.particlesdevs.photoncamera.settings.PreferenceKeys.labDevOverlay(null);
+            LiveRawFrame.setMaxLongSide(0);
+            unhookFrees();
+        }
+    }
+
+    /** A w x h Tetra ring slot (plain 16-bit, whole rows) whose cell (cx, cy) holds 16 samples of mean 100 + 10 (cy * w / 4 + cx). */
+    private static ByteBuffer tetraSlot(int w, int h) {
+        ByteBuffer v = ByteBuffer.allocateDirect(w * h * 2).order(java.nio.ByteOrder.nativeOrder());
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            v.putShort((y * w + x) * 2, (short) (100 + 10 * ((y / 4) * (w / 4) + x / 4) + ((x + y) % 2 == 0 ? 3 : -3)));
+        v.clear();
+        return v;
+    }
+
+    private static LiveRawFrame.Meta tetra(int w, int h) {
+        LiveRawFrame.Meta m = meta(w, h, w * 2, android.graphics.ImageFormat.RAW_SENSOR);
+        m.block = 4;
+        m.white = 1023;
+        m.cfa = 3;
+        return m;
+    }
+
+    /**
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»): by default a Tetra ring slot reaches the viewfinder as its
+     * cell means again (1/16 of the upload, 1/16 of the meter's reads, 4 texel fetches a pixel instead of 64) - nothing stays
+     * pinned, the view is freed at once, and the frame is the mean of each cell's 16 samples as a plain Bayer site.
+     */
+    @Test public void aTetraRingSlotIsShownAsItsCellMeansAndFreedAtOnce() {
+        hookFrees(0);
+        LiveRawFrame.pendingNs = Long.MAX_VALUE;
+        LiveRawFrame.setMaxLongSide(0);
+        LiveRawFrame.setEnabled(true);
+        try {
+            final int w = 16, h = 8;
+            ByteBuffer v = tetraSlot(w, h);
+            LiveRawFrame.publishRef(v, tetra(w, h));
+            assertEquals("not pinned", 0, LiveRawFrame.pinnedViews());
+            assertEquals("freed at once", 1, frees(v));
+            LiveRawFrame.Frame f = LiveRawFrame.acquire();
+            assertEquals(w / 4, f.width);
+            assertEquals(h / 4, f.height);
+            assertEquals(1, f.cfaBlock);
+            assertEquals(3, f.cfaPattern);
+            assertTrue(f.cellMean);
+            for (int cy = 0; cy < h / 4; cy++) for (int cx = 0; cx < w / 4; cx++)
+                assertEquals("cell " + cx + "," + cy, 100 + 10 * (cy * (w / 4) + cx), f.buffer.getShort((cy * (w / 4) + cx) * 2));
+            assertEquals(1, totalFrees());
+        } finally { LiveRawFrame.setMaxLongSide(0); unhookFrees(); }
+    }
+
+    /**
+     * P597: which frames leave the camera thread for the viewfinder's own - the ones whose hand-off is a pass over their samples
+     * (cell means, the 50 / 200 MP bins, the halvings of the viewfinder's size cap), never a slot drawn where it is.
+     */
+    @Test public void onlyFramesThatAreBinnedOrHalvedLeaveTheCameraThread() {
+        final int raw = android.graphics.ImageFormat.RAW_SENSOR;
+        assertTrue("Tetra 2x ISZ: cell means", LiveRawFrame.handsOff(4080, 3072, 4, 0, raw, 8160, false, true));
+        assertTrue("padded rows too", LiveRawFrame.handsOff(4080, 3072, 4, 0, raw, 8192, false, true));
+        assertFalse("vf_tetra_ring 1: the slot is drawn in place", LiveRawFrame.handsOff(4080, 3072, 4, 0, raw, 8160, true, true));
+        assertTrue("vf_tetra_ring 1 with padded rows: cell means after all", LiveRawFrame.handsOff(4080, 3072, 4, 0, raw, 8192, true, true));
+        assertTrue("Quad 2x ISZ: cell means", LiveRawFrame.handsOff(4096, 3072, 2, 0, raw, 8192, false, true));
+        assertTrue("50 MP Quad: the sparse bin", LiveRawFrame.handsOff(8192, 6144, 2, 0, raw, 16384, false, true));
+        assertTrue("50 MP Bayer (hardware remosaic): the sparse bin", LiveRawFrame.handsOff(8192, 6144, 1, 0, raw, 16384, false, true));
+        assertFalse("a plain 12 MP Bayer slot is drawn where it is", LiveRawFrame.handsOff(4096, 3072, 1, 0, raw, 8192, false, true));
+        assertTrue("the viewfinder's size cap halves it", LiveRawFrame.handsOff(4096, 3072, 1, 2048, raw, 8192, false, true));
+        assertFalse("«Full»: nothing binned", LiveRawFrame.handsOff(4080, 3072, 4, -1, raw, 8160, false, true));
+        assertFalse("vf_bin_async 0: on the caller", LiveRawFrame.handsOff(4080, 3072, 4, 0, raw, 8160, false, false));
+    }
+
+    /**
+     * P597: a binned frame is published on the viewfinder's own thread - the caller returns at once, the next frame is not taken
+     * while the hand-off runs (takesFrame false, counted; a view handed over all the same is freed and dropped), the callback
+     * (the draw request) comes after the frame is published, and every view is freed exactly once.
+     */
+    @Test public void aBinnedFrameIsPublishedOnTheViewfindersOwnThread() {
+        hookFrees(0);
+        LiveRawFrame.pendingNs = Long.MAX_VALUE;
+        LiveRawFrame.setMaxLongSide(0);
+        LiveRawFrame.setEnabled(true);
+        final java.util.ArrayList<Runnable> queued = new java.util.ArrayList<>();
+        LiveRawFrame.handoffHook = queued::add;
+        try {
+            final int w = 16, h = 8;
+            final int[] asked = {0};
+            final int version = LiveRawFrame.getVersion();
+            ByteBuffer a = tetraSlot(w, h), b = tetraSlot(w, h);
+            assertTrue(LiveRawFrame.takesFrame());
+            LiveRawFrame.publishRef(a, tetra(w, h), () -> asked[0]++);
+            assertEquals("handed over, not published yet", 1, queued.size());
+            assertEquals(version, LiveRawFrame.getVersion());
+            assertEquals("no draw asked for before the frame is there", 0, asked[0]);
+            assertEquals(0, frees(a));
+            final long dropped = LiveRawFrame.droppedFrames();
+            assertFalse("the frame before is still with the hand-off thread", LiveRawFrame.takesFrame());
+            assertEquals(dropped + 1, LiveRawFrame.droppedFrames());
+            LiveRawFrame.publishRef(b, tetra(w, h), () -> asked[0] += 100);
+            assertEquals("a second frame is not queued behind the first", 1, queued.size());
+            assertEquals("its view is freed", 1, frees(b));
+            assertEquals(dropped + 2, LiveRawFrame.droppedFrames());
+            assertEquals(0, asked[0]);
+            queued.remove(0).run();
+            assertEquals(version + 1, LiveRawFrame.getVersion());
+            assertEquals("the draw is asked for once the frame is published", 1, asked[0]);
+            assertEquals(1, frees(a));
+            LiveRawFrame.Frame f = LiveRawFrame.acquire();
+            assertEquals(w / 4, f.width);
+            assertTrue(f.cellMean);
+            assertEquals(100, f.buffer.getShort(0));
+            assertTrue("the hand-off is over: the next frame is taken", LiveRawFrame.takesFrame());
+            // a slot drawn where it is never leaves the caller
+            ByteBuffer plain = slot(7);
+            LiveRawFrame.publishRef(plain, plain(), () -> asked[0] += 10);
+            assertEquals(0, queued.size());
+            assertEquals(11, asked[0]);
+            assertEquals(1, LiveRawFrame.pinnedViews());
+            // the viewfinder turned off while a frame is with the hand-off thread: not published, its view freed, the callback run
+            LiveRawFrame.acquire();
+            ByteBuffer c = tetraSlot(w, h);
+            LiveRawFrame.publishRef(c, tetra(w, h), () -> asked[0] += 1000);
+            assertEquals(1, queued.size());
+            LiveRawFrame.setEnabled(false);
+            final int off = LiveRawFrame.getVersion();
+            queued.remove(0).run();
+            assertEquals(off, LiveRawFrame.getVersion());
+            assertEquals(1, frees(c));
+            assertEquals(1011, asked[0]);
+            assertNull(LiveRawFrame.acquire());
+        } finally { LiveRawFrame.handoffHook = null; LiveRawFrame.setMaxLongSide(0); unhookFrees(); }
+    }
+
+    /** P597: the real hand-off thread publishes the frame and asks for its draw (SCAMERA-vf-handoff). */
+    @Test public void theHandOffThreadPublishesAndAsksForTheDraw() throws Exception {
+        hookFrees(0);
+        LiveRawFrame.pendingNs = Long.MAX_VALUE;
+        LiveRawFrame.setMaxLongSide(0);
+        LiveRawFrame.setEnabled(true);
+        try {
+            final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+            final String[] thread = {null};
+            ByteBuffer v = tetraSlot(16, 8);
+            LiveRawFrame.publishRef(v, tetra(16, 8), () -> { thread[0] = Thread.currentThread().getName(); done.countDown(); });
+            assertTrue(done.await(20, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals("SCAMERA-vf-handoff", thread[0]);
+            assertEquals(1, frees(v));
+            LiveRawFrame.Frame f = LiveRawFrame.acquire();
+            assertEquals(4, f.width);
+            assertTrue(f.cellMean);
+            assertTrue(LiveRawFrame.takesFrame());
         } finally { LiveRawFrame.setMaxLongSide(0); unhookFrees(); }
     }
 

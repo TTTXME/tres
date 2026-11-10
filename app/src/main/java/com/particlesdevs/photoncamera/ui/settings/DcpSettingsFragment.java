@@ -27,8 +27,8 @@ public class DcpSettingsFragment extends ModuleConceptFragment {
         page(Lang.t(getContext(),"Цветовой профиль","Colour profile"),ModuleRegistry.label(ModuleRegistry.active()));
         String selected=ScameraApp.getSettingsManagerStatic().getDefaultPreferences().getString(DcpProfiles.KEY,"");
         DcpProfiles.list(requireContext()).forEach((id,label)->navigation("◉",(id.equals(selected)?"✓  ":"")+label,null,()->choose(id)));
-        note(Lang.t(getContext(),"Выбирайте профиль для этого сенсора. Используются ColorMatrix, ForwardMatrix и источники освещения. Таблицы оттенков и тональные кривые DCP не применяются.","Pick a profile for this sensor. ColorMatrix, ForwardMatrix and the illuminants are used. DCP hue tables and tone curves are not applied."));
-        note(Lang.t(getContext(),"Выбор сохраняется в профиле модуля и доступен для копирования между модулями.","The choice is saved in the module profile and can be copied between modules."));
+        explain(Lang.t(getContext(),"Выбирайте профиль для этого сенсора. Используются ColorMatrix, ForwardMatrix и источники освещения. Таблицы оттенков и тональные кривые DCP не применяются.","Pick a profile for this sensor. ColorMatrix, ForwardMatrix and the illuminants are used. DCP hue tables and tone curves are not applied."));
+        explain(Lang.t(getContext(),"Выбор сохраняется в профиле модуля и доступен для копирования между модулями.","The choice is saved in the module profile and can be copied between modules."));
         primary(importing?Lang.t(getContext(),"Импорт…","Importing…"):Lang.t(getContext(),"Импортировать DCP","Import DCP"),!importing,()->picker.launch(new String[]{"*/*"}));
     }
 }

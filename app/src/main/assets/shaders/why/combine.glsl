@@ -137,6 +137,9 @@ precision highp int;
 // P394 (owner, 2026-10-29: «нам нужно сделать грань максимально гладкой без зубчиков»): 1 = edgeHold, the sharpened luma averaged along
 // a strong edge and held within the full-size merge's 3 x 3 range (WhyCombine with the full-size merge; 0 = the shader before)
 #define EDGE_HOLD 0
+// P595 (owner, 2026-11-10: «на небе у меня градиент появился»): 1 = the photo's dither triangular, +-1 LSB (WhyCombine sets it); 0
+// = the kernel's rectangular +-0.5 LSB (the shader before P595 token for token: the viewfinder, the host checks)
+#define DITHER_TPDF 0
 // P441 RIM_SMOOTH 1: the P311 / P349 rim rules of the detail delta on every darkening pixel with a continuous far side (rimDelta;
 // the photo, WhyCombine); 0: the rules before P441 (lightRimDelta / rimDeltaBy, the viewfinder), token for token.
 #define RIM_SMOOTH 0
@@ -686,6 +689,21 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
     float r = 0.05 * (hi - lo);
     return mix(yD, clamp(ys, lo - r, hi + r), w);
 }
+
+// P595 (owner, 2026-11-10: white dots on the edges of dark objects against a bright sky): the darkest and the brightest of the
+// sharpened luma (why/sharp_rl P595 keeps it within the merge's window at a dark / bright edge) 2 px round the pixel - the bounds
+// the detail gain's lift may not cross there (main, after the gain)
+vec2 lumaSRange(ivec2 xy) {
+    ivec2 last = textureSize(WhyLumaS, 0) - ivec2(1);
+    float lo = 2.0, hi = 0.0;
+    for (int dy = -2; dy <= 2; dy++)
+        for (int dx = -2; dx <= 2; dx++) {
+            float v = max(texelFetch(WhyLumaS, clamp(xy + ivec2(dx, dy), ivec2(0), last), 0).r, 0.0);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+    return vec2(lo, hi);
+}
 #endif
 
 // Output pixel x on a grid reduced by a box of f: centre (x + 0.5) / f - 0.5 as an integer base and a fraction.
@@ -1032,6 +1050,15 @@ float macroLine(float x, float m) {
 }
 #endif
 
+#if DITHER_TPDF == 1
+// P595: triangular dither in (-1, 1) LSB at pixel p - the interleaved-gradient pattern and its transpose (uncorrelated)
+float tpdf(ivec2 p) {
+    vec2 q = vec2(p);
+    return fract(52.9829189 * fract(0.06711056 * q.x + 0.00583715 * q.y))
+         + fract(52.9829189 * fract(0.00583715 * q.x + 0.06711056 * q.y)) - 1.0;
+}
+#endif
+
 void main() {
 #if RAW_SOURCE == 1
     // P365: the tone grid is the viewport (drawn on the screen at its origin, or into the tone target at 0, 0); the frame
@@ -1363,7 +1390,22 @@ void main() {
         // has soft: a dark line with the merge's stair-steps along the dark side (rails and rungs against the sky, the window's
         // frame by the sun), where the merge itself is clean and WhyCam has none. Host replay: the lines gone, the rails'
         // cracks and the wall's grain kept. A gain up to 1 scales the delta as before.
+#if EDGE_HOLD == 1
+        float deltaS = delta;
+#endif
         delta = detailGainU > 1.0 ? delta + (detailGainU - 1.0) * clamp(delta, -0.02, 0.02) : delta * detailGainU;
+#if EDGE_HOLD == 1
+        // P595: the lift saturates at +-0.02 x (gain - 1), not at the edge - at a dark / bright edge (the sharpened luma's 5 x 5
+        // window over 1 .. 2 stops) every bright pixel beside it, whose base (the box mean's B-spline) the dark side pulls down,
+        // took ~+0.014 above the bright side (white dots and beads on a dark object's rim against the sky), every dark one as much
+        // under the dark side. There the lift stops at the window's brightest / darkest; the sharpened delta itself is kept.
+        if (edgeHoldU > 0.0 && sharpU == 1 && bounded && lRef > 0.0 && detailGainU > 1.0 && delta != deltaS) {
+            vec2 rs = lumaSRange(xy);
+            float we = min(edgeHoldU, 1.0) * smoothstep(1.0, 2.0, log2((rs.y + 0.01) / (rs.x + 0.01)));
+            if (we > 0.0)
+                delta = mix(delta, clamp(delta, min(deltaS, cbrtp(max(rs.x, 0.000001)) - lRef), max(deltaS, cbrtp(max(rs.y, 0.000001)) - lRef)), we);
+        }
+#endif
         // and next to light above white (luminance x AE over ~1: the sun's glow by the window's frame) the darkening delta stops
         // at the kernel's full-resolution floor (-0.035 L): there it is the edge itself, where WhyCam's bright side is clipped
         if (abs(clarityU) > 0.001) delta *= 1.0 + clarityU;
@@ -2250,8 +2292,18 @@ void main() {
     }
 #endif
     if (ditherU == 1) {
+#if DITHER_TPDF == 1
+        // P595 (owner, 2026-11-10: «на небе у меня градиент появился»): triangular (TPDF) dither, +-1 LSB - two interleaved-gradient
+        // patterns (the kernel's and its transpose, uncorrelated) per channel, each channel from its own offset. The kernel's one
+        // pattern (+-0.5 LSB, rectangular) left the quantisation noise following the signal: none where the smooth value sits on a
+        // code, the most half-way between (0 .. 0.5 LSB rms) - on a clean sky every 8-bit step showed as a band of grain between
+        // clean bands (the owner's ship sky: rms 0.44 / 0.58 by the fraction, wavy contours and pink / blue islands in R / G, B / G).
+        // Triangular: 0.5 LSB rms at every level, the mean still the smooth value.
+        outRgb += vec3(tpdf(xy), tpdf(xy + ivec2(11, 7)), tpdf(xy + ivec2(23, 13))) / 255.0;
+#else
         float d1 = fract(0.06711056 * float(xy.x) + 0.00583715 * float(xy.y));
         outRgb += (fract(52.9829189 * d1) - 0.5) / 255.0;
+#endif
     }
     Output = vec4(clamp(outRgb, 0.0, 1.0), 1.0);
 }

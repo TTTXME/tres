@@ -210,6 +210,7 @@ public final class ScamDiagnostics {
     /** half: the samples are IEEE half floats (P80 hybrid RGB transport; read as float32 they ran past the buffer, 2026-10-12). */
     public static void buffer(String stage,ByteBuffer bytes,int width,int height,int channels,boolean linear,boolean half) {
         Job j=active.get();if(j==null)return;
+        flushStages(j); // P602: the GPU stages queued before this dump are written first (the files' order as before)
         bufferFor(j,stage,bytes,width,height,channels,linear,half);
     }
 
@@ -226,10 +227,15 @@ public final class ScamDiagnostics {
                 if(half)halves[(y*w+x)*3+c]=in.getShort(((y*step)*width+x*step)*channels*2+c*2);
                 else floats[(y*w+x)*3+c]=in.getFloat(((y*step)*width+x*step)*channels*4+c*4);
             }
-            final Runnable convert=()->convertAndWrite(j,stage,w,h,linear,halves,floats);
-            if(sync()){convert.run();return;}
-            try { exports.execute(convert); } catch(java.util.concurrent.RejectedExecutionException full) { convert.run(); }
+            queueConvert(j,stage,w,h,linear,halves,floats);
         } catch(Exception e){Log.e("SCAM_DIAG","Save stage failed: "+stage,e);}
+    }
+
+    /** The PFM / PNG of a stage's samples on the writer thread (here with diag_sync 1 or a full queue). */
+    private static void queueConvert(Job j,String stage,int w,int h,boolean linear,short[] halves,float[] floats) {
+        final Runnable convert=()->convertAndWrite(j,stage,w,h,linear,halves,floats);
+        if(sync()){convert.run();return;}
+        try { exports.execute(convert); } catch(java.util.concurrent.RejectedExecutionException full) { convert.run(); }
     }
 
     /** The PFM / PNG of one stage from its samples ({@code halves} or {@code floats}, w x h x 3) and its line in stages.txt. */
@@ -276,12 +282,224 @@ public final class ScamDiagnostics {
         }catch(Exception e){Log.e("SCAM_DIAG","Native diagnostic copy failed",e);}
     }
     public static void gpu(String name,GLTexture source) {
-        if(active.get()==null||source==null||!Arrays.asList("ScamRgb","WhyFused","WhyLumaS","WhyDetailRef","WhyCombine","Sharpening").contains(name))return;
+        final Job j=active.get();
+        if(j==null||source==null||!Arrays.asList("ScamRgb","WhyFused","WhyLumaS","WhyDetailRef","WhyCombine","Sharpening").contains(name))return;
+        final long t0=System.nanoTime();
+        try {
+            gpuStage(j,name,source);
+        } finally {
+            synchronized(ScamDiagnostics.class){gpuNs+=System.nanoTime()-t0;gpuStages++;}
+        }
+    }
+
+    // ---- P602 (owner, 2026-11-10: «ускорить на нём обработку ещё сильнее», the Pixel 7 log of 31249 - a diagnostic shot: post
+    // 4085 ms, its nodes 2986): each GPU stage's read-back below waited for the GPU to finish the pipeline so far, then read 768
+    // full rows of floats (50 MB at 4080 px) - the 338 ms after ScamRgb, the 493 ms of the two (WhyFused, WhyLumaS) at the start of WhyCombine
+    // (1451 - its own 958) and the 535 ms after WhyCombine of that shot on the Mali-G710. Now one compute pass copies the samples
+    // (every step-th texel of every step-th row, texelFetch: the texel's own value, as the float read-back gives it) into a buffer
+    // of w x h vec4 (12.5 MB at 1020 x 768) and the shot goes on; the buffer is mapped later, when the GPU is done with it: when a
+    // third stage comes (MAX_STAGES_QUEUED in flight), before any other dump of the shot (the files keep their order) and at the
+    // end of the run (GLBasePipeline.finishRun -> flushGpuStages). The same samples. A texture other than half / float, a GPU
+    // without the pass, any GL error, scam_dev diag_sync 1 or diag_gpu_async 0: the read-back as before.
+    private static final class QueuedStage {
+        final Job job;final String stage;final int buffer,w,h;final boolean linear;final android.opengl.EGLContext context;
+        QueuedStage(Job job,String stage,int buffer,int w,int h,boolean linear,android.opengl.EGLContext context){
+            this.job=job;this.stage=stage;this.buffer=buffer;this.w=w;this.h=h;this.linear=linear;this.context=context;
+        }
+    }
+    private static final ThreadLocal<ArrayDeque<QueuedStage>> queued=ThreadLocal.withInitial(ArrayDeque::new);
+    static final int MAX_STAGES_QUEUED=2;
+    /** P602: the CPU time of the GPU stages' dumps (gpu() and their buffers' maps) and their count since {@link #takeGpuStats}. */
+    private static long gpuNs;private static int gpuStages;
+    /** P602: the sample pass of the context it was built in (0: not built; -1 there: it does not build). */
+    private static int sampleProgram,sampleSrc,sampleDims;private static android.opengl.EGLContext sampleContext;
+
+    /** P602: {ms, stages} of the GPU stages' dumps since the last call (GLBasePipeline's timings table; 0, 0 without diagnostics). */
+    public static synchronized long[] takeGpuStats() {
+        final long[] out={gpuNs/1_000_000L,gpuStages};
+        gpuNs=0;gpuStages=0;
+        return out;
+    }
+
+    /** P602: the GPU stages queued on this thread written now (the end of a post run, its context current); nothing without any. */
+    public static void flushGpuStages() {
+        final ArrayDeque<QueuedStage> q=queued.get();
+        if(q.isEmpty())return;
+        final long t0=System.nanoTime();
+        try{flushStages(active.get());}
+        finally{synchronized(ScamDiagnostics.class){gpuNs+=System.nanoTime()-t0;}}
+    }
+
+    static boolean asyncStages() {
+        if(sync())return false;
+        try{return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("diag_gpu_async",true);}
+        catch(RuntimeException|LinkageError e){return false;}
+    }
+
+    /**
+     * P602: the textures the sample pass reads as the float read-back does: half floats, and floats sampled GL_NEAREST (a float
+     * texture filtered GL_LINEAR is incomplete without OES_texture_float_linear: its texelFetch gives zeros).
+     */
+    static boolean sampleable(GLFormat f) {
+        return f!=null&&(f.dataType()==GLFormat.DataType.FLOAT_16||f.dataType()==GLFormat.DataType.FLOAT_32&&f.filter==GL_NEAREST);
+    }
+
+    /** P602: the step and the w x h samples of a W x H stage (every step-th texel of every step-th row, as below). */
+    static int[] sampleGrid(int width,int height) {
+        final int step=Math.max(1,(Math.max(width,height)+1023)/1024);
+        return new int[]{step,width/step,height/step};
+    }
+
+    /** P602: the queued stages of this thread written in order (only {@code j}'s; another shot's are dropped). */
+    private static void flushStages(Job j) {
+        final ArrayDeque<QueuedStage> q=queued.get();
+        while(!q.isEmpty())writeStage(q.pollFirst(),j);
+    }
+
+    private static void writeStage(QueuedStage s,Job j) {
+        final android.opengl.EGLContext now=android.opengl.EGL14.eglGetCurrentContext();
+        final boolean here=s.context.equals(now);
+        if(s.job!=j||!here){
+            // an earlier shot's (a failed run) or another context's: its buffer goes with its context
+            if(here)glDeleteBuffers(1,new int[]{s.buffer},0);
+            Log.w("SCAM_DIAG","GPU stage dropped: "+s.stage+(s.job!=j?" (an earlier shot)":" (its GL context is not current)"));
+            return;
+        }
+        final int[] old=new int[1];
+        glGetIntegerv(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING,old,0);
+        try {
+            glGetError();
+            glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,s.buffer);
+            final Buffer mapped=glMapBufferRange(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,0,s.w*s.h*16,GL_MAP_READ_BIT);
+            if(!(mapped instanceof ByteBuffer)){glGetError();throw new IOException("the samples' buffer did not map");}
+            final FloatBuffer rows=((ByteBuffer)mapped).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            final float[] all=new float[s.w*s.h*4];
+            rows.get(all);
+            glUnmapBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER);
+            final float[] floats=new float[s.w*s.h*3];
+            for(int i=0,n=s.w*s.h;i<n;i++){floats[i*3]=all[i*4];floats[i*3+1]=all[i*4+1];floats[i*3+2]=all[i*4+2];}
+            queueConvert(s.job,s.stage,s.w,s.h,s.linear,null,floats);
+        }catch(Exception e){Log.e("SCAM_DIAG","GPU stage failed: "+s.stage,e);}
+        finally{
+            glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,old[0]);
+            glDeleteBuffers(1,new int[]{s.buffer},0);
+            glGetError();
+        }
+    }
+
+    private static final String SAMPLE_PASS="#version 310 es\n"
+            +"precision highp float;\nprecision highp int;\n"
+            +"layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;\n"
+            +"uniform highp sampler2D srcU;\n"
+            +"uniform ivec3 dimsU;\n" // w, h, step
+            +"layout(std430, binding = 3) writeonly buffer DiagSamples { highp vec4 samples[]; };\n"
+            +"void main() {\n"
+            +"    ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
+            +"    if (p.x >= dimsU.x || p.y >= dimsU.y) return;\n"
+            +"    samples[p.y * dimsU.x + p.x] = texelFetch(srcU, p * dimsU.z, 0);\n"
+            +"}\n";
+
+    /** P602: the sample pass of the current context (built once per context), 0 when it does not build there. */
+    private static int sampleProgram() {
+        final android.opengl.EGLContext now=android.opengl.EGL14.eglGetCurrentContext();
+        if(now==null||now.equals(android.opengl.EGL14.EGL_NO_CONTEXT))return 0;
+        // (a new context may get a destroyed one's handle: the program must still be this pass in this context)
+        if(now.equals(sampleContext)&&(sampleProgram<0||sampleProgram>0&&android.opengl.GLES31.glIsProgram(sampleProgram)
+                &&android.opengl.GLES31.glGetUniformLocation(sampleProgram,"dimsU")==sampleDims
+                &&android.opengl.GLES31.glGetUniformLocation(sampleProgram,"srcU")==sampleSrc))return Math.max(0,sampleProgram);
+        glGetError();
+        sampleContext=now;sampleProgram=-1;
+        final int shader=android.opengl.GLES31.glCreateShader(android.opengl.GLES31.GL_COMPUTE_SHADER);
+        if(shader==0)return 0;
+        android.opengl.GLES31.glShaderSource(shader,SAMPLE_PASS);
+        android.opengl.GLES31.glCompileShader(shader);
+        final int[] ok=new int[1];
+        android.opengl.GLES31.glGetShaderiv(shader,android.opengl.GLES31.GL_COMPILE_STATUS,ok,0);
+        if(ok[0]==0){
+            Log.w("SCAM_DIAG","sample pass: "+android.opengl.GLES31.glGetShaderInfoLog(shader)+"; the read-back as before");
+            android.opengl.GLES31.glDeleteShader(shader);glGetError();return 0;
+        }
+        final int program=android.opengl.GLES31.glCreateProgram();
+        android.opengl.GLES31.glAttachShader(program,shader);
+        android.opengl.GLES31.glLinkProgram(program);
+        android.opengl.GLES31.glDeleteShader(shader);
+        android.opengl.GLES31.glGetProgramiv(program,android.opengl.GLES31.GL_LINK_STATUS,ok,0);
+        if(ok[0]==0){
+            Log.w("SCAM_DIAG","sample pass link: "+android.opengl.GLES31.glGetProgramInfoLog(program)+"; the read-back as before");
+            android.opengl.GLES31.glDeleteProgram(program);glGetError();return 0;
+        }
+        sampleSrc=android.opengl.GLES31.glGetUniformLocation(program,"srcU");
+        sampleDims=android.opengl.GLES31.glGetUniformLocation(program,"dimsU");
+        if(sampleSrc<0||sampleDims<0){android.opengl.GLES31.glDeleteProgram(program);glGetError();return 0;}
+        sampleProgram=program;
+        return program;
+    }
+
+    /**
+     * P602: the stage's samples copied on the GPU into a buffer of their own, queued (true); false when the pass is not possible
+     * here (nothing is queued then: the caller reads the stage back as before). Every binding it touches is put back.
+     */
+    private static boolean queueStage(Job j,String stage,GLTexture source,boolean linear) {
+        if(!asyncStages()||!sampleable(source.mFormat)||source.mTextureID==0)return false;
+        final ArrayDeque<QueuedStage> q=queued.get();
+        while(q.size()>=MAX_STAGES_QUEUED)writeStage(q.pollFirst(),j);
+        final int program=sampleProgram();
+        if(program==0)return false;
+        final int[] grid=sampleGrid(source.mSize.x,source.mSize.y);
+        final int step=grid[0],w=grid[1],h=grid[2];
+        if(w<=0||h<=0||(long)w*h*16>Integer.MAX_VALUE)return false;
+        final int[] oldProgram=new int[1],oldActive=new int[1],oldTexture=new int[1],oldBuffer=new int[1],oldIndexed=new int[1];
+        glGetIntegerv(GL_CURRENT_PROGRAM,oldProgram,0);
+        glGetIntegerv(GL_ACTIVE_TEXTURE,oldActive,0);
+        glGetIntegerv(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING,oldBuffer,0);
+        android.opengl.GLES31.glGetIntegeri_v(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING,3,oldIndexed,0);
+        glActiveTexture(GL_TEXTURE15);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D,oldTexture,0);
+        final int[] buffer=new int[1];
+        int error;
+        try {
+            glGetError();
+            glGenBuffers(1,buffer,0);
+            glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,buffer[0]);
+            glBufferData(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,w*h*16,null,GL_STREAM_READ);
+            glUseProgram(program);
+            glBindTexture(GL_TEXTURE_2D,source.mTextureID);
+            glUniform1i(sampleSrc,15);
+            glUniform3i(sampleDims,w,h,step);
+            android.opengl.GLES31.glBindBufferBase(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,3,buffer[0]);
+            android.opengl.GLES31.glDispatchCompute((w+15)/16,(h+15)/16,1);
+            android.opengl.GLES31.glMemoryBarrier(android.opengl.GLES31.GL_BUFFER_UPDATE_BARRIER_BIT);
+            glFlush();
+            error=glGetError();
+        } catch(RuntimeException e) {
+            error=-1;
+        } finally {
+            android.opengl.GLES31.glBindBufferBase(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,3,oldIndexed[0]);
+            glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,oldBuffer[0]);
+            glBindTexture(GL_TEXTURE_2D,oldTexture[0]);
+            glActiveTexture(oldActive[0]);
+            glUseProgram(oldProgram[0]);
+        }
+        if(error!=GL_NO_ERROR){
+            if(buffer[0]!=0)glDeleteBuffers(1,buffer,0);
+            glGetError();
+            sampleContext=null; // built again next time (a failure of this one stays a read-back per stage)
+            Log.w("SCAM_DIAG","GPU stage "+stage+": the sample pass failed (0x"+Integer.toHexString(error)+"), read back as before");
+            return false;
+        }
+        q.addLast(new QueuedStage(j,stage,buffer[0],w,h,linear,android.opengl.EGL14.eglGetCurrentContext()));
+        return true;
+    }
+
+    private static void gpuStage(Job j,String name,GLTexture source) {
         for(int i=0;i<32;i++) {
             int error=glGetError();
             if(error==GL_NO_ERROR)break;
             Log.e("SCAM_DIAG","GL error before "+name+": 0x"+Integer.toHexString(error));
         }
+        final boolean linear=!Arrays.asList("WhyCombine","Sharpening").contains(name);
+        if(queueStage(j,"03-"+name,source,linear))return;
+        flushStages(j); // the stages queued before this one first (the files' order)
         // Read sampled rows through a temporary READ framebuffer. No diagnostic
         // shader/texture bindings can disturb the processing program's state.
         int[] oldRead=new int[1],framebuffer=new int[1];
@@ -306,8 +524,7 @@ public final class ScamDiagnostics {
                 }
             }
             sampled.flip();
-            buffer("03-"+name,sampled,w,h,3,
-                    !Arrays.asList("WhyCombine","Sharpening").contains(name));
+            buffer("03-"+name,sampled,w,h,3,linear);
         }catch(Exception e){Log.e("SCAM_DIAG","GPU stage failed: "+name,e);}
         finally{glBindFramebuffer(GL_READ_FRAMEBUFFER,oldRead[0]);if(framebuffer[0]!=0)glDeleteFramebuffers(1,framebuffer,0);}
     }

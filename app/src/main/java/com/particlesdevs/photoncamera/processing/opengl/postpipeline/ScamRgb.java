@@ -177,20 +177,23 @@ public final class ScamRgb extends Node {
                 glProg.drawBlocks(weights);
             }
             glProg.closed=true;
-            final boolean readStats=!PreferenceKeys.hybridSwitch("highlight_landing_async",true)
-                    ||com.particlesdevs.photoncamera.util.ScameraDebugLog.isEnabled();
+            // P602 (owner, 2026-11-10, Pixel 7 log of 31249, the debug log on): the debug log read the block statistics here - a
+            // wait for the GPU in the middle of ScamRgb (scamrgb's full-size pass first) - and dropped an empty map, so a logged
+            // shot ran another WhyCombine variant (no HL_OPPOSED) than the same shot unlogged: a program of its own to compile and
+            // a node time no unlogged shot has. Now the logged shot is processed as the unlogged one (the map on the GPU, an empty one
+            // a no-op in why/combine: nearOpp 0) and its statistics are read for the log line at the end of the run
+            // (GLDeferredRead: queued here, mapped when the GPU is done). scam_dev hybrid_highlight_landing_async 0: read here and an
+            // empty map dropped, as before.
+            final boolean readStats=!PreferenceKeys.hybridSwitch("highlight_landing_async",true);
+            final boolean logLater=!readStats&&com.particlesdevs.photoncamera.util.ScameraDebugLog.isEnabled();
             int filled=-1;
             double glowW=0,glowS=0;
             if(readStats){
-                filled=0;
                 final java.nio.ByteBuffer b=java.nio.ByteBuffer.allocateDirect(coarse.x*coarse.y*16).order(java.nio.ByteOrder.nativeOrder());
                 weights.textureBuffer(cells,b);
                 b.rewind();
-                final java.nio.FloatBuffer v=b.asFloatBuffer();
-                for(int i=0;i<coarse.x*coarse.y;i++){
-                    if(v.get(4*i)>0f)filled++;
-                    glowW+=v.get(4*i+3);glowS+=v.get(4*i+3)*v.get(4*i+2);
-                }
+                final double[] st=opposedStats(b.asFloatBuffer(),coarse.x*coarse.y);
+                filled=(int)st[0];glowW=st[1];glowS=st[2];
                 if(filled==0){
                     com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: no block of "+coarse.x+"x"+coarse.y+"@"+block+" filled");
                     return null;
@@ -223,9 +226,8 @@ public final class ScamRgb extends Node {
             glProg.setVar("dirU",0,1);glProg.setVar("radiusU",radius);
             glProg.drawBlocks(out);
             glProg.closed=true;
-            if(readStats)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: "+filled+" of "+coarse.x+"x"+coarse.y+"@"+block
-                    +" blocks filled, radius "+radius+(flags!=null?"":" (no clip flags)")+", glow saturation "
-                    +(glowW>0?String.format(java.util.Locale.ROOT,"%.3f over %.0f px",glowS/glowW,glowW):"none"));
+            if(readStats)com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE",opposedStatsLine(filled,coarse,block,radius,flags!=null,glowW,glowS));
+            else if(logLater&&queueOpposedStats(weights,coarse,block,radius,flags!=null)){} // P602: the line at the end of the run
             else com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","highlight opposed landing: GPU only "+coarse.x+"x"+coarse.y+"@"+block+", radius "+radius);
             final GLTexture done=out;out=null;
             return done;
@@ -236,6 +238,34 @@ public final class ScamRgb extends Node {
             if(half!=null)half.close();
             if(out!=null)out.close();
         }
+    }
+
+    /** P378: the landing's statistics line (P602: also from the deferred read of a logged shot). */
+    static String opposedStatsLine(int filled,Point coarse,int block,float radius,boolean withFlags,double glowW,double glowS){
+        return "highlight opposed landing: "+filled+" of "+coarse.x+"x"+coarse.y+"@"+block
+                +" blocks filled, radius "+radius+(withFlags?"":" (no clip flags)")+", glow saturation "
+                +(glowW>0?String.format(java.util.Locale.ROOT,"%.3f over %.0f px",glowS/glowW,glowW):"none");
+    }
+
+    /** P378: {filled blocks, glow weight, glow weight x saturation} of the landing's weights (RGBA floats, a block a texel). */
+    static double[] opposedStats(java.nio.FloatBuffer v,int cells){
+        int filled=0;
+        double glowW=0,glowS=0;
+        for(int i=0;i<cells;i++){
+            if(v.get(4*i)>0f)filled++;
+            glowW+=v.get(4*i+3);glowS+=v.get(4*i+3)*v.get(4*i+2);
+        }
+        return new double[]{filled,glowW,glowS};
+    }
+
+    /** P602: the weights' statistics of a logged shot read at the end of the run (GLDeferredRead); false: not queued. */
+    private static boolean queueOpposedStats(GLTexture weights,Point coarse,int block,float radius,boolean withFlags){
+        final Point grid=new Point(coarse);
+        return com.particlesdevs.photoncamera.processing.opengl.GLDeferredRead.queue(weights,android.opengl.GLES30.GL_FLOAT,16,rgba->{
+            final double[] st=opposedStats(rgba.asFloatBuffer(),grid.x*grid.y);
+            com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE",opposedStatsLine((int)st[0],grid,block,radius,withFlags,st[1],st[2])
+                    +" (read at the end of the run, the map drawn either way)");
+        });
     }
 
     /** P378 review: camera RGB (scamrgb's input) to the render's linear sRGB - why/low's chain (WhyTone.colourMatrix x sensorToProPhoto). */
@@ -1168,7 +1198,7 @@ public final class ScamRgb extends Node {
         // P33 W2.4 / P48: where the time between the worker result and the lens shading goes (stats and decimate on the helper
         // thread, alongside the upload; wait = what the upload left of them)
         com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE","scamrgb input ms: upload="+(uploadDone-uploadStart)/1000000
-                +(gpuRepack?" (half rgb, gpu repack)":half?" (rgba16f bands)":rgbaBands?" (rgba bands)":" (rgb)")+" stats="+stats.statMs+" decimate="+(tail?"(helper, after the statistics)":String.valueOf(stats.decimateMs))
+                +(gpuRepack?" (half rgb, gpu repack"+HalfRgbUpload.takeNote()+")":half?" (rgba16f bands)":rgbaBands?" (rgba bands)":" (rgb)")+" stats="+stats.statMs+" decimate="+(tail?"(helper, after the statistics)":String.valueOf(stats.decimateMs))
                 +" wait="+(sideDone-uploadDone)/1000000+" free="+(System.nanoTime()-sideDone)/1000000);
         GLTexture flagsTex=null,chromaNear=null,chromaWide=null,chromaHuge=null,purpleBound=null,oppGpu=null;
         try {

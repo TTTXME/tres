@@ -360,6 +360,7 @@ public final class WhyLumaSharpen extends Node {
         float rlHalo = clamp01(WhyTone.value("sharp_rl_halo_control", 100f) / 100f);
         float rlMargin = WhyTone.value("sharp_rl_halo_margin", 0.15f);
         float rlMacro = WhyTone.value("sharp_rl_halo_macro", 0.4f);
+        final float rlEdgeGuard = WhyTone.rlEdgeGuard();   // P595: the clamp relative at a dark / bright edge
         // (kernel, radius, amount, iterations) of the three RL stages; X8U: Airy 1 x3, off, Gaussian 0.5 x3
         float[][] rl = {
                 {WhyTone.value("sharp_rl1_kernel", 2f), WhyTone.value("sharp_rl1_rad", 1f), filmShare(WhyTone.value("sharp_rl1_amount", 1f) * lowLight, pipeline.film), WhyTone.value("sharp_rl1_iters", 3f),
@@ -521,6 +522,7 @@ public final class WhyLumaSharpen extends Node {
                 glProg.setVar("haloU", rlHalo);
                 glProg.setVar("marginU", rlMargin);
                 glProg.setVar("macroU", rlMacro);
+                glProg.setVar("edgeGuardU", rlEdgeGuard);
                 glProg.setVar("protectShadowsU", protectShadows);
                 glProg.setVar("protectHighlightsU", protectHighlights);
                 glProg.setVar("nbU", nb);

@@ -320,6 +320,11 @@ final class LiveRawRenderer {
         if(rawTexs[slot]==0)rawTexs[slot]=texture(GLES20.GL_TEXTURE2,GLES20.GL_TEXTURE_2D,GLES20.GL_NEAREST);
         if(shadingTex==0)shadingTex=texture(GLES20.GL_TEXTURE3,GLES20.GL_TEXTURE_2D,GLES20.GL_LINEAR);
         if(!boundFresh)return true;
+        // P597: how long the frame waited for this draw since its publication (the swap of the frame before blocks in between),
+        // the gap to the new frame before it, and the upload itself (VF_RAW "stages")
+        final long uploadStart=System.nanoTime();
+        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.WAIT,uploadStart-f.publishedNanos);
+        com.particlesdevs.photoncamera.processing.VfStages.shown(uploadStart);
         f.buffer.position(0);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE2);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,rawTexs[slot]);
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT,2);
@@ -329,6 +334,7 @@ final class LiveRawRenderer {
             texW[slot]=f.width;texH[slot]=f.height;
         } else GLES30.glTexSubImage2D(GLES20.GL_TEXTURE_2D,0,0,0,f.width,f.height,GLES30.GL_RED_INTEGER,GLES20.GL_UNSIGNED_SHORT,f.buffer);
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ROW_LENGTH,0);GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT,4);
+        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.UPLOAD,System.nanoTime()-uploadStart);
         texVersion[slot]=f.version;
         if(!twin || !sameShading(shadingShown,shadingShownW,shadingShownH,f.shading,f.shadingWidth,f.shadingHeight)) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE3);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,shadingTex);
@@ -352,9 +358,11 @@ final class LiveRawRenderer {
     private void meter(LiveRawFrame.Frame f,boolean linear){
         if(meteredVersion==f.version)return;
         if(fusedOn() && linear && !(f.sceneLuma && com.particlesdevs.photoncamera.manual.SceneLuma.wanted()))return;
+        final long meterStart=System.nanoTime();
         meter.update(f);
         sceneLuma(f);
         meteredVersion=f.version;
+        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.METER,System.nanoTime()-meterStart);
     }
     /** P365: whether the frame bound last ({@link #bindFrame}, {@link #draw}) was new to its texture (the WHY tone's AE runs then). */
     private boolean boundFresh;

@@ -1054,7 +1054,7 @@ public class PostPipeline extends GLBasePipeline {
         // One tone for both routes: the WHY tone (WhyStats -> WhyFusion -> [WhyLumaSharpen] -> WhyCombine).
         Log.i("SCAM_PIPELINE","route="+(PreferenceKeys.isHybridShot()?"SCAM_hybrid":"SCAM_HDR")
                 +" import=SCAM_linear_RGB WB_LSC=SCAMERA TCE=not_connected"
-                +" postDenoise=bypassed"
+                +" denoise="+DenoiseStages.summary()
                 +" tone=WHY (WhyStats/WhyFusion/WhyCombine)"
                 +"; actual node order/timings follow in Pipeline log");
         add(new ScamRgb());
@@ -1065,7 +1065,7 @@ public class PostPipeline extends GLBasePipeline {
         final ScamHybridBurst.HlMask hlMask = ScamHybridBurst.lastHlMask;
         if (hlMask != null) add(new WhyHlDezipper(hlMask));
         // P402 «Пирамидальный шумодав» (the reference app's ms denoise): only when switched on (no node otherwise)
-        if (PreferenceKeys.isHybridDenoiseEnabled()) add(new WhyMsDenoise());
+        if (DenoiseStages.on()) add(new WhyMsDenoise());
         // P228: the lens filter on the linear RGB (highlights with their headroom), before the tone; none: no node at all.
         // Owner, 2026-10-28: the one of the press, not of the settings after the merge
         final LensFilter.Choice shotFilter = lensFilterOfShot(), filterNow = lensFilter != null ? LensFilter.Choice.now() : shotFilter;

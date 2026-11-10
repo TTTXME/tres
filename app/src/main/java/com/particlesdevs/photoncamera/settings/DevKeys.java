@@ -178,6 +178,9 @@ public final class DevKeys {
         k.add(n(cap, "mosaic_awb_teacher_use", "1", Lang.t("Баланс белого мозаики по «учителю» (своя сетка или сетка камеры с тем же сенсором, смесь с кривой): 1 — только RAW-сессия без 3A ISP (ISZ X200 Ultra), 2 — любой снимок мозаики без маршрута, 0 — только лог",
                 "Mosaic white balance from the teacher (its own grid or a same-sensor camera's, blended with the curve): 1 = only a RAW-only session without the ISP's 3A (X200 Ultra ISZ), 2 = any route-less mosaic photo, 0 = log only")));
         // P212g: whose neutral a vivo mosaic photo takes (W6) and the plain-session colour matrices of mosaic photos (W7)
+        // P599: a converged AWB is no idle ISP
+        k.add(s(cap, "mosaic_awb_moves", true, Lang.t("Баланс белого Quad / Tetra: если AWB камеры в этой сессии менял усиления, замершие усиления на неподвижной сцене — это сошедшийся AWB, а не простаивающий ISP: видоискатель и фото оставляют баланс камеры (выкл — как раньше: через ~2 с неподвижности своя оценка)",
+                "Quad / Tetra white balance: when the camera's AWB moved its gains in this session, gains held on a still scene are a converged AWB, not an idle ISP: the viewfinder and the photo keep the camera's balance (off: as before, our own estimate after ~2 s held still)")));
         k.add(s(cap, "mosaic_awb_resolver", true, Lang.t("vivo FULLRES: баланс белого камеры, если он установился и лежит на кривой камеры; 200 Мп без своего видоискателя — баланс видоискателя обычного режима за секунду до нажатия. Выкл — оценка по кадру (P121) на всех маршрутах",
                 "vivo FULLRES: the camera's white balance when it has converged and lies on the camera's curve; 200 MP without its own viewfinder: the normal-mode viewfinder's balance of the second before the press. Off: the frame estimate (P121) on every route")));
         k.add(n(cap, "mosaic_ccm_table", "2", Lang.t("Снимки мозаики: цветовая матрица ISP из обычного режима этой камеры при том же свете вместо общих матриц DNG. 2: все (и ISZ 12 Мп), 1: только FULLRES, 0: матрицы DNG",
@@ -235,8 +238,18 @@ public final class DevKeys {
         k.add(s(vf, "vf_ring_ref", true, Lang.t("RAW-видоискатель берёт кадр из ячейки ZSL-кольца, без своей копии (выкл — копия из буфера камеры)",
                 "RAW viewfinder takes the frame from its ZSL ring slot, no copy of its own (off: a copy out of the camera's buffer)")));
         // P573: a Tetra frame from its ring slot is drawn as the mosaic itself (no cell means on the camera thread)
-        k.add(s(vf, "vf_tetra_ring", true, Lang.t("RAW-видоискатель Tetra рисует мозаику прямо из ячейки ZSL-кольца, без усреднения на процессоре (выкл — как раньше: средние блоков на каждом кадре)",
-                "Tetra RAW viewfinder draws the mosaic straight from its ZSL ring slot, no averaging on the CPU (off: as before, the cell means of every frame)")));
+        // P597: off by default - the cell means are fast (vf_bin_swar) and off the camera thread (vf_bin_async)
+        k.add(s(vf, "vf_tetra_ring", false, Lang.t("RAW-видоискатель Tetra рисует мозаику прямо из ячейки ZSL-кольца, без усреднения на процессоре: 25 МБ в GPU на каждый кадр и замер по 16 отсчётам на пиксель (выкл — средние блоков, 1.5 МБ)",
+                "Tetra RAW viewfinder draws the mosaic straight from its ZSL ring slot, no averaging on the CPU: 25 MB to the GPU for every frame and a meter of 16 samples a pixel (off: the cell means, 1.5 MB)")));
+        // P597: the cell means summed eight bytes at a time, and binned frames published on the viewfinder's own thread
+        k.add(s(vf, "vf_bin_swar", true, Lang.t("RAW-видоискатель Quad / Tetra: средние блоков считаются по 8 байт за раз (выкл — по одному отсчёту, как раньше; кадр тот же)",
+                "Quad / Tetra RAW viewfinder: the cell means are summed eight bytes at a time (off: sample by sample as before; the same frame)")));
+        k.add(s(vf, "vf_bin_async", true, Lang.t("RAW-видоискатель: кадр, который усредняется или уменьшается, готовится в своём потоке, поток камеры только кладёт его в ZSL-кольцо (выкл — в потоке камеры, как раньше)",
+                "RAW viewfinder: a frame that is binned or halved is prepared on a thread of its own, the camera thread only puts it into the ZSL ring (off: on the camera thread as before)")));
+        k.add(s(vf, "vf_mosaic_wb_async", true, Lang.t("Баланс белого RAW-видоискателя мозаики считается в своём потоке по копии кадра (выкл — в потоке камеры на каждом 12-м кадре: на Tetra ~0.1 с)",
+                "The mosaic RAW viewfinder's white balance is measured on a thread of its own from a copy of the frame (off: on the camera thread every 12th frame: ~0.1 s on Tetra)")));
+        k.add(s(vf, "vf_stage_gpu", false, Lang.t("RAW-видоискатель: в строке VF_RAW «stages» время GPU на кадр (glFinish после кадра; только для замера — сам замедляет видоискатель)",
+                "RAW viewfinder: the GPU's time of a frame in the VF_RAW \"stages\" line (glFinish after the frame; for measuring only - it slows the viewfinder itself)")));
         k.add(s(vf, "zsl_ring_unpack", true, Lang.t("RAW10 / RAW12 распаковывается в ячейку ZSL-кольца при приходе кадра: склейка и видоискатель берут её без копии (выкл — распаковка после нажатия)",
                 "RAW10 / RAW12 is unpacked into the ZSL ring slot as the frame arrives: the merge and the viewfinder take it without a copy (off: unpacked after the press)")));
         k.add(sAuto(vf, "vf_isp_light", Lang.t("Под RAW-видоискателем поток ISP 1440x1080, шумодав и резкость ISP выкл. в повторяющемся запросе (по умолчанию — на OPPO Find X7 Ultra; со следующего открытия камеры)",
@@ -326,6 +339,12 @@ public final class DevKeys {
                 "Quad «Fast»: the block sites' response correction of «Quality» (1 on, 0 the QPC alone)")));
         k.add(n(merge, "hybrid_fast_quad_lattice", "1", Lang.t("Quad «Быстрый»: убирать мелкую решётку 2 / 4 px по яркости после склейки (1 вкл., 0 выкл.)",
                 "Quad «Fast»: take the fine 2 / 4 px lattice off the luma after the merge (1 on, 0 off)")));
+        k.add(n(merge, "hybrid_why_local_contrast", "0.3", Lang.t("Локальный контраст снимка (тон WHY): усиление мелких перепадов яркости слитого изображения, без ореолов у резких краёв (0 выкл., как раньше; 0..1)",
+                "Photo local contrast (WHY tone): the fused luma's small differences boosted, strong edges left alone (0 off, as before; 0..1)")));
+        k.add(n(merge, "hybrid_quad_detail", "1", Lang.t("Quad: детализация ремозаика - «Быстрый» не размывает мелкую текстуру и полосы как шум или решётку, конус вдоль края на движении; «Качество» - тензор структуры по зелёным пикселям (мелкие полосы, фасады), узкий конус на движении (1 вкл., 0 как раньше)",
+                "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
+        k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
+                "«Fast»: the frame's alignment per 4 px block next to a moving subject (a nearby tile's shift close to the surroundings') and its frames where the block matches the base within the noise - a static face beside a walking person stays sharp (2 on, 1 the alignment alone, 0 as before)")));
         k.add(n(merge, "hybrid_mosaic_nat_tile", "2", Lang.t("Quad «Качество»: блоки склейки в общей памяти GPU (0 выкл., 1 всегда, 2 быстрее из двух, замер один раз на телефоне; результат тот же)",
                 "Quad «Quality»: merge blocks in GPU shared memory (0 off, 1 always, 2 the faster of the two, measured once per phone; same result)")));
         k.add(n(merge, "hybrid_gain_measured", null, Lang.t("Измерять усиление кадров (1/0)", "Measure the frames' gain (1/0)")));
@@ -353,8 +372,8 @@ public final class DevKeys {
         // P393: a clipped channel of a coloured surface also takes the local light's colour (scamhdr/scamrgb oppLocalU)
         k.add(s(post, "hybrid_highlight_opposed_local", true, Lang.t("Пересветы без коротких кадров: клипнутый канал цветной поверхности (листва на солнце) по цвету соседних неклипнутых пикселей, а не только по общей поправке кадра (выкл — как раньше: жёлтые листья уходили в оранжевый и розовый)",
                 "Highlights without ultrashort frames: a clipped channel of a coloured surface (sunlit leaves) from the colour of the unclipped pixels around, not the frame's one correction alone (off: as before - yellow leaves went orange and pink)")));
-        k.add(s(post, "hybrid_highlight_landing_async", true, Lang.t("Карта мягких пересветов остаётся на GPU; при включённом логе читается прежняя статистика (выкл — прежний путь)",
-                "Keep the highlight landing map on the GPU; file logging retains the original statistics (off: the original route)")));
+        k.add(s(post, "hybrid_highlight_landing_async", true, Lang.t("Карта мягких пересветов остаётся на GPU; при включённом логе её статистика читается в конце обработки, снимок обрабатывается как без лога (P602; выкл — прежний путь: чтение сразу, пустая карта отбрасывается)",
+                "Keep the highlight landing map on the GPU; with file logging its statistics are read at the end of the processing, the shot is processed as without the log (P602; off: the original route: read at once, an empty map dropped)")));
         k.add(s(post, "snr_cs", true, Lang.t("SNR перед шумодавом одним compute-проходом (тот же результат); выкл — два прохода как раньше",
                 "The SNR before the denoise in one compute pass (the same result); off: the two passes as before")));
         k.add(s(post, "hl_chanprep_cs", true, Lang.t("Цвет пересветов (chanprep) compute-проходом (тот же результат); выкл — фрагментный как раньше",
@@ -459,6 +478,9 @@ public final class DevKeys {
         // P394: the sharpening's overshoot held and the pixel steps smoothed along strong edges
         k.add(n(post, "hybrid_why_edge_hold", "1.0", Lang.t("Тон: на резких границах (рама окна, край лампы на фоне света) резкость сглаживается вдоль границы и не выходит за яркость соседей — без тёмной обводки и лесенки; текстура как раньше; 0 — выкл.",
                 "Tone: at strong edges (a window frame, a lamp's rim against light) the sharpening is smoothed along the edge and held within its neighbours' light - no dark outline, no pixel steps; texture as before; 0: off")));
+        // P595: the Richardson-Lucy halo clamp relative at a dark / bright edge (no white dots on dark objects against the sky)
+        k.add(n(post, "hybrid_why_sharp_rl_edge_guard", "1.0", Lang.t("Резкость: на границе тёмного и светлого (мачты, тросы, рамы на фоне неба или окна) выброс не выходит за яркость соседей — без белых точек и бусин по краю; сила резкости и текстура как раньше; 0 — выкл.",
+                "Sharpening: at a dark / bright edge (masts, cables, frames against the sky or a window) the overshoot stays within its neighbours' light - no white dots or beads along the edge; strength and texture as before; 0: off")));
         k.add(n(post, "hybrid_why_sharp_lattice_cap", "0.005", Lang.t("Резкость: решётка склейки убирается только в пределах этой доли яркости — края не превращаются в пунктир (0 — без ограничения, как раньше)",
                 "Sharpening: the merge's lattice is taken out only within this share of the level - edges no longer turn dashed (0: unclamped, as before)")));
         k.add(n(post, "hybrid_why_night_ev_hi", "6.5", Lang.t("Тон ночью: сцена считается ночной, когда её медиана ниже этого EV (полностью — ниже «нижней границы»); 0 — правило выкл., как раньше",
@@ -565,12 +587,17 @@ public final class DevKeys {
         k.add(s(cap, "oppo_fullres", true, Lang.t("OPPO, OnePlus, realme: FULLRES без аппаратного ремозаика (свои AE и баланс белого; режимы — из таблицы камеры)",
                 "OPPO, OnePlus, realme: FULLRES without hardware remosaic (own AE and white balance; the modes from the camera's table)")));
         // P575: nubia FULLRES / «2×» ISZ through the camera's full-size sensor-mode row (NubiaFullRes)
-        k.add(s(cap, "nubia_maxres", true, Lang.t("nubia: FULLRES без рута через RAW максимального разрешения (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), без ISP-потока; кадры обычного Байера (ремозаик) выключают его",
-                "nubia: FULLRES without root through the maximum-resolution RAW (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), no ISP stream; plain Bayer frames (remosaic) turn it off")));
+        k.add(s(cap, "nubia_maxres", true, Lang.t("nubia: FULLRES без рута через RAW максимального разрешения (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), без ISP-потока; кадры обычного Байера (ремозаик) — следующий способ против ремозаика, все способы дали ремозаик — 50 Мп выключен на этой прошивке",
+                "nubia: FULLRES without root through the maximum-resolution RAW (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), no ISP stream; plain Bayer frames (remosaic) move to the next setting against the remosaic, all of them remosaicked: 50 MP off on this firmware")));
         k.add(s(cap, "nubia_fullres", true, Lang.t("nubia: FULLRES и «2×» ISZ через полноразмерный режим сенсора из таблицы камеры (без ISP-потока, без ремозаика)",
                 "nubia: FULLRES and the «2×» ISZ through the camera's full-size sensor mode from its table (no ISP stream, no remosaic)")));
         k.add(s(cap, "nubia_isz_module", true, Lang.t("nubia: модуль «2×» основной камеры (полноразмерный режим, зум 2)",
                 "nubia: the main camera's «2×» module (the full-size mode, zoom 2)")));
+        // P598: the maximum-resolution FULLRES's settings against the HAL's remosaic (NubiaRemosaicProbe)
+        k.add(n(cap, "nubia_probe_force", "0", Lang.t("nubia 50 Мп: только способ N против ремозаика HAL (1 — без ключей, 2 — стоковые ключи 50 Мп, 3 — стоковый режим QCFA 0x8012, 4–6 — RawCbSourceType 1–3, 7 — EnableXCFAOptimization 1, 8 — EnableIdealRAW 1; результат тоже запоминается); 0 — по очереди, с памятью проб",
+                "nubia 50 MP: only setting N against the HAL's remosaic (1 no keys, 2 the stock 50 MP keys, 3 the stock QCFA mode 0x8012, 4–6 RawCbSourceType 1–3, 7 EnableXCFAOptimization 1, 8 EnableIdealRAW 1; its verdict is kept too); 0 = one after another, with the trials' memory")));
+        k.add(s(cap, "nubia_probe_reset", false, Lang.t("nubia 50 Мп: при каждом запуске забывать пробы способов против ремозаика HAL (снова с первого)",
+                "nubia 50 MP: forget the trials of the settings against the HAL's remosaic at every app start (from the first again)")));
         // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)
         k.add(s(cap, "oplus_table_fallback", true, Lang.t("OnePlus 16: таблица режимов сенсора из отчёта SCAM TEST, если камера не отдаёт её в Java",
                 "OnePlus 16: the sensor-mode table of the SCAM TEST report when the camera gives none to Java")));
@@ -580,8 +607,15 @@ public final class DevKeys {
                 "OnePlus 16: the ISZ modules of the main camera and the tele (mode 11, the sensor's Quad without remosaic, no ISP stream)")));
         k.add(s(cap, "oplus_mode_watch", true, Lang.t("OnePlus 16: проверка режима сенсора по результатам (ISZ, DCG, FULLRES; не тот режим — откат)",
                 "OnePlus 16: the sensor mode checked in the results (ISZ, DCG, FULLRES; another mode falls back)")));
-        k.add(s(cap, "oplus_dcg", true, Lang.t("OnePlus 16: кнопка DCG (основная, режим 28) и DAG (телевик, режим 2 / 4)",
-                "OnePlus 16: the DCG button (main, mode 28) and DAG (tele, mode 2 / 4)")));
+        k.add(s(cap, "oplus_dcg", true, Lang.t("OnePlus 16: кнопка DCG (основная, режимы 28, 38) и DAG (телевик: режимы 17, 8, 2, 4, 14, 15 по очереди)",
+                "OnePlus 16: the DCG button (main, modes 28, 38) and DAG (tele: modes 17, 8, 2, 4, 14, 15 in turn)")));
+        // P593: after the owner's first log (2026-11-09)
+        k.add(s(cap, "oplus_dcg_depth", true, Lang.t("OnePlus 16, DCG / DAG: режим должен доказать RAW шире объявленных 10 бит (иначе — следующий режим, затем выкл)",
+                "OnePlus 16, DCG / DAG: a mode has to prove a RAW wider than the declared 10 bit (else the next mode, then off)")));
+        k.add(n(cap, "oplus_dcg_row", "-1", Lang.t("OnePlus 16, DCG / DAG: один режим сенсора вручную (номер строки таблицы; -1 — кандидаты по очереди)",
+                "OnePlus 16, DCG / DAG: one sensor mode by hand (the table's row number; -1 — the candidates in turn)")));
+        k.add(s(cap, "oplus_dead_rows_last", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 9 (камера падала) после режима 25. Выкл — по порядку таблицы",
+                "OnePlus 16, main, 50 MP: mode 9 (the camera died in it) after mode 25. Off — in the table's order")));
         k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",
                 "OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 on the session and every request (where the camera lists it)")));
         k.add(s(cap, "oplus_cropped_raw", false, Lang.t("OPPO, OnePlus, realme: CROPPED_RAW (ISZ самого HAL — аппаратный ремозаик). Выкл по умолчанию",
@@ -734,6 +768,8 @@ public final class DevKeys {
                 "GPU time per processing program without the syncs (P479b, to the log)")));
         k.add(s(diag, "diag_sync", false, Lang.t("Диагностика: превью этапов считаются и пишутся на потоке обработки, как до P371 (выкл — в фоне, снимок не ждёт)",
                 "Diagnostics: the stage previews are computed and written on the processing thread, as before P371 (off: in the background, the shot does not wait)")));
+        k.add(s(diag, "diag_gpu_async", true, Lang.t("Диагностика: превью этапов на GPU копируются отдельным проходом и читаются позже, обработка не ждёт GPU (P602; выкл — чтение сразу после этапа, как раньше)",
+                "Diagnostics: the GPU stages' previews are copied by a pass of their own and read later, the processing does not wait for the GPU (P602; off: read right after the stage, as before)")));
         k.add(s(diag, "post_ab", false, Lang.t("A/B обработки: старый и новый конвейер на одном снимке", "Processing A/B: old and new pipeline on one shot")));
         k.add(s(diag, "post_ab_clamp", false, Lang.t("A/B: прежнее ограничение входа", "A/B: the former input clamp")));
         k.add(s(diag, "early_release", false, Lang.t("Ранний возврат текстур обработки при любом размере (как выше 100 Мп; для A/B)",

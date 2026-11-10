@@ -104,9 +104,11 @@ public final class LiveRawFrame {
     static final long SPARSE_BIN_PIXELS = 100_000_000L;
     private static int sparseLogged;
     private static final long QUAD_BIN_INTERVAL_NS = 150_000_000L;
-    private static long quadAtNs;
+    private static volatile long quadAtNs; // P597: the camera thread's and the hand-off thread's (never both at once)
     /** P188: how long the last binning took (ns). */
     private static volatile long lastBinNs;
+    /** P597: the last bin summed its rows as longs ({@link #wideRows}). */
+    private static volatile boolean lastBinWide;
 
     /**
      * P188 (owner, 2026-10-17: the 50 MP FULLRES viewfinder ran at ~7 fps «как при 200мп», it must run at 30): the camera thread
@@ -167,23 +169,51 @@ public final class LiveRawFrame {
             new com.particlesdevs.photoncamera.util.ParallelWork.Own("SCAMERA-vf-bin", 3);
 
     static synchronized ByteBuffer binMosaic(ByteBuffer plane, int w, int h, int stride, int format, int block, boolean sparse) {
+        return binMosaic(plane, w, h, stride, format, block, sparse,
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_bin_swar", true));
+    }
+
+    /** P597: the two 32-bit halves of a long that each take the sum of two 16-bit samples ({@link #wideRows}). */
+    private static final long LANES = 0x0000FFFF0000FFFFL;
+
+    /**
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»): whether the cell means are summed eight bytes at a time. A
+     * Tetra cell's row is four 16-bit samples - one long; the long's samples are added in two 32-bit halves ((v & LANES) + ((v
+     * >>> 16) & LANES): no carry reaches a neighbour, 8 x 65535 fits), the four rows of the cell the same, and the halves' sum is
+     * the cell's 16 samples: 4 reads and ~12 operations a cell where the per-site loop takes 16 reads behind 16 masks and index
+     * checks (10.6 - 12.8 ms a 4080 x 3072 Tetra frame on three threads, VF_RAW "copy vf" of the 2026-11-09 log). A Quad cell is
+     * half a long: the low half is one cell's row, the high half the next one's. The same sums, the same rounding: the same
+     * frame bit for bit (LiveRawQuadBinTest). Rows of whole longs only ({@code rowBytes} a multiple of 8: 8160 for 4080 px, a
+     * padded 8192 too) on a little-endian machine (the low half is the first two samples); else the per-site rows as before.
+     */
+    static boolean wideRows(int block, boolean sparse, int w, int rowBytes, boolean wanted) {
+        return wanted && !sparse && (block == 2 || block == 4) && (w & 3) == 0 && (rowBytes & 7) == 0
+                && ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN;
+    }
+
+    /** {@link #binMosaic(ByteBuffer, int, int, int, int, int, boolean)}; {@code swar}: scam_dev vf_bin_swar ({@link #wideRows}). */
+    static synchronized ByteBuffer binMosaic(ByteBuffer plane, int w, int h, int stride, int format, int block, boolean sparse, boolean swar) {
         final int cell = block == 1 ? 2 : block;
         if (plane == null || (block != 1 && block != 2 && block != 4) || (block == 1 && !sparse) || w < cell * 2 || h < cell * 2
                 || w % (cell * 2) != 0 || h % (cell * 2) != 0 || (long) w * h * 2 > Integer.MAX_VALUE) return null;
         final long callStart = System.nanoTime(); // P188: the unpack of a packed frame counts too
         final java.nio.ShortBuffer src;
+        final ByteBuffer srcBytes;
         final int srcRow;
         if (com.particlesdevs.photoncamera.util.RawUnpack.isPacked(format)) {
             if (quadFull == null || quadFull.capacity() < w * h * 2) quadFull = ByteBuffer.allocateDirect(w * h * 2).order(ByteOrder.nativeOrder());
             quadFull.clear();
             if (!com.particlesdevs.photoncamera.util.RawUnpack.unpack(plane.duplicate(), format, w, h, stride, quadFull)) return null;
-            src = quadFull.duplicate().order(ByteOrder.nativeOrder()).asShortBuffer();
+            srcBytes = quadFull.duplicate().order(ByteOrder.nativeOrder());
+            srcBytes.clear();
+            src = srcBytes.asShortBuffer();
             srcRow = w;
         } else {
             if ((stride & 1) != 0 || (long) (h - 1) * stride + w * 2L > plane.remaining()) return null;
             ByteBuffer b = plane.duplicate().order(ByteOrder.nativeOrder());
             b.position(plane.position());
-            src = b.slice().order(ByteOrder.nativeOrder()).asShortBuffer();
+            srcBytes = b.slice().order(ByteOrder.nativeOrder());
+            src = srcBytes.asShortBuffer();
             srcRow = stride / 2;
         }
         final int bw = w / cell, bh = h / cell;
@@ -198,6 +228,44 @@ public final class LiveRawFrame {
         final java.nio.ShortBuffer source = src, target = out;
         final int rows = sparse ? (block == 4 ? 2 : 1) : block, first = sparse && block == 4 ? 1 : 0;
         final int span = block == 1 ? w - 2 : sparse ? w - 1 : w;
+        final boolean wide = wideRows(block, sparse, w, srcRow * 2, swar);
+        lastBinWide = wide;
+        if (wide) {
+            // P597: a cell's row is one long (Tetra) or half a long (Quad): the rows as longs, their samples added in two halves
+            final java.nio.LongBuffer longs = srcBytes.asLongBuffer();
+            final int rowLongs = srcRow / 4, lw = w / 4;
+            BIN_WORK.forEach(chunks, chunk -> {
+                final java.nio.LongBuffer in = longs.duplicate();
+                final java.nio.ShortBuffer put = target.duplicate();
+                final long[][] line = new long[block][lw];
+                final short[] row = new short[bw];
+                for (int y = bh * chunk / chunks; y < bh * (chunk + 1) / chunks; y++) {
+                    for (int r = 0; r < block; r++) {
+                        in.position((block * y + r) * rowLongs);
+                        in.get(line[r], 0, lw);
+                    }
+                    if (block == 4) {
+                        final long[] a = line[0], b = line[1], c = line[2], d = line[3];
+                        for (int x = 0; x < lw; x++) {
+                            final long p = a[x], q = b[x], u = c[x], v = d[x];
+                            final long t = (p & LANES) + ((p >>> 16) & LANES) + (q & LANES) + ((q >>> 16) & LANES)
+                                    + (u & LANES) + ((u >>> 16) & LANES) + (v & LANES) + ((v >>> 16) & LANES);
+                            row[x] = (short) (((int) t + (int) (t >>> 32) + 8) >>> 4);
+                        }
+                    } else {
+                        final long[] a = line[0], b = line[1];
+                        for (int x = 0; x < lw; x++) {
+                            final long p = a[x], q = b[x];
+                            final long t = (p & LANES) + ((p >>> 16) & LANES) + (q & LANES) + ((q >>> 16) & LANES);
+                            row[2 * x] = (short) (((int) t + 2) >>> 2);
+                            row[2 * x + 1] = (short) (((int) (t >>> 32) + 2) >>> 2);
+                        }
+                    }
+                    put.position(y * bw);
+                    put.put(row, 0, bw);
+                }
+            });
+        } else
         BIN_WORK.forEach(chunks, chunk -> {
             final java.nio.ShortBuffer in = source.duplicate(), put = target.duplicate();
             final short[][] line = new short[rows][span];
@@ -237,6 +305,7 @@ public final class LiveRawFrame {
             }
         });
         lastBinNs = System.nanoTime() - callStart;
+        VfStages.note(VfStages.Stage.BIN, lastBinNs);
         if (sparse && ++sparseLogged % 20 == 1)
             android.util.Log.i("LiveRawFrame", (block == 4 ? "200 MP viewfinder bin (centre 2x2 of each block)" : block == 1
                     ? "50 MP Bayer viewfinder bin (one 2x2 quad of each 4x4)" : "50 MP viewfinder bin (one site of each cell)")
@@ -400,6 +469,7 @@ public final class LiveRawFrame {
 
     /** P365: a ring copy (CaptureController.ringFrameLocked) took {@code ns}. */
     public static void noteRingCopy(long ns) {
+        VfStages.note(VfStages.Stage.RING, ns); // P597: with its maximum, on the camera thread's line
         synchronized (STATS) {
             rollLocked(System.nanoTime());
             ringCopySumNs += Math.max(0, ns);
@@ -454,7 +524,8 @@ public final class LiveRawFrame {
     public static boolean takesFrame() {
         synchronized (LOCK) {
             if (!enabled) return false;
-            if (!pending(readyFresh, System.nanoTime() - publishedNanos)) return true;
+            // P597: the hand-off thread still bins the frame before this one (it is the next frame on the screen)
+            if (!HANDOFF_BUSY.get() && !pending(readyFresh, System.nanoTime() - publishedNanos)) return true;
             dropped++;
             return false;
         }
@@ -560,14 +631,104 @@ public final class LiveRawFrame {
      * {@link #takesFrame()} before it read the frame's metadata. Every view is freed exactly once: here, at acquire, or at a disable.
      */
     public static void publishRef(ByteBuffer view, Meta m) {
+        publishRef(view, m, System.nanoTime());
+    }
+
+    /** {@link #publishRef(ByteBuffer, Meta)} of a hand-off that began at {@code startNs}. */
+    private static void publishRef(ByteBuffer view, Meta m, long startNs) {
         if (view == null) return;
         boolean pinned = false;
         try {
             if (m != null) pinned = publishFrame(view, m.width, m.height, m.rowStride, m.cfa, m.white, m.black, m.gains, m.ccm, m.shading,
                     m.shadingWidth, m.shadingHeight, m.crop, m.block, m.sensorIso, m.analogIso, m.automatic, m.shotNoise, m.readNoise, m.format,
-                    m.minGain, m.maxGain, m.sceneLuma, false, true, System.nanoTime(), exposureOf(m), m.portraitFaceDetected, m.portraitFaces);
+                    m.minGain, m.maxGain, m.sceneLuma, false, true, startNs, exposureOf(m), m.portraitFaceDetected, m.portraitFaces);
         } finally {
             if (!pinned) free(view);
+        }
+    }
+
+    /** P597: one frame at a time is with the hand-off thread ({@link #publishRef(ByteBuffer, Meta, Runnable)}). */
+    private static final java.util.concurrent.atomic.AtomicBoolean HANDOFF_BUSY = new java.util.concurrent.atomic.AtomicBoolean();
+    private static java.util.concurrent.ExecutorService handoff;
+    /** P597: tests run the hand-off themselves (null: the viewfinder's own thread). */
+    static volatile java.util.concurrent.Executor handoffHook;
+
+    private static java.util.concurrent.Executor handoff() {
+        final java.util.concurrent.Executor hook = handoffHook;
+        if (hook != null) return hook;
+        synchronized (LiveRawFrame.class) {
+            if (handoff == null) handoff = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                final Thread t = new Thread(r, "SCAMERA-vf-handoff");
+                t.setDaemon(true);
+                // the frame the screen waits for: above the bin's helpers and the merge's CPU passes, as the display's threads
+                t.setPriority(Thread.NORM_PRIORITY + 2);
+                return t;
+            });
+            return handoff;
+        }
+    }
+
+    /**
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»): whether a frame's hand-off is a pass over its samples on the
+     * CPU - the cell means of a Quad / Tetra frame, the 50 / 200 MP bins, the halvings of the module's viewfinder size
+     * ({@link #setMaxLongSide}) - rather than a ring slot drawn where it is. Such a frame from its ring slot goes to the
+     * viewfinder's own thread ({@link #publishRef(ByteBuffer, Meta, Runnable)}): the camera thread only copied it into the ring.
+     */
+    static boolean handsOff(int w, int h, int block, int cap, int format, int stride, boolean tetraInPlace, boolean wanted) {
+        if (!wanted) return false;
+        final int bin = block == 2 || block == 4 ? block : 1;
+        if (binsCellMeans(w, h, bin, cap)) return !drawsMosaicInPlace(bin, true, format, w, stride, tetraInPlace);
+        if (binsLarge(w, h, bin, cap)) return true;
+        return bin == 1 && halvings(w, h, cap) > 0;
+    }
+
+    /** P108 / P194: a 50 / 200 MP frame (a mosaic's cells, a plain Bayer frame's quads) is binned for the viewfinder. */
+    static boolean binsLarge(int w, int h, int bin, int cap) {
+        final int cell = bin == 1 ? 2 : bin;
+        return cap != -1 && (long) w * h >= QUAD_BIN_PIXELS && w % (cell * 2) == 0 && h % (cell * 2) == 0;
+    }
+
+    /**
+     * P597: {@link #publishRef(ByteBuffer, Meta)} that keeps the camera thread free - a frame whose hand-off is a CPU pass
+     * ({@link #handsOff}) is binned and published on the viewfinder's own thread (SCAMERA-vf-handoff; scam_dev vf_bin_async 0: on
+     * the caller, as before), any other frame at once as before. {@code published} runs when the frame's hand-off is over, on the
+     * thread that did it (the caller asks for the draw there: asked before, the GL thread would draw the frame before again and
+     * nothing would ask for this one). One frame at a time: while a hand-off runs the next frame is not taken
+     * ({@link #takesFrame}; a frame handed over all the same is dropped and counted). The view is freed exactly once, as before -
+     * the ring's memfd stays mapped while a view of it lives (Allocator.arenaRelease), so a ring closed meanwhile is safe.
+     */
+    public static void publishRef(ByteBuffer view, Meta m, Runnable published) {
+        if (view == null) return;
+        final long startNs = System.nanoTime();
+        if (m == null || !handsOff(m.width, m.height, m.block, maxLongSide, m.format, m.rowStride,
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_tetra_ring", false),
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_bin_async", true))) {
+            try {
+                publishRef(view, m, startNs);
+            } finally {
+                if (published != null) published.run();
+            }
+            return;
+        }
+        if (!HANDOFF_BUSY.compareAndSet(false, true)) {
+            // the caller did not ask takesFrame (or lost a race with it): the frame before is still being binned
+            free(view);
+            synchronized (LOCK) { dropped++; }
+            VfStages.handoffBusy();
+            return;
+        }
+        final Runnable work = () -> {
+            try {
+                publishRef(view, m, startNs);
+            } finally {
+                HANDOFF_BUSY.set(false);
+                if (published != null) published.run();
+            }
+        };
+        try {
+            handoff().execute(work);
+        } catch (RuntimeException rejected) {
+            work.run(); // no thread: on the caller, as before
         }
     }
 
@@ -590,6 +751,11 @@ public final class LiveRawFrame {
      * Bayer frame of the same phone), on all of the bin's threads 30 times a second. rawdevelop_fs draws the mosaic one colour
      * per 2 x 2 of its cell means (getFastColor): the same picture (P314), with no CPU pass and no copy. A frame that is copied
      * anyway (no slot, packed, the pinned views full) keeps P314's cell means. scam_dev vf_tetra_ring 0: cell means as before.
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»): off by default (vf_tetra_ring 1: this path). The mosaic drawn
+     * in place moved the cost to the GL thread - 25 MB uploaded for every frame where the cell means are 1.5 MB, LiveWhyMeter's AE
+     * cells 16 samples a macro pixel on every second frame (3.1 M reads spread over 196 k rows of the 24 MB slot against 196 k
+     * reads of the cell means), rawdevelop_fs 64 texel fetches a tone pixel against 4 - and padded rows (a stride other than
+     * 2 w) never took it at all. The cell means are cheap now ({@link #wideRows}) and off the camera thread ({@link #handsOff}).
      */
     static boolean drawsMosaicInPlace(int block, boolean pin, int format, int w, int stride, boolean wanted) {
         return wanted && pin && block == 4 && format == android.graphics.ImageFormat.RAW_SENSOR && stride == w * 2;
@@ -603,6 +769,7 @@ public final class LiveRawFrame {
                                float minGain,float maxGain,boolean sceneLuma,boolean means,boolean pin,long startNs,long exposureTimeNs,
                                boolean faceDetected,float[] faces){
         if (!enabled || plane == null) return false;
+        if (!means) pendingSource = null; // P597: a bin whose frame was not published names no later frame
         // P108: a full-resolution Quad-Bayer frame (Pixel 10 Pro: 8160x6144 RAW10, the ISP's own viewfinder is green in that
         // mode) is shown 2x2-binned as the plain Bayer 4080x3072, at most every QUAD_BIN_INTERVAL_NS (the camera thread); P194 a
         // plain Bayer frame as large (the hardware-remosaic FULLRES) one 2x2 quad of each 4x4, the same (w/2) x (h/2)
@@ -610,13 +777,16 @@ public final class LiveRawFrame {
         final int bin = block == 2 || block == 4 ? block : 1, cell = bin == 1 ? 2 : bin;
         final int cap = maxLongSide;
         final boolean cellMeans = !means && binsCellMeans(w, h, bin, cap) && !drawsMosaicInPlace(bin, pin, format, w, stride,
-                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_tetra_ring", true));
-        if (!means && (cellMeans || (cap != -1 && (long) w * h >= QUAD_BIN_PIXELS && w % (cell * 2) == 0 && h % (cell * 2) == 0))) {
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_tetra_ring", false));
+        if (!means && (cellMeans || binsLarge(w, h, bin, cap))) {
             final long now = System.nanoTime();
             if (now - quadAtNs < paceNs(cellMeans, (long) w * h, lastBinNs)) return false;
             quadAtNs = now;
             ByteBuffer binned = binMosaic(plane, w, h, stride, format, bin);
             if (binned == null) return false;
+            // P597: what the frame on the screen was made of (VF_RAW "stages")
+            pendingSource = w + "x" + h + " stride " + stride + " fmt " + format + " block " + bin + " -> "
+                    + (cellMeans ? "cell means " : "bin ") + w / cell + "x" + h / cell + (lastBinWide ? " swar" : " rows");
             // P365: a ring view was read by the bin (cached memory) and is not kept
             publishFrame(binned, w / cell, h / cell, w / cell * 2, cfa, white, black, gains, ccm, lensShading, sw, sh, cropRect, 1, sensorIso, analogIso,
                     automatic, shotNoise, readNoise, android.graphics.ImageFormat.RAW_SENSOR, minGain, maxGain, sceneLuma, cellMeans, false, startNs,
@@ -627,6 +797,7 @@ public final class LiveRawFrame {
         // packed RAW10 / RAW12 frame too (unpacked first: the X8U's default raw10, RAW10-only lenses), and a Quad / Tetra frame's
         // cell means (P314: one Bayer site a cell, halved as any Bayer frame) - the steps used to change only 16-bit plain Bayer
         final boolean packedIn = com.particlesdevs.photoncamera.util.RawUnpack.isPacked(format);
+        final int sourceStride = stride, sourceFormat = format; // P597: for VF_RAW "stages"
         if (cap > 0 && bin == 1 && (packedIn
                 ? (long) (h - 1) * stride + com.particlesdevs.photoncamera.util.RawUnpack.packedRowBytes(format, w) <= plane.remaining()
                         && (long) w * h * 2 <= Integer.MAX_VALUE
@@ -781,9 +952,19 @@ public final class LiveRawFrame {
             version++;
         }
         if (replaced != null) free(replaced);
-        noteVfCopy(System.nanoTime() - startNs);
+        final long took = System.nanoTime() - startNs;
+        noteVfCopy(took);
+        // P597: the hand-off's time on its thread (the camera's, or SCAMERA-vf-handoff) and what the frame was made of
+        VfStages.note(VfStages.Stage.HANDOFF, took);
+        final String made = pendingSource;
+        pendingSource = null;
+        VfStages.source(made != null ? made : w + "x" + h + " stride " + sourceStride + " fmt " + sourceFormat + " block " + block
+                + (pin ? " -> in place (ring slot)" : " -> copied"));
         return pin;
     }
+
+    /** P597: the source of the binned frame being published (set by the outer publishFrame, taken by the inner one). */
+    private static volatile String pendingSource;
 
     /**
      * Snapshot for the GL thread; null when nothing has been published. P314: a new frame changes places with the GL thread's

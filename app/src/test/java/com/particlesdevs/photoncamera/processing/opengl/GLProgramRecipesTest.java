@@ -157,4 +157,24 @@ public class GLProgramRecipesTest {
         assertTrue("asset recipes still kept after the generated ones", all > 0);
         assertFalse("once a process", GLProg.recordable(GLProg.recipe('A', "p" + run + "_0", false, null)));
     }
+    /**
+     * P602: a program compiled in a shot is named in the run's line with its node, its asset and its defines in order (the compute
+     * layout left out, a value only when it is not 1, long values cut), so a log tells which variant cost the time.
+     */
+    @Test public void aCompiledProgramIsNamedWithItsNodeAndDefines() {
+        assertEquals("WhyCombine:why/combine{HL_LANDING,SKY,GAMMA_TYPE=2}", GLProg.compiledName("WhyCombine", "why/combine",
+                defines("HL_LANDING", "1", "SKY", "1", "GAMMA_TYPE", "2")));
+        assertEquals("hlrecovery/chanprep_cs{X}", GLProg.compiledName(null, "hlrecovery/chanprep_cs",
+                defines("LAYOUT", "layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;", "X", "1")));
+        assertEquals("ScamRgb:scamhdr/halfrgba", GLProg.compiledName("ScamRgb", "scamhdr/halfrgba",
+                defines("LAYOUT", "layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;")));
+        assertEquals("final output:source", GLProg.compiledName("final output", null, null));
+        assertEquals("a{V=0.1234567890~}", GLProg.compiledName(null, "a", defines("V", "0.12345678901234")));
+        // bounded: forty defines give one line of about 160 characters ending in "..."
+        final ArrayList<String[]> many = new ArrayList<>();
+        for (int i = 0; i < 40; i++) many.add(new String[]{"DEFINE_" + i, "1"});
+        final String name = GLProg.compiledName("WhyCombine", "why/combine", many);
+        assertTrue(name, name.length() < 180);
+        assertTrue(name, name.endsWith("...}"));
+    }
 }

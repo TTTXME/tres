@@ -281,11 +281,10 @@ public class TunablePreferenceGenerator {
             pngPref.setTitle(title(annotation.title()));
             pngPref.setAllowedPngSizes(annotation.allowedPngSizes());
 
-            if (!annotation.description().isEmpty()) {
-                pngPref.setSummary(description(annotation.description()));
-            } else {
-                pngPref.setSummary(Lang.t(context, "Не выбран", "None selected"));
-            }
+            // P592: the row's line is its state (the chosen file), its description is the long press
+            if (!annotation.description().isEmpty()) com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(pngPref, description(annotation.description()));
+            com.particlesdevs.photoncamera.ui.settings.SettingHelp.summaryIsState(pngPref);
+            pngPref.setSummary(Lang.t(context, "Не выбран", "None selected"));
 
             category.addPreference(pngPref);
 
@@ -339,6 +338,7 @@ public class TunablePreferenceGenerator {
         });
 
         String description = description(annotation.description());
+        if (!description.isEmpty()) com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(editText, description);   // P592
         editText.setSummaryProvider(preference -> {
             String value = editText.getText();
             String display = value != null ? value : formatDefault(defaultValue, fieldType);
@@ -382,6 +382,8 @@ public class TunablePreferenceGenerator {
         if (defaultValue == null) defaultValue = annotation.entryValues()[0];
         listPref.setDefaultValue(defaultValue);
         listPref.setSummaryProvider(ListPreference.SimpleSummaryProvider.getInstance());
+        // P592: the summary is the value (shown on the right); the description is the long press
+        if (!annotation.description().isEmpty()) com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(listPref, description(annotation.description()));
 
         category.addPreference(listPref);
         // addPreference() only persists the default on first run; for a key added to an

@@ -108,9 +108,7 @@ public class ProfilesPreference extends Preference {
         int accent = SettingsStyle.accent(c);
         p.removeAllViews();
         openPanel = null;
-        p.addView(LutChangesPreference.noteView(c, Lang.t(c,
-                "Профиль — это все настройки камеры в одном файле. Удобно держать отдельный для ночи или портретов.",
-                "A profile is every camera setting in one file. Handy to keep one for the night or for portraits.")));
+        // P592: «Профиль — это все настройки камеры в одном файле…» is the page's long press (help_backup)
         // «Сейчас»
         p.addView(FilmLutPreference.groupTitle(c, Lang.t(c, "Сейчас", "Now"), accent), titleParams(c));
         LinearLayout now = card(c);
@@ -159,10 +157,16 @@ public class ProfilesPreference extends Preference {
         if (!open && folderOpener != null) {
             LinearLayout folder = card(c);
             TextView go = SettingsStyle.text(c, Lang.t(c, "Открыть", "Open"), 13, accent);
-            folder.addView(row(c, Lang.t(c, "Открыть папку конфигов", "Open the config folder"),
-                    Lang.t(c, "Один раз: конфиги, закинутые в Download/SCAMERA/XML вручную, появятся в списке",
-                            "Once: configs put into Download/SCAMERA/XML by hand show up in the list"), go, "profiles_open_folder",
-                    folderOpener));
+            final View folderRow = row(c, Lang.t(c, "Открыть папку конфигов", "Open the config folder"), null, go, "profiles_open_folder",
+                    folderOpener);
+            // P592: what the row is for - its long press
+            folderRow.setOnLongClickListener(v -> {
+                com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(v.getContext(), Lang.t(c, "Открыть папку конфигов", "Open the config folder"),
+                        Lang.t(c, "Достаточно один раз разрешить доступ к папке. После этого конфиги, которые вы сами положили в Download/SCAMERA/XML, появятся в списке.",
+                                "Allow access to the folder once. After that the configs you put into Download/SCAMERA/XML yourself show up in the list."));
+                return true;
+            });
+            folder.addView(folderRow);
             LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             fp.topMargin = UiTokens.dp(c, 10);
             p.addView(folder, fp);

@@ -25,6 +25,10 @@ int main() {
     const HybridTuning d;
     assert(d.baseDemosaicNeutral == 1.f);
     assert(d.wbR == 0.f && d.wbB == 0.f);
+    // P596: Quad detail defaults; the app's "hybrid_quad_detail 0" sends the values of before
+    assert(d.baseDemosaicQuadRadius == 1.8f && d.fastQuadFlatNoise == 1.5f && d.fastQuadLineFrames == 8.f && d.fastQuadCone == 1.2f && d.mosaicQuadFine == 64.f && d.mosaicQuadTexture == 0.5f && d.mosaicQuadTextureFrames == 24.f);
+    // P601: the fast route's flow pick and static rescue on by default; the app's "hybrid_fast_flow_pick 0" sends fastFlowPick 0
+    assert(d.fastFlowPick == 2);
 
     const char* tmp = std::getenv("TMPDIR");
     std::string tmpl = std::string(tmp && *tmp ? tmp : "/tmp") + "/hybrid-neutral-XXXXXX";
@@ -32,10 +36,12 @@ int main() {
     if (!mkdtemp(dir)) { std::perror("mkdtemp"); return 1; }
     {
         std::ofstream f(std::string(dir) + "/hybrid_tuning.txt");
-        f << "baseDemosaicNeutral 0\nwbR 0.4787\nwbB 0.6535\n";
+        f << "baseDemosaicNeutral 0\nwbR 0.4787\nwbB 0.6535\nfastQuadFlatNoise 0\nfastQuadLineFrames 0\nbaseDemosaicQuadRadius 2.2\nfastQuadCone 0\nmosaicQuadFine 0\nmosaicQuadTexture 1\nfastFlowPick 0\n";
     }
     const HybridTuning t = loadHybridTuning(dir, [](const std::string&) {});
     assert(t.baseDemosaicNeutral == 0.f && t.wbR == 0.4787f && t.wbB == 0.6535f);
+    assert(t.fastQuadFlatNoise == 0.f && t.fastQuadLineFrames == 0.f && t.baseDemosaicQuadRadius == 2.2f && t.fastQuadCone == 0.f && t.mosaicQuadFine == 0.f && t.mosaicQuadTexture == 1.f);
+    assert(t.fastFlowPick == 0);
     std::remove((std::string(dir) + "/hybrid_tuning.txt").c_str());
     rmdir(dir);
 

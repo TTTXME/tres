@@ -62,22 +62,29 @@ public class CameraSheetsTest {
         BottomSheetDialog d = CameraSheets.format(activity, offered, FormatChoice.JPEG, PhotoFormat.JPEG, stored::add);
         View content = d.findViewById(android.R.id.content).findViewWithTag("format_sheet");
         assertNotNull(content);
-        ViewGroup photo = (ViewGroup) ((ViewGroup) content).getChildAt(1), raw = (ViewGroup) ((ViewGroup) content).getChildAt(4);
+        ViewGroup photo = content.findViewWithTag("format_photo"), raw = content.findViewWithTag("format_raw");
         assertEquals(4, photo.getChildCount());
         assertEquals(3, raw.getChildCount());
+        // P592 (the owner's crossed-out «Формат файла»): the two controls under their captions and nothing else - no hint lines,
+        // no «Сохранится» card, no note
+        assertEquals(4, ((ViewGroup) content).getChildCount());
+        assertNull(content.findViewWithTag("format_summary"));
+        assertNull(content.findViewWithTag("format_photo_line"));
         photo.getChildAt(1).performClick();   // HEIC
-        content = d.findViewById(android.R.id.content).findViewWithTag("format_sheet");
-        raw = (ViewGroup) ((ViewGroup) content).getChildAt(4);
         raw.getChildAt(1).performClick();     // + RAW
-        content = d.findViewById(android.R.id.content).findViewWithTag("format_sheet");
         assertEquals(Arrays.asList(FormatChoice.HEIC, FormatChoice.RAW_HEIC), stored);
-        assertTrue(((TextView) content.findViewWithTag("format_summary")).getText().toString().endsWith("RAW (DNG) + HEIC"));
-        raw = (ViewGroup) ((ViewGroup) content).getChildAt(4);
+        // TalkBack still hears what is saved and what each choice means
+        assertTrue(String.valueOf(content.getContentDescription()), String.valueOf(content.getContentDescription()).endsWith("RAW (DNG) + HEIC"));
+        assertEquals("HEIC, " + CameraSheets.photoLine(activity, PhotoFormat.HEIC), String.valueOf(photo.getChildAt(1).getContentDescription()));
+        // the hints are the controls' long press: the settings' help sheet
+        assertTrue(raw.getChildAt(0).performLongClick());
+        android.app.Dialog help = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull(help.getWindow().getDecorView().findViewWithTag("setting_help"));
+        assertTrue(String.valueOf(((TextView) help.getWindow().getDecorView().findViewWithTag("help_text")).getText()).contains("Lightroom"));
+        help.dismiss();
         raw.getChildAt(2).performClick();     // Только RAW
-        content = d.findViewById(android.R.id.content).findViewWithTag("format_sheet");
-        photo = (ViewGroup) ((ViewGroup) content).getChildAt(1);
         assertFalse("the photo control is disabled", photo.getChildAt(0).isEnabled());
-        assertEquals("Не сохраняется: выбрано «Только RAW»", ((TextView) content.findViewWithTag("format_photo_line")).getText().toString());
+        assertEquals("Не сохраняется: выбрано «Только RAW»", String.valueOf(androidx.core.view.ViewCompat.getStateDescription(photo)));
         assertEquals(FormatChoice.RAW, stored.get(stored.size() - 1));
         assertTrue("selecting does not close it", d.isShowing());
         render(content.getRootView(), "format-sheet.png");
@@ -133,10 +140,11 @@ public class CameraSheetsTest {
         tabs.getChildAt(1).performClick();
         assertEquals("a new page would start from alpha 0", 1f, sizes.getAlpha(), 0f);
         ViewGroup normal = root.findViewWithTag("size_" + PhotoSize.NORMAL), full = root.findViewWithTag("size_" + PhotoSize.FULL);
-        // TalkBack hears the row's subtitle too (why a size is unavailable, what it saves)
+        // P592: an available size shows its name alone (what it gives is its long press); TalkBack still hears both
         ViewGroup fullTexts = (ViewGroup) full.getChildAt(0);
-        assertEquals(((android.widget.TextView) fullTexts.getChildAt(0)).getText() + ", " + ((android.widget.TextView) fullTexts.getChildAt(1)).getText(),
-                full.getContentDescription().toString());
+        assertEquals(1, fullTexts.getChildCount());
+        assertTrue(full.getContentDescription().toString(), full.getContentDescription().toString().startsWith(
+                ((android.widget.TextView) fullTexts.getChildAt(0)).getText() + ", "));
         assertTrue("the chosen size is ticked", normal.isSelected());
         assertEquals(View.VISIBLE, normal.getChildAt(normal.getChildCount() - 1).getVisibility());
         assertEquals("no tick on the others", View.INVISIBLE, full.getChildAt(full.getChildCount() - 1).getVisibility());

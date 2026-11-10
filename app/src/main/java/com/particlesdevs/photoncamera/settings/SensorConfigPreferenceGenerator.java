@@ -265,12 +265,12 @@ public class SensorConfigPreferenceGenerator {
         probe.setKey("pref_sensorconfig_" + physicalId + "_fpsprobe");
         probe.setLayoutResource(com.particlesdevs.photoncamera.R.layout.preference_card);
         probe.setTitle(Lang.t(context, "Проверить частоты кадров", "Check the frame rates"));
-        probe.setSummary(fpsProbeSummary(context, physicalId));
+        fpsProbeTexts(context, probe, physicalId);
         probe.setIcon(com.particlesdevs.photoncamera.R.drawable.settings_ic_fps);
         probe.setOrder(9999);
         probe.setOnPreferenceClickListener(preference -> {
             com.particlesdevs.photoncamera.capture.FpsProbe.request(context, physicalId);
-            preference.setSummary(fpsProbeSummary(context, physicalId));
+            fpsProbeTexts(context, preference, physicalId);
             return true;
         });
         category.addPreference(probe);
@@ -336,7 +336,26 @@ public class SensorConfigPreferenceGenerator {
                         "OPPO / OnePlus / realme: снимок только из буфера — без кадров светов и теней, ручной длинной выдержки и подстройки под мерцание ламп.",
                         "OPPO / OnePlus / realme: the shot comes from the ring only - no highlight or shadow frames, no manual long shutter, no lamp-flicker timing.") : "");
         pick.setSummaryProvider(p -> hint);
+        // P592: the row shows its title and the picked row; what the table is (and the OPPO note) is its long press
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(pick, context.getString(com.particlesdevs.photoncamera.R.string.help_sensor_mode)
+                + (hint.length() > context.getString(com.particlesdevs.photoncamera.R.string.module_sensor_mode_hint).length()
+                ? "\n\n" + hint.substring(context.getString(com.particlesdevs.photoncamera.R.string.module_sensor_mode_hint).length()).trim() : ""));
         return pick;
+    }
+
+    /**
+     * P592: the probe's row - «asked» and the last result are its state (shown under the title); what the check does is its
+     * description (the long press).
+     */
+    private static void fpsProbeTexts(Context context, androidx.preference.Preference probe, String slot) {
+        final boolean asked = com.particlesdevs.photoncamera.capture.FpsProbe.requested(context, slot);
+        final boolean result = com.particlesdevs.photoncamera.capture.FpsProbe.lastResult(context, slot) != null;
+        final String summary = fpsProbeSummary(context, slot);
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(probe, Lang.t(context,
+                "Камера по секунде снимает на каждой частоте кадров. Так видно, сколько кадров в секунду она даёт на самом деле и какой режим сенсора при этом выбирает. Проверка идёт при следующем открытии камеры с этим модулем.",
+                "The camera runs each frame rate for a second. It shows how many frames a second it really delivers and which sensor mode it picks for that. The check runs the next time the camera opens on this module."));
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.state(probe, asked || result ? summary : null);
+        probe.setSummary(summary);
     }
 
     /** The probe's row: asked (runs on the camera), the last result, or what it does. */
@@ -628,9 +647,12 @@ public class SensorConfigPreferenceGenerator {
         }
         seekBar.setMaxValue((float) Math.ceil(max));
         CharSequence summary = seekBar.getSummary();
-        seekBar.setSummary((summary == null ? "" : summary + "\n") + String.format(Locale.ROOT,
+        final String auto = String.format(Locale.ROOT,
                 Lang.t("Авто у этого модуля: чёрный %d, белый %d (%d бит)", "Auto for this module: black %d, white %d (%d bit)"),
-                camera[0], camera[1], camera[2]));
+                camera[0], camera[1], camera[2]);
+        // P592: the module's own levels are the row's state (shown); the description before them is the long press
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.state(seekBar, auto);
+        seekBar.setSummary((summary == null ? "" : summary + "\n") + auto);
     }
 
     private static float getFieldDefaultValue(TunableFieldInfo info) {
@@ -698,6 +720,7 @@ public class SensorConfigPreferenceGenerator {
 
         String description = ModuleSensorSettings.description(annotation.description());
         editText.setSummaryProvider(preference -> description.isEmpty() ? editText.getText() : description);
+        if (!description.isEmpty()) com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(editText, description);   // P592
 
         category.addPreference(editText);
     }
@@ -741,6 +764,9 @@ public class SensorConfigPreferenceGenerator {
         }
         listPref.setDefaultValue(defaultValue);
         listPref.setSummaryProvider(ListPreference.SimpleSummaryProvider.getInstance());
+        // P592: the summary is the value (shown on the right); the description is the long press
+        if (!annotation.description().isEmpty())
+            com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(listPref, ModuleSensorSettings.description(annotation.description()));
         Integer icon = FIELD_ICONS.get(info.fieldName.toLowerCase(Locale.ROOT));
         if (icon != null) listPref.setIcon(icon);
 

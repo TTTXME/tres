@@ -22,7 +22,7 @@ import com.particlesdevs.photoncamera.util.Log;
  * Stores values as int (0 or 1) to match the tunable system's numeric storage pattern.
  * Features:
  * - Green color indicator when value differs from default
- * - Long press to reset to default
+ * - Long press: the description, with the reset to default in it (P592)
  */
 public class TunableCheckBoxPreference extends SwitchPreferenceCompat {
     private static final String TAG = "TunableCheckBoxPref";
@@ -78,12 +78,7 @@ public class TunableCheckBoxPreference extends SwitchPreferenceCompat {
         // Update color based on whether value is default or customized
         updateTitleColor(currentValue);
         
-        // Add long press listener to reset to default
-        holder.itemView.setOnLongClickListener(v -> {
-            resetToDefault();
-            return true; // Consume the event
-        });
-        
+        // P592: the long press opens the row's description (SettingsFragment's adapter), with «Вернуть по умолчанию» in it
         // After binding is complete, any changes are user interactions
         isUserInteraction = true;
         
@@ -207,7 +202,7 @@ public class TunableCheckBoxPreference extends SwitchPreferenceCompat {
      * Reset the preference to its default value by removing the persisted value.
      * This allows the annotation default to be used.
      */
-    private void resetToDefault() {
+    public void resetToDefault() {
         if (!isEnabled() || !callChangeListener(mDefaultValue != 0)) return;
         // Temporarily disable user interaction flag to prevent re-persistence during setChecked
         boolean wasUserInteraction = isUserInteraction;

@@ -240,8 +240,8 @@ public class ScamLabFragment extends ModuleConceptFragment {
 
     private void renderList() {
         // 2026-10-27: the page has its row's name («Лаборатория»; «Гайд и лаборатория» before)
-        page(Lang.t(getContext(), "Лаборатория", "Lab"), Lang.t(getContext(), "Настройки на ваших RAW-сериях", "The settings on your own RAW bursts"));
-        note(Lang.t(getContext(), "Снимите серию с переключателем ниже, откройте её здесь и выберите настройку. Лаборатория склеит и обработает ту же серию дважды: "
+        page(Lang.t(getContext(), "Лаборатория", "Lab"), null);   // P592: no page subtitle
+        explain(Lang.t(getContext(), "Снимите серию с переключателем ниже, откройте её здесь и выберите настройку. Лаборатория склеит и обработает ту же серию дважды: "
                         + "A — как снято, B — с другим значением. Результаты можно сравнить шторкой и лупой, посмотреть разницу и карту кадров склейки.",
                 "Take a burst with the switch below, open it here and pick a setting. The lab merges and processes the same burst twice: "
                         + "A as shot, B with another value. Compare them with a border and a magnifier, see the difference and the merge's frame map."));
@@ -261,7 +261,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 first = false;
                 card.addView(shotRow(dir));
             }
-            note(Lang.t(getContext(), "Удерживайте снимок, чтобы удалить его (серия, параметры и превью).", "Hold a shot to delete it (burst, parameters and preview)."));
+            explain(Lang.t(getContext(), "Удерживайте снимок, чтобы удалить его (серия, параметры и превью).", "Hold a shot to delete it (burst, parameters and preview)."));
             if (unreadable) {
                 note(Lang.t(getContext(), "Часть снимков записана прошлой установкой приложения: Android не даёт их прочитать, пока приложению не открыта папка Download/SCAMERA.",
                         "Some shots were written by an earlier installation of the app: Android does not let them be read until the app has the Download/SCAMERA folder."));
@@ -332,7 +332,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             });
             card.addView(r);
         }
-        note(Lang.t(getContext(), "Серия открывается без копирования: в Lab появляется папка со ссылкой на файл. Серии, сохранённые этой версией, несут параметры своего снимка; более старые берут цвет и геометрию у последнего снимка лаборатории того же размера кадра (баланс белого — по самой серии) и обрабатываются с текущими настройками.",
+        explain(Lang.t(getContext(), "Серия открывается без копирования: в Lab появляется папка со ссылкой на файл. Серии, сохранённые этой версией, несут параметры своего снимка; более старые берут цвет и геометрию у последнего снимка лаборатории того же размера кадра (баланс белого — по самой серии) и обрабатываются с текущими настройками.",
                 "A series opens without a copy: Lab gets a folder that names the file. Series kept by this version carry their shot's parameters; older ones take the colour and geometry of the newest lab shot of the same frame size (the white balance from the series itself) and are processed with the settings of now."));
     }
 
@@ -347,10 +347,13 @@ public class ScamLabFragment extends ModuleConceptFragment {
         TextView head = text(Lang.t(getContext(), "Сохранять снимки для лаборатории", "Keep shots for the lab"), 15, TEXT);
         com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.title(head);
         labels.addView(head);
-        TextView sub = text(Lang.t(getContext(), "Каждый снимок SHDR сохраняет RAW-серию и свои параметры в папку Lab/<дата_время>. Файлы большие: 12 Мп — до 1 ГБ, 50 Мп — до нескольких ГБ за снимок.",
-                "Every SHDR shot keeps its RAW burst and its parameters in a folder Lab/<date_time>. The files are large: 12 MP up to 1 GB, 50 MP up to a few GB a shot."), 12, SettingsStyle.SUMMARY);
-        sub.setLineSpacing(dp(3), 1);
-        labels.addView(sub, space(-1, -2, 6));
+        // P592: the switch's name alone; what it keeps and how big the files are is its long press
+        final String about = Lang.t(getContext(), "Каждый снимок сохраняет свою сырую серию и параметры в папку Lab/<дата_время>, чтобы потом сравнивать на нём настройки. Файлы большие: для 12 Мп — до 1 ГБ, для 50 Мп — до нескольких гигабайт за снимок.",
+                "Every shot keeps its raw burst and its parameters in a folder Lab/<date_time>, so you can compare settings on it later. The files are large: up to 1 GB a shot at 12 MP, up to several gigabytes at 50 MP.");
+        r.setOnLongClickListener(v -> {
+            SettingHelp.show(v.getContext(), head.getText(), about);
+            return true;
+        });
         r.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
         // P574 (owner, 2026-11-09: «Сделай все такие переключатели в одном стиле»): the app's one switch
         com.particlesdevs.photoncamera.ui.controls.IosSwitch toggle = new com.particlesdevs.photoncamera.ui.controls.IosSwitch(requireContext());
@@ -523,7 +526,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             r.addView(b, lp);
         }
         body.addView(r, space(-1, -2, 8));
-        note(share == 1 ? Lang.t(getContext(), "Весь кадр склеивается так же долго, как при съёмке (50 Мп — минуты на каждую сторону).", "The whole frame merges as long as at the shot (50 MP: minutes a side).")
+        explain(share == 1 ? Lang.t(getContext(), "Весь кадр склеивается так же долго, как при съёмке (50 Мп — минуты на каждую сторону).", "The whole frame merges as long as at the shot (50 MP: minutes a side).")
                 : Lang.t(getContext(), "Нажмите на фото, чтобы передвинуть фрагмент. Экспозиция, тон и засветы считаются по всему кадру, как на снимке; для снимков без сохранённой статистики она считается один раз при первом сравнении.",
                 "Tap the photo to move the fragment. Exposure, tone and highlights are measured on the whole frame, as in the shot; a shot without saved statistics measures them once at its first comparison."));
         // P359: the settings the lab starts from (side A and every B): the shot's, or today's
@@ -544,7 +547,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             base.addView(b, lp);
         }
         body.addView(base, space(-1, -2, 8));
-        note(s.now ? Lang.t(getContext(), "A и B начинаются с настроек приложения сейчас (и строк scam_dev.txt сейчас): видно, как серия выглядит с сегодняшними настройками. Склейка и обработка — всегда этой версии приложения.",
+        explain(s.now ? Lang.t(getContext(), "A и B начинаются с настроек приложения сейчас (и строк scam_dev.txt сейчас): видно, как серия выглядит с сегодняшними настройками. Склейка и обработка — всегда этой версии приложения.",
                 "A and B start from the app's settings of now (and today's scam_dev.txt lines): how the series looks with today's settings. The merge and processing are always this version's.")
                 : Lang.t(getContext(), "A и B начинаются с настроек, с которыми сделан снимок. Склейка и обработка — всегда этой версии приложения, так что старая серия проходит через новый пайплайн.",
                 "A and B start from the settings the shot was taken with. The merge and processing are always this version's, so an old series goes through the new pipeline."));
@@ -571,9 +574,9 @@ public class ScamLabFragment extends ModuleConceptFragment {
         for (String key : order) {
             final Preference g = all.findPreference(key);
             if (!(g instanceof PreferenceGroup)) continue;
-            final String sub = key.equals(last) ? Lang.t(getContext(), "Открыт последним", "Opened last")
-                    : g.getSummary() == null ? null : String.valueOf(g.getSummary());
-            navigation(key.equals(last) ? "↻" : "☷", String.valueOf(g.getTitle()), sub, () -> openGroup(key));
+            // P592: «Открыт последним» is the row's state; the group's description is its long press
+            navigation(key.equals(last) ? "↻" : "☷", String.valueOf(g.getTitle()), helpOf(g),
+                    key.equals(last) ? Lang.t(getContext(), "Открыт последним", "Opened last") : null, () -> openGroup(key));
         }
         // the scam_dev.txt lines that change the photo (the settings page builds its rows from the file, not from the tree)
         navigation("☷", devTitle(), Lang.t(getContext(), "Строки scam_dev.txt склейки и обработки, которые меняют фото",
@@ -626,7 +629,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
                 sides.addView(b[i], lp);
             }
             body.addView(sides, space(-1, -2, 8));
-            note(Lang.t(getContext(), "A — фото, которое сохранила версия приложения при съёмке (не больше 1600 пикселей по стороне, поэтому на фрагменте оно мягче). B — та же серия сейчас: склейка " + r.b.mergeMs + " мс, обработка " + r.b.postMs + " мс.",
+            explain(Lang.t(getContext(), "A — фото, которое сохранила версия приложения при съёмке (не больше 1600 пикселей по стороне, поэтому на фрагменте оно мягче). B — та же серия сейчас: склейка " + r.b.mergeMs + " мс, обработка " + r.b.postMs + " мс.",
                     "A is the photo the app's version saved at the shot (at most 1600 px a side, so softer on a fragment). B is the same series now: merge " + r.b.mergeMs + " ms, processing " + r.b.postMs + " ms."));
             if (busy) note(runStage == null ? Lang.t(getContext(), "Пересчёт…", "Updating…") : runStage);
         }
@@ -684,17 +687,17 @@ public class ScamLabFragment extends ModuleConceptFragment {
         }
         final ScamLabRun.Shot s = shot();
         final Preference g = tree().findPreference(arg(GROUP));
-        page(g == null ? "" : String.valueOf(g.getTitle()), Lang.t(getContext(), "Нажмите настройку, чтобы сравнить", "Tap a setting to compare"));
+        page(g == null ? "" : String.valueOf(g.getTitle()), null);   // P592: no page subtitle
         if (s == null || !(g instanceof PreferenceGroup)) return;
         addGroup((PreferenceGroup) g, s, null);
     }
 
     /** «Для разработчика»: each line of DevKeys.photo, grouped as on the settings page. */
     private void renderDevGroup() {
-        page(devTitle(), Lang.t(getContext(), "Нажмите строку, чтобы сравнить", "Tap a line to compare"));
+        page(devTitle(), null);   // P592: no page subtitle
         final ScamLabRun.Shot s = shot();
         if (s == null) return;
-        note(Lang.t(getContext(), "Строки файла " + ScamDevFile.SHOWN + ", которые меняют склейку и обработку. «По умолчанию» — строки нет, работает значение из кода. "
+        explain(Lang.t(getContext(), "Строки файла " + ScamDevFile.SHOWN + ", которые меняют склейку и обработку. «По умолчанию» — строки нет, работает значение из кода. "
                         + (s.dev == null ? "Снимок сделан до того, как лаборатория стала сохранять эти строки: A берёт файл как сейчас. " : "A — строки, с которыми сделан снимок. ")
                         + "«Сохранить B» записывает строку в файл.",
                 "The lines of " + ScamDevFile.SHOWN + " that change the merge and the processing. «Default»: no line, the code's value applies. "
@@ -722,7 +725,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             if (p instanceof PreferenceCategory && !hasRows((PreferenceGroup) p, s.prefs(), s.oppoTunedCcm())) continue; // no empty caption
             if (p instanceof PreferenceScreen) {
                 final String key = p.getKey();
-                navigation("☷", String.valueOf(p.getTitle()), p.getSummary() == null ? null : String.valueOf(p.getSummary()), () -> openGroup(key));
+                navigation("☷", String.valueOf(p.getTitle()), helpOf(p), () -> openGroup(key));
                 card = null;
             } else if (p instanceof PreferenceCategory) {
                 caption(String.valueOf(p.getTitle()));
@@ -1276,7 +1279,14 @@ public class ScamLabFragment extends ModuleConceptFragment {
     }
 
     private View settingRow(Preference p, ScamLabRun.Shot s) {
-        return settingRow(p.getKey(), String.valueOf(p.getTitle()), p.getSummary() == null ? null : String.valueOf(p.getSummary()), s);
+        return settingRow(p.getKey(), String.valueOf(p.getTitle()), helpOf(p), s);
+    }
+
+    /** P592: a setting's description as the settings give it on a long press (the row itself shows only its name and values). */
+    @Nullable
+    private String helpOf(Preference p) {
+        final CharSequence text = SettingHelp.text(requireContext(), p);
+        return text == null ? null : text.toString();
     }
 
     private View settingRow(String key, String title, @Nullable String summary, ScamLabRun.Shot s) {
@@ -1287,13 +1297,11 @@ public class ScamLabFragment extends ModuleConceptFragment {
         TextView head = text(title, 15, TEXT);
         com.particlesdevs.photoncamera.circularbarlib.ui.UiTokens.title(head);
         labels.addView(head);
-        if (summary != null) {
-            TextView sub = text(summary, 12, SettingsStyle.SUMMARY);
-            sub.setLineSpacing(dp(3), 1);
-            sub.setMaxLines(3);
-            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            labels.addView(sub, space(-1, -2, 6));
-        }
+        // P592: the description is the row's long press (it was three lines under the name)
+        if (summary != null && !summary.isEmpty()) r.setOnLongClickListener(v -> {
+            SettingHelp.show(v.getContext(), title, summary);
+            return true;
+        });
         // a «Движение» shot's merge read the mode's own value of a key it replaces: the row compares that one
         final String effective = effectiveKey(key, motionShot(s.prefs()), tree());
         final String compared = effective == null ? key : effective;
@@ -1602,7 +1610,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
             note(Lang.t(getContext(), "Снимок сделан в режиме «Спорт»: его склейка читает значения этого режима, их лаборатория и сравнивает.",
                     "The shot was taken in Sport mode: its merge reads that mode's values, and the lab compares them."));
         if (crop != null && FRAGMENT_STATS.contains(key))
-            note(Lang.t(getContext(), "На фрагменте экспозиция и тон берутся из статистики всего кадра, снятой с цветом и пределом усиления снимка: эту настройку она не учитывает, и разница на фрагменте может быть не такой, как на фото. Точно — «Весь кадр».",
+            explain(Lang.t(getContext(), "На фрагменте экспозиция и тон берутся из статистики всего кадра, снятой с цветом и пределом усиления снимка: эту настройку она не учитывает, и разница на фрагменте может быть не такой, как на фото. Точно — «Весь кадр».",
                     "On a fragment the exposure and the tone come from the whole frame's statistics, measured with the shot's colour and gain clamp: they do not take this setting in, so the difference on a fragment may not be the photo's. Exactly: «Whole frame»."));
         devNotes(key, s, r);
         if (r != null) info(main, r, s);
@@ -1639,7 +1647,7 @@ public class ScamLabFragment extends ModuleConceptFragment {
         // P156 / P189: with per-module settings the shot's settings are its module's profile: B goes there, not into the module
         // the settings edit now (the chip, another module's page, a shot taken with another lens)
         final String module = devPage ? null : keepModule(s);
-        if (devPage) note(Lang.t(getContext(), "Это строка файла " + ScamDevFile.SHOWN + ": «Сохранить B» записывает её в файл (на все модули), «по умолчанию» — удаляет.",
+        if (devPage) explain(Lang.t(getContext(), "Это строка файла " + ScamDevFile.SHOWN + ": «Сохранить B» записывает её в файл (на все модули), «по умолчанию» — удаляет.",
                 "This is a line of " + ScamDevFile.SHOWN + ": «Keep B» writes it into the file (for every module), «default» removes it."));
         final String keepText = devPage ? Lang.t(getContext(), "Сохранить B в scam_dev.txt", "Keep B in scam_dev.txt")
                 : module != null ? Lang.t(getContext(), "Сохранить B в «" + FullResProfiles.label(module) + "»", "Keep B in “" + FullResProfiles.label(module) + "”")

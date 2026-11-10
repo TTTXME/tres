@@ -74,11 +74,27 @@ public final class MosaicNeutralResolver {
         public final int results;
         public final float spread;
 
+        /**
+         * P599: the HAL's AWB was seen moving in this camera session (ViewfinderMosaicWb.awbMoves): a burst whose gains look frozen
+         * (ispIdle) holds a converged AWB, not an idle ISP - the photo keeps the reference app's rule.
+         */
+        public final boolean awbMoves;
+
         Press(int route, @Nullable float[] viewfinder, int results, float spread) {
+            this(route, viewfinder, results, spread, false);
+        }
+
+        private Press(int route, @Nullable float[] viewfinder, int results, float spread, boolean awbMoves) {
             this.route = route;
             this.viewfinder = viewfinder;
             this.results = results;
             this.spread = spread;
+            this.awbMoves = awbMoves;
+        }
+
+        /** P599: this press with the session's proof of a running AWB. */
+        public Press awbMoves(boolean moves) {
+            return moves == awbMoves ? this : new Press(route, viewfinder, results, spread, moves);
         }
 
         public static Press vivoNative() {
@@ -96,8 +112,9 @@ public final class MosaicNeutralResolver {
         }
 
         @Override public String toString() {
-            if (route == ROUTE_WHY) return viewfinder == null ? "reference app's rule, no viewfinder result"
-                    : String.format(Locale.ROOT, "reference app's rule, the viewfinder's last result %.3f / %.3f", viewfinder[0], viewfinder[2]);
+            if (route == ROUTE_WHY) return (viewfinder == null ? "reference app's rule, no viewfinder result"
+                    : String.format(Locale.ROOT, "reference app's rule, the viewfinder's last result %.3f / %.3f", viewfinder[0], viewfinder[2]))
+                    + (awbMoves ? " (the HAL's AWB moved in this session)" : "");
             return route == ROUTE_VIVO_NATIVE ? "vivo native" : route == ROUTE_SENSOR_MODE ? "sensor mode (OPPO family)" : route == ROUTE_STILL_ONLY ? viewfinder == null ? "still-only, no converged viewfinder result"
                     : String.format(Locale.ROOT, "still-only, viewfinder %.3f / %.3f of %d results (spread %.3f)", viewfinder[0], viewfinder[2],
                     results, spread) : "none";

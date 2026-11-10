@@ -62,6 +62,9 @@ public class GLFormat {
     public final int mChannels;
     final DataType mFormat;
     public int filter = GL_NEAREST;
+
+    /** P602: the sample type (ScamDiagnostics: which textures its sample pass reads as the float read-back does). */
+    public DataType dataType() { return mFormat; }
     public int wrap = GL_CLAMP_TO_EDGE;
     public enum DataType {
         NONE(0, 0),

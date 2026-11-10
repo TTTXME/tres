@@ -138,6 +138,15 @@ public class GLBasePipeline implements AutoCloseable {
         }
         sb.append(String.format(java.util.Locale.ROOT,
                 "  %-38s %7d ms%n", "TOTAL", total));
+        // P602 (Pixel 7 log of 31249: post 4085 ms, the nodes 2986): the run's time outside the node timers - each node's preparation,
+        // the draw of its program, the diagnostics' read-backs after it and its cleanup - and the diagnostics' read-backs of the run
+        // (in and between the nodes; 0 without a diagnostic shot)
+        if (nodesWallMs >= 0) {
+            sb.append(String.format(java.util.Locale.ROOT, "  %-38s %7d ms%n", "outside the nodes", Math.max(0L, nodesWallMs - total)));
+            nodesWallMs = -1;
+        }
+        final long[] diag = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDiagnostics.takeGpuStats();
+        if (diag[1] > 0) sb.append(String.format(java.util.Locale.ROOT, "  %-38s %7d ms (%d stages)%n", "diagnostics read-backs", diag[0], diag[1]));
 
         java.util.List<Integer> order = new java.util.ArrayList<>();
         for (int i = 0; i < nodeTimings.size(); i++) order.add(i);
@@ -202,7 +211,12 @@ public class GLBasePipeline implements AutoCloseable {
     public GLImage runAll() {
         runNodes();
         GLGpuTimer.node("final output");
-        glint.glProcessing.drawBlocksToOutput();
+        GLProg.compileNode("final output"); // P602
+        try {
+            glint.glProcessing.drawBlocksToOutput();
+        } finally {
+            GLProg.compileNode(null);
+        }
         GLGpuTimer.report("post");
         finishRun();
         return glint.glProcessing.mOut;
@@ -222,7 +236,13 @@ public class GLBasePipeline implements AutoCloseable {
         // P477: no node makes a texture any more: what the pool keeps goes now (the mains' close after the readback deletes them)
         GLTexturePool.node("final output");
         GLTexturePool.end();
-        Bitmap bitmap = glint.glProcessing.drawBlocksToBitmap();
+        GLProg.compileNode("final output"); // P602
+        final Bitmap bitmap;
+        try {
+            bitmap = glint.glProcessing.drawBlocksToBitmap();
+        } finally {
+            GLProg.compileNode(null);
+        }
         GLGpuTimer.report("post");
         GLTexturePool.report("post");
         finishRun();
@@ -231,8 +251,21 @@ public class GLBasePipeline implements AutoCloseable {
 
     protected boolean skipNode(Node node) { return false; }
 
+    /** P602: the wall time of the last {@link #runNodes} (the node timers and what lies between them), -1 when none was run. */
+    private long nodesWallMs = -1;
+
     /** Runs every node; the last one stays bound for the readback. */
     private void runNodes() {
+        final long wallStart = System.currentTimeMillis();
+        try {
+            runNodesTimed();
+        } finally {
+            nodesWallMs = System.currentTimeMillis() - wallStart;
+            GLProg.compileNode(null);
+        }
+    }
+
+    private void runNodesTimed() {
         lastI();
         final boolean syncNodes = PostGlMode.syncNodes();
         GLGpuTimer.begin(); // P479: post_sync only (profiling)
@@ -244,6 +277,7 @@ public class GLBasePipeline implements AutoCloseable {
                 glint.glProgram.closed = true;
                 continue;
             }
+            GLProg.compileNode(node.Name); // P602: the programs this node compiles are named with it
             try {
                 prepareNode(node,i);
             } catch (RuntimeException error) {
@@ -290,6 +324,9 @@ public class GLBasePipeline implements AutoCloseable {
 
     /** Releases the pipeline textures and program after the readback of {@link #runNodes()}. */
     private void finishRun() {
+        // P602: the diagnostics' GPU stages still queued (their samples' buffers mapped now, the GPU done with them)
+        com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDiagnostics.flushGpuStages();
+        GLDeferredRead.flush(); // P602: the reads queued only for the log (the GPU is done with them)
         if(texnum == 1){
             if (main1 != null) main1.close();
         }else {

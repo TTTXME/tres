@@ -54,14 +54,18 @@ public class TunableKeyDialog {
         body.addView(label(c, Lang.t(c, "Тип ключа", "Key type")));
         LinearLayout typeRow = new LinearLayout(c);
         typeRow.setOrientation(LinearLayout.HORIZONTAL);
-        TextView typeHint = SettingsStyle.text(c, "", 13, SettingsStyle.SECTION);
-        typeHint.setPadding(SettingsStyle.dp(c, 4), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 4), 0);
         List<TextView> pills = new ArrayList<>();
         for (String t : types) {
             TextView pill = SettingsStyle.text(c, t, 15, SettingsStyle.ROW_TITLE);
             pill.setGravity(Gravity.CENTER);
             pill.setPadding(SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 13), SettingsStyle.dp(c, 8), SettingsStyle.dp(c, 13));
             pill.setTag("vendor_type_" + t);
+            // P592: what the kind means is the pill's long press (and TalkBack's), not a line under the pills
+            pill.setContentDescription(t + ", " + typeHint(c, t));
+            pill.setOnLongClickListener(v -> {
+                com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(c, t, typeHint(c, t));
+                return true;
+            });
             LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, -2, 1);
             if (!pills.isEmpty()) pp.leftMargin = SettingsStyle.dp(c, 8);
             typeRow.addView(pill, pp);
@@ -76,14 +80,10 @@ public class TunableKeyDialog {
                 pill.setBackground(SettingsStyle.shape(c, on ? SettingsStyle.pillFill(accent) : SettingsStyle.ROW,
                         on ? 0 : SettingsStyle.HAIRLINE, 14));
             }
-            typeHint.setText(typeHint(c, chosenType[0]));
         };
         for (TextView pill : pills) pill.setOnClickListener(v -> { chosenType[0] = pill.getText().toString(); paintTypes.run(); });
         paintTypes.run();
         body.addView(typeRow, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
-        hp.bottomMargin = SettingsStyle.dp(c, 6);
-        body.addView(typeHint, hp);
 
         body.addView(label(c, Lang.t(c, "Тип значения", "Value type")));
         final String[] valueType = {existing != null && existing.valueType != null ? existing.valueType : "Integer"};

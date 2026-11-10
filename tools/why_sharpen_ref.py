@@ -10,6 +10,9 @@ X8U = dict(usm_radius=0.5, usm_amount=1.0, usm_thresh=50, sobel_thresh=50, sobel
            halo_control=100, rl_halo_control=100, rl_halo_margin=0.15, rl_halo_macro=0.4,
            gf_radius=8, gf_eps=0.01, gf_lc=0.25, edge_thinning=0.0, film_grain=0.0,
            rl=[(2, 1.0, 1.0, 3, 0.0), (1, 0.0, 0.0, 0, 0.0), (0, 0.5, 1.0, 3, 0.0)])  # (kernel, rad, amount, iters, damping)
+# P595: ours, not the reference app's - the RL halo clamp relative at a dark / bright edge (why/sharp_rl edgeGuardU; the app's
+# default 1, WhyTone.rlEdgeGuard); 0 = the reference app's clamp alone
+X8U['rl_edge_guard'] = 1.0
 
 
 def pad(a, r):
@@ -59,6 +62,11 @@ def guided_ab(L, r, eps):
 def nb3(L):
     p = pad(L, 1); H, W = L.shape
     return [p[1 + dy:1 + dy + H, 1 + dx:1 + dx + W] for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
+
+
+def nbr(L, r):
+    p = pad(L, r); H, W = L.shape
+    return [p[r + dy:r + dy + H, r + dx:r + dx + W] for dy in range(-r, r + 1) for dx in range(-r, r + 1)]
 
 
 def smoothstep(e0, e1, x):
@@ -162,7 +170,7 @@ def conv2(a, k):
     return H16(o)
 
 
-def rl_pass(L, kernel, rad, amount, iters, damping, halo, ps, ph, margin, macro):
+def rl_pass(L, kernel, rad, amount, iters, damping, halo, ps, ph, margin, macro, guard=1.0):
     if kernel == 0:
         g = gauss1d(rad); blur = lambda a: sep_conv(a, g)
     else:
@@ -191,6 +199,11 @@ def rl_pass(L, kernel, rad, amount, iters, damping, halo, ps, ph, margin, macro)
         mg = (1 - ef) * (0.03 + lc * margin); s = min(max(halo, 0), 1)
         fv = np.where(fv > lmax + mg, lmax + mg + (fv - lmax - mg) * (1 - s),
                       np.where(fv < lmin - mg, lmin - mg - (lmin - mg - fv) * (1 - s), fv))
+    if guard > 0 and halo > 1e-3:
+        # P595: at a dark / bright edge (the 5 x 5 window 1 .. 2 stops from its darkest to its brightest) within its range +-1 %
+        n5 = nbr(o, 2); gmin = np.minimum.reduce(n5); gmax = np.maximum.reduce(n5)
+        g = guard * min(max(halo, 0), 1) * smoothstep(1.0, 2.0, np.log2((gmax + 0.002) / (gmin + 0.002)))
+        fv = fv + (np.clip(fv, gmin * 0.99, gmax * 1.01) - fv) * g
     return H16(np.maximum(fv, 0))
 
 
@@ -206,7 +219,7 @@ def process_luma(L, P=X8U):
     for kern, rad, amt, it, damp in P['rl']:
         if rad > 0 and abs(amt) > 1e-3 and it >= 1:
             L = rl_pass(L, kern, rad, amt, it, damp, P['rl_halo_control'] / 100, P['protect_shadows'] / 100,
-                        P['protect_highlights'] / 100, P['rl_halo_margin'], P['rl_halo_macro'])
+                        P['protect_highlights'] / 100, P['rl_halo_margin'], P['rl_halo_macro'], P.get('rl_edge_guard', 0.0))
     return L
 
 

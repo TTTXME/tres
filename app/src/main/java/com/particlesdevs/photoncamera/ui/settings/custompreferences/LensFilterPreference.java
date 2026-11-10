@@ -55,7 +55,6 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
     private final Handler main = new Handler(Looper.getMainLooper());
     @Nullable private LutCompareView compare;
     @Nullable private LinearLayout strip, samples, controls;
-    @Nullable private TextView description;
     private int generation, previewGeneration;
 
     public LensFilterPreference(Context context, AttributeSet attrs) {
@@ -279,9 +278,9 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         controls.setOrientation(LinearLayout.VERTICAL);
         controls.setTag("lens_filter_controls");
         page.addView(controls, top(c, 12));
-        LinearLayout note = (LinearLayout) LutChangesPreference.noteView(c, LensFilters.description(c, chosen()));
-        description = (TextView) note.getChildAt(1);
-        page.addView(note, top(c, 14));
+        // P592: the chosen filter's description is not drawn under the controls: it is the page's long press (describe) and each
+        // card's spoken description
+        describe(c, chosen());
         fillStrip();
         fillControls();
         compare.post(this::redraw);
@@ -343,10 +342,7 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
             name.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 5), UiTokens.dp(c, 3), 0);
             name.setMaxLines(2);
             card.addView(name);
-            TextView hint = SettingsStyle.text(c, LensFilters.hint(c, id), 10.5f, SettingsStyle.SECTION);
-            hint.setPadding(UiTokens.dp(c, 3), UiTokens.dp(c, 3), UiTokens.dp(c, 3), 0);
-            hint.setMaxLines(2);
-            card.addView(hint);
+            // P592: the name alone under the picture; the filter's hint stays in the card's spoken description
             card.setTag("lens_filter_" + id);
             card.setSelected(on);
             card.setContentDescription(LensFilters.name(c, id) + ": " + LensFilters.hint(c, id));
@@ -426,7 +422,7 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
                 }
             }
         }
-        if (description != null) description.setText(LensFilters.description(c, id));
+        describe(c, id);
     }
 
     interface OnValue {
@@ -438,18 +434,19 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(UiTokens.dp(c, 52));
-        row.setPadding(UiTokens.dp(c, 14), UiTokens.dp(c, hint == null ? 0 : 8), UiTokens.dp(c, 10), UiTokens.dp(c, hint == null ? 0 : 8));
+        row.setPadding(UiTokens.dp(c, 14), 0, UiTokens.dp(c, 10), 0);
         row.setBackground(UiTokens.shape(c, SettingsStyle.ROW, 0, 24));   // P574: a #2C2C2E card, 24dp, no outline
         LinearLayout names = new LinearLayout(c);
         names.setOrientation(LinearLayout.VERTICAL);
         TextView name = SettingsStyle.text(c, label, 14, SettingsStyle.ROW_TITLE);
         name.setMaxLines(2);
         names.addView(name);
-        if (hint != null) {
-            TextView h = SettingsStyle.text(c, hint, 11.5f, SettingsStyle.SECTION);
-            h.setMaxLines(3);
-            names.addView(h);
-        }
+        // P592: what the slider does is its long press (the row's and the bar's), not a line under its name
+        final View.OnLongClickListener about = hint == null ? null : v -> {
+            com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(v.getContext(), label, hint);
+            return true;
+        };
+        if (about != null) row.setOnLongClickListener(about);
         row.addView(names, new LinearLayout.LayoutParams(UiTokens.dp(c, 128), ViewGroup.LayoutParams.WRAP_CONTENT));
         // P574: the shared slider (was a Material SeekBar), 0..100 as before
         com.particlesdevs.photoncamera.ui.controls.IosSlider bar = new com.particlesdevs.photoncamera.ui.controls.IosSlider(c);
@@ -458,6 +455,7 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         int accent = SettingsStyle.accent(c);
         bar.setAccent(accent);
         bar.setTag(tag);
+        if (about != null) bar.setOnLongClickListener(about);
         bar.setContentDescription(label);
         row.addView(bar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView shown = SettingsStyle.text(c, Math.round(value * 100f) + " %", 13.5f, accent);
@@ -500,4 +498,10 @@ public class LensFilterPreference extends Preference implements PageReset.Resett
         });
     }
 
+
+    /** P592: the long press of the page - the chosen filter's own description, then what the filters are. */
+    private void describe(Context c, String id) {
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(this, LensFilters.description(c, id) + "\n\n"
+                + c.getString(R.string.help_lens_filter));
+    }
 }

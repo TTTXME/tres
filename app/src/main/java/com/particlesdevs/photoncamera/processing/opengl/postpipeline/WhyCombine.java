@@ -176,6 +176,7 @@ public final class WhyCombine extends Node {
                 ? com.particlesdevs.photoncamera.processing.color.FilmChain.lut(com.particlesdevs.photoncamera.app.ScameraApp.getAppContext(), lutName) : null;
         int lutTexture = 0;
         GLTexture hlA = null, hlB = null, sunBloom = null, oppShare = null, skyWith = null, skyWithout = null, faceTex = null;
+        GLTexture fusedLc = null; // P596: the fused luma with its local contrast (WhyTone.localContrast)
         com.particlesdevs.photoncamera.processing.opengl.GLBuffer rimTiles = null;
         int[] rimBindings = null;
         GLTexture sceneY = null;
@@ -235,6 +236,35 @@ public final class WhyCombine extends Node {
                 // P187: hlA is only the middle step of the blur
                 hlA.close();
                 hlA = null;
+            }
+            // P596 «Локальный контраст»: the fused luma's local contrast (why/localcontrast.glsl: a gaussian of it along x and y, then
+            // F + c D (1 - smoothstep(t, 3 t, |D|))); not with the film alone, 0 = the fused luma as before
+            final float lc = WhyTone.localContrast();
+            if (lc > 0f && !filmOnly) {
+                final GLFormat one16 = new GLFormat(GLFormat.DataType.FLOAT_16, 1);
+                final GLTexture lcA = new GLTexture(st.fused.mSize, one16, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                final GLTexture lcB = new GLTexture(st.fused.mSize, one16, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                try {
+                    final float lcSigma = WhyTone.LOCAL_CONTRAST_SIGMA / Math.max(1, st.factor);
+                    for (int pass = 0; pass < 2; pass++) {
+                        glProg.setDefine("MODE", 0);
+                        glProg.useAssetProgram("why/localcontrast", false);
+                        glProg.setTexture("InputBuffer", pass == 0 ? st.fused : lcA);
+                        glProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+                        glProg.setVar("sigmaU", lcSigma);
+                        glProg.drawBlocks(pass == 0 ? lcA : lcB);
+                    }
+                    fusedLc = new GLTexture(st.fused.mSize, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                    glProg.setDefine("MODE", 1);
+                    glProg.useAssetProgram("why/localcontrast", false);
+                    glProg.setTexture("InputBuffer", st.fused);
+                    glProg.setTexture("Blurred", lcB);
+                    glProg.setVar("lcU", lc, WhyTone.LOCAL_CONTRAST_T);
+                    glProg.drawBlocks(fusedLc);
+                } finally {
+                    lcA.close();
+                    lcB.close();
+                }
             }
             // P512: «Маска лица» of «Портрет» (a face found and its skin measured) on the whyLow grid, before the combine's defines
             final boolean faceShot = r.portraitFace && st.portrait != null && st.portrait.count > 0;
@@ -314,6 +344,7 @@ public final class WhyCombine extends Node {
             if (whyVibrance) glProg.setDefine("WHY_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
             if (WhyTone.rimSmooth()) glProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
+            glProg.setDefine("DITHER_TPDF", 1);   // P595: the photo's dither triangular (no 8-bit bands on a clean sky)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
                     ? " backlit (level x" + Math.round(100f * st.skyMask.keep) / 100f + ")" : "");
             // P378 review: Ultra HDR keeps the sky term's change - the combine at whyLow with and without it (skyHdrRatio), its
@@ -394,7 +425,7 @@ public final class WhyCombine extends Node {
             WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
             glProg.setTexture("WhyLow", st.low);
             glProg.setTexture("WhyColour", colour);
-            glProg.setTexture("WhyFused", st.fused);
+            glProg.setTexture("WhyFused", fusedLc != null ? fusedLc : st.fused);
             glProg.setTexture("WhyDetailRef", st.detailRef != null ? st.detailRef : st.low);
             glProg.setVar("detailRefU", st.detailRef != null ? 1 : 0);
             glProg.setTexture("WhyLumaS", sharp ? st.lumaS : st.low);
@@ -530,6 +561,7 @@ public final class WhyCombine extends Node {
             if (lutTexture != 0) android.opengl.GLES30.glDeleteTextures(1, new int[]{lutTexture}, 0);
             if (hlA != null) hlA.close();
             if (hlB != null) hlB.close();
+            if (fusedLc != null) fusedLc.close();
             if (faceTex != null) faceTex.close();
             if (sunBloom != null) sunBloom.close();
             if (oppShare != null) oppShare.close();

@@ -741,7 +741,11 @@ public final class LiveWhyTone {
         mergedNoise(f.noiseS, f.noiseO);
         // P442: the photo's night rule from the frame's exposure (the decision's EV100 of base white, as the sky's below)
         settings.evWhite = WhySkyMask.evOffset(f.iso, f.exposureNs / 1e9, aperture, inScale);
+        final long meterStart = System.nanoTime();
         final WhyAe.Result r = meter.measure(v, inScale, settings, f.iso, f.maxAnalogIso);
+        // P597: the AE's cells and WhyAe on the GL thread (VF_RAW "stages": meter)
+        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.METER,
+                System.nanoTime() - meterStart);
         if (r == null) return ae != null;
         measurePortrait(v, meter.lastCells(), meter.lastGrid());
         filmAeTarget = WhyAe.filmAe(r);

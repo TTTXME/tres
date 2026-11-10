@@ -78,8 +78,9 @@ inline uint64_t hybridFastStripBytes(const HybridInput& in){
     for(const auto& f:in.frames){frames+=f.role!=kRoleUltrashort;shorts+=f.role==kRoleUltrashort;}
     // per RAW pixel: base (Bayer 2, guide 2, covariance 1, reference colour 2 + luma 0.5), the current frame (Bayer 2, guide 2,
     // covariance 1), gray pyramids 1.33, the rejection chain and the frame weights 1.5, every frame's own rejection map 0.5, the
-    // upload ring 6, the highlight path 6 and 5 per kept short frame, the effective frames 1 (none above 100 MP: flag 16)
-    double gpu=7.5+5+1.33+1.5+0.5*frames+6+(shorts?6.0+5.0*shorts:0.0)+(px>double(kHybridHugePixels)?0.0:1.0);
+    // upload ring 6, the highlight path 6 and 5 per kept short frame, the effective frames 1 (none above 100 MP: flag 16); P601: every
+    // frame's flow on 4 x 4 HALF blocks 0.25 (fastFlowPick)
+    double gpu=7.5+5+1.33+1.5+0.75*frames+6+(shorts?6.0+5.0*shorts:0.0)+(px>double(kHybridHugePixels)?0.0:1.0);
     const double stripRows=std::max(64.0,std::min(double(in.h),double(kFastStripBytes)/(23.0*in.w)));
     gpu+=23.0*stripRows/double(in.h); // the accumulators (16 B) and the readback band (7 B) of one strip
     const double cpu=12.0+2.0; // the float result, the clip flags and the effective map
@@ -333,7 +334,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const float covBlurred0=1.f/(tabA*sigma);
     // P587: the texture / bokeh footprints (hybridKernelFootprint: base / texture, blurred / bokeh, the ramp at transition x the
     // gradient; shrink and stretch keep the reference's 2.2 / 0.25 x the base precision before it); 1 = the reference values
-    const HybridKernelFootprint footprint=hybridKernelFootprint(tune);
+    HybridKernelFootprint footprint=hybridKernelFootprint(tune);
+    if(input.mosaic==2)hybridQuadTexture(footprint,tune); // P596: the Quad stream's texture footprint (the app sends the block)
     std::array<float,4> fpA{covShrink0,covStretch0,0.001f,covBase0},fpB{covBlurred0,166.67f,0.f,0.f};
     footprint.apply61(fpA,fpB);
     const float covShrink=fpA[0],covStretch=fpA[1],covBase=fpA[3],covBlurred=fpB[0],covClip=fpA[2],covTrans=fpB[1];
@@ -573,6 +575,19 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         alA[l]=g.texture(GL_RGBA32F,gx[l],gy[l],false);alB[l]=g.texture(GL_RGBA32F,gx[l],gy[l],false);alM[l]=g.texture(GL_RGBA32F,gx[l],gy[l],false);
     }
     GLuint flowT=g.texture(GL_RGBA32F,gx[0],gy[0],lin32);
+    // P601 fastFlowPick: every donor's flow on a grid of 4 x 4 HALF blocks (kFastFlowPick), read by the rejection and the merge in
+    // place of the L0 tile field; 0 = the tile field (no texture, no pass, the uniforms as before)
+    // (a GPU whose compiler refuses the pick's programs merges without it, as fastFlowPick 0; the note is reported)
+    const bool flowPick=tune.fastFlowPick!=0&&g.flowPickReady(tune.fastFlowPick>=2),staticRescue=flowPick&&tune.fastFlowPick>=2;
+    for(const std::string& n:g.notes)report(n);
+    g.notes.clear();
+    // (texel (i, j) of the block grid at HALF (4 i, 4 j): its nodes hold the tile field's own nodes ((n + 1.5) 16), so a block that
+    // keeps the field is read back as the field itself, kinks included)
+    const int pickB=4,pgx=w2/pickB+2,pgy=h2/pickB+2;
+    GLuint flowP=flowPick?g.texture(GL_RGBA32F,pgx,pgy,lin32):0;
+    // (the surroundings' flow of the tiles, the blocks' fit: one each, used by the frame's own passes right after the pick)
+    GLuint flowBg=flowPick?g.texture(GL_RGBA32F,gx[0],gy[0],lin32):0,pickFit=flowPick?g.texture(GL_RG16F,pgx,pgy,true):0;
+    const GLuint fFlowBg=flowPick?g.fbo({flowBg}):0;
     GLuint rejRaw=g.texture(GL_RG8,w2,h2,true),rejF=g.texture(GL_R8,w2,h2,true),rejD=g.texture(GL_R8,w2,h2,true),rejW=g.texture(GL_RG8,w2,h2,true);
     GLuint accW=g.texture(GL_R16F,w2,h2,true);
     GLuint acc0=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true),acc1=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true);
@@ -651,11 +666,13 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const int loopMerges=int(donors.size()+longs.size());
     const int mergeBatch=stripMode?1:std::max(1,std::min({tune.fmMergeBatch,8,std::max(loopMerges,1)}));
     std::vector<GLuint> slotBayer{bayerCur},slotCov{covCur},slotGuideFbo{fGuideCur},slotFlow{flowT},slotFlowFbo{fFlow},slotRejW{rejW},slotRejWFbo{fRejW};
+    std::vector<GLuint> slotPick{flowP},slotPickFbo{flowPick?g.fbo({flowP,pickFit}):0}; // P601
     for(int sl=1;sl<mergeBatch;++sl){
         slotBayer.push_back(g.texture(GL_RGBA16F,w2,h2,false));slotCov.push_back(g.texture(GL_RGB10_A2,w2,h2,true));
         slotGuideFbo.push_back(g.fbo({guideCur,slotCov.back(),pyrC[0]}));
         slotFlow.push_back(g.texture(GL_RGBA32F,gx[0],gy[0],lin32));slotFlowFbo.push_back(g.fbo({slotFlow.back()}));
         slotRejW.push_back(g.texture(GL_RG8,w2,h2,true));slotRejWFbo.push_back(g.fbo({slotRejW.back()}));
+        if(flowPick){slotPick.push_back(g.texture(GL_RGBA32F,pgx,pgy,lin32));slotPickFbo.push_back(g.fbo({slotPick.back(),pickFit}));}
     }
     std::vector<std::function<void()>> pendingMerges; // the batch's merges, drawn in the loop's order
     auto flushMerges=[&]{if(pendingMerges.empty())return;for(auto& m:pendingMerges)m();pendingMerges.clear();glFlush();};
@@ -675,6 +692,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // ---- per-pass uniforms that do not change over the burst
     // flow_scale_offset (§11.8 [UNCERTAIN]): the flow texel of tile i sits at HALF pixel (i + 1.5) stride
     const float fsx=float(w2)/float(tiles[0]*gx[0]),fsy=float(h2)/float(tiles[0]*gy[0]),fox=-1.f/float(gx[0]),foy=-1.f/float(gy[0]);
+    // the flow_scale_offset the rejection and the merge read a donor's flow with: the tile field's, or (P601) the block grid's,
+    // whose texel (i, j) sits at HALF (4 i, 4 j)
+    const std::array<float,4> dso=flowPick?std::array<float,4>{float(w2)/float(pickB*pgx),float(h2)/float(pickB*pgy),0.5f/float(pgx),0.5f/float(pgy)}:std::array<float,4>{fsx,fsy,fox,foy};
     const float fb[4]={1.5f/float(w2),1.5f/float(h2),1.f-1.5f/float(w2),1.f-1.5f/float(h2)};
     const float nsb[4]={63.f/64.f,0.5f,1.f/128.f,0.25f};
     const float covRangeRg[4]={0.367188f,24.44773f,0.367188f,25.68449f},covRangeB[2]={-6.97557f,14.00209f};
@@ -724,7 +744,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // rejection (§5.6, exact; P488 fastMergeSport bit 1: the reference Sport's boost 10 and pixel difference threshold 0.35)
         g.u4f(A::pReject,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));
         g.u4f(A::pReject,"frame_border_padded",fb[0],fb[1],fb[2],fb[3]);
-        g.u4f(A::pReject,"flow_scale_offset",fsx,fsy,fox,foy);
+        g.u4f(A::pReject,"flow_scale_offset",dso[0],dso[1],dso[2],dso[3]);
         g.u4f(A::pReject,"noise_texture_scale_bias",nsb[0],nsb[1],nsb[2],nsb[3]);
         // (color_difference_multiplier: the frame's, z > 0 marks a long donor)
         g.u2f(A::pReject,"unblocker_scale",1.f,1.f);
@@ -738,6 +758,20 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u4f(A::pDilate,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));g.u1f(A::pDilate,"u_rejection_dilate_div",3.5f);
         g.u4f(A::pCyclops,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));g.u1f(A::pCyclops,"u_rejection_dilate_div",3.5f);
         g.u4f(A::pBlendEq,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));
+        if(flowPick){ // P601: the pick (kFastFlowPick), the surroundings' flow (kFastFlowBg), the rescue (kFastCyclopsRescue)
+            g.u2i(A::pFlowBg,"u_grid",gx[0],gy[0]);g.u1i(A::pFlowBg,"u_stride",4); // (5 x 5 tiles at stride 4: +-128 HALF px)
+            g.u4f(A::pFlowPick,"u_tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));
+            g.u4f(A::pFlowPick,"u_flow_so",fsx,fsy,fox,foy);g.u4f(A::pFlowPick,"u_noise_sb",nsb[0],nsb[1],nsb[2],nsb[3]);
+            // a misfit above 0.25 of the rejection's distance; the best of the 4 x 4 tiles within 2 HALF px of the surroundings' flow
+            // and that flow, when it halves the misfit
+            g.u2i(A::pFlowPick,"u_grid",gx[0],gy[0]);g.u4f(A::pFlowPick,"u_geom",float(tiles[0]),float(pickB),0.25f,0.5f);
+            g.u1i(A::pFlowPick,"u_reach",2);g.u1f(A::pFlowPick,"u_tol",2.f);
+            g.u1f(A::pFlowPick,"u_bgpref",0.1f); // round 2: the surroundings' flow where it fits within 10 % of the field's misfit
+            if(staticRescue){ // within the noise (2 .. 4), at the surroundings' flow (0.75 .. 1.5 HALF px), sh009's mass 0.15 .. 0.35
+                g.u4f(A::pCyclopsRescue,"tex_size",float(w2),float(h2),1.f/float(w2),1.f/float(h2));g.u1f(A::pCyclopsRescue,"u_rejection_dilate_div",3.5f);
+                g.u4f(A::pCyclopsRescue,"u_rescue",2.f,4.f,0.75f,1.5f);g.u2f(A::pCyclopsRescue,"u_rescue_mass",0.15f,0.35f);
+            }
+        }
 
         // merge (§5.7, exact; mvp identity: no zoom crop, OUT spans the frame at any sabre_scale)
         for(int p:{PMB,PMA}){
@@ -752,7 +786,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u1i(p,"u_source_clip_guard",0);
             g.u4f(p,"highlight_params",0.f,1.f,bento?1.f:0.f,float(shorts.size()));
         }
-        g.u4f(PMB,"flow_scale_offset",fsx,fsy,fox,foy);
+        g.u4f(PMB,"flow_scale_offset",dso[0],dso[1],dso[2],dso[3]);
         g.u1f(PMB,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.95f);g.u2f(PMB,"u_long_frame_params",0.f,1.f);
 
     }
@@ -784,6 +818,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u4f(A::pRawToGray,"uBlackLevels",blackColour);g.u1f(A::pRawToGray,"uWhiteLevel",input.white);
             g.u1i(A::pRawToGray,"uCfaSensorType",sensorType);g.u1i(A::pRawToGray,"uCfaPattern",cfa);
             g.u2f(PQ,"u_quad_kernel_scale",1.f,0.85f);g.u1f(PQ,"u_quad_color_reg_thresh",0.35f); // §5.7 defaults (Quad and Quad-Quad)
+            if(sensorType==1)g.u1f(PQ,"u_quad_cone",std::clamp(tune.fastQuadCone,0.f,2.f)); // P596: the fallback cone along the edge
         }
         g.u4f(FastMergeGpu::pUnpackBuf,"u_black_level",blackColour);
         g.u1f(FastMergeGpu::pUnpackBuf,"u_threshold_offset",0.01f*(input.white-blackMean));
@@ -1150,12 +1185,21 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         alignTiles();
         lap(3);
         GLuint flowK=slotFlow[slot],fFlowK=slotFlowFbo[slot],rejWK=slotRejW[slot],fRejWK=slotRejWFbo[slot];
+        GLuint pickK=flowPick?slotPick[slot]:0,fPickK=flowPick?slotPickFbo[slot]:0;
         if(stripMode){
-            kFlow[k]=flowK=g.texture(GL_RGBA32F,gx[0],gy[0],lin32);kFlowFbo[k]=fFlowK=g.fbo({flowK});
+            if(flowPick){kFlow[k]=pickK=g.texture(GL_RGBA32F,pgx,pgy,lin32);fPickK=g.fbo({pickK,pickFit});kFlowFbo[k]=g.fbo({pickK});} // P601: phase B reads the blocks
+            else {kFlow[k]=flowK=g.texture(GL_RGBA32F,gx[0],gy[0],lin32);kFlowFbo[k]=fFlowK=g.fbo({flowK});}
             kRejW[k]=rejWK=g.texture(GL_RG8,w2,h2,true);kRejWFbo[k]=fRejWK=g.fbo({rejWK});
             g.tex(A::pSparse,"uAlignment",0,alM[0]); // (making a texture binds it to the active unit: the sparse pass's input again)
         }
         g.draw(A::pSparse,fFlowK,gx[0],gy[0],1);
+        if(flowPick){ // P601: the block grid from the tile field, the guides and the noise model the rejection reads next
+            g.tex(A::pFlowBg,"u_flow",0,flowK);g.draw(A::pFlowBg,fFlowBg,gx[0],gy[0],1);
+            g.tex(A::pFlowPick,"u_flow",0,flowK);g.tex(A::pFlowPick,"u_base",1,refColor);g.tex(A::pFlowPick,"u_cur",2,guideCur);g.tex(A::pFlowPick,"u_noise",3,noiseLut);
+            g.tex(A::pFlowPick,"u_bg",4,flowBg);
+            g.draw(A::pFlowPick,fPickK,pgx,pgy,2);
+            flowK=pickK;fFlowK=fPickK;
+        }
         lap(12);
         // a long frame (§5.3 0x1761fc..0x176330, decoded): weight_A = 1 + smoothstep(0.7, 0.9, sharp) (min(r, 32) - 1) with
         // r = max(1, var_base(0.01) / var_long(0.01))^0.85, both noise models at the base level 0.01 in base units; cov_mul =
@@ -1186,12 +1230,45 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.tex(A::pReject,"unblocker_texture",4,unblock);g.tex(A::pReject,"gain_texture",5,gainOne);g.tex(A::pReject,"offset_texture",6,offsetZero);
         g.draw(A::pReject,fRej,w2,h2,1);
         lap(9);
+        // SCAM_FM_REJ_DUMP=<dir> (replays only, whole-frame merges): every donor's rejection stages at HALF to <dir>/rej_<k>.bin -
+        // int32 'FMRJ', burst frame, w2, h2, 6, then six uint8 planes (raw rejection, raw pixel difference, filtered, dilated,
+        // donor weight after cyclops, the weight the merge reads) and the flow it read (nx, ny: the L0 tiles, or P601's 4 x 4 HALF
+        // blocks; then RGBA float)
+        static const char* rejDump=std::getenv("SCAM_FM_REJ_DUMP");
+        std::vector<uint8_t> dumpPlanes;
+        auto dumpRead=[&](GLuint fbo,int ch){
+            if(!rejDump||stripMode)return;
+            std::vector<uint8_t> v(size_t(w2)*h2*4);
+            glBindFramebuffer(GL_FRAMEBUFFER,fbo);glReadBuffer(GL_COLOR_ATTACHMENT0);glReadPixels(0,0,w2,h2,GL_RGBA,GL_UNSIGNED_BYTE,v.data());
+            for(size_t i=0;i<size_t(w2)*h2;++i)dumpPlanes.push_back(v[4*i+size_t(ch)]);
+        };
+        dumpRead(fRej,0);dumpRead(fRej,1);
         g.tex(A::pRejFilter,"u_guide_luma",0,refLuma);g.tex(A::pRejFilter,"u_rejection",1,rejRaw);g.tex(A::pRejFilter,"u_pixel_difference",2,rejRaw);
         g.draw(A::pRejFilter,fRejF,w2,h2,1);
+        dumpRead(fRejF,0);
         lap(10);
         g.tex(A::pDilate,"rejection_texture",0,rejF);g.draw(A::pDilate,fRejD,w2,h2,1);
-        g.tex(A::pCyclops,"rejection_texture",0,rejD);g.draw(A::pCyclops,fRejF,w2,h2,1);
+        dumpRead(fRejD,0);
+        if(staticRescue){ // P601: the chain's weight, raised back where the donor's block fits at the surroundings' flow
+            g.tex(A::pCyclopsRescue,"rejection_texture",0,rejD);g.tex(A::pCyclopsRescue,"u_fit",1,pickFit);
+            g.draw(A::pCyclopsRescue,fRejF,w2,h2,1);
+        } else {g.tex(A::pCyclops,"rejection_texture",0,rejD);g.draw(A::pCyclops,fRejF,w2,h2,1);}
+        dumpRead(fRejF,0);
         g.tex(A::pBlendEq,"u_donor_weight",0,rejF);g.draw(A::pBlendEq,fRejWK,w2,h2,1);
+        dumpRead(fRejWK,0);
+        if(rejDump&&!stripMode){
+            const int nx=flowPick?pgx:gx[0],ny=flowPick?pgy:gy[0];
+            std::vector<float> fl(size_t(nx)*ny*4);
+            glBindFramebuffer(GL_FRAMEBUFFER,fFlowK);glReadBuffer(GL_COLOR_ATTACHMENT0);glReadPixels(0,0,nx,ny,GL_RGBA,GL_FLOAT,fl.data());
+            std::ofstream o(std::string(rejDump)+"/rej_"+std::to_string(k)+".bin",std::ios::binary);
+            const int32_t hd[5]={0x4a524d46,int32_t(f),w2,h2,6},fg[2]={nx,ny};
+            o.write(reinterpret_cast<const char*>(hd),sizeof(hd));o.write(reinterpret_cast<const char*>(dumpPlanes.data()),std::streamsize(dumpPlanes.size()));
+            o.write(reinterpret_cast<const char*>(fg),sizeof(fg));o.write(reinterpret_cast<const char*>(fl.data()),std::streamsize(fl.size()*4));
+            if(flowPick){ // P601: the blocks' fit within the noise and distance to the surroundings' flow (o_fit), RGBA float
+                glReadBuffer(GL_COLOR_ATTACHMENT1);glReadPixels(0,0,nx,ny,GL_RGBA,GL_FLOAT,fl.data());glReadBuffer(GL_COLOR_ATTACHMENT0);
+                o.write(reinterpret_cast<const char*>(fl.data()),std::streamsize(fl.size()*4));
+            }
+        }
         lap(11);
         // [NOT DONE] the long frame's pedestal and motion scope (§5.5): the scope is 1 everywhere
         g.u1f(A::pAccum,"u_long_weight_A",weightA);g.u1f(A::pAccum,"u_ev_scale",lf.ev);
@@ -1209,11 +1286,11 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             mergeFrame(mp,mEv);
             g.u4f(mp,"frame_info",float(k+1),0.f,float(N),1.f);
             if(quad&&!isLong){ // (sh051 serves every kind: the normal donor's values again)
-                g.u4f(mp,"flow_scale_offset",fsx,fsy,fox,foy);g.u1f(mp,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.95f);
+                g.u4f(mp,"flow_scale_offset",dso[0],dso[1],dso[2],dso[3]);g.u1f(mp,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.95f);
                 g.u2f(mp,"u_long_frame_params",0.f,1.f);g.u4f(mp,"highlight_params",0.f,1.f,bento?1.f:0.f,float(shorts.size()));
             }
             if(isLong){
-                g.u4f(mp,"flow_scale_offset",fsx,fsy,fox,foy);
+                g.u4f(mp,"flow_scale_offset",dso[0],dso[1],dso[2],dso[3]);
                 g.u1f(mp,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.88f);g.u2f(mp,"u_long_frame_params",weightA,covMul);
                 g.u4f(mp,"highlight_params",0.f,1.f,bento?1.f:0.f,float(shorts.size()));
             }
@@ -1275,6 +1352,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
         g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+        // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
+        g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
@@ -1348,27 +1427,32 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.dispatch(A::pHlMaskOut,(w2/2+63)/64,h2);
     }
     // every merged frame's vertical flow (uv) on the L0 grid, read once: the rows of the frame a strip needs
-    struct KFlow { std::vector<float> fy;float off=1.5f; };
+    // (P601: a grid of its own - the donors' 4 x 4 HALF blocks of fastFlowPick, texel (i, j) at HALF (4 i, 4 j))
+    struct KFlow { std::vector<float> fy;float off=1.5f;int nx=0,ny=0,tile=16; };
     std::vector<KFlow> kfy(loop.size());
-    auto readFlow=[&](GLuint fbo,float off,KFlow& kf){
-        std::vector<float> v(size_t(gx[0])*gy[0]*4);
+    auto readFlow=[&](GLuint fbo,float off,KFlow& kf,int nx,int ny,int tile){
+        std::vector<float> v(size_t(nx)*ny*4);
         glBindFramebuffer(GL_FRAMEBUFFER,fbo);glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0,0,gx[0],gy[0],GL_RGBA,GL_FLOAT,v.data());
-        kf.fy.resize(size_t(gx[0])*gy[0]);for(size_t i=0;i<kf.fy.size();++i)kf.fy[i]=v[4*i+1];kf.off=off;
+        glReadPixels(0,0,nx,ny,GL_RGBA,GL_FLOAT,v.data());
+        kf.fy.resize(size_t(nx)*ny);for(size_t i=0;i<kf.fy.size();++i)kf.fy[i]=v[4*i+1];kf.off=off;kf.nx=nx;kf.ny=ny;kf.tile=tile;
     };
-    for(size_t k=0;k<loop.size();++k)if(kMerged[k])readFlow(kFlowFbo[k],1.5f,kfy[k]);
+    for(size_t k=0;k<loop.size();++k)if(kMerged[k]){
+        if(flowPick)readFlow(kFlowFbo[k],0.f,kfy[k],pgx,pgy,pickB);
+        else readFlow(kFlowFbo[k],1.5f,kfy[k],gx[0],gy[0],tiles[0]);
+    }
     std::vector<KFlow> sflowY(shortFrames.size());
-    for(size_t q=0;q<shortFrames.size();++q)readFlow(g.fbo({shortFrames[q].flow}),0.5f,sflowY[q]);
+    for(size_t q=0;q<shortFrames.size();++q)readFlow(g.fbo({shortFrames[q].flow}),0.5f,sflowY[q],gx[0],gy[0],tiles[0]);
     FastMergeGpu::check("flow readback");
     // HALF rows [wa, wb) of a frame that the strip's HALF rows [ca, cb) sample: the flow's range over the tiles near the strip, a
     // margin of 8 rows (the merge's 3 x 3 sites, bilinear covariance and flow, the guide's 3 x 3); within 4 rows of an edge the
     // mirrored samples reach the edge
     auto window=[&](const KFlow& kf,int ca,int cb,int& wa,int& wb){
         float lo=0.f,hi=0.f;bool any=false;
-        for(int j=0;j<gy[0];++j){
-            const float cy=(float(j)+kf.off)*float(tiles[0]);
+        // (the reach: the tiles within 2 L0 tiles of the strip, also on the block grid)
+        for(int j=0;j<kf.ny;++j){
+            const float cy=(float(j)+kf.off)*float(kf.tile);
             if(cy<float(ca-2*tiles[0])||cy>float(cb+2*tiles[0]))continue;
-            for(int i=0;i<gx[0];++i){const float d=kf.fy[size_t(j)*gx[0]+i]*float(h2);lo=any?std::min(lo,d):d;hi=any?std::max(hi,d):d;any=true;}
+            for(int i=0;i<kf.nx;++i){const float d=kf.fy[size_t(j)*kf.nx+i]*float(h2);lo=any?std::min(lo,d):d;hi=any?std::max(hi,d):d;any=true;}
         }
         if(!any){lo=hi=0.f;for(float d:kf.fy){lo=std::min(lo,d*float(h2));hi=std::max(hi,d*float(h2));}}
         wa=std::max(0,ca+int(std::floor(lo))-8);wb=std::min(h2,cb+int(std::ceil(hi))+8);
@@ -1437,6 +1521,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
     g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
     g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+    // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
+    g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
     out=outAlloc.get();
     if(clipFlags)clipFlags->assign(size_t(OW)*OH,0);
     streamed=streamWanted&&halvesHook;bool streamTook=false;
@@ -1459,11 +1545,11 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             mergeFrame(mp,lf.ev);
             g.u4f(mp,"frame_info",float(k+1),0.f,float(N),1.f);
             if(quad&&!isLong){ // (sh051 serves every kind: the normal donor's values again)
-                g.u4f(mp,"flow_scale_offset",fsx,fsy,fox,foy);g.u1f(mp,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.95f);
+                g.u4f(mp,"flow_scale_offset",dso[0],dso[1],dso[2],dso[3]);g.u1f(mp,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.95f);
                 g.u2f(mp,"u_long_frame_params",0.f,1.f);g.u4f(mp,"highlight_params",0.f,1.f,bento?1.f:0.f,float(shorts.size()));
             }
             if(isLong){
-                g.u4f(mp,"flow_scale_offset",fsx,fsy,fox,foy);
+                g.u4f(mp,"flow_scale_offset",dso[0],dso[1],dso[2],dso[3]);
                 g.u1f(mp,"u_source_clipping_point",blackMean+(input.white-blackMean)*0.88f);g.u2f(mp,"u_long_frame_params",kWeightA[k],kCovMul[k]);
                 g.u4f(mp,"highlight_params",0.f,1.f,bento?1.f:0.f,float(shorts.size()));
             }

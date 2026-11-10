@@ -18,6 +18,8 @@ import com.particlesdevs.photoncamera.R;
 public class ModuleRowPreference extends Preference {
     private CharSequence value;
     private boolean warn, dimmed, accentTile;
+    /** P592: the row's state, the one line it shows under its title (its summary is its description: the long press). */
+    @Nullable private CharSequence status;
 
     public ModuleRowPreference(Context context) {
         super(context);
@@ -62,6 +64,18 @@ public class ModuleRowPreference extends Preference {
     }
 
     public boolean accentTile() { return accentTile; }
+
+    /**
+     * P592: the line under the title - a state («Выбран вами», «Сейчас в камере», a failed FULLRES trial), null for none. The
+     * description stays the summary, which the row no longer draws (SettingHelp shows it on a long press).
+     */
+    public void setStatus(@Nullable CharSequence status) {
+        if (TextUtils.equals(this.status, status)) return;
+        this.status = status;
+        notifyChanged();
+    }
+
+    @Nullable public CharSequence status() { return status; }
 
     /** The title and the summary set together, binding once. */
     public void setTexts(CharSequence title, @Nullable CharSequence summary) {

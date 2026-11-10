@@ -237,6 +237,7 @@ public final class ModuleRows {
             none.setKey(NONE);
             none.setSelectable(false);
             none.setPersistent(false);
+            SettingHelp.summaryIsState(none);   // P592: «Откройте видоискатель…» is the page's state, not a description
             none.setSummary(c.getString(R.string.module_rows_none));
             none.setOrder(-1);
             add(group, none);
@@ -355,6 +356,7 @@ public final class ModuleRows {
             int free = 0;
             for (String slot : ModuleRegistry.slots()) if (ModuleRegistry.freeSlot(slot)) free++;
             add.setSummary(c.getString(R.string.module_row_add_summary) + (free > 0 ? c.getString(R.string.module_row_free, free) : ""));
+            add.setStatus(free > 0 ? lead(c.getString(R.string.module_row_free, free)) : null);   // P592: «Свободных мест: 3»
             hide(add, slots.isEmpty());
         }
         if (perLens != null) {
@@ -450,6 +452,7 @@ public final class ModuleRows {
         if (cardId != null) {
             cardId.setValue(c.getString(R.string.module_id_value, ModuleRegistry.camera(slot)));
             cardId.setSummary(idState(c, slot));
+            cardId.setStatus(idState(c, slot));   // P592: «Авто» / «Выбран вами» is the row's state
         }
         ModuleRowPreference zoom = card.findPreference(ZOOM + slot);
         if (zoom != null) zoom.setValue(ModuleRegistry.sensorCrop(slot) ? c.getString(R.string.module_row_zoom_sensor, badge(slot)) : badge(slot));
@@ -466,6 +469,7 @@ public final class ModuleRows {
             float k = ModuleRegistry.crop(slot) / ModuleRegistry.crop(source);
             crop.setSummary(k <= 1.0001f ? c.getString(R.string.module_row_crop_none, ModuleRegistry.label(source))
                     : c.getString(R.string.module_row_crop_of, ModuleActions.cropText(k), ModuleRegistry.label(source), ModuleActions.cropText(ModuleRegistry.zoom(slot))));
+            crop.setStatus(crop.getSummary());   // P592: «1.3× от «1×» · кнопка 1.3×» is the copy's state
         }
         boolean on = PreferenceKeys.isPerLensSettingsOn();
         String inCamera = FullResProfiles.profileFor(ModuleRegistry.active());
@@ -475,18 +479,25 @@ public final class ModuleRows {
             if (!(p instanceof ModuleRowPreference) || p.getKey() == null || !p.getKey().startsWith(PROFILE)) continue;
             String id = p.getKey().substring(PROFILE.length());
             ModuleRowPreference row = (ModuleRowPreference) p;
-            String summary;
+            String summary, status = "";   // P592: the state alone under the title («Пока как у «1×» · сейчас в камере»)
             if (FullResProfiles.isVariant(id)) {
                 summary = c.getString(R.string.module_row_fullres_shots, FullResProfiles.size(id));
-                if (!storedProfile(id)) summary += c.getString(R.string.module_row_fullres_unset, ModuleRegistry.label(slot));
+                if (!storedProfile(id)) {
+                    summary += c.getString(R.string.module_row_fullres_unset, ModuleRegistry.label(slot));
+                    status += c.getString(R.string.module_row_fullres_unset, ModuleRegistry.label(slot));
+                }
             } else {
                 summary = c.getString(on ? R.string.module_row_profile_on : R.string.module_row_profile_off);
                 // the module's own profile beside its FULLRES ones; while all modules share one, there is nothing to tell apart
                 if (variants && on) summary += c.getString(R.string.module_row_profile_regular);
                 row.setValue(c.getString(on ? R.string.module_row_profile_value_on : R.string.module_row_profile_value_off));
             }
-            if (on && id.equals(inCamera)) summary += c.getString(R.string.module_row_profile_in_camera);
+            if (on && id.equals(inCamera)) {
+                summary += c.getString(R.string.module_row_profile_in_camera);
+                status += c.getString(R.string.module_row_profile_in_camera);
+            }
             row.setSummary(summary);
+            row.setStatus(status.isEmpty() ? null : lead(status));
             row.setDimmed(!on);
         }
         for (int i = 0; i < card.getPreferenceCount(); i++) {
@@ -494,8 +505,15 @@ public final class ModuleRows {
             if (p.getKey() != null && p.getKey().startsWith(TRIALS)) {
                 String status = FullResTrials.status(p.getKey().substring(TRIALS.length()));
                 if (status != null) p.setSummary(status);
+                if (p instanceof ModuleRowPreference) ((ModuleRowPreference) p).setStatus(status);   // P592: a trial's result stays
             }
         }
+    }
+
+    /** P592: a state that the summaries append (« · сейчас в камере») as a line of its own: «Сейчас в камере». */
+    static String lead(String part) {
+        String s = part.replaceAll("^[\\s·]+", "");
+        return s.isEmpty() ? s : s.substring(0, 1).toUpperCase(java.util.Locale.getDefault()) + s.substring(1);
     }
 
     private static boolean storedProfile(String id) {
@@ -523,6 +541,7 @@ public final class ModuleRows {
             }
             row.setOrder(i);
             row.setTexts(badge(slot) + " · " + cardTitle(c, slot), idState(c, slot));
+            row.setStatus(idState(c, slot));   // P592
             row.setValue(c.getString(R.string.module_id_value, ModuleRegistry.camera(slot)));
         }
     }

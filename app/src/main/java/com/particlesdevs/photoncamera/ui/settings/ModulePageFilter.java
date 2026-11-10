@@ -90,6 +90,7 @@ final class ModulePageFilter {
             sensor.setTitle(c.getString(R.string.module_sensor_this));
             String slot = FullResProfiles.slotOf(profile);
             if (FullResProfiles.isVariant(profile) || !FullResProfiles.variants(slot).isEmpty())
+                SettingHelp.summaryIsState(sensor);   // P592: whose sensor settings these are - a state, it stays
                 sensor.setSummary(c.getString(R.string.module_sensor_shared, ModuleRegistry.label(slot)));
         }
     }

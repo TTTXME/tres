@@ -359,6 +359,9 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 PreferenceScreen selected = findPreference(rootKey);
                 if (selected == null) throw new IllegalArgumentException("Unknown settings page: " + rootKey);
                 selected.setVisible(true);   // P413: the lens page is hidden as a row of its parent, shown as a page
+                // P592 (found by SettingsCoverageTest): a page that depends on a row of its parent («Маска лица» on «Защита лиц») is
+                // the root here: its dependency is not in its tree and binding it threw; the dependency greys its row on the parent
+                if (selected.getDependency() != null && selected.findPreference(selected.getDependency()) == null) selected.setDependency(null);
                 setPreferenceScreen(selected);
             }
             // P385: the user's order of this page (before the module page's filter, which judges the groups as they end up)
@@ -483,17 +486,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 sp.bottomMargin = SettingsStyle.dp(c, 10);   // P584: the concept's 10dp under the search
                 top.addView(SettingsStyle.searchPill(c, this::openSearch), sp);
                 // 2026-10-27 (owner: settings anyone can set up alone): the two gestures that explain a setting and put its
-                // default back (DoubleTapReset: the long press of a slider row reaches its help too)
-                android.widget.TextView tips = SettingsStyle.text(c, Lang.t(c,
-                        "Удерживайте пункт, чтобы узнать, что он делает. Двойной тап по ползунку — значение по умолчанию.",
-                        "Hold a row to see what it does. Double-tap a slider to restore its default."), 13, SettingsStyle.SECTION);
-                tips.setLineSpacing(SettingsStyle.dp(c, 2), 1f);
-                tips.setTag("settings_tips");
-                android.widget.LinearLayout.LayoutParams tp = new android.widget.LinearLayout.LayoutParams(-1, -2);
-                tp.bottomMargin = SettingsStyle.dp(c, 6);
-                tp.leftMargin = SettingsStyle.dp(c, 16);
-                tp.rightMargin = SettingsStyle.dp(c, 16);
-                top.addView(tips, tp);
+                // default back. P592 (owner's review: the hints under the search go): said once, the first time the settings open
+                tipOnce(c);
             }
             chipBox = new android.widget.LinearLayout(c);
             top.addView(chipBox, new android.widget.LinearLayout.LayoutParams(-1, -2));
@@ -563,13 +557,19 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     super.onBindViewHolder(holder, position);
                     Preference p = getItem(position);
                     if (p != null) SettingsStyle.bind(holder, p);
-                    // P319: a long press on a row opens its help (what it does, how to set it, its value)
+                    // P319: a long press on a row opens its help (what it does, how to set it, its value); P592: the only place
+                    // a description is shown. A recycled row of a category loses the listener of the row it showed before.
                     if (SettingHelp.helps(p)) {
                         holder.itemView.setOnLongClickListener(v -> {
                             SettingHelp.show(v.getContext(), p);
                             return true;
                         });
+                    } else {
+                        holder.itemView.setOnLongClickListener(null);
+                        holder.itemView.setLongClickable(false);
                     }
+                    // P592: a note (a row that only explains) shows its title; a tap opens its text as the long press does
+                    if (p != null && SettingsStyle.note(p)) holder.itemView.setOnClickListener(v -> SettingHelp.show(v.getContext(), p));
                 }
             };
         }
@@ -605,6 +605,23 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     });
         }
 
+        /** P592: the store of the one-time tips (not the settings: a config import or a reset does not show them again). */
+        static final String TIPS = "scamera_tips", TIP_LONG_PRESS = "long_press_tip_shown";
+
+        /** P592: «Удерживайте пункт…», the long press and the double tap of a slider - a toast the first time the settings open. */
+        public static void tipOnce(Context c) {
+            try {
+                android.content.SharedPreferences tips = c.getSharedPreferences(TIPS, Context.MODE_PRIVATE);
+                if (tips.getBoolean(TIP_LONG_PRESS, false)) return;
+                tips.edit().putBoolean(TIP_LONG_PRESS, true).apply();
+                android.widget.Toast.makeText(c, Lang.t(c,
+                        "Удерживайте пункт, чтобы узнать, что он делает. Двойной тап по ползунку — значение по умолчанию.",
+                        "Hold a row to see what it does. Double-tap a slider to restore its default."), android.widget.Toast.LENGTH_LONG).show();
+            } catch (RuntimeException ignored) {
+                // no tip is better than no settings
+            }
+        }
+
         /**
          * P574 (the concept): the bar's path to this page - «Настройки › Обработка › …» (the pages above it), none on the root.
          */
@@ -628,13 +645,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             header.heading.setText(main || title == null || title.length() == 0 ? Lang.t(getContext(), "Настройки", "Settings") : title);
             header.subtitle.setVisibility(View.GONE);
             header.crumb.setText(crumb(screen));
-            // P574 (the concept): a page's description under its large title
-            if (screen != null && getArguments() != null && getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) != null
-                    && !android.text.TextUtils.isEmpty(screen.getSummary())
-                    && !ModuleRows.PAGE.equals(screen.getKey())) {   // P584: «Камеры и модули» has no description (Modules.dc.html)
-                header.subtitle.setText(screen.getSummary());
-                header.subtitle.setVisibility(View.VISIBLE);
-            }
+            // P592 (owner, 2026-11-10: «Убираем все описания»): a page's description is no longer under its large title (it was,
+            // P574); it is the long press on the row that opens the page. A module page's subtitle below is a state and stays.
             chipBox.removeAllViews();
             String chip = null;
             boolean modulePicker = false;
@@ -1131,6 +1143,9 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             if (row == null || !isAdded()) return;
             row.setSummary(getString(R.string.prefs_file_name_summary) + "\n" + com.particlesdevs.photoncamera.processing.FileNamePattern.format(
                     PreferenceKeys.getFileNamePattern(), System.currentTimeMillis()) + ".jpg");
+            // P592: the name a photo gets now (the summary's last line) is the row's state; set before the row binds again
+            final String summary = String.valueOf(row.getSummary());
+            SettingHelp.state(row, summary.substring(summary.lastIndexOf('\n') + 1));
         }
 
         @Override public void onPause() {
@@ -1327,7 +1342,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 // Rows of a photo format that is not chosen are hidden, not explained (SettingsAvailability.hidden).
                 // P189: shared rows stay off module pages; 2026-10-27: a row the page's code hid stays hidden
                 boolean hidden = state.hidden(key) || moduleHidden.contains(key) || codeHidden.contains(key)
-                        || (moduleRows != null && moduleRows.hides(key));
+                        || (moduleRows != null && moduleRows.hides(key))
+                        || SettingsStyle.emptyNote(p);   // P592: a note that was only a description
                 if (p.isVisible() == hidden) p.setVisible(!hidden);
                 String reason = state.reason(key);
                 if (p.getClass() != Preference.class) p.setEnabled(reason == null);
@@ -1338,12 +1354,14 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     }
                     p.setEnabled(false);
                     Preference.SummaryProvider provider = originalProviders.get(key);
+                    SettingHelp.state(p, reason);   // P592: why the row is off stays under its title (its description does not)
                     p.setSummaryProvider(pref -> {
                         CharSequence base = provider == null ? originalSummaries.get(key) : provider.provideSummary(pref);
                         return base == null || base.length() == 0 ? reason : base + "\n" + reason;
                     });
                 } else if (originalSummaries.containsKey(key)) {
                     p.setEnabled(true);
+                    SettingHelp.state(p, null);
                     p.setSummaryProvider(originalProviders.remove(key));
                     CharSequence summary = originalSummaries.remove(key);
                     if (p.getSummaryProvider() == null) p.setSummary(summary);

@@ -164,6 +164,12 @@ public class TunablePngPreference extends Preference {
         }
     }
 
+    /** P592: the row's line is its state - the chosen file, never the description (SettingHelp.describe holds that). */
+    @Override
+    public CharSequence getSummary() {
+        return getCurrentSummaryText();
+    }
+
     private void updateSummary() {
         setSummary(getCurrentSummaryText());
     }

@@ -80,7 +80,7 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
     private String label(String id){return com.particlesdevs.photoncamera.settings.FullResProfiles.label(id)+" · ID "+ModuleRegistry.camera(com.particlesdevs.photoncamera.settings.FullResProfiles.slotOf(id));}
     private void toggle(Set<String> keys){if(selected.containsAll(keys))selected.removeAll(keys);else selected.addAll(keys);render();}
     @Override protected void render(){
-        PreferenceGroup group=current();boolean home=path.isEmpty();page(home?Lang.t(getContext(),"Копирование настроек","Copy settings"):String.valueOf(group.getTitle()),home?null:Lang.t(getContext(),"Выбор параметров для копирования","Choose the parameters to copy"));
+        PreferenceGroup group=current();boolean home=path.isEmpty();page(home?Lang.t(getContext(),"Копирование настроек","Copy settings"):String.valueOf(group.getTitle()),null);
         if(home){
             caption(Lang.t(getContext(),"Источник","Source"));LinearLayout sourceCard=card(),r=row();r.setPadding(dp(14),dp(12),dp(14),dp(12));r.setMinimumHeight(dp(48));ImageView camera=icon("▣");camera.setPadding(0,0,dp(12),0);r.addView(camera,new LinearLayout.LayoutParams(dp(38),dp(26)));r.addView(text(Lang.t(getContext(),"Источник: ","Source: ")+label(source),15,TEXT),new LinearLayout.LayoutParams(0,-2,1));ImageView down=chevron();down.setRotation(90);down.setColorFilter(accent);r.addView(down,new LinearLayout.LayoutParams(dp(16),dp(20)));r.setTag("source_module");
             // P574: the source in the pull-down menu at its row (was a list dialog)
@@ -105,7 +105,7 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
                 TextView title=text(String.valueOf(p.getTitle()),14,TEXT);title.setPadding(dp(4),dp(8),dp(4),dp(8));r.addView(title,new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams chev=new LinearLayout.LayoutParams(dp(16),dp(20));chev.rightMargin=dp(4);r.addView(chevron(),chev);r.setTag("group_"+p.getKey());r.setOnClickListener(v->{path.add(String.valueOf(childIndex));render();((ScrollView)body.getParent()).scrollTo(0,0);});
                 if(list.getChildCount()>0)divider(list);list.addView(r);
             }
-            note(Lang.t(getContext(),"Общие параметры помечены внутри групп","Shared parameters are marked inside the groups"));
+            explain(Lang.t(getContext(),"Общие параметры помечены внутри групп","Shared parameters are marked inside the groups"));
             primary(Lang.t(getContext(),"Копировать в "+targets.size()+" "+(targets.size()==1?"модуль":targets.size()<5?"модуля":"модулей"),"Copy to "+targets.size()+(targets.size()==1?" module":" modules")),!targets.isEmpty()&&!selected.isEmpty(),()->{
                 PreferenceKeys.profiles().copy(source,targets,selected);if(ScameraApp.getSettings()!=null)ScameraApp.getSettings().loadCache();
                 DialogStyle.builder(requireContext()).setMessage(Lang.t(getContext(),"Выбранные настройки скопированы","The selected settings are copied")).setPositiveButton(Lang.t(getContext(),"Готово","Done"),null).show();
@@ -118,7 +118,7 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
                 if(p instanceof PreferenceGroup){LinearLayout c=card();section(c,(PreferenceGroup)p);}
                 else{if(loose==null)loose=card();leaf(loose,p);}
             }
-            note(Lang.t(getContext(),"Невыбранные параметры останутся прежними","Unselected parameters stay as they are"));
+            explain(Lang.t(getContext(),"Невыбранные параметры останутся прежними","Unselected parameters stay as they are"));
             primary(Lang.t(getContext(),"Готово","Done"),true,()->{path.remove(path.size()-1);render();});
         }
     }

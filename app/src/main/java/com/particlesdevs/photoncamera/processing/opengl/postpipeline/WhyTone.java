@@ -418,6 +418,32 @@ public final class WhyTone {
     }
 
     /**
+     * P595 (owner, 2026-11-10: white dots on dark objects' edges against a bright sky, «ограничитель выбросов можно поправить»):
+     * why/sharp_rl edgeGuardU - the Richardson-Lucy stages' halo clamp relative at a dark / bright edge (the window 2 px round the
+     * pixel 1 .. 2 stops from its darkest to its brightest): the result stays within that window's range +-1 %. The clamp's own
+     * margin (0.03 + 0.15 x range) and strong-edge test (range 0.15 .. 0.4) are levels of the G_CLEAN plane, so under a short
+     * exposure (a backlit sky at 0.15, AE x3.5) they let every stage overshoot the bright side by a third of it. Amounts, radii,
+     * iterations and the texture's clamp unchanged. scam_dev hybrid_why_sharp_rl_edge_guard 0..1 (0 = off, as before).
+     */
+    static float rlEdgeGuard() {
+        return Math.max(0f, Math.min(1f, value("sharp_rl_edge_guard", 1f)));
+    }
+
+    /**
+     * P596 (owner, 2026-11-10: «Локальный контраст», after 140309's facade by stage: Ark led our whole chain 1.12 - 1.22 at
+     * 0.03 - 0.15 cycles / px - local contrast, not fine detail): the fused luma's local contrast (why/localcontrast.glsl, run by
+     * WhyCombine on the photo): F + c D (1 - smoothstep(t, 3 t, |D|)), D = F - its gaussian of LOCAL_CONTRAST_SIGMA full-size px.
+     * Host app chain against Ark's JPEGs (Ark / ours at 0.03 - 0.15, median of 192 px crops): 140309 1.06 - 1.10 -> 0.98 - 1.05,
+     * 142001 1.00 - 1.03 -> 0.97 - 1.00, Bayer 140241 1.01 - 1.09 -> 0.95 - 1.06 (0.5 overshot to 0.90). scam_dev
+     * hybrid_why_local_contrast 0..1 (0 = off, the fused luma as before).
+     */
+    static float localContrast() {
+        return Math.max(0f, Math.min(1f, value("local_contrast", 0.3f)));
+    }
+    /** P596: the gaussian of {@link #localContrast()} in full-size px and the difference from which it fades out (fused luma). */
+    static final float LOCAL_CONTRAST_SIGMA = 4f, LOCAL_CONTRAST_T = 0.04f;
+
+    /**
      * P441 (owner, 2026-11-01: «ступеньки на гранях»): why/sharp_r1 latCapU - P337's 2 px lattice estimate clamped to this share of
      * Ya (+ 0.0002): along every edge the estimate was a +-step / 8 burst the sharpening lifted into dashes; the merge's own lattice
      * (~0.1 % of the level) still goes. scam_dev hybrid_why_sharp_lattice_cap (0 = unclamped, as before).

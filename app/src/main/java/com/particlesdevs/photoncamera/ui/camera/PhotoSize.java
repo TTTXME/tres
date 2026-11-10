@@ -96,6 +96,8 @@ public final class PhotoSize {
     public static int current() {
         if (!fullHere || !PixelPro10.fullResChosen()) return NORMAL;
         if (!maxAvailable()) return FULL;
+        // P593: on the OPPO family a «50 Мп» with no row left is off, never 200 MP by itself (200 MP is its own choice)
+        if (dead(FULL) && !PixelPro10.tele200() && VivoSdkFullRes.fiftyStaysFifty(boundCamera)) return NORMAL;
         // P214h: the size that runs - the chosen one, or the other when the chosen one has no row left
         return lights200(PixelPro10.tele200(), dead(FULL), dead(MAX)) ? MAX : dead(FULL) && dead(MAX) ? NORMAL : FULL;
     }

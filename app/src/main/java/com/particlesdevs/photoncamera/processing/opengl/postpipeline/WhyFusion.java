@@ -127,7 +127,7 @@ public final class WhyFusion extends Node {
      * every shot; P306: a 200 MP shot too, as its finish denoise).
      */
     static boolean whyDenoise(com.particlesdevs.photoncamera.processing.render.Parameters p) {
-        return PreferenceKeys.isHybridDenoiseEnabled();
+        return DenoiseStages.on();
     }
 
     /**

@@ -59,7 +59,10 @@ struct Stack {
     std::vector<std::array<double, 2>> d{{0, 0}, {0.5, 0.25}, {-0.75, 0.5}, {0.25, -0.5}, {-0.5, -0.75}};
     std::vector<std::vector<uint16_t>> raw;
     int block;
-    explicit Stack(int b) : block(b) { for (size_t f = 0; f < d.size(); ++f) raw.push_back(bayer(d[f][0], d[f][1], 500 + unsigned(f), b)); }
+    // move: the donors' texture moved by that many px against what the alignment says (a subject moving over the static flat part)
+    explicit Stack(int b, double move = 0) : block(b) {
+        for (size_t f = 0; f < d.size(); ++f) raw.push_back(bayer(d[f][0] + (f ? move * double(f) : 0), d[f][1], 500 + unsigned(f), b));
+    }
 };
 
 static std::vector<float> merge(const Stack& b, HybridTuning t, std::vector<std::string>* log = nullptr) {
@@ -152,6 +155,8 @@ int main() {
     int routes = 0;
     for (const Route r : {Route{"Sabre 6.1", 1, 0, 1}, Route{"round 4", 0, 0, 1}, Route{"fast route", 1, 1, 1}, Route{"native Quad", 1, 0, 2}}) {
         HybridTuning base; base.sabre61 = r.sabre61; base.fastMerge = r.fast; base.fastMergeSelect = 0;
+        base.mosaicQuadTexture = 1.f; // P596: the user's factors alone here (the Quad default x0.5 is checked below)
+        base.mosaicQuadFine = 0.f;    // P596: on the quad tensor this synthetic texture is «texture» (the green-site one reads it as edges)
         std::vector<std::string> log;
         const Stack& stack = r.block == 2 ? quad : burst;
         const std::vector<float> ref = merge(stack, base, &log);
@@ -198,6 +203,40 @@ int main() {
         ++routes;
     }
     assert(routes >= 3); // the fast route may be skipped on a host that cannot take it
+    // P596: the Quad stream's own texture factor (HybridTuning::mosaicQuadTexture, default 0.5) on top of the user's 1: said, and the
+    // output not the factor-1 merge's; a Bayer stream ignores it (bit for bit)
+    {
+        HybridTuning q; q.sabre61 = 1; q.fastMerge = 0; q.fastMergeSelect = 0; q.mosaicQuadFine = 0.f;
+        assert(q.mosaicQuadTexture == 0.5f);
+        std::vector<std::string> l;
+        const std::vector<float> qd = merge(quad, q, &l);
+        bool said = false;
+        for (const auto& s : l) said |= s.find("footprint texture x0.5") != std::string::npos;
+        HybridTuning q1 = q; q1.mosaicQuadTexture = 1.f;
+        const std::vector<float> q1d = merge(quad, q1);
+        assert(said && qd.size() == q1d.size() && std::memcmp(qd.data(), q1d.data(), qd.size() * 4) != 0);
+        assert(detail(qd, tex) > detail(q1d, tex));
+        HybridTuning b = q, b1 = q1;
+        const std::vector<float> bd = merge(burst, b), b1d = merge(burst, b1);
+        assert(bd.size() == b1d.size() && std::memcmp(bd.data(), b1d.data(), bd.size() * 4) == 0);
+        std::printf("P596 native Quad texture x0.5 by default: detail %.4f -> %.4f; Bayer unchanged\n", detail(q1d, tex), detail(qd, tex));
+        // round 5: the narrow kernel back to the user's below mosaicQuadTextureFrames (at most 3/4 of the donors) accepted donor
+        // frames - said; this static burst's texture as without the gate (its flat part's noise-rejected donors a few 1e-5 off);
+        // a subject moving over the texture (its donors rejected there) close to the factor-1 merge's
+        assert(q.mosaicQuadTextureFrames == 24.f);
+        bool gated = false;
+        for (const auto& s : l) gated |= s.find("Quad texture kernel back to the user's below") != std::string::npos;
+        HybridTuning q0 = q; q0.mosaicQuadTextureFrames = 0.f;
+        const std::vector<float> q0d = merge(quad, q0);
+        const double sT = diff(qd, q0d, tex), sF = diff(qd, q0d, flat);
+        assert(gated && q0d.size() == qd.size() && sT < 0.02 * diff(q0d, q1d, tex) && sF < 1e-4);
+        const Stack moving(2, 3.25);
+        const std::vector<float> mg = merge(moving, q), m0 = merge(moving, q0), m1 = merge(moving, q1);
+        const double g1 = diff(mg, m1, tex), n1 = diff(m0, m1, tex);
+        std::printf("P596 round 5: static burst |change| from the ungated merge: texture %.3g, flat %.3g (the narrow kernel's own change "
+                    "%.3g); a moving texture's |change| from the factor-1 merge: narrow %.3g, gated %.3g\n", sT, sF, diff(q0d, q1d, tex), n1, g1);
+        assert(n1 > 1e-4 && g1 < 0.5 * n1);
+    }
     std::printf("hybrid kernel footprint check PASS (%d routes)\n", routes);
     return 0;
 }

@@ -1392,19 +1392,23 @@ public class SettingsMenuTest {
         assertTrue("root pages found: "+pages,pages>=7);
         assertEquals("@drawable/cs_ic_ui",byIcon.entrySet().stream().filter(e->e.getValue().equals("interface_settings_screen")).findFirst().get().getKey());
     }
-    @Test public void titlesStandOutFromTheirDescriptions(){
+    /**
+     * P592 (owner, 2026-11-10: «Убираем все описания у параметров, оставляем подробное описание только по зажатию»): a switch, a
+     * list, a slider and a page row show their semibold white title and no description line; the description is the long press.
+     */
+    @Test public void rowsShowTheirTitleWithoutADescription(){
         PreferenceScreen screen=inflate();
         // a switch, a list, a slider and a page row
         for(String key:new String[]{"pref_scam_hybrid_shasta","pref_scam_hybrid_output","pref_scam_hybrid_shasta_ev","scam_hybrid_hdr_screen"}){
             Preference p=screen.findPreference(key);assertNotNull(key,p);
+            assertFalse(key+" has a description for its long press",android.text.TextUtils.isEmpty(
+                    com.particlesdevs.photoncamera.ui.settings.SettingHelp.text(context,p)));
             android.view.View r=row(p);
             android.widget.TextView title=r.findViewById(android.R.id.title),summary=r.findViewById(android.R.id.summary);
-            assertNotNull(key,title);assertNotNull(key,summary);
-            assertEquals(key,com.particlesdevs.photoncamera.ui.settings.SettingsStyle.SUMMARY,summary.getCurrentTextColor());
-            assertNotEquals(key,summary.getCurrentTextColor(),title.getCurrentTextColor());
-            assertTrue(key,title.getTextSize()>summary.getTextSize());
+            assertNotNull(key,title);
+            assertTrue(key+": no description under the title",summary==null||summary.getVisibility()!=android.view.View.VISIBLE);
+            assertEquals(key,com.particlesdevs.photoncamera.ui.settings.SettingsStyle.ROW_TITLE,title.getCurrentTextColor());
             assertNotNull(key+": the title's face",title.getTypeface());
-            assertNotEquals(key+": title and description share a face",summary.getTypeface(),title.getTypeface());
         }
     }
 
@@ -1455,6 +1459,90 @@ public class SettingsMenuTest {
         PreferenceViewHolder holder=PreferenceViewHolder.createInstanceForTests(row);
         p.onBindViewHolder(holder);com.particlesdevs.photoncamera.ui.settings.SettingsStyle.bind(holder,p);
         return row;
+    }
+
+    /**
+     * P592 (owner, 2026-11-10: «Убираем все описания у параметров, оставляем подробное описание только по зажатию на параметре»):
+     * every row of preferences.xml and of the generated tunables binds without a description line - only a state may stand under
+     * its title (the log's size, the version, the credits) - and every keyed row has a non-empty text for its long press.
+     */
+    @Test public void noRowShowsADescriptionAndEveryRowHasItsHelp(){
+        PreferenceScreen screen=inflate();
+        List<Preference> all=new ArrayList<>();collectAll(screen,all);
+        int rows=0;
+        for(Preference p:all){
+            if(p.getKey()==null||p instanceof PreferenceCategory)continue;
+            rows++;
+            CharSequence help=com.particlesdevs.photoncamera.ui.settings.SettingHelp.text(context,p);
+            assertFalse(p.getKey()+" has a long-press description",help==null||help.toString().trim().isEmpty());
+            assertFalse(p.getKey()+": no placeholder in its help: "+help,help.toString().contains("%s"));
+            android.view.View row=LayoutInflater.from(context).inflate(p.getLayoutResource(),null,false);
+            PreferenceViewHolder holder=PreferenceViewHolder.createInstanceForTests(row);
+            p.onBindViewHolder(holder);
+            com.particlesdevs.photoncamera.ui.settings.SettingsStyle.bind(holder,p);
+            android.widget.TextView summary=row.findViewById(android.R.id.summary);
+            if(summary==null||summary.getVisibility()!=android.view.View.VISIBLE)continue;
+            CharSequence state=com.particlesdevs.photoncamera.ui.settings.SettingHelp.stateLine(p);
+            assertNotNull(p.getKey()+" shows a description under its title: "+summary.getText(),state);
+            assertTrue(p.getKey()+": only its state under the title: "+summary.getText(),
+                    state.toString().startsWith(summary.getText().toString().replaceAll("…$","")));
+        }
+        assertTrue("rows checked: "+rows,rows>400);
+    }
+    private static void collectAll(PreferenceGroup g,List<Preference> out){
+        for(int i=0;i<g.getPreferenceCount();i++){Preference p=g.getPreference(i);out.add(p);if(p instanceof PreferenceGroup)collectAll((PreferenceGroup)p,out);}
+    }
+
+    /**
+     * P592: the long press's sheet in the look of the camera's sheets - the #2C2C2E card with 30dp top corners and the grabber, the
+     * title 18dp semibold white, the text in white at 70 %, then «Now» in the accent, «Default» and «Range» of a slider; a slider
+     * off its default offers «Back to the default».
+     */
+    @Test public void theHelpSheetHasTheCameraSheetsLook(){
+        PreferenceScreen screen=inflate();
+        androidx.appcompat.app.AppCompatActivity activity=org.robolectric.Robolectric.buildActivity(androidx.appcompat.app.AppCompatActivity.class).setup().get();
+        activity.setTheme(R.style.Theme_Scamera_SettingsActivity);
+        com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference brightness=screen.findPreference("pref_scam_hybrid_why_ae_target");
+        assertNotNull(brightness);
+        float density=context.getResources().getDisplayMetrics().density;
+        com.google.android.material.bottomsheet.BottomSheetDialog d=com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(activity,brightness);
+        android.view.View sheet=d.getWindow().getDecorView().findViewWithTag("setting_help");
+        assertNotNull("the help sheet",sheet);
+        android.graphics.drawable.GradientDrawable card=(android.graphics.drawable.GradientDrawable)sheet.getBackground();
+        assertEquals(0xFF2C2C2E,card.getColor().getDefaultColor());
+        assertEquals(30*density,card.getCornerRadii()[0],.5f);
+        assertEquals("square bottom corners",0f,card.getCornerRadii()[4],0f);
+        assertNotNull("the grabber",sheet.findViewWithTag("help_grabber"));
+        android.widget.TextView title=sheet.findViewWithTag("help_title"),text=sheet.findViewWithTag("help_text");
+        assertEquals(brightness.getTitle().toString(),title.getText().toString());
+        assertEquals(18*density,title.getTextSize(),.5f);
+        assertEquals(0xFFFFFFFF,title.getCurrentTextColor());
+        assertEquals(com.particlesdevs.photoncamera.ui.style.Fonts.of(context,com.particlesdevs.photoncamera.ui.style.Fonts.SEMIBOLD),title.getTypeface());
+        assertEquals(0xB3FFFFFF,text.getCurrentTextColor());
+        assertEquals(context.getString(R.string.help_brightness),text.getText().toString());
+        android.view.ViewGroup facts=sheet.findViewWithTag("help_facts");
+        assertNotNull("now / default / range",facts);
+        assertEquals(3,facts.getChildCount());
+        assertEquals("Default: 0.15",String.valueOf(facts.getChildAt(1).getContentDescription()));
+        assertEquals("Range: 0.02 … 0.50",String.valueOf(facts.getChildAt(2).getContentDescription()));
+        android.widget.TextView now=sheet.findViewWithTag("help_now");
+        assertEquals(com.particlesdevs.photoncamera.circularbarlib.ui.AccentPalette.camera(context),now.getCurrentTextColor());
+        assertNull("at its default: no reset",sheet.findViewWithTag("help_reset"));
+        d.dismiss();
+        // off its default: the sheet puts it back
+        brightness.setNumber(0.3f);
+        d=com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(activity,brightness);
+        sheet=d.getWindow().getDecorView().findViewWithTag("setting_help");
+        assertEquals("0.30",((android.widget.TextView)sheet.findViewWithTag("help_now")).getText().toString());
+        sheet.findViewWithTag("help_reset").performClick();
+        assertFalse("the reset closes the sheet",d.isShowing());
+        assertFalse(brightness.isChanged());
+        // a switch: its state and its XML default
+        SwitchPreferenceCompat shadows=screen.findPreference("pref_scam_hybrid_shasta");
+        d=com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(activity,shadows);
+        facts=d.getWindow().getDecorView().findViewWithTag("help_facts");
+        assertTrue(String.valueOf(facts.getChildAt(facts.getChildCount()-1).getContentDescription()).startsWith("Default: "));
+        d.dismiss();
     }
 
     /**
@@ -1523,7 +1611,9 @@ public class SettingsMenuTest {
         assertNotNull("P574: a list ends in the up / down chevron",row(list).findViewById(R.id.settings_updown));
         android.view.View lr=row(list);android.widget.TextView value=lr.findViewById(R.id.settings_value);
         assertEquals("Второй",value.getText().toString());assertEquals("P574: the value on the right, white at 55 %",com.particlesdevs.photoncamera.ui.settings.SettingsStyle.VALUE,value.getCurrentTextColor());
-        assertEquals("the value is not repeated in the summary","Описание",((android.widget.TextView)lr.findViewById(android.R.id.summary)).getText().toString());
+        // P592: the value on the right, its description only on the long press
+        assertNotEquals("P592: no description under the title",android.view.View.VISIBLE,lr.findViewById(android.R.id.summary).getVisibility());
+        assertEquals("Описание",String.valueOf(com.particlesdevs.photoncamera.ui.settings.SettingHelp.text(context,list)));
         assertEquals("42",((android.widget.TextView)row(edit).findViewById(R.id.settings_value)).getText().toString());
         android.view.View sr=row(seek);
         assertTrue("P574: the settings' slider",sr.findViewById(R.id.seekbar) instanceof com.particlesdevs.photoncamera.ui.controls.IosSlider);
@@ -1821,16 +1911,20 @@ public class SettingsMenuTest {
     }
 
     /**
-     * 2026-10-27: the root page (only it) carries the tip on the two gestures, «Удерживайте пункт…» and the double tap of a
-     * slider; an inner page has none.
+     * 2026-10-27: the tip on the two gestures, «Удерживайте пункт…» and the double tap of a slider. P592 (owner's review: the
+     * hints under the search go): no tip line on any page; the first opening of the settings says it once, as a toast.
      */
-    @Test public void gestureTipOnlyOnTheRoot(){
+    @Test public void gestureTipOnceAndOnNoPage(){
         try(var controller=org.robolectric.Robolectric.buildActivity(com.particlesdevs.photoncamera.ui.settings.SettingsActivity.class)){
             controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
             var root=(com.particlesdevs.photoncamera.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
-            android.widget.TextView tip=root.requireView().findViewWithTag("settings_tips");
-            assertNotNull("the root's tip",tip);assertEquals(android.view.View.VISIBLE,tip.getVisibility());
-            assertTrue(tip.getText().toString(),tip.getText().toString().contains("Hold a row"));
+            assertNull("no tip line under the search",root.requireView().findViewWithTag("settings_tips"));
+            String toast=org.robolectric.shadows.ShadowToast.getTextOfLatestToast();
+            assertTrue(String.valueOf(toast),toast!=null&&toast.contains("Hold a row"));
+            // the next time: no tip
+            org.robolectric.shadows.ShadowToast.reset();
+            com.particlesdevs.photoncamera.ui.settings.SettingsActivity.SettingsFragment.tipOnce(activity);
+            assertNull("said once",org.robolectric.shadows.ShadowToast.getLatestToast());
             activity.onPreferenceStartScreen(root,root.findPreference("photo_style_screen"));fm.executePendingTransactions();
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
             var page=(com.particlesdevs.photoncamera.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
@@ -2293,7 +2387,10 @@ public class SettingsMenuTest {
             view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
             assertNotNull("«Сила»",view.findViewWithTag("lens_filter_strength"));
             assertNull("P287: no parameter of its own",view.findViewWithTag("lens_filter_param"));
-            assertTrue(shownText(view,com.particlesdevs.photoncamera.processing.color.LensFilters.description(activity,"glimmer")));
+            // P592: the chosen filter's description is the page's long press, not a note under the controls
+            String described=com.particlesdevs.photoncamera.processing.color.LensFilters.description(activity,"glimmer");
+            assertFalse(shownText(view,described));
+            assertTrue(String.valueOf(com.particlesdevs.photoncamera.ui.settings.SettingHelp.text(activity,lf)).startsWith(described));
             view.findViewWithTag("lens_filter_bpm").performClick();
             view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
             assertNotNull(view.findViewWithTag("lens_filter_strength"));

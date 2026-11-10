@@ -94,9 +94,12 @@ public class PhotoStylePreference extends Preference implements SharedPreference
         Context c = getContext();
         int accent = SettingsStyle.accent(c), now = PhotoStyle.current(prefs);
         box.removeAllViews();
-        String[][] rows = {{Lang.t(c, "Обычный", "Normal"), Lang.t(c, "Естественные цвета", "Natural colours")},
-                {Lang.t(c, "Чёрно-белый", "Black and white"), Lang.t(c, "Монохром", "Monochrome")},
-                {Lang.t(c, "Плёнка", "Film"), Lang.t(c, "Цвета плёночного LUT", "The film LUT's colours")}};
+        String[][] rows = {{Lang.t(c, "Обычный", "Normal"), Lang.t(c, "Естественные цвета, как их видит камера. Плёночные цвета и чёрно-белый режим выключены.",
+                        "Natural colours as the camera sees them. Film colours and black and white are off.")},
+                {Lang.t(c, "Чёрно-белый", "Black and white"), Lang.t(c, "Снимок без цвета. Ниже можно выбрать цветной фильтр, как у чёрно-белой плёнки: он меняет яркость неба, листвы и кожи.",
+                        "A photo without colour. Below you can pick a colour filter as on black-and-white film: it changes how bright the sky, leaves and skin come out.")},
+                {Lang.t(c, "Плёнка", "Film"), Lang.t(c, "Снимок в цветах плёнки: их задаёт выбранный ниже LUT (таблица цветов) или симуляция плёнки.",
+                        "The photo in a film's colours: the LUT (colour table) or the film simulation chosen below sets them.")}};
         for (int i = 0; i < rows.length; i++) {
             if (i > 0) {
                 View line = new View(c);
@@ -126,9 +129,12 @@ public class PhotoStylePreference extends Preference implements SharedPreference
             TextView t = SettingsStyle.text(c, rows[i][0], 16, SettingsStyle.ROW_TITLE);
             t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(t.getContext(), 600));
             texts.addView(t);
-            TextView s = SettingsStyle.text(c, rows[i][1], 13, SettingsStyle.SUMMARY);
-            s.setPadding(0, UiTokens.dp(c, 2), 0, 0);
-            texts.addView(s);
+            // P592: the option's name alone; what it gives is its long press
+            final String name = rows[i][0], about = rows[i][1];
+            row.setOnLongClickListener(v -> {
+                com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(v.getContext(), name, about);
+                return true;
+            });
             row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(SettingsStyle.radio(c, i == now, accent), new LinearLayout.LayoutParams(UiTokens.dp(c, 24), UiTokens.dp(c, 24)));
             row.setTag("style_option_" + i);

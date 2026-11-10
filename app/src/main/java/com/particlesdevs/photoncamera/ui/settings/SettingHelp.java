@@ -1,7 +1,10 @@
 package com.particlesdevs.photoncamera.ui.settings;
 
 import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -10,24 +13,50 @@ import androidx.annotation.StringRes;
 import androidx.preference.ListPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceCategory;
-import androidx.preference.PreferenceGroup;
 import androidx.preference.TwoStatePreference;
 
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.particlesdevs.photoncamera.R;
+import com.particlesdevs.photoncamera.settings.PreferenceNumber;
+import com.particlesdevs.photoncamera.ui.settings.custompreferences.ModuleRowPreference;
+import com.particlesdevs.photoncamera.ui.settings.custompreferences.ModuleSection;
+import com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableCheckBoxPreference;
+import com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableSeekBarPreference;
+import com.particlesdevs.photoncamera.ui.settings.custompreferences.UniversalSeekBarPreference;
+import com.particlesdevs.photoncamera.ui.style.Fonts;
 import com.particlesdevs.photoncamera.util.Lang;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * P319 (user report 2026-10-22: «Неплохо было бы добавить описание пунктов по длинному нажатию. Что делать и как настраивать
- * Таблицу яркости или цвета?»): a long press on a settings row opens its help - what the row does and how to set it (a text
- * of its own where one is written: res strings_help.xml, else the row's summary), its current value, «В шторку». The texts
- * are found through this map of keys and key families, never by name (the release build shrinks unreferenced strings).
+ * P319 (user report 2026-10-22: «Неплохо было бы добавить описание пунктов по длинному нажатию»): a long press on a settings row
+ * opens its help. P592 (owner, 2026-11-10: «Убираем все описания у параметров, оставляем подробное описание только по зажатию на
+ * параметре, само всплывающее меню с описанием переделай под новый стиль»): a row shows its title and its value only; what it
+ * does is here and nowhere else.
+ * <p>
+ * The text of a row ({@link #text}): the description its builder gave it ({@link #describe}), else its own text of res
+ * strings_help.xml where one is written (found through the map of keys and key families below, never by name: the release build
+ * shrinks unreferenced strings), else its summary - the android:summary of preferences.xml is the row's description, never drawn in the
+ * row. What a row may still show under its title is a state ({@link #stateLine}): «Нет на этом объективе», «Выбран вами», a
+ * failed FULLRES trial - {@link #state} for a line beside a description, {@link #summaryIsState} for a summary that is one.
+ * <p>
+ * The sheet ({@link #show}): the camera sheets' card (#2C2C2E, 30dp top corners, the grabber), the title 18dp semibold white,
+ * the text in white at 70 %, then «Сейчас» / «По умолчанию» / «Диапазон» for a row that has them, the shade's pin for a setting
+ * the shade can hold and «Вернуть по умолчанию» for a changed slider or tunable switch.
  */
 public final class SettingHelp {
     private SettingHelp() {}
+
+    /** The sheet's card, its inner card of facts, its body text (white at 70 %) and its labels (white at 55 %). */
+    public static final int CARD = SettingsStyle.ROW, FACTS = SettingsStyle.CARD_NESTED, BODY = 0xB3FFFFFF, LABEL = SettingsStyle.SECTION;
+    /** The title's size and the text's, dp (the concept's px). */
+    public static final float TITLE_DP = 18f, BODY_DP = 15f;
+
+    private static final String EXTRA_HELP = "p592_help", EXTRA_STATE = "p592_state", EXTRA_SUMMARY_IS_STATE = "p592_summary_is_state";
 
     /** Exact keys, then families (a regex over the key): the first match gives the help text. */
     private static final Map<String, Integer> EXACT = new LinkedHashMap<>();
@@ -84,12 +113,12 @@ public final class SettingHelp {
         EXACT.put("pref_scam_hybrid_why_agx_sat", R.string.help_saturation);
         EXACT.put("pref_scam_hybrid_why_sharp_gain", R.string.help_sharpness);
         EXACT.put("pref_scam_hybrid_why_dn_factor", R.string.help_noise);   // P443: the everyday denoise slider
+        EXACT.put("pref_scam_hybrid_denoise", R.string.help_hybrid_denoise);   // P600: «Все шумодавы», what it turns off
         EXACT.put("pref_ettr", R.string.help_ettr);
         EXACT.put("focus_screen", R.string.help_focus);
         EXACT.put("pref_af_mode_key", R.string.help_af_mode);
         EXACT.put("pref_show_afdata_key", R.string.help_info_overlay);
-        // P384 (owner, 2026-10-28: «Переместить эту группу настроек на главный экран»): the camera groups of the main page; each
-        // text names the old place, so the search still finds the old words
+        // P384 (owner, 2026-10-28: «Переместить эту группу настроек на главный экран»): the camera groups of the main page
         EXACT.put("root_modules", R.string.help_modules_group);
         EXACT.put("modules_screen", R.string.help_modules_group);
         EXACT.put("expert_module_sensor", R.string.help_module_sensor);
@@ -105,8 +134,31 @@ public final class SettingHelp {
         EXACT.put("module_row_add_copy", R.string.help_module_crop);
         FAMILIES.put(Pattern.compile("module_row_profile_.+"), R.string.help_module_profile);
         FAMILIES.put(Pattern.compile("module_row_id_\\w+"), R.string.help_module_ids);
+        FAMILIES.put(Pattern.compile("module_row_trials_\\w+"), R.string.help_fullres_trials);
         FAMILIES.put(Pattern.compile("pref_sensorconfig_\\w+_sensormoderow"), R.string.help_sensor_mode);
+        // P592: the rows of preferences.xml that had no description of their own, and the rows whose summary is their state
+        EXACT.put("photo_size_choice", R.string.help_photo_size);
+        EXACT.put("pref_scam_hybrid_resize_mp", R.string.help_resize_mp);
+        EXACT.put("pref_scam_hybrid_resize_px", R.string.help_resize_px);
+        EXACT.put("pref_watermark_line1", R.string.help_watermark_line);
+        EXACT.put("pref_watermark_line2", R.string.help_watermark_line);
+        EXACT.put("pref_shade_transparency", R.string.help_shade_transparency);
+        EXACT.put("photo_style", R.string.help_photo_style);
+        EXACT.put("film_lut_changes", R.string.help_film_lut_changes);
+        EXACT.put("pref_film_sim_stock", R.string.help_film_sim);
+        EXACT.put("pref_lens_filter", R.string.help_lens_filter);
+        EXACT.put("profiles_page", R.string.help_backup);
+        EXACT.put("pref_oplus_spoof_package_key", R.string.help_spoof_package);
+        EXACT.put("pref_generic_spoof_package_key", R.string.help_spoof_package);
+        EXACT.put("pref_binder_spoof_package_key", R.string.help_spoof_package);
+        EXACT.put("pref_version_key", R.string.help_version);
+        EXACT.put("scamera_log_clear", R.string.help_log_clear);
+        EXACT.put("pref_file_name_pattern", R.string.help_file_name);
     }
+
+    /** The rows of preferences.xml whose summary the page writes as their state (the log's size, the installed version). */
+    private static final java.util.Set<String> STATE_KEYS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "scamera_log_clear", "pref_version_key", "pref_app_key", "film_data_credit", "unspektra_ae_credit"));   // the about line and the credits (attribution, never a description)
 
     /** The help text of {@code key}, 0 without one of its own. */
     @StringRes
@@ -120,48 +172,333 @@ public final class SettingHelp {
 
     /**
      * Whether a long press on {@code p} opens its help: a keyed row (a page too; P384: a module card's header), not a category
-     * header.
+     * header. P592: a tunable check box too (its reset is in the sheet).
      */
     static boolean helps(@Nullable Preference p) {
-        if (p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ModuleSection) return p.getKey() != null;
-        return p != null && p.getKey() != null && !(p instanceof PreferenceCategory)
-                && !(p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableCheckBoxPreference);
+        if (p instanceof ModuleSection) return p.getKey() != null;
+        return p != null && p.getKey() != null && !(p instanceof PreferenceCategory);
     }
 
-    /** The help sheet of {@code p}. */
-    static void show(Context c, Preference p) {
-        final String key = p.getKey();
-        final LinearLayout body = SettingsStyle.sheetBody(c, p.getTitle() == null ? key : p.getTitle(), key);
-        body.setTag("setting_help");
-        final int res = helpRes(key);
-        CharSequence text = res != 0 ? c.getText(res) : p.getSummary();
-        if (TextUtils.isEmpty(text)) text = Lang.t(c, "Описания для этого пункта пока нет.", "No description for this row yet.");
-        // P574: the text in white, the notes under it in white at 55 % (was the old bluish grey)
-        body.addView(paragraph(c, text, SettingsStyle.ROW_TITLE, 15));
-        final CharSequence value = value(c, p);
-        if (value != null) body.addView(paragraph(c, Lang.t(c, "Сейчас: ", "Now: ") + value, SettingsStyle.SECTION, 13));
-        if (p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ModuleSection)
-            body.addView(paragraph(c, Lang.t(c, "Нажатие открывает и закрывает модуль.", "A tap opens and closes the module."), SettingsStyle.SECTION, 13));
-        else if (p instanceof PreferenceGroup)
-            body.addView(paragraph(c, Lang.t(c, "Нажатие открывает раздел.", "A tap opens the section."), SettingsStyle.SECTION, 13));
-        SettingsStyle.sheet(c, body).show();
+    // ───── a row's description and its state ─────
+
+    /** {@code p}'s description for the sheet when it is not its summary (a row built in code whose summary is its state). */
+    public static void describe(Preference p, @Nullable CharSequence text) {
+        p.getExtras().putCharSequence(EXTRA_HELP, text);
     }
 
+    /**
+     * The line {@code p} shows under its title, beside the description its summary holds (null: none): set before the summary,
+     * whose change binds the row again.
+     */
+    public static void state(Preference p, @Nullable CharSequence state) {
+        p.getExtras().putCharSequence(EXTRA_STATE, state);
+    }
+
+    /** {@code p}'s whole summary is its state: shown under the title, never taken for the description. */
+    public static void summaryIsState(Preference p) {
+        p.getExtras().putBoolean(EXTRA_SUMMARY_IS_STATE, true);
+    }
+
+    static boolean isSummaryState(Preference p) {
+        if (p instanceof ModuleSection) return true;   // a module card: «Сейчас в камере · ID 0»
+        if (p.getKey() != null && STATE_KEYS.contains(p.getKey())) return true;
+        return p.peekExtras() != null && p.peekExtras().getBoolean(EXTRA_SUMMARY_IS_STATE);
+    }
+
+    /** What {@code p} shows under its title: its state, never its description; null for none. */
     @Nullable
-    private static CharSequence value(Context c, Preference p) {
-        if (p instanceof TwoStatePreference) return ((TwoStatePreference) p).isChecked() ? Lang.t(c, "включено", "on") : Lang.t(c, "выключено", "off");
-        if (p instanceof ListPreference) return ((ListPreference) p).getEntry();
+    public static CharSequence stateLine(@Nullable Preference p) {
+        if (p == null) return null;
+        if (p instanceof ModuleRowPreference && ((ModuleRowPreference) p).status() != null) return ((ModuleRowPreference) p).status();
+        CharSequence state = p.peekExtras() == null ? null : p.peekExtras().getCharSequence(EXTRA_STATE);
+        if (!TextUtils.isEmpty(state)) return state;
+        if (isSummaryState(p)) {
+            CharSequence s = safeSummary(p);
+            return TextUtils.isEmpty(s) ? null : s;
+        }
         return null;
     }
 
-    private static TextView paragraph(Context c, CharSequence text, int colour, float sp) {
-        TextView t = new TextView(c);
-        t.setText(text);
-        t.setTextColor(colour);
-        t.setTextSize(sp);
-        t.setLineSpacing(0, 1.15f);
-        int pad = Math.round(4 * c.getResources().getDisplayMetrics().density);
-        t.setPadding(pad, pad, pad, 2 * pad);
-        return t;
+    private static CharSequence safeSummary(Preference p) {
+        try {
+            return p.getSummary();
+        } catch (RuntimeException e) {
+            return null;   // a list's «%s» summary before its value is set
+        }
+    }
+
+    /** The description of {@code p}: what it does and when to touch it (a state row: its full text); null when it has none. */
+    @Nullable
+    public static CharSequence text(Context c, @Nullable Preference p) {
+        if (p == null) return null;
+        // the text its builder gave this very row first (it knows the row's case), then the key's own help text
+        CharSequence own = p.peekExtras() == null ? null : p.peekExtras().getCharSequence(EXTRA_HELP);
+        if (!TextUtils.isEmpty(own)) return own;
+        final int res = helpRes(p.getKey());
+        if (res != 0) return c.getText(res);
+        // a row whose line is its state (the credits, the version): its whole text, uncut
+        if (isSummaryState(p)) return safeSummary(p);
+        // a summary that only shows the value (the library's simple providers) is no description
+        if (p.getSummaryProvider() instanceof ListPreference.SimpleSummaryProvider
+                || p.getSummaryProvider() instanceof androidx.preference.EditTextPreference.SimpleSummaryProvider) return null;
+        return description(safeSummary(p), stateLine(p), p instanceof ListPreference ? ((ListPreference) p).getEntry()
+                : p instanceof androidx.preference.EditTextPreference ? ((androidx.preference.EditTextPreference) p).getText() : null);
+    }
+
+    /**
+     * A summary as a description: without the row's state at its end, without the value a «%s. …» summary began with and
+     * without a placeholder left in it.
+     */
+    @Nullable
+    static CharSequence description(@Nullable CharSequence summary, @Nullable CharSequence state, @Nullable CharSequence value) {
+        if (TextUtils.isEmpty(summary)) return null;
+        String s = summary.toString();
+        if (!TextUtils.isEmpty(state)) {
+            final String st = state.toString();
+            if (s.equals(st)) return null;
+            if (s.endsWith("\n" + st)) s = s.substring(0, s.length() - st.length() - 1);
+        }
+        if (!TextUtils.isEmpty(value)) {
+            final String v = value.toString();
+            if (s.equals(v)) return null;
+            if (s.startsWith(v + ". ") || s.startsWith(v + "\n")) s = s.substring(v.length() + (s.startsWith(v + ". ") ? 2 : 1));
+        }
+        s = SettingsStyle.PLACEHOLDER.matcher(s).replaceAll("").replaceAll("^[.\\s]+", "").trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    // ───── the sheet ─────
+
+    /** One line of the sheet's facts: «По умолчанию» - «1,00». */
+    static final class Fact {
+        final String label;
+        final CharSequence value;
+        final boolean now;
+
+        Fact(String label, CharSequence value, boolean now) {
+            this.label = label;
+            this.value = value;
+            this.now = now;
+        }
+    }
+
+    /** The help sheet of {@code p}. */
+    public static BottomSheetDialog show(Context c, Preference p) {
+        CharSequence text = text(c, p);
+        if (TextUtils.isEmpty(text)) text = Lang.t(c, "Описания для этого пункта пока нет.", "No description for this row yet.");
+        if (restarts(p)) text = text + "\n\n" + Lang.t(c, "После изменения камера перезапустится.", "The camera restarts after a change.");
+        final CharSequence title = p.getTitle() == null || p.getTitle().length() == 0 ? fallbackTitle(c, p) : p.getTitle();
+        final BottomSheetDialog[] shown = new BottomSheetDialog[1];
+        final Runnable reset = reset(p);
+        shown[0] = show(c, title, text, facts(c, p), SettingsStyle.pinnable(c, p.getKey()) ? p.getKey() : null,
+                reset == null ? null : () -> {
+                    reset.run();
+                    if (shown[0] != null) shown[0].dismiss();
+                });
+        return shown[0];
+    }
+
+    /**
+     * P214g / P592: a change of {@code p} takes a new camera session (SessionKeys; a camera key of a module): the camera restarts.
+     * The row no longer wears a badge for it; its help says it.
+     */
+    public static boolean restarts(@Nullable Preference p) {
+        return p != null && (p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableKeyPreference
+                || com.particlesdevs.photoncamera.settings.SessionKeys.needsNewSession(p.getKey()));
+    }
+
+    /** The help sheet of a row that is no preference (the lab's rows, a film parameter): {@code title} and {@code text}. */
+    public static BottomSheetDialog show(Context c, CharSequence title, CharSequence text) {
+        return show(c, title, text, null, null, null);
+    }
+
+    static BottomSheetDialog show(Context c, CharSequence title, CharSequence text, @Nullable List<Fact> facts, @Nullable String pinKey,
+                                  @Nullable Runnable reset) {
+        final BottomSheetDialog d = SettingsStyle.sheet(c, body(c, title, text, facts, pinKey, reset));
+        d.show();
+        DialogStyle.track(d);
+        return d;
+    }
+
+    /**
+     * The sheet's content (tag "setting_help"): the grabber, the title ("help_title"), the text ("help_text"), the facts
+     * ("help_facts": rows "help_fact_" + n), the pin ("sheet_pin") and the reset ("help_reset").
+     */
+    static LinearLayout body(Context c, CharSequence title, CharSequence text, @Nullable List<Fact> facts, @Nullable String pinKey,
+                             @Nullable Runnable reset) {
+        final int accent = SettingsStyle.accent(c);
+        LinearLayout body = new LinearLayout(c);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setTag("setting_help");
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(CARD);
+        final float r = SettingsStyle.dp(c, 30);
+        bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        body.setBackground(bg);
+        body.setPadding(SettingsStyle.dp(c, 20), SettingsStyle.dp(c, 6), SettingsStyle.dp(c, 20), SettingsStyle.dp(c, 22));
+        View grab = new View(c);
+        grab.setTag("help_grabber");
+        grab.setBackground(SettingsStyle.shape(c, SettingsStyle.GRABBER, 0, 3));
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(SettingsStyle.dp(c, 36), SettingsStyle.dp(c, 5));
+        gp.gravity = Gravity.CENTER_HORIZONTAL;
+        gp.bottomMargin = SettingsStyle.dp(c, 16);
+        body.addView(grab, gp);
+        TextView head = SettingsStyle.text(c, title, TITLE_DP, SettingsStyle.ROW_TITLE);
+        head.setTypeface(Fonts.of(c, Fonts.SEMIBOLD));
+        head.setTag("help_title");
+        SettingsStyle.lineHeight(head, 23);
+        if (android.os.Build.VERSION.SDK_INT >= 28) head.setAccessibilityHeading(true);
+        body.addView(head, new LinearLayout.LayoutParams(-1, -2));
+        TextView t = SettingsStyle.text(c, text, BODY_DP, BODY);
+        t.setTag("help_text");
+        SettingsStyle.lineHeight(t, 21);
+        t.setTextIsSelectable(false);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, -2);
+        tp.topMargin = SettingsStyle.dp(c, 8);
+        body.addView(t, tp);
+        if (facts != null && !facts.isEmpty()) {
+            LinearLayout card = new LinearLayout(c);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setTag("help_facts");
+            card.setBackground(SettingsStyle.shape(c, FACTS, 0, 16));
+            GradientDrawable hair = new GradientDrawable();
+            hair.setColor(SettingsStyle.HAIRLINE);
+            hair.setSize(1, Math.max(1, Math.round(.5f * c.getResources().getDisplayMetrics().density)));
+            card.setDividerDrawable(new android.graphics.drawable.InsetDrawable(hair, SettingsStyle.dp(c, 14), 0, 0, 0));
+            card.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+            for (int i = 0; i < facts.size(); i++) {
+                final Fact f = facts.get(i);
+                LinearLayout row = new LinearLayout(c);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setMinimumHeight(SettingsStyle.dp(c, 38));
+                row.setPadding(SettingsStyle.dp(c, 14), SettingsStyle.dp(c, 7), SettingsStyle.dp(c, 14), SettingsStyle.dp(c, 7));
+                row.setTag("help_fact_" + i);
+                TextView label = SettingsStyle.text(c, f.label, 14, LABEL);
+                row.addView(label, new LinearLayout.LayoutParams(-2, -2));
+                TextView value = SettingsStyle.text(c, f.value, 14, f.now ? accent : SettingsStyle.ROW_TITLE);
+                value.setTypeface(Fonts.of(c, f.now ? Fonts.SEMIBOLD : Fonts.MEDIUM));
+                value.setGravity(Gravity.END);
+                value.setTag(f.now ? "help_now" : null);
+                LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0, -2, 1);
+                vp.setMarginStart(SettingsStyle.dp(c, 12));
+                row.addView(value, vp);
+                row.setContentDescription(f.label + ": " + f.value);
+                card.addView(row);
+            }
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
+            cp.topMargin = SettingsStyle.dp(c, 14);
+            body.addView(card, cp);
+        }
+        TextView pin = SettingsStyle.pinChip(c, pinKey);
+        TextView back = null;
+        if (reset != null) {
+            back = SettingsStyle.text(c, Lang.t(c, "Вернуть по умолчанию", "Back to the default"), 15, accent);
+            back.setTypeface(Fonts.of(c, Fonts.SEMIBOLD));
+            back.setTag("help_reset");
+            back.setGravity(Gravity.CENTER);
+            back.setMinHeight(SettingsStyle.dp(c, 40));
+            back.setPadding(SettingsStyle.dp(c, 16), 0, SettingsStyle.dp(c, 16), 0);
+            back.setFocusable(true);
+            back.setOnClickListener(v -> reset.run());
+        }
+        if (pin != null || back != null) {
+            LinearLayout actions = new LinearLayout(c);
+            actions.setGravity(Gravity.CENTER_VERTICAL);
+            for (TextView chip : new TextView[]{pin, back}) {
+                if (chip == null) continue;
+                // the capsules a step lighter than the sheet's card (on the pages they sit on #1C1C1E)
+                chip.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x1FFFFFFF),
+                        SettingsStyle.shape(c, FACTS, 0, 20), null));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                if (actions.getChildCount() > 0) lp.setMarginStart(SettingsStyle.dp(c, 8));
+                actions.addView(chip, lp);
+            }
+            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, -2);
+            ap.topMargin = SettingsStyle.dp(c, 14);
+            body.addView(actions, ap);
+        }
+        return body;
+    }
+
+    private static CharSequence fallbackTitle(Context c, Preference p) {
+        return p.getLayoutResource() == R.layout.preference_info ? Lang.t(c, "Пояснение", "Note") : String.valueOf(p.getKey());
+    }
+
+    /** «Сейчас», «По умолчанию» and «Диапазон» of {@code p}: only what the row really has. */
+    static List<Fact> facts(Context c, Preference p) {
+        final List<Fact> out = new ArrayList<>();
+        final String now = Lang.t(c, "Сейчас", "Now"), def = Lang.t(c, "По умолчанию", "Default"), range = Lang.t(c, "Диапазон", "Range");
+        if (p instanceof UniversalSeekBarPreference) {
+            final UniversalSeekBarPreference u = (UniversalSeekBarPreference) p;
+            final int decimals = PreferenceNumber.gridDecimals(u.stepPerUnit(), u.minimum());
+            out.add(new Fact(now, SettingsStyle.number(c, shown(u.getValue(), u.decimal(), decimals)), true));
+            out.add(new Fact(def, SettingsStyle.number(c, number(u.defaultNumber(), u.decimal(), decimals)), false));
+            out.add(new Fact(range, SettingsStyle.number(c, number(u.minimum(), u.decimal(), decimals)) + " … "
+                    + SettingsStyle.number(c, number(u.maximum(), u.decimal(), decimals)), false));
+        } else if (p instanceof TunableSeekBarPreference) {
+            final TunableSeekBarPreference t = (TunableSeekBarPreference) p;
+            out.add(new Fact(now, SettingsStyle.number(c, t.valueText(t.getFloatValue())), true));
+            out.add(new Fact(def, SettingsStyle.number(c, t.valueText(t.defaultNumber())), false));
+            out.add(new Fact(range, SettingsStyle.number(c, PreferenceNumber.format(t.minimum(), t.decimal())) + " … "
+                    + SettingsStyle.number(c, PreferenceNumber.format(t.maximum(), t.decimal())), false));
+        } else if (p instanceof TunableCheckBoxPreference) {
+            final TunableCheckBoxPreference t = (TunableCheckBoxPreference) p;
+            out.add(new Fact(now, onOff(c, t.isChecked()), true));
+            out.add(new Fact(def, onOff(c, t.defaultInt() != 0), false));
+        } else if (p instanceof TwoStatePreference) {
+            out.add(new Fact(now, onOff(c, ((TwoStatePreference) p).isChecked()), true));
+            final String d = xmlDefault(c, p.getKey());
+            if (d != null) out.add(new Fact(def, onOff(c, "true".equalsIgnoreCase(d) || "1".equals(d)), false));
+        } else if (p instanceof ListPreference) {
+            final ListPreference l = (ListPreference) p;
+            if (!TextUtils.isEmpty(l.getEntry())) out.add(new Fact(now, l.getEntry(), true));
+            final String d = xmlDefault(c, p.getKey());
+            final int i = d == null ? -1 : l.findIndexOfValue(d);
+            if (i >= 0 && l.getEntries() != null && i < l.getEntries().length) out.add(new Fact(def, l.getEntries()[i], false));
+        } else {
+            final CharSequence v = SettingsStyle.valueOf(p);
+            if (!TextUtils.isEmpty(v) && !"—".contentEquals(v)) out.add(new Fact(now, v, true));
+        }
+        return out;
+    }
+
+    private static String onOff(Context c, boolean on) {
+        return on ? Lang.t(c, "включено", "on") : Lang.t(c, "выключено", "off");
+    }
+
+    /** The android:defaultValue of a row of preferences.xml (this device's factory value where there is one); null: none. */
+    @Nullable
+    private static String xmlDefault(Context c, @Nullable String key) {
+        if (key == null) return null;
+        try {
+            return PageReset.defaultOf(c, key, null);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static String shown(@Nullable String stored, boolean decimal, int decimals) {
+        try {
+            return number(Float.parseFloat(String.valueOf(stored).replace(',', '.')), decimal, decimals);
+        } catch (NumberFormatException e) {
+            return String.valueOf(stored);
+        }
+    }
+
+    private static String number(float v, boolean decimal, int decimals) {
+        return decimal ? PreferenceNumber.gridText(v, decimals) : Integer.toString(Math.round(v));
+    }
+
+    /** Puts a changed slider or tunable switch back to its default; null when {@code p} is at it or has no such reset. */
+    @Nullable
+    private static Runnable reset(Preference p) {
+        if (!p.isEnabled()) return null;
+        if (p instanceof UniversalSeekBarPreference) return ((UniversalSeekBarPreference) p).isChanged() ? ((UniversalSeekBarPreference) p)::resetToDefault : null;
+        if (p instanceof TunableSeekBarPreference) return ((TunableSeekBarPreference) p).isChanged() ? () -> ((TunableSeekBarPreference) p).resetToDefault(true) : null;
+        if (p instanceof TunableCheckBoxPreference) {
+            final TunableCheckBoxPreference t = (TunableCheckBoxPreference) p;
+            return t.isChecked() != (t.defaultInt() != 0) ? t::resetToDefault : null;
+        }
+        return null;
     }
 }

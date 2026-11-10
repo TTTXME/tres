@@ -33,6 +33,53 @@ public final class ViewfinderMosaicWb {
         @Nullable MosaicNeutral.Result own();
         /** The result's neutral (R/G, 1, B/G), null: none. */
         @Nullable float[] hal();
+
+        /**
+         * P597: this measurement on a copy of the frame taken now (the camera's Image is open only during its callback), to be read
+         * on another thread; null: none (measured on the caller, as before).
+         */
+        @Nullable default Measure detached() { return null; }
+    }
+
+    /**
+     * P597 (owner, 2026-11-10: «лаги при включенной тетре остались»; scam_dev vf_mosaic_wb_async): once a neutral is shown, the
+     * measurement goes to a thread of its own on a copy of the frame (Measure.detached) - the camera thread had resolve's
+     * statistic and estimate on every 12th frame of the Tetra module, 196 k colour cells of 16 samples per phase each (the
+     * grid of GRID cells takes every cell of a block-4 frame: 510 / 256 is 1): host 73 - 89 ms for MosaicNeutral.measure2 and 50 -
+     * 59 ms for estimate on 4080 x 3072, four frames' time held on the camera thread 2.5 times a second. The same measurement
+     * and the same smoothing, one frame later; the first neutral of a session is still measured at once (the viewfinder starts
+     * with the photo's colour, not the HAL's frozen gains). One at a time: a frame due while one is measured keeps the shown one.
+     */
+    public static boolean async() {
+        try {
+            return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_mosaic_wb_async", true);
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** P597: a measurement on the worker (its copy is in use until it is done); bumped by {@link #reset()}: a later result is not shown. */
+    private boolean measuring;
+    private int generation;
+    /** P597: tests run the measurement themselves (null: the worker thread). */
+    static volatile java.util.concurrent.Executor workerHook;
+    private static java.util.concurrent.ExecutorService worker;
+
+    private static synchronized java.util.concurrent.Executor worker() {
+        final java.util.concurrent.Executor hook = workerHook;
+        if (hook != null) return hook;
+        if (worker == null) worker = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            final Thread t = new Thread(r, "SCAMERA-vf-wb");
+            t.setDaemon(true);
+            t.setPriority(Thread.NORM_PRIORITY - 1);
+            return t;
+        });
+        return worker;
+    }
+
+    /** P597: whether a measurement runs on the worker now (tests). */
+    synchronized boolean measuring() {
+        return measuring;
     }
 
     /** What the idle test reads of the last results (P370 review: a sample each, not a second of CaptureResults). */
@@ -42,7 +89,73 @@ public final class ViewfinderMosaicWb {
     private int frames;
     @Nullable private String idle;
     @Nullable private float[] shown;
-    private long loggedMs = Long.MIN_VALUE;
+    /**
+     * P599: Long.MIN_VALUE overflowed {@code nowMs - loggedMs} to a negative number - the line below the 5 s test was never logged
+     * (no «mosaic viewfinder camera» line in any log since P370), as P297's lookAt.
+     */
+    private long loggedMs = Long.MIN_VALUE / 2;
+
+    /**
+     * P599 (owner, 2026-11-10: «проблема с балансом белого с quad, tetra. Баланс белого сначала правильный, но если удержать какое-то
+     * время камеру на месте он меняется на неверный, нам нужно чтобы он оставался таким какой был до этого изменения»; screen
+     * recording 11:59:38, the 4.8x module: the helmet's white R/G 1.00 -> 1.04, B/G 1.01 -> 1.03 within 0.25 s at 2.25 s after the
+     * phone came to rest, every time, neutral again as soon as it moved): the idle test (MosaicNeutralResolver.ispIdleOf: the HAL's
+     * gains within 0.5 % over the last second) cannot tell an ISP that runs no 3A from a running AWB that converged on a still
+     * scene - a held camera passed it ~1 s after the AWB settled, the next 12th frame then put this class's own neutral in place of
+     * the HAL's (a step: the first neutral is taken whole), and the next movement made the gains move and the HAL's came back. An
+     * ISP that runs no 3A never moves its gains (P366: R 2.4336 - 2.4365 / B 1.5693 over 7 s, a scene that changed; camera 2:
+     * R 1.154 / B 3.095 in two sessions): gains that moved more than {@link #MOVE_LN} from the session's first settled ones prove a
+     * running AWB, and the idle test is not taken for the rest of the session (camera and session) - the HAL's white balance stays,
+     * held or not; the press carries the same proof (MosaicNeutralResolver.Press.awbMoves). scam_dev mosaic_awb_moves 0: as before.
+     */
+    static final double MOVE_LN = 0.01;
+    /** P599: the first passing results of a session are not the base (a HAL's start values before its first frame's statistics). */
+    static final int SETTLE_RESULTS = 3;
+    private String movedCamera;
+    private int movedSession = Integer.MIN_VALUE, settled;
+    private double baseR = Double.NaN, baseB = Double.NaN, movedBy;
+    private boolean awbMoves;
+
+    /** P599: scam_dev mosaic_awb_moves (default on): a session whose HAL's AWB moved never counts as idle. */
+    public static boolean movesKept() {
+        try {
+            return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("mosaic_awb_moves", true);
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** P599: one result of camera {@code id} in session {@code sessionId} into the movement proof. */
+    private void observeAwb(String id, int sessionId, MosaicNeutralResolver.IdleSample sample) {
+        if (!id.equals(movedCamera) || sessionId != movedSession) {
+            movedCamera = id;
+            movedSession = sessionId;
+            awbMoves = false;
+            settled = 0;
+            baseR = baseB = Double.NaN;
+            movedBy = 0;
+        }
+        if (awbMoves || sample == null || !sample.passes) return;
+        if (++settled <= SETTLE_RESULTS) return;
+        if (Double.isNaN(baseR)) {
+            baseR = sample.lnR;
+            baseB = sample.lnB;
+            return;
+        }
+        final double by = Math.max(Math.abs(sample.lnR - baseR), Math.abs(sample.lnB - baseB));
+        if (by > MOVE_LN) {
+            awbMoves = true;
+            movedBy = by;
+            com.particlesdevs.photoncamera.util.Log.i("SCAM_CAPTURE", String.format(Locale.ROOT, "mosaic viewfinder camera %s: the HAL's AWB"
+                    + " moves (its gains %.1f %% off the session's first ones): its white balance is kept for the session, never taken"
+                    + " for an idle ISP%s", id, 100 * by, movesKept() ? "" : " (mosaic_awb_moves 0: not used)"));
+        }
+    }
+
+    /** P599: the HAL's AWB of camera {@code id} moved in session {@code sessionId} (the press: the photo keeps its white balance). */
+    public synchronized boolean awbMoves(@Nullable String id, int sessionId) {
+        return awbMoves && id != null && id.equals(movedCamera) && sessionId == movedSession;
+    }
 
     public static boolean on() {
         try {
@@ -58,6 +171,7 @@ public final class ViewfinderMosaicWb {
         frames = 0;
         idle = null;
         shown = null;
+        generation++; // P597: a measurement on the worker now is not shown (it still holds its copy until it is done)
     }
 
     /**
@@ -78,6 +192,7 @@ public final class ViewfinderMosaicWb {
             session = sessionId;
         }
         final MosaicNeutralResolver.IdleSample sample = MosaicNeutralResolver.IdleSample.of(result);
+        observeAwb(id, sessionId, sample); // P599
         recent.addLast(sample);
         final Long ts = sample.timestamp();
         while (recent.size() > KEEP) recent.removeFirst();
@@ -91,20 +206,58 @@ public final class ViewfinderMosaicWb {
         }
         if (frames++ % EVERY != 0) return shown;
         idle = MosaicNeutralResolver.ispIdleOf(recent);
+        // P599: a converged AWB holds its gains too - a session whose AWB moved keeps the HAL's white balance
+        final String heldBy = idle != null && awbMoves && movesKept() ? idle : null;
+        if (heldBy != null) idle = null;
         if (nowMs - loggedMs >= LOG_MS) {
             loggedMs = nowMs;
             final android.hardware.camera2.params.RggbChannelVector g = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
             com.particlesdevs.photoncamera.util.Log.i("SCAM_CAPTURE", String.format(Locale.ROOT,
                     "mosaic viewfinder camera %s: HAL gains %s, %s, shown neutral %s", id,
                     g == null ? "none" : String.format(Locale.ROOT, "R %.4f / G %.4f / B %.4f", g.getRed(), 0.5f * (g.getGreenEven() + g.getGreenOdd()), g.getBlue()),
-                    idle == null ? "the ISP may run its 3A" : idle, shown == null ? "the HAL's" : String.format(Locale.ROOT, "%.3f / %.3f", shown[0], shown[2])));
+                    idle == null ? heldBy != null ? String.format(Locale.ROOT, "the HAL's AWB moved %.1f %% in this session (its gains"
+                            + " held now: a converged AWB, not an idle ISP)", 100 * movedBy) : "the ISP may run its 3A" : idle,
+                    shown == null ? "the HAL's" : String.format(Locale.ROOT, "%.3f / %.3f", shown[0], shown[2])));
         }
         if (idle == null) {
             shown = null;
             return null;
         }
+        // P597: once a neutral is shown, the measurement on its own thread (the frame copied now)
+        if (shown != null && async()) {
+            if (measuring) return shown;
+            final Measure copy = measure.detached();
+            if (copy != null) {
+                measuring = true;
+                final int gen = generation;
+                final Runnable work = () -> {
+                    float[] target = null;
+                    final long start = System.nanoTime();
+                    try {
+                        target = resolve(id, copy, prior, sameSensor);
+                    } catch (RuntimeException e) {
+                        com.particlesdevs.photoncamera.util.Log.w("SCAM_CAPTURE", "mosaic viewfinder white balance: " + e);
+                    } finally {
+                        synchronized (ViewfinderMosaicWb.this) {
+                            measuring = false;
+                            if (gen == generation && target != null && shown != null) shown = smooth(shown, target);
+                        }
+                        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.WB,
+                                System.nanoTime() - start);
+                    }
+                };
+                try {
+                    worker().execute(work);
+                } catch (RuntimeException rejected) {
+                    work.run(); // no thread: here, as before
+                }
+                return shown;
+            }
+        }
+        final long start = System.nanoTime();
         final float[] target = resolve(id, measure, prior, sameSensor);
         if (target != null) shown = smooth(shown, target);
+        com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.WB, System.nanoTime() - start);
         return shown;
     }
 

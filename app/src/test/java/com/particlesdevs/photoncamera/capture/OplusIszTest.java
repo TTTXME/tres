@@ -113,6 +113,38 @@ public class OplusIszTest {
     }
 
     /** The OEM's custom RAW sizes of CameraHWConfiguration.config (the PYB110 report, lines 22986-22990). */
+    /**
+     * P593 (log 2026-11-09 22:07:24: the main's «2×» took «IMX363_0 (LG V50)», its source and the tele's «2×» the camera's own):
+     * an ISZ copy whose noise-model profile is not its source module's gets the source's; equal ones (a missing one is «Авто») stay.
+     */
+    @Test public void anIszCopyTakesItsSourcesNoiseProfile() {
+        assertTrue(OplusIsz.noiseDiffers("lgv50_imx363_0", null));
+        assertTrue(OplusIsz.noiseDiffers("lgv50_imx363_0", "auto"));
+        assertTrue(OplusIsz.noiseDiffers(null, "imported"));
+        assertFalse("both «Авто»", OplusIsz.noiseDiffers(null, "auto"));
+        assertFalse(OplusIsz.noiseDiffers("auto", null));
+        assertFalse(OplusIsz.noiseDiffers("lgv50_imx363_0", "lgv50_imx363_0"));
+        assertEquals("pref_noise_model_profile_key", OplusIsz.NOISE_KEY);
+    }
+
+    /** P593: the learn line is said again with every OnePlus 16 session (the owner's log began after the camera was learned). */
+    @Test public void aSessionSaysItsCamerasLearnLine() {
+        pyb110();
+        try {
+            OppoNativeFullRes.learn("p593-4", true, OppoNativeFullRes.PYB110_TELE, false, 4096, 3072, null, "test");
+            final String line = OppoNativeFullRes.learnLine("p593-4");
+            assertTrue(line, line.startsWith("OPPO family camera p593-4 (OnePlus PYB110): mode key true, table test"));
+            assertTrue(line, line.contains("FULLRES mode 9 8192x6144@15 block 2"));
+            assertFalse("one 50 MP row on the tele: nothing moved", line.contains("last: the camera died"));
+            assertNull(OppoNativeFullRes.learnLine("p593-none"));
+            OplusIsz.watchSession("p593-4", null, null);
+            assertFalse(OplusIsz.watchingFullRes());
+        } finally {
+            OppoNativeFullRes.forget("p593-4");
+        }
+        assertNull("forgotten with its offer", OppoNativeFullRes.learnLine("p593-4"));
+    }
+
     @Test public void theCustomRawSizesAreParsed() {
         final String config = "[FlowControl]\nisEnableFlowControl = TRUE;\n\n[OemSupportedCustomRAWFullSizes]\n"
                 + "    #                        width  height  width   height\n"

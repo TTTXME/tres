@@ -24,7 +24,7 @@ public final class WhyMsDenoise extends Node {
     public void Compile() {}
 
     static boolean enabled() {
-        return PreferenceKeys.isHybridDenoiseEnabled() && PreferenceKeys.hybridSwitch("why_ms_denoise", true);
+        return DenoiseStages.on() && PreferenceKeys.hybridSwitch("why_ms_denoise", true);
     }
 
     /** The noise model's factor of the thresholds (1 without a model or with the scale at 0). */
@@ -99,7 +99,7 @@ public final class WhyMsDenoise extends Node {
         final GLTexture input = previousNode.WorkingTexture;
         WorkingTexture = input;
         glProg.closed = true;
-        if (!PreferenceKeys.isHybridDenoiseEnabled()) return;
+        if (!DenoiseStages.on()) return; // P600: the node is not added then (PostPipeline); a pass-through all the same
         final float[] toRender = ScamRgb.toRender(pipeline), fromRender = inverse3(toRender);
         if (fromRender == null) throw new IllegalStateException("Singular denoise colour matrix");
         final float[] wp = pipeline.mParameters.whitePoint;

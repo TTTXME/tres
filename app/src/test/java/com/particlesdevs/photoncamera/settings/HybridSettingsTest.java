@@ -142,7 +142,9 @@ public class HybridSettingsTest {
             // ListPreference summaries go through String.format: an unescaped % throws here.
             CharSequence summary=l.getSummary();
             assertNotNull(p.getKey(),summary);
-            assertTrue(p.getKey()+": "+summary,summary.toString().startsWith(l.getEntries()[0].toString()));
+            // P592: the summary is the row's description (the long press): the chosen value is on the right, not at its start
+            assertFalse(p.getKey()+": "+summary,summary.toString().startsWith(l.getEntries()[0]+". "));
+            assertTrue(p.getKey()+": "+summary,summary.length()>l.getEntries()[0].length()+10);
         }
         assertTrue(lists>=6);
     }

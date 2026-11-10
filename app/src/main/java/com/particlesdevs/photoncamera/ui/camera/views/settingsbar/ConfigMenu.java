@@ -293,9 +293,11 @@ final class ConfigMenu {
         };
         field.setOnEditorActionListener((v, id, e) -> { if (id == EditorInfo.IME_ACTION_DONE) { saveNamed.run(); return true; } return false; });
         saveAs.addView(button(Lang.t(c, "Сохранить", "Save"), ShadeStyle.INK, accent, "config_save_confirm", saveNamed), buttonParams());
-        body.addView(row(R.drawable.settings_ic_plus, Lang.t(c, "Сохранить текущие как…", "Save the current as…"),
-                Lang.t(c, "Все настройки в один файл", "Every setting in one file"), accent, "config_save_as",
-                () -> toggle(saveAs, field)));
+        body.addView(described(row(R.drawable.settings_ic_plus, Lang.t(c, "Сохранить текущие как…", "Save the current as…"),
+                null, accent, "config_save_as", () -> toggle(saveAs, field)),
+                Lang.t(c, "Сохранить текущие как…", "Save the current as…"),
+                Lang.t(c, "Все настройки сохраняются одним файлом — новым профилем. Его можно выбрать в этом меню или перенести на другой телефон.",
+                        "Every setting is saved into one file, a new profile. Pick it in this menu later or move it to another phone.")));
         body.addView(saveAs);
         if (activeFile != null) {
             final String file = activeFile;
@@ -374,22 +376,27 @@ final class ConfigMenu {
         divider();
         if (!actions.folderOpen()) {
             // files put into Download/SCAMERA/XML by a PC or a file manager: listed once the folder is open to the app
-            body.addView(row(R.drawable.settings_ic_list, Lang.t(c, "Открыть папку конфигов", "Open the config folder"),
-                    Lang.t(c, "Один раз: конфиги, закинутые в Download/SCAMERA/XML, появятся здесь",
-                            "Once: configs put into Download/SCAMERA/XML show up here"), accent,
-                    "config_open_folder", () -> { actions.openFolder(); close(); }));
+            body.addView(described(row(R.drawable.settings_ic_list, Lang.t(c, "Открыть папку конфигов", "Open the config folder"),
+                    null, accent, "config_open_folder", () -> { actions.openFolder(); close(); }),
+                    Lang.t(c, "Открыть папку конфигов", "Open the config folder"),
+                    Lang.t(c, "Достаточно один раз разрешить доступ к папке. После этого конфиги, которые вы положили в Download/SCAMERA/XML, появятся в этом меню.",
+                            "Allow access to the folder once. After that the configs you put into Download/SCAMERA/XML show up in this menu.")));
         }
-        body.addView(row(R.drawable.settings_ic_restore, Lang.t(c, "Загрузить из файла", "Load from a file"),
-                Lang.t(c, "Профиль с другого телефона или из другой папки", "A profile from another phone or folder"), accent,
-                "config_import", () -> { actions.importFile(); close(); }));
+        body.addView(described(row(R.drawable.settings_ic_restore, Lang.t(c, "Загрузить из файла", "Load from a file"),
+                null, accent, "config_import", () -> { actions.importFile(); close(); }),
+                Lang.t(c, "Загрузить из файла", "Load from a file"),
+                Lang.t(c, "Берёт профиль из файла: с другого телефона или из другой папки. Текущие настройки заменяются настройками из него.",
+                        "Takes a profile from a file: from another phone or another folder. Its settings replace the current ones.")));
         LinearLayout reset = panel("config_reset_panel");
         reset.addView(text(Lang.t(c, "Все настройки и модули вернутся к стандартным, камера перезапустится. Сохранённые профили и кривые не удаляются",
                 "Every setting and module goes back to the defaults, the camera restarts. Saved profiles and curves stay"), 13, ShadeStyle.MUTED));
         reset.addView(button(Lang.t(c, "Сбросить", "Reset"), ShadeStyle.INK, SettingsStyle.WARN, "config_reset_confirm",
                 () -> done(actions.reset())), buttonParams());
-        body.addView(row(R.drawable.settings_ic_reset, Lang.t(c, "Сбросить всё", "Reset all"),
-                Lang.t(c, "Вернуть настройки как после установки", "Settings back as after installing"),
-                SettingsStyle.WARN, "config_reset", () -> toggle(reset, null)));
+        body.addView(described(row(R.drawable.settings_ic_reset, Lang.t(c, "Сбросить всё", "Reset all"),
+                null, SettingsStyle.WARN, "config_reset", () -> toggle(reset, null)),
+                Lang.t(c, "Сбросить всё", "Reset all"),
+                Lang.t(c, "Возвращает все настройки к тем, что были сразу после установки. Сохранённые профили остаются.",
+                        "Puts every setting back as it was right after installing. Saved profiles stay.")));
         body.addView(reset);
     }
 
@@ -450,6 +457,19 @@ final class ConfigMenu {
         return p;
     }
 
+    /**
+     * P592 (owner, 2026-11-10: descriptions only on a long press): {@code row} with its description in the settings' help
+     * sheet; the row itself keeps its title (and a state, where it has one).
+     */
+    private View described(View row, CharSequence title, CharSequence help) {
+        row.setOnLongClickListener(v -> {
+            com.particlesdevs.photoncamera.ui.settings.SettingHelp.show(v.getContext(), title, help);
+            return true;
+        });
+        return row;
+    }
+
+    /** A row of the menu: {@code summary} is its state («Сейчас», the file it overwrites), never a description. */
     private View row(int icon, CharSequence title, @Nullable CharSequence summary, int iconColor, String tag, Runnable click) {
         LinearLayout r = new LinearLayout(c);
         r.setOrientation(LinearLayout.HORIZONTAL);

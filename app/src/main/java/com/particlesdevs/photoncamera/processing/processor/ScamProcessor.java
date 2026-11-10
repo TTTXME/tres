@@ -1297,7 +1297,12 @@ public class ScamProcessor extends ProcessorBase {
         // that burst takes the teacher / P121 below
         if (press != null && press.route == com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.ROUTE_WHY) {
             final String idle = com.particlesdevs.photoncamera.processing.color.MosaicNeutralResolver.ispIdle(frameResults(frames));
-            if (idle != null) {
+            // P599 (owner, 2026-11-10: the Quad / Tetra white balance turned wrong once the camera was held still): a converged AWB
+            // holds its gains as an idle ISP does - a session whose HAL's AWB moved (the viewfinder saw it) keeps the reference rule
+            if (idle != null && press.awbMoves && com.particlesdevs.photoncamera.processing.color.ViewfinderMosaicWb.movesKept()) {
+                Log.i("SCAM_HDR", "mosaic white balance: the reference app's rule kept - the burst's gains look frozen (" + idle
+                        + "), but the HAL's AWB moved in this session: a converged AWB, not an idle ISP");
+            } else if (idle != null) {
                 Log.i("SCAM_HDR", "mosaic white balance: the reference app's rule not used (" + idle + ")");
                 press = null;
             }
@@ -1539,7 +1544,8 @@ public class ScamProcessor extends ProcessorBase {
     /** P320: range over declared range, a power of two when within 15 % of one (else 1 decimal); 1 below x1.5. */
     /** P322: the phones whose DCG ISO was seen inflated by the range (vivo X300 / X200 Ultra), not the Xiaomi 15 Ultra's route. */
     public static boolean isoInflationSeen() {
-        return !com.particlesdevs.photoncamera.capture.XiaomiDcg.device();
+        // P593: nor the OnePlus 16's row 28 (OplusDcg.isoInflated: its measured noise is the HAL profile's, not that / 16)
+        return !com.particlesdevs.photoncamera.capture.XiaomiDcg.device() && com.particlesdevs.photoncamera.capture.OplusDcg.isoInflated();
     }
 
     public static float isoScale(double range, double declaredRange) {
@@ -1582,6 +1588,10 @@ public class ScamProcessor extends ProcessorBase {
             return;
         }
         Log.i("SCAM_HDR", "DCG " + r.describe());
+        // P593: the OnePlus 16's DCG frame is real 14-bit data or 10-bit data x16 - said with every DCG shot
+        final String precision = com.particlesdevs.photoncamera.capture.OplusDcg.precisionLine(reference.buffer, reference.width,
+                reference.height, reference.width * 2, p.whiteLevel);
+        if (precision != null) Log.i("SCAM_HDR", precision);
         if (r.verdict == com.particlesdevs.photoncamera.processing.RawLinearity.Verdict.NO_DATA) {
             keepReferenceExposure(frames, reference, "linearity not proven");
             return;

@@ -65,8 +65,12 @@ public final class WhyResolveDenoise {
 
     private static float clamp(float v, float lo, float hi) { return Float.isNaN(v) ? lo : Math.max(lo, Math.min(hi, v)); }
 
-    /** The whole denoise; returns the output texture (a pipeline main texture, max(0, RGB)). */
+    /**
+     * The whole denoise; returns the output texture (a pipeline main texture, max(0, RGB)). P600: its caller (ScamHdrDenoise) runs
+     * it only with «Все шумодавы» on; off it hands the input back.
+     */
     static GLTexture process(GLProg glProg, PostPipeline pipeline, GLTexture input) {
+        if (!DenoiseStages.on()) return input;
         final long started = System.nanoTime();
         final Parameters par = pipeline.mParameters;
         final Point size = input.mSize;

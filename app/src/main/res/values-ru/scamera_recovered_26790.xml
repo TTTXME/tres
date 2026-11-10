@@ -16,8 +16,8 @@
     <string name="lens_menu_names">Переназначить названия</string>
     <string name="lens_menu_visibility">Отображение объективов</string>
     <string name="lens_settings_saved">Настройки объективов сохранены. Перезапустите SCAMERA для применения.</string>
-    <string name="zsl_buffer_count">Кадров в буфере ZSL</string>
-    <string name="zsl_buffer_count_summary">RAW-кадры, которые камера держит до нажатия. Больше — больше памяти; меньше — склейке может не хватить кадров.</string>
+    <string name="zsl_buffer_count">Ёмкость буфера затвора</string>
+    <string name="zsl_buffer_count_summary">Сколько сырых кадров камера держит в памяти до нажатия. Больше — склейке хватает кадров без задержки затвора. Меньше — экономится оперативная память.</string>
     <string name="manual_mode_auto">Авто</string>
     <string name="manual_mode_fixed">Фиксированный</string>
     <string name="highlight_recovery">Восстановление светов</string>
@@ -28,22 +28,22 @@
     </string-array>
     <string name="noise_model_profile">Профиль модели шума</string>
     <string name="noise_model_import">Импорт модели шума</string>
-    <string name="noise_model_import_summary">Загрузить свой файл калибровки шума (.c)</string>
+    <string name="noise_model_import_summary">Загружает ваш файл калибровки шума (.c) и делает его профилем этого сенсора.</string>
     <string name="noise_model_export">Экспорт модели шума</string>
-    <string name="noise_model_export_summary">Сохранить текущий профиль в Download/SCAMERA</string>
+    <string name="noise_model_export_summary">Сохраняет текущий профиль шума в папку Download/SCAMERA.</string>
     <string name="antibanding_hz">Мерцание ламп</string>
-    <string name="antibanding_hz_summary">Длинные кадры подстраиваются под мерцание ламп, чтобы на фото не было полос. Авто — как определит камера.</string>
-    <string name="noise_model_profile_desc">Как шумит сенсор. От этого зависит, что склейка и шумодав считают шумом, а что деталью. «Авто» — профиль самой камеры для каждого кадра.</string>
-    <string name="wide169_desc">Кадр 16:9 вместо полного кадра сенсора: обрезается сверху и снизу.</string>
-    <string name="hide_gallery_icon_desc">Убирает значок SGallery из списка приложений. Значок SCAMERA остаётся.</string>
-    <string name="show_grid_desc">Линии разметки кадра поверх видоискателя</string>
-    <string name="show_roundedge_desc">Скруглённые углы видоискателя. Выкл. — прямые углы.</string>
-    <string name="show_watermark_desc">Подпись на сохранённых фото; её текст и вид настраиваются ниже.</string>
-    <string name="af_mode_desc">Как держится фокус: непрерывно (фото — быстрее, видео — плавнее) или один раз (Авто).</string>
-    <string name="peak_method_desc">Подсвечивает резкие места в видоискателе. Авто — только при ручном фокусе.</string>
-    <string name="show_afdata_desc">Что показать поверх видоискателя: HUD (выдержка, ISO, фокус, баланс белого), гистограмму или рамки AF / AE.</string>
-    <string name="cfa_desc">Порядок цветных пикселей сенсора. Авто — как сообщает камера; неверный ломает цвета.</string>
-    <string name="color_method_desc">Откуда брать цветовую матрицу: из калибровки камеры или из каждого снимка. Меняет цвета. Где камера сообщает матрицу ISP (vivo, OPPO), снимки 12 Мп берут её; выбор действует на мозаичные снимки со своим балансом белого.</string>
+    <string name="antibanding_hz_summary">Выдержка подстраивается под мерцание ламп, чтобы на фото не было полос. «Авто» определяет частоту сама.</string>
+    <string name="noise_model_profile_desc">Описание того, как шумит сенсор. По нему склейка и шумодав решают, где шум, а где деталь. «Авто» берёт данные самой камеры для каждого кадра. Любой другой профиль заменяет их в склейке, шумодаве, выравнивании и в DNG.</string>
+    <string name="wide169_desc">Широкий кадр 16:9 вместо полного кадра сенсора: снимок обрезается сверху и снизу.</string>
+    <string name="hide_gallery_icon_desc">Убирает значок SGallery из списка приложений. Значок SCAMERA остаётся, галерея по-прежнему открывается из камеры.</string>
+    <string name="show_grid_desc">Линии поверх видоискателя, которые помогают выстроить кадр. На фото не попадают.</string>
+    <string name="show_roundedge_desc">Скругляет углы видоискателя. На фото не влияет.</string>
+    <string name="show_watermark_desc">Добавляет подпись на сохранённые фото. Её текст и вид задаются в пунктах ниже.</string>
+    <string name="af_mode_desc">Как камера держит фокус: постоянно подстраивает его (для фото — быстрее, для видео — плавнее) или фокусирует один раз.</string>
+    <string name="peak_method_desc">Подсвечивает в видоискателе места, которые сейчас в резкости. «Авто» включает подсветку только при ручном фокусе.</string>
+    <string name="show_afdata_desc">Что показывать поверх видоискателя: выдержку, ISO, фокус и баланс белого, гистограмму или рамки фокуса и экспозиции.</string>
+    <string name="cfa_desc">Порядок цветных пикселей на сенсоре. «Авто» берёт тот, что сообщает камера. Если выбрать неверный, цвета на снимке будут перепутаны.</string>
+    <string name="color_method_desc">Откуда берётся матрица цвета: из калибровки камеры или из данных каждого снимка. От неё зависят все цвета. Там, где камера сама сообщает матрицу ISP (vivo, OPPO), снимки 12 Мп берут её, а этот выбор действует на мозаичные снимки со своим балансом белого.</string>
     <string name="horizon_desc">Линия уровня в видоискателе, чтобы держать горизонт ровно.</string>
     <string name="theme_desc">Светлая или тёмная галерея. Камера и настройки всегда тёмные.</string>
 </resources>

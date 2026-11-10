@@ -32,27 +32,50 @@ final class HalfRgbUpload {
     private static volatile int state;
     /** Band of rows per buffer upload (about 16 MB of halves). */
     private static final int BAND_BYTES = 16 << 20;
+    /** P602: the last upload's split for ScamRgb's «scamrgb input ms» line (the processing thread's; "" when none). */
+    private static String lastNote = "";
+    private static long copyNs;
+    private static int bands;
+
+    /** P602: the split of the last {@link #upload} ("" when it gave no texture), once. */
+    static String takeNote() {
+        final String n = lastNote;
+        lastNote = "";
+        return n;
+    }
 
     /** The input texture (alpha 1.0) or null when this driver does not keep the halves or a GL call failed. */
     @Nullable
     static GLTexture upload(GLProg prog, Point size, ByteBuffer rgb) {
+        lastNote = "";
         if (!exact(prog)) return null;
         GLTexture tex = null;
         try {
+            final long t0 = System.nanoTime();
             tex = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+            final long storage = System.nanoTime() - t0;
             // P482 (ahb_transport): the worker's halves in the app's hardware buffer - the pass reads them there (no upload); refused
             // (no extension, a GL error): the bands uploaded from the CPU view below, the same bytes
             final int imported = imported(rgb);
+            lastNote = String.format(java.util.Locale.ROOT, ": storage %d ms, hardware buffer read in place", storage / 1_000_000);
             if (imported != 0 && runImported(prog, tex, size.x, size.y, rgb, imported)) return tex;
             final boolean fromView = isAhbView(rgb);
+            copyNs = 0;
+            bands = 0;
+            final long t1 = System.nanoTime();
             if (!run(prog, tex, size.x, size.y, rgb)) {
                 if (fromView) GLES31.glFinish();
                 tex.close();
                 return null;
             }
+            final long pass = System.nanoTime() - t1;
             // P482: the driver may still read the uploaded bands from the view's mapping on the GPU (a hardware buffer's pages
             // are not pinned like the memfd's): done before the view may be released
             if (fromView) GLES31.glFinish();
+            // P602 (Pixel 7 log of 31249: «upload=180 (half rgb, gpu repack)» on the GL thread, nothing about where): the texture's
+            // storage, the bands' copies into the driver (glBufferSubData: a wait for the GPU shows here) and the rest of the pass
+            lastNote = String.format(java.util.Locale.ROOT, ": storage %d ms, %d bands copied in %d ms, pass %d ms%s", storage / 1_000_000,
+                    bands, copyNs / 1_000_000, (pass - copyNs) / 1_000_000, fromView ? " + finish" : "");
             return tex;
         } catch (RuntimeException e) {
             Log.w("SCAM_PIPELINE", "half RGB GPU upload failed: " + e + ", CPU repack");
@@ -87,7 +110,10 @@ final class HalfRgbUpload {
                 src.limit(y0 * rowBytes + rows * rowBytes);
                 // two buffers: the driver need not wait for the pass on the previous band before it takes the next one
                 GLES31.glBindBuffer(GLES31.GL_SHADER_STORAGE_BUFFER, buffers[k & 1]);
+                final long c0 = System.nanoTime();
                 GLES31.glBufferSubData(GLES31.GL_SHADER_STORAGE_BUFFER, 0, rows * rowBytes, src);
+                copyNs += System.nanoTime() - c0; // P602
+                bands++;
                 GLES31.glBindBufferBase(GLES31.GL_SHADER_STORAGE_BUFFER, 1, buffers[k & 1]);
                 prog.setVar("bandU", w, y0);
                 prog.setVar("rowsU", rows);

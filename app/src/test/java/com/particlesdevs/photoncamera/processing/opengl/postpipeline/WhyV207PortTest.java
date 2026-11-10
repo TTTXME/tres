@@ -82,7 +82,7 @@ public class WhyV207PortTest {
         assertTrue(live.contains("if (whyBase) defs.add(new String[]{\"WHY_BASE\", \"1\"});"));
         assertTrue(live.contains("if (inset < 0.999f) defs.add(new String[]{\"AGX_INSET\", \"1\"});"));
         assertTrue(live.contains("WhyFusion.liveExposures(r)"));
-        assertTrue("the pyramid denoise only when on", read(src + "PostPipeline.java").contains("if (PreferenceKeys.isHybridDenoiseEnabled()) add(new WhyMsDenoise());"));
+        assertTrue("the pyramid denoise only when on", read(src + "PostPipeline.java").contains("if (DenoiseStages.on()) add(new WhyMsDenoise());"));
         assertTrue("the matrix saturation on the viewfinder too",
                 read("src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/LiveRawRenderer.java").contains("lookWhite=WhyTone.withCctSat("));
         final String dev = read("src/main/java/com/particlesdevs/photoncamera/settings/DevKeys.java");
