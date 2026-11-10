@@ -142,9 +142,20 @@ public final class PhotoSize {
         fragment.refreshTopBar();
     }
 
-    /** «12 Мп» / «50 Мп» / «200 Мп». */
+    /** «12 Мп» / «50 Мп» / «200 Мп»; P605: «50 Мп (ремозаик)» where the 50 MP is the nubia HAL's remosaic. */
     public static String label(int size) {
+        if (size == FULL && remosaicHere()) return Lang.t("50 Мп (ремозаик)", "50 MP (remosaic)");
         return size + Lang.t(" Мп", " MP");
+    }
+
+    /** P605 (owner, 2026-11-10: «На Нубии же включаем 50мп с ремозаиком, если только они работают»): the bound camera's 50 MP is the HAL's remosaic. */
+    static boolean remosaicHere() {
+        try {
+            return com.particlesdevs.photoncamera.capture.NubiaFullRes.device()
+                    && com.particlesdevs.photoncamera.capture.NubiaRemosaicProbe.remosaicRoute(boundCamera);
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /** P319: the stream the open session captures (its RAW reader, or the YUV / JPEG target without RAW) and its camera. */
@@ -191,6 +202,7 @@ public final class PhotoSize {
         if (w <= 0 || h <= 0) return label(current());
         final int[] out = output(w, h);
         final String text = com.particlesdevs.photoncamera.gallery.ui.PhotoInfo.megapixels(out[0], out[1]);
+        if (text != null && current() == FULL && remosaicHere()) return text + Lang.t(" (ремозаик)", " (remosaic)"); // P605
         return text != null ? text : label(current());
     }
 

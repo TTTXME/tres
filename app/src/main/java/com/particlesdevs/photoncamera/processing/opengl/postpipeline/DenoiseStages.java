@@ -42,7 +42,9 @@ public final class DenoiseStages {
         /** The worker's chroma median of the plain Bayer merge (dual 5-point on R/G, B/G over the whole frame, HYBRID PLAIN). */
         PLAIN_CHROMA_MEDIAN(Where.WORKER, "plainChromaMedian"),
         /** The worker's 5 x 5 chroma smoothing of the gained ultrashort colour in the Bento blend (kHybUsBlend). */
-        BENTO_CHROMA(Where.WORKER, "bentoBlendChroma");
+        BENTO_CHROMA(Where.WORKER, "bentoBlendChroma"),
+        /** P603: the worker's range-gated 5 x 5 smoothing of a Tetra merge where few frames merged (moving subjects). */
+        TETRA_MOTION_SMOOTH(Where.WORKER, "mosaicTetraMotionSmooth");
 
         public final Where where;
         /** The node that asks the switch (POST), the worker's HybridTuning field (WORKER). */

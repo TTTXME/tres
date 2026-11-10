@@ -447,6 +447,7 @@ public class ModuleProfilesPageTest {
                     .addToBackStack("module").commit();
             SettingsActivity.SettingsFragment root = (SettingsActivity.SettingsFragment) top(activity);
             assertEquals("back1@full200", root.moduleProfile());
+            assertNull("P606: the profile's photo page is no lens page", root.lensProfile());
             // P413: the module cards and the lens settings (their group) are the lens page's, not the profile's photo page
             assertFalse("P413: the lens settings are the lens page's", root.findPreference("root_lenses").isVisible());
             // P413: the profile's lens page (a card's «Настройки линзы»)
@@ -455,6 +456,7 @@ public class ModuleProfilesPageTest {
                     .addToBackStack("lens").commit();
             SettingsActivity.SettingsFragment lens = (SettingsActivity.SettingsFragment) top(activity);
             assertEquals("back1@full200", lens.moduleProfile());
+            assertEquals("P606: its rows pin for this lens", "back1@full200", lens.lensProfile());
             PreferenceGroup sensor = lens.findPreference(ModulePageFilter.SENSOR_GROUP);
             assertTrue(shown(sensor));
             assertEquals("Camera keys (vendor tags)", String.valueOf(sensor.getTitle()));
@@ -490,6 +492,7 @@ public class ModuleProfilesPageTest {
             assertTrue(String.valueOf(crop), crop instanceof SettingsActivity.SettingsFragment);
             assertEquals("back1@full200", ((SettingsActivity.SettingsFragment) crop).moduleProfile());
             assertEquals("raw_crop_screen", ((SettingsActivity.SettingsFragment) crop).getPreferenceScreen().getKey());
+            assertEquals("P606: a lens page's own page is the lens's", "back1@full200", ((SettingsActivity.SettingsFragment) crop).lensProfile());
             back(activity);
             back(activity);
             assertEquals("back1@full200", PreferenceKeys.profiles().editing());

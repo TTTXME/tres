@@ -145,6 +145,10 @@ public final class ShadeCatalog {
     private static final Map<String, Float> NUMERIC_TEXT = new HashMap<>();
     static {
     }
+    /** P606: the lens page of preferences.xml (ModuleRows.LENS). */
+    static final String LENS_PAGE = "lens_screen";
+    /** P606: the module sensor rows' key prefix (pref_sensorconfig_&lt;slot&gt;_&lt;field&gt;). */
+    private static final String SENSOR_PREFIX = "pref_sensorconfig_";
     /** Never pinnable: belongs to one phone only, is part of the FORMAT choice (the codec), or is set once for the place (the lamp flicker). */
     private static final Set<String> NOT_PINNABLE = new HashSet<>(Arrays.asList(
             PHOTO_FORMAT,
@@ -302,7 +306,15 @@ public final class ShadeCatalog {
 
     /** One setting a tile can show. */
     public static final class Entry {
+        /** The tile's key: the preference key, or a lens pin (ShadeTiles.lensToken) for a lens setting. */
         public final String key;
+        /** The preference read and written (the key itself, a lens pin's key). */
+        public final String pref;
+        /** P606: the module profile whose lens page this setting belongs to; null for a setting of every lens. */
+        @Nullable public final String lens;
+        /** P606: a lens pin's lens name («3×») and the row's own short title (the tile: the name, the lens on the value line). */
+        @Nullable public String lensName;
+        @Nullable public CharSequence lensShortTitle;
         public int kind;
         public CharSequence title, shortTitle;
         /** Section titles from the settings root (the root itself excluded); empty for a row on the root page. */
@@ -327,7 +339,13 @@ public final class ShadeCatalog {
         String haystack = "";
 
         Entry(String key) {
+            this(key, key, null);
+        }
+
+        Entry(String key, String pref, @Nullable String lens) {
             this.key = key;
+            this.pref = pref;
+            this.lens = lens;
         }
 
         public boolean isVirtual() {
@@ -335,7 +353,7 @@ public final class ShadeCatalog {
         }
 
         public boolean isCurated() {
-            return SPECS.containsKey(key);
+            return SPECS.containsKey(pref);
         }
 
         /** Catalog section: the first section of the path, «Съёмка» for camera controls and the root page. */
@@ -372,6 +390,14 @@ public final class ShadeCatalog {
     /** Every entry, virtual first, then the tree in settings order. */
     private final Map<String, Entry> entries = new LinkedHashMap<>();
     private boolean treeBuilt;
+    /** P606: the lens page of the inflated tree (its module sensor rows are added per module on demand). */
+    @Nullable private PreferenceGroup lensRoot;
+    /** P606: every row of the lens page a lens pin can hold, as of no lens (its key, kind, values, default). */
+    private final Map<String, Entry> lensTemplates = new LinkedHashMap<>();
+    /** P606: the lens pins looked up so far (ShadeTiles.lensToken -> its entry). */
+    private final Map<String, Entry> lensEntries = new HashMap<>();
+    /** P606: the module slots whose sensor rows are in {@link #lensTemplates}. */
+    private final Set<String> sensorSlots = new HashSet<>();
     private Map<String, Object> deviceDefaults;
     /** The current lens has a flash unit (CameraFragment's characteristics callback). */
     private static boolean flashAvailable = true;
@@ -464,7 +490,7 @@ public final class ShadeCatalog {
 
     /** Short title, short labels and icons of the curated spec; search text. */
     private void decorate(Entry e) {
-        Spec spec = SPECS.get(e.key);
+        Spec spec = SPECS.get(e.pref);
         if (spec != null) {
             e.shortTitle = res.getString(spec.shortTitle);
             if (spec.shortLabels != 0) e.shortLabels = res.getTextArray(spec.shortLabels);
@@ -474,13 +500,13 @@ public final class ShadeCatalog {
         if (e.shortTitle == null) e.shortTitle = e.title;
         if (e.icon == 0 && e.treeIcon == null)
             e.icon = e.kind == TOGGLE ? R.drawable.settings_ic_toggle : e.kind == LIST ? R.drawable.settings_ic_list : R.drawable.settings_ic_sliders;
-        e.sessionTime = SessionKeys.needsNewSession(e.key);
+        e.sessionTime = SessionKeys.needsNewSession(e.pref);
         StringBuilder text = new StringBuilder().append(e.title).append(' ').append(e.shortTitle);
         for (String p : e.path) text.append(' ').append(p);
         if (e.labels != null) for (CharSequence l : e.labels) text.append(' ').append(l);
         if (e.shortLabels != null) for (CharSequence l : e.shortLabels) text.append(' ').append(l);
         String base = normalize(text.toString());
-        StringBuilder hay = new StringBuilder(base).append(' ').append(e.key.toLowerCase(Locale.ROOT));
+        StringBuilder hay = new StringBuilder(base).append(' ').append(e.pref.toLowerCase(Locale.ROOT));
         for (String[] k : KEYWORDS) if (java.util.regex.Pattern.compile(k[0]).matcher(base).find()) hay.append(' ').append(k[1]);
         e.haystack = normalize(hay.toString());
     }
@@ -514,7 +540,15 @@ public final class ShadeCatalog {
         for (Class<?> c : TunableRegistry.TUNABLE_CLASSES) TunablePreferenceGenerator.registerTunableClass(c);
         TunablePreferenceGenerator.generatePreferences(themed, tree);
         applyRuntimeRules(tree);
-        walk(tree, new ArrayList<>(), null, true);
+        walk(tree, new ArrayList<>(), null, true, entries, false);
+        // P606: the lens page (hidden as a row, so the walk above leaves it out): the settings a lens pin can hold
+        Preference lensPage = tree.findPreference(LENS_PAGE);
+        if (lensPage instanceof PreferenceGroup) {
+            lensRoot = (PreferenceGroup) lensPage;
+            List<String> path = new ArrayList<>();
+            if (lensRoot.getTitle() != null) path.add(lensRoot.getTitle().toString());
+            for (int i = 0; i < lensRoot.getPreferenceCount(); i++) walk(lensRoot.getPreference(i), path, null, false, lensTemplates, true);
+        }
     }
 
     /** The visibility rules of SettingsActivity: the Xiaomi 17 Ultra zoom row only there. */
@@ -533,7 +567,8 @@ public final class ShadeCatalog {
     /** Groups not in the section path (P406: the settings root's groups have none left; kept for a later wrapper). */
     static final Set<String> PATH_SKIP = new HashSet<>();
 
-    private void walk(Preference p, List<String> path, @Nullable Drawable.ConstantState inherited, boolean root) {
+    private void walk(Preference p, List<String> path, @Nullable Drawable.ConstantState inherited, boolean root,
+                      Map<String, Entry> into, boolean lens) {
         if (!p.isVisible()) return;
         if (p instanceof PreferenceGroup) {
             PreferenceGroup group = (PreferenceGroup) p;
@@ -544,11 +579,11 @@ public final class ShadeCatalog {
             Drawable.ConstantState icon = inherited;
             Drawable own = p instanceof PreferenceScreen && !root ? p.getIcon() : null;
             if (own != null && own.getConstantState() != null) icon = own.getConstantState();
-            for (int i = 0; i < group.getPreferenceCount(); i++) walk(group.getPreference(i), inner, icon, false);
+            for (int i = 0; i < group.getPreferenceCount(); i++) walk(group.getPreference(i), inner, icon, false, into, lens);
             return;
         }
         String key = p.getKey();
-        if (key == null || !pinnable(key) || entries.containsKey(key)) return;
+        if (key == null || !(lens ? lensPinnable(key) : pinnable(key)) || into.containsKey(key)) return;
         Entry e = new Entry(key);
         e.title = p.getTitle() == null ? key : p.getTitle().toString();
         e.path.addAll(path);
@@ -620,7 +655,7 @@ public final class ShadeCatalog {
         Drawable.ConstantState icon = own != null && own.getConstantState() != null ? own.getConstantState() : inherited;
         if (!SPECS.containsKey(key)) e.treeIcon = icon;
         decorate(e);
-        entries.put(key, e);
+        into.put(key, e);
     }
 
     private static void slider(Entry e, float min, float max, boolean decimal, float stepPerUnit, float def) {
@@ -640,16 +675,181 @@ public final class ShadeCatalog {
         return !key.equals(com.particlesdevs.photoncamera.processing.color.DcpProfiles.KEY);
     }
 
+    /**
+     * P606: a row of a lens page a lens pin can hold - its own settings and its module's sensor rows (pref_sensorconfig_; not the
+     * camera keys' list, the actions and the module rows).
+     */
+    static boolean lensPinnable(String key) {
+        if (key.startsWith("settings_") || key.startsWith("module_") || key.startsWith("lens_") || key.startsWith("pref_theme")
+                || key.contains("spoof") || key.endsWith("_tunablekeys")) return false;
+        if (NOT_PINNABLE.contains(key)) return false;
+        return !key.equals(com.particlesdevs.photoncamera.processing.color.DcpProfiles.KEY);
+    }
+
     // ───────────────────────────────── lookups
 
     /** The entry of a key, or null when the key is not pinnable on this phone (the tree is inflated on demand). */
     @Nullable
     public Entry entry(String key) {
         if (key == null) return null;
+        if (ShadeTiles.isLensToken(key)) return lensEntry(key);
         Entry e = entries.get(key);
         if (e != null || treeBuilt) return e;
         ensureTree();
         return entries.get(key);
+    }
+
+    // ───────────────────────────────── P606: lens pins
+
+    /**
+     * P606: the pin of {@code key} of the lens page of module profile {@code profile}, or null when the shade cannot hold that row.
+     * A module's sensor row (shared by its FULLRES profiles, ModuleSensorSettings) is pinned for the module itself.
+     */
+    @Nullable
+    public String lensPin(@Nullable String profile, @Nullable String key) {
+        if (profile == null || profile.isEmpty() || key == null || profile.indexOf(':') >= 0 || profile.indexOf(',') >= 0) return null;
+        String scope = key.startsWith(SENSOR_PREFIX) ? FullResProfiles.slotOf(profile) : profile;
+        String token = ShadeTiles.lensToken(scope, key);
+        return lensEntry(token) == null ? null : token;
+    }
+
+    /** P606: the entry of a lens pin (its row of the lens page, titled with the lens's name); null for a row it cannot hold. */
+    @Nullable
+    private synchronized Entry lensEntry(String token) {
+        final String profile = ShadeTiles.lensOf(token), pref = ShadeTiles.keyOf(token);
+        if (profile == null) return null;
+        Entry e = lensEntries.get(token);
+        Entry t;
+        if (e == null) {
+            ensureTree();
+            t = lensTemplates.get(pref);
+            if (pref.startsWith(SENSOR_PREFIX)) {
+                // a module's sensor row of that very module
+                if (!pref.startsWith(ModuleSensorSettings.prefix(FullResProfiles.slotOf(profile)))) return null;
+                if (t == null) {
+                    sensorRows(FullResProfiles.slotOf(profile));
+                    t = lensTemplates.get(pref);
+                }
+            }
+            if (t == null) return null;
+            e = new Entry(token, pref, profile);
+            e.kind = t.kind;
+            e.path.addAll(t.path);
+            e.labels = t.labels;
+            e.values = t.values;
+            e.shortLabels = t.shortLabels;
+            e.min = t.min;
+            e.max = t.max;
+            e.step = t.step;
+            e.decimal = t.decimal;
+            e.defaultValue = t.defaultValue;
+            e.icon = t.icon;
+            e.valueIcons = t.valueIcons;
+            e.treeIcon = t.treeIcon;
+            e.sessionTime = t.sessionTime;
+            e.dependency = t.dependency;
+            e.storage = t.storage;
+            e.haystack = t.haystack;
+            lensEntries.put(token, e);
+        } else {
+            t = lensTemplates.get(pref);
+            if (t == null) return null;
+        }
+        // the lens's name as the lens buttons show it, now (a renamed module), or the one it had when it is gone
+        final String name = lensName(profile);
+        e.lensName = name;
+        e.lensShortTitle = t.shortTitle;
+        e.title = t.title + " · " + name;
+        e.shortTitle = t.shortTitle + " · " + name;
+        return e;
+    }
+
+    /** P606: {@code slot}'s generated sensor rows (SensorConfigPreferenceGenerator) as lens templates, once. */
+    private void sensorRows(String slot) {
+        if (lensRoot == null || slot == null || !sensorSlots.add(slot)) return;
+        try {
+            Preference group = lensRoot.findPreference(SensorConfigPreferenceGenerator.GROUP_KEY);
+            PreferenceGroup parent = group instanceof PreferenceGroup ? (PreferenceGroup) group : lensRoot;
+            PreferenceGroup rows = SensorConfigPreferenceGenerator.addModuleCategory(lensRoot.getContext(), parent, slot, null, null);
+            List<String> path = new ArrayList<>();
+            if (lensRoot.getTitle() != null) path.add(lensRoot.getTitle().toString());
+            if (parent != lensRoot && parent.getTitle() != null) path.add(parent.getTitle().toString());
+            walk(rows, path, null, true, lensTemplates, true);
+        } catch (RuntimeException | LinkageError ex) {
+            android.util.Log.w("ShadeCatalog", "lens rows of " + slot + ": " + ex);
+        }
+    }
+
+    /** P606: the module profile the camera uses now (the active module, its FULLRES profile while FULLRES is on for it). */
+    static String activeProfile() {
+        String slot = ModuleRegistry.active();
+        try {
+            return FullResProfiles.profileFor(slot);
+        } catch (RuntimeException e) {
+            return slot;
+        }
+    }
+
+    /** P606: the lens pin's lens is the camera's now: its tile is live (a sensor row: any profile of its module). */
+    public static boolean lensActive(Entry e) {
+        if (e.lens == null) return true;
+        String now = activeProfile();
+        if (e.pref.startsWith(SENSOR_PREFIX)) return FullResProfiles.slotOf(e.lens).equals(FullResProfiles.slotOf(now));
+        return e.lens.equals(now);
+    }
+
+    /** P606: the module profile still exists on this phone (its module, and for a FULLRES profile its size). */
+    static boolean lensExists(String profile) {
+        try {
+            String slot = FullResProfiles.slotOf(profile);
+            if (!ModuleRegistry.slots().contains(slot)) return false;
+            return !FullResProfiles.isVariant(profile) || FullResProfiles.variants(slot).contains(profile);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** P606: the lens's name («3×», «2,4× · 200 Мп»), remembered for its pins; the remembered one when it is gone. */
+    String lensName(String profile) {
+        if (lensExists(profile)) {
+            String name = FullResProfiles.label(profile);
+            ShadeTiles.rememberLens(prefs, profile, name);
+            return name;
+        }
+        return ShadeTiles.lensName(prefs, profile);
+    }
+
+    /** P606: why a lens pin is not live now (another lens, a lens gone), null on its lens. */
+    @Nullable
+    String lensUnavailable(Entry e) {
+        if (e.lens == null) return null;
+        if (!lensExists(e.lens)) return Lang.t(context, "Линзы «" + lensName(e.lens) + "» больше нет",
+                "The «" + lensName(e.lens) + "» lens is gone");
+        if (!lensActive(e)) return Lang.t(context, "Доступно на линзе " + lensName(e.lens), "Available on the " + lensName(e.lens) + " lens");
+        // a setting of the module profile while every module shares one: a change would reach every lens
+        if (!e.pref.startsWith(SENSOR_PREFIX) && ModuleProfiles.isLocal(e.pref) && !perLensOn())
+            return res.getString(R.string.module_row_per_lens_off);
+        return null;
+    }
+
+    private static boolean perLensOn() {
+        try {
+            return PreferenceKeys.isPerLensSettingsOn();
+        } catch (RuntimeException e) {
+            return true;   // the settings not initialised (a host check): as the lens page, which turns them on first
+        }
+    }
+
+    /** P606: a lens pin's value: the live one on its lens, else the one its lens keeps (its module profile). */
+    @Nullable
+    private Object lensValue(Entry e) {
+        if (lensActive(e) || e.pref.startsWith(SENSOR_PREFIX) || !ModuleProfiles.isLocal(e.pref)) return PreferenceValue.get(prefs, e.pref);
+        try {
+            if (PreferenceKeys.isPerLensSettingsOn()) return PreferenceKeys.profiles().snapshot(e.lens).get(e.pref);
+        } catch (RuntimeException ignored) {
+            // no profiles (tests, the settings not initialised): the main settings
+        }
+        return PreferenceValue.get(prefs, e.pref);
     }
 
     public boolean isKnown(String key) {
@@ -712,7 +912,7 @@ public final class ShadeCatalog {
     /** The stored value, the effective one for the route and the hybrid's output (MediaTek lock, scam_dev.txt). */
     public Object value(Entry e) {
         if (e.isVirtual()) {
-            switch (e.key) {
+            switch (e.pref) {
                 case FLASH: return String.valueOf(flashShown()); // P590: as this lens and mode allow it
                 case TIMER: return String.valueOf(PreferenceKeys.getCountdownTimerIndex());
                 case FORMAT: return String.valueOf(FormatChoice.current().ordinal());
@@ -721,13 +921,17 @@ public final class ShadeCatalog {
                 default: return String.valueOf(PreferenceKeys.getAeMeteringStd());
             }
         }
-        switch (e.key) {
+        if (e.lens != null) {
+            Object v = lensValue(e);
+            return v == null ? defaultOf(e) : v;
+        }
+        switch (e.pref) {
             case OUTPUT: return PreferenceKeys.hybridOutputMode();
             case DOWNSAMPLER: return PreferenceKeys.hybridDownsampler();
             case RESIZE: return PreferenceKeys.hybridResizeMode();
             default: break;
         }
-        Object v = PreferenceValue.get(prefs, e.key);
+        Object v = PreferenceValue.get(prefs, e.pref);
         return v == null ? defaultOf(e) : v;
     }
 
@@ -738,8 +942,8 @@ public final class ShadeCatalog {
             try { d = DeviceDefaults.forDevice(context); } catch (RuntimeException ignored) { }
             deviceDefaults = d == null ? Collections.emptyMap() : d;
         }
-        Object d = deviceDefaults.get(e.key);
-        if (d != null && FORMAT.equals(e.key)) // a device default names the save mode; the choice adds the default codec
+        Object d = deviceDefaults.get(e.pref);
+        if (d != null && FORMAT.equals(e.pref)) // a device default names the save mode; the choice adds the default codec
             return String.valueOf(FormatChoice.of((int) Math.round(PreferenceNumber.read(d, 0)),
                     com.particlesdevs.photoncamera.processing.PhotoFormat.JPEG).ordinal());
         return d != null ? d : e.defaultValue;
@@ -846,7 +1050,7 @@ public final class ShadeCatalog {
      * dropped into the folder). Other entries are left as they are.
      */
     public void refreshChoices(Entry e) {
-        if (!com.particlesdevs.photoncamera.processing.color.FilmLut.KEY.equals(e.key)) return;
+        if (!com.particlesdevs.photoncamera.processing.color.FilmLut.KEY.equals(e.pref)) return;
         String[] files;
         try {
             files = com.particlesdevs.photoncamera.util.ScameraFolder.LUTS.list(context);
@@ -901,9 +1105,9 @@ public final class ShadeCatalog {
     @Nullable
     public Drawable icon(Entry e) {
         // P590: the flash tile shows its mode (a bolt with a slash, with «A», filled; the flashlight)
-        if (FLASH.equals(e.key)) return context.getDrawable(com.particlesdevs.photoncamera.capture.FlashMode.icon(flashShown()));
+        if (FLASH.equals(e.pref)) return context.getDrawable(com.particlesdevs.photoncamera.capture.FlashMode.icon(flashShown()));
         // P583: «Разрешение» the concept's res icon (its value line says the scale; P502 drew the scale as the icon)
-        Integer concept = CONCEPT_ICONS.get(e.key);
+        Integer concept = CONCEPT_ICONS.get(e.pref);
         if (concept != null) return context.getDrawable(concept);
         int i = e.kind == LIST ? index(e) : -1;
         if (e.valueIcons != null && i >= 0 && i < e.valueIcons.length) return context.getDrawable(e.valueIcons[i]);
@@ -913,7 +1117,7 @@ public final class ShadeCatalog {
 
     /** P570: the setting's own icon ({@link #settingIcon}) is one of the colour icons (tools/icons; ui/Icons). */
     public boolean colourIcon(Entry e) {
-        Integer concept = CONCEPT_ICONS.get(e.key);
+        Integer concept = CONCEPT_ICONS.get(e.pref);
         if (concept != null) return com.particlesdevs.photoncamera.ui.Icons.colour(context, concept);
         if (e.icon != 0) return com.particlesdevs.photoncamera.ui.Icons.colour(context, e.icon);
         return e.treeIcon != null; // the settings tree's icons are the colour icons
@@ -921,9 +1125,9 @@ public final class ShadeCatalog {
 
     /** P570: the value's icon ({@link #icon}) is one of the colour icons. */
     public boolean colourValueIcon(Entry e) {
-        if (OUTPUT.equals(e.key)) return false;
-        if (FLASH.equals(e.key)) return com.particlesdevs.photoncamera.ui.Icons.colour(context, com.particlesdevs.photoncamera.capture.FlashMode.icon(flashShown()));
-        Integer concept = CONCEPT_ICONS.get(e.key);
+        if (OUTPUT.equals(e.pref)) return false;
+        if (FLASH.equals(e.pref)) return com.particlesdevs.photoncamera.ui.Icons.colour(context, com.particlesdevs.photoncamera.capture.FlashMode.icon(flashShown()));
+        Integer concept = CONCEPT_ICONS.get(e.pref);
         if (concept != null) return com.particlesdevs.photoncamera.ui.Icons.colour(context, concept);
         int i = e.kind == LIST ? index(e) : -1;
         if (e.valueIcons != null && i >= 0 && i < e.valueIcons.length) return com.particlesdevs.photoncamera.ui.Icons.colour(context, e.valueIcons[i]);
@@ -934,7 +1138,7 @@ public final class ShadeCatalog {
     /** The setting's own icon (catalog rows): the icon of its first value for the camera controls. */
     @Nullable
     public Drawable settingIcon(Entry e) {
-        Integer concept = CONCEPT_ICONS.get(e.key);
+        Integer concept = CONCEPT_ICONS.get(e.pref);
         if (concept != null) return context.getDrawable(concept);
         if (e.icon != 0) return context.getDrawable(e.icon);
         return e.treeIcon != null ? e.treeIcon.newDrawable(res).mutate() : null;
@@ -946,19 +1150,21 @@ public final class ShadeCatalog {
      */
     public void write(Entry e, Object value) {
         if (e.isVirtual()) throw new IllegalArgumentException(e.key + " is written by CameraUIController");
+        // P606: a lens pin writes only on its lens (the main settings hold that lens's profile then, as on its lens page)
+        if (e.lens != null && lensUnavailable(e) != null) return;
         SharedPreferences.Editor editor = prefs.edit();
         switch (e.storage) {
             case STORE_BOOLEAN:
-                editor.putBoolean(e.key, PreferenceNumber.bool(value, false));
+                editor.putBoolean(e.pref, PreferenceNumber.bool(value, false));
                 break;
             case STORE_INT:
-                editor.putInt(e.key, value instanceof Boolean ? ((Boolean) value ? 1 : 0) : (int) Math.round(PreferenceNumber.read(value, 0)));
+                editor.putInt(e.pref, value instanceof Boolean ? ((Boolean) value ? 1 : 0) : (int) Math.round(PreferenceNumber.read(value, 0)));
                 break;
             case STORE_FLOAT:
-                editor.putFloat(e.key, (float) PreferenceNumber.read(value, 0));
+                editor.putFloat(e.pref, (float) PreferenceNumber.read(value, 0));
                 break;
             default:
-                editor.putString(e.key, value instanceof Number ? PreferenceNumber.format(((Number) value).floatValue(), e.decimal) : String.valueOf(value));
+                editor.putString(e.pref, value instanceof Number ? PreferenceNumber.format(((Number) value).floatValue(), e.decimal) : String.valueOf(value));
                 break;
         }
         editor.apply();
@@ -967,7 +1173,7 @@ public final class ShadeCatalog {
     /** The next list value (wrapping) as stored, for a tap on a list tile. */
     public String nextValue(Entry e) {
         // P590: the flash cycles as the top row's item (a lens without a flash and the video: off <-> torch)
-        if (FLASH.equals(e.key)) return String.valueOf(com.particlesdevs.photoncamera.capture.FlashMode.tap());
+        if (FLASH.equals(e.pref)) return String.valueOf(com.particlesdevs.photoncamera.capture.FlashMode.tap());
         int i = index(e);
         return e.values[(i + 1 + e.values.length) % e.values.length].toString();
     }
@@ -994,15 +1200,18 @@ public final class ShadeCatalog {
      */
     @Nullable
     public String unavailable(Entry e) {
-        if (FLASH.equals(e.key)) return flashAvailable ? null : res.getString(R.string.shade_reason_no_flash);
-        if (e.key.startsWith(ScamHybridKeys.PREFIX)
-                && PreferenceKeys.scamDevOverrides("hybrid_" + e.key.substring(ScamHybridKeys.PREFIX.length())))
+        if (FLASH.equals(e.pref)) return flashAvailable ? null : res.getString(R.string.shade_reason_no_flash);
+        String lens = lensUnavailable(e);
+        if (lens != null) return lens;
+        if (e.pref.startsWith(ScamHybridKeys.PREFIX)
+                && PreferenceKeys.scamDevOverrides("hybrid_" + e.pref.substring(ScamHybridKeys.PREFIX.length())))
             return res.getString(R.string.shade_reason_scam_dev);
         Map<String, Object> values = new HashMap<>(prefs.getAll());
-        String reason = DeviceAvailability.of(values).reason(e.key);
+        String reason = DeviceAvailability.of(values).reason(e.pref);
         if (reason != null) return reason;
         if (e.dependency != null) {
-            Entry master = entry(e.dependency);
+            Entry master = e.lens != null ? lensEntry(ShadeTiles.lensToken(e.lens, e.dependency)) : null;
+            if (master == null) master = entry(e.dependency);
             if (master != null && master.kind == TOGGLE && !on(master))
                 return res.getString(R.string.shade_reason_dependency, master.title);
         }

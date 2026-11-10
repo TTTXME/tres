@@ -156,6 +156,12 @@ public final class NubiaFullRes {
                 + " (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION, no ISP stream, the frames must be a mosaic - P588)");
     }
 
+    /** P605: the maximum-resolution RAW size of the camera's FULLRES (null: none learned). */
+    @Nullable
+    public static Size maxResSize(@Nullable String cameraId) {
+        return cameraId == null ? null : MAXRES.get(cameraId);
+    }
+
     /** The camera's FULLRES is the maximum-resolution session (P588). */
     public static boolean maxRes(@Nullable String cameraId) {
         return cameraId != null && device() && MAXRES.containsKey(cameraId);

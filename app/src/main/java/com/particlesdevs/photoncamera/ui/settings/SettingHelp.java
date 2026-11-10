@@ -284,18 +284,41 @@ public final class SettingHelp {
 
     /** The help sheet of {@code p}. */
     public static BottomSheetDialog show(Context c, Preference p) {
+        return show(c, p, null);
+    }
+
+    /**
+     * The help sheet of {@code p} on a page of lens {@code lens} (a module profile; null on any other page). P606: a value row of a
+     * lens page gets «В шторку» for that lens only (ShadeCatalog.lensPin).
+     */
+    public static BottomSheetDialog show(Context c, Preference p, @Nullable String lens) {
         CharSequence text = text(c, p);
         if (TextUtils.isEmpty(text)) text = Lang.t(c, "Описания для этого пункта пока нет.", "No description for this row yet.");
         if (restarts(p)) text = text + "\n\n" + Lang.t(c, "После изменения камера перезапустится.", "The camera restarts after a change.");
         final CharSequence title = p.getTitle() == null || p.getTitle().length() == 0 ? fallbackTitle(c, p) : p.getTitle();
         final BottomSheetDialog[] shown = new BottomSheetDialog[1];
         final Runnable reset = reset(p);
-        shown[0] = show(c, title, text, facts(c, p), SettingsStyle.pinnable(c, p.getKey()) ? p.getKey() : null,
+        shown[0] = show(c, title, text, facts(c, p), pinKey(c, p.getKey(), lens),
                 reset == null ? null : () -> {
                     reset.run();
                     if (shown[0] != null) shown[0].dismiss();
                 });
         return shown[0];
+    }
+
+    /** The shade pin of a row: its lens's pin on a lens page (P606), else the key itself where the shade can hold it. */
+    @Nullable
+    static String pinKey(Context c, @Nullable String key, @Nullable String lens) {
+        if (key == null) return null;
+        if (lens != null) {
+            try {
+                String token = com.particlesdevs.photoncamera.settings.ShadeCatalog.get(c).lensPin(lens, key);
+                if (token != null) return token;
+            } catch (RuntimeException e) {
+                // no catalog: no pin
+            }
+        }
+        return SettingsStyle.pinnable(c, key) ? key : null;
     }
 
     /**

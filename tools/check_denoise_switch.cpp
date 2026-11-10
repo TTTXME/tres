@@ -155,8 +155,8 @@ int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     // ---- the tuning: default, the file's line, the master switch over a stage's own line
     const HybridTuning d;
-    expect(d.denoise == 1 && d.plainChromaMedian == 1 && d.bentoBlendChroma == 1.f, "default: every denoise stage on");
-    expect(sizeof(kHybridDenoiseStages) / sizeof(kHybridDenoiseStages[0]) == 2, "the registry: plainChromaMedian, bentoBlendChroma");
+    expect(d.denoise == 1 && d.plainChromaMedian == 1 && d.bentoBlendChroma == 1.f && d.mosaicTetraMotionSmooth == 1.f, "default: every denoise stage on");
+    expect(sizeof(kHybridDenoiseStages) / sizeof(kHybridDenoiseStages[0]) == 3, "the registry: plainChromaMedian, bentoBlendChroma, mosaicTetraMotionSmooth");
     {
         std::vector<std::string> log;
         const HybridTuning on = fromFile("cdm 0.2\ndenoise 1\n", &log);
@@ -164,7 +164,7 @@ int main() {
                && lines(log, "HYBRID DENOISE") == 0, "denoise 1: the stages as without the line, no HYBRID DENOISE line");
         log.clear();
         const HybridTuning off = fromFile("plainChromaMedian 2\ndenoise 0\nbentoBlendChroma 0.7\nplainChromaMedian 3\n", &log);
-        expect(off.denoise == -1 && off.plainChromaMedian == 0 && off.bentoBlendChroma == 0.f,
+        expect(off.denoise == -1 && off.plainChromaMedian == 0 && off.bentoBlendChroma == 0.f && off.mosaicTetraMotionSmooth == 0.f,
                "denoise 0: every stage off after every line (also a stage's own line after it), applied once (-1)");
         expect(lines(log, "HYBRID DENOISE: off") == 1, "denoise 0: one HYBRID DENOISE line");
         HybridTuning again = off;

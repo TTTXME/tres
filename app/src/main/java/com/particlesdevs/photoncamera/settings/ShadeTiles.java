@@ -18,9 +18,18 @@ import java.util.function.Predicate;
  * catalog does not know on this phone and repeats are dropped on read (P167, owner 2026-10-16: «убери лимит на 12 плиток в
  * шторке и дай возможность закреплять столько сколько я хочу»: no limit);
  * keys of removed settings are also dropped from the stored value by SettingsMigration.removeObsolete.
+ * <p>
+ * P606 (owner, 2026-11-10: «дай возможность добавлять настройки из линзы в шторку, в шторке можно менять их только на линзе для
+ * которой ты добавил»): a setting of a lens page is pinned as {@link #lensToken} - «lens:&lt;profile&gt;:&lt;key&gt;», the module
+ * profile (ModuleRegistry slot, or its FULLRES profile) whose page pinned it and the key that page writes. The lens's name is kept
+ * beside the list ({@link #LENS_NAME} + profile) for a lens deleted since.
  */
 public final class ShadeTiles {
     public static final String KEY = "ui_shade_tiles";
+    /** P606: the start of a lens setting's pin. */
+    public static final String LENS_PREFIX = "lens:";
+    /** P606: the last name a pinned lens had (+ its profile id), shown while that lens is gone. */
+    public static final String LENS_NAME = "ui_shade_lens_name_";
 
     private ShadeTiles() {}
 
@@ -67,6 +76,41 @@ public final class ShadeTiles {
         keys.add(key);
         save(prefs, keys);
         return true;
+    }
+
+    /** P606: the pin of {@code key} of the lens page of module profile {@code profile}. */
+    public static String lensToken(String profile, String key) {
+        return LENS_PREFIX + profile + ":" + key;
+    }
+
+    /** P606: {@code tile} is a lens setting's pin. */
+    public static boolean isLensToken(@Nullable String tile) {
+        return tile != null && tile.startsWith(LENS_PREFIX) && tile.indexOf(':', LENS_PREFIX.length()) > LENS_PREFIX.length()
+                && tile.indexOf(':', LENS_PREFIX.length()) < tile.length() - 1;
+    }
+
+    /** P606: the module profile of a lens pin; null for a plain tile. */
+    @Nullable
+    public static String lensOf(@Nullable String tile) {
+        if (!isLensToken(tile)) return null;
+        return tile.substring(LENS_PREFIX.length(), tile.indexOf(':', LENS_PREFIX.length()));
+    }
+
+    /** P606: the preference key a tile reads and writes (a plain tile is its key). */
+    public static String keyOf(String tile) {
+        return isLensToken(tile) ? tile.substring(tile.indexOf(':', LENS_PREFIX.length()) + 1) : tile;
+    }
+
+    /** P606: remembers the lens's name for its pins (shown when the lens is gone). */
+    public static void rememberLens(SharedPreferences prefs, String profile, String name) {
+        if (name == null || name.isEmpty() || name.equals(prefs.getString(LENS_NAME + profile, null))) return;
+        prefs.edit().putString(LENS_NAME + profile, name).apply();
+    }
+
+    /** P606: the lens's last known name, else its profile id. */
+    public static String lensName(SharedPreferences prefs, String profile) {
+        String name = prefs.getString(LENS_NAME + profile, null);
+        return name == null || name.isEmpty() ? profile : name;
     }
 
     public static void save(SharedPreferences prefs, List<String> keys) {

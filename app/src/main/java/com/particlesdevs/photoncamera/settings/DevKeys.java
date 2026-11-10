@@ -341,6 +341,8 @@ public final class DevKeys {
                 "Quad «Fast»: take the fine 2 / 4 px lattice off the luma after the merge (1 on, 0 off)")));
         k.add(n(merge, "hybrid_why_local_contrast", "0.3", Lang.t("Локальный контраст снимка (тон WHY): усиление мелких перепадов яркости слитого изображения, без ореолов у резких краёв (0 выкл., как раньше; 0..1)",
                 "Photo local contrast (WHY tone): the fused luma's small differences boosted, strong edges left alone (0 off, as before; 0..1)")));
+        k.add(n(merge, "hybrid_tetra_motion_smooth", "1", Lang.t("Tetra: сглаживание шума движущихся объектов там, где склеилось мало кадров (точки и бусины за идущим человеком), края сохраняются (1 вкл., 0 как раньше; 0..1)",
+                "Tetra: smoothing of the noise of moving subjects where few frames merged (dots and beads behind a walking person), edges kept (1 on, 0 as before; 0..1)")));
         k.add(n(merge, "hybrid_quad_detail", "1", Lang.t("Quad: детализация ремозаика - «Быстрый» не размывает мелкую текстуру и полосы как шум или решётку, конус вдоль края на движении; «Качество» - тензор структуры по зелёным пикселям (мелкие полосы, фасады), узкий конус на движении (1 вкл., 0 как раньше)",
                 "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
@@ -587,13 +589,16 @@ public final class DevKeys {
         k.add(s(cap, "oppo_fullres", true, Lang.t("OPPO, OnePlus, realme: FULLRES без аппаратного ремозаика (свои AE и баланс белого; режимы — из таблицы камеры)",
                 "OPPO, OnePlus, realme: FULLRES without hardware remosaic (own AE and white balance; the modes from the camera's table)")));
         // P575: nubia FULLRES / «2×» ISZ through the camera's full-size sensor-mode row (NubiaFullRes)
-        k.add(s(cap, "nubia_maxres", true, Lang.t("nubia: FULLRES без рута через RAW максимального разрешения (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), без ISP-потока; кадры обычного Байера (ремозаик) — следующий способ против ремозаика, все способы дали ремозаик — 50 Мп выключен на этой прошивке",
-                "nubia: FULLRES without root through the maximum-resolution RAW (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), no ISP stream; plain Bayer frames (remosaic) move to the next setting against the remosaic, all of them remosaicked: 50 MP off on this firmware")));
+        k.add(s(cap, "nubia_maxres", true, Lang.t("nubia: FULLRES без рута через RAW максимального разрешения (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), без ISP-потока; ремозаик HAL (обычный Байер) снимается как Байер 50 Мп, если камера его отдаёт (кадры, размер, снимок)",
+                "nubia: FULLRES without root through the maximum-resolution RAW (SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION), no ISP stream; the HAL's remosaic (plain Bayer) is shot as a 50 MP Bayer where the camera gives it (frames, size, a shot)")));
         k.add(s(cap, "nubia_fullres", true, Lang.t("nubia: FULLRES и «2×» ISZ через полноразмерный режим сенсора из таблицы камеры (без ISP-потока, без ремозаика)",
                 "nubia: FULLRES and the «2×» ISZ through the camera's full-size sensor mode from its table (no ISP stream, no remosaic)")));
         k.add(s(cap, "nubia_isz_module", true, Lang.t("nubia: модуль «2×» основной камеры (полноразмерный режим, зум 2)",
                 "nubia: the main camera's «2×» module (the full-size mode, zoom 2)")));
         // P598: the maximum-resolution FULLRES's settings against the HAL's remosaic (NubiaRemosaicProbe)
+        // P605: on nubia the 50 MP is the HAL's remosaic taken as a Bayer (the probe proved every setting a remosaic on 31251)
+        k.add(s(cap, "nubia_probe", false, Lang.t("nubia 50 Мп: вместо ремозаика HAL как Байера 50 Мп снова искать мозаику сенсора 8 способами (для новой прошивки)",
+                "nubia 50 MP: instead of the HAL's remosaic as a 50 MP Bayer, look for the sensor's own mosaic with the 8 settings again (for a new firmware)")));
         k.add(n(cap, "nubia_probe_force", "0", Lang.t("nubia 50 Мп: только способ N против ремозаика HAL (1 — без ключей, 2 — стоковые ключи 50 Мп, 3 — стоковый режим QCFA 0x8012, 4–6 — RawCbSourceType 1–3, 7 — EnableXCFAOptimization 1, 8 — EnableIdealRAW 1; результат тоже запоминается); 0 — по очереди, с памятью проб",
                 "nubia 50 MP: only setting N against the HAL's remosaic (1 no keys, 2 the stock 50 MP keys, 3 the stock QCFA mode 0x8012, 4–6 RawCbSourceType 1–3, 7 EnableXCFAOptimization 1, 8 EnableIdealRAW 1; its verdict is kept too); 0 = one after another, with the trials' memory")));
         k.add(s(cap, "nubia_probe_reset", false, Lang.t("nubia 50 Мп: при каждом запуске забывать пробы способов против ремозаика HAL (снова с первого)",
@@ -614,6 +619,10 @@ public final class DevKeys {
                 "OnePlus 16, DCG / DAG: a mode has to prove a RAW wider than the declared 10 bit (else the next mode, then off)")));
         k.add(n(cap, "oplus_dcg_row", "-1", Lang.t("OnePlus 16, DCG / DAG: один режим сенсора вручную (номер строки таблицы; -1 — кандидаты по очереди)",
                 "OnePlus 16, DCG / DAG: one sensor mode by hand (the table's row number; -1 — the candidates in turn)")));
+        k.add(s(cap, "oplus_hal_frame", true, Lang.t("OnePlus 16, основная, 50 Мп: сначала RAW-кадр 8192×6144 (размер буфера HAL), затем 8160×6144 строки таблицы",
+                "OnePlus 16, main, 50 MP: first a RAW frame of 8192x6144 (the HAL's buffer size), then the table's 8160x6144")));
+        k.add(s(cap, "oplus_fullres_opmode", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 25 ещё и в режиме сессии 0x8001 (его запись в карте сенсора)",
+                "OnePlus 16, main, 50 MP: mode 25 also in the session operation mode 0x8001 (its entry of the sensor map)")));
         k.add(s(cap, "oplus_dead_rows_last", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 9 (камера падала) после режима 25. Выкл — по порядку таблицы",
                 "OnePlus 16, main, 50 MP: mode 9 (the camera died in it) after mode 25. Off — in the table's order")));
         k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",

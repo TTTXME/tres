@@ -183,7 +183,7 @@ public final class FullResTrials {
         for (Map.Entry<String, List<Integer>> e : byReason.entrySet()) {
             final boolean many = e.getValue().size() > 1;
             final StringBuilder list = new StringBuilder();
-            for (int row : e.getValue()) list.append(list.length() == 0 ? "" : ", ").append(row);
+            for (int row : e.getValue()) list.append(list.length() == 0 ? "" : ", ").append(OppoNativeFullRes.rowLabel(row)); // P604
             sb.append(sb.length() == 0 ? "" : "; ").append(many ? Lang.t("режимы ", "modes ") : Lang.t("режим ", "mode "))
                     .append(list).append(" — ").append(phrase(e.getKey(), many));
         }
@@ -212,7 +212,7 @@ public final class FullResTrials {
         System.arraycopy(rows, 0, failed, 0, n);
         return n >= rows.length
                 ? size + Lang.t(" выключен: ", " is off: ") + rows(failed, reasons) + "."
-                : size + ": " + rows(failed, reasons) + Lang.t("; дальше режим ", "; next mode ") + rows[n] + ".";
+                : size + ": " + rows(failed, reasons) + Lang.t("; дальше режим ", "; next mode ") + OppoNativeFullRes.rowLabel(rows[n]) + ".";
     }
 
     /**

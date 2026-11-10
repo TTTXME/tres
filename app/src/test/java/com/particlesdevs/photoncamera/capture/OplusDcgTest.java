@@ -138,6 +138,24 @@ public class OplusDcgTest {
         assertEquals(FullResTrials.DIED, FullResTrials.code("camera error 4"));
     }
 
+    /** P604: a row whose frames stopped (the tele's row 14, log 2026-11-10) gives way at once; unproven rows are the stall's. */
+    @Test public void aStoppedRowGivesWayAtOnce() {
+        ShadowBuild.setManufacturer("OnePlus");
+        ShadowBuild.setModel("PYB110");
+        final String why = "no preview frame for 2845 ms (the frames stopped before the row proved its depth)";
+        assertEquals(FullResTrials.NO_FRAME, FullResTrials.code(why));
+        final String said = OplusDcg.failed("4", 14, why);
+        assertTrue("a candidate is left: the next one now", OplusDcg.searching());
+        assertTrue(said, said.contains("14"));
+        assertFalse("no session watched", OplusDcg.unproven("4"));
+        assertEquals("?", OplusDcg.reasons(null, "4", "s1"));
+        final SharedPreferences p = RuntimeEnvironment.getApplication().getSharedPreferences("p604_dcg", 0);
+        p.edit().clear().commit();
+        OplusDcg.note(p, "4", 1, 17, "the row's frames stay 10 bit: no dual-gain RAW", "s1");
+        OplusDcg.note(p, "4", 2, 8, why, "s1");
+        assertEquals("17:not14,8:noframe", OplusDcg.reasons(p, "4", "s1"));
+    }
+
     /** P593: the DCG frame's codes - real 14-bit data has codes off the 16-code grid, 10-bit data x16 none. */
     @Test public void theDcgFramePrecisionTellsX16From14Bit() {
         final int w = 64, h = 40;

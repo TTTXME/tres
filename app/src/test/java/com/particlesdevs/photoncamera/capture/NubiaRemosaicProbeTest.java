@@ -193,6 +193,7 @@ public class NubiaRemosaicProbeTest {
     }
 
     @Test public void theSessionRunsItsSettingAndTheVerdictsMoveIt() {
+        NubiaRemosaicProbe.probeForTest(true); // P605: the probe is off by default (scam_dev nubia_probe 1)
         ShadowBuild.setManufacturer("nubia");
         ShadowBuild.setBrand("nubia");
         ShadowBuild.setFingerprint("nubia/NX721J/test");
@@ -229,6 +230,7 @@ public class NubiaRemosaicProbeTest {
     }
 
     @Test public void anExhaustedCameraDimsItsFiftyMegapixels() {
+        NubiaRemosaicProbe.probeForTest(true); // P605: the probe is off by default (scam_dev nubia_probe 1)
         ShadowBuild.setManufacturer("nubia");
         ShadowBuild.setBrand("nubia");
         ShadowBuild.setFingerprint("nubia/NX721J/test");
@@ -249,5 +251,124 @@ public class NubiaRemosaicProbeTest {
         assertTrue(status, status.startsWith(NubiaRemosaicProbe.unavailable()));
         FullResTrials.clear(p, NubiaFullRes.base("2"));
         assertTrue("«Попробовать снова»: on again", NubiaFullRes.offered("2"));
+    }
+
+    // ---------------------------------------------------------------- P605: the remosaic route
+
+    @Test public void theRouteTakesAConfidentBayerAtTheFullSizeAndAShotProvesIt() {
+        NubiaRemosaicProbe.Choice c = NubiaRemosaicProbe.routeChoose(p, "2", STAMP);
+        assertNotNull(c);
+        assertTrue(c.route);
+        assertEquals("remosaic", c.candidate.id);
+        assertTrue("no vendor key: the plain maximum-resolution session", c.candidate.keys.isEmpty());
+        assertEquals(1, c.start);
+        assertEquals("run:1", NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        assertNull("a confident Bayer at 8192x6144: taken",
+                NubiaRemosaicProbe.routeFrames(p, STAMP, c, 1, 8192, 6144, 8192, 6144));
+        assertEquals(NubiaRemosaicProbe.FRAMES, NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        c = NubiaRemosaicProbe.routeChoose(p, "2", STAMP);
+        assertTrue("verified: no more counting", c.known);
+        assertEquals(0, c.start);
+        assertTrue(NubiaRemosaicProbe.routeShot(p, STAMP, c));
+        assertEquals(NubiaRemosaicProbe.SHOT, NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        assertFalse("said once", NubiaRemosaicProbe.routeShot(p, STAMP, c));
+        assertNull("a later Bayer verdict keeps «shot»", NubiaRemosaicProbe.routeFrames(p, STAMP, c, 1, 8192, 6144, 8192, 6144));
+        assertEquals(NubiaRemosaicProbe.SHOT, NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        assertNull(NubiaRemosaicProbe.routeStatus(p, "2", STAMP));
+        assertFalse(NubiaRemosaicProbe.routeFailed(NubiaRemosaicProbe.routeState(p, "2", STAMP)));
+        // the tele's own size
+        final NubiaRemosaicProbe.Choice tele = NubiaRemosaicProbe.routeChoose(p, "3", STAMP);
+        assertNull(NubiaRemosaicProbe.routeFrames(p, STAMP, tele, 1, 9248, 6944, 9248, 6944));
+    }
+
+    @Test public void theWrongSizeOrBlockFailsTheRouteOnThisFirmwareWithOneNotice() {
+        final NubiaRemosaicProbe.Choice c = NubiaRemosaicProbe.routeChoose(p, "2", STAMP);
+        final String size = NubiaRemosaicProbe.routeFrames(p, STAMP, c, 1, 4096, 3072, 8192, 6144);
+        assertNotNull("binned frames are no 50 MP", size);
+        assertTrue(size, size.contains("wrong size"));
+        final String tetra = NubiaRemosaicProbe.routeFrames(p, STAMP, c, 4, 8192, 6144, 8192, 6144);
+        assertNotNull(tetra);
+        assertEquals(FullResTrials.MOSAIC, NubiaRemosaicProbe.code(tetra));
+        assertEquals(NubiaRemosaicProbe.WRONG_SIZE, NubiaRemosaicProbe.code(size));
+        final NubiaRemosaicProbe.Outcome o = NubiaRemosaicProbe.routeFail(p, STAMP, c, "camera error 4");
+        assertFalse("off: no other setting", o.next);
+        assertEquals(NubiaRemosaicProbe.routeUnavailable(FullResTrials.DIED), o.message);
+        assertTrue(NubiaRemosaicProbe.routeFailed(NubiaRemosaicProbe.routeState(p, "2", STAMP)));
+        assertNull("off on this firmware: the normal session", NubiaRemosaicProbe.routeChoose(p, "2", STAMP));
+        assertEquals(o.message + ".", NubiaRemosaicProbe.routeStatus(p, "2", STAMP));
+        assertNotNull("a firmware update tries it again", NubiaRemosaicProbe.routeChoose(p, "2", "r1 nubia/NX721J/2"));
+    }
+
+    @Test public void theRouteWithoutAVerdictGetsThreeSessions() {
+        for (int start = 1; start <= NubiaRemosaicProbe.STARTS; start++)
+            assertEquals(start, NubiaRemosaicProbe.routeChoose(p, "2", STAMP).start);
+        assertNull(NubiaRemosaicProbe.routeChoose(p, "2", STAMP));
+        assertEquals("fail:" + NubiaRemosaicProbe.NO_VERDICT, NubiaRemosaicProbe.routeState(p, "2", STAMP));
+    }
+
+    @Test public void aQuadOnTheRouteIsTheSensorsOwnMosaic() {
+        final NubiaRemosaicProbe.Choice c = NubiaRemosaicProbe.routeChoose(p, "2", STAMP);
+        assertNull(NubiaRemosaicProbe.routeFrames(p, STAMP, c, 2, 8192, 6144, 8192, 6144));
+        assertEquals(NubiaRemosaicProbe.QUAD, NubiaRemosaicProbe.routeState(p, "2", STAMP));
+        assertFalse("a shot keeps «quad»", NubiaRemosaicProbe.routeShot(p, STAMP, c));
+    }
+
+    @Test public void onNubiaTheFiftyMegapixelsAreTheRemosaicOnceTheyWork() {
+        ShadowBuild.setManufacturer("nubia");
+        ShadowBuild.setBrand("nubia");
+        ShadowBuild.setFingerprint("nubia/NX721J/test");
+        NubiaRemosaicProbe.probeForTest(false);
+        NubiaFullRes.learnMaxRes("2", new PixelPro10.FullRes(android.graphics.ImageFormat.RAW_SENSOR, new android.util.Size(8192, 6144)),
+                new android.util.Size(4096, 3072));
+        NubiaRemosaicProbe.listedForTest("2", NX721J);
+        // the owner's phone: every probe setting failed on build 31251 - the route does not care
+        NubiaRemosaicProbe.Choice probe;
+        while ((probe = NubiaRemosaicProbe.choose(p, "2", NX721J, NubiaFullRes.stamp(), 0)) != null)
+            NubiaRemosaicProbe.fail(p, NX721J, NubiaFullRes.stamp(), probe, BAYER);
+        assertTrue(NubiaRemosaicProbe.exhausted(p, "2", NX721J, NubiaFullRes.stamp()));
+        assertTrue("50 Мп on again (the remosaic)", NubiaFullRes.offered("2"));
+        assertFalse(NubiaFullRes.exhausted("2"));
+        assertTrue("«50 Мп (ремозаик)»", NubiaRemosaicProbe.remosaicRoute("2"));
+        assertFalse("not a maximum-resolution camera", NubiaRemosaicProbe.remosaicRoute("1"));
+
+        assertTrue(NubiaRemosaicProbe.sessionStart("2"));
+        assertTrue(NubiaRemosaicProbe.routeRunning("2"));
+        assertEquals("merged as a plain Bayer", 1, NubiaRemosaicProbe.fullResBlock("2"));
+        assertEquals("another camera's session: the Quad routes as before", 2, NubiaRemosaicProbe.fullResBlock("0"));
+        assertFalse("no session parameters", NubiaRemosaicProbe.wantsSession("2"));
+        assertEquals(0, NubiaRemosaicProbe.operationMode("2"));
+        assertEquals("|probe-remosaic", NubiaRemosaicProbe.streamKey());
+        assertNull("the HAL's remosaic at 8192x6144: taken", NubiaRemosaicProbe.frames("2", 1, 8192, 6144));
+        assertNull("a completed shot proves it", NubiaRemosaicProbe.shot("2", true, null));
+        assertEquals(NubiaRemosaicProbe.SHOT, NubiaRemosaicProbe.routeState(p, "2", NubiaFullRes.stamp()));
+        assertNull("a session closed under a shot is no failure", NubiaRemosaicProbe.shot("2", false, "the session closed"));
+        assertTrue(NubiaRemosaicProbe.routeRunning("2"));
+        final String died = NubiaRemosaicProbe.shot("2", false, "camera error 4");
+        assertEquals(NubiaRemosaicProbe.routeUnavailable(FullResTrials.DIED), died);
+        assertFalse(NubiaRemosaicProbe.routeRunning("2"));
+        assertFalse("off on this firmware", NubiaFullRes.offered("2"));
+        assertTrue("dimmed, a tap says why", NubiaFullRes.exhausted("2"));
+        assertEquals(died + ".", NubiaFullRes.status(p, "2", NubiaFullRes.stamp()));
+        assertFalse(NubiaRemosaicProbe.sessionStart("2"));
+        FullResTrials.clear(p, NubiaFullRes.base("2"));
+        assertTrue("«Попробовать снова»", NubiaFullRes.offered("2"));
+
+        // a refused session / wrong frames through failed(): one notice, no next setting
+        assertTrue(NubiaRemosaicProbe.sessionStart("2"));
+        final String wrong = NubiaRemosaicProbe.frames("2", 1, 4096, 3072);
+        assertNotNull(wrong);
+        final NubiaRemosaicProbe.Outcome o = NubiaRemosaicProbe.failed("2", wrong);
+        assertNotNull(o);
+        assertFalse(o.next);
+        assertEquals(NubiaRemosaicProbe.routeUnavailable(NubiaRemosaicProbe.WRONG_SIZE), o.message);
+        assertFalse(NubiaFullRes.offered("2"));
+
+        // the probe again by the dev key (scam_dev nubia_probe 1): its own memory decides («Попробовать снова» forgot it)
+        NubiaRemosaicProbe.probeForTest(true);
+        assertFalse(NubiaRemosaicProbe.remosaicRoute("2"));
+        assertTrue(NubiaFullRes.offered("2"));
+        assertTrue(NubiaRemosaicProbe.sessionStart("2"));
+        assertFalse("a probe setting, not the route", NubiaRemosaicProbe.routeRunning("2"));
+        assertEquals("plain", NubiaRemosaicProbe.describe().substring(1, 6));
     }
 }

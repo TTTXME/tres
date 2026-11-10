@@ -260,6 +260,91 @@ public final class OppoNativeFullRes {
      */
     static final int[] PYB110_MAIN_DEAD = {9};
 
+    /**
+     * P604 (owner's log 2026-11-10 16:05:26 / 16:05:48: the main's rows 25 and 9 at 8160x6144 both died ~0.7 s after their session
+     * was configured, camera error 4, while the tele's row 9 at 8192x6144 runs): the HAL's own 50 MP buffer of the main is 8192x6144
+     * - CameraHWConfiguration.config [SupportedQCFAImageSizespokemonmain] «8192; 6144 # main camera full size», [UHPRawSize] 8192 x
+     * 6144, and the stock's [OEMFeature2ModeMatch] buffers «OP_TURBO_RAW_QBC_50M» 62914560 bytes = 8192 x 6144 x 10 / 8 (its 200 MP
+     * buffer 250675200 = 16320 x 12288 x 10 / 8, the table's own size). So the main's 50 MP rows are offered with a RAW reader of
+     * that size as well, first (the 8160-wide reader of the table's size after them): a trial of their own ({@link #trialId}:
+     * {@link #HAL_FRAME} + the mode), so the stored «25:died,9:died» does not cover them. Their frame has 32 columns more than
+     * the sensor row: where they are, and what they hold, the frames show (the log line of the session, MosaicStream).
+     */
+    static final int HAL_FRAME = 1000, PYB110_HAL_W = 8192, PYB110_HAL_H = 6144;
+
+    /**
+     * P604: a row's trial in the session operation mode its seamless entry names ({@link #OP_MODE} + the mode): the PYB110 main's
+     * row 25 is pokemonmain[0x8038][0x8001] - caps FullSizeRawQBC2 | FullSizeRaw | QBC | Izoom in the OEM photo mode 0x8001 (the
+     * only 50 MP entry with an opMode; row 9's 0x0030 / 0x8030 are [-1]); the session asks that operation mode, the table's 8160
+     * x 6144 reader, the mode key as always. A camera that refuses the operation mode fails that trial only («refused»).
+     */
+    static final int OP_MODE = 2000, PYB110_OPMODE = 0x8001;
+    static final int[] PYB110_OPMODE_ROWS = {25};
+
+    /**
+     * P604: {@code o} with an {@link #OP_MODE} variant of each 50 MP-class row of {@code modes} (the table's size), placed after the
+     * first {@code after} rows; the same offer when none is added.
+     */
+    static Offer opModes(Offer o, int after, int... modes) {
+        if (o == null || o.small.length == 0 || modes == null) return o;
+        final java.util.ArrayList<int[]> add = new java.util.ArrayList<>();
+        for (int m : modes) for (int[] r : o.small) if (r.length <= 5 && r[0] == m) { add.add(new int[]{r[0], r[1], r[2], r[3], r[4], OP_MODE + m}); break; }
+        if (add.isEmpty()) return o;
+        final java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        final int at = Math.max(0, Math.min(after, o.small.length));
+        for (int i = 0; i < at; i++) out.add(o.small[i]);
+        out.addAll(add);
+        for (int i = at; i < o.small.length; i++) out.add(o.small[i]);
+        return new Offer(out.toArray(new int[0][]), o.large);
+    }
+
+    /** P604: the trial id of the running row of {@code profile} - the camera's live row when it is that profile's. */
+    static int currentId(@Nullable String cameraId, @Nullable VivoSdkFullRes.Profile profile) {
+        final Offer all = cameraId == null ? null : OFFER.get(cameraId);
+        if (all == null || profile == null) return profile == null ? -1 : profile.sensorMode;
+        final int[] now = all.small.length > 0 ? liveSmall(cameraId, all) : null;
+        if (now != null && now[0] == profile.sensorMode && now[1] == profile.size.getWidth() && now[2] == profile.size.getHeight()) return trialId(now);
+        return trialId(all.small, profile);
+    }
+
+    /** P604: the session operation mode of the camera's running FULLRES row (0: the normal one). */
+    public static int operationMode(@Nullable String cameraId, @Nullable VivoSdkFullRes.Profile profile) {
+        final int id = currentId(cameraId, profile);
+        return id >= OP_MODE && id < OP_MODE + HAL_FRAME && PreferenceKeys.scamDevSwitch("oplus_fullres_opmode", true) ? PYB110_OPMODE : 0;
+    }
+
+    /** P604: the trial id of a row - its mode, or {@link #HAL_FRAME} + its mode for the reader of the HAL's frame size. */
+    static int trialId(int[] row) {
+        return row != null && row.length > 5 ? row[5] : row == null ? -1 : row[0];
+    }
+
+    /** P604: the trial id of a profile among {@code rows} (its mode when none matches its size). */
+    static int trialId(int[][] rows, VivoSdkFullRes.Profile p) {
+        final int at = rows == null || p == null ? -1 : indexOf(rows, p);
+        return at >= 0 ? trialId(rows[at]) : p == null ? -1 : p.sensorMode;
+    }
+
+    /** P604: «25» or «25 (кадр 8192×6144)» for a trial id. */
+    static String rowLabel(int id) {
+        if (id >= OP_MODE && id < OP_MODE + HAL_FRAME)
+            return (id - OP_MODE) + com.particlesdevs.photoncamera.util.Lang.t(" (сессия 0x" + Integer.toHexString(PYB110_OPMODE) + ")", " (session 0x" + Integer.toHexString(PYB110_OPMODE) + ")");
+        return id >= HAL_FRAME ? (id - HAL_FRAME) + com.particlesdevs.photoncamera.util.Lang.t(" (кадр по размеру HAL)", " (the HAL's frame size)") : String.valueOf(id);
+    }
+
+    /**
+     * P604: {@code o} with a variant of each 50 MP-class row whose size is not {@code w} x {@code h} but has its height, at that
+     * size ({@link #HAL_FRAME} trials), before the rows; the 200 MP rows untouched. The same offer when there is none.
+     */
+    static Offer halFrames(Offer o, int w, int h) {
+        if (o == null || o.small.length == 0) return o;
+        final java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        for (int[] r : o.small) if (r.length <= 5 && r[2] == h && r[1] != w && Math.abs(r[1] - w) <= w / 50)
+            out.add(new int[]{r[0], w, h, r[3], r[4], HAL_FRAME + r[0]});
+        if (out.isEmpty()) return o;
+        for (int[] r : o.small) out.add(r);
+        return new Offer(out.toArray(new int[0][]), o.large);
+    }
+
     /** P593: {@code o} with the 50 MP-class rows of {@code dead} modes moved behind the others (each group in its order). */
     static Offer demoted(Offer o, int... dead) {
         if (o == null || o.small.length < 2 || dead == null || dead.length == 0) return o;
@@ -332,6 +417,13 @@ public final class OppoNativeFullRes {
         out[1] = rows[0][2];
         out[2] = rows[0][3];
         for (int i = 0; i < rows.length; i++) out[3 + i] = rows[i][0];
+        return out;
+    }
+
+    /** P604: the trial ids of rows ({@link #trialId}). */
+    static int[] ids(int[][] rows) {
+        final int[] out = new int[rows.length];
+        for (int i = 0; i < rows.length; i++) out[i] = trialId(rows[i]);
         return out;
     }
 
@@ -413,10 +505,17 @@ public final class OppoNativeFullRes {
         // P593: the PYB110 main's row 9 died twice on the owner's phone: its 16 fps twin (row 25) first
         final boolean deadFirst = pyb110() && java.util.Arrays.equals(table, PYB110_MAIN) && PreferenceKeys.scamDevSwitch("oplus_dead_rows_last", true);
         if (deadFirst) o = demoted(o, PYB110_MAIN_DEAD);
+        // P604: the main's 50 MP rows with a reader of the HAL's frame size (8192x6144) first
+        final boolean halFrame = pyb110() && java.util.Arrays.equals(table, PYB110_MAIN) && PreferenceKeys.scamDevSwitch("oplus_hal_frame", true);
+        if (halFrame) o = halFrames(o, PYB110_HAL_W, PYB110_HAL_H);
+        // P604: row 25 in its seamless entry's operation mode 0x8001, after the first HAL-frame reader
+        if (pyb110() && java.util.Arrays.equals(table, PYB110_MAIN) && PreferenceKeys.scamDevSwitch("oplus_fullres_opmode", true))
+            o = opModes(o, halFrame ? 1 : 0, PYB110_OPMODE_ROWS);
         OFFER.put(cameraId, o);
         final String line = line(cameraId, android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL, modeKey, source, publicWidth,
                 publicHeight, o, custom, OplusIsz.row(pyb110(), cameraId, table), OplusDcg.rows(pyb110(), cameraId, table))
-                + (deadFirst && o.small.length > 1 ? " (row " + PYB110_MAIN_DEAD[0] + " last: the camera died in it, log 2026-11-09)" : "");
+                + (deadFirst && o.small.length > 1 ? " (row " + PYB110_MAIN_DEAD[0] + " last: the camera died in it, log 2026-11-09)" : "")
+                + (halFrame && o.small.length > 0 && o.small[0].length > 5 ? " (P604: the 8192x6144 readers first - the HAL's 50 MP buffer size; the 8160-wide ones died, log 2026-11-10)" : "");
         LINES.put(cameraId, line);
         com.particlesdevs.photoncamera.util.Log.i("OppoNativeFullRes", line);
         return o;
@@ -518,10 +617,10 @@ public final class OppoNativeFullRes {
     static int[] liveRow(int[][] rows, int tried, @Nullable java.util.Set<Integer> failed) {
         if (rows == null || tried < 0) return null;
         int named = 0;
-        if (failed != null) for (int[] r : rows) if (failed.contains(r[0])) named++;
+        if (failed != null) for (int[] r : rows) if (failed.contains(trialId(r))) named++;
         int unnamed = Math.max(0, tried - named);
         for (int[] r : rows) {
-            if (failed != null && failed.contains(r[0])) continue;
+            if (failed != null && failed.contains(trialId(r))) continue;
             if (unnamed-- > 0) continue;
             return r;
         }
@@ -778,7 +877,7 @@ public final class OppoNativeFullRes {
         final Map<Integer, String> why = FullResTrials.reasons(reasons(p, cameraId, stamp));
         // P593: the failed rows first, as they failed (the PYB110 main offers 25 before 9, its trial of 9 is the older one)
         final String fifty = tried <= 0 ? null : FullResTrials.sizeLine(o == null ? 0 : com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(o[0], o[1]),
-                o == null ? null : trialOrder(java.util.Arrays.copyOfRange(o, 3, o.length), why.keySet()), tried, why);
+                o == null ? null : trialOrder(all != null && all.small.length > 0 ? ids(all.small) : java.util.Arrays.copyOfRange(o, 3, o.length), why.keySet()), tried, why);
         if (tried200 <= 0) return fifty;
         final String key = base200(cameraId) + FullResTrials.WHY;
         final String large = FullResTrials.sizeLine(com.particlesdevs.photoncamera.settings.FullResProfiles.megapixels(all.large[0][1], all.large[0][2]),
@@ -799,17 +898,20 @@ public final class OppoNativeFullRes {
         // P593: the row that runs now is the first one the trials do not name (liveRow), not the tried-th of the list
         final int[] now = all == null || all.empty() ? null
                 : all.small.length > 0 ? liveSmall(cameraId, all) : live(all.large, tried);
-        if (now != null && profile != null && now[0] == profile.sensorMode)
-            note(prefs(), cameraId, tried + 1, profile.sensorMode, why, stamp()); // P214h: with the mode's reason, stamped
+        // P604: the row's trial id (a HAL-frame reader is a trial of its own)
+        if (now != null && profile != null && now[0] == profile.sensorMode && now[1] == profile.size.getWidth() && now[2] == profile.size.getHeight())
+            note(prefs(), cameraId, tried + 1, trialId(now), why, stamp()); // P214h: with the mode's reason, stamped
         final VivoSdkFullRes.Profile next = profile(cameraId, false);
-        final int mode = profile == null ? -1 : profile.sensorMode;
+        final String mode = profile == null ? "-1" : rowLabel(now != null && now[0] == profile.sensorMode && now[1] == profile.size.getWidth()
+                ? trialId(now) : currentId(cameraId, profile));
+        final String nextMode = next == null ? null : rowLabel(currentId(cameraId, next));
         final boolean other = next == null && twoSizes(cameraId) && profile(cameraId, true) != null; // the 200 MP size is left
-        com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + " mode " + mode + " failed (" + why
-                + "); next " + (next != null ? "mode " + next.sensorMode + " " + next.size : other ? "none: 50 MP off, 200 MP stays its own size" : "none"));
+        com.particlesdevs.photoncamera.util.Log.w("OppoNativeFullRes", "camera " + cameraId + " mode " + mode + " " + (profile == null ? "" : profile.size) + " failed (" + why
+                + "); next " + (next != null ? "mode " + nextMode + " " + next.size : other ? "none: 50 MP off, 200 MP stays its own size" : "none"));
         final String reason = FullResTrials.phrase(FullResTrials.code(why), false);
         return next != null
-                ? com.particlesdevs.photoncamera.util.Lang.t("FULLRES: режим " + mode + " не работает на этой камере (" + reason + "); в следующий раз попробую режим " + next.sensorMode,
-                        "FULLRES: mode " + mode + " does not work on this camera (" + reason + "); the next time mode " + next.sensorMode + " is tried")
+                ? com.particlesdevs.photoncamera.util.Lang.t("FULLRES: режим " + mode + " не работает на этой камере (" + reason + "); в следующий раз попробую режим " + nextMode,
+                        "FULLRES: mode " + mode + " does not work on this camera (" + reason + "); the next time mode " + nextMode + " is tried")
                 : other ? com.particlesdevs.photoncamera.util.Lang.t("FULLRES 50 Мп недоступен на этой камере: режим " + mode + " — " + reason + ". 200 Мп остаётся отдельным размером",
                         "FULLRES 50 MP is not available on this camera: mode " + mode + " — " + reason + ". 200 MP stays a size of its own")
                 : com.particlesdevs.photoncamera.util.Lang.t("FULLRES без аппаратного ремозаика недоступен на этой камере",

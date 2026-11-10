@@ -303,6 +303,20 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             return getArguments() == null ? null : getArguments().getString(ARG_MODULE);
         }
 
+        /**
+         * P606: the module profile of a lens page (the module card's «Настройки линзы» and its sub-pages); null on any other page.
+         */
+        @Nullable String lensProfile() {
+            final String module = moduleProfile();
+            if (module == null || getArguments() == null) return null;
+            final String root = getArguments().getString(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT);
+            if (ModuleRows.LENS.equals(root)) return module;
+            if (root == null || fullPreferenceScreen == null) return null;
+            final Preference lens = fullPreferenceScreen.findPreference(ModuleRows.LENS);
+            return lens instanceof androidx.preference.PreferenceGroup && ((androidx.preference.PreferenceGroup) lens).findPreference(root) != null
+                    ? module : null;
+        }
+
         /** P189: a module page holds its profile in the main settings (the camera may have taken its own back meanwhile). */
         private static boolean takeProfile(@Nullable String module) {
             if (module == null || !PreferenceKeys.isPerLensSettingsOn() || module.equals(PreferenceKeys.profiles().editing())) return false;
@@ -561,7 +575,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     // a description is shown. A recycled row of a category loses the listener of the row it showed before.
                     if (SettingHelp.helps(p)) {
                         holder.itemView.setOnLongClickListener(v -> {
-                            SettingHelp.show(v.getContext(), p);
+                            SettingHelp.show(v.getContext(), p, lensProfile());   // P606: a lens page's pin is its lens's
                             return true;
                         });
                     } else {

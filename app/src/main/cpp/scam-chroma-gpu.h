@@ -388,12 +388,62 @@ void main(){
 #endif
 }
 )";
+// P603 round 2: the Tetra motion smoothing (scam-hybrid.h hybridTetraMotionSmooth is its CPU twin: the same box and taps in the same
+// order): the coverage's 8 x 8 box sets the share; a 5 x 5 gaussian (sigma 1.5) gated by the luma's difference against k x the
+// noise at the pixel. Rows and the coverage's rows clamped to the image and to the strip (a halo row's result is not kept).
+static const char* kPostGlslSmooth = R"(
+layout(std430,binding=1) writeonly buffer Dst{float dst[];};
+uniform vec4 smoothU; // lo, hi of the coverage box, the strength, -0.5 / k^2
+uniform vec2 noiseU;  // the noise model: variance S Y + O
+uniform int imageH;
+uniform int effRowsU; // the coverage rows uploaded for the strip
+vec3 rgbAt(int x,int y){int i=3*(y*size.x+x);return vec3(src[i],src[i+1],src[i+2]);}
+float effImg(int x,int Y){return eff[clamp(max(0,Y-off.y)-stripU.y,0,effRowsU-1)*size.x+max(0,x-off.x)];}
+void main(){
+    countStart();
+    int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
+    bool inside=x<size.x&&y<size.y,changed=false;
+    if(inside){
+        vec3 c=rgbAt(x,y),o=c;
+        int Y=stripU.x+y;
+        float e=0.0;
+        for(int j=-4;j<4;j++){
+            int yy=clamp(Y+j,0,imageH-1);
+            float a=0.0;
+            for(int i=-4;i<4;i++)a+=effImg(clamp(x+i,0,size.x-1),yy);
+            e+=a;
+        }
+        e*=1.0/64.0;
+        float u=clamp((e-smoothU.x)/(smoothU.y-smoothU.x),0.0,1.0),sh=smoothU.z*(1.0-u*u*(3.0-2.0*u));
+        if(sh>1.0e-3){
+            float Yc=0.25*c.x+0.5*c.y+0.25*c.z;
+            float inv=smoothU.w/max(noiseU.x*max(Yc,0.0)+noiseU.y,1.0e-12);
+            vec3 a=vec3(0.0);float ws=0.0;
+            for(int j=-2;j<=2;j++){
+                int r=clamp(clamp(Y+j,0,imageH-1)-stripU.x,0,size.y-1);
+                for(int i=-2;i<=2;i++){
+                    vec3 p=rgbAt(clamp(x+i,0,size.x-1),r);
+                    float d=0.25*p.x+0.5*p.y+0.25*p.z-Yc;
+                    float w=exp(-float(i*i+j*j)*(1.0/4.5)+d*d*inv);
+                    a+=w*p;ws+=w;
+                }
+            }
+            o=c+sh*(a*(1.0/ws)-c);
+            changed=owned(y);
+        }
+        int i=3*(y*size.x+x);
+        dst[i]=o.x;dst[i+1]=o.y;dst[i+2]=o.z;
+    }
+    countEnd(changed,2);
+}
+)";
 class ChromaMedianGpu {
     EGLDisplay display = EGL_NO_DISPLAY;
     EGLContext context = EGL_NO_CONTEXT;
     EGLSurface surface = EGL_NO_SURFACE;
     GLuint pRatio = 0, pMedian = 0, pBoxF = 0, pBoxV2 = 0, pSign = 0, pBlend = 0, pSmooth = 0;
     GLuint pAlongRows = 0, pAlongApply = 0, pNotchRows = 0, pNotchApply = 0; // P531 (mosaicPost; built by ensurePost)
+    GLuint pSmoothT = 0; // P603 round 2: the Tetra motion smoothing (mosaicPost's third pass)
     GLuint pQl[8]{}; // P571: quadLattice's passes 1..7 (built by ensureQuadLattice)
     enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kPostA, kPostB, kPostEff, kPostT0, kPostT1, kPostCnt, kQA, kQB, kQ1, kQ2, kQ3, kSlots };
     GLuint buf[kSlots]{};
@@ -402,7 +452,7 @@ class ChromaMedianGpu {
     void cleanup() noexcept {
         if (display == EGL_NO_DISPLAY) return;
         if (context != EGL_NO_CONTEXT && eglMakeCurrent(display, surface, surface, context)) {
-            for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth, pAlongRows, pAlongApply, pNotchRows, pNotchApply}) if (p) glDeleteProgram(p);
+            for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth, pAlongRows, pAlongApply, pNotchRows, pNotchApply, pSmoothT}) if (p) glDeleteProgram(p);
             for (GLuint p : pQl) if (p) glDeleteProgram(p);
             glDeleteBuffers(kSlots, buf);
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -584,11 +634,14 @@ public:
     }
     // P531: the post passes' programs (on the prewarm's thread when chromaPrewarm(true) built the context, else on first use)
     void ensurePost() {
-        if (pNotchApply) return;
-        pAlongRows = compile("", kPostGlslAlongRows, kPostGlslCommon);
-        pAlongApply = compile("", kPostGlslAlongApply, kPostGlslCommon);
-        pNotchRows = compile("", kPostGlslNotchRows, kPostGlslCommon);
-        pNotchApply = compile("", kPostGlslNotchApply, kPostGlslCommon);
+        if (pNotchApply && pSmoothT) return;
+        if (!pNotchApply) {
+            pAlongRows = compile("", kPostGlslAlongRows, kPostGlslCommon);
+            pAlongApply = compile("", kPostGlslAlongApply, kPostGlslCommon);
+            pNotchRows = compile("", kPostGlslNotchRows, kPostGlslCommon);
+            pNotchApply = compile("", kPostGlslNotchApply, kPostGlslCommon);
+        }
+        if (!pSmoothT) pSmoothT = compile("", kPostGlslSmooth, kPostGlslCommon); // P603
         check("post programs");
     }
     // P531: rows of a strip of mosaicPost (its own rows; kPostHalo more each side: the notch after the along-edge pass reads up to 24 + 3 rows)
@@ -604,7 +657,8 @@ public:
     // the chroma median: chromaKeep).
     void mosaicPost(std::vector<float>& rgb, int width, int height, const std::vector<float>& eff, int dx, int dy, float alongK,
                     float alongStrength, int alongS, const float* notch, const float* cosT, const float* sinT, const float* gN, size_t* changed,
-                    int notchPeriod = 10, int notchR = 6, float notchGateLo = 1.2f, float notchGateHi = 2.5f) {
+                    int notchPeriod = 10, int notchR = 6, float notchGateLo = 1.2f, float notchGateHi = 2.5f,
+                    const float* smooth = nullptr, size_t* smoothChanged = nullptr) { // P603: smooth = lo, hi, strength, k, S, O
         if (notchPeriod < 2 || notchPeriod > 10 || notchR < 1 || notchR > 24) throw std::runtime_error("POST GPU: notch spec");
         const int W = width, H = height;
         auto t = Clock::now();
@@ -615,9 +669,11 @@ public:
         if (maxBlock > 0) strip = std::min<int64_t>(strip, maxBlock / (int64_t(W) * 12) - 2 * kPostHalo);
         if (strip < 64 && strip < H) throw std::runtime_error("POST GPU: a strip larger than a storage block");
         const bool along = alongK > 0.f && alongStrength > 0.f, notchOn = notch && notch[2] > 0.f;
+        const bool smoothOn = smooth && smooth[2] > 0.f && smooth[1] > smooth[0];
         if (changed) changed[0] = changed[1] = 0;
+        if (smoothChanged) *smoothChanged = 0;
         postCommitted = 0;
-        if (!along && !notchOn) return;
+        if (!along && !notchOn && !smoothOn) return;
         ensurePost();
         times += " post programs " + std::to_string(int(ms(t))); t = Clock::now();
         const size_t cap = size_t(W) * size_t(std::min(H, strip + 2 * kPostHalo));
@@ -685,6 +741,16 @@ public:
                 }
                 std::swap(cur, other);
             }
+            if (smoothOn) { // P603 round 2
+                const float k = std::max(smooth[3], 0.1f);
+                common(pSmoothT);
+                glUniform4f(glGetUniformLocation(pSmoothT, "smoothU"), smooth[0], smooth[1], std::min(smooth[2], 1.f), -0.5f / (k * k));
+                glUniform2f(glGetUniformLocation(pSmoothT, "noiseU"), smooth[4], smooth[5]);
+                glUniform1i(glGetUniformLocation(pSmoothT, "imageH"), H);
+                glUniform1i(glGetUniformLocation(pSmoothT, "effRowsU"), e1 - e0);
+                run(pSmoothT);
+                std::swap(cur, other);
+            }
             check("post passes");
             glFinish(); passMs += ms(u); u = Clock::now();
             const int keep = y1 < H ? std::min(kPostHalo, y1 - y0) : 0, direct = y1 - y0 - keep;
@@ -698,6 +764,7 @@ public:
         GLuint counts[4]{};
         read(kPostCnt, 0, counts, 16);
         if (changed) { changed[0] = counts[0]; changed[1] = counts[1]; }
+        if (smoothChanged) *smoothChanged = counts[2];
         for (int slot : {kPostA, kPostB, kPostEff, kPostT0, kPostT1}) alloc(slot, 16);
         check("post readback");
         times += " post upload " + std::to_string(int(upMs)) + " passes " + std::to_string(int(passMs)) + " readback "

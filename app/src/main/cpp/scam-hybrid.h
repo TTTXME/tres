@@ -708,8 +708,25 @@ struct HybridTuning {
     float baseDemosaicAniso=0.6f;
     // P547: the Tetra luma cone's radius in sites on structure (2.6 in flat areas; Quad 2.2), by the structure / noise ratio from
     // baseDemosaicSharpLo to Hi. Moving subjects of Ark's Tetra bursts through the app chain, fine detail against Ark's JPEG:
-    // 0.586 -> 0.676 (bus), 0.920 -> 1.022 (palace, its trees), flat noise at Ark's or below; 1.6 / 1.4 grainier than Ark's
-    float baseDemosaicTetraRadius=1.8f,baseDemosaicSharpLo=1.5f,baseDemosaicSharpHi=4.f;
+    // 0.586 -> 0.676 (bus), 0.920 -> 1.022 (palace, its trees), flat noise at Ark's or below; 1.6 / 1.4 grainier than Ark's.
+    // P603 (owner, 2026-11-10: «на Тетра постарайся сделать движущиеся объекты ближе к Арк, при этом не потеряв в остальных случаях»):
+    // 2.4. After P549's coverage and P594's luma guide, 1.8 left the moving subjects of Tetra burst 20261109_135446 (walking people,
+    // a splash) with 8 px beads 2x and noise 1.1 .. 1.6x the static areas' (against Ark's JPEG), stairs on a moving arm. 2.4 there:
+    // beads -27 / -38 %, flat noise -17 / -26 %, mid detail -1.5 / -1.1 %; the bus / car (Tetra 3 / 2) the same within 0.5 %. It acts
+    // through the few-frame demosaic alone (accepted donors under mosaicTetraWidenFrames): static crops' metrics the same.
+    float baseDemosaicTetraRadius=2.4f,baseDemosaicSharpLo=1.5f,baseDemosaicSharpHi=4.f;
+    // P603 round 2 (owner on the walking man of Tetra burst 20261109_135446: «Я вижу артефакты позади мужчины и на краях мужчины
+    // которых нет на арк, при этом у Арк детализация заметно хуже нашей»; then, 2026-11-10, the trade taken: about -3 % of the moving
+    // subject's mid detail for -28 % of its dots): where few frames merged (the band a moving subject sweeps, its outline) a Tetra
+    // merge keeps one frame's noise at the scale of its 4x4 blocks, a fine 4 px dot texture through the app chain that Ark's JPEG
+    // smooths away. The native post passes (Tetra only) smooth it there: a 5 x 5 gaussian (1.5 px) gated by the luma's range
+    // (mosaicTetraMotionSmoothRange x the base frame's noise at the pixel: edges and texture above the noise kept), its share
+    // mosaicTetraMotionSmooth x (1 - smoothstep(Lo, Hi, the coverage's 8 x 8 box)), Lo / Hi in frames (at most 1/3 and 0.6 of the
+    // burst's frames: a short burst's static areas stay out). Fractions of the coverage's 80th percentile reached half of a static
+    // 30-frame burst (Tetra 1's palace: -15 % of its detail); in frames the static areas of all the Tetra bursts stay above 9
+    // (their 5th percentiles 11 .. 16) and the moving subjects below (5 .. 10). 0 = off (round 1 bit for bit); «Все шумодавы» off
+    // turns it off (P600).
+    float mosaicTetraMotionSmooth=1.f,mosaicTetraMotionSmoothRange=1.5f,mosaicTetraMotionSmoothLo=5.f,mosaicTetraMotionSmoothHi=9.f;
     // P596: the Quad luma cone's radius in sites on structure (the same ratio; 2.2 = the flat cone, as before)
     float baseDemosaicQuadRadius=1.8f;
     // P596 (owner, 2026-11-10, 140309: «деталь на стенке здания гораздо лучше у Арк»): the native Quad merge's 6.1 structure tensor
@@ -1148,7 +1165,8 @@ struct HybridTuning {
     // P600 (owner, 2026-11-10: «при его отключении абсолютно весь шумодав отключается ПОЛНОСТЬЮ»): the app's master switch «Все
     // шумодавы» (pref_scam_hybrid_denoise; the app writes "denoise 0" only when it is off). 0 = every stage of the worker whose
     // purpose is noise removal is off, on every route and in both twins (the CPU stream and the GPU passes take the same tuning):
-    // the plain Bayer chroma median (plainChromaMedian) and the 5 x 5 chroma smoothing of the ultrashort colour (bentoBlendChroma).
+    // the plain Bayer chroma median (plainChromaMedian), the 5 x 5 chroma smoothing of the ultrashort colour (bentoBlendChroma) and
+    // the Tetra motion smoothing where few frames merged (mosaicTetraMotionSmooth, P603).
     // The merge itself (alignment, rejection, frame weights, the kernel's accumulation, the base demosaic) and the passes against
     // the mosaic's lattice / moire (mosaicChroma, fastMosaicChroma, fastQuadLattice, the native post passes), hot pixels, CA and
     // the highlights stay. hybridDenoiseSwitch applies it once (then -1); 1 (default) = everything as before, bit for bit.
@@ -1157,7 +1175,7 @@ struct HybridTuning {
 
 // P600: the worker's denoise stages, as hybridDenoiseSwitch turns them off (tools/check_denoise_switch.cpp and the app's
 // DenoiseStagesTest read this list: a new stage goes here, into the switch below and into the app's DenoiseStages).
-static const char* const kHybridDenoiseStages[]={"plainChromaMedian","bentoBlendChroma"};
+static const char* const kHybridDenoiseStages[]={"plainChromaMedian","bentoBlendChroma","mosaicTetraMotionSmooth"};
 // P600: denoise 0 -> every stage of kHybridDenoiseStages off and denoise -1 (applied); true when it changed the tuning. The report
 // names them (the log line the app's switch is checked by); a second call does nothing.
 inline bool hybridDenoiseSwitch(HybridTuning& t,const std::function<void(const std::string&)>& report){
@@ -1165,7 +1183,8 @@ inline bool hybridDenoiseSwitch(HybridTuning& t,const std::function<void(const s
     t.denoise=-1;
     t.plainChromaMedian=0;
     t.bentoBlendChroma=0.f;
-    if(report)report("HYBRID DENOISE: off (the app's «All denoisers»): plainChromaMedian 0, bentoBlendChroma 0; kept: the merge, "
+    t.mosaicTetraMotionSmooth=0.f; // P603
+    if(report)report("HYBRID DENOISE: off (the app's «All denoisers»): plainChromaMedian 0, bentoBlendChroma 0, mosaicTetraMotionSmooth 0; kept: the merge, "
         "the mosaic lattice / moire passes, hot pixels, CA, highlights");
     return true;
 }
@@ -1452,6 +1471,8 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("mosaicTetra",nullptr,&t.mosaicTetra)||set("mosaicNativeWiden",nullptr,&t.mosaicNativeWiden)||set("mosaicGeneric",nullptr,&t.mosaicGeneric)
             ||set("mosaicNativeWidenMul",&t.mosaicNativeWidenMul)||set("mosaicNativeWidenFrames",&t.mosaicNativeWidenFrames)
             ||set("mosaicTetraWidenMul",&t.mosaicTetraWidenMul)||set("mosaicTetraWidenFrames",&t.mosaicTetraWidenFrames)
+            ||set("mosaicTetraMotionSmooth",&t.mosaicTetraMotionSmooth)||set("mosaicTetraMotionSmoothRange",&t.mosaicTetraMotionSmoothRange)
+            ||set("mosaicTetraMotionSmoothLo",&t.mosaicTetraMotionSmoothLo)||set("mosaicTetraMotionSmoothHi",&t.mosaicTetraMotionSmoothHi) // P603
             ||set("mosaicTetraLumaGuide",&t.mosaicTetraLumaGuide)||set("mosaicTetraLumaGuideRB",&t.mosaicTetraLumaGuideRB) // P594
             ||set("mosaicUsRows",nullptr,&t.mosaicUsRows)||set("usLocal",nullptr,&t.usLocal)||set("usLocalAlign",nullptr,&t.usLocalAlign)||set("mosaicUsRowsMin",&t.mosaicUsRowsMin) // P197
             ||set("usSceneEv",&t.usSceneEv)||set("usDaylightEv",&t.usDaylightEv)||set("usIncoherent",&t.usIncoherent) // P366
@@ -6483,6 +6504,68 @@ inline size_t hybridLatticeNotch(std::vector<float>& rgb,int W,int H,const std::
     size_t total=0;
     for(size_t c:changed)total+=c;
     return total;
+}
+// P603 round 2: the Tetra motion smoothing (HybridTuning::mosaicTetraMotionSmooth) on the finished RGB, the CPU twin of
+// ChromaMedianGpu::mosaicPost's third pass (bands of 64 rows, a 2-row halo, hybridPureBands; the input as it was). eff: the coverage
+// (unshifted: pixel (x, y) reads (x - dx, y - dy)); its 8 x 8 box (x - 4 .. x + 3, clamped to the image) E sets the share
+// strength (1 - smoothstep(lo, hi, E)). A 5 x 5 gaussian (sigma 1.5) weighted by the luma's (R + 2 G + B) / 4 difference against
+// k x the noise sqrt(S max(Y, 0) + O) at the pixel. Returns the pixels changed.
+inline size_t hybridTetraMotionSmooth(std::vector<float>& rgb,int W,int H,const std::vector<float>& eff,int dx,int dy,float lo,float hi,
+                                      float S,float O,float k,float strength){
+    if(W<8||H<8||strength<=0.f||!(hi>lo)||eff.size()<size_t(W)*H||rgb.size()<size_t(W)*H*3)return 0;
+    const float st=std::min(strength,1.f),kk=std::max(k,0.1f);
+    // the box per row (x - 4 .. x + 3 of the shifted map), then per column (y - 4 .. y + 3): the GPU sums the 64 in one loop
+    std::vector<float> rowBox(size_t(W)*H),E(size_t(W)*H);
+    mergeRowBands(H,[&](int r0,int r1){
+        for(int y=r0;y<r1;++y){
+            const float* e=&eff[size_t(std::max(0,y-dy))*W];
+            for(int x=0;x<W;++x){float a=0.f;for(int i=-4;i<4;++i)a+=e[std::max(0,std::clamp(x+i,0,W-1)-dx)];rowBox[size_t(y)*W+x]=a;}
+        }
+    });
+    mergeRowBands(H,[&](int r0,int r1){
+        for(int y=r0;y<r1;++y)for(int x=0;x<W;++x){float a=0.f;for(int j=-4;j<4;++j)a+=rowBox[size_t(std::clamp(y+j,0,H-1))*W+x];E[size_t(y)*W+x]=a*(1.f/64.f);}
+    });
+    auto share=[&](int x,int y){
+        const float u=std::clamp((E[size_t(y)*W+x]-lo)/(hi-lo),0.f,1.f);
+        return st*(1.f-u*u*(3.f-2.f*u));
+    };
+    const int B=64,bands=(H+B-1)/B,R=2;
+    std::vector<size_t> changed(static_cast<size_t>(bands),0);
+    hybridPureBands(rgb,W,H,B,R,[&](int b,const HybridPureRows& row){
+        const int y0=b*B,y1=std::min(H,y0+B);
+        bool any=false;
+        for(int y=y0;y<y1&&!any;++y)for(int x=0;x<W;++x)if(share(x,y)>1e-3f){any=true;break;}
+        if(!any)return;
+        std::vector<float> band(rgb.begin()+std::ptrdiff_t(size_t(y0)*W*3),rgb.begin()+std::ptrdiff_t(size_t(y1)*W*3));
+        size_t count=0;
+        for(int y=y0;y<y1;++y){
+            const float* c=row(y);
+            for(int x=0;x<W;++x){
+                const float sh=share(x,y);
+                if(sh<=1e-3f)continue;
+                const float Y=0.25f*c[3*x]+0.5f*c[3*x+1]+0.25f*c[3*x+2];
+                const float var=std::max(S*std::max(Y,0.f)+O,1e-12f),inv=-0.5f/(kk*kk*var);
+                float a0=0.f,a1=0.f,a2=0.f,ws=0.f;
+                for(int j=-2;j<=2;++j){
+                    const float* p=row(std::clamp(y+j,0,H-1));
+                    for(int i=-2;i<=2;++i){
+                        const int xx=std::clamp(x+i,0,W-1);
+                        const float Ys=0.25f*p[3*xx]+0.5f*p[3*xx+1]+0.25f*p[3*xx+2],d=Ys-Y;
+                        const float w=std::exp(-float(i*i+j*j)*(1.f/4.5f)+d*d*inv);
+                        a0+=w*p[3*xx];a1+=w*p[3*xx+1];a2+=w*p[3*xx+2];ws+=w;
+                    }
+                }
+                float* o=&band[(size_t(y-y0)*W+x)*3];
+                const float inw=1.f/ws;
+                o[0]=c[3*x]+sh*(a0*inw-c[3*x]);o[1]=c[3*x+1]+sh*(a1*inw-c[3*x+1]);o[2]=c[3*x+2]+sh*(a2*inw-c[3*x+2]);
+                ++count;
+            }
+        }
+        changed[size_t(b)]=count;
+        std::copy(band.begin(),band.end(),rgb.begin()+std::ptrdiff_t(size_t(y0)*W*3));
+    });
+    size_t n=0;for(size_t c:changed)n+=c;
+    return n;
 }
 // P548: the Tetra sensor's own diagonal checker round a clipped light (HybridTuning::mosaicTetraNotchClipReach): per colour, the
 // local complex amplitude at +-(1/8, 1/8) cycles / px of the high-pass (gaussian 3, both normalised by the unclipped pixels: a clipped
@@ -15644,6 +15727,47 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 " lattice notch of the few-donor areas %zu px (%.2f %%), ",alongK,alongS,changed[0],100.0*double(changed[0])/all,changed[1],100.0*double(changed[1])/all);
             report(line+how+", "+std::to_string(int(millis(Clock::now()-t0)))+" ms");
         }else report("HYBRID MOSAIC NATIVE: post passes skipped (no coverage map at this size)");
+    }
+    // P603 round 2: the Tetra motion smoothing where few frames merged (HybridTuning::mosaicTetraMotionSmooth): its own call of
+    // mosaicPost (it reads the coverage as merged, not the copy P549 rescales round clipped lights), the CPU twin where the GPU is off
+    if(native&&native->block==4&&tune.mosaicTetraMotionSmooth>0.f&&effective.size()>=size_t(outW)*outH&&!input.frames.empty()){
+        const auto t0=Clock::now();
+        const int dx=(input.cfa&1)*grid,dy=(input.cfa>>1)*grid;
+        const float nf=float(input.frames.size());
+        const float lf=std::clamp(tune.mosaicTetraMotionSmoothLo,0.f,nf/3.f),hf=std::clamp(tune.mosaicTetraMotionSmoothHi,lf+0.01f,std::max(0.6f*nf,lf+0.01f));
+        const std::array<float,2> range{lf,hf};
+        // one sensor site's noise (the binned frames here carry a b^2 sites' mean: keyNoise = b^2)
+        const float kn=native->keyNoise>0.f?native->keyNoise:16.f;
+        const float S=std::max(input.frames[0].slope,0.f)*kn,O=std::max(input.frames[0].offset,0.f)*kn;
+        const float sm[6]={range[0],range[1],std::min(tune.mosaicTetraMotionSmooth,1.f),std::clamp(tune.mosaicTetraMotionSmoothRange,0.1f,20.f),S,O};
+        size_t n=0;
+        std::string how="cpu";
+        bool done=false;
+        if(range[1]>range[0]&&(S>0.f||O>0.f)){
+            if(tune.chromaGpu>0){
+                const uint64_t avail=hybridMemAvailable();
+                if(avail==0||ChromaMedianGpu::postBytesFor(outW,outH)<avail/4){
+                    try{
+                        auto gpu=chromaTake();
+                        gpu->times.clear();
+                        try{
+                            gpu->mosaicPost(out,outW,outH,effective,dx,dy,0.f,0.f,2,nullptr,nullptr,nullptr,nullptr,nullptr,8,1,-1.f,-0.5f,sm,&n);
+                        }catch(const std::exception& e){
+                            if(gpu->postCommitted>0){how=std::string("gpu failed after ")+std::to_string(gpu->postCommitted)+" rows, the rest left ("+e.what()+")";done=true;}
+                            throw;
+                        }
+                        how="gpu:"+gpu->times+" ms";
+                        chromaKeep(std::move(gpu));
+                        done=true;
+                    }catch(const std::exception& e){if(!done)how=std::string("cpu (")+e.what()+")";}
+                }else how="cpu (size)";
+            }
+            if(!done)n=hybridTetraMotionSmooth(out,outW,outH,effective,dx,dy,sm[0],sm[1],S,O,sm[3],sm[2]);
+        }else how="skipped (no coverage range or noise model)";
+        char line[160];
+        std::snprintf(line,sizeof(line),"HYBRID MOSAIC NATIVE: Tetra motion smoothing (P603, coverage box %.2f .. %.2f, range x%.1f) %zu px (%.2f %%), ",
+                      sm[0],sm[1],sm[3],n,100.0*double(n)/std::max(1.0,double(outW)*outH));
+        report(line+how+", "+std::to_string(int(millis(Clock::now()-t0)))+" ms");
     }
     if(native&&native->block==4&&tune.mosaicTetraNotchClipReach>0.f&&clipFlags&&clipFlags->size()==size_t(outW)*outH){ // P548
         const auto t0=Clock::now();

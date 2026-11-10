@@ -2,6 +2,13 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-10 — Tetra in motion, lens settings in the shade, OnePlus 16, nubia
+
+- Tetra: fewer beads and dots on and behind moving people, static areas unchanged.
+- Lens settings can be pinned to the shade: they work only on their lens and are grey on the others.
+- OnePlus 16: new 50 MP variants on the main camera; DAG no longer sticks on an unfit mode.
+- nubia: 50 MP (remosaic) on every camera when the HAL gives it.
+
 ## 2026-11-10 — Descriptions on long press, white dots, Quad and Tetra
 
 - Settings: only the value under a parameter, the description on a long press; texts rewritten to be clearer.

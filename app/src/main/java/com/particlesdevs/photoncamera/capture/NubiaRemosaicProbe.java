@@ -52,6 +52,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * scam_dev: «nubia_probe_force N» runs only setting N of {@link #CANDIDATES} (1-based; its verdict is kept as well),
  * «nubia_probe_reset 1» forgets the trials at every app start.
+ * <p>
+ * P605 (owner, 2026-11-10, after the probe's log of build 31251 - all 8 settings a plain Bayer on camera 2: «На Нубии же
+ * включаем 50мп с ремозаиком, если только они работают»): on nubia the probe is off by default (scam_dev «nubia_probe 1» or a
+ * forced setting runs it for a later firmware) and the maximum-resolution FULLRES takes the HAL's remosaic as a plain Bayer
+ * 50 MP shot - the remosaic route ({@link #REMOSAIC}: the plain session, merge block 1, «50 Мп (ремозаик)»). It proves
+ * itself, remembered per camera and firmware under the same keys ({@link #ROUTE}): the session configures, frames arrive, a
+ * confident block 1 at the maximum-resolution size («frames»), a shot the camera completes («shot»); a refused session, a
+ * camera error, no frame, the wrong size or block, three sessions without a verdict, or a camera error in its shot turn the
+ * camera's 50 Мп off on this firmware with one notice. A confident Quad there (a firmware without the remosaic) is taken as
+ * the sensor's own mosaic («quad», block 2). The lifted rule «FULLRES only as the sensor's own mosaic» is nubia's alone.
  */
 public final class NubiaRemosaicProbe {
     private NubiaRemosaicProbe() { }
@@ -214,6 +224,8 @@ public final class NubiaRemosaicProbe {
         /** The session's count of this setting without a verdict (1 for the first), 0 for a kept or forced one. */
         final int start;
         final boolean forced, known;
+        /** P605: the remosaic route (the HAL's remosaic taken as a 50 MP Bayer), not a probe setting. */
+        boolean route;
 
         Choice(String camera, Candidate candidate, int index, int total, int start, boolean forced, boolean known) {
             this.camera = camera;
@@ -226,6 +238,8 @@ public final class NubiaRemosaicProbe {
         }
 
         @Override public String toString() {
+            if (route) return "the remosaic route (the HAL's remosaic taken as a 50 MP plain Bayer, merge block 1)"
+                    + (known ? ", verified before" : ", session " + start + " of " + STARTS + " without a verdict");
             return "setting " + index + " of " + total + " «" + candidate.id + "» (" + candidate.describe() + ")"
                     + (forced ? ", forced (scam_dev nubia_probe_force)" : known ? ", kept: its frames were the sensor's Quad"
                     : ", session " + start + " of " + STARTS + " without a verdict");
@@ -300,8 +314,12 @@ public final class NubiaRemosaicProbe {
 
     /** The reason code of a failure (FullResTrials' words, CaptureController's reasons). */
     static String code(@Nullable String why) {
+        if (why != null && why.contains("(wrong size)")) return WRONG_SIZE; // P605
         return FullResTrials.code(why);
     }
+
+    /** P605: the reason code of maximum-resolution frames of another size. */
+    static final String WRONG_SIZE = "size";
 
     /** The one notice once every setting failed. */
     static String unavailable() {
@@ -360,6 +378,7 @@ public final class NubiaRemosaicProbe {
     /** The text of a reason code. */
     static String phrase(@Nullable String code) {
         if (FullResTrials.HW_REMOSAIC.equals(code)) return Lang.t("ремозаик HAL (обычный Байер)", "the HAL's remosaic (plain Bayer)");
+        if (WRONG_SIZE.equals(code)) return Lang.t("кадры не полного размера", "the frames are not the full size");
         if (NO_VERDICT.equals(code)) return Lang.t("кадры не дали ответа за " + STARTS + " сессии", "the frames gave no verdict in " + STARTS + " sessions");
         return FullResTrials.phrase(code, false);
     }
@@ -396,6 +415,101 @@ public final class NubiaRemosaicProbe {
             if (p.contains(base + suffix)) { e.remove(base + suffix); n++; }
         e.apply();
         return n;
+    }
+
+    // ---------------------------------------------------------------- P605: the remosaic route
+
+    /** The remosaic route's session: the plain maximum-resolution session (no vendor key). */
+    static final Candidate REMOSAIC = new Candidate("remosaic", 0, "the HAL's remosaic taken as a 50 MP plain Bayer (P605)");
+    /** Suffix of the route's state under NubiaFullRes.base(camera): «run:N», «frames», «shot», «quad» or «fail:code». */
+    static final String ROUTE = "_remosaic";
+    static final String FRAMES = "frames", SHOT = "shot", QUAD = "quad", RUN_PREFIX = "run:", FAIL_PREFIX = "fail:";
+
+    /** The route's stored state of the camera on this firmware, null before its first session. */
+    @Nullable
+    static String routeState(SharedPreferences p, String camera, String stamp) {
+        final String s = stored(p, camera, ROUTE, stamp);
+        return s == null || s.isEmpty() ? null : s;
+    }
+
+    static boolean routeVerified(@Nullable String state) {
+        return FRAMES.equals(state) || SHOT.equals(state) || QUAD.equals(state);
+    }
+
+    static boolean routeFailed(@Nullable String state) {
+        return state != null && state.startsWith(FAIL_PREFIX);
+    }
+
+    /**
+     * The route's session of {@code camera}: null when it failed on this firmware (or now: a third session without a verdict);
+     * else counted while unverified, as the probe's settings are.
+     */
+    @Nullable
+    static Choice routeChoose(SharedPreferences p, String camera, String stamp) {
+        final String state = routeState(p, camera, stamp);
+        if (routeFailed(state)) return null;
+        final boolean verified = routeVerified(state);
+        int start = 0;
+        if (!verified) {
+            int runs = 0;
+            if (state != null && state.startsWith(RUN_PREFIX)) try {
+                runs = Integer.parseInt(state.substring(RUN_PREFIX.length()).trim());
+            } catch (NumberFormatException ignored) {
+            }
+            if (runs >= STARTS) {
+                put(p, camera, stamp, ROUTE, FAIL_PREFIX + NO_VERDICT);
+                Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic route: no verdict in " + STARTS + " sessions: off on this firmware");
+                return null;
+            }
+            start = runs + 1;
+            put(p, camera, stamp, ROUTE, RUN_PREFIX + start);
+        }
+        final Choice c = new Choice(camera, REMOSAIC, 1, 1, start, false, verified);
+        c.route = true;
+        return c;
+    }
+
+    /** The route's one notice when it fails ({@code code}: why). */
+    static String routeUnavailable(@Nullable String code) {
+        return Lang.t("50 Мп (ремозаик): " + phrase(code) + " — выключено на этой прошивке",
+                "50 MP (remosaic): " + phrase(code) + " — off on this firmware");
+    }
+
+    /** The route's session failed for {@code why}: off on this firmware, the one notice. */
+    static Outcome routeFail(SharedPreferences p, String stamp, Choice choice, String why) {
+        final String code = code(why);
+        put(p, choice.camera, stamp, ROUTE, FAIL_PREFIX + code);
+        return new Outcome(false, routeUnavailable(code));
+    }
+
+    /**
+     * The route session's frame verdict: block 1 at the maximum-resolution size {@code expectedW} x {@code expectedH} (or the
+     * sensor's Quad, block 2) is taken; null then, else why the route fails (another block, the wrong size).
+     */
+    @Nullable
+    static String routeFrames(SharedPreferences p, String stamp, Choice choice, int block, int width, int height, int expectedW, int expectedH) {
+        if (expectedW > 0 && expectedH > 0 && (width != expectedW || height != expectedH))
+            return "nubia: the maximum-resolution frames are " + width + "x" + height + ", not " + expectedW + "x" + expectedH + " (wrong size)";
+        if (block != 1 && block != 2) return "nubia: the maximum-resolution frames are a block " + block + " mosaic, not a Bayer or the sensor's Quad";
+        final String state = routeState(p, choice.camera, stamp);
+        final String now = block == 2 ? QUAD : SHOT.equals(state) ? SHOT : FRAMES;
+        if (!now.equals(state)) put(p, choice.camera, stamp, ROUTE, now);
+        return null;
+    }
+
+    /** A shot of the route's session completed ({@code completed}); true when that newly proves the route. */
+    static boolean routeShot(SharedPreferences p, String stamp, Choice choice) {
+        final String state = routeState(p, choice.camera, stamp);
+        if (SHOT.equals(state) || QUAD.equals(state) || routeFailed(state)) return false;
+        put(p, choice.camera, stamp, ROUTE, SHOT);
+        return true;
+    }
+
+    /** What the route's trials say (the dimmed 50 Мп's explanation): null when nothing failed. */
+    @Nullable
+    static String routeStatus(SharedPreferences p, String camera, String stamp) {
+        final String state = routeState(p, camera, stamp);
+        return routeFailed(state) ? routeUnavailable(state.substring(FAIL_PREFIX.length())) + "." : null;
     }
 
     // ---------------------------------------------------------------- the camera's session keys, the session that runs
@@ -438,15 +552,35 @@ public final class NubiaRemosaicProbe {
         final SharedPreferences p = prefs();
         if (p != null && PreferenceKeys.scamDevSwitch("nubia_probe_reset", false) && RESET.add(camera))
             Log.i("SCAM_CAPTURE", "nubia camera " + camera + " remosaic probe: trials forgotten (scam_dev nubia_probe_reset, " + reset(p, camera) + " keys)");
-        Log.i("SCAM_CAPTURE", "nubia camera " + camera + " remosaic probe: " + list.size() + " settings (" + ids + ")"
+        Log.i("SCAM_CAPTURE", "nubia camera " + camera + (probeOn() ? " remosaic probe: " + list.size() + " settings (" + ids + ")"
+                : " 50 MP: the remosaic route (the HAL's remosaic as a plain Bayer; the probe of " + list.size() + " settings off, scam_dev nubia_probe)")
                 + (p == null ? "" : ", trials: " + FullResTrials.dump(p, NubiaFullRes.base(camera))));
     }
 
-    /** Every setting of the camera failed on this firmware (scam_dev nubia_probe_force overrides it). */
+    /** P605: the 8-setting probe runs (scam_dev «nubia_probe 1», or a forced setting); off: the remosaic route. */
+    static boolean probeOn() {
+        final Boolean t = probeForTest;
+        if (t != null) return t;
+        return PreferenceKeys.scamDevSwitch("nubia_probe", false) || numbered(forced()) != null;
+    }
+
+    @Nullable private static volatile Boolean probeForTest;
+
+    /** Tests: the probe on / off (null: scam_dev decides). */
+    static void probeForTest(@Nullable Boolean on) {
+        probeForTest = on;
+    }
+
+    /**
+     * The camera's 50 Мп is off on this firmware: the remosaic route failed (P605) - or, with the probe on, every setting failed
+     * (scam_dev nubia_probe_force overrides it).
+     */
     public static boolean exhausted(@Nullable String camera) {
         final SharedPreferences p = prefs();
-        if (p == null || camera == null || numbered(forced()) != null) return false;
+        if (p == null || camera == null) return false;
         try {
+            if (!probeOn()) return routeFailed(routeState(p, camera, NubiaFullRes.stamp()));
+            if (numbered(forced()) != null) return false;
             return exhausted(p, camera, LISTED.get(camera), NubiaFullRes.stamp());
         } catch (RuntimeException e) {
             return false;
@@ -455,7 +589,40 @@ public final class NubiaRemosaicProbe {
 
     @Nullable
     static String status(SharedPreferences p, String camera, String stamp) {
+        if (!probeOn()) return routeStatus(p, camera, stamp);
         return status(p, camera, LISTED.get(camera), stamp);
+    }
+
+    /**
+     * P605: the camera's 50 Мп is the HAL's remosaic (the route, not the probe; not a Quad it proved): the size says so
+     * («50 Мп (ремозаик)»).
+     */
+    public static boolean remosaicRoute(@Nullable String camera) {
+        final SharedPreferences p = prefs();
+        if (camera == null || !NubiaFullRes.maxRes(camera) || probeOn()) return false;
+        try {
+            return p == null || !QUAD.equals(routeState(p, camera, NubiaFullRes.stamp()));
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** P605: the colour block of the running maximum-resolution FULLRES session: 1 on the remosaic route (2 once it proved a Quad), else 2. */
+    public static int fullResBlock(@Nullable String camera) {
+        final Choice c = current;
+        if (c == null || !running(camera) || !c.route) return 2;
+        final SharedPreferences p = prefs();
+        try {
+            return p != null && QUAD.equals(routeState(p, c.camera, NubiaFullRes.stamp())) ? 2 : 1;
+        } catch (RuntimeException e) {
+            return 1;
+        }
+    }
+
+    /** P605: the running session is the remosaic route. */
+    public static boolean routeRunning(@Nullable String camera) {
+        final Choice c = current;
+        return c != null && c.route && running(camera);
     }
 
     private static volatile Choice current;
@@ -469,6 +636,14 @@ public final class NubiaRemosaicProbe {
         if (p == null || camera == null) {
             current = null;
             return false;
+        }
+        if (!probeOn()) { // P605
+            final Choice c = routeChoose(p, camera, NubiaFullRes.stamp());
+            current = c;
+            if (c == null) Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic route: off on this firmware ("
+                    + FullResTrials.dump(p, NubiaFullRes.base(camera)) + "): the normal session");
+            else Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " 50 MP: " + c);
+            return c != null;
         }
         final Choice c = choose(p, camera, LISTED.get(camera), NubiaFullRes.stamp(), forced());
         current = c;
@@ -540,11 +715,56 @@ public final class NubiaRemosaicProbe {
         final SharedPreferences p = prefs();
         if (c == null || p == null || camera == null || !camera.equals(c.camera)) return null;
         current = null;
+        if (c.route) { // P605
+            final Outcome o = routeFail(p, NubiaFullRes.stamp(), c, why);
+            Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic route failed (" + why + "): 50 MP off on this firmware ["
+                    + FullResTrials.dump(p, NubiaFullRes.base(camera)) + "]");
+            return o;
+        }
         final Outcome o = fail(p, LISTED.get(camera), NubiaFullRes.stamp(), c, why);
         Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic probe: setting " + c.index + " «" + c.candidate.id + "» failed ("
                 + why + "): " + (o.next ? "the next setting in the next session" : c.forced ? "forced, FULLRES off"
                 : "every setting failed, FULLRES off on this firmware") + " [" + FullResTrials.dump(p, NubiaFullRes.base(camera)) + "]");
         return o;
+    }
+
+    /**
+     * P605, CaptureController: the remosaic route session's frame verdict ({@code block}, the frames' size); null when taken
+     * (logged), else why the route fails (the caller fails it through retryWithoutFullRes).
+     */
+    @Nullable
+    public static synchronized String frames(@Nullable String camera, int block, int width, int height) {
+        final Choice c = current;
+        final SharedPreferences p = prefs();
+        if (c == null || !c.route || p == null || camera == null || !camera.equals(c.camera)) return null;
+        final android.util.Size expected = NubiaFullRes.maxResSize(camera);
+        final String why = routeFrames(p, NubiaFullRes.stamp(), c, block, width, height,
+                expected == null ? 0 : expected.getWidth(), expected == null ? 0 : expected.getHeight());
+        if (why == null) Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic route: frames " + width + "x" + height
+                + (block == 2 ? " are the sensor's own Quad (block 2): merged as the mosaic"
+                : " are the HAL's remosaic, a confident plain Bayer (block 1): merged as a 50 MP Bayer") + " [" + routeState(p, camera, NubiaFullRes.stamp()) + "]");
+        return why;
+    }
+
+    /**
+     * P605, CaptureController: a shot of the remosaic route's session ended - {@code completed} by the camera (its sequence), or
+     * rescued for {@code reason}; a camera error in it fails the route (the one notice returned), null otherwise.
+     */
+    @Nullable
+    public static synchronized String shot(@Nullable String camera, boolean completed, @Nullable String reason) {
+        final Choice c = current;
+        final SharedPreferences p = prefs();
+        if (c == null || !c.route || p == null || camera == null || !camera.equals(c.camera)) return null;
+        if (completed) {
+            if (routeShot(p, NubiaFullRes.stamp(), c))
+                Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic route: a shot completed - verified on this firmware");
+            return null;
+        }
+        if (reason == null || !reason.startsWith("camera error")) return null;
+        current = null;
+        final Outcome o = routeFail(p, NubiaFullRes.stamp(), c, reason);
+        Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " remosaic route: its shot failed (" + reason + "): 50 MP off on this firmware");
+        return o.message;
     }
 
     /** CaptureController: the session's frames are the sensor's Quad (MosaicStream's verdict 2): the notice when newly kept. */
@@ -562,6 +782,7 @@ public final class NubiaRemosaicProbe {
 
     /** Tests: a new process. */
     static void resetForTest(@Nullable SharedPreferences p) {
+        probeForTest = null;
         LISTED.clear();
         RESET.clear();
         current = null;

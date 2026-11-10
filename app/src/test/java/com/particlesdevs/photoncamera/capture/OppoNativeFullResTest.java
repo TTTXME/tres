@@ -486,15 +486,19 @@ public class OppoNativeFullResTest {
             assertFalse("OPPO-family default: 50 MP until 200 is chosen", PixelPro10.tele200Default());
             final OppoNativeFullRes.Offer o = OppoNativeFullRes.learn("p586-main", true, OppoNativeFullRes.PYB110_MAIN, false, 4080, 3072,
                     Arrays.asList(new int[]{8160, 6144}), "test");
-            assertEquals(2, o.small.length);
-            assertEquals("P593: on the PYB110 the row that died (9) goes after its 16 fps twin", 25, o.small[0][0]);
-            assertEquals(9, o.small[1][0]);
+            assertEquals("P604: row 25 at the HAL's 8192x6144, row 25 in opMode 0x8001, row 9 at 8192x6144, then the table's rows", 5, o.small.length);
+            assertArrayEquals(new int[]{25, 8192, 6144, 16, 2, 1025}, o.small[0]);
+            assertArrayEquals(new int[]{25, 8160, 6144, 16, 2, 2025}, o.small[1]);
+            assertArrayEquals(new int[]{9, 8192, 6144, 30, 2, 1009}, o.small[2]);
+            assertArrayEquals("P593: the row that died (9) after its 16 fps twin", new int[]{25, 8160, 6144, 16, 2}, o.small[3]);
+            assertArrayEquals(new int[]{9, 8160, 6144, 30, 2}, o.small[4]);
+            assertEquals("the first row runs the normal session", 0, OppoNativeFullRes.operationMode("p586-main", OppoNativeFullRes.profile("p586-main", false)));
             assertTrue(OppoNativeFullRes.twoSizes("p586-main"));
             VivoSdkFullRes.Profile fifty = OppoNativeFullRes.profile("p586-main", false);
             assertEquals(25, fifty.sensorMode);
             assertEquals("the row's own frame time: 16 fps (the request's frame duration is at least this)", 1_000_000_000L / 16,
                     OppoNativeFullRes.frameNs("p586-main"));
-            assertEquals(8160, fifty.size.getWidth());
+            assertEquals("P604: the HAL's frame size first", 8192, fifty.size.getWidth());
             assertEquals(6144, fifty.size.getHeight());
             assertEquals(2, fifty.nativeBlock);
             assertTrue("the native route: one RAW stream, no ISP stream", fifty.nativeRoute() && !fifty.stillOnly);
@@ -584,6 +588,57 @@ public class OppoNativeFullResTest {
         } finally {
             OppoNativeFullRes.forget("2");
         }
+    }
+
+    /**
+     * P604 (owner's log 2026-11-10: rows 25 and 9 at 8160x6144 both died, «25:died,9:died» stored): the main's 50 MP rows at the
+     * HAL's buffer size (8192x6144: [SupportedQCFAImageSizespokemonmain], [UHPRawSize], the stock's 62914560-byte QBC 50M buffer) are
+     * trials of their own - the stored deaths do not cover them, they go first.
+     */
+    @Test public void theHalFrameReadersAreTrialsOfTheirOwn() {
+        final OppoNativeFullRes.Offer table = OppoNativeFullRes.demoted(OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_MAIN, 4080, 3072, null),
+                OppoNativeFullRes.PYB110_MAIN_DEAD);
+        final OppoNativeFullRes.Offer o = OppoNativeFullRes.halFrames(table, 8192, 6144);
+        assertEquals(4, o.small.length);
+        assertEquals(1025, OppoNativeFullRes.trialId(o.small[0]));
+        assertEquals(1009, OppoNativeFullRes.trialId(o.small[1]));
+        assertEquals(25, OppoNativeFullRes.trialId(o.small[2]));
+        assertSame("the 200 MP rows untouched", table.large, o.large);
+        assertEquals("the tele's 8192x6144 row is the HAL's size already: nothing added",
+                OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_TELE, 4096, 3072, null).small.length,
+                OppoNativeFullRes.halFrames(OppoNativeFullRes.rows(OppoNativeFullRes.PYB110_TELE, 4096, 3072, null), 8192, 6144).small.length);
+        assertEquals("a variant is never varied again (only the two table rows get one more)", o.small.length,
+                OppoNativeFullRes.halFrames(o, 8192, 6144).small.length - 2);
+        final SharedPreferences p = RuntimeEnvironment.getApplication().getSharedPreferences("p604_trials", 0);
+        p.edit().clear().commit();
+        OppoNativeFullRes.note(p, "2", 1, 25, "camera error 4", "s1");
+        OppoNativeFullRes.note(p, "2", 2, 9, "camera error 4", "s1"); // the owner's phone: 25:died,9:died
+        final java.util.Set<Integer> failed = OppoNativeFullRes.failedModes(p, "2", "s1");
+        assertNull("the table's rows: none left", OppoNativeFullRes.liveRow(table.small, 2, failed));
+        assertArrayEquals("the HAL-frame reader of row 25 next", new int[]{25, 8192, 6144, 16, 2, 1025}, OppoNativeFullRes.liveRow(o.small, 2, failed));
+        OppoNativeFullRes.note(p, "2", 3, 1025, "camera error 4", "s1");
+        assertEquals(1009, OppoNativeFullRes.trialId(OppoNativeFullRes.liveRow(o.small, 3, OppoNativeFullRes.failedModes(p, "2", "s1"))));
+        OppoNativeFullRes.note(p, "2", 4, 1009, "no preview frame for 3000 ms", "s1");
+        assertNull("all four failed: 50 MP off", OppoNativeFullRes.liveRow(o.small, 4, OppoNativeFullRes.failedModes(p, "2", "s1")));
+        assertNull("never 200 MP for a 50 MP ask", OppoNativeFullRes.rowFor(o, false, true, 4, OppoNativeFullRes.failedModes(p, "2", "s1"), 0));
+        assertEquals("25", OppoNativeFullRes.rowLabel(25));
+        assertTrue(OppoNativeFullRes.rowLabel(1025).startsWith("25 ("));
+        final VivoSdkFullRes.Profile hal = new VivoSdkFullRes.Profile(8192, 6144, 25, 2), own = new VivoSdkFullRes.Profile(8160, 6144, 25, 2);
+        assertEquals(1025, OppoNativeFullRes.trialId(o.small, hal));
+        assertEquals(25, OppoNativeFullRes.trialId(o.small, own));
+        final String status = FullResTrials.rows(new int[]{25, 1025}, FullResTrials.reasons("25:died,1025:died"));
+        assertTrue(status, status.contains("25, 25 ("));
+        // the operation-mode variant: after the first HAL-frame reader, a trial of its own, its own label
+        final OppoNativeFullRes.Offer op = OppoNativeFullRes.opModes(o, 1, OppoNativeFullRes.PYB110_OPMODE_ROWS);
+        assertEquals(5, op.small.length);
+        assertArrayEquals(new int[]{25, 8160, 6144, 16, 2, 2025}, op.small[1]);
+        assertEquals(1009, OppoNativeFullRes.trialId(op.small[2]));
+        assertSame("no such row: the same offer", o, OppoNativeFullRes.opModes(o, 1, 31));
+        assertTrue(OppoNativeFullRes.rowLabel(2025).contains("0x8001"));
+        assertArrayEquals("25:died,9:died,1025:died: the 0x8001 trial of row 25 next", new int[]{25, 8160, 6144, 16, 2, 2025},
+                OppoNativeFullRes.liveRow(op.small, 3, FullResTrials.reasons("25:died,9:died,1025:died").keySet()));
+        assertArrayEquals("its own failure moves on to row 9's HAL frame", new int[]{9, 8192, 6144, 30, 2, 1009},
+                OppoNativeFullRes.liveRow(op.small, 4, FullResTrials.reasons("25:died,9:died,1025:died,2025:refused").keySet()));
     }
 
     /** P586: the recorded tables stand in on the PYB110 only, for its main and tele. */

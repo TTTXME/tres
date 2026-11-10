@@ -157,7 +157,8 @@ public final class OplusDcg {
         final boolean tele = "4".equals(cameraId);
         Log.i("SCAM_CAPTURE", "OPPO family " + name(tele) + " camera " + cameraId + ": sensor mode row " + row + " " + e[0] + "x" + e[1]
                 + " @ " + e[2] + " fps" + (fourByThree(e[0], e[1]) ? "" : " (" + e[0] + ":" + e[1] + ", a 16:10 crop of the 4:3 sensor: the photo keeps the row's own field)")
-                + (forced >= 0 ? " (forced: scam_dev oplus_dcg_row)" : ", candidate " + (tried + 1) + " of " + all.length + " " + java.util.Arrays.toString(all))
+                + (forced >= 0 ? " (forced: scam_dev oplus_dcg_row)" : ", candidate " + (tried + 1) + " of " + all.length + " " + java.util.Arrays.toString(all)
+                + (tried > 0 ? " (failed before: " + reasons(OplusIsz.prefs(), cameraId, stamp()) + ")" : ""))
                 + ", mode key on the session and every request, " + HDR_KEY + (listed ? " 1" : " not listed") + ", the ISP stream as «Поток ISP» has it,"
                 + " the RAW depth to be proven by the frames (" + DepthWatch.RESULTS + " results)");
         return new SensorModePick.Pick(row, e[0], e[1], false, 0, SensorModePick.DCG);
@@ -204,6 +205,18 @@ public final class OplusDcg {
         }
     }
 
+    /** P604: the stored reasons of the camera's failed rows («17:not14,8:noframe»), for the log; "?" without. */
+    static String reasons(@Nullable SharedPreferences p, @Nullable String cameraId, String stamp) {
+        if (p == null || cameraId == null) return "?";
+        try {
+            final String base = FAILED + cameraId, key = base + FullResTrials.WHY;
+            final String v = FullResTrials.counts(p, base, key, stamp) ? FullResTrials.string(p, key) : null;
+            return v == null ? "?" : v;
+        } catch (RuntimeException e) {
+            return "?";
+        }
+    }
+
     static void note(@Nullable SharedPreferences p, String cameraId, int tried, int row, @Nullable String why, String stamp) {
         if (p == null || cameraId == null) return;
         try {
@@ -235,12 +248,17 @@ public final class OplusDcg {
         if (!forced && live(rows, tried) == row) note(p, cameraId, tried + 1, row, why, stamp());
         final int next = forced ? -1 : live(rows, failures(p, cameraId, stamp()));
         final boolean plain = FullResTrials.NOT_WIDE.equals(FullResTrials.code(why));
-        searching = plain && next >= 0;
+        // P604: a row whose frames stopped (the tele's row 14, log 2026-11-10 16:06:05: three stall restarts of the same row, no
+        // verdict) gives way at once too
+        final boolean stopped = FullResTrials.NO_FRAME.equals(FullResTrials.code(why));
+        searching = (plain || stopped) && next >= 0;
         if (!searching) Dcg14Mode.setMode(Dcg14Mode.OFF);
         final String n = name("4".equals(cameraId)), reason = FullResTrials.phrase(FullResTrials.code(why), false);
         Log.w("SCAM_CAPTURE", "OPPO family " + n + " camera " + cameraId + " row " + row + " failed (" + why + "); next "
                 + (forced ? "none (a forced row): the switch off" : next < 0 ? "none: the switch is gone on this camera"
                 : searching ? "row " + next + " now (the switch stays on)" : "row " + next + " the next time") + (searching ? "" : ", the normal session"));
+        if (stopped && searching) return Lang.t(n + ": в режиме " + row + " кадры остановились (" + reason + "); пробую режим " + next,
+                n + ": the frames stopped in mode " + row + " (" + reason + "); trying mode " + next);
         if (plain) return next >= 0
                 ? Lang.t(n + ": режим " + row + " отдаёт обычный RAW (" + reason + "); пробую режим " + next,
                         n + ": mode " + row + " gives a plain RAW (" + reason + "); trying mode " + next)
@@ -355,6 +373,15 @@ public final class OplusDcg {
             for (float b : black) min = Math.min(min, b);
         }
         depth = new DepthWatch(name("4".equals(camera)), camera, pick.mode, com.particlesdevs.photoncamera.processing.RawLevels.staticWhite(c), min);
+    }
+
+    /**
+     * P604: the DCG / DAG session of {@code camera} has not proven its depth yet - a stall of its frames then is the row's failure
+     * (the tele's row 14 stopped after its first results and restarted three times, log 2026-11-10 16:06:05 - 16:06:15).
+     */
+    public static boolean unproven(@Nullable String camera) {
+        final DepthWatch w = depth;
+        return w != null && camera != null && camera.equals(w.camera) && w.proven() == 0;
     }
 
     /** CaptureController: a viewfinder frame of the session was sampled (RawPayloadCheck; {@code raw16}: a RAW_SENSOR frame). */

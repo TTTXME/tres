@@ -2653,6 +2653,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             handler.removeCallbacks(mStallCheck);
             return;
         }
+        // P604: a DCG / DAG row whose frames stopped before it proved its depth (the PYB110 tele's row 14: three restarts of the
+        // same row, no verdict, log 2026-11-10 16:06:05 - 16:06:15) fails like one that never gave a frame; the next row runs
+        if (mLastPreviewResultMs != 0 && SensorModePick.session() != null && SensorModePick.session().dcg() && OplusDcg.unproven(physicalID)
+                && retryWithoutRequestedSensorMode(mCaptureSession, "no preview frame for " + noFrame + " ms (the frames stopped before the row proved its depth)")) {
+            mPreviewSessionStartMs = 0;
+            handler.removeCallbacks(mStallCheck);
+            return;
+        }
         // P575: a nubia row's session (FULLRES or the «2×») that never gave a frame: the row is not used, the normal session opens
         if (mLastPreviewResultMs == 0 && SensorModePick.session() != null
                 && (NubiaFullRes.device() || SensorModePick.session().route != null) // P586: an OPPO-family ISZ / DCG / DAG row too
@@ -4035,9 +4043,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 if (dcgOperationMode != 0)
                     Log.i("SCAM_CAPTURE", "camera " + physicalID + ": DCG session operation mode 0x" + Integer.toHexString(dcgOperationMode)
                             + " (" + dcgOperationMode + ")" + (sessionType != 0 ? ", instead of the module's " + sessionType : ""));
+                // P604: an OPPO-family FULLRES row tried in its seamless entry's operation mode (the PYB110 main's row 25: 0x8001); a
+                // refusal fails that row's trial (retryWithoutVivoSdkFullRes), not the module's mode
+                final int fullResOpMode = sdkFullRes && VivoSdkFullRes.oppo() ? OppoNativeFullRes.operationMode(mVivoSdkCameraId, VivoSdkFullRes.profile(mVivoSdkCameraId)) : 0;
+                if (fullResOpMode != 0) Log.i("SCAM_CAPTURE", "OPPO native FULLRES camera " + mVivoSdkCameraId + ": session operation mode 0x"
+                        + Integer.toHexString(fullResOpMode) + " (the row's seamless entry, P604)");
                 SessionConfiguration configuration = new SessionConfiguration(
                         xiaomiLogical ? XiaomiTeleZoom.operationMode(xiaomiOperationModeSetting()) : dcgOperationMode != 0 ? dcgOperationMode
-                                : probeMode != 0 ? probeMode : vendorMode,
+                                : probeMode != 0 ? probeMode : fullResOpMode != 0 ? fullResOpMode : vendorMode,
                         outputConfigurations,
                         processExecutor,
                         stateCallback
@@ -5630,7 +5643,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 column[col * 3 + row] = transform.getElement(col, row).floatValue();
             int block = stillOnlyFullRes() ? Math.max(1, com.particlesdevs.photoncamera.processing.MosaicStream.block())
                     : nativeVivoFullRes() ? VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
-                    : mFullResSession ? 2 : Math.max(PreferenceKeys.mosaicBlock(), com.particlesdevs.photoncamera.processing.MosaicStream.block());
+                    : mFullResSession ? NubiaRemosaicProbe.fullResBlock(physicalID) // P605: 1 on the nubia remosaic route
+                    : Math.max(PreferenceKeys.mosaicBlock(), com.particlesdevs.photoncamera.processing.MosaicStream.block());
             float[] photo = viewfinderMatrix(c, result, gains, column, block > 1);
             if (photo == null) return;
             float[] rowMajor = NativeViewfinder.columnMajor(photo);
@@ -5947,7 +5961,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // failed - FULLRES off on this firmware with one notice); a confident Quad keeps the setting for the camera
                 if (NubiaFullRes.device() && mFullResSession) {
                     final int verdict = com.particlesdevs.photoncamera.processing.MosaicStream.sessionVerdict();
-                    if (verdict == 2) {
+                    // P605: the remosaic route takes a confident Bayer (block 1) at the maximum-resolution size as a 50 MP Bayer
+                    // (a Quad as the sensor's own mosaic); another block or size fails it (off on this firmware, one notice)
+                    if (NubiaRemosaicProbe.routeRunning(physicalID)) {
+                        final String routeWhy = verdict == 0 ? null : NubiaRemosaicProbe.frames(physicalID, verdict, img.getWidth(), img.getHeight());
+                        if (routeWhy != null && retryWithoutFullRes(mCaptureSession, routeWhy)) return;
+                    } else if (verdict == 2) {
                         final String kept = NubiaRemosaicProbe.quad(physicalID);
                         if (kept != null) showToast(kept);
                     } else if (verdict != 0 && retryWithoutFullRes(mCaptureSession, verdict == 1
@@ -7001,12 +7020,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P208: the still-only route's viewfinder is the normal mode's stream
             final int block = stillOnlyFullRes() ? Math.max(1, com.particlesdevs.photoncamera.processing.MosaicStream.block())
                     : nativeVivoFullRes() ? VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
-                    : mFullResSession ? 2 : com.particlesdevs.photoncamera.processing.MosaicStream.block() > 1
+                    : mFullResSession ? NubiaRemosaicProbe.fullResBlock(physicalID) // P605: 1 on the nubia remosaic route
+                    : com.particlesdevs.photoncamera.processing.MosaicStream.block() > 1
                     ? com.particlesdevs.photoncamera.processing.MosaicStream.block() : PreferenceKeys.mosaicBlock();
             // P370 (A2): the photo's matrix rules by stream - a colour-block mosaic (an ISZ lease, a picked sensor mode, FULLRES, a
             // native session) or plain Bayer (PhotoMatrix)
             final boolean mosaicStream = block > 1 || mIszLease != null || SensorModePick.session() != null || nativeVivoFullRes()
-                    || mFullResSession || VivoPd2454NativeRaw.active(physicalID);
+                    || mFullResSession && NubiaRemosaicProbe.fullResBlock(physicalID) > 1 || VivoPd2454NativeRaw.active(physicalID);
             // P370 (B6): a mosaic stream whose ISP runs no 3A shows the photo's own neutral, not the HAL's frozen gains
             if (com.particlesdevs.photoncamera.processing.color.ViewfinderMosaicWb.on()) {
                 final float[] own = viewfinderMosaicNeutral(img, c, colorResult, cfa, white, black, block, mosaicStream);
@@ -9352,6 +9372,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                                                        long lastFrameNumber) {
                     if (!shotDone.compareAndSet(false, true)) return;
                     mInFlightRescue = null;
+                    // P605: the nubia remosaic 50 MP route proves itself on a shot the camera completes; a camera error in its shot
+                    // turns it off on this firmware (one notice)
+                    if (mFullResSession && NubiaFullRes.device()) {
+                        final String shotWhy = NubiaRemosaicProbe.shot(physicalID, sequenceId >= 0, sequenceId >= 0 ? null : mInFlightRescueReason);
+                        if (shotWhy != null) {
+                            PixelPro10.setFullRes(false);
+                            showError(shotWhy);
+                        }
+                    }
                     // P315: a series the rescue completed (sequenceId -1: watchdog, camera error, closed session) does not vote:
                     // the X8U's dead HAL in a sensor-mode session turned the flush off for its plain shots too
                     if (scamSequence != null && scamSequence.futureCount > 0 && sequenceId >= 0)

@@ -973,6 +973,10 @@ public class PreferenceKeys {
         // 1.8); "hybrid_quad_detail 0" = before
         if (hybridValue("quad_detail", 1f) == 0f)
             out.append("fastQuadFlatNoise 0\nfastQuadLineFrames 0\nfastQuadCone 0\nmosaicQuadFine 0\nbaseDemosaicQuadRadius 2.2\nmosaicQuadTexture 1\n");
+        // P603: Tetra moving subjects - the range-gated smoothing where few frames merged (worker mosaicTetraMotionSmooth, default 1;
+        // its share 0..1); "hybrid_tetra_motion_smooth 0" = before
+        final float tetraSmooth = hybridValue("tetra_motion_smooth", 1f);
+        if (tetraSmooth != 1f) out.append("mosaicTetraMotionSmooth ").append(Math.max(0f, Math.min(1f, tetraSmooth))).append('\n');
         // P601 (owner, 2026-11-10: «лицо женщины в автобусе за парнем видно только на качестве»): the fast route's donor flow picked
         // per 4 x 4 block among the tiles near the surroundings' flow where the tile field misfits, and a donor kept where its block
         // fits within the noise at that flow (worker fastFlowPick 2; 1 = the pick alone); "hybrid_fast_flow_pick 0" = before

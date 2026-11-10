@@ -892,6 +892,9 @@ public class SettingsBarLayout extends LinearLayout {
 
     /** Values of every tile on screen, the rows and the slider card, without rebuilding a view. */
     private void rebindValues() {
+        // P606: a lens setting's slider card closes with its lens (its tile loses the open outline in the same pass)
+        ShadeCatalog.Entry open = openSliderEntry();
+        if (open != null && open.lens != null && catalog().unavailable(open) != null) openSlider = null;
         for (int i = 0; i < tiles.getChildCount(); i++) {
             RecyclerView.ViewHolder holder = tiles.getChildViewHolder(tiles.getChildAt(i));
             if (holder instanceof ShadeTileAdapter.Holder) {
@@ -999,6 +1002,13 @@ public class SettingsBarLayout extends LinearLayout {
     /** Writes a value the way the settings screen does; camera controls go through CameraUIController. */
     private void apply(ShadeCatalog.Entry e, Object value) {
         if (host == null) return;
+        // P606: a lens setting off its lens is not adjusted (no write, no camera restart)
+        final String lensOff = e.lens == null ? null : catalog().unavailable(e);
+        if (lensOff != null) {
+            message(lensOff);
+            rebindValues();
+            return;
+        }
         if (e.isVirtual()) {
             host.applyCameraControl(e.settingType, (int) Math.round(Double.parseDouble(value.toString())));
         } else {
@@ -1154,7 +1164,9 @@ public class SettingsBarLayout extends LinearLayout {
 
     private void bindSliderCard() {
         ShadeCatalog.Entry e = openSliderEntry();
-        if (e == null || (e.kind != ShadeCatalog.SLIDER && e.kind != ShadeCatalog.CURVE) || !pinned.contains(e.key)) {
+        // P606: a lens setting's card closes when its lens is no longer the camera's (the tile greys, a touch changes nothing)
+        if (e == null || (e.kind != ShadeCatalog.SLIDER && e.kind != ShadeCatalog.CURVE) || !pinned.contains(e.key)
+                || e.lens != null && catalog().unavailable(e) != null) {
             openSlider = null;
             if (sliderCard.getVisibility() != GONE) sliderCard.setVisibility(GONE);
             return;

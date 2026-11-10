@@ -23,6 +23,9 @@ LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tm
 # P594: the Tetra native merge's luma guide takes the 8 px beads off edges of a burst drifting along one axis
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_tetra_luma_guide.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-tetra-luma-guide
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-tetra-luma-guide
+# P603: the Tetra motion smoothing where few frames merged: GPU = CPU twin, high coverage bit for bit, edges kept
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_tetra_motion_smooth.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-tetra-motion-smooth
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-tetra-motion-smooth
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_us_cache_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-us-cache-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-us-cache-gpu
 

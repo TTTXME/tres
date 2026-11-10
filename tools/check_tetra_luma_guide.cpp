@@ -4,6 +4,7 @@
 // synthetic 8-frame Tetra burst (frames shifted along x only, a sensor neutral of 0.5 / 1 / 0.6) through
 // hybridReconstructMosaicNative with the guide off and on: the beads along horizontal bars (the 8-periodic part of each row) fall,
 // a flat coloured patch keeps its colour, a diagonal texture keeps its contrast, and the defaults / tuning keys are as documented.
+// P603: the few-frame base demosaic (the same burst merged from its base frame alone) with its wider cone on structure.
 #include "../app/src/main/cpp/scam-capture.h"
 #include "../app/src/main/cpp/scam-hybrid.h"
 #include <cassert>
@@ -35,6 +36,7 @@ int main() {
     {
         const HybridTuning d;
         assert(d.mosaicTetraLumaGuide == 1.f && d.mosaicTetraLumaGuideRB == 1.f);
+        assert(d.baseDemosaicTetraRadius == 2.4f); // P603: the few-frame base demosaic's luma cone on structure
         const char* tmp = std::getenv("TMPDIR");
         std::string tmpl = std::string(tmp && *tmp ? tmp : "/tmp") + "/tetra-guide-XXXXXX";
         char* dir = tmpl.data();
@@ -82,6 +84,17 @@ int main() {
     }
     assert(close(fd) == 0);
     MappedHybridBurst burst(path);
+    // P603: where the donors were rejected (one frame here: mosaicFrames 1) the Tetra base demosaic's cone on structure 2.4 sites
+    // against P547's 1.8: the 8 px beads and the flat patch's noise fall, the texture keeps its contrast; the radius acts through the
+    // few-frame demosaic alone (that pass off: the merged burst the same bit for bit)
+    std::vector<float> one[2], all[2];
+    for (int v = 0; v < 2; ++v) {
+        HybridTuning t; t.baseDemosaicTetraRadius = v ? 2.4f : 1.8f; t.baseDemosaic = 0.f;
+        all[v] = hybridReconstructMosaicNative(burst.input, 4, t, {}, [](const std::string&) {}, nullptr, nullptr, nullptr, nullptr);
+        t.mosaicFrames = 1; t.baseDemosaic = 1.f;
+        one[v] = hybridReconstructMosaicNative(burst.input, 4, t, {}, [](const std::string&) {}, nullptr, nullptr, nullptr, nullptr);
+        if (one[v].size() < size_t(W) * H * 3 || all[v].size() != all[0].size()) { std::printf("check_tetra_luma_guide: P603 sizes\n"); unlink(path.c_str()); return 1; }
+    }
     std::vector<float> out[2];
     for (int v = 0; v < 2; ++v) {
         HybridTuning t; t.mosaicTetraLumaGuide = float(v);
@@ -124,6 +137,38 @@ int main() {
         }
         tex[v] = std::sqrt(tex[v] / nt);
     }
+    // P603 measures on the one-frame merges: beads as above, the flat patch's luma rms about its 9 x 9 mean, the texture's
+    auto rms9 = [&](const std::vector<float>& o, int x0, int y0, int x1, int y1) {
+        double e = 0; int n = 0;
+        for (int y = y0; y < y1; ++y) for (int x = x0; x < x1; ++x) {
+            double s = 0;
+            for (int j = -4; j <= 4; ++j) for (int i = -4; i <= 4; ++i) s += lum(o, x + i, y + j);
+            const double d = lum(o, x, y) - s / 81.0; e += d * d; n++;
+        }
+        return std::sqrt(e / n);
+    };
+    auto beads = [&](const std::vector<float>& o) {
+        double b = 0; int rows = 0;
+        for (int y = 24; y < H / 2 - 24; ++y) {
+            double m[8] = {}; int n[8] = {};
+            for (int x = 48; x < W - 48; ++x) { m[x & 7] += lum(o, x, y); n[x & 7]++; }
+            double mean = 0, var = 0;
+            for (int k = 0; k < 8; ++k) { m[k] /= n[k]; mean += m[k] / 8; }
+            for (int k = 0; k < 8; ++k) var += (m[k] - mean) * (m[k] - mean) / 8;
+            b += std::sqrt(var); rows++;
+        }
+        return b / rows;
+    };
+    const double b18 = beads(one[0]), b24 = beads(one[1]);
+    const double n18 = rms9(one[0], 40, H / 2 + 40, W / 2 - 40, H - 40), n24 = rms9(one[1], 40, H / 2 + 40, W / 2 - 40, H - 40);
+    const double t18 = rms9(one[0], W / 2 + 40, H / 2 + 40, W - 40, H - 40), t24 = rms9(one[1], W / 2 + 40, H / 2 + 40, W - 40, H - 40);
+    double dAll = 0; size_t moved = 0; // the merged burst: mean |diff| and the share of values moved by more than 1 %
+    for (size_t i = 0; i < size_t(W) * H * 3; ++i) { const double e = std::fabs(all[1][i] - all[0][i]); dAll += e; moved += e > 0.01 * std::max(all[0][i], 0.01f); }
+    dAll /= double(W) * H * 3;
+    const double bAll18 = beads(all[0]), bAll24 = beads(all[1]);
+    std::printf("P603 one frame, the demosaic cone 1.8 / 2.4: beads %.5f / %.5f, flat noise %.5f / %.5f, texture rms %.5f / %.5f (%.3f); "
+                "the demosaic pass off: mean |diff| %.6f, %.3f %% of the values moved by > 1 %%, beads %.5f / %.5f\n", b18, b24, n18, n24, t18, t24, t24 / t18,
+                dAll, 100.0 * moved / (double(W) * H * 3), bAll18, bAll24);
     const double rgOff = col[0][0] / col[0][1], rgOn = col[1][0] / col[1][1], bgOff = col[0][2] / col[0][1], bgOn = col[1][2] / col[1][1];
     std::printf("Tetra luma guide off / on: beads along the bars %.5f / %.5f (%.2f); the patch R/G %.4f / %.4f, B/G %.4f / %.4f; "
                 "texture rms %.5f / %.5f (%.3f)\n", bead[0], bead[1], bead[1] / bead[0], rgOff, rgOn, bgOff, bgOn, tex[0], tex[1], tex[1] / tex[0]);
@@ -132,6 +177,9 @@ int main() {
     if (!(bead[1] < 0.6 * bead[0])) { std::printf("FAIL: the guide leaves the beads\n"); ok = false; }
     if (std::fabs(rgOn / rgOff - 1) > 0.01 || std::fabs(bgOn / bgOff - 1) > 0.01) { std::printf("FAIL: the patch's colour moved\n"); ok = false; }
     if (!(tex[1] > 0.9 * tex[0])) { std::printf("FAIL: the texture lost its contrast\n"); ok = false; }
+    if (!(b24 < 0.9 * b18) || !(n24 < 0.95 * n18)) { std::printf("FAIL: P603 the few-frame demosaic keeps its beads / noise\n"); ok = false; }
+    if (!(t24 > 0.85 * t18)) { std::printf("FAIL: P603 the few-frame demosaic lost the texture\n"); ok = false; }
+    if (!(dAll == 0.0)) { std::printf("FAIL: P603 the radius acts outside the few-frame demosaic\n"); ok = false; }
     std::printf(ok ? "check_tetra_luma_guide: OK\n" : "check_tetra_luma_guide: FAILED\n");
     return ok ? 0 : 1;
 }

@@ -248,7 +248,7 @@ public final class SettingsMigration {
         String tiles = prefs.getString(ShadeTiles.KEY, null);
         if (tiles != null) {
             java.util.List<String> in = ShadeTiles.split(tiles), out = new java.util.ArrayList<>();
-            for (String key : in) if (!isObsolete(key)) out.add(key);
+            for (String key : in) if (!isObsolete(ShadeTiles.keyOf(key))) out.add(key);   // P606: a lens pin by its key
             if (out.size() != in.size()) { e.putString(ShadeTiles.KEY, ShadeTiles.join(out)); changed = true; }
         }
         // «Фильтр Байера» lost MONO (4: every Hybrid / SCAM HDR shot failed, both need a 2x2 CFA) and QUAD (-2: did nothing,

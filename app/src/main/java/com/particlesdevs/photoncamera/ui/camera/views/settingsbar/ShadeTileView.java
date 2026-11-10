@@ -140,8 +140,9 @@ public class ShadeTileView extends FrameLayout {
         // SIMPLE_UI: the icon as it is (the concept strikes nothing through; the value says «Выкл.»)
         icon.setImageDrawable(catalog.icon(entry));
         colourIcon = catalog.colourValueIcon(entry);
-        value.setText(catalog.valueText(entry, true));
-        name.setText(entry.shortTitle);
+        // P606: a lens setting's tile - the row's name, its lens before the value («3× · Выкл.»: the name line shrinks and may cut)
+        value.setText(entry.lens == null ? catalog.valueText(entry, true) : entry.lensName + " · " + catalog.valueText(entry, true));
+        name.setText(entry.lens == null || entry.lensShortTitle == null ? entry.shortTitle : entry.lensShortTitle);
         name.setVisibility(VISIBLE);
         applyColors();
         String description = getContext().getString(R.string.shade_toast_value, entry.shortTitle, catalog.valueText(entry, false));
