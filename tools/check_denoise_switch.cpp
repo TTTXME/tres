@@ -223,5 +223,9 @@ int main() {
                std::string(r.name) + ": denoise 0 is the default bit for bit (its lattice / moire passes stay)");
     }
     std::printf(fails ? "check_denoise_switch: %d FAILED\n" : "check_denoise_switch: all passed\n", fails);
-    return fails ? 1 : 0;
+    // CI #557 (llvmpipe LLVM 21.1.8): every check passed, then the process aborted in static teardown («corrupted double-linked
+    // list») after the GL driver's own exit handlers; not reproduced on LLVM 20 with ASAN / MALLOC_CHECK_. The verdict is printed and
+    // flushed above, so the process ends without running the static destructors (the result is the same exit code)
+    std::fflush(stdout);
+    std::_Exit(fails ? 1 : 0);
 }
