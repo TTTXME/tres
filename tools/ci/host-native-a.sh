@@ -34,6 +34,9 @@ LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tm
 
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_donor_sums_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-donor-sums-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-donor-sums-gpu
+# P613: a merge strip the GPU dropped fails the merge instead of repeating the strip two above (the clean merge bit for bit)
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_strip_guard.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-strip-guard
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-strip-guard
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_resolve_grain_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-resolve-grain-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-resolve-grain-gpu
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_fullres_2x.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-fullres-2x

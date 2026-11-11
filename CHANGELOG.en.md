@@ -5,6 +5,7 @@ English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), f
 ## 2026-11-11 — «Quality» on MediaTek
 
 - MediaTek (Mali): «Quality» works again — a merge shader did not compile on Mali after the previous update.
+- «Quality»: if the GPU faults during the merge, the shot is merged again or from one frame instead of being saved with repeated stripes.
 
 ## 2026-11-10 — nubia, OnePlus 16, night lights
 

@@ -682,6 +682,11 @@ struct HybridTuning {
     // 16 and took the ring as measured light at 10 (a magenta near-white neutralised at its luminance): a grey contour inside the
     // light; 0 = every frame, as before
     int usClipVote=1;
+    // P613 (owner, 2026-11-11, vivo X200 Pro, Mali-G925: «Качество» with hard vertical strips - five «GROUP_ERROR_FATAL» GPU write
+    // faults dropped merge strips 6 - 10, whose output buffers (two banks) still held strip k - 2's rows, and those were saved):
+    // every merge strip's output buffer carries sentinel words before its passes; a strip read back with one left is not written
+    // (a dropped or faulted GPU job): the merge fails instead of handing over stale rows; 0 = no stamps and no check, as before
+    int stripGuard=1;
     int gpuAlignUsRegister=0;    // P364: 1 = the ultrashort registration after a good GPU homography too (0: only after a weak one)
     int isoKernel=0;             // diagnostics, round-4 kernel only (sabre61 off): 1 = isotropic sigma = base (no edge shaping), 2 = also no
                                  // flat widening: a "spatial RGB"-like isotropic Gaussian (SCAM 9.6 spatial_rgb: sigma 0.28..0.40 px)
@@ -1472,7 +1477,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("rimRatio",nullptr,&t.rimRatio)||set("rimSigma",&t.rimSigma)||set("rimLo",&t.rimLo)||set("rimHi",&t.rimHi)||set("rimStride",nullptr,&t.rimStride)||set("rimLift",nullptr,&t.rimLift)
             ||set("localAlign",nullptr,&t.localAlign)||set("laWin",nullptr,&t.laWin)||set("laStride",nullptr,&t.laStride)||set("laIters",nullptr,&t.laIters)
             ||set("laItersCoarse",nullptr,&t.laItersCoarse)||set("laMu",&t.laMu)||set("laKappa",&t.laKappa)||set("laMaxShift",&t.laMaxShift)
-            ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("usWeakHom",nullptr,&t.usWeakHom)||set("usClipVote",nullptr,&t.usClipVote)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
+            ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("usWeakHom",nullptr,&t.usWeakHom)||set("usClipVote",nullptr,&t.usClipVote)||set("stripGuard",nullptr,&t.stripGuard)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
             ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicTetraRadius",&t.baseDemosaicTetraRadius)||set("baseDemosaicSharpLo",&t.baseDemosaicSharpLo)||set("baseDemosaicSharpHi",&t.baseDemosaicSharpHi)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("mosaicAlongEdge",&t.mosaicAlongEdge)||set("mosaicAlongEdgeK",&t.mosaicAlongEdgeK)||set("mosaicTetraAlongEdgeK",&t.mosaicTetraAlongEdgeK)||set("mosaicTetraAlongEdgeClipK",&t.mosaicTetraAlongEdgeClipK)||set("mosaicTetraAlongEdgeClipReach",&t.mosaicTetraAlongEdgeClipReach)||set("mosaicClipShare",&t.mosaicClipShare)||set("mosaicBorderShare",&t.mosaicBorderShare)||set("baseDemosaicCover",nullptr,&t.baseDemosaicCover)||set("baseDemosaicTetraCover",&t.baseDemosaicTetraCover)||set("mosaicLatticeNotch",&t.mosaicLatticeNotch)||set("mosaicTetraLatticeNotch",&t.mosaicTetraLatticeNotch)||set("mosaicTetraNotchClipReach",&t.mosaicTetraNotchClipReach)||set("mosaicTetraFrameSat",&t.mosaicTetraFrameSat)||set("mosaicTetraFrameSatLo",&t.mosaicTetraFrameSatLo)||set("mosaicTetraFrameSatHi",&t.mosaicTetraFrameSatHi)||set("mosaicQuadFrameSat",&t.mosaicQuadFrameSat)||set("mosaicQuadFrameSatLo",&t.mosaicQuadFrameSatLo)||set("mosaicQuadFrameSatHi",&t.mosaicQuadFrameSatHi)||set("mosaicDezip",nullptr,&t.mosaicDezip)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
             ||set("caCorrect",nullptr,&t.caCorrect)||set("caMinShift",&t.caMinShift)
             // P29 native mosaic path
@@ -7031,6 +7036,54 @@ inline std::atomic<int>& hybridNativeSafeLevel(){static std::atomic<int> level{0
 // P555: HybridTuning::mosaicNatTex of the native merge in progress (hybridReconstructMosaicNative sets it per attempt)
 inline std::atomic<int>& hybridNatTexWanted(){static std::atomic<int> on{0};return on;}
 inline std::atomic<int>& hybridNatTileWanted(){static std::atomic<int> on{2};return on;} // P568: tune mosaicNatTile
+// P613 (owner, 2026-11-11, vivo X200 Pro, Mali-G925, «Качество»: hard vertical strips; the worker said SCAM CAPTURE OK): the GPU
+// faulted five times during the merge («GROUP_ERROR_FATAL», write translation faults) and dropped the work of strips 6 - 10 (sensor
+// rows 1536 - 2815). The strip's RGB is read from its bank's output buffer (two banks, P30), which then still held strip k - 2's
+// rows: 02-after-ivst of that shot holds rows 1540 - 2812 equal to the rows 512 above them, bit for bit. The strip guard: before a
+// strip's passes, the green word of every kHybridStripStampStep-th pixel of each of its output rows (and the row's last pixel) is
+// set to kHybridStripSentinel, a NaN payload no pass writes (each pixel of the strip is written by the merge); after the readback a
+// row that still holds one was not written.
+constexpr uint32_t kHybridStripSentinel=0x7FA5C0DEu;
+constexpr int kHybridStripStampStep=64;
+// the stamped float indices of one output row of `ow` pixels (the green of x = 0, step, 2 step .. and of x = ow - 1)
+inline std::vector<size_t> hybridStripStampWords(int ow){
+    std::vector<size_t> words;
+    for(int x=0;x<ow;x+=kHybridStripStampStep)words.push_back(size_t(x)*3+1);
+    if(ow>0&&(ow-1)%kHybridStripStampStep!=0)words.push_back(size_t(ow-1)*3+1);
+    return words;
+}
+// writes the sentinel into rows [0, rows) of an RGB strip of `ow` pixels a row (a mapped output buffer, or a host copy in tests)
+inline void hybridStripStamp(float* rgb,int rows,int ow){
+    const std::vector<size_t> words=hybridStripStampWords(ow);
+    for(int r=0;r<rows;++r){
+        float* row=rgb+size_t(r)*size_t(ow)*3;
+        for(size_t k:words)std::memcpy(row+k,&kHybridStripSentinel,4);
+    }
+}
+// the rows of an RGB strip read back that still hold a sentinel (not written by the GPU); the first such row in *first (-1: none)
+inline int hybridStripUnwritten(const float* rgb,int rows,int ow,int* first=nullptr){
+    const std::vector<size_t> words=hybridStripStampWords(ow);
+    int lost=0;if(first)*first=-1;
+    for(int r=0;r<rows;++r){
+        const float* row=rgb+size_t(r)*size_t(ow)*3;
+        for(size_t k:words){
+            uint32_t bits;std::memcpy(&bits,row+k,4);
+            if(bits==kHybridStripSentinel){if(first&&*first<0)*first=r;++lost;break;}
+        }
+    }
+    return lost;
+}
+#ifdef SCAM_STRIP_FAULTS
+// host tests only: the merge passes of strip hybridDropStripAt() are not dispatched in the next hybridDropStripLeft() merges: the
+// strip's output buffer keeps what it held (the phone's dropped strips)
+inline int& hybridDropStripAt(){static int at=-1;return at;}
+inline int& hybridDropStripLeft(){static int left=0;return left;}
+inline bool hybridDropStrip(int strip){
+    if(strip!=hybridDropStripAt()||hybridDropStripLeft()<=0)return false;
+    --hybridDropStripLeft();
+    return true;
+}
+#endif
 class HybridGpu {
     EGLDisplay display=EGL_NO_DISPLAY;
     EGLContext context=EGL_NO_CONTEXT;
@@ -7568,6 +7621,55 @@ class HybridGpu {
         return s;
     }
     bool zeroProbed=false;
+    // P613: the strip guard (kHybridStripSentinel; tune stripGuard) and the context's reset status (GL_EXT / KHR_robustness: the
+    // context is made without a reset notification strategy, so a driver may answer GL_NO_ERROR whatever happened; checked anyway)
+    bool stripGuardOn=false;int stripGuardMapFails=0;
+    GLenum (*resetStatus)()=nullptr;
+    // the sentinel into the output rows of a strip of `bank` before its passes (the bank's last strip was read back behind its fence:
+    // nothing on the GPU uses the buffer, an unsynchronised map); false: not stamped (no write map), the strip goes unchecked
+    bool stampStrip(int bank,int rows2,int ow){
+        if(!stripGuardOn||rows2<=0||ow<=0)return false;
+        const GLsizeiptr bytes=GLsizeiptr(size_t(rows2)*size_t(ow)*12);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER,bankBuffer(3,bank));
+        void* m=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,0,bytes,GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT);
+        if(!m){while(glGetError()!=GL_NO_ERROR){}m=glMapBufferRange(GL_SHADER_STORAGE_BUFFER,0,bytes,GL_MAP_WRITE_BIT);}
+        if(!m){
+            while(glGetError()!=GL_NO_ERROR){}
+            if(stripGuardMapFails++==0&&trace)trace("HYBRID GPU STRIP GUARD: the output buffer refused a write map: strips not checked");
+            return false;
+        }
+        hybridStripStamp(static_cast<float*>(m),rows2,ow);
+        if(!glUnmapBuffer(GL_SHADER_STORAGE_BUFFER)){while(glGetError()!=GL_NO_ERROR){}return false;}
+        return true;
+    }
+    // after a stamped strip's RGB readback: a row still stamped (or a context reset) fails the merge - hybridReconstruct merges once
+    // more without F6, else the worker fails and the app's conservative retry / base frame saves the shot, never the stale rows
+    void guardStrip(int index,int bank,int oy0,int rows2,float* dst,size_t bytes,int ow){
+        int first=-1;int lost=hybridStripUnwritten(dst,rows2,ow,&first);
+        const GLenum reset=resetStatus?resetStatus():GL_NO_ERROR;
+        if(lost==0&&reset==GL_NO_ERROR)return;
+        std::string glErr;
+        for(int i=0;i<4;++i){const GLenum e=glGetError();if(e==GL_NO_ERROR)break;glErr+=" GL error "+std::to_string(e);}
+        const int lostFirst=lost;
+        if(lost>0)try{ // once more after a glFinish (P500: a fence signalled before the GPU's writes were visible)
+            glFinish();getBuffer(bankBuffer(3,bank),3,dst,bytes,false);lost=hybridStripUnwritten(dst,rows2,ow,&first);
+        }catch(const std::exception&){}
+        while(glGetError()!=GL_NO_ERROR){}
+        char line[400];
+        if(lost==0&&reset==GL_NO_ERROR){
+            std::snprintf(line,sizeof line,"HYBRID GPU STRIP GUARD: strip %d (output rows %d..%d): %d rows read unwritten, written after a glFinish%s",
+                index,oy0,oy0+rows2-1,lostFirst,glErr.c_str());
+            if(trace)trace(line);
+            return;
+        }
+        // MemAvailable: a GPU page the driver could not back under memory pressure faults like a stray write (P613's open question)
+        std::snprintf(line,sizeof line,"HYBRID GPU STRIP GUARD: strip %d (output rows %d..%d): %d of %d rows not written by the GPU (first %d), "
+            "context reset status 0x%x%s, MemAvailable %llu MB: a dropped or faulted GPU job, the merge fails (its stale rows are not handed over)",
+            index,oy0,oy0+rows2-1,lost,rows2,first<0?-1:oy0+first,unsigned(reset),glErr.c_str(),(unsigned long long)(hybridMemAvailable()>>20));
+        if(trace)trace(line);
+        throw std::runtime_error("HYBRID GPU strip "+std::to_string(index)+" not written ("+std::to_string(lost)+" of "+std::to_string(rows2)
+            +" rows; reset status "+std::to_string(reset)+"): a dropped or faulted GPU job");
+    }
     /** P500: every byte of [p, p + bytes) is zero (word-wise, stops at the first non-zero word). */
     static bool zeroBytes(const void* p,size_t bytes){
         const uint64_t* w=static_cast<const uint64_t*>(p);
@@ -7757,6 +7859,13 @@ public:
             if(surface==EGL_NO_SURFACE||!eglMakeCurrent(display,surface,surface,context))throw std::runtime_error("Cannot activate GLES context");
             const auto* name=glGetString(GL_RENDERER);renderer=name?reinterpret_cast<const char*>(name):"unknown";
             {const auto* version=glGetString(GL_VERSION);driver=renderer+"|"+(version?reinterpret_cast<const char*>(version):"");}
+            { // P613: the reset status, where the driver has it (GL_EXT_robustness / GL_KHR_robustness)
+                const auto* ext=glGetString(GL_EXTENSIONS);const std::string e=ext?reinterpret_cast<const char*>(ext):"";
+                const char* fn=e.find("GL_KHR_robustness")!=std::string::npos?"glGetGraphicsResetStatusKHR"
+                              :e.find("GL_EXT_robustness")!=std::string::npos?"glGetGraphicsResetStatusEXT":nullptr;
+                if(fn)resetStatus=reinterpret_cast<GLenum(*)()>(eglGetProcAddress(fn));
+                while(glGetError()!=GL_NO_ERROR){}
+            }
             {GLint64 ssbo=0;GLint tex=0,wg=0;glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&ssbo);glGetIntegerv(GL_MAX_TEXTURE_SIZE,&tex);
              glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT,1,&wg);maxStorageBlock=size_t(std::max<GLint64>(ssbo,0));
              GLint blocks=0,bindings=0;glGetIntegerv(GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS,&blocks);glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS,&bindings);
@@ -8141,6 +8250,7 @@ public:
                std::vector<float>& out,std::vector<float>& effective,std::vector<double>& robustShare,int grid=1,
                std::vector<uint8_t>* clipFlags=nullptr,bool wantEffective=true){
         const int frames=int(in.frames.size()),w=in.w,h=in.h,w2=w/2,h2=h/2;
+        stripGuardOn=tune.stripGuard!=0; // P613
         if(frames<1||frames>kHybridGpuFrames||(w&1)||(h&1)||int(in.homography.size())!=frames)throw std::runtime_error("HYBRID GPU unsupported burst shape");
         // grid 8: only the native Tetra merge on the Sabre 2x grid (P56)
         if(grid!=1&&grid!=2&&grid!=4&&!(grid==8&&in.native&&in.native->block==4))throw std::runtime_error("HYBRID GPU grid");
@@ -8850,7 +8960,7 @@ public:
             }
         }
         // P30: the readback of strip k runs after strip k+1 is submitted (fence), from the other bank.
-        struct PendingStrip{bool active=false;int bank=0,oy0=0,rows2=0,index=0;GLsync fence=nullptr;};
+        struct PendingStrip{bool active=false,stamped=false;int bank=0,oy0=0,rows2=0,index=0;GLsync fence=nullptr;};
         PendingStrip pending;
         auto readStrip=[&](PendingStrip& p){
             if(!p.active)return;
@@ -8889,6 +8999,7 @@ public:
                 if(still&&!zeroProbed&&trace){zeroProbed=true;trace(zeroProbe(p.bank));} // P511: where the zeros begin
             }
             if(!zeroProbed&&trace&&std::getenv("SCAM_ZERO_PROBE")){zeroProbed=true;trace(zeroProbe(p.bank));} // P511: the probe on demand (replays)
+            if(p.stamped)guardStrip(p.index,p.bank,p.oy0,p.rows2,rgbDst,rgbBytes,ow); // P613: a row still stamped was not written: the merge fails
             if(wantEffective)getBuffer(bankBuffer(4,p.bank),4,effective.data()+size_t(p.oy0)*ow,size_t(p.rows2)*ow*4,waited);
             if(clipFlags){
                 flagStrip.resize(size_t(p.rows2)*ow);
@@ -9444,6 +9555,18 @@ public:
             const int rows2=(y1-y0)*g,oy0=y0*g; // output-grid rows of this strip
             reserveBank(3,size_t(rows2)*ow*3*4,bank);reserveBank(4,size_t(rows2)*ow*4,bank);
             reserveBank(6,(clipFlags||rim||bentoColourPass||usBlend)?size_t(rows2)*ow*4:16,bank);
+            const bool stamped=stampStrip(bank,rows2,ow); // P613: the sentinel before the strip's passes write its rows
+#ifdef SCAM_STRIP_FAULTS
+            if(hybridDropStrip(stripIndex)){ // host tests: the strip's merge passes lost (the output buffer as it was)
+                GLsync fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);glFlush();
+                const int doneRows=pending.active?pending.oy0+pending.rows2:0;
+                readStrip(pending);
+                if(doneRows>0)scam_progress::at(doneRows);
+                if(doneRows>0&&in.rowsDone)in.rowsDone(out,doneRows);
+                pending.active=true;pending.stamped=stamped;pending.bank=bank;pending.oy0=oy0;pending.rows2=rows2;pending.index=stripIndex;pending.fence=fence;
+                continue;
+            }
+#endif
             if(nat){ // P29: the native merge, one invocation per output pixel of the strip, into the same Out / Eff / CFlags layout
                 GLuint mosaicProgram=natFastOn?(natStripMode&&natMarked?natMarked:natPlain):this->mosaicProgram;
                 // P568: the shared-memory twin (decided, or measured on strips 1 and 2 against the original: the same sums)
@@ -9693,7 +9816,7 @@ public:
              readStrip(pending);                     // the previous strip, while the GPU runs this one
              if(doneRows>0)scam_progress::at(doneRows);
              if(doneRows>0&&in.rowsDone)in.rowsDone(out,doneRows);}
-            pending.active=true;pending.bank=bank;pending.oy0=oy0;pending.rows2=rows2;pending.index=stripIndex;pending.fence=fence;
+            pending.active=true;pending.stamped=stamped;pending.bank=bank;pending.oy0=oy0;pending.rows2=rows2;pending.index=stripIndex;pending.fence=fence;
         }
         {const int doneRows=pending.active?pending.oy0+pending.rows2:0;
          readStrip(pending);

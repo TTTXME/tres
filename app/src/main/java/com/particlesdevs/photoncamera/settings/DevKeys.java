@@ -353,6 +353,8 @@ public final class DevKeys {
                 "«Quality», at night: a short frame whose alignment found few points starts from its own homography, not a shift of the whole frame - lights at the frame's edge in place, no grey oval or ghost arc (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_us_clip_vote", "1", Lang.t("«Качество»: цвет короткого кадра считается упёршимся в предел, где упёрлась большая часть кадров, а не все - без серого контура внутри фонаря (1 вкл., 0 как раньше)",
                 "«Quality»: a short frame colour counts as at its clip where most frames are, not all - no grey contour inside a lamp (1 on, 0 as before)")));
+        k.add(n(merge, "hybrid_strip_guard", "1", Lang.t("«Качество»: проверка, что GPU записал каждую полосу склейки - при сбое GPU снимок склеивается заново или по одному кадру, а не с повторёнными полосами (1 вкл., 0 без проверки)",
+                "«Quality»: a check that the GPU wrote every merge strip - after a GPU fault the shot is merged again or from one frame, not with repeated stripes (1 on, 0 no check)")));
         k.add(n(merge, "hybrid_mosaic_nat_tile", "2", Lang.t("Quad «Качество»: блоки склейки в общей памяти GPU (0 выкл., 1 всегда, 2 быстрее из двух, замер один раз на телефоне; результат тот же)",
                 "Quad «Quality»: merge blocks in GPU shared memory (0 off, 1 always, 2 the faster of the two, measured once per phone; same result)")));
         k.add(n(merge, "hybrid_gain_measured", null, Lang.t("Измерять усиление кадров (1/0)", "Measure the frames' gain (1/0)")));

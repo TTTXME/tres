@@ -992,6 +992,9 @@ public class PreferenceKeys {
         // its weight are clipped (usClipVote 1); "hybrid_us_weak_hom 0" / "hybrid_us_clip_vote 0" = before
         if (hybridValue("us_weak_hom", 1f) == 0f) out.append("usWeakHom 0\n");
         if (hybridValue("us_clip_vote", 1f) == 0f) out.append("usClipVote 0\n");
+        // P613: every GPU merge strip is checked for rows the GPU did not write (a dropped or faulted job): such a merge fails and
+        // the conservative retry / the base frame save the shot instead of the stale rows (worker stripGuard 1); 0 = no check
+        if (hybridValue("strip_guard", 1f) == 0f) out.append("stripGuard 0\n");
         // P568: the Quad native merge with shared-memory tiles (worker mosaicNatTile: 0 off, 1 always, 2 the faster measured once per GPU)
         final float natTile = hybridValue("mosaic_nat_tile", 2f);
         if (natTile != 2f) out.append("mosaicNatTile ").append(Math.round(Math.max(0f, Math.min(2f, natTile)))).append('\n');
