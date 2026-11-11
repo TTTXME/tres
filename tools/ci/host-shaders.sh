@@ -7,6 +7,8 @@ python3 tools/check_scam_ae_context.py
 python3 tools/check_scam_capture_sequence.py
 # P317: no mediump (fp16 on Mali) shader operation with a constant outside the fp16 range (NDK glslc)
 python3 tools/check_shader_fp16.py
+# P612: no GLSL loop index over a parameter of its function (Mali-G925 leaks it: «int * float», the blend refused)
+python3 tools/check_glsl_loop_shadow.py
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py

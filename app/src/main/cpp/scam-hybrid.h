@@ -3800,7 +3800,8 @@ bool usAt(vec2 p,bool inLight,out vec3 U,out float cover,out uint uclip,out bool
     float lo01=min(s0,s1),hi01=max(s0,s1),lo23=min(s2,s3),hi23=max(s2,s3);
     float med=n==1?s0:n==2?0.5*(s0+s1):n==3?max(min(s0,s1),min(max(s0,s1),s2)):0.5*(max(lo01,lo23)+min(hi01,hi23));
     float sw=0.0,sww=0.0;uclip=7u;
-    vec3 wcl=vec3(0.0); // US_CLIP_VOTE: the weight of the frames whose colour is at its clip
+    vec3 wcl=vec3(0.0); // US_CLIP_VOTE: the weight of the frames whose colour is at its clip (loop index vc: Mali-G925 leaks a
+    // for-loop «c» over the function's float c - «int * float» at c*(1.0-bestV), the whole blend stage refused)
     for(int j=0;j<n;j++){
         float r=lum[j]/max(med,1.0e-6)-1.0;
         float w=wv[j]*exp(-(r*r)/max(blendU.x*blendU.x,1.0e-6));
@@ -3811,11 +3812,11 @@ bool usAt(vec2 p,bool inLight,out vec3 U,out float cover,out uint uclip,out bool
         lvl+=w*mxw[j];
         sw+=w;sww+=w*w;
         uclip&=cl;
-        for(int c=0;c<3;c++)if((cl&(1u<<uint(c)))!=0u)wcl[c]+=w;
+        for(int vc=0;vc<3;vc++)if((cl&(1u<<uint(vc)))!=0u)wcl[vc]+=w;
     }
     if(sw<1.0e-4){uclip=0u;lvl=0.0;return false;}
 #ifdef US_CLIP_VOTE
-    uclip=0u;for(int c=0;c<3;c++)if(wcl[c]>=0.5*sw)uclip|=1u<<uint(c);
+    uclip=0u;for(int vc=0;vc<3;vc++)if(wcl[vc]>=0.5*sw)uclip|=1u<<uint(vc);
 #endif
     U/=sw;lvl/=sw;
     // the cover: the effective frames of the weighted mean (unequal weights count less; the plain sum told the noise reduction
@@ -3923,12 +3924,12 @@ bool usAtP(vec2 p,bool inLight,vec4 Tv,vec4 Tv1,vec4 Tm,float c,vec3 lift,out ve
         Uv+=wa*col;Um+=wb*col;sv+=wa;sm+=wb;
         lvl+=(wa+wb)*mxw[j];sww+=(wa+wb)*(wa+wb);
         uclip&=cl;
-        for(int c=0;c<3;c++)if((cl&(1u<<uint(c)))!=0u)wcl[c]+=wa+wb;
+        for(int vc=0;vc<3;vc++)if((cl&(1u<<uint(vc)))!=0u)wcl[vc]+=wa+wb;
     }
     float sw=sv+sm;
     if(sw<1.0e-4){uclip=0u;lvl=0.0;return false;}
 #ifdef US_CLIP_VOTE
-    uclip=0u;for(int c=0;c<3;c++)if(wcl[c]>=0.5*sw)uclip|=1u<<uint(c);
+    uclip=0u;for(int vc=0;vc<3;vc++)if(wcl[vc]>=0.5*sw)uclip|=1u<<uint(vc);
 #endif
     lvl/=sw;
     cover=min(sw*sw/max(sww,1.0e-6),7.9);

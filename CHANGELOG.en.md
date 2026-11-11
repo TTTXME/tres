@@ -2,6 +2,10 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-11 — «Quality» on MediaTek
+
+- MediaTek (Mali): «Quality» works again — a merge shader did not compile on Mali after the previous update.
+
 ## 2026-11-10 — nubia, OnePlus 16, night lights
 
 - nubia: 50 MP on the 0.5x no longer shows a black viewfinder — the camera asks for the full sensor mode and checks that the HAL switched it on; 64 MP on the tele.
