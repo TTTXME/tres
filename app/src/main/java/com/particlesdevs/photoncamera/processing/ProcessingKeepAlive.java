@@ -48,6 +48,20 @@ public final class ProcessingKeepAlive extends Service {
     /** Whether a shot is being captured, waits in the queue or is merged / saved (set by CaptureController). */
     public static volatile BooleanSupplier busy = () -> false;
 
+    /**
+     * P617: {@link #busy} of an {@code owner} without keeping it: {@code ownerBusy} while the owner lives, {@code always} in any
+     * case. CaptureController's own lambda (its instance flags) kept the controller, and with it the camera activity and its views,
+     * for the rest of the process after the activity was destroyed (a static field holds the supplier until the next controller).
+     */
+    public static <T> BooleanSupplier weakly(T owner, java.util.function.Predicate<T> ownerBusy, BooleanSupplier always) {
+        final java.lang.ref.WeakReference<T> ref = new java.lang.ref.WeakReference<>(owner);
+        return () -> {
+            if (always.getAsBoolean()) return true;
+            T o = ref.get();
+            return o != null && ownerBusy.test(o);
+        };
+    }
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
     private long idleSince;

@@ -84,9 +84,10 @@ public class GalleryActivity extends BaseActivity {
             externalUsage = true;
             if (refill) editArgs = editorFor(intent.getData(), intent.getType());
         } else if (refill) {
-            // Normal gallery mode - show all media
-            viewModel.fetchAllMedia();
-            viewModel.setCurrentFolderImages(viewModel.getAllSelectedImageFolder().getValue());
+            // Normal gallery mode - show all media. P617: MediaStore read off the main thread (the window waited for it); the viewer
+            // and the grid fill when the lists arrive
+            GalleryOpenTrace.opened(externalUsage ? "launcher" : "camera");
+            viewModel.loadAsync(() -> viewModel.setCurrentFolderImages(viewModel.getAllSelectedImageFolder().getValue()));
         }
         NavHostFragment host = (NavHostFragment) getSupportFragmentManager().findFragmentById(R.id.gallery_navigation_host);
         if (host != null) startNavigation(host.getNavController(), intent, fresh, editArgs);

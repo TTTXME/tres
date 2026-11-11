@@ -1824,7 +1824,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         this.processExecutor = processExecutor;
         this.paramController = new ParamController(this);
         // P92: the processing foreground service runs while a shot is captured, queued or merged
-        com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy = () -> sScamPending.get() > 0 || nextShotPending() || isProcessing;
+        // P617: held weakly (the static supplier kept this controller and its activity after the activity was destroyed)
+        com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy = com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.weakly(
+                this, CaptureController::nextShotPending, () -> sScamPending.get() > 0 || isProcessing);
 
         this.fillInCameraCharacteristics();
     }

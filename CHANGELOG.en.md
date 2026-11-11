@@ -2,6 +2,13 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-11 — Viewfinder and gallery
+
+- The gallery no longer waits for the whole media library before it opens: the photo list is read in the background, and a second open without new photos reads nothing again.
+- Text search on photos no longer slows the gallery: reading starts a few seconds later, waits while you scroll, while a shot is processed and while the phone is hot, and pauses between photos.
+- A photo whose text reading was cut short is no longer stored as empty — it is read again.
+- Less memory over a long session: opening the viewer no longer leaves a histogram thread and GL context behind each time, text reading frees its memory when done, a closed camera is not kept in memory.
+
 ## 2026-11-11 — «Quality» on MediaTek
 
 - MediaTek (Mali): «Quality» works again — a merge shader did not compile on Mali after the previous update.

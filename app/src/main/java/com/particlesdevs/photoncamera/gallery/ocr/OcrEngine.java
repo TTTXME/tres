@@ -74,18 +74,37 @@ public final class OcrEngine {
     }
 
     private static final Object LOCK = new Object();
-    @Nullable private static TessBaseAPI api;
+    /**
+     * P617: guards {@link #api} against {@link #stop} from another thread: a stop of an engine recycled meanwhile threw
+     * IllegalStateException (TessBaseAPI.stop checks mRecycled), and a recognition a stop cut short is told apart by {@link #stops}.
+     */
+    private static final Object STOP_LOCK = new Object();
+    @Nullable private static volatile TessBaseAPI api;
     @Nullable private static String apiLanguages;
+    /** P617: raised by every {@link #stop}: a recognition that saw it change returns null (cut short, not «no text»). */
+    private static int stops;
+    /**
+     * P617: Tesseract4Android's OpenMP build ran its LSTM on every core at once (8 on the 8 Elite) beside the gallery's thumbnail
+     * decodes; LLVM's OpenMP reads this at its first parallel region in the process, so it is set before the library's first use.
+     */
+    static final int OMP_THREADS = 4;
 
-    /** The models in the app's files (copied from the APK when missing or of another size); the directory holding «tessdata». */
-    static File dataDir(Context c) throws IOException {
+    static {
+        try {
+            android.system.Os.setenv("OMP_THREAD_LIMIT", String.valueOf(OMP_THREADS), false);
+        } catch (Throwable ignored) {
+            // the JVM of the unit tests, or a refused setenv: Tesseract's own thread count
+        }
+    }
+
+    /** The models of {@code languages} ("eng+rus") in the app's files (copied from the APK when missing or of another size). */
+    static File dataDir(Context c, String languages) throws IOException {
         File root = new File(c.getFilesDir(), "ocr");
         File dir = new File(root, "tessdata");
         if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("no " + dir);
-        String[] names = c.getAssets().list(ASSETS);
-        if (names == null) return root;
-        for (String n : names) {
-            if (!n.endsWith(".traineddata")) continue;
+        // P617: only the languages asked for (all twelve models, 26 MB, were copied at the first read and checked at every init)
+        for (String code : modelsOf(languages)) {
+            String n = code + ".traineddata";
             File out = new File(dir, n);
             try (InputStream in = c.getAssets().open(ASSETS + "/" + n)) {
                 long size = in.available();
@@ -101,30 +120,47 @@ public final class OcrEngine {
         return root;
     }
 
+    /** The model names of a Tesseract language string ("eng+rus" -> eng, rus), only the ones the APK has. */
+    static List<String> modelsOf(@Nullable String languages) {
+        List<String> out = new ArrayList<>();
+        if (languages == null) return out;
+        for (String code : languages.split("\\+")) if (LANGUAGES.contains(code) && !out.contains(code)) out.add(code);
+        return out;
+    }
+
     /**
-     * The text of {@code bitmap} in {@code languages} ("eng+rus"); empty when there is none, null on an error. Blocks: call it off
-     * the main thread.
+     * The text of {@code bitmap} in {@code languages} ("eng+rus"); empty when there is none, null on an error or when a
+     * {@link #stop} cut it short. Blocks: call it off the main thread.
      */
     @Nullable
     public static String recognize(Context c, Bitmap bitmap, String languages) {
         synchronized (LOCK) {
             try {
-                if (api == null || !languages.equals(apiLanguages)) {
-                    if (api != null) api.recycle();
-                    api = new TessBaseAPI();
-                    apiLanguages = null;
-                    if (!api.init(dataDir(c.getApplicationContext()).getAbsolutePath(), languages, TessBaseAPI.OEM_LSTM_ONLY)) {
-                        api.recycle();
-                        api = null;
+                TessBaseAPI a = api;
+                if (a == null || !languages.equals(apiLanguages)) {
+                    drop();
+                    a = new TessBaseAPI();
+                    if (!a.init(dataDir(c.getApplicationContext(), languages).getAbsolutePath(), languages, TessBaseAPI.OEM_LSTM_ONLY)) {
+                        a.recycle();
                         Log.w(TAG, "init failed: " + languages);
                         return null;
                     }
                     apiLanguages = languages;
+                    synchronized (STOP_LOCK) {
+                        api = a;
+                    }
                 }
-                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO);
-                api.setImage(bitmap);
-                String text = api.getUTF8Text();
-                api.clear();
+                final int stopsBefore;
+                synchronized (STOP_LOCK) {
+                    stopsBefore = stops;
+                }
+                a.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO);
+                a.setImage(bitmap);
+                String text = a.getUTF8Text();
+                a.clear();
+                synchronized (STOP_LOCK) {
+                    if (stops != stopsBefore) return null; // cut short: its text is partial
+                }
                 return text == null ? "" : clean(text);
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "recognize: " + e);
@@ -133,10 +169,40 @@ public final class OcrEngine {
         }
     }
 
-    /** Stops a recognition in progress (the sheet closed). */
+    /** The engine goes (under LOCK): nulled for {@link #stop} first, then recycled. */
+    private static void drop() {
+        TessBaseAPI a;
+        synchronized (STOP_LOCK) {
+            a = api;
+            api = null;
+        }
+        apiLanguages = null;
+        if (a != null) a.recycle();
+    }
+
+    /**
+     * P617: the engine and its models' native memory freed (the index finished or stopped, the text sheet closed): it stayed for
+     * the rest of the process, beside the camera. Waits for a recognition in progress; the next one starts it again.
+     */
+    public static void release() {
+        synchronized (LOCK) {
+            if (api != null) Log.i(TAG, "engine released");
+            drop();
+        }
+    }
+
+    /** Stops a recognition in progress (the sheet closed, the index stopped); safe from any thread. */
     public static void stop() {
-        TessBaseAPI a = api;
-        if (a != null) a.stop();
+        synchronized (STOP_LOCK) {
+            stops++;
+            TessBaseAPI a = api;
+            if (a == null) return;
+            try {
+                a.stop();
+            } catch (RuntimeException e) {
+                Log.w(TAG, "stop: " + e);
+            }
+        }
     }
 
     /** Tesseract's text without the stray one-letter lines of noise; runs of empty lines become one paragraph break. */

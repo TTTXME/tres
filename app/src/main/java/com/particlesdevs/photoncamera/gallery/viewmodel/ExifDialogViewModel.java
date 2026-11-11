@@ -100,6 +100,10 @@ public class ExifDialogViewModel extends AndroidViewModel {
     protected void onCleared() {
         super.onCleared();
         exifExecutor.shutdownNow();
+        // P617: the histogram's thread and GL context went with the process, one more for every viewer opened
+        if (histoRunnable != null) histoHandler.removeCallbacks(histoRunnable);
+        if (histogramWorker != null) histogramWorker.release();
+        histogramWorker = null;
     }
 
     private Runnable read(ContentResolver contentResolver, MediaFile imageFile) {

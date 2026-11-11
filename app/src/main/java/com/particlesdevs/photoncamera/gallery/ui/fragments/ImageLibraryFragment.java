@@ -201,6 +201,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 updateRange();
+                com.particlesdevs.photoncamera.gallery.ocr.OcrIndex.touch(); // P617: the text index waits while the grid moves
             }
         });
 
@@ -324,26 +325,41 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         viewModel.getUpdatePending().observe(getViewLifecycleOwner(), pending -> {
             if (pending) {
                 // the chip's folder read again (ALL when it is gone): the grid and the viewer then show the same list (the grid kept
-                // the old folder while the viewer got ALL, so a tap opened another photo)
+                // the old folder while the viewer got ALL, so a tap opened another photo). P617: MediaStore is read on the loader
+                // thread; the lists are set (and the rest done) when it is back, if this view is still there
+                viewModel.setUpdatePending(false);
+                final View shown = getView();
                 if (albumTitle != null && albumFolder != null) {
                     // an open album read again: its folder's new list (a delete, a restore)
-                    viewModel.fetchAllMedia();
-                    buildAlbums();
-                    GalleryItem again = findAlbum(albumTitle);
-                    if (again != null) {
-                        albumFolder = again;
-                        viewModel.setCurrentFolderImages(again);
-                    }
+                    viewModel.loadAsync(() -> {
+                        if (getView() != shown || shown == null) return;
+                        buildAlbums();
+                        GalleryItem again = albumTitle != null ? findAlbum(albumTitle) : null;
+                        if (again != null) {
+                            albumFolder = again;
+                            viewModel.setCurrentFolderImages(again);
+                        }
+                        afterRefresh();
+                    });
                 } else if (tab == GalleryTabBar.PHOTOS || tab == GalleryTabBar.ALBUMS) {
-                    activeFolder = viewModel.refreshKeeping("ALL");
-                } else viewModel.fetchAllMedia();
-                refreshFilterChip();
-                if (search != null) search.refresh();
-                loadTrashCount();
-                viewModel.setUpdatePending(false);
+                    viewModel.refreshKeepingAsync("ALL", name -> {
+                        if (getView() != shown || shown == null) return;
+                        activeFolder = name;
+                        afterRefresh();
+                    });
+                } else viewModel.loadAsync(() -> {
+                    if (getView() == shown && shown != null) afterRefresh();
+                });
             }
         });
         refreshFilterChip();
+    }
+
+    /** After the media lists were read again (a delete, a restore, a folders change). */
+    private void afterRefresh() {
+        refreshFilterChip();
+        if (search != null) search.refresh();
+        loadTrashCount();
     }
 
     /**
@@ -372,12 +388,28 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         }
         if (!items.isEmpty()) firstFill = false;
         adapter.setItems(items);
+        traceFirstFrame(items.size());
+        com.particlesdevs.photoncamera.gallery.ocr.OcrIndex.touch(); // P617: the new list's thumbnails load first
         empty.setText(filtered() ? Lang.t("Нет снимков по этому фильтру", "No photos match this filter")
                 : GalleryView.FAVOURITES.equals(activeFolder) ? Lang.t("В избранном пока пусто: сердце в просмотре добавляет снимок",
                 "No favourites yet: the heart in the viewer adds a photo") : Lang.t("В этой папке пока нет снимков", "No photos in this folder yet"));
         empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         onSelectionChanged();
         if (grid != null) grid.post(this::updateRange);
+    }
+
+    /** P617: the grid's first frame with photos in the log (GalleryOpenTrace, once per gallery open). */
+    private void traceFirstFrame(int items) {
+        if (grid == null || items <= 0) return;
+        final RecyclerView g = grid;
+        g.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (g.getViewTreeObserver().isAlive()) g.getViewTreeObserver().removeOnPreDrawListener(this);
+                com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.gridFrame(items);
+                return true;
+            }
+        });
     }
 
     private boolean filtered() {
@@ -518,6 +550,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
     private void buildAlbums() {
         Context c = getContext();
         if (c == null) return;
+        final long t0 = android.os.SystemClock.uptimeMillis();
         List<GalleryItem> all = new ArrayList<>();
         List<GalleryItem> camera = new ArrayList<>(), shots = new ArrayList<>(), records = new ArrayList<>();
         List<AlbumsPage.Album> others = new ArrayList<>();
@@ -569,6 +602,8 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         albumList = others;
         typeAlbums = types;
         if (albums != null) albums.bind(frequent, others, types, trashCount);
+        long ms = android.os.SystemClock.uptimeMillis() - t0;
+        if (ms >= 20) com.particlesdevs.photoncamera.util.Log.i("GalleryOpen", "albums built in " + ms + " ms over " + all.size() + " files (main thread)");
     }
 
     private static List<GalleryItem> sorted(List<GalleryItem> items) {

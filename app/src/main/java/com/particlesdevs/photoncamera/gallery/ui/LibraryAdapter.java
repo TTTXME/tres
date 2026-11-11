@@ -78,6 +78,25 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         return t;
     });
 
+    /** P617: the gallery open's first thumbnails in the log (GalleryOpenTrace); no state of its own. */
+    private static final com.bumptech.glide.request.RequestListener<android.graphics.Bitmap> THUMB_TRACE =
+            new com.bumptech.glide.request.RequestListener<android.graphics.Bitmap>() {
+                @Override
+                public boolean onLoadFailed(@androidx.annotation.Nullable com.bumptech.glide.load.engine.GlideException e, @androidx.annotation.Nullable Object model,
+                                            @androidx.annotation.NonNull com.bumptech.glide.request.target.Target<android.graphics.Bitmap> target, boolean isFirstResource) {
+                    return false;
+                }
+
+                @Override
+                public boolean onResourceReady(@androidx.annotation.NonNull android.graphics.Bitmap resource, @androidx.annotation.NonNull Object model,
+                                               com.bumptech.glide.request.target.Target<android.graphics.Bitmap> target,
+                                               @androidx.annotation.NonNull com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                    GalleryOpenTrace.thumbReady(dataSource == com.bumptech.glide.load.DataSource.MEMORY_CACHE,
+                            dataSource == com.bumptech.glide.load.DataSource.RESOURCE_DISK_CACHE || dataSource == com.bumptech.glide.load.DataSource.DATA_DISK_CACHE);
+                    return false;
+                }
+            };
+
     private final Host host;
     private List<GalleryItem> items = new ArrayList<>();
     private final List<Row> rows = new ArrayList<>();
@@ -395,15 +414,16 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
                 Glide.with(image).clear(image);
                 return;
             }
-            Glide.with(image)
+            com.bumptech.glide.RequestBuilder<android.graphics.Bitmap> request = Glide.with(image)
                     .asBitmap()
                     .load(uri)
                     .apply(new RequestOptions()
                             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                             .signature(GalleryKeys.of(it.getFile()))
                             .override(thumbPx, thumbPx)
-                            .centerCrop())
-                    .into(image);
+                            .centerCrop());
+            if (GalleryOpenTrace.countingThumbs()) request = request.listener(THUMB_TRACE); // P617: the first screen's timing
+            request.into(image);
         }
 
         private void probe(Context c, Uri uri) {

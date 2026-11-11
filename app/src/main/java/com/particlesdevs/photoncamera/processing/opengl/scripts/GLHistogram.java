@@ -34,10 +34,14 @@ public class GLHistogram implements AutoCloseable{
     public float[] customKernel;
     public GLHistogram(int size) {
         this(new GLContext(1,1),size);
+        ownContext = true;
     }
     public GLHistogram() {
         this(new GLContext(1,1),256);
+        ownContext = true;
     }
+    /** P617: the context was made here (the gallery's histogram): {@link #close} ends it too (its EGL context was never destroyed). */
+    private boolean ownContext;
     public GLHistogram(GLContext context) {
         this(context,256);
     }
@@ -128,6 +132,10 @@ public class GLHistogram implements AutoCloseable{
             if (buffer != null) {
                 buffer.close();
             }
+        }
+        if (ownContext && context != null) {
+            context.close();
+            context = null;
         }
     }
 }

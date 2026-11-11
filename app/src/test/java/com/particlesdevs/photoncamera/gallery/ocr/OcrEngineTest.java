@@ -26,6 +26,14 @@ public class OcrEngineTest {
     }
 
     @Test
+    public void onlyTheModelsAskedForAreCopied() {
+        assertEquals(java.util.Arrays.asList("eng", "rus"), OcrEngine.modelsOf("eng+rus"));
+        assertEquals(java.util.Arrays.asList("chi_sim", "eng"), OcrEngine.modelsOf("chi_sim+eng+eng"));
+        assertEquals("no model of its own in the APK", java.util.Collections.singletonList("eng"), OcrEngine.modelsOf("eng+xxx"));
+        assertTrue(OcrEngine.modelsOf(null).isEmpty());
+    }
+
+    @Test
     public void indexReadsDecodablePhotosOnly() {
         assertTrue(OcrIndex.indexable("IMG_1.JPG"));
         assertTrue(OcrIndex.indexable("a.heic"));

@@ -133,6 +133,7 @@ public final class TextSheet {
         d.setOnDismissListener(x -> {
             run[0]++;
             OcrEngine.stop();
+            IO.execute(OcrIndex::releaseEngineIfIdle); // P617: the engine's native memory goes with the sheet (after its read)
         });
         read[0].run();
     }

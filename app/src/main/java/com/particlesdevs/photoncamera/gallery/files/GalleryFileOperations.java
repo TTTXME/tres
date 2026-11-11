@@ -37,16 +37,18 @@ public class GalleryFileOperations {
     private static final ArrayList<ImagesFolder> ALL_FOLDERS = new ArrayList<>();
     private static final ArrayList<ImagesFolder> SELECTED_FOLDERS = new ArrayList<>();
 
-    public static ArrayList<ImagesFolder> getSelectedFolders() {
-        return SELECTED_FOLDERS;
+    /** The selected folders of the last scan, a copy (P617: the folder lists are filled on the gallery's loader thread). */
+    public static synchronized ArrayList<ImagesFolder> getSelectedFolders() {
+        return new ArrayList<>(SELECTED_FOLDERS);
     }
 
     /** P502: every folder with photos or videos found by the last scan (the «Альбомы» page), a copy. */
-    public static ArrayList<ImagesFolder> getAllFolders() {
+    public static synchronized ArrayList<ImagesFolder> getAllFolders() {
         return new ArrayList<>(ALL_FOLDERS);
     }
 
-    public static ArrayList<ImagesFolder> _fetchSelectedFolders(ContentResolver contentResolver) {
+    /** The scan ({@link #FindAllFoldersWithImages}) and the folders chosen in the gallery's settings, a copy. */
+    public static synchronized ArrayList<ImagesFolder> _fetchSelectedFolders(ContentResolver contentResolver) {
         FindAllFoldersWithImages(contentResolver);
         SELECTED_FOLDERS_IDS.clear();
         SELECTED_FOLDERS.clear();
@@ -65,10 +67,10 @@ public class GalleryFileOperations {
             }
         }));
         SELECTED_FOLDERS.sort(Comparator.comparing(o -> o.folderName));
-        return SELECTED_FOLDERS;
+        return new ArrayList<>(SELECTED_FOLDERS);
     }
 
-    public static List<ImageFile> extractAllSelectedImages() {
+    public static synchronized List<ImageFile> extractAllSelectedImages() {
         ArrayList<ImageFile> imageFiles = new ArrayList<>();
         SELECTED_FOLDERS.forEach(imagesFolder -> imageFiles.addAll(imagesFolder.getAllImageFiles()));
 /*
@@ -249,99 +251,138 @@ public class GalleryFileOperations {
         }
     }
 
-    public static ArrayList<ImagesFolder> FindAllFoldersWithImages(@NonNull ContentResolver contentResolver) {
-
-        ALL_FOLDERS.clear();
-        boolean is_folder_already_added = false;
-        int position = 0;
-        int column_index_data, column_bucket_name,column_bucket_id,column_id,column_date_modified,column_display_name,column_size;
-        Uri uri;
-        uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-
-        String[] projection = {MediaStore.MediaColumns.DATA, MediaStore.Images.Media.BUCKET_DISPLAY_NAME, MediaStore.Images.Media.BUCKET_ID,MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.DATE_ADDED, MediaStore.Images.Media.SIZE};
-
-        final String orderBy = MediaStore.Images.Media.DATE_TAKEN;
-        final Cursor cursor = contentResolver.query(uri, projection, null, null, orderBy + " DESC");
-        if (cursor != null) {
-            column_index_data = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA);
-            column_bucket_name = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME);
-            column_bucket_id = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID);
-            column_id = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
-            column_date_modified = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED);
-            column_display_name = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
-            column_size = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE);
-
-            while (cursor.moveToNext()) {
-                long id = cursor.getLong(column_id);
-                String displayName = cursor.getString(column_display_name);
-                Uri contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-                long dateModified = TimeUnit.SECONDS.toMillis(cursor.getLong(column_date_modified));
-                long size = cursor.getLong(column_size);
-                String absolutePathOfImage = cursor.getString(column_index_data);
-                long bucketId = cursor.getLong(column_bucket_id);
-                String bucketName = cursor.getString(column_bucket_name);
-
-
-//                Log.i("Path", absolutePathOfImage);
-//                Log.i("Folder", bucketName);
-//                Log.i("FolderID", String.valueOf(bucketId));
-                if (bucketName == null) {
-                    continue;
-                }
-                for (int i = 0; i < ALL_FOLDERS.size(); i++) {
-                    String fname = ALL_FOLDERS.get(i).getFolderName();
-                    if (fname == null){
-                        ALL_FOLDERS.remove(i);
-                        i--;
-                        continue;
-                    }
-
-                    if (fname.equals(bucketName)) {
-                        is_folder_already_added = true;
-                        position = i;
-                        break;
-                    } else {
-                        is_folder_already_added = false;
-                    }
-                }
-
-                if (is_folder_already_added) {
-                    ALL_FOLDERS.get(position).getAllImageFiles().add(new ImageFile(id, contentUri, displayName, dateModified, size, absolutePathOfImage));
-                } else {
-                    ArrayList<ImageFile> imageFileList = new ArrayList<>();
-                    imageFileList.add(new ImageFile(id, contentUri, displayName, dateModified, size, absolutePathOfImage));
-
-                    ImagesFolder newFolder = new ImagesFolder();
-                    newFolder.setFolderName(bucketName);
-                    newFolder.setFolderId(bucketId);
-                    newFolder.setAllImageFiles(imageFileList);
-                    ALL_FOLDERS.add(newFolder);
+    /**
+     * Every folder with photos, RAWs or videos (MediaStore), newest file first in each, folders by name.
+     * <p>
+     * P617 (owner, 2026-11-11: «иногда очень долго открывается галерея», ~9000 photos): the scan ran on the main thread at each
+     * gallery start (three queries: the images, a 41-pattern LIKE over the whole Files table for other RAWs, the videos) and put
+     * each row into its folder by a linear search of the folders. Now: one lock for the folder lists (the scan runs on the
+     * gallery's loader thread, {@link com.particlesdevs.photoncamera.gallery.viewmodel.GalleryViewModel#loadAsync}), a map by
+     * folder name, and the last scan reused while MediaStore's content is unchanged ({@link #mediaKey}: each external volume's
+     * version and generation, Android 11+). Each scan logs its time («GalleryMedia: scan ...»).
+     */
+    public static synchronized ArrayList<ImagesFolder> FindAllFoldersWithImages(@NonNull ContentResolver contentResolver) {
+        final android.content.Context app = com.particlesdevs.photoncamera.app.ScameraApp.getAppContext();
+        final String key = mediaKey(app);
+        if (reusable(lastScanKey, key, !ALL_FOLDERS.isEmpty())) {
+            Log.i(SCAN_TAG, "scan: MediaStore unchanged since the last scan, " + ALL_FOLDERS.size() + " folders reused");
+            return new ArrayList<>(ALL_FOLDERS);
+        }
+        lastScanKey = null;
+        final long t0 = android.os.SystemClock.uptimeMillis();
+        Folders folders = new Folders();
+        int imageRows = 0;
+        Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        String[] projection = {MediaStore.MediaColumns.DATA, MediaStore.Images.Media.BUCKET_DISPLAY_NAME, MediaStore.Images.Media.BUCKET_ID,
+                MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.DATE_ADDED, MediaStore.Images.Media.SIZE};
+        try (Cursor cursor = contentResolver.query(uri, projection, null, null, MediaStore.Images.Media.DATE_TAKEN + " DESC")) {
+            if (cursor != null) {
+                int columnData = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA);
+                int columnBucketName = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME);
+                int columnBucketId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID);
+                int columnId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+                int columnDate = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED);
+                int columnName = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
+                int columnSize = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE);
+                while (cursor.moveToNext()) {
+                    String bucketName = cursor.getString(columnBucketName);
+                    if (bucketName == null) continue;
+                    long id = cursor.getLong(columnId);
+                    folders.add(bucketName, cursor.getLong(columnBucketId), new ImageFile(id, ContentUris.withAppendedId(uri, id),
+                            cursor.getString(columnName), TimeUnit.SECONDS.toMillis(cursor.getLong(columnDate)), cursor.getLong(columnSize),
+                            cursor.getString(columnData)));
+                    imageRows++;
                 }
             }
-            cursor.close();
         }
-        appendOtherRawFiles(contentResolver);
-        appendVideos(contentResolver);
-        //find latest image:
-        ALL_FOLDERS.forEach(imagesFolder -> {
-            imagesFolder.getAllImageFiles().sort(Comparator.comparingLong(value -> -value.getLastModified()));
-            imagesFolder.topImage = imagesFolder.getAllImageFiles().get(0);
-        });
-        ALL_FOLDERS.sort(Comparator.comparing(o -> o.folderName));
-        return ALL_FOLDERS;
+        final long t1 = android.os.SystemClock.uptimeMillis();
+        int rawRows = appendOtherRawFiles(contentResolver, folders);
+        final long t2 = android.os.SystemClock.uptimeMillis();
+        int videoRows = appendVideos(contentResolver, folders);
+        final long t3 = android.os.SystemClock.uptimeMillis();
+        ALL_FOLDERS.clear();
+        ALL_FOLDERS.addAll(folders.finish());
+        lastScanKey = key;
+        Log.i(SCAN_TAG, "scan: images " + imageRows + " rows " + (t1 - t0) + " ms, other RAW " + rawRows + " rows " + (t2 - t1)
+                + " ms, videos " + videoRows + " rows " + (t3 - t2) + " ms, " + ALL_FOLDERS.size() + " folders, total "
+                + (android.os.SystemClock.uptimeMillis() - t0) + " ms on " + Thread.currentThread().getName()
+                + (key == null ? " (no MediaStore generation: every open scans)" : ""));
+        return new ArrayList<>(ALL_FOLDERS);
+    }
+
+    private static final String SCAN_TAG = "GalleryMedia";
+    /** P617: {@link #mediaKey} at the last complete scan, null: none (or unknown). */
+    @Nullable private static String lastScanKey;
+
+    /** P617: the last scan stands when MediaStore's key is known and the same, and the scan found something. */
+    static boolean reusable(@Nullable String last, @Nullable String now, boolean haveFolders) {
+        return haveFolders && now != null && now.equals(last);
+    }
+
+    /**
+     * P617: MediaStore's content now: each external volume's name, version and generation (any insert, update, trash or delete
+     * raises the generation); null before Android 11 or when unknown.
+     */
+    @Nullable
+    static String mediaKey(@Nullable android.content.Context c) {
+        if (c == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null;
+        try {
+            StringBuilder k = new StringBuilder();
+            for (String v : new java.util.TreeSet<>(MediaStore.getExternalVolumeNames(c)))
+                k.append(v).append(':').append(MediaStore.getVersion(c, v)).append(':').append(MediaStore.getGeneration(c, v)).append(';');
+            return k.length() > 0 ? k.toString() : null;
+        } catch (RuntimeException e) {
+            Log.w(SCAN_TAG, "MediaStore generation: " + e);
+            return null;
+        }
+    }
+
+    /** P617: the scan's folders by name (a map, not a search of the list for every row). */
+    static final class Folders {
+        private final java.util.LinkedHashMap<String, ImagesFolder> byName = new java.util.LinkedHashMap<>();
+        private final java.util.Set<Long> ids = new java.util.HashSet<>();
+
+        void add(String bucket, long bucketId, ImageFile file) {
+            ImagesFolder folder = byName.get(bucket);
+            if (folder == null) {
+                folder = new ImagesFolder();
+                folder.setFolderName(bucket);
+                folder.setFolderId(bucketId);
+                folder.setAllImageFiles(new ArrayList<>());
+                byName.put(bucket, folder);
+            }
+            folder.getAllImageFiles().add(file);
+            ids.add(file.getId());
+        }
+
+        boolean has(long id) {
+            return ids.contains(id);
+        }
+
+        /** The folders: each newest first with its top image, the folders by name. */
+        ArrayList<ImagesFolder> finish() {
+            ArrayList<ImagesFolder> out = new ArrayList<>(byName.values());
+            for (ImagesFolder f : out) {
+                f.getAllImageFiles().sort(Comparator.comparingLong(value -> -value.getLastModified()));
+                f.topImage = f.getAllImageFiles().get(0);
+            }
+            out.sort(Comparator.comparing(o -> o.folderName));
+            return out;
+        }
     }
 
     /**
      * P498 (owner, 2026-11-04: «Наша галерея ещё не умеет в видео, добавь поддержку воспроизведения и обнаружения»): the videos of
      * MediaStore's video collection, into the folders of their bucket (a camera's videos sit beside its photos), their length kept
-     * (GalleryVideo). Without the video permission the query sees only this app's own videos, or none.
+     * (GalleryVideo). Without the video permission the query sees only this app's own videos, or none. Returns the rows added.
      */
-    static void appendVideos(@NonNull ContentResolver resolver) {
+    static int appendVideos(@NonNull ContentResolver resolver, Folders folders) {
         String[] projection = {MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DATE_ADDED,
                 MediaStore.Video.Media.SIZE, MediaStore.MediaColumns.DATA, MediaStore.Video.Media.BUCKET_ID,
                 MediaStore.Video.Media.BUCKET_DISPLAY_NAME, MediaStore.Video.Media.DURATION};
+        int n = 0;
         try (Cursor c = resolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, projection, null, null, null)) {
-            if (c == null) return;
+            if (c == null) return 0;
             while (c.moveToNext()) {
                 long id = c.getLong(0);
                 String bucket = c.getString(6);
@@ -349,31 +390,23 @@ public class GalleryFileOperations {
                 ImageFile file = new ImageFile(id, ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id), c.getString(1),
                         TimeUnit.SECONDS.toMillis(c.getLong(2)), c.getLong(3), c.getString(4));
                 GalleryVideo.remember(id, c.getLong(7));
-                ImagesFolder folder = null;
-                for (ImagesFolder f : ALL_FOLDERS) if (bucket.equals(f.getFolderName())) folder = f;
-                if (folder == null) {
-                    folder = new ImagesFolder();
-                    folder.setFolderName(bucket);
-                    folder.setFolderId(c.getLong(5));
-                    folder.setAllImageFiles(new ArrayList<>());
-                    ALL_FOLDERS.add(folder);
-                }
-                folder.getAllImageFiles().add(file);
+                folders.add(bucket, c.getLong(5), file);
+                n++;
             }
         } catch (RuntimeException e) {
             Log.w("GalleryFileOperations", "video query: " + e);
         }
+        return n;
     }
 
     /**
      * P352 (owner, 2026-10-26: «галерея должна работать с любыми Рав форматами»): camera RAWs MediaStore does not file as images
      * (CR3, 3FR, IIQ, MRW, X3F... as application/octet-stream or without a type) from the Files collection, by extension, into
-     * the folders of their bucket. Android 10+ (the bucket columns of Files); only what this app may see there.
+     * the folders of their bucket. Android 10+ (the bucket columns of Files); only what this app may see there. Returns the rows
+     * added.
      */
-    static void appendOtherRawFiles(@NonNull ContentResolver resolver) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
-        java.util.Set<Long> known = new java.util.HashSet<>();
-        for (ImagesFolder f : ALL_FOLDERS) for (ImageFile i : f.getAllImageFiles()) known.add(i.getId());
+    static int appendOtherRawFiles(@NonNull ContentResolver resolver, Folders folders) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0;
         StringBuilder sel = new StringBuilder(MediaStore.Files.FileColumns.MEDIA_TYPE + " != " + MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE + " AND (");
         List<String> args = new ArrayList<>();
         for (String ext : com.particlesdevs.photoncamera.gallery.raw.RawFormats.EXTENSIONS) {
@@ -386,28 +419,22 @@ public class GalleryFileOperations {
                 MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.BUCKET_ID,
                 MediaStore.MediaColumns.BUCKET_DISPLAY_NAME};
         Uri files = MediaStore.Files.getContentUri("external");
+        int n = 0;
         try (Cursor c = resolver.query(files, projection, sel.toString(), args.toArray(new String[0]), null)) {
-            if (c == null) return;
+            if (c == null) return 0;
             while (c.moveToNext()) {
                 long id = c.getLong(0);
                 String bucket = c.getString(6);
-                if (known.contains(id) || bucket == null) continue;
-                ImageFile file = new ImageFile(id, ContentUris.withAppendedId(files, id), c.getString(1),
-                        TimeUnit.SECONDS.toMillis(c.getLong(2)), c.getLong(3), c.getString(4));
-                ImagesFolder folder = null;
-                for (ImagesFolder f : ALL_FOLDERS) if (bucket.equals(f.getFolderName())) folder = f;
-                if (folder == null) {
-                    folder = new ImagesFolder();
-                    folder.setFolderName(bucket);
-                    folder.setFolderId(c.getLong(5));
-                    folder.setAllImageFiles(new ArrayList<>());
-                    ALL_FOLDERS.add(folder);
-                }
-                folder.getAllImageFiles().add(file);
+                if (folders.has(id) || bucket == null) continue;
+                folders.add(bucket, c.getLong(5), new ImageFile(id, ContentUris.withAppendedId(files, id), c.getString(1),
+                        TimeUnit.SECONDS.toMillis(c.getLong(2)), c.getLong(3), c.getString(4)));
+                n++;
             }
         } catch (RuntimeException e) {
             Log.w("GalleryFileOperations", "RAW files query: " + e);
         }
+        return n;
     }
 
 }
+

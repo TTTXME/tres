@@ -18,9 +18,11 @@ import java.util.stream.Collectors;
 
 public class GalleryViewModel extends AndroidViewModel {
     private final MutableLiveData<GalleryItem> allSelectedImagesFolder = new MutableLiveData<>(GalleryItem.createEmpty());
-    private final MutableLiveData<List<GalleryItem>> selectedDisplayFolders = new MutableLiveData<>(new ArrayList<>(0));
+    // P617: no value until the first read (the lists come from the loader thread now): an empty list first sent the viewer
+    // opened from the camera on to the grid («nothing to show») before the photos were listed
+    private final MutableLiveData<List<GalleryItem>> selectedDisplayFolders = new MutableLiveData<>();
 
-    private final MutableLiveData<List<GalleryItem>> currentFolderImages = new MutableLiveData<>(new ArrayList<>(0));
+    private final MutableLiveData<List<GalleryItem>> currentFolderImages = new MutableLiveData<>();
     private final MutableLiveData<Boolean> updatePendingLiveData=new MutableLiveData<>(false);
 
 
@@ -36,26 +38,46 @@ public class GalleryViewModel extends AndroidViewModel {
         super(application);
     }
 
+    /** The media lists read now (on the calling thread) and set. */
     public void fetchAllMedia() {
-        List<GalleryItem> allFolders=GalleryFileOperations._fetchSelectedFolders(getApplication().getContentResolver()).stream().map((Function<GalleryFileOperations.ImagesFolder, GalleryItem>) imagesFolder -> {
-            GalleryItem folder = new GalleryItem(imagesFolder.getTopImage());
-            imagesFolder.getAllImageFiles().forEach(imageFile -> folder.getFiles().add(new GalleryItem(imageFile)));
-            folder.setDisplayName(imagesFolder.getFolderName());
-            return folder;
-        }).collect(Collectors.toList());
-        
-        ArrayList<ImageFile> all = (ArrayList<ImageFile>) GalleryFileOperations.extractAllSelectedImages();
-        if (!all.isEmpty()) {
-            GalleryItem ALL_Folder = new GalleryItem(all.get(0));
-            ALL_Folder.setDisplayName("ALL");
-            ALL_Folder.getFiles().addAll(all.stream().map(GalleryItem::new).collect(Collectors.toList()));
-            allSelectedImagesFolder.setValue(ALL_Folder);
+        loadSeq++; // a load still running is older than this
+        publish(read());
+    }
 
-            allFolders.add(0, ALL_Folder);
+    /** P617: what one read of MediaStore gives: the chips' folders («ALL» and «Избранное» first) and «ALL». */
+    static final class Media {
+        final List<GalleryItem> folders;
+        final GalleryItem all;
+
+        Media(List<GalleryItem> folders, GalleryItem all) {
+            this.folders = folders;
+            this.all = all;
+        }
+    }
+
+    /** The selected folders, «ALL» and «Избранное» from MediaStore; any thread (the folder lists are one lock). */
+    Media read() {
+        List<GalleryItem> allFolders;
+        ArrayList<ImageFile> all;
+        synchronized (GalleryFileOperations.class) {
+            allFolders = GalleryFileOperations._fetchSelectedFolders(getApplication().getContentResolver()).stream().map((Function<GalleryFileOperations.ImagesFolder, GalleryItem>) imagesFolder -> {
+                GalleryItem folder = new GalleryItem(imagesFolder.getTopImage());
+                imagesFolder.getAllImageFiles().forEach(imageFile -> folder.getFiles().add(new GalleryItem(imageFile)));
+                folder.setDisplayName(imagesFolder.getFolderName());
+                return folder;
+            }).collect(Collectors.toList());
+            all = (ArrayList<ImageFile>) GalleryFileOperations.extractAllSelectedImages();
+        }
+        GalleryItem allFolder;
+        if (!all.isEmpty()) {
+            allFolder = new GalleryItem(all.get(0));
+            allFolder.setDisplayName("ALL");
+            allFolder.getFiles().addAll(all.stream().map(GalleryItem::new).collect(Collectors.toList()));
+            allFolders.add(0, allFolder);
             // P498: «Избранное» after «Все» when there are favourites
             java.util.Set<String> fav = com.particlesdevs.photoncamera.gallery.model.GalleryView.favourites(getApplication());
             List<GalleryItem> favs = new ArrayList<>();
-            for (GalleryItem i : ALL_Folder.getFiles()) if (fav.contains(com.particlesdevs.photoncamera.gallery.model.GalleryView.key(i.getFile()))) favs.add(i);
+            for (GalleryItem i : allFolder.getFiles()) if (fav.contains(com.particlesdevs.photoncamera.gallery.model.GalleryView.key(i.getFile()))) favs.add(i);
             if (!favs.isEmpty()) {
                 GalleryItem favourites = new GalleryItem(favs.get(0).getFile());
                 favourites.setDisplayName(com.particlesdevs.photoncamera.gallery.model.GalleryView.FAVOURITES);
@@ -64,11 +86,64 @@ public class GalleryViewModel extends AndroidViewModel {
             }
         } else {
             // every selected folder is empty: no stale «ALL» (its deleted photos came back in the grid and the viewer)
-            GalleryItem none = GalleryItem.createEmpty();
-            none.setDisplayName("ALL");
-            allSelectedImagesFolder.setValue(none);
+            allFolder = GalleryItem.createEmpty();
+            allFolder.setDisplayName("ALL");
         }
-        selectedDisplayFolders.setValue(allFolders);
+        return new Media(allFolders, allFolder);
+    }
+
+    private static Media empty() {
+        GalleryItem none = GalleryItem.createEmpty();
+        none.setDisplayName("ALL");
+        return new Media(new ArrayList<>(), none);
+    }
+
+    /** On the main thread: the lists of {@code m} for the chips, the grid and the viewer. */
+    private void publish(Media m) {
+        allSelectedImagesFolder.setValue(m.all);
+        selectedDisplayFolders.setValue(m.folders);
+    }
+
+    /**
+     * P617 (owner, 2026-11-11: «иногда очень долго открывается галерея», ~9000 photos): MediaStore read on the gallery's loader
+     * thread instead of the main one (the window and its first frame waited for three queries over the whole library), the lists
+     * set on the main thread, then {@code then}. A later load or {@link #fetchAllMedia} wins over an older one still running (its
+     * lists are not set; {@code then} still runs).
+     */
+    public void loadAsync(@androidx.annotation.Nullable Runnable then) {
+        final int seq = ++loadSeq;
+        final long t0 = android.os.SystemClock.uptimeMillis();
+        LOADER.execute(() -> {
+            Media m = null;
+            try {
+                m = read();
+            } catch (RuntimeException | LinkageError | OutOfMemoryError e) {
+                // the main thread's read threw out of the activity; here the gallery shows its empty state and the log says why
+                com.particlesdevs.photoncamera.util.Log.w("GalleryMedia", "load: " + e);
+            }
+            final Media read = m;
+            final long readMs = android.os.SystemClock.uptimeMillis() - t0;
+            main.post(() -> {
+                if (seq == loadSeq) publish(read != null ? read : empty()); // a failed read: the gallery's empty state, not a crash
+                com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.listed(read != null ? read.all.getFiles().size() : -1, readMs);
+                if (then != null) then.run();
+            });
+        });
+    }
+
+    /** P617: the gallery's MediaStore reads, one at a time, off the main thread. */
+    private static final java.util.concurrent.ExecutorService LOADER = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "GalleryMedia");
+        t.setDaemon(true);
+        return t;
+    });
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    /** The newest load (main thread). */
+    private int loadSeq;
+
+    /** P617: {@link #refreshKeeping} with MediaStore read on the loader thread; {@code done} gets its result on the main thread. */
+    public void refreshKeepingAsync(@androidx.annotation.Nullable String keep, java.util.function.Consumer<String> done) {
+        loadAsync(() -> done.accept(showKeeping(keep)));
     }
 
     /**
@@ -79,6 +154,12 @@ public class GalleryViewModel extends AndroidViewModel {
     @androidx.annotation.Nullable
     public String refreshKeeping(@androidx.annotation.Nullable String keep) {
         fetchAllMedia();
+        return showKeeping(keep);
+    }
+
+    /** The folder named {@code keep} of the lists read last shown («ALL» when it is gone); the name shown, null without folders. */
+    @androidx.annotation.Nullable
+    private String showKeeping(@androidx.annotation.Nullable String keep) {
         List<GalleryItem> folders = selectedDisplayFolders.getValue();
         GalleryItem shown = null;
         if (folders != null && keep != null) for (GalleryItem f : folders) if (keep.equals(f.getDisplayName())) shown = f;

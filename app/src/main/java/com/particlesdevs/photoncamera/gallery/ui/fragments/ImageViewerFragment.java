@@ -464,6 +464,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         adapter.setImageEventListener(new SubsamplingScaleImageView.DefaultOnImageEventListener() {
             @Override
             public void onReady() {
+                com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.viewerReady(); // P617: once per gallery open
                 CustomSSIV page = getCurrentSSIV();
                 if (page != null) {
                     page.setDoubleTapZoomScale(page.getMinScale() * 2.5f);

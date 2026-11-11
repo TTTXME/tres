@@ -75,6 +75,40 @@ public class GalleryViewModelTest {
         files.close();
     }
 
+    /** Runs the main looper until {@code done} (the loader thread posts its lists there). */
+    private static void waitFor(java.util.function.BooleanSupplier done) throws InterruptedException {
+        for (int i = 0; i < 500 && !done.getAsBoolean(); i++) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            Thread.sleep(10);
+        }
+        assertTrue("the load came back", done.getAsBoolean());
+    }
+
+    @Test
+    public void noListBeforeTheFirstReadThenTheLoaderSetsThem() throws InterruptedException {
+        // P617: the viewer opened from the camera observes this before MediaStore is read: an empty list sent it to the grid
+        assertNull(vm.getCurrentFolderImages().getValue());
+        assertNull(vm.getSelectedDisplayFolders().getValue());
+        final boolean[] ran = {false};
+        // the loader thread reads the real (here empty) MediaStore; the lists are set on the main thread before «then»
+        vm.loadAsync(() -> {
+            ran[0] = true;
+            assertEquals("ALL", vm.getAllSelectedImageFolder().getValue().getDisplayName());
+            assertTrue(vm.getSelectedDisplayFolders().getValue() != null);
+        });
+        waitFor(() -> ran[0]);
+    }
+
+    @Test
+    public void aNewerReadWinsOverAnOlderLoad() throws InterruptedException {
+        store(folder("Camera", photo(1, "a.jpg"), photo(2, "b.jpg")));
+        final boolean[] ran = {false};
+        vm.loadAsync(() -> ran[0] = true); // older: started first (the loader thread sees an empty MediaStore)
+        vm.fetchAllMedia(); // newer: a delete's refresh on this thread
+        waitFor(() -> ran[0]);
+        assertEquals("the older load did not put its lists over the newer ones", 2, vm.getAllSelectedImageFolder().getValue().getFiles().size());
+    }
+
     @Test
     public void emptySelectionClearsAll() {
         store(folder("Camera", photo(1, "a.jpg"), photo(2, "b.jpg")));

@@ -11,6 +11,8 @@ import android.util.AttributeSet;
 import com.particlesdevs.photoncamera.util.Log;
 import android.view.View;
 
+import androidx.annotation.Nullable;
+
 import com.particlesdevs.photoncamera.processing.opengl.GLImage;
 import com.particlesdevs.photoncamera.processing.opengl.scripts.GLHistogram;
 
@@ -25,11 +27,47 @@ public class Histogram extends View {
     private HistogramModel histogramModel;
     private final Path wallPath = new Path();
     GLHistogram glHistogram;
-    ExecutorService histogramExecutor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "HistogramThread");
-        t.setPriority(Thread.MIN_PRIORITY);
-        return t;
-    });
+    /**
+     * P617: the histogram's thread and its GL context, made at the first computation and ended by {@link #release}. Every
+     * Histogram made both in its constructor and never ended them: the viewer's overlay and each «Сведения» sheet (views that only
+     * draw a model computed elsewhere) left a «HistogramThread» and an EGL context with its buffers for the rest of the process,
+     * one more each time the viewer opened.
+     */
+    @Nullable private ExecutorService histogramExecutor;
+    private boolean released;
+
+    private synchronized ExecutorService worker() {
+        if (released) throw new java.util.concurrent.RejectedExecutionException("histogram released");
+        if (histogramExecutor == null) {
+            histogramExecutor = Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "HistogramThread");
+                t.setPriority(Thread.MIN_PRIORITY);
+                return t;
+            });
+            histogramExecutor.execute(() -> glHistogram = new GLHistogram(256));
+        }
+        return histogramExecutor;
+    }
+
+    /** Whether this histogram has its thread (P617: only once it computed something). */
+    synchronized boolean hasWorker() {
+        return histogramExecutor != null;
+    }
+
+    /** P617: the thread and the GL context go (on the thread, after a computation still queued); later computations are refused. */
+    public synchronized void release() {
+        if (released) return;
+        released = true;
+        ExecutorService e = histogramExecutor;
+        histogramExecutor = null;
+        if (e == null) return;
+        e.execute(() -> {
+            GLHistogram h = glHistogram;
+            glHistogram = null;
+            if (h != null) h.close();
+        });
+        e.shutdown();
+    }
 
     float reinhard_extended(float v, float max_white){
         float numerator = v * (1.0f + (v / (max_white * max_white)));
@@ -39,9 +77,6 @@ public class Histogram extends View {
     public Histogram(Context context, AttributeSet attributeSet) {
         super(context, attributeSet);
         wallPaint = new Paint();
-        histogramExecutor.execute(() -> {
-            glHistogram = new GLHistogram(256);
-        });
     }
     /**
      * P551: the histogram off the main thread - computed on the histogram's thread and handed to {@code done} on the main thread
@@ -49,7 +84,13 @@ public class Histogram extends View {
      */
     public void analyzeAsync(Bitmap bitmap, java.util.function.Consumer<HistogramModel> done) {
         final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
-        histogramExecutor.execute(() -> {
+        final ExecutorService w;
+        try {
+            w = worker();
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            return; // released (the viewer is gone): nothing to show it on
+        }
+        w.execute(() -> {
             final HistogramModel model = model(compute(bitmap));
             main.post(() -> done.accept(model));
         });
@@ -85,7 +126,7 @@ public class Histogram extends View {
 
         //colorsMap = HistogramRs.getHistogram(bitmap);
         AtomicBoolean compute = new AtomicBoolean(false);
-        histogramExecutor.execute(() -> {
+        worker().execute(() -> {
             GLImage glImage = new GLImage(bitmap);
             glHistogram.Ac = false;
             colorsMap[0] = glHistogram.Compute(glImage);
