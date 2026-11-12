@@ -144,6 +144,7 @@ target_link_libraries(scameraTone PRIVATE tone_port log)
 
 # P646 «Склейка YUV»: the burst merge of a lens that gives YUV (scam-yuv-merge.h; processing/yuv/YuvMergeNative).
 add_library(scameraYuv SHARED scam-yuv-jni.cpp)
+set_property(TARGET scameraYuv PROPERTY CXX_STANDARD 17)
 target_compile_options(scameraYuv PRIVATE -O3 -fexceptions -ffp-contract=off -fvisibility=hidden)
 target_link_libraries(scameraYuv PRIVATE log)
 
