@@ -207,6 +207,29 @@ public final class SettingsAvailability {
         return null;
     }
 
+    private static final String OLD = "pref_scam_hybrid_oldstyle_";
+
+    /**
+     * P630h: why a row of «Oldstyle Тон» does not act because of another row of the page (OldstyleAe.rule, OldstyleNative's stages,
+     * OldstyleLive): the thresholds of the HDR decision only decide with «HDR» on «Авто»; the two exposures' rows need two
+     * exposures; a stage's rows need the stage; the viewfinder's rows need its tone. Null when it acts.
+     */
+    String oldstyleRowReason(String key) {
+        if (!key.startsWith(OLD)) return null;
+        final String k = key.substring(OLD.length()), hdr = text(OLD + "hdr", "auto").trim();
+        if (!hdr.equals("auto") && any(k, "v1_hdr_min", "v1_hdr_max", "v2_hdr_min", "v2_hdr_forgive"))
+            return Lang.t("Только при HDR «Авто»: сейчас решение HDR задано вручную.", "Only with HDR “Auto”: the HDR decision is set by hand now.");
+        if (hdr.equals("off") && any(k, "v1_hdr_cap", "v2_hdr_max", "fusion_base"))
+            return Lang.t("HDR выключен: снимок из одной экспозиции.", "HDR is off: the photo is one exposure.");
+        if (k.startsWith("dehaze_") && !on(OLD + "dehaze", true))
+            return Lang.t("Включите «Убирать дымку».", "Turn on “Remove haze”.");
+        if (k.startsWith("v1_lowfreq_") && !on(OLD + "v1_lowfreq", true))
+            return Lang.t("Включите «V1: цвет теней из склейки».", "Turn on “V1: shadow colour from the merge”.");
+        if (any(k, "vf_ev", "vf_match", "vf_smooth") && !on(OLD + "vf_tone", true))
+            return Lang.t("Включите «Тон в видоискателе».", "Turn on “Tone in the viewfinder”.");
+        return null;
+    }
+
     /** P614: why a row or group of the other «Why тон» version is inactive, null when it acts with the chosen one. */
     String toneVersionReason(String key) {
         final String old = oldstyleVersionReason(key);
@@ -293,6 +316,8 @@ public final class SettingsAvailability {
         // P614: a row of the other «Why тон» version first (whatever else holds, it does not act on this one)
         final String version = toneVersionReason(key);
         if (version != null) return version;
+        final String oldstyle = oldstyleRowReason(key);
+        if (oldstyle != null) return oldstyle;
         // P629: a row of «Шумоподавление и склейка» another processing mode's merge reads (whatever else holds, it does not act here)
         final String route = routeReason(key);
         if (route != null) return route;

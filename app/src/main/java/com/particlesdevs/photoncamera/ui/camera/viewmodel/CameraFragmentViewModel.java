@@ -90,6 +90,7 @@ public class CameraFragmentViewModel extends AndroidViewModel {
         Uri lastImageUri = uri;
         if (lastImageUri == null) {
             ImageFile lastImage = GalleryFileOperations.fetchLatestImage(getApplication().getContentResolver());
+            com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.latest(lastImage); // P637: the photo the thumbnail opens
             if (lastImage != null) {
                 lastImageUri = lastImage.getFileUri();
             }

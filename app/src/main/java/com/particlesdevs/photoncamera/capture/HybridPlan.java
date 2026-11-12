@@ -422,29 +422,94 @@ public final class HybridPlan {
      * long exposure digitally from the merge (OldstyleAe: fusion_gains over the frames' actual TET). The exposure is the capture plan's
      * ({@code capture}, the viewfinder's frame metered before the shot: S with HDR, else the SDR TET L*), or N as it is without one
      * (a manual exposure, no meterable frame). Factorised as time x gain within the sensor's ranges: the shutter first, up to the
-     * handheld cap (and the HAL's motion cap, {@code motionCapNs}), at whole flicker periods once it is one or longer, then the gain;
-     * what the ISO range cannot give stays missing (the tone's gains read the frames' actual TET). The sensor mode is the session's.
+     * burst's cap ({@link #oldstyleCap}), at whole flicker periods once it is one or longer, then the gain; what the ISO range
+     * cannot give stays missing (the tone's gains read the frames' actual TET). The sensor mode is the session's.
+     * <p>
+     * P630f (owner's log, OPPO PHY110, 2026-11-12, a room: «N=9.988ms*ISO4935 ... -> 20 x 120.000ms*ISO1184»): the shutter went up to
+     * the 125 ms cap of the bracketed frames - those are few and pass a sharpness gate, this is the whole burst, hand-held: twenty
+     * 120 ms frames, 2.4 s of exposure, every one smeared. The burst's shutter now stays at the viewfinder's own (the HAL's AE
+     * chose it for the hand) or 1/60 s when that is shorter, and the frame count fits {@link #OLDSTYLE_BURST_NS} of capture
+     * ({@link #oldstyleFrames}); that scene: 20 x 10 ms at the sensor's highest ISO up to 14 200.
      */
     public static HybridPlan oldstyle(long nShutterNs, int nIso, @androidx.annotation.Nullable
             com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture capture, int frames,
             CameraCharacteristics characteristics, ExposureLimits limits, long motionCapNs) {
+        return oldstyle(nShutterNs, nIso, capture, frames, characteristics, limits, motionCapNs, OLDSTYLE_BURST_NS, BRACKET_SAFE_SHUTTER_NS);
+    }
+
+    /**
+     * P630h: the Oldstyle burst with the rows of «Серия»: {@code burstNs} its longest capture ({@link #OLDSTYLE_BURST_NS}),
+     * {@code floorNs} the shutter a frame may grow to when the viewfinder's is shorter ({@link #BRACKET_SAFE_SHUTTER_NS}, 1/60 s).
+     */
+    public static HybridPlan oldstyle(long nShutterNs, int nIso, @androidx.annotation.Nullable
+            com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture capture, int frames,
+            CameraCharacteristics characteristics, ExposureLimits limits, long motionCapNs, long burstNs, long floorNs) {
         Range<Long> times = capped(characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE), limits == null ? Long.MAX_VALUE : limits.shutterCap());
         Range<Integer> isos = capped(characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE), limits == null ? Integer.MAX_VALUE : limits.isoCap());
         if (times == null || isos == null || nShutterNs <= 0 || nIso <= 0)
             throw new IllegalStateException(Lang.t("Oldstyle: нет экспозиции превью или диапазонов сенсора", "Oldstyle: no preview exposure or sensor ranges"));
         final double n = (double) nShutterNs * nIso;
         final double target = capture != null && capture.frameTet > 0 && Double.isFinite(capture.frameTet) ? capture.frameTet : n;
-        final long[] f = factorise(target, times, isos, handheldCap(nShutterNs, motionCapNs), nShutterNs);
+        // P630f: without a capture plan the exposure is N's own shutter and ISO (a hand-set exposure is not re-split into another
+        // shutter of the same TET), within the sensor's ranges
+        final long[] f = capture == null
+                ? new long[]{Math.max(times.getLower(), Math.min(times.getUpper(), nShutterNs)), Math.max(isos.getLower(), Math.min(isos.getUpper(), nIso))}
+                : factorise(target, times, isos, oldstyleCap(nShutterNs, motionCapNs, floorNs), nShutterNs);
         final long ns = f[0];
         final int iso = (int) f[1];
         final double ratio = (double) ns * iso / n;
         final List<Request> out = new ArrayList<>();
-        for (int i = 0; i < Math.max(1, frames); i++) out.add(new Request(ImageFrame.CaptureRole.NORMAL, ns, iso, ratio));
+        for (int i = oldstyleFrames(frames, ns, burstNs); i > 0; i--) out.add(new Request(ImageFrame.CaptureRole.NORMAL, ns, iso, ratio));
         final String description = String.format(Locale.ROOT,
                 "hybrid plan: Oldstyle one exposure N=%.3fms*ISO%d %s -> %d x %.3fms*ISO%d (TET x%.3f of N, %.3f of the plan's), no Bento / Shasta",
                 nShutterNs / 1e6, nIso, capture != null ? capture.toString() : "no capture plan (N as it is)", out.size(), ns / 1e6, iso,
                 ratio, (double) ns * iso / target);
         return new HybridPlan(out, ns, iso, description);
+    }
+
+    /** P630h: the row's milliseconds as the shutter floor; at its default (1/60 s) exactly {@link #BRACKET_SAFE_SHUTTER_NS}. */
+    public static long oldstyleFloorNs(float ms) {
+        if (!(ms > 0f) || Math.abs(ms - 1000f / 60f) < 0.05f) return BRACKET_SAFE_SHUTTER_NS;
+        return Math.round(ms * 1e6);
+    }
+
+    /** P630h: the row's seconds as the burst's longest capture, to the millisecond (0.7 s is exactly {@link #OLDSTYLE_BURST_NS}). */
+    public static long oldstyleBurstNs(float seconds) {
+        return seconds > 0f && Float.isFinite(seconds) ? Math.round(seconds * 1000.0) * 1_000_000L : OLDSTYLE_BURST_NS;
+    }
+
+    /** P630f: the longest capture of an Oldstyle burst, a frame's shortest period in it (30 fps) and the fewest frames it takes. */
+    static final long OLDSTYLE_BURST_NS = 700_000_000L, OLDSTYLE_FRAME_NS = 33_333_333L;
+    static final int OLDSTYLE_MIN_FRAMES = 4;
+
+    /**
+     * P630f: the shutter cap of the Oldstyle burst - every frame of it is hand-held and merged, so no longer than the viewfinder's
+     * own shutter, or {@link #BRACKET_SAFE_SHUTTER_NS} (1/60 s; less under the HAL's motion cap) when that is shorter.
+     */
+    static long oldstyleCap(long nShutterNs, long motionCapNs) {
+        return oldstyleCap(nShutterNs, motionCapNs, BRACKET_SAFE_SHUTTER_NS);
+    }
+
+    /** P630h: {@link #oldstyleCap(long, long)} with the row «Удлинять выдержку до» in place of 1/60 s. */
+    static long oldstyleCap(long nShutterNs, long motionCapNs, long floorNs) {
+        long cap = floorNs > 0 ? floorNs : BRACKET_SAFE_SHUTTER_NS;
+        if (motionCapNs > 0) cap = Math.min(cap, motionCapNs);
+        return Math.max(nShutterNs, cap);
+    }
+
+    /**
+     * P630f: the frames of an Oldstyle burst at {@code shutterNs}: {@code wanted} (the photo mode's ring count) while they fit
+     * {@link #OLDSTYLE_BURST_NS} of capture, never fewer than {@link #OLDSTYLE_MIN_FRAMES} (or {@code wanted} when that is fewer).
+     */
+    static int oldstyleFrames(int wanted, long shutterNs) {
+        return oldstyleFrames(wanted, shutterNs, OLDSTYLE_BURST_NS);
+    }
+
+    /** P630h: the row «Самая долгая серия» in place of 0.7 s. */
+    static int oldstyleFrames(int wanted, long shutterNs, long burstNs) {
+        final int want = Math.max(1, wanted);
+        final long fit = (burstNs > 0 ? burstNs : OLDSTYLE_BURST_NS) / Math.max(shutterNs, OLDSTYLE_FRAME_NS);
+        return (int) Math.max(Math.min(want, OLDSTYLE_MIN_FRAMES), Math.min(want, fit));
     }
 
     /**

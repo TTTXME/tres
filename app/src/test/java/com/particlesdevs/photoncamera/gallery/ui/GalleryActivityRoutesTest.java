@@ -54,6 +54,20 @@ public class GalleryActivityRoutesTest {
         assertEquals(-1, GalleryActivity.positionOf(l, unknown, external(unknown, "x.jpg", 1)));
     }
 
+    /** P637: the library arrives under the photo already shown: the viewer is sent to its item there, or it is put first. */
+    @Test
+    public void thePhotoAskedForAmongTheLibrarysLaterRead() {
+        List<GalleryItem> l = photos(10);
+        Uri path = Uri.parse("file:///storage/emulated/0/DCIM/Camera/IMG_3.jpg");
+        assertEquals("the library's own item (its MediaStore URI)", l.get(3).getFile().getFileUri(),
+                GalleryActivity.amongNeighbours(l, path, external(path, "IMG_3.jpg", 0)));
+        assertEquals(10, l.size());
+        Uri unknown = Uri.parse("content://com.example.files/doc/x.jpg");
+        assertEquals(unknown, GalleryActivity.amongNeighbours(l, unknown, external(unknown, "x.jpg", 1)));
+        assertEquals("a file the library does not have is put first", 11, l.size());
+        assertEquals(unknown, l.get(0).getFile().getFileUri());
+    }
+
     @Test
     public void theViewerIsSentToThePhotoOnce() {
         // the start position bundle given to setGraph never reached the viewer: the viewer's pending selection carries it

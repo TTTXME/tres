@@ -69,6 +69,7 @@ public final class FullResRecipeRows {
             case FullResRecipe.USE_CASE: return Lang.t(c, "Stream use case RAW", "RAW stream use case");
             case FullResRecipe.COMPANION: return Lang.t(c, "Поток-спутник", "Companion stream");
             case FullResRecipe.TAGS: return Lang.t(c, "Ключи камеры (vendor tags)", "Camera keys (vendor tags)");
+            case FullResRecipe.VIEW_TAGS: return Lang.t(c, "Ключи на видоискателе", "Keys on the viewfinder");
             case FullResRecipe.TEMPLATE: return Lang.t(c, "Шаблон снимка", "Still template");
             case FullResRecipe.SESSION: return Lang.t(c, "Шаблон параметров сессии", "Session parameters template");
             case FullResRecipe.FPS: return Lang.t(c, "Частота кадров", "Frame rate");
@@ -92,6 +93,8 @@ public final class FullResRecipeRows {
                     "A second stream in the same request as the shot's RAW; without it the camera may deliver an upscaled frame. off: none; 640x480: a YUV stream of that size; auto: the smallest YUV the camera lists; viewfinder: the viewfinder's ISP stream.");
             case FullResRecipe.TAGS: return Lang.t(c, "По одному на строку: ключ=тип:значение@куда. Типы: i32, i32[], u8, u8[], i64, f32. Куда: session — параметры сессии, request — каждый запрос, both — и то и другое, still — только снимок. Пример: xiaomi.remosaic.enabled=u8[]:1@both",
                     "One a line: key=type:value@where. Types: i32, i32[], u8, u8[], i64, f32. Where: session - the session parameters, request - every request, both, still - the shot only. Example: xiaomi.remosaic.enabled=u8[]:1@both");
+            case FullResRecipe.VIEW_TAGS: return Lang.t(c, "yes — ключи запроса идут и в запрос видоискателя; no — только в параметры сессии и в снимки. Попробуйте no, если в этом режиме не работает автофокус или видоискатель неверных цветов.",
+                    "yes: the request keys also go into the viewfinder's request; no: into the session parameters and the stills only. Try no when autofocus does not work in this mode or the viewfinder's colours are wrong.");
             case FullResRecipe.TEMPLATE: return Lang.t(c, "Шаблон Camera2 для запроса снимка. Обычно still.", "The Camera2 template of the shot's request. Usually still.");
             case FullResRecipe.SESSION: return Lang.t(c, "Шаблон Camera2 для параметров сессии.", "The Camera2 template of the session parameters.");
             case FullResRecipe.FPS: return Lang.t(c, "Диапазон частоты кадров для сессии и снимка, например 30-30. Пусто — не менять.",
@@ -132,8 +135,25 @@ public final class FullResRecipeRows {
         return name == null ? Lang.t(c, "Свой профиль", "Own profile") : name;
     }
 
+    /**
+     * P635b: the switch's line while it is off and the module's picked sensor mode row runs as the recipe anyway (the row alone
+     * gives no full frame) - or why that recipe does not run.
+     */
+    public static String routed(Context c, @Nullable String state, boolean on, int routedRow, @Nullable String blocked) {
+        if (on || routedRow < 0) return state;
+        return (state == null ? "" : state + ". ") + (blocked == null
+                ? Lang.t(c, "Работает для режима сенсора ", "Runs for sensor mode ") + routedRow
+                : Lang.t(c, "Режим сенсора ", "Sensor mode ") + routedRow + Lang.t(c, " по рецепту: ", " by the recipe: ") + blockedText(c, blocked));
+    }
+
     /** The section's rows of {@code slot} under {@code category}; {@code preset}: its camera's (null: none). */
     static void add(Context context, PreferenceCategory category, String slot, @Nullable FullResRecipe preset, @Nullable Runnable refresh) {
+        add(context, category, slot, preset, -1, refresh);
+    }
+
+    /** {@code routedRow}: P635b - the module's picked sensor mode row the recipe runs instead of while the switch is off (-1: none). */
+    static void add(Context context, PreferenceCategory category, String slot, @Nullable FullResRecipe preset, int routedRow,
+                    @Nullable Runnable refresh) {
         final SharedPreferences prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context);
         final boolean on = FullResRecipeStore.on(prefs, slot);
         final List<String> problems = new ArrayList<>();
@@ -146,7 +166,7 @@ public final class FullResRecipeRows {
         toggle.setDefaultValue(false);
         toggle.setIcon(com.particlesdevs.photoncamera.R.drawable.settings_ic_sensor);
         toggle.setOrder(ORDER);
-        final String state = state(context, on, preset, recipe, blocked);
+        final String state = routed(context, state(context, on, preset, recipe, blocked), on, routedRow, blocked);
         SettingHelp.describe(toggle, help(context));
         SettingHelp.summaryIsState(toggle);
         toggle.setSummary(state);
@@ -201,12 +221,13 @@ public final class FullResRecipeRows {
 
     static boolean lists(String field) {
         return FullResRecipe.TEMPLATE.equals(field) || FullResRecipe.SESSION.equals(field) || FullResRecipe.PIXEL_MODE.equals(field)
-                || FullResRecipe.PREVIEW.equals(field);
+                || FullResRecipe.PREVIEW.equals(field) || FullResRecipe.VIEW_TAGS.equals(field);
     }
 
     static String[] values(String field) {
         if (FullResRecipe.PIXEL_MODE.equals(field)) return new String[]{"never", "annotate"};
         if (FullResRecipe.PREVIEW.equals(field)) return new String[]{"isp", "raw", "both"};
+        if (FullResRecipe.VIEW_TAGS.equals(field)) return new String[]{"yes", "no"};
         return FullResRecipe.TEMPLATES.clone();
     }
 

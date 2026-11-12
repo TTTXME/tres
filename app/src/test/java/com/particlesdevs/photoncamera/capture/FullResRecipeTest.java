@@ -68,11 +68,43 @@ public class FullResRecipeTest {
         assertEquals(FullResRecipe.Target.BOTH, remosaic.target);
         assertTrue(r.blockers(36).isEmpty());
         assertEquals("the stream use case needs API 33", "usecase:33", r.blockers(32).get(0));
-        // the same phone under its other model code; not its other cameras (the 75 mm is not solved in the documents)
+        // the same phone under its other model code; not its logical camera
         assertNotNull(FullResRecipePresets.preset(new FullResRecipePresets.Device("Xiaomi", "Xiaomi", "nezha", "25128PNA1C"), "2", null));
-        assertNull(FullResRecipePresets.preset(XIAOMI_17U, "4", null));
         assertNull(FullResRecipePresets.preset(XIAOMI_17U, "0", null));
         assertNull(FullResRecipePresets.preset(new FullResRecipePresets.Device("Xiaomi", "Xiaomi", "xuanyuan", "25010PN30G"), "2", TABLE));
+    }
+
+    /** P635d: the phone's own stream table gives the main camera's recipe to the ultra wide and the 75 mm; trials until run. */
+    @Test public void theXiaomiUltraWideAndTeleTrials() {
+        final FullResRecipe main = xiaomi(), wide = FullResRecipePresets.preset(XIAOMI_17U, "3", null),
+                tele = FullResRecipePresets.preset(XIAOMI_17U, "4", null);
+        assertNotNull(wide);
+        assertNotNull(tele);
+        assertFalse("the main camera's is proven", main.experimental);
+        for (FullResRecipe r : new FullResRecipe[]{wide, tele}) {
+            assertTrue("not run on a phone", r.experimental);
+            assertEquals(6144, r.height);
+            assertEquals(main.usage, r.usage);
+            assertEquals(0x80103L, r.useCase);
+            assertEquals(main.companion, r.companion);
+            assertEquals(640, r.companionWidth);
+            assertEquals(main.stillTemplate, r.stillTemplate);
+            assertEquals(main.sessionTemplate, r.sessionTemplate);
+            assertEquals(FullResRecipe.PixelMode.NEVER, r.pixelMode);
+            assertEquals(FullResRecipe.Preview.RAW, r.preview);
+            assertEquals("the full-size rows run at 12 and 24 fps: no rate asked", 0, r.fpsLow);
+            assertEquals(2, r.tags.size());
+            assertEquals("xiaomi.remosaic.enabled", r.tags.get(1).key);
+            assertArrayEquals(new double[]{1}, r.tags.get(1).values, 0);
+            assertNotEquals(main.signature(), r.signature());
+        }
+        assertEquals(8192, wide.width);
+        assertArrayEquals("the ultra wide's only full-size row", new double[]{0}, wide.tags.get(0).values, 0);
+        assertEquals("the 75 mm's 50 MP frame is 8160 wide", 8160, tele.width);
+        assertArrayEquals("the vendor's 50 MP row of the 75 mm", new double[]{2}, tele.tags.get(0).values, 0);
+        // a trial never replaces a picked row (FullResRecipeStore.autoRoute)
+        assertFalse(FullResRecipeStore.autoRoute(0, new int[]{2, 3, 8192, 6144, 12, 4096, 3072, 30}, wide));
+        assertFalse(FullResRecipeStore.autoRoute(1, new int[]{2, 3, 16320, 12288, 7, 8160, 6144, 24}, tele));
     }
 
     @Test public void theExperimentalPresets() {
@@ -148,6 +180,7 @@ public class FullResRecipeTest {
         assertEquals("0x80103", f.get(FullResRecipe.USE_CASE));
         assertEquals("640x480", f.get(FullResRecipe.COMPANION));
         assertEquals("org.codeaurora.qcamera3.sensor_meta_data.current_mode=i32[]:0@both\nxiaomi.remosaic.enabled=u8[]:1@both", f.get(FullResRecipe.TAGS));
+        assertEquals("yes", f.get(FullResRecipe.VIEW_TAGS));
         assertEquals("still", f.get(FullResRecipe.TEMPLATE));
         assertEquals("30-30", f.get(FullResRecipe.FPS));
         assertEquals("never", f.get(FullResRecipe.PIXEL_MODE));

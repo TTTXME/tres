@@ -164,4 +164,101 @@ public class GalleryViewModelTest {
         assertEquals("the viewer selects the listed row", listed, vm.takePendingSelect());
         assertNull(vm.takePendingSelect());
     }
+
+    // ---------------------------------------------------------------- P637: the camera's newest photo ahead of the lists
+
+    private static ImageFile unfiled(String name) {
+        String path = "/storage/emulated/0/DCIM/x/" + name;
+        return new ImageFile(-1, Uri.fromFile(new java.io.File(path)), name, 5000, 1000, path);
+    }
+
+    @Test
+    public void theCamerasLastPhotoIsTheListBeforeTheFirstRead() {
+        ImageFile last = photo(7, "last.jpg");
+        vm.showFront(last, true);
+        List<GalleryItem> shown = vm.getCurrentFolderImages().getValue();
+        assertEquals("the viewer has a page before MediaStore is read", 1, shown.size());
+        assertSame(last, shown.get(0).getFile());
+        assertEquals(last.getFileUri(), vm.takePendingSelect());
+        // the read brings the same row: the lists' own item from then on, selected
+        store(folder("Camera", photo(9, "newer.mp4"), photo(7, "last.jpg"), photo(3, "old.jpg")));
+        vm.fetchAllMedia();
+        vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
+        shown = vm.getCurrentFolderImages().getValue();
+        assertEquals("not twice", 3, shown.size());
+        assertNull(vm.front());
+        assertEquals("the viewer stays on the photo the thumbnail showed", shown.get(1).getFile().getFileUri(), vm.takePendingSelect());
+    }
+
+    @Test
+    public void aSavedFileLeadsTheListUntilMediaStoreHasIt() {
+        store(folder("Camera", photo(2, "b.jpg"), photo(1, "a.jpg")));
+        vm.fetchAllMedia();
+        vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
+        assertEquals(2, vm.getCurrentFolderImages().getValue().size());
+        // the camera saved new.jpg: no MediaStore row yet
+        ImageFile saved = unfiled("new.jpg");
+        vm.showFront(saved, true);
+        List<GalleryItem> shown = vm.getCurrentFolderImages().getValue();
+        assertEquals(3, shown.size());
+        assertSame(saved, shown.get(0).getFile());
+        assertEquals("b.jpg", shown.get(1).getFile().getDisplayName());
+        assertEquals(saved.getFileUri(), vm.takePendingSelect());
+        assertEquals("«ALL» itself is MediaStore's list", 2, vm.getAllSelectedImageFolder().getValue().getFiles().size());
+        // a read before the scanner filed it keeps it first
+        vm.fetchAllMedia();
+        vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
+        assertEquals(3, vm.getCurrentFolderImages().getValue().size());
+        assertNull("nothing selected by a later read", vm.takePendingSelect());
+        // the scanner's row: the same item (the viewer's page stays), now with a row to share / delete
+        GalleryItem front = vm.front();
+        Uri row = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, 30);
+        assertTrue(!vm.frontScanned("/storage/emulated/0/DCIM/x/other.jpg", row));
+        assertTrue(vm.frontScanned(saved.getAbsolutePath(), row));
+        assertSame(front, vm.getCurrentFolderImages().getValue().get(0));
+        assertEquals(row, front.getFile().getFileUri());
+        assertEquals(30, front.getFile().getId());
+        assertTrue("the library reads MediaStore again when it is shown", vm.getUpdatePending().getValue());
+        // MediaStore has it (by its path): no front photo any more
+        store(folder("Camera", photo(30, "new.jpg"), photo(2, "b.jpg"), photo(1, "a.jpg")));
+        vm.fetchAllMedia();
+        vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
+        assertEquals(3, vm.getCurrentFolderImages().getValue().size());
+        assertNull(vm.front());
+    }
+
+    @Test
+    public void aViewerOnAnotherPhotoKeepsItWhenAShotIsSaved() {
+        store(folder("Camera", photo(2, "b.jpg"), photo(1, "a.jpg")));
+        vm.fetchAllMedia();
+        vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
+        Uri viewed = vm.getCurrentFolderImages().getValue().get(1).getFile().getFileUri();
+        vm.selectNext(viewed);
+        vm.showFront(unfiled("new.jpg"), false);
+        assertEquals("new.jpg", vm.getCurrentFolderImages().getValue().get(0).getFile().getDisplayName());
+        assertEquals("the photo viewed, not the new one", viewed, vm.takePendingSelect());
+    }
+
+    @Test
+    public void onlyAllGetsTheFrontPhoto() {
+        store(folder("Camera", photo(2, "b.jpg")), folder("Raw", photo(5, "r.dng")));
+        vm.fetchAllMedia();
+        vm.showFront(unfiled("new.jpg"), true);
+        assertEquals("Raw", vm.refreshKeeping("Raw"));
+        assertEquals("a folder's own list", 1, vm.getCurrentFolderImages().getValue().size());
+        assertEquals("ALL", vm.refreshKeeping("ALL"));
+        assertEquals(3, vm.getCurrentFolderImages().getValue().size());
+    }
+
+    @Test
+    public void theCamerasHandOverIsTakenOnce() {
+        assertTrue(!vm.openedByCamera());
+        com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.open(null, true);
+        com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.Open o = com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.take();
+        vm.setOpening(o);
+        assertTrue(vm.openedByCamera());
+        assertSame(o, vm.takeOpening());
+        assertNull("the viewer's first view only", vm.takeOpening());
+        assertTrue(vm.openedByCamera());
+    }
 }

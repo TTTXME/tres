@@ -52,6 +52,43 @@ public class ParkedLensTest {
         assertFalse(q.active());
     }
 
+    /**
+     * P630f (OPPO PHY110, 2026-11-12, room light, a keyboard at 14 cm: 10 ms ISO 3210, the AF at the same 7.14 dpt): a near
+     * subject is not the night's parked lens - a scene brighter than DARK or an AF that reports focus is never taken, however
+     * long the lens stands there; the night's frame (dark, the AF unfocused or its state unknown) still is.
+     */
+    @Test public void aNearSubjectInRoomLightIsNotTheNightsParkedLens() {
+        final double room = 0.010 * 3210;   // the log's 32.1
+        final int focused = CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED, locked = CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED,
+                unfocused = CaptureResult.CONTROL_AF_STATE_PASSIVE_UNFOCUSED;
+        ParkedLens p = new ParkedLens();
+        for (long t = 0; t < 20_000; t += 100) {
+            assertEquals(ParkedLens.NOTHING, p.observe(t * MS, CAF, 7.1428566f, STILL, 5f, room, focused));
+            assertEquals(ParkedLens.NOTHING, p.observe(t * MS, CAF, 7.1428566f, STILL, 5f, room, unfocused));
+            assertEquals(ParkedLens.NOTHING, p.observe(t * MS, CAF, 7.1428566f, STILL, 5f, room));
+            assertEquals(ParkedLens.NOTHING, p.observe(t * MS, CAF, 7.1428566f, STILL, 5f, ParkedLens.DARK * 0.99, unfocused));
+            // dark, but the AF says it focused there (a near subject at night): its lens
+            assertEquals(ParkedLens.NOTHING, p.observe(t * MS, CAF, 7.14f, STILL, 5f, NIGHT, focused));
+            assertEquals(ParkedLens.NOTHING, p.observe(t * MS, CAF, 7.14f, STILL, 5f, NIGHT, locked));
+        }
+        assertFalse(p.active());
+        assertTrue(ParkedLens.focused(focused) && ParkedLens.focused(locked));
+        assertFalse(ParkedLens.focused(unfocused) || ParkedLens.focused(null));
+        // the night's case as before: dark, the AF unfocused (P252's log) or its state not reported
+        ParkedLens night = new ParkedLens();
+        night.observe(0, CAF, 7.14f, STILL, 5f, NIGHT, unfocused);
+        assertEquals(ParkedLens.TAKE, night.observe(1600 * MS, CAF, 7.14f, STILL, 5f, NIGHT, unfocused));
+        ParkedLens unknown = new ParkedLens();
+        unknown.observe(0, CAF, 7.14f, STILL, 5f, ParkedLens.DARK, null);
+        assertEquals(ParkedLens.TAKE, unknown.observe(1600 * MS, CAF, 7.14f, STILL, 5f, ParkedLens.DARK, null));
+        // a focus report in between restarts the wait
+        ParkedLens flicker = new ParkedLens();
+        flicker.observe(0, CAF, 7.14f, STILL, 5f, NIGHT, unfocused);
+        flicker.observe(1000 * MS, CAF, 7.14f, STILL, 5f, NIGHT, focused);
+        assertEquals(ParkedLens.NOTHING, flicker.observe(1600 * MS, CAF, 7.14f, STILL, 5f, NIGHT, unfocused));
+        assertEquals(ParkedLens.TAKE, flicker.observe(3200 * MS, CAF, 7.14f, STILL, 5f, NIGHT, unfocused));
+    }
+
     @Test public void theHyperfocalDistance() {
         // 9 mm f/1.6, 1.6 um pixels: H = 81 / (1.6 x 0.0032) + 9 = 15.83 m -> 0.063 dpt
         assertEquals(0.0632f, ParkedLens.hyperfocalDiopters(9f, 1.6f, 0.0016f, 5f), 0.001f);

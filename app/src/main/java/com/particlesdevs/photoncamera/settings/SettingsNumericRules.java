@@ -186,6 +186,31 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_oldstyle_out_sat_per_stop": return new double[]{-0.5,0.5,0};
             case "pref_scam_hybrid_oldstyle_out_vibrance_per_stop": return new double[]{-0.5,0.5,0};
             case "pref_scam_hybrid_oldstyle_v2_saturation": return new double[]{-0.5,0.5,0};
+            // P630h: the rows of the supplement's rules, the module's calls and our glue (ends checked: OldstyleRangeEndsTest,
+            // tools/check_tone_port.py)
+            case "pref_scam_hybrid_oldstyle_ev": return new double[]{-2,2,0};
+            case "pref_scam_hybrid_oldstyle_highlight_target": return new double[]{0.5,1,0};
+            case "pref_scam_hybrid_oldstyle_highlight_percentile": return new double[]{95,100,0};
+            case "pref_scam_hybrid_oldstyle_shadow_ev": return new double[]{-2,2,0};
+            case "pref_scam_hybrid_oldstyle_center": return new double[]{0.2,2,0};
+            case "pref_scam_hybrid_oldstyle_fusion_base": return new double[]{0.95,1,0};
+            case "pref_scam_hybrid_oldstyle_v1_hdr_min": return new double[]{1,3,0};
+            case "pref_scam_hybrid_oldstyle_v1_hdr_max": return new double[]{2,16,0};
+            case "pref_scam_hybrid_oldstyle_v1_hdr_cap": return new double[]{1.5,8,0};
+            case "pref_scam_hybrid_oldstyle_v2_hdr_min": return new double[]{1,3,0};
+            case "pref_scam_hybrid_oldstyle_v2_hdr_max": return new double[]{2,16,0};
+            case "pref_scam_hybrid_oldstyle_v2_hdr_forgive": return new double[]{1,2,0};
+            case "pref_scam_hybrid_oldstyle_curve_mid": return new double[]{-1,1,0};
+            case "pref_scam_hybrid_oldstyle_curve_contrast": return new double[]{-1,1,0};
+            case "pref_scam_hybrid_oldstyle_v2_memory": return new double[]{30,90,1};
+            case "pref_scam_hybrid_oldstyle_v1_ccm": return new double[]{0,1.5,0};
+            case "pref_scam_hybrid_oldstyle_v1_lowfreq_strength": return new double[]{0,1,0};
+            case "pref_scam_hybrid_oldstyle_burst_frames": return new double[]{0,40,1};
+            case "pref_scam_hybrid_oldstyle_burst_time": return new double[]{0.2,3,0};
+            case "pref_scam_hybrid_oldstyle_shutter_floor": return new double[]{2,125,0};
+            case "pref_scam_hybrid_oldstyle_vf_ev": return new double[]{-1,1,0};
+            case "pref_scam_hybrid_oldstyle_vf_match": return new double[]{0,1,0};
+            case "pref_scam_hybrid_oldstyle_vf_smooth": return new double[]{0.05,2,0};
             case "pref_scam_hybrid_why_curve_lift": return new double[]{-100,100,1};
             case "pref_scam_hybrid_why_curve_contrast": return new double[]{-100,100,1};
             case "pref_scam_hybrid_why_curve_shadow_contrast": return new double[]{-100,100,1};

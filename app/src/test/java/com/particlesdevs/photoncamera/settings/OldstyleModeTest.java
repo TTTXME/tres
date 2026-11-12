@@ -204,7 +204,8 @@ public class OldstyleModeTest {
         for (String key : OldstyleMode.V2_ROWS) assertTrue(key, group.contains("android:key=\"" + key + "\""));
         for (String key : OldstyleMode.COMMON_ROWS) assertTrue(key, group.contains("android:key=\"" + key + "\""));
         assertTrue(group.contains("android:key=\"" + OldstyleMode.VERSION + "\""));
-        // P630e: the supplement fixes the plan's ratios - no rows of them, no brightness target; the stages' defaults are the app's
+        // P630e: the keys of the rules before the supplement stay gone (a value stored under them was of other rules); P630h's
+        // rows of the supplement's numbers have keys of their own (OldstyleSettingsTest)
         for (String gone : new String[]{"oldstyle_target", "oldstyle_v1_skip_ratio", "oldstyle_v1_max_ratio", "oldstyle_v2_max_ratio",
                 "oldstyle_v2_forgiveness", "oldstyle_v2_max_gain"})
             assertFalse(gone, group.contains("pref_scam_hybrid_" + gone + "\""));

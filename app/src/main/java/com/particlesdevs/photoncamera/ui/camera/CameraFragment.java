@@ -1988,8 +1988,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             // an extension older Android versions do not map.
             String mime = com.particlesdevs.photoncamera.processing.PhotoFormat.mimeForName(imageUri.getPath());
             if (mime != null) {
+                // P637: the scanner's answer (the file's MediaStore row) goes to a gallery opened meanwhile
                 android.media.MediaScannerConnection.scanFile(activity.getApplicationContext(),
-                        new String[]{imageUri.getPath()}, new String[]{mime}, null);
+                        new String[]{imageUri.getPath()}, new String[]{mime},
+                        com.particlesdevs.photoncamera.gallery.ui.CameraHandoff::scanned);
                 return;
             }
         }
@@ -2001,6 +2003,15 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     }
 
     public void launchGallery() {
+        // P637: the viewer's first frame - the thumbnail shown here (or the shutter frame of a shot still processed) and the last
+        // saved file, handed over in the process; the tap's time for the gallery's log
+        boolean busy = false;
+        try {
+            busy = com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy.getAsBoolean();
+        } catch (RuntimeException ignored) {
+        }
+        com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.open(
+                cameraFragmentViewModel != null ? cameraFragmentViewModel.getCameraFragmentModel().getBitmap() : null, busy);
         Intent galleryIntent = new Intent(activity, GalleryActivity.class);
         // Create gallery bundle
         galleryIntent.putExtra("CameraFragment", true);
@@ -2226,6 +2237,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             if (saved) {
                 Uri imageUri = null;
                 if (savedFilePath != null) {
+                    // P637: an open gallery shows the file at once (from its path, before MediaStore has its row)
+                    com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.saved(savedFilePath.toAbsolutePath().toString());
                     triggerMediaScanner(imageUri = Uri.fromFile(savedFilePath.toFile()));
                     logD("ImageSaved: " + savedFilePath);
 //                    showSnackBar("ImageSaved: " + savedFilePath.toString());
@@ -2274,9 +2287,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                 sounds().shutter(); // one shutter sound per shot, at the press (P16)
                 final View vf = textureView; // P495: the shot's blink over the viewfinder
                 if (vf != null && vf.getParent() instanceof View) vf.post(() -> com.particlesdevs.photoncamera.ui.Motion.blink((View) vf.getParent()));
-                if (instantShot) {
-                    snapshotViewfinderThumb();
-                } else {
+                snapshotViewfinderThumb(instantShot); // P637: every shot's shutter frame (the gallery's placeholder)
+                if (!instantShot) {
                     ui().setCaptureProgressBarOpacity(1.0f);
                     ui().lockUIForBurst(true);
                 }
@@ -2284,17 +2296,25 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             //textureView.post(() -> textureView.setAlpha(0.8f));
         }
 
-        /** Copies the composited viewfinder into a small bitmap for the provisional gallery thumbnail. */
-        private void snapshotViewfinderThumb() {
+        /**
+         * Copies the composited viewfinder into a small bitmap: the provisional gallery thumbnail of an instant shot ({@code thumb},
+         * 200 px as before) and - P637 - the placeholder of a gallery opened while the shot is still processed (CameraHandoff, 540 px,
+         * upright).
+         */
+        private void snapshotViewfinderThumb(boolean thumb) {
             final com.particlesdevs.photoncamera.ui.camera.views.viewfinder.GLPreview view = textureView;
             if (view == null || android.os.Build.VERSION.SDK_INT < 24) return;
             final int vw = view.getWidth(), vh = view.getHeight();
             if (vw <= 0 || vh <= 0) return;
             try {
-                final int w = 200, h = Math.max(1, Math.round(200f * vh / vw));
+                final int w = com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.FRAME_WIDTH, h = Math.max(1, Math.round((float) w * vh / vw));
                 final Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                final int turn = cameraFragmentViewModel.getCameraFragmentModel().getOrientation();
                 android.view.PixelCopy.request(view, bmp, result -> {
-                    if (result == android.view.PixelCopy.SUCCESS) cameraFragmentViewModel.setProvisionalThumb(bmp);
+                    if (result != android.view.PixelCopy.SUCCESS) return;
+                    com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.shutter(bmp, turn);
+                    if (thumb) cameraFragmentViewModel.setProvisionalThumb(
+                            Bitmap.createScaledBitmap(bmp, 200, Math.max(1, Math.round(200f * vh / vw)), true));
                 }, new android.os.Handler(android.os.Looper.getMainLooper()));
             } catch (RuntimeException e) {
                 logD("viewfinder snapshot failed: " + e);

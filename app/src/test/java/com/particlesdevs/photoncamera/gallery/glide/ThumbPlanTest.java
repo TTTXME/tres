@@ -22,7 +22,7 @@ public class ThumbPlanTest {
      * The markers of a baseline (or progressive) JPEG of {@code w x h}: SOI, APP0 (JFIF), DQT, SOFn, DHT, SOS, a few scan bytes,
      * EOI (the header the plan reads; the pixels are decoded on the phone only).
      */
-    static byte[] jpeg(int w, int h, boolean progressive) {
+    public static byte[] jpeg(int w, int h, boolean progressive) {
         ByteBuffer b = ByteBuffer.allocate(512).order(ByteOrder.BIG_ENDIAN);
         b.putShort((short) 0xFFD8);
         b.putShort((short) 0xFFE0).putShort((short) 16).put("JFIF".getBytes(StandardCharsets.US_ASCII)).put((byte) 0)
@@ -43,7 +43,7 @@ public class ThumbPlanTest {
     }
 
     /** An EXIF APP1 (TIFF in {@code order}): IFD0 with the orientation, IFD1 with a JPEG thumbnail ({@code thumb}, may be null). */
-    static byte[] exifApp1(ByteOrder order, int orientation, byte[] thumb) {
+    public static byte[] exifApp1(ByteOrder order, int orientation, byte[] thumb) {
         int ifd0 = 8, ifd0Size = 2 + 12 + 4, ifd1 = ifd0 + ifd0Size, ifd1Size = 2 + 2 * 12 + 4, data = ifd1 + ifd1Size;
         int tiffLen = data + (thumb != null ? thumb.length : 0);
         ByteBuffer t = ByteBuffer.allocate(tiffLen).order(order);
@@ -67,7 +67,7 @@ public class ThumbPlanTest {
     }
 
     /** {@code jpeg} with {@code app} inserted right after SOI. */
-    static byte[] withApp(byte[] jpeg, byte[] app) {
+    public static byte[] withApp(byte[] jpeg, byte[] app) {
         byte[] out = new byte[jpeg.length + app.length];
         System.arraycopy(jpeg, 0, out, 0, 2);
         System.arraycopy(app, 0, out, 2, app.length);

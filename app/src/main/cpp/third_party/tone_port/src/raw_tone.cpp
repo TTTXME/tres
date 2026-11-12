@@ -1,5 +1,6 @@
 #include "tone_port.h"
 #include "raw_image.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +48,9 @@ std::vector<uint8_t> finish_raw27_rgb(const RawRgbImage& src, const std::array<f
     detail::validate_raw_planar(src, 3);
     const auto matrix = fixed_ccm(ccm);
     std::vector<uint8_t> result(3 * src.width * src.height);
-    for (size_t y = 0; y < src.height; ++y) {
+    detail::parallel_rows(0, std::ptrdiff_t(src.height), 9 * std::ptrdiff_t(src.width),
+                          [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+    for (size_t y = size_t(first); y < size_t(last); ++y) {
         for (size_t x = 0; x < src.width; ++x) {
             const size_t offset = y * src.row_stride + x;
             const std::array<uint16_t, 3> rgb{static_cast<uint16_t>(src.data[offset]),
@@ -69,6 +72,7 @@ std::vector<uint8_t> finish_raw27_rgb(const RawRgbImage& src, const std::array<f
             }
         }
     }
+    });
     return result;
 }
 
@@ -77,12 +81,15 @@ std::vector<uint16_t> tone_raw31_ldr(const RawRgbImage& src, const Curve12& curv
     const size_t count = src.width * src.height;
     std::vector<uint16_t> result(3 * count);
     for (size_t c = 0; c < 3; ++c) {
-        for (size_t y = 0; y < src.height; ++y) {
+        detail::parallel_rows(0, std::ptrdiff_t(src.height), 2 * std::ptrdiff_t(src.width),
+                              [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+        for (size_t y = size_t(first); y < size_t(last); ++y) {
             const auto* row = src.data + c * src.plane_stride + y * src.row_stride;
             for (size_t x = 0; x < src.width; ++x) {
                 result[c * count + y * src.width + x] = curve[std::clamp<int>(row[x], 0, 4095)];
             }
         }
+        });
     }
     return result;
 }

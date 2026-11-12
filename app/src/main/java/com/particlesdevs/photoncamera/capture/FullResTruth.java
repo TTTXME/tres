@@ -23,7 +23,15 @@ import java.util.Locale;
 public final class FullResTruth {
     private FullResTruth() {}
 
-    public enum Verdict { REAL, UPSCALED, UNKNOWN }
+    /**
+     * PARTIAL (P635b, the owner's third log and screenshot of the Xiaomi 17 Ultra: a viewfinder black on three quarters with a pale
+     * strip at one edge, the photo the same): the buffer of the full size holds a picture in a part of it only and nothing in the
+     * rest - the HAL stayed in its binned mode and wrote the binned frame, at its own pitch, into the start of the buffer (a
+     * quarter of the rows, two binned rows side by side in each: P608's nubia frame too). The log had it all along: «RAW black
+     * floor: 36864 of 49152 blocks hold samples below 16 DN» is exactly three quarters, and every statistic of the frame counted a
+     * fifth of its samples.
+     */
+    public enum Verdict { REAL, UPSCALED, PARTIAL, UNKNOWN }
 
     /** The share of equal 2x2 boxes from which a frame is a doubled one. */
     static final double EQUAL_SHARE = 0.9;
@@ -31,6 +39,9 @@ public final class FullResTruth {
     static final double NEIGHBOUR_SHARE = 0.05;
     /** The Laplacian ratio under which a frame is its own nearest-2x baseline. */
     static final double LAPLACIAN_RATIO = 1.5;
+    /** The side of a cell of the valid-area map, pixels; the share of the buffer a picture must cover (its bounding box). */
+    static final int CELL = 64;
+    static final double VALID_SHARE = 0.9;
 
     public static final class Result {
         public final Verdict verdict;
@@ -46,9 +57,27 @@ public final class FullResTruth {
         public final double laplacian, baseline, ratio;
         /** Means of the sites at (x & 1) + 2 (y & 1). */
         public final double[] parity;
+        /** P635b: the box of the buffer that holds a picture {left, top, right, bottom} in pixels (right / bottom exclusive). */
+        public final int[] box;
+        /** P635b: the share of the buffer's cells that hold a picture, and of the buffer the box covers. */
+        public final double validShare, boxShare;
+        /** P635b: the low percentile (2 %) of the picture's sites, DN; the black the camera declares (0: not known). */
+        public final double floor, declaredBlack;
 
         Result(Verdict verdict, int width, int height, double std2x2, double equalShare, int phase, double neighbourShare,
                double laplacian, double baseline, double[] parity) {
+            this(verdict, width, height, std2x2, equalShare, phase, neighbourShare, laplacian, baseline, parity,
+                    new int[]{0, 0, width, height}, 1, 1, 0, 0);
+        }
+
+        Result(Verdict verdict, int width, int height, double std2x2, double equalShare, int phase, double neighbourShare,
+               double laplacian, double baseline, double[] parity, int[] box, double validShare, double boxShare, double floor,
+               double declaredBlack) {
+            this.box = box;
+            this.validShare = validShare;
+            this.boxShare = boxShare;
+            this.floor = floor;
+            this.declaredBlack = declaredBlack;
             this.verdict = verdict;
             this.width = width;
             this.height = height;
@@ -71,14 +100,47 @@ public final class FullResTruth {
             return Math.abs(a - b) <= 0.03 * Math.max(1.0, Math.max(a, b));
         }
 
+        /**
+         * P635b: the picture lost the pedestal the camera declares (its floor under half the declared black): not what the sensor
+         * reads out in a mode the HAL really runs (the documents' real frames: floor 48 .. 53 for a black of 64).
+         */
+        public boolean pedestalLost() {
+            return verdict != Verdict.UNKNOWN && declaredBlack >= 16 && floor < declaredBlack * 0.5;
+        }
+
+        /**
+         * P635b: the binned frame at its own pitch in the start of the buffer: the picture is the whole width of the first
+         * quarter of the rows (within a cell).
+         */
+        public boolean packedQuarter() {
+            return verdict == Verdict.PARTIAL && box[0] == 0 && box[1] == 0 && box[2] >= width - CELL
+                    && Math.abs(box[3] - height / 4) <= CELL;
+        }
+
+        /** Not the sensor's full readout: a partial or doubled frame, or ({@code pedestalMatters}) one without its pedestal. */
+        public boolean notReal(boolean pedestalMatters) {
+            return verdict == Verdict.PARTIAL || verdict == Verdict.UPSCALED || pedestalMatters && pedestalLost();
+        }
+
         /** The shot's one log line. */
         public String line() {
-            return String.format(Locale.ROOT, "FULLRES RECIPE: frame %dx%d 2x2std=%.2f equal=%.0f%% (phase %d, neighbours differ %.0f%%)"
+            return line("FULLRES RECIPE");
+        }
+
+        /** The log line under {@code tag} («FULLRES RECIPE», «FULLRES ROW»). */
+        public String line(String tag) {
+            return String.format(Locale.ROOT, "%s: frame %dx%d valid %dx%d+%d+%d (%.0f%% of the buffer, cells with a picture %.0f%%) floor %.0f"
+                            + " (declared black %.0f%s) 2x2std=%.2f equal=%.0f%% (phase %d, neighbours differ %.0f%%)"
                             + " lap=%.1f baseline=%.1f ratio=%s parity=[[%.1f, %.1f], [%.1f, %.1f]]%s -> %s",
-                    width, height, std2x2, equalShare * 100, phase, neighbourShare * 100, laplacian, baseline,
+                    tag, width, height, box[2] - box[0], box[3] - box[1], box[0], box[1], boxShare * 100, validShare * 100, floor,
+                    declaredBlack, pedestalLost() ? ": NO PEDESTAL" : "",
+                    std2x2, equalShare * 100, phase, neighbourShare * 100, laplacian, baseline,
                     Double.isInfinite(ratio) ? "inf" : String.format(Locale.ROOT, "%.2f", ratio), parity[0], parity[1], parity[2], parity[3],
                     verdict == Verdict.REAL ? (bayerParity() ? " (two equal phases: plain Bayer)" : " (no two equal phases)") : "",
-                    verdict == Verdict.REAL ? "real full-res" : verdict == Verdict.UPSCALED ? "UPSCALED (the binned frame written twice over)"
+                    verdict == Verdict.REAL ? (pedestalLost() ? "full-size data WITHOUT its pedestal" : "real full-res")
+                            : verdict == Verdict.UPSCALED ? "UPSCALED (the binned frame written twice over)"
+                            : verdict == Verdict.PARTIAL ? "PARTIAL (a picture in a part of the buffer only"
+                            + (packedQuarter() ? ": the binned frame at its own pitch in the first quarter of the rows)" : ")")
                             : "cannot tell (no light or all clipped), kept");
         }
     }
@@ -89,12 +151,65 @@ public final class FullResTruth {
 
     /** The verdict of a frame; UNKNOWN for a buffer that cannot be read. */
     public static Result check(@Nullable ByteBuffer raw, int width, int height, int stride) {
+        return check(raw, width, height, stride, 0);
+    }
+
+    /**
+     * P635b: {valid cells' share, box share, left, top, right, bottom, floor} of the buffer's picture. A cell of {@link #CELL}
+     * pixels is empty when its 16 sampled sites are one value under half the declared black (0 when none is declared): what the
+     * HAL leaves of a buffer it does not fill, never what a sensor reads (its pedestal and noise). The box bounds the cells that
+     * are not empty; the floor is the 2 % percentile of their samples.
+     */
+    static double[] valid(ByteBuffer b, int base, int stride, int width, int height, double declaredBlack) {
+        final int cx = Math.max(1, width / CELL), cy = Math.max(1, height / CELL);
+        final int emptyBelow = (int) Math.max(1, declaredBlack * 0.5);
+        final int[] hist = new int[4096];
+        int lit = 0, left = cx, top = cy, right = -1, bottom = -1;
+        long samples = 0;
+        for (int j = 0; j < cy; j++) for (int i = 0; i < cx; i++) {
+            final int x0 = i * CELL, y0 = j * CELL;
+            final int first = at(b, base, stride, x0 + 3, y0 + 3);
+            boolean empty = first < emptyBelow;
+            final int[] v = new int[16];
+            for (int k = 0; k < 16; k++) {
+                v[k] = at(b, base, stride, Math.min(width - 1, x0 + 3 + (k & 3) * 15), Math.min(height - 1, y0 + 3 + (k >> 2) * 15));
+                if (v[k] != first) empty = false;
+            }
+            if (empty) continue;
+            lit++;
+            left = Math.min(left, i);
+            top = Math.min(top, j);
+            right = Math.max(right, i);
+            bottom = Math.max(bottom, j);
+            for (int k = 0; k < 16; k++) hist[Math.min(4095, v[k])]++;
+            samples += 16;
+        }
+        if (lit == 0) return new double[]{0, 0, 0, 0, 0, 0, 0};
+        long seen = 0;
+        int floor = 0;
+        final long target = Math.max(1, samples / 50);
+        for (int i = 0; i < hist.length; i++) {
+            seen += hist[i];
+            if (seen >= target) {
+                floor = i;
+                break;
+            }
+        }
+        final int l = left * CELL, t = top * CELL, r = right == cx - 1 ? width : (right + 1) * CELL, bt = bottom == cy - 1 ? height : (bottom + 1) * CELL;
+        return new double[]{(double) lit / (cx * cy), (double) (r - l) * (bt - t) / ((double) width * height), l, t, r, bt, floor};
+    }
+
+    /** {@link #check(ByteBuffer, int, int, int)} with the black the camera declares (0: not known) for the pedestal and the empty cells. */
+    public static Result check(@Nullable ByteBuffer raw, int width, int height, int stride, double declaredBlack) {
         final double[] parity = new double[4];
         if (raw == null || width < 64 || height < 64 || stride < width * 2
                 || (long) raw.position() + (long) (height - 1) * stride + width * 2L > raw.limit())
             return new Result(Verdict.UNKNOWN, width, height, 0, 0, 0, 0, 0, 0, parity);
         final ByteBuffer b = raw.duplicate().order(ByteOrder.LITTLE_ENDIAN);
         final int base = b.position();
+        // P635b: where the buffer holds a picture at all
+        final double[] area = valid(b, base, stride, width, height, declaredBlack);
+        final int[] box = {(int) area[2], (int) area[3], (int) area[4], (int) area[5]};
         // every 4th box of every 4th box row of the frame without its outer tenth
         final int x0 = (width / 10) & ~1, x1 = (width * 9 / 10) & ~1, y0 = (height / 10) & ~1, y1 = (height * 9 / 10) & ~1;
         final int[] stdHist = new int[1025]; // std in quarter DN, 256 DN and more in the last bin
@@ -140,10 +255,13 @@ public final class FullResTruth {
         final double neighbourShare = equal[phase] == 0 ? 0 : (double) differ[phase] / equal[phase];
         final double[] lap = laplacian(b, base, stride, width, height, phase);
         final Verdict verdict;
-        if (equalShare >= EQUAL_SHARE) verdict = neighbourShare >= NEIGHBOUR_SHARE ? Verdict.UPSCALED : Verdict.UNKNOWN;
+        if (area[0] == 0) verdict = Verdict.UNKNOWN; // nothing but one value: no light, or all clipped
+        else if (area[1] < VALID_SHARE) verdict = Verdict.PARTIAL; // P635b: the picture's box leaves a part of the buffer empty
+        else if (equalShare >= EQUAL_SHARE) verdict = neighbourShare >= NEIGHBOUR_SHARE ? Verdict.UPSCALED : Verdict.UNKNOWN;
         else if (lap[1] > 0 && lap[0] / lap[1] < LAPLACIAN_RATIO && median == 0) verdict = Verdict.UPSCALED;
         else verdict = Verdict.REAL;
-        return new Result(verdict, width, height, median, equalShare, phase, neighbourShare, lap[0], lap[1], parity);
+        return new Result(verdict, width, height, median, equalShare, phase, neighbourShare, lap[0], lap[1], parity, box, area[0], area[1],
+                area[6], declaredBlack);
     }
 
     /**
@@ -174,6 +292,21 @@ public final class FullResTruth {
             n++;
         }
         return new double[]{s2 / n - (s1 / n) * (s1 / n), t2 / n - (t1 / n) * (t1 / n)};
+    }
+
+    /**
+     * P635b: the binned frame a {@link Result#packedQuarter} buffer holds - width / 2 x height / 2 sites at their own pitch from
+     * the buffer's start (two binned rows in each buffer row) - into {@code dst} (packed uint16 rows from its position). False
+     * when the buffers do not hold it or the buffer's rows are padded (the pitch is then not the binned frame's).
+     */
+    public static boolean unpackQuarter(@Nullable ByteBuffer dst, @Nullable ByteBuffer src, int width, int height, int stride) {
+        final int bytes = (width / 2) * (height / 2) * 2;
+        if (dst == null || src == null || bytes <= 0 || stride != width * 2 || dst.remaining() < bytes || src.limit() < bytes) return false;
+        final ByteBuffer in = src.duplicate();
+        in.position(0);
+        in.limit(bytes);
+        dst.duplicate().put(in);
+        return true;
     }
 
     /** The size of a doubled frame's binned original. */

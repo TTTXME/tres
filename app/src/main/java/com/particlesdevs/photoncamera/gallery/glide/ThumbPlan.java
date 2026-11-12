@@ -106,6 +106,12 @@ public final class ThumbPlan {
         return tw >= ENOUGH * t[0] && th >= ENOUGH * t[1];
     }
 
+    /** P637: whether a {@code tw x th} embedded picture has the aspect of the {@code w x h} one (both as stored). */
+    public static boolean sameAspect(int tw, int th, int w, int h) {
+        if (tw <= 0 || th <= 0 || w <= 0 || h <= 0) return false;
+        return Math.abs((double) tw / th - (double) w / h) <= ASPECT_TOLERANCE * ((double) w / h);
+    }
+
     /** Whether a decoded {@code bw x bh} bitmap is worth an exact downscale to {@code t} (more than 25 % more pixels on a side). */
     public static boolean worthScaling(int bw, int bh, int[] t) {
         return bw > 1.25 * t[0] || bh > 1.25 * t[1];

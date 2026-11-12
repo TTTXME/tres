@@ -93,6 +93,23 @@ public class SaverImplementation {
             com.particlesdevs.photoncamera.util.Log.w(TAG, "post-shutter " + payload.error);
             RawPayloadCheck.dumpOnce(image, payload, ScameraApp.getSettings().mCameraID);
         }
+        // P635 / P635b: a recipe shot's truth check on the whole buffer, before any crop: a frame that is not the sensor's full
+        // readout is replaced by the binned frame it holds (a doubled one halved, the binned frame at its own pitch unpacked);
+        // one that holds a picture in another part only is refused (no buffer: the series drops it)
+        final com.particlesdevs.photoncamera.capture.FullResRecipeShot recipe = recipeShot;
+        if (recipe != null && format == ImageFormat.RAW_SENSOR && payload.plain()) {
+            final com.particlesdevs.photoncamera.capture.FullResTruth.Result truth = recipe.judge(buffer, image.getWidth(), height, rowStride);
+            if (truth.verdict == com.particlesdevs.photoncamera.capture.FullResTruth.Verdict.UPSCALED
+                    || truth.verdict == com.particlesdevs.photoncamera.capture.FullResTruth.Verdict.PARTIAL) {
+                final ImageFrame binned = recipeBinned(image, buffer, rowStride, height, truth);
+                if (binned != null) return binned;
+                final ImageFrame refused = ImageFrame.wrap(null, image.getWidth(), height);
+                refused.rawPayloadError = "the full-size buffer holds no full frame (" + truth.verdict + ") and no binned frame the shot could take";
+                refused.sourceFormat = format;
+                refused.timestamp = image.getTimestamp();
+                return refused;
+            }
+        }
         if(!iszAspect4x3 && ScameraApp.getSettings().aspect169 && width > height){
             // P118: the crop of the ZSL ring's frames (Wide169); this one kept an odd row count the merge dropped. P230: of the DCG
             // mode's rows (Xiaomi 15 Ultra: 2560 of 3072), not of its empty band
@@ -103,16 +120,6 @@ public class SaverImplementation {
         }
         Allocator.binning = ScameraApp.getSettings().binning;
         if (tetraBin) return tetraBinned(image, buffer, format, payload, rowStride, height);
-        final com.particlesdevs.photoncamera.capture.FullResRecipeShot recipe = recipeShot;
-        if (recipe != null && format == ImageFormat.RAW_SENSOR && payload.plain()) {
-            final ByteBuffer rows = buffer.duplicate(); // the frame's rows (from the 16:9 crop's first one)
-            rows.position(Math.min(offset, rows.limit()));
-            final com.particlesdevs.photoncamera.capture.FullResTruth.Result truth = recipe.judge(rows, image.getWidth(), height, rowStride);
-            if (truth.verdict == com.particlesdevs.photoncamera.capture.FullResTruth.Verdict.UPSCALED) {
-                final ImageFrame halved = recipeHalved(image, buffer, offset, rowStride, height, truth.phase);
-                if (halved != null) return halved;
-            }
-        }
         ImageFrame frame = new ImageFrame(buffer, format, width, rowStride, offset, capacity, shotArena);
         frame.rawPayloadError = payload.error;
         frame.sourceFormat = format;
@@ -159,11 +166,15 @@ public class SaverImplementation {
     }
 
     /**
-     * P635: a doubled still of a recipe shot back to the binned frame it was made of (one site of every 2x2 box, FullResTruth.halve)
-     * in the shot's arena, else a buffer of its own; null when it cannot be made (the frame is kept as it came).
+     * P635 / P635b: the binned frame a still of a recipe shot really holds - a doubled frame halved (one site of every 2x2 box),
+     * the binned frame at its own pitch in the buffer's first quarter unpacked (FullResTruth) - in the shot's arena, else a buffer
+     * of its own; null when there is none to take (the caller refuses the frame).
      */
-    private ImageFrame recipeHalved(Image image, ByteBuffer buffer, int offset, int rowStride, int height, int phase) {
+    private ImageFrame recipeBinned(Image image, ByteBuffer buffer, int rowStride, int height,
+                                    com.particlesdevs.photoncamera.capture.FullResTruth.Result truth) {
         final int width = image.getWidth();
+        final boolean doubled = truth.verdict == com.particlesdevs.photoncamera.capture.FullResTruth.Verdict.UPSCALED;
+        if (!doubled && !truth.packedQuarter()) return null;
         final int[] half = com.particlesdevs.photoncamera.capture.FullResTruth.halfSize(width, height);
         final int bytes = half[0] * half[1] * 2;
         final com.particlesdevs.photoncamera.util.ShotArena arena = shotArena;
@@ -178,16 +189,20 @@ public class SaverImplementation {
         if (out == null) return null;
         out.order(java.nio.ByteOrder.nativeOrder());
         out.position(0);
-        if (!com.particlesdevs.photoncamera.capture.FullResTruth.halve(out, buffer, offset, width, height, rowStride, phase)) return null;
+        final boolean made = doubled
+                ? com.particlesdevs.photoncamera.capture.FullResTruth.halve(out, buffer, 0, width, height, rowStride, truth.phase)
+                : com.particlesdevs.photoncamera.capture.FullResTruth.unpackQuarter(out, buffer, width, height, rowStride);
+        if (!made) return null;
         out.position(0);
         final ImageFrame frame = ImageFrame.wrap(out, half[0], half[1]);
         frame.sourceFormat = ImageFormat.RAW_SENSOR;
         frame.timestamp = image.getTimestamp();
-        ShotTimeline.captureNote("recipe_upscaled", "the full-size frame is the binned one doubled: merged as " + half[0] + "x" + half[1]);
+        ShotTimeline.captureNote("recipe_binned", (doubled ? "the full-size frame is the binned one doubled" : "the full-size buffer holds the binned frame")
+                + ": merged as " + half[0] + "x" + half[1]);
         return frame;
     }
 
-        final ProcessorBase.ProcessingCallback processingCallback = new ProcessorBase.ProcessingCallback() {
+    final ProcessorBase.ProcessingCallback processingCallback = new ProcessorBase.ProcessingCallback() {
         @Override
         public void onStarted() {
             CaptureController.isProcessing = true;

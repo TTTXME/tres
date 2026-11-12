@@ -55,8 +55,11 @@ public final class DevKeys {
             "post_priority", "gpu_low_priority", "post_gpu_pace", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
+            "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
+            "static_slice_ms", // P639: the static merge's GPU submissions (the same photo bit for bit)
             "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
             "jpeg_stream", // P483: the JPEG encoded from the mapped readback (the same bytes)
+            "jpeg_stream_marks", // P642: the watermark and the ES / L stamp drawn into the streamed JPEG's rows (the same file)
             "ahb_transport", // P482: the merge RGB in the app's hardware buffer instead of the memfd (the same bytes)
             "tex_pool", // P477: the textures' storage reused within a post run (memory, the same pixels)
             "static_vulkan", // P624: the static merge's GPU API (the same photo within 2e-3, the self-test checks it)
@@ -162,6 +165,7 @@ public final class DevKeys {
         k.add(s(cap, "sensor_mode_series", false, Lang.t("OPPO / OnePlus / realme: кадры после затвора и в выбранном режиме сенсора (иначе снимок только из буфера)", "OPPO / OnePlus / realme: frames after the shutter in a picked sensor mode too (otherwise the shot is taken from the ring only)")));
         k.add(s(cap, "sensor_mode_pick_lease", true, Lang.t("vivo: модуль с режимом сенсора открывает камеру с арендой vivo SDK", "vivo: a module with a sensor mode opens the camera under the vivo SDK lease")));
         k.add(s(cap, "vivo_native_isz_lease", true, Lang.t("X200 Ultra (свой пакет): нативный модуль ISZ открывает камеру с арендой vivo SDK", "X200 Ultra (own package): a native ISZ module opens the camera under the vivo SDK lease")));
+        k.add(s(cap, "vivo_lease_guard", true, Lang.t("vivo: сторож аренды SDK в отдельном процессе — возвращает системные значения, если камера упала или была убита", "vivo: the SDK lease's guard in its own process — gives the phone's values back when the camera crashed or was killed")));
         k.add(s(cap, "vivo_qcom_isz_lease", true, Lang.t("X300 Ultra: модуль ISZ открывает камеру с арендой vivo SDK (VCF 33 = 2, SDK RAW 40 = 1)", "X300 Ultra: an ISZ module opens the camera under the vivo SDK lease (VCF 33 = 2, SDK RAW 40 = 1)")));
         k.add(sAuto(cap, "vivo_qcom_isz_cropped_raw", Lang.t("X300 Ultra: RAW-поток модуля ISZ: 1 — с CROPPED_RAW (как в сборке 30912), 0 — без; без строки приложение пробует без, затем с", "X300 Ultra: the ISZ module's RAW stream: 1 = with CROPPED_RAW (as in build 30912), 0 = without; no line: the app tries without, then with")));
         k.add(s(cap, "mosaic_awb", true, Lang.t("ISZ без ремозаика: баланс белого по кадру на кривой камеры, а не от камеры", "ISZ without remosaic: white balance from the frame on the camera curve, not the camera's")));
@@ -340,6 +344,10 @@ public final class DevKeys {
                 "Quad / Tetra «Quality»: merge blocks read through the texture cache (1 on, 0 storage buffers; same result, slower on the Adreno 750)")));
         k.add(n(merge, "static_vulkan", "-1", Lang.t("«Статика»: GPU склейки (1 Vulkan, 0 GLES, -1 авто: самопроверка на первом снимке версии выбирает быстрый совпадающий, -2 только процессор; сбой Vulkan - снимок заново на GLES, сбой GLES - на процессоре, всё той же «Статикой»)",
                 "«Static»: the merge's GPU API (1 Vulkan, 0 GLES, -1 auto: a self-test on the version's first shot picks the faster matching one, -2 the CPU only; a Vulkan failure redoes the shot on GLES, a GLES failure on the CPU, still «Static»)")));
+        k.add(n(merge, "static_plan", "1", Lang.t("«Статика»: расписание решения (1 короткое: грубая стадия на сетке RAW, затем 6 шагов Чебышёва на 2x - в ~3 раза быстрее при той же детальности; 0 прежнее: 8 итераций по 3 шага)",
+                "«Static»: the solve's schedule (1 short: a coarse stage at the RAW grid, then 6 Chebyshev steps at 2x - about 3x faster with the same detail; 0 the earlier one: 8 iterations of 3 steps)")));
+        k.add(n(merge, "static_slice_ms", "6", Lang.t("«Статика»: длина одной порции работы GPU, мс (между порциями рисуется видоискатель; 0 - полоса одной порцией, как раньше; снимок тот же)",
+                "«Static»: the length of one GPU submission, ms (the viewfinder draws between them; 0 - a strip in one submission, as before; the same photo)")));
         k.add(n(merge, "hybrid_fast_mosaic_chroma", "1", Lang.t("Quad / Tetra «Быстрый»: цветовая медиана после склейки против цветной сетки (1 вкл., 0 как раньше)",
                 "Quad / Tetra «Fast»: chroma median after the merge against the colour lattice (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_site_gain", "1", Lang.t("Quad «Быстрый»: поправка чувствительности пикселей блока, как в «Качестве» (1 вкл., 0 только QPC)",
@@ -350,6 +358,8 @@ public final class DevKeys {
                 "Photo local contrast (WHY tone): the fused luma's small differences boosted, strong edges left alone (0 off, as before; 0..1)")));
         k.add(n(merge, "hybrid_tetra_motion_smooth", "1", Lang.t("Tetra: сглаживание шума движущихся объектов там, где склеилось мало кадров (точки и бусины за идущим человеком), края сохраняются (1 вкл., 0 как раньше; 0..1)",
                 "Tetra: smoothing of the noise of moving subjects where few frames merged (dots and beads behind a walking person), edges kept (1 on, 0 as before; 0..1)")));
+        k.add(n(merge, "hybrid_tetra3", "1", Lang.t("Tetra и «Статика»: «Быстрый» на Tetra сглаживает ступеньки вдоль краёв там, где склеился почти один кадр, и убирает шахматку у пересвеченных огней; «Качество» выравнивает кадр со слабой гомографией по ней, а не одним сдвигом; «Статика» на Quad / Tetra не принимает неподвижную сцену за движущуюся и склеивает все её кадры (1 вкл., 0 как раньше)",
+                "Tetra and «Static»: «Fast» on Tetra smooths the stair-steps along edges where nearly one frame merged and takes the checker off clipped lights; «Quality» starts a frame with a weak homography from it, not from a shift alone; «Static» on Quad / Tetra no longer takes a still scene for a moving one and merges all of its frames (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_quad_detail", "1", Lang.t("Quad: детализация ремозаика - «Быстрый» не размывает мелкую текстуру и полосы как шум или решётку, конус вдоль края на движении; «Качество» - тензор структуры по зелёным пикселям (мелкие полосы, фасады), узкий конус на движении (1 вкл., 0 как раньше)",
                 "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
@@ -617,6 +627,18 @@ public final class DevKeys {
         k.add(s(xiaomi, "xiaomi_crop_mode", false, Lang.t("Режим кропа теле (опыт)", "Tele crop mode (experiment)")));
         k.add(s(xiaomi, "xiaomi_isz", false, Lang.t("ISZ теле (опыт)", "Tele ISZ (experiment)")));
         k.add(s(xiaomi, "xiaomi_tele_fallback", false, Lang.t("Запасной путь теле при сбое", "Tele fallback route on failure")));
+        // P641: the Xiaomi 17 Ultra's dual-gain rows (DCG, DCG + LOFIC, the ultra wide's DSG) and the 75 mm's 4x ISZ rows
+        k.add(s(xiaomi, "xiaomi17_dxg", true, Lang.t("DCG / DCG+LOFIC / DSG: переключатель на основной, 75 мм и сверхширокой камерах (на телефоне не проверено)",
+                "DCG / DCG+LOFIC / DSG: the switch on the main, the 75 mm and the ultra wide cameras (not proven on a phone)")));
+        k.add(n(xiaomi, "xiaomi17_dxg_row", "-1", Lang.t("DCG / DSG: режим сенсора вместо строки из конфигов телефона (-1 — как в конфигах: 4 / 5 / 6 / 3)",
+                "DCG / DSG: a sensor mode row instead of the phone's configs' one (-1: as the configs say, 4 / 5 / 6 / 3)")));
+        k.add(n(xiaomi, "xiaomi17_dxg_variant", "-1", Lang.t("DCG / DSG: только один способ включения, по номеру с нуля (-1 — перебор по порядку)",
+                "DCG / DSG: one way of turning it on only, by its index from zero (-1: the ladder in order)")));
+        k.add(n(xiaomi, "xiaomi17_dxg_window", String.valueOf(com.particlesdevs.photoncamera.capture.XiaomiDualGain.WINDOW), Lang.t(
+                "DCG / DSG: за сколько кадров видоискателя способ должен дать глубину больше 10 бит",
+                "DCG / DSG: the viewfinder frames a way has to show more than 10 bits in")));
+        k.add(s(xiaomi, "xiaomi17_row12", false, Lang.t("75 мм: слать режим сенсора 12 (4x ISZ) и со стоковым модулем сенсора — там кадр не заканчивается",
+                "75 mm: send sensor mode 12 (4x ISZ) with the stock sensor module too - the frame never ends there")));
         // Xiaomi 15 Ultra (P230)
         k.add(s(xiaomi15, "xiaomi_dcg", true, Lang.t("Кнопка DCG 14 бит на основной камере", "The DCG 14-bit button on the main camera")));
         k.add(n(xiaomi15, "xiaomi_dcg_opmode", String.valueOf(com.particlesdevs.photoncamera.capture.XiaomiDcg.OPERATION_MODE), Lang.t("DCG: режим работы сессии (37379 = 0x9203, 0 — без него)", "DCG: session operation mode (37379 = 0x9203, 0 none)")));
@@ -645,6 +667,10 @@ public final class DevKeys {
         k.add(s(cap, "nubia_probe_reset", false, Lang.t("nubia 50 Мп: при каждом запуске забывать пробы способов против ремозаика HAL (снова с первого)",
                 "nubia 50 MP: forget the trials of the settings against the HAL's remosaic at every app start (from the first again)")));
         // P631: the Xiaomi 17 Ultra's full-size row in a RAW-only session, its colour block measured over the frame's floor (XiaomiSensorRow)
+        k.add(s(cap, "fullres_row_truth", true, Lang.t("Xiaomi: режим сенсора модуля, чей первый кадр — не полный кадр сенсора (картинка только в части буфера, без пьедестала), возвращается в «Авто»; 0 — только строка в логе",
+                "Xiaomi: a module's sensor mode whose first frame is not the sensor's full frame (a picture in a part of the buffer only, no pedestal) goes back to Auto; 0 - the log line only")));
+        k.add(s(cap, "recipe_vf_floor", true, Lang.t("«Полное разрешение (рецепт)»: чёрный RAW-видоискателя берётся по самим кадрам, когда они лежат намного выше заявленного чёрного (иначе видоискатель розовый и блёклый). 0 — заявленный чёрный.",
+                "«Full resolution (recipe)»: the RAW viewfinder's black is taken from the frames themselves when they sit far above the declared black (otherwise the viewfinder is pink and washed out). 0: the declared black.")));
         k.add(s(cap, "fullres_recipe", true, Lang.t("«Полное разрешение (рецепт)» в настройках объектива: 0 — рецепты не запускаются ни на одном объективе, обычная сессия",
                 "“Full resolution (recipe)” of the lens settings: 0 - no recipe runs on any lens, the normal session")));
         k.add(s(cap, "xiaomi_row_raw_only", true, Lang.t("Xiaomi: полноразмерный режим сенсора (17 Ultra, 50 Мп) — сессия только с RAW, без ISP-потока; цветовой блок мозаики меряется от собственного уровня чёрного кадра",
@@ -760,6 +786,9 @@ public final class DevKeys {
         // P483: a caller that only saves (PostPipeline.streamJpeg) gets the JPEG from the mapped readback, no bitmap
         k.add(s(post, "jpeg_stream", true, Lang.t("JPEG кодируется прямо из буфера чтения с GPU, без копии в картинку (те же байты), где вызывающему нужен только файл. Выкл — через картинку, как раньше",
                 "The JPEG encoded straight from the GPU readback buffer, without the copy into a bitmap (the same bytes), where the caller only needs the file. Off: through the bitmap as before")));
+        // P642: the streamed JPEG draws the watermark and the ES / L stamp into its own rows
+        k.add(s(post, "jpeg_stream_marks", true, Lang.t("Водяной знак и отметка ES / L рисуются прямо в строки потокового JPEG (тот же файл, без картинки в памяти). Выкл — снимок со знаком идёт через картинку, как раньше",
+                "The watermark and the ES / L stamp are drawn straight into the streamed JPEG's rows (the same file, no bitmap in memory). Off: a shot with a mark goes through the bitmap, as before")));
         k.add(s(post, "post_noise_quantile_gpu", true, Lang.t("Ускоренная оценка шума на GPU. При несовместимости используется прежний расчёт на CPU; результат шумоподавления сохраняется",
                 "Faster noise estimation on the GPU. Incompatible cases use the original CPU calculation; denoising is unchanged")));
         k.add(s(post, "thermal_async", true, Lang.t("Температурный статус после склейки запрашивается в фоне (вызов системы не задерживает обработку). Выкл — на потоке обработки, как до P371",
@@ -781,6 +810,13 @@ public final class DevKeys {
                 "The RAW crop (X200 Pro, manual margins, the zoom's crop) in place: the rows move inside each frame's own buffer, no new buffer for the whole burst, the worker started at the press stays usable. Off: copied into a new buffer, as before P625")));
         k.add(s(post, "prep_warm", true, Lang.t("Прогрев подготовки снимка: при открытии камеры один раз прогоняется расчёт уровня чёрного на пробном кадре, чтобы первый снимок не ждал компиляции кода. Выкл — без прогрева, как до P625",
                 "Warm-up of the shot's preparation: when the camera opens, the black level scan runs once on a test frame, so the first shot does not wait for its code to compile. Off: no warm-up, as before P625")));
+        // P636: «Oldstyle»'s tone in bands of rows on several threads; its frame read from the GPU in 16-bit samples
+        k.add(n(post, "oldstyle_threads", null, Lang.t("«Oldstyle»: потоков тона (1 — один поток, как до P636; пусто — ядра минус одно, до 8). Те же байты",
+                "Oldstyle: threads of the tone (1: one thread, as before P636; empty: the cores less one, up to 8). The same bytes")));
+        k.add(s(post, "oldstyle_read16", true, Lang.t("«Oldstyle»: кадр для тона читается с GPU 16-битными отсчётами, где драйвер это предлагает (вдвое меньше байт). Выкл — 32-битными, как раньше",
+                "Oldstyle: the tone's frame is read from the GPU in 16-bit samples where the driver offers it (half the bytes). Off: 32-bit, as before")));
+        k.add(s(post, "exif_beside_encode", true, Lang.t("JPEG через картинку (водяной знак, штамп, кроп): блок EXIF с миниатюрой готовится рядом с кодированием, а не до него (тот же файл). Выкл — до кодирования, как раньше",
+                "A JPEG saved through the bitmap (watermark, stamp, crop): the EXIF block with its thumbnail is made beside the encode, not before it (the same file). Off: before the encode, as before")));
         // P235: the shot arena of a FULLRES burst made at the press (RingArenaMove)
         k.add(s(cap, "fullres_press_arena", true, Lang.t("FULLRES 50 Мп: общий буфер снимка создаётся при нажатии — кадры серии пишутся сразу в него, кадры кольца переносятся, пока идёт серия. Выкл — перенос всей серии перед склейкой (как до P235)",
                 "FULLRES 50 MP: the shot's shared buffer is made at the press - the stills go straight into it, the ring frames move in while the series runs. Off: the whole burst moved before the merge (as before P235)")));

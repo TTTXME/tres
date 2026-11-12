@@ -476,11 +476,7 @@ public final class OldstyleControls {
         panel.animate().cancel();
         button.animate().cancel();
         final boolean anim = animate && Motion.enabled(panel);
-        if (manual != null) {
-            if (anim) manual.animate().alpha(value ? 0f : 1f).setDuration(200).start();
-            else manual.setAlpha(value ? 0f : 1f);
-            manual.setImportantForAccessibility(value ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
-        }
+        coverManual(anim);
         // the panel takes the manual row's place: the controls move down by the row's height while open
         final float drop = value && manual != null ? manual.getHeight() + dp(8) : 0f;
         host.animate().cancel();
@@ -521,6 +517,19 @@ public final class OldstyleControls {
         showHud();
     }
 
+    /**
+     * P630g: the manual row is hidden exactly while the panel is open - by the row's own rule (ExpandingManualPanel.setCovered:
+     * the shade down and nothing in its place), not by an alpha set from here that the shade's return or a refresh undid
+     * (owner's screenshot: the row showing through the open panel). Called on every change and every refresh ({@link #apply},
+     * {@link #show}).
+     */
+    private void coverManual(boolean animate) {
+        if (manual == null) return;
+        final boolean covered = on && open;
+        manual.setCovered(covered, animate); // idempotent: nothing when the row is already where its rule puts it
+        manual.setImportantForAccessibility(covered ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+    }
+
     private void showHud() {
         if (hud == null) return;
         final boolean shown = on && open && !shadeShown && tab == PALETTE;
@@ -552,9 +561,12 @@ public final class OldstyleControls {
      */
     public void apply(boolean mode, @Nullable com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel panel,
                       @Nullable View pro, boolean animate) {
+        // P630g: a row this object covered before (another panel instance, or the mode left) is given back
+        if (manual != null && manual != panel) manual.setCovered(false, false);
         on = mode;
         manual = panel;
         if (!mode) setOpen(false, false);
+        coverManual(false);
         if (panel != null && panel.isExpanded() != mode) panel.setExpanded(mode, animate);
         if (pro != null) {
             pro.setEnabled(!mode);
@@ -575,6 +587,7 @@ public final class OldstyleControls {
     }
 
     private void show(boolean animate) {
+        coverManual(animate); // P630g: every refresh re-asserts the row's state
         final boolean visible = on && !shadeShown;
         // an alpha fade of its own (Motion.fade would animate the open panel's drop back to 0)
         host.animate().cancel();

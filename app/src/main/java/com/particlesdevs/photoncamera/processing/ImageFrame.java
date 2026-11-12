@@ -69,6 +69,27 @@ public class ImageFrame {
      */
     public CaptureRole measuredRole;
 
+    /**
+     * P641d: the overflow read of a DCG + LOFIC exposure travels with its main frame until the merge (the packed frame of the
+     * second stream and what the pair measured; LoficPair) ...
+     */
+    public Overflow overflow;
+
+    /**
+     * The overflow frame a shot's main frame takes along: a copy of the packed frame and the ratio the session proved (filled by
+     * capture.LoficPair; kept here so that this class stands without the capture package - the host checks compile it alone).
+     */
+    public static final class Overflow {
+        public ByteBuffer packed;
+        public int width, height, stride, firstRow;
+        /** The session's proven ratio (0: none): the shot's own measure has to agree with it. */
+        public double sessionRatio;
+        /** The variant that ran, for the shot's log. */
+        public String rung = "";
+    }
+    /** ... and, as a frame of the burst, names that main frame: its metadata is the main frame's (one exposure, one result). */
+    public ImageFrame pairedMain;
+
     /** Role follows its request/result even if other burst images are missing. */
     public CaptureRole getCaptureRole() {
         android.hardware.camera2.CaptureResult matched = getMatchedCaptureMetadata();
@@ -83,6 +104,7 @@ public class ImageFrame {
 
     /** Full calibration must come from this RAW, not the last burst callback. */
     public android.hardware.camera2.CaptureResult getMatchedCaptureMetadata() {
+        if (pairedMain != null) return pairedMain.getMatchedCaptureMetadata(); // P641d
         if (captureMetadata == null) return null;
         Long sensorTimestamp = captureMetadata.get(android.hardware.camera2.CaptureResult.SENSOR_TIMESTAMP);
         return sensorTimestamp != null && sensorTimestamp == timestamp ? captureMetadata : null;

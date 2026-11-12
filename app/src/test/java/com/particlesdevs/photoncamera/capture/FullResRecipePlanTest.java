@@ -2,6 +2,7 @@ package com.particlesdevs.photoncamera.capture;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -179,5 +180,53 @@ public class FullResRecipePlanTest {
         assertEquals("already within: the plan itself", plan, plan.limitedTo(6));
         assertEquals(plan, plan.limitedTo(0));
         assertEquals(1, plan.limitedTo(1).requests.size());
+    }
+
+    /**
+     * P635c (owner, 2026-11-12: «PDAF судя по всему не работает с фулрезом»): «Ключи на видоискателе» off - the repeating request
+     * carries none of the profile's tags, the session parameters and the stills keep theirs. The documents ran the viewfinder with
+     * them, so the presets keep them on.
+     */
+    @Test public void theViewfinderRequestCanGoWithoutTheTags() {
+        final FullResRecipe preset = FullResRecipeTest.xiaomi();
+        assertTrue("the documents' dual stream: tags on the session and on every request", preset.viewTags);
+        assertEquals("yes", preset.fields().get(FullResRecipe.VIEW_TAGS));
+        for (FullResRecipePresets.Device d : new FullResRecipePresets.Device[]{FullResRecipeTest.XIAOMI_17U, FullResRecipeTest.NUBIA,
+                FullResRecipeTest.ONEPLUS_16, FullResRecipeTest.OTHER})
+            for (String id : new String[]{"0", "1", "2", "3", "4"}) {
+                final FullResRecipe r = FullResRecipePresets.preset(d, id, null);
+                if (r != null) assertTrue("camera " + id, r.viewTags);
+            }
+        final FullResRecipe off = edited(preset, FullResRecipe.VIEW_TAGS, "no");
+        assertFalse(off.viewTags);
+        assertTrue("an edited preset is a trial", off.experimental);
+        assertNotEquals("a new trial for the failure memory", preset.signature(), off.signature());
+        final FullResRecipePlan plan = FullResRecipePlan.of(off, ENV);
+        assertNotNull(plan);
+        assertTrue(plan.requestTags(false).isEmpty());
+        assertEquals(2, plan.requestTags(true).size());
+        assertEquals(2, plan.sessionTags().size());
+        assertTrue(plan.describe("2"), plan.describe("2").contains("repeating tags: none; still tags: org.codeaurora"));
+        // the request builders of such a session: a still is tagged, the viewfinder's request is left alone
+        FullResRecipeSession.session(plan);
+        final CaptureRequest.Builder view = Mockito.mock(CaptureRequest.Builder.class), still = Mockito.mock(CaptureRequest.Builder.class);
+        assertEquals("none", FullResRecipeSession.applyRequest(view, false));
+        Mockito.verifyNoInteractions(view);
+        assertTrue(FullResRecipeSession.applyRequest(still, true).contains("xiaomi.remosaic.enabled"));
+        // the field's texts
+        for (String v : new String[]{"yes", "no", "on", "off", "1", "0", "TRUE", "false"}) assertTrue(v, FullResRecipe.valid(FullResRecipe.VIEW_TAGS, v));
+        assertFalse(FullResRecipe.valid(FullResRecipe.VIEW_TAGS, "maybe"));
+        assertFalse(FullResRecipe.valid(FullResRecipe.VIEW_TAGS, ""));
+        // stills only, the session without the mode key too: the tags' own target
+        final FullResRecipePlan stills = FullResRecipePlan.of(edited(preset, FullResRecipe.TAGS,
+                "org.codeaurora.qcamera3.sensor_meta_data.current_mode=i32[]:0@still\nxiaomi.remosaic.enabled=u8[]:1@still"), ENV);
+        assertTrue(stills.sessionTags().isEmpty());
+        assertTrue(stills.requestTags(false).isEmpty());
+        assertEquals(2, stills.requestTags(true).size());
+        // what a result reports for the tags is logged under the keys' last two parts
+        assertEquals("sensor_meta_data.current_mode", FullResRecipeTags.shortKey("org.codeaurora.qcamera3.sensor_meta_data.current_mode"));
+        assertEquals("remosaic.enabled", FullResRecipeTags.shortKey("xiaomi.remosaic.enabled"));
+        assertEquals("plain", FullResRecipeTags.shortKey("plain"));
+        assertEquals("none", FullResRecipeTags.read(null, preset.tags));
     }
 }

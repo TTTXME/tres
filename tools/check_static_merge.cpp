@@ -144,14 +144,107 @@ static SynBurst remosaicToBayer(const SynBurst& q){
     return o;
 }
 
+// P634: the still-scene check on colour-block thumbnails (hybridStaticMoving with a tolerance). A still scene whose frame is
+// shifted by 3.3 thumbnail px: a bright band leaves the window (the whole thumbnails' means differ by a few %), a flat sky at the
+// noise of a 64-site mean (ISO 50), a colonnade of 2.3 thumbnail px columns. Without the tolerance (before) a large share of
+// its blocks «move»; with it none, and the level is the aligned blocks' (1); a patch that really changed by 10 % still moves.
+static void checkStillSceneCheck(){
+    using namespace staticmerge;
+    const int tw=128,th=96;const double sh=3.3;
+    auto sceneT=[&](double x,double y){
+        if(x<14.0)return 0.9;                                   // the band that leaves the window
+        if(y<40.0)return 0.5+0.0008*x;                          // sky
+        return 0.3+0.1*std::sin(2*M_PI*x/2.3)+0.03*std::sin(0.3*y); // colonnade
+    };
+    auto thumb=[&](double dx,bool patch,uint32_t seed){
+        FastThumb t;t.w=tw;t.h=th;t.v.assign(size_t(tw)*th,0.f);
+        std::mt19937 rng(seed);std::normal_distribution<double> n01(0,1);double sum=0;
+        for(int y=0;y<th;++y)for(int x=0;x<tw;++x){
+            double v=0;for(int i=0;i<8;++i)v+=sceneT(x+(i+0.5)/8+dx,y+0.5);
+            v/=8;
+            if(patch&&x>=60&&x<76&&y>=10&&y<26)v*=1.10;
+            v+=n01(rng)*std::sqrt(2.8e-4*v/64.0);
+            t.v[size_t(y)*tw+x]=float(v);sum+=v;
+        }
+        t.mean=float(sum/double(tw*th));return t;
+    };
+    const FastThumb tb=thumb(0,false,1),tf=thumb(sh,false,2),tm=thumb(sh,true,3);
+    const M3 Hinv{1,0,8.0*sh,0,1,0,0,0,1}; // frame thumbnail centre (RAW px) -> base RAW px
+    float level=0.f;
+    const float before=hybridStaticMoving(tb,tf,Hinv,2.8e-4f,0.f,64.f,0.f);
+    const float after=hybridStaticMoving(tb,tf,Hinv,2.8e-4f,0.f,64.f,0.005f,&level);
+    const float mover=hybridStaticMoving(tb,tm,Hinv,2.8e-4f,0.f,64.f,0.005f);
+    std::printf("still-scene check (P634): moving blocks before %.3f, with the tolerance %.3f (level %.4f), with a 10 %% patch %.3f\n",before,after,level,mover);
+    expect(before>0.03f,"P634: without the tolerance the still scene's shifted frame counts as moving (the case)");
+    expect(after<=0.005f&&std::abs(level-1.f)<0.003f,"P634: with the tolerance no block moves and the level is the aligned blocks'");
+    expect(mover>=0.02f&&mover<=0.08f,"P634: a patch that changed by 10 % still moves (its blocks alone)");
+    expect(HybridTuning().staticBlockTol==0.005f,"P634: staticBlockTol 0.005 by default");
+}
+
+// P634b: the lattice pass leaves lines (a colonnade of the colour period, column-only) and takes the two-axis lattice; the detail
+// pass's added part loses what is locked to the colour period and keeps the rest
+static void checkStaticStripes(){
+    const int W=256,H=192,P=8;const size_t n=size_t(W)*H;
+    auto amp=[&](const std::vector<float>& y,const std::vector<float>& pat){double a=0,b=0;for(size_t i=0;i<n;++i){a+=double(y[i])*pat[i];b+=double(pat[i])*pat[i];}return a/b;};
+    std::vector<float> stripes(n),checker(n),bump(n);
+    for(int y=0;y<H;++y)for(int x=0;x<W;++x){
+        const size_t i=size_t(y)*W+x;
+        stripes[i]=float(std::sin(2*M_PI*x/8.0));                          // column-only, the period
+        checker[i]=(((x/4)+(y/4))&1)?1.f:-1.f;                             // both axes, the period
+        bump[i]=float(std::sin(2*M_PI*x/23.0)*std::cos(2*M_PI*y/31.0));    // not of the period
+    }
+    auto run=[&](bool lines){
+        std::vector<float> rgb(n*3);
+        for(size_t i=0;i<n;++i){const float v=0.4f+0.02f*stripes[i]+0.004f*checker[i];rgb[3*i]=rgb[3*i+1]=rgb[3*i+2]=v;}
+        stLatticeCpu(rgb,W,H,P,lines);
+        std::vector<float> y(n);for(size_t i=0;i<n;++i)y[i]=rgb[3*i+1]-0.4f;
+        return std::array<double,2>{amp(y,stripes)/0.02,amp(y,checker)/0.004};
+    };
+    const auto was=run(false),now=run(true);
+    std::printf("lattice pass (P634b): a colonnade of the period kept %.2f -> %.2f, the two-axis lattice left %.2f -> %.2f\n",was[0],now[0],was[1],now[1]);
+    expect(was[0]<0.6,"P634b: without it the lattice pass takes a colonnade of the colour period (the case)");
+    expect(now[0]>0.95&&now[1]<0.2,"P634b: stLatticeCpu lines keeps the column-only part and takes the two-axis lattice");
+    std::vector<float> yb(n,0.4f),rgb(n*3);
+    for(size_t i=0;i<n;++i){const float v=0.4f+0.006f*stripes[i]+0.006f*bump[i];rgb[3*i]=rgb[3*i+1]=rgb[3*i+2]=v;}
+    stDetailLatticeOff(rgb,yb,W,H,P);
+    std::vector<float> d(n);for(size_t i=0;i<n;++i)d[i]=rgb[3*i+1]-0.4f;
+    const double ks=amp(d,stripes)/0.006,kb=amp(d,bump)/0.006;
+    std::printf("detail pass's added part (P634b): of the colour period %.2f left, the rest %.2f kept\n",ks,kb);
+    expect(ks<0.1&&kb>0.9,"P634b: stDetailLatticeOff takes the added part locked to the colour period and keeps the rest");
+    expect(HybridTuning().staticLatticeLines==1&&HybridTuning().staticDetailLattice==1,"P634b: on by default");
+}
+
 int main(){
     using namespace staticmerge;
+    checkStillSceneCheck();
+    checkStaticStripes();
     const float slope=2.4e-3f,offset=4e-6f; // ~ISO 400 of the Phase 1 tuning
     const SynBurst b=makeBurst(320,256,12,slope,offset,624);
     const HybridInput in=inputOf(b,slope,offset);
     HybridTuning base;base.grid=1;base.auto2x=0;base.caCorrect=0;base.chromaGpu=0;base.chromaOverlap=0;
     HybridTuning quality=base,fast=base,stat=base;
     fast.fastMerge=1;stat.staticMerge=1;
+    { // P634: «Быстрый» on Tetra - the few-frame pass acts on the moving object's place, the still part of the frame stays
+      const SynBurst bt=makeBurst(320,256,10,slope,offset,634,6.0,4,0.02);
+      const HybridInput it=inputOf(bt,slope,offset);
+      HybridTuning off=fast;off.fastTetraPost=0;off.fastTetraClipNotch=0;
+      const Run on=merge(it,fast),was=merge(it,off);
+      size_t movedObj=0,movedStill=0,nObj=0,nStill=0;
+      if(on.rgb.size()==was.rgb.size()&&on.rgb.size()==size_t(bt.w)*bt.h*3)
+          for(int y=8;y<bt.h-8;++y)for(int x=8;x<bt.w-8;++x){
+              const size_t i=(size_t(y)*bt.w+x)*3;
+              const bool ch=on.rgb[i]!=was.rgb[i]||on.rgb[i+1]!=was.rgb[i+1]||on.rgb[i+2]!=was.rgb[i+2];
+              if(y>=205){++nStill;movedStill+=ch;} else if(x>=60&&x<210&&y>=60&&y<170){++nObj;movedObj+=ch;}
+          }
+      const double so=nObj?double(movedObj)/double(nObj):0,ss=nStill?double(movedStill)/double(nStill):1;
+      const double pOn=psnr(on.rgb,bt),pWas=psnr(was.rgb,bt),bOn=psnrBox(on.rgb,bt,60,60,150,170),bWas=psnrBox(was.rgb,bt,60,60,150,170);
+      std::printf("fast Tetra few-frame pass (P634): changed %.1f %% of the object's track, %.2f %% of the still rows; PSNR %.2f -> %.2f dB, the object's place %.2f -> %.2f dB\n",
+          100*so,100*ss,pWas,pOn,bWas,bOn);
+      if(!has(on.log,"Tetra few-frame pass (P634)"))lines(on.log,"FAST MERGE");
+      expect(!on.threw&&!was.threw&&has(on.log,"Tetra few-frame pass (P634)")&&!has(was.log,"Tetra few-frame pass (P634)"),"P634: the fast route's Tetra few-frame pass runs, fastTetraPost 0 leaves it out");
+      expect(so>0.03&&ss<0.02,"P634: it acts on the moving object's track, the still rows stay as merged");
+      expect(pOn>=pWas-0.05&&bOn>=bWas-0.1,"P634: no loss against the truth (whole frame, the object's place)");
+    }
     const Run rq=merge(in,quality),rf=merge(in,fast);
     HybridTuning statGl=stat;statGl.staticVulkan=0;
     const Run rs=merge(in,statGl);
@@ -164,6 +257,11 @@ int main(){
     expect(!rs.threw&&has(rs.log,"HYBRID STATIC MERGE: GLES"),"the static merge ran on GLES");
     expect(ps>=std::max(pq,pf)+0.5,"static beats both Sabre routes by 0.5 dB (static "+std::to_string(ps)+", best Sabre "+std::to_string(std::max(pq,pf))+")");
     expect(has(rs.log,"HYBRID STATIC FIELD")&&has(rs.log,"HYBRID STATIC DATA")&&has(rs.log,"HYBRID STATIC CHECK"),"the report lines");
+    { HybridTuning p0=statGl;p0.staticPlan=0; // P639: the route's short schedule against the P624 one
+      const Run r0=merge(in,p0);const double ps0=psnr(r0.rgb,b);
+      std::printf("P624 schedule: static(GLES) %.2f dB (the short schedule %.2f)\n",ps0,ps);
+      expect(has(r0.log,"8 iterations x 3 data steps")&&has(rs.log,"2 blocks x 6 data steps + 2 final")&&has(rs.log,"HYBRID STATIC PACE"),"P639: the schedules and the pacing in the report");
+      expect(ps>=ps0-0.05,"P639: the route on the short schedule within 0.05 dB of the P624 schedule (Bayer)"); }
 
     // the field converges: frame 3's homography off by +0.4 / -0.3 RAW px (frame -> base), the solve with the true others
     std::vector<std::vector<uint16_t>> keep;
@@ -187,6 +285,99 @@ int main(){
       double md=0;for(size_t i=0;i<r1.out.size();++i)md=std::max(md,double(std::abs(r1.out[i]-r2.out[i])));
       std::printf("strips %d vs %d: max |difference| %.2e\n",r2.strips,r1.strips,md);
       expect(r2.strips>r1.strips&&md<0.02,"a strip split gives the one-strip result (margins)"); }
+
+    // P639 (owner's log 2026-11-12, Adreno 830, 12 MP x 16: 153 s, the viewfinder at 2 - 11 fps, a strip dropped by the driver).
+    // (1) the passes as short submissions (StBackend::slice between them): the one-submission result bit for bit
+    { StJob sl=job;sl.sliceMs=0.05f;
+      const StResult rsl=stSolve(gl,sl);
+      double md=0;for(size_t i=0;i<r1.out.size();++i)md=std::max(md,double(std::abs(r1.out[i]-rsl.out[i])));
+      double mf=0;for(size_t i=0;i<r1.fld.size();++i)mf=std::max(mf,double(std::abs(r1.fld[i]-rsl.fld[i])));
+      std::printf("short submissions (P639): %ld of them, max |difference| %.2e (field %.2e)\n",rsl.slices,md,mf);
+      expect(r1.slices==0&&rsl.slices>200&&md==0.0&&mf==0.0,"P639: the passes as short submissions give the one-submission result bit for bit"); }
+    // (2) the short schedule (the app's default) against the P624 one on the same job: the truth's PSNR within 0.05 dB or above,
+    // the field found, the result independent of the strips, of the submissions and of the backend (the CPU transcription)
+    { const HybridTuning dt;
+      StJob fj=job;fj.plan=1;fj.blocks=dt.staticBlocks;fj.blockSteps=dt.staticBlockSteps;fj.finalSteps=dt.staticFinalSteps;fj.fieldHalf=dt.staticFieldHalf;
+      const StResult rp=stSolve(gl,fj);
+      const double p0=psnr(r1.out,b),p1=psnr(rp.out,b);
+      const size_t nb=size_t(rp.ntx)*size_t(rp.nty);double fx=0,fy=0;
+      for(size_t i=0;i<nb;++i){fx+=rp.fld[(3*nb+i)*2];fy+=rp.fld[(3*nb+i)*2+1];}
+      fx/=double(nb);fy/=double(nb);
+      std::printf("short schedule (P639): %.2f dB against the P624 schedule's %.2f dB; field of frame 3 %.3f %.3f (expected -0.4 +0.3)\n",p1,p0,fx,fy);
+      expect(dt.staticPlan==1,"P639: the short schedule is the default");
+      expect(p1>=p0-0.05,"P639: the short schedule within 0.05 dB of the P624 schedule (or above)");
+      expect(std::abs(fx+0.4)<0.08&&std::abs(fy-0.3)<0.08,"P639: the field of the short schedule takes the homography's error out");
+      StJob fs=fj;fs.stripMB=32;
+      const StResult rp2=stSolve(gl,fs);
+      double md=0;for(size_t i=0;i<rp.out.size();++i)md=std::max(md,double(std::abs(rp.out[i]-rp2.out[i])));
+      StJob fl=fj;fl.sliceMs=0.05f;
+      const StResult rp3=stSolve(gl,fl);
+      double ms2=0;for(size_t i=0;i<rp.out.size();++i)ms2=std::max(ms2,double(std::abs(rp.out[i]-rp3.out[i])));
+      StCpu cpu;
+      const StResult rpc=stSolve(cpu,fj);
+      double mc=0;for(size_t i=0;i<rp.out.size();++i)mc=std::max(mc,double(std::abs(rp.out[i]-rpc.out[i])));
+      double mcf=0;for(size_t i=0;i<rp.fld.size();++i)mcf=std::max(mcf,double(std::abs(rp.fld[i]-rpc.fld[i])));
+      std::printf("short schedule: strips %d vs %d max |difference| %.2e; short submissions (%ld) %.2e; CPU vs GLES %.2e (field %.2e)\n",
+          rp2.strips,rp.strips,md,rp3.slices,ms2,mc,mcf);
+      expect(rp2.strips>rp.strips&&md<0.02,"P639: the short schedule's strip split gives the one-strip result");
+      expect(rp3.slices>100&&ms2==0.0,"P639: the short schedule as short submissions, bit for bit");
+      expect(mc<=kStSelfTestTol&&mcf<=0.01,"P639: the short schedule's CPU transcription equals GLES within the tolerance"); }
+    // (3) the slicing itself on a backend that only counts: every row of every frame dispatched once, the first submission one
+    // group row of one frame, then sized to the time aimed at
+    { struct Fake:StBackend{
+          int rows=0,frames=0;std::vector<int> hit,units;int unit=16;double perUnitMs=0.2;int last=0,queue=1;
+          using Clock=std::chrono::steady_clock;
+          std::vector<Clock::time_point> done; // when each queued slice ends (the GPU runs them one after another)
+          Clock::time_point free=Clock::now();
+          static void until(Clock::time_point t){while(Clock::now()<t){}}
+          const char* name() const override{return "fake";}
+          std::string describe() const override{return "";}
+          void alloc(int,size_t) override{}
+          void upload(int,size_t,const void*,size_t) override{}
+          void zero(int,size_t) override{}
+          void begin() override{}
+          void dispatch(const StDispatch& d) override{
+              last=int(d.gy)*int(d.gz);units.push_back(last);
+              for(int f=0;f<int(d.gz);++f)for(int r=0;r<int(d.gy);++r){
+                  const int ff=d.p.frame0+f,rr=d.p.row0/unit+r;
+                  if(ff>=0&&ff<frames&&rr>=0&&rr<rows)++hit[size_t(ff*rows+rr)];else units.push_back(-1);}
+          }
+          void copy(int,int,size_t) override{}
+          void submitWait() override{}
+          int inFlight() const override{return queue;}
+          double slice() override{ // (busy until the simulated GPU has room: the pacing measures the wall)
+              const Clock::time_point start=std::max(free,Clock::now());
+              free=start+std::chrono::microseconds(long(perUnitMs*last*1000));done.push_back(free);
+              while(int(done.size())>queue-1){until(done.front());done.erase(done.begin());}
+              return 0;}
+          void drain() override{while(!done.empty()){until(done.front());done.erase(done.begin());}}
+          void read(int,size_t,size_t,void*) override{}
+          void stamp(int,const std::vector<size_t>&,uint32_t) override{}
+          size_t maxBuffer() const override{return size_t(1)<<30;}
+      };
+      bool once=true,first=true,sized=true;long total=0;
+      for(int queue:{1,2})for(int kind:{0,1,2}){
+          Fake f;f.queue=queue;f.rows=kind==0?90:13;f.frames=kind==0?1:15;f.unit=kind==2?1:16;f.hit.assign(size_t(f.rows*f.frames),0);
+          StDispatch d;d.prog=kind==2?spField:spResid;d.gx=4;d.gy=uint32_t(f.rows);d.gz=uint32_t(f.frames);
+          double rate=0,longest=0;long n=0;
+          stSliced(f,d,kind,4.0,rate,n,longest);   // 4 ms a submission at 0.2 ms a unit: 20 units
+          for(int h:f.hit)once=once&&h==1;
+          for(int u:f.units)once=once&&u>0;
+          first=first&&!f.units.empty()&&f.units[0]==1;
+          std::vector<int> u(f.units.begin()+std::min<size_t>(f.units.size(),3),f.units.end());
+          std::sort(u.begin(),u.end());
+          const int med=u.empty()?0:u[u.size()/2];
+          sized=sized&&med>=6&&med<=30;
+          total+=n;
+          std::printf("slicing (P639) kind %d, %d queued: %ld submissions for %d units, median %d units\n",kind,queue,n,f.rows*f.frames,med);
+      }
+      expect(once,"P639: every row of every frame is dispatched exactly once, whatever the split");
+      expect(first,"P639: a program's first submission is one group row of one frame");
+      expect(sized,"P639: the submissions are sized to the time aimed at (20 units here)");
+      expect(HybridTuning().staticSliceMs>0.f&&HybridTuning().staticSliceMs<=10.f,"P639: short submissions by default");
+      // the worker's alarm: 300 s per 12 MP on a GPU, 1200 s on the CPU (was 840 / 3360)
+      expect(hybridStaticAlarmSeconds(4096,3072,false)==315&&hybridStaticAlarmSeconds(4096,3072,true)==1258&&hybridStaticAlarmSeconds(16320,12240,false)==3540
+             &&hybridStaticAlarmSeconds(2000,1500,false)==300,"P639: the alarm 300 s per 12 MP on a GPU, 1200 s on the CPU, at most 3540 s"); }
 
     // P627: a moving object stays on «Статика» - the moving frames / samples left out, no ghost of the object (its place in the
     // base frame against the truth, against «Качество»'s)
@@ -231,12 +422,32 @@ int main(){
       expect(staysStatic(rf2)&&has(rf2.log,"in smaller strips")&&has(rf2.log,"HYBRID STATIC GPU: CPU")&&std::abs(psnr(rf2.rgb,b)-ps)<0.05,
              "GLES failing mid-shot: GLES in smaller strips, then the CPU - still «Статика»"); }
 
+    // P638: one strip fails once (a submission the driver gave up on): the shot again on GLES in strips of half the rows - not in
+    // the smallest strips (16 rows, three rows of margin solved for every row kept: 145 s for 12 MP on the phone) - and the
+    // result is the GLES one
+    { setenv("SCAM_STATIC_GLES_FAIL_AT","1",1);
+      const Run rh=merge(in,statGl);
+      unsetenv("SCAM_STATIC_GLES_FAIL_AT");
+      const int half=(std::min(b.h,512)&~1)/2&~1;
+      const std::string want=" strips of "+std::to_string(half)+" rows";
+      const std::string again="in smaller strips (strips of "+std::to_string(half)+" rows",ran=want+",";
+      if(!has(rh.log,ran.c_str()))lines(rh.log,"STATIC");
+      std::printf("one failed strip: %.2f dB in two strips (one strip %.2f dB)\n",psnr(rh.rgb,b),ps);
+      // (a strip split moves the result a little: the tiles of the field are the strip's own - «a strip split gives the one-strip result»)
+      expect(staysStatic(rh)&&has(rh.log,again.c_str())&&has(rh.log,"HYBRID STATIC MERGE: GLES")
+             &&has(rh.log,ran.c_str())&&!has(rh.log,"HYBRID STATIC GPU: CPU")&&std::abs(psnr(rh.rgb,b)-ps)<0.3,
+             "one failed GLES strip: again on GLES at half the rows, the GLES result"); }
+
     // P627: Quad (2x2) and Tetra (4x4) colour blocks with a +-2 % per-site response, hand-held and on a tripod; DCG (two zones)
     for(int blk:{2,4})for(double hand:{1.3,0.0}){
         const SynBurst bq=makeBurst(320,256,12,slope,offset,700+blk+(hand>0?0:10),0,blk,0.02,0,0,hand);
         const HybridInput iq=inputOf(bq,slope,offset);
         const Run qq=merge(iq,quality),qf=merge(iq,fast),qs=merge(iq,statGl);
         const double a=psnr(qq.rgb,bq),f=psnr(qf.rgb,bq),st=psnr(qs.rgb,bq);
+        { HybridTuning p0=statGl;p0.staticPlan=0; // P639: the short schedule against the P624 one on the colour blocks
+          const double st0=psnr(merge(iq,p0).rgb,bq);
+          std::printf("  P624 schedule %.2f dB, the short schedule %.2f dB\n",st0,st);
+          expect(st>=st0-0.05,std::string(blk==2?"Quad":"Tetra")+(hand>0?" hand-held":" tripod")+": P639 the short schedule within 0.05 dB of the P624 schedule"); }
         HybridTuning noPost=statGl;noPost.staticMosaicChroma=0;noPost.staticQuadLattice=0;
         const double sn=psnr(merge(iq,noPost).rgb,bq);
         HybridTuning chromaOnly=statGl;chromaOnly.staticQuadLattice=0;HybridTuning latticeOnly=statGl;latticeOnly.staticMosaicChroma=0;

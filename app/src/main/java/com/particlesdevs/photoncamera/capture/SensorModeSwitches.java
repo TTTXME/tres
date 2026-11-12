@@ -38,9 +38,15 @@ public final class SensorModeSwitches {
     }
 
     public static boolean setDcg(boolean on) {
+        return setDcgMode(on ? Dcg14Mode.DCG : Dcg14Mode.OFF);
+    }
+
+    /** P641: the DCG switch's state (Dcg14Mode.OFF / DCG / LOFIC); a mode that is on needs a plain module of the camera. */
+    public static boolean setDcgMode(int mode) {
+        final boolean on = mode != Dcg14Mode.OFF;
         if (on && !selectPlain()) return false;
         if (on) PixelPro10.setFullRes(false);
-        Dcg14Mode.setMode(on ? Dcg14Mode.DCG : Dcg14Mode.OFF);
+        Dcg14Mode.setMode(mode);
         return true;
     }
 

@@ -403,6 +403,15 @@ public final class WatermarkPainter {
         plan.whiteInk = !(meanLuma(small, r) > BRIGHT);
     }
 
+    /** P642: the photo pixels {@link #chooseInk}'s «Авто» reads for {@code plan} (its {@link #meanLuma} corners); null: none. */
+    @Nullable
+    public static android.graphics.Rect sampled(Plan plan) {
+        RectF r = plan.sample;
+        int x0 = Math.max(0, (int) r.left), y0 = Math.max(0, (int) r.top);
+        int x1 = Math.min(plan.width - 1, (int) r.right), y1 = Math.min(plan.height - 1, (int) r.bottom);
+        return x1 < x0 || y1 < y0 ? null : new android.graphics.Rect(x0, y0, x1 + 1, y1 + 1);
+    }
+
     /** The mean sRGB luma (0..1) of {@code photo} in {@code r}, on a grid of up to 16 x 8 points; 0 for an empty region. */
     static float meanLuma(Bitmap photo, RectF r) {
         int x0 = Math.max(0, (int) r.left), y0 = Math.max(0, (int) r.top);

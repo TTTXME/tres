@@ -103,13 +103,17 @@ public class OldstyleSettingsShotsTest {
     }
 
     private static void shot(SettingsActivity activity, String name) throws Exception {
+        shot(activity.getWindow().getDecorView(), name, H);
+    }
+
+    /** {@code root} (a window's decor view) drawn {@code height} px tall. */
+    private static void shot(View root, String name, int height) throws Exception {
         idleFor(1200);
-        View root = activity.getWindow().getDecorView();
-        Bitmap bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        Bitmap bitmap = Bitmap.createBitmap(W, height, Bitmap.Config.ARGB_8888);
         bitmap.eraseColor(SettingsStyle.PAGE);
         Canvas canvas = new Canvas(bitmap);
-        root.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(H, View.MeasureSpec.EXACTLY));
-        root.layout(0, 0, W, H);
+        root.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, W, height);
         root.draw(canvas);
         File dir = new File("build/reports/oldstyle");
         dir.mkdirs();
@@ -166,6 +170,66 @@ public class OldstyleSettingsShotsTest {
             for (String key : com.particlesdevs.photoncamera.settings.OldstyleMode.V2_ROWS) assertEquals(key, v2, enabled(group.findPreference(key)));
             for (String key : com.particlesdevs.photoncamera.settings.OldstyleMode.V2_ROWS) assertTrue(key, group.findPreference(key).isVisible());
             shot(activity, "ui_settings_" + lang + "_" + version + "_group");
+            // P630h: the whole page, sub-category by sub-category (ui_settings2_<lang>_<version>_NN.png)
+            for (String category : com.particlesdevs.photoncamera.settings.OldstyleMode.CATEGORIES) assertTrue(category, position(group, category) > 0);
+            assertEquals("«Сбросить Oldstyle» right under the version", position(group, VERSION) + 1,
+                    position(group, com.particlesdevs.photoncamera.settings.OldstyleMode.RESET));
+            pages(activity, group, "ui_settings2_" + lang + "_" + version);
+        }
+    }
+
+    /**
+     * P630h «Сбросить Oldstyle»: the row asks first, then every row of the sub-categories is back at its default (stored as the
+     * default or not at all - OldstyleMode.params reads the exact numbers either way); the version and what other pages keep stay.
+     */
+    private void resetRow() throws Exception {
+        prefs.edit().putString(VERSION, "v2").putString("pref_scam_hybrid_oldstyle_ev", "1.5").putString("pref_scam_hybrid_oldstyle_hdr", "off")
+                .putBoolean("pref_scam_hybrid_oldstyle_vf_tone", false).putString("pref_scam_hybrid_oldstyle_v1_ccm", "0.4")
+                .putString("pref_scam_hybrid_oldstyle_v2_hdr_max", "12").putString("pref_scam_hybrid_oldstyle_curve_contrast", "-0.6")
+                .putString("pref_scam_hybrid_oldstyle_burst_frames", "9").putString("pref_scam_hybrid_zsl_frames", "11").commit();
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params changed = com.particlesdevs.photoncamera.settings.OldstyleMode.params(true);
+        assertEquals(1.5f, changed.baseEv, 0f);
+        assertEquals(com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.HDR_OFF, changed.hdrMode);
+        assertFalse(changed.vfTone);
+        assertEquals(12f, changed.v2RatioMax, 0f);
+        assertEquals(9, changed.burstFrames);
+        try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class)) {
+            controller.setup();
+            SettingsActivity activity = controller.get();
+            shown(activity).findPreference(GROUP).performClick();
+            SettingsActivity.SettingsFragment group = shown(activity);
+            Preference reset = group.findPreference(com.particlesdevs.photoncamera.settings.OldstyleMode.RESET);
+            assertTrue(enabled(reset));
+            assertEquals("Сбросить Oldstyle", String.valueOf(reset.getTitle()));
+            reset.performClick();
+            idleFor(400);
+            // the confirmation is up and nothing is reset before it is answered
+            assertNotNull(ShadowDialog.getLatestDialog());
+            assertTrue(ShadowDialog.getLatestDialog().isShowing());
+            assertEquals(1.5f, com.particlesdevs.photoncamera.settings.OldstyleMode.params(true).baseEv, 0f);
+            shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "ui_settings2_ru_reset_confirm", 320);
+            ((androidx.appcompat.app.AlertDialog) ShadowDialog.getLatestDialog()).getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+            idleFor(400);
+            assertEquals("the seven rows that were changed", "Сброшено параметров: 7", org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+        }
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params back = com.particlesdevs.photoncamera.settings.OldstyleMode.params(true),
+                plain = new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params();
+        plain.v31 = true;
+        for (java.lang.reflect.Field f : plain.getClass().getFields())
+            if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())) assertEquals(f.getName(), f.get(plain), f.get(back));
+        assertEquals("the version stays", "v2", prefs.getString(VERSION, "v1"));
+        assertEquals("another page's row stays", "11", prefs.getString("pref_scam_hybrid_zsl_frames", ""));
+        assertEquals(0, countChanged());
+    }
+
+    /** How many rows of the group a second reset would still change (0 after a reset). */
+    private int countChanged() throws Exception {
+        try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class)) {
+            controller.setup();
+            SettingsActivity activity = controller.get();
+            shown(activity).findPreference(GROUP).performClick();
+            SettingsActivity.SettingsFragment group = shown(activity);
+            return SettingsActivity.SettingsFragment.resetOldstyleRows(activity, group.getPreferenceScreen());
         }
     }
 
@@ -192,6 +256,10 @@ public class OldstyleSettingsShotsTest {
         drawAll("ru", "v1");
         drawAll("ru", "v2");
         followsTheSwitch();
+    }
+
+    @Test public void resetOldstyle() throws Exception {
+        resetRow();
     }
 
     @Test @Config(qualifiers = "en-w390dp-h844dp-mdpi")

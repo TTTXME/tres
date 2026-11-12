@@ -41,10 +41,23 @@ final class ViewerPreview {
     /** Off the main thread: the preview of {@code file}'s page, or null (no cached thumbnail, a mirrored orientation, no header). */
     @Nullable
     static Result load(@NonNull Context app, @NonNull MediaFile file) {
-        ThumbPlan.Jpeg j = header(app, file);
+        ByteBuffer[] head = new ByteBuffer[1];
+        ThumbPlan.Jpeg j = header(app, file, head);
         if (j == null) return null;
         int rotation = ThumbPlan.rotationOf(j.orientation);
         if (rotation < 0) return null; // the view turns, it does not mirror
+        // P637: the file's own EXIF thumbnail first (the camera writes one, 512 px, P620): decoded here from the header just read,
+        // 1-3 ms, no wait for a Glide thread - a photo taken a moment ago has no cached grid thumbnail, its page was black until
+        // the base tiles
+        Bitmap exif = embedded(j, head[0]);
+        if (exif != null) {
+            Result r = new Result();
+            r.bitmap = exif;
+            r.width = j.width;
+            r.height = j.height;
+            r.rotation = rotation;
+            return r;
+        }
         FutureTarget<Bitmap> f = GalleryThumb.cached(Glide.with(app), app, file).submit();
         try {
             Bitmap thumb = f.get(TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -85,9 +98,30 @@ final class ViewerPreview {
         return out;
     }
 
-    /** The JPEG header of the file (frame size and orientation). */
+    /**
+     * P637: the EXIF (IFD1) thumbnail of the header {@code head} parsed as {@code j}, in the stored orientation (as the view's
+     * preview must be); null without one, with another aspect than the picture's, or when it lies beyond the bytes read.
+     */
     @Nullable
-    private static ThumbPlan.Jpeg header(Context app, MediaFile file) {
+    static Bitmap embedded(@NonNull ThumbPlan.Jpeg j, @Nullable ByteBuffer head) {
+        if (head == null || !j.hasThumb() || !ThumbPlan.sameAspect(j.thumbWidth, j.thumbHeight, j.width, j.height)) return null;
+        if (j.thumbOffset < 0 || (long) j.thumbOffset + j.thumbLength > head.limit()) return null;
+        try {
+            byte[] data = new byte[j.thumbLength];
+            ByteBuffer d = head.duplicate();
+            d.position(j.thumbOffset);
+            d.get(data);
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            return android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    /** The JPEG header of the file (frame size and orientation); {@code out[0]}: the bytes read. */
+    @Nullable
+    private static ThumbPlan.Jpeg header(Context app, MediaFile file, ByteBuffer[] out) {
         ParcelFileDescriptor pfd = null;
         try {
             if (file.getFileUri() != null && ContentResolver.SCHEME_CONTENT.equals(file.getFileUri().getScheme()))
@@ -100,6 +134,7 @@ final class ViewerPreview {
             ByteBuffer head = ByteBuffer.allocate((int) Math.min(ch.size(), 512 * 1024));
             while (head.hasRemaining() && ch.read(head, head.position()) > 0) { /* read on */ }
             head.flip();
+            out[0] = head;
             return ThumbPlan.parseJpeg(head);
         } catch (Exception e) {
             return null;

@@ -68,7 +68,10 @@ public final class ProcessingKeepAlive extends Service {
             final boolean work = (o != null && ownerBusy.test(o)) || always.getAsBoolean();
             if (work) {
                 if (o != null) pinned = o;
-            } else if (pinned == o || o == null) {
+            } else {
+                // P638: no work of this owner and none of the statics (the queue, the processing): nothing is left to keep. A
+                // controller pinned at its shutter and replaced by the next activity's before a check found its work done stayed
+                // here (with its activity and views) until the new one's next shot ended
                 pinned = null;
             }
             return work;

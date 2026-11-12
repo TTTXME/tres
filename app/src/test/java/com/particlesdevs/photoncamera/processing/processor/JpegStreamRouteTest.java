@@ -47,6 +47,22 @@ public class JpegStreamRouteTest {
         assertFalse("no jpegli", route(true, false, false, false, false, false, PhotoFormat.JPEG, false, false, false, 1f, false, true, false));
     }
 
+    /** P642: the stamp and the watermark keep the bitmap only with the stream's own drawing switched off. */
+    @Test public void marksStreamUnlessSwitchedOff() {
+        assertFalse(ScamProcessor.marksNeedBitmap(false, false, true));
+        assertFalse(ScamProcessor.marksNeedBitmap(false, false, false));
+        assertFalse("the watermark streams", ScamProcessor.marksNeedBitmap(false, true, true));
+        assertFalse("the stamp streams", ScamProcessor.marksNeedBitmap(true, false, true));
+        assertFalse(ScamProcessor.marksNeedBitmap(true, true, true));
+        assertTrue("jpeg_stream_marks 0", ScamProcessor.marksNeedBitmap(false, true, false));
+        assertTrue(ScamProcessor.marksNeedBitmap(true, false, false));
+        // and the route itself: a shot with a mark that the stream draws is the default shot
+        assertTrue(route(true, false, false, false, false, false, PhotoFormat.JPEG, false, false,
+                ScamProcessor.marksNeedBitmap(true, true, true), 1f, false, true, true));
+        assertFalse(route(true, false, false, false, false, false, PhotoFormat.JPEG, false, false,
+                ScamProcessor.marksNeedBitmap(true, true, false), 1f, false, true, true));
+    }
+
     @Test public void hybridResize() {
         final Point raw = new Point(8192, 6144);
         assertFalse("no hybrid final size", ScamProcessor.hybridResizeNeeded(null, null, raw));

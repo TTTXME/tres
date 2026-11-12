@@ -78,4 +78,20 @@ public class ProcessingKeepAliveWeakTest {
         assertNull(ProcessingKeepAlive.pinned);
         assertTrue(collected(ref));
     }
+
+    /** P638: a camera pinned at its shutter and replaced by the next activity's controller goes once nothing is left to do. */
+    @Test
+    public void aReplacedOwnerIsReleasedWhenNoWorkIsLeft() throws InterruptedException {
+        Owner old = new Owner();
+        ProcessingKeepAlive.weakly(old, x -> x.busy, () -> false);
+        ProcessingKeepAlive.hold(null, old); // its shutter
+        Owner next = new Owner();
+        BooleanSupplier busy = ProcessingKeepAlive.weakly(next, x -> x.busy, () -> false); // the activity was made again
+        WeakReference<Owner> ref = new WeakReference<>(old);
+        old = null;
+        assertFalse(busy.getAsBoolean());
+        assertNull("the former camera is not kept by the new one's idle check", ProcessingKeepAlive.pinned);
+        assertTrue(collected(ref));
+        assertNotNull(next);
+    }
 }

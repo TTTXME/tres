@@ -59,6 +59,9 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_v207.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_v2_tone.py
 # P630: «Oldstyle» - the adjustments (GLSL == Java, the viewfinder's splice), the frame export, the mode's shaders
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_oldstyle_tone.py
+# P630g: «Oldstyle» - the viewfinder's live tone on a simulated viewfinder (shipped OldstyleLive + shader + the module): steady,
+# the photo's mean, no more burnt out than the photo
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_oldstyle_live.py
 # P630b: the owner's tone-port module (vendored): its regression both profiles --full-frame, the specification's numbers, the JNI path
 python3 tools/check_tone_port.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ms_denoise.py

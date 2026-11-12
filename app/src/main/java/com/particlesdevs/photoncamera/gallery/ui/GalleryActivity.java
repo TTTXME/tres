@@ -100,7 +100,18 @@ public class GalleryActivity extends BaseActivity {
         } else if (refill) {
             // Normal gallery mode - show all media. P617: MediaStore read off the main thread (the window waited for it); the viewer
             // and the grid fill when the lists arrive
-            GalleryOpenTrace.opened(externalUsage ? "launcher" : "camera");
+            // P637: opened by the camera's thumbnail - what the camera hands over (its thumbnail or the shutter frame of a shot still
+            // processed, its last saved file) is on screen in the viewer's first frame, before any read of MediaStore
+            CameraHandoff.Open handed = route == Route.CAMERA && fresh ? CameraHandoff.take() : null;
+            GalleryOpenTrace.opened(externalUsage ? "launcher" : "camera", handed != null ? handed.tapAt : 0);
+            if (handed != null) {
+                viewModel.setOpening(handed);
+                if (handed.latest != null) {
+                    viewModel.showFront(handed.latest, true);
+                    GalleryOpenTrace.front(handed.latest.getDisplayName(), !CameraHandoff.unfiled(handed.latest));
+                }
+            }
+            boostDecodes();
             viewModel.loadAsync(() -> viewModel.setCurrentFolderImages(viewModel.getAllSelectedImageFolder().getValue()));
         }
         NavHostFragment host = (NavHostFragment) getSupportFragmentManager().findFragmentById(R.id.gallery_navigation_host);
@@ -273,18 +284,57 @@ public class GalleryActivity extends BaseActivity {
     }
 
     /**
+     * P637: the photo another app asked for among the library's ({@code items}: «ALL»): its item there, or - a file the library
+     * does not have - put first. Returns the URI of the item the viewer moves to.
+     */
+    static Uri amongNeighbours(List<GalleryItem> items, Uri uri, ImageFile asked) {
+        int at = positionOf(items, uri, asked);
+        if (at < 0) {
+            items.add(0, new GalleryItem(asked));
+            at = 0;
+        }
+        return items.get(at).getFile().getFileUri();
+    }
+
+    /** P637: the open's decodes at the default priority for its first seconds (ahead of a shot still processed). */
+    private static void boostDecodes() {
+        boolean busy = false;
+        try {
+            busy = com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy.getAsBoolean();
+        } catch (RuntimeException ignored) {
+        }
+        com.particlesdevs.photoncamera.gallery.glide.DecodeBoost.forOpen(busy);
+    }
+
+    /**
      * Handle VIEW intent from external apps (like HedgeCam2)
      * Loads all gallery images but starts viewing at the selected image ({@code select}: a new gallery; after process death the
      * viewer's saved position applies)
      */
     private void handleExternalViewIntent(Uri uri, boolean select) {
         GalleryOpenTrace.opened(secureReview ? "secure review" : "view");
+        boostDecodes();
         if (secureReview || !withNeighbours(uri)) {
             // P621: another app's file (a FileProvider, Downloads, a document) or a lock-screen review: that item alone, without
             // reading the library (it was put in front of the whole library before)
             List<GalleryItem> single = new ArrayList<>();
             single.add(new GalleryItem(createImageFileFromUri(uri)));
             viewModel.getCurrentFolderImages().setValue(single);
+            return;
+        }
+        if (select) {
+            // P637: a new gallery - the photo asked for is the viewer's page at once; MediaStore (the photo's neighbours) is read
+            // on the loader thread and the list put under it (the window waited for three queries over the whole library before)
+            final ImageFile asked = createImageFileFromUri(uri);
+            List<GalleryItem> single = new ArrayList<>();
+            single.add(new GalleryItem(asked));
+            viewModel.getCurrentFolderImages().setValue(single);
+            viewModel.loadAsync(() -> {
+                GalleryItem all = viewModel.getAllSelectedImageFolder().getValue();
+                if (all == null || all.getFiles().isEmpty()) return; // no library: the photo alone, as it is shown
+                viewModel.selectNext(amongNeighbours(all.getFiles(), uri, asked));
+                viewModel.setCurrentFolderImages(all);
+            });
             return;
         }
         try {

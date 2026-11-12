@@ -124,28 +124,114 @@ public final class OldstyleMode {
     }
 
     /**
-     * The tone's settings of the version (the group «Oldstyle Тон»). P630e: the exposure plan is the owner's supplement (its fixed
-     * ratios, no rows); the rows are the gains' limit M, V2's saturation_adjustment and levels, V1's low-frequency colour, and the
-     * supplement's YUV-route stages on our route (dehaze / tint, output saturation); defaults the module's behaviour.
+     * The tone's settings of the version (the group «Oldstyle Тон»). P630e: the exposure plan is the owner's supplement; the rows
+     * were the gains' limit M, V2's saturation_adjustment and levels, V1's low-frequency colour, and the supplement's YUV-route
+     * stages on our route (dehaze / tint, output saturation). P630h (owner: «Добавь больше настроек для Oldstyle»): the numbers of
+     * the supplement's rules, of the module's calls and of our glue each a row too ({@link #ROWS}); every default the behaviour
+     * before the rows - a stored value at its row's default reads as the exact number ({@link #value}).
      */
     public static com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params(boolean v2) {
+        return params(v2, STORED);
+    }
+
+    /** Where the rows' values come from: the settings ({@link #STORED}), or a test's own. Keys without pref_scam_hybrid_. */
+    interface Source {
+        float number(String key, float fallback);
+
+        boolean flag(String key, boolean fallback);
+
+        String text(String key, String fallback);
+    }
+
+    static final Source STORED = new Source() {
+        @Override public float number(String key, float fallback) { return PreferenceKeys.hybridValue(key, fallback); }
+        @Override public boolean flag(String key, boolean fallback) { return PreferenceKeys.hybridSwitch(key, fallback); }
+        @Override public String text(String key, String fallback) { return PreferenceKeys.hybridString(key, fallback); }
+    };
+
+    static com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params(boolean v2, Source s) {
         final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params p =
                 new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params();
         p.v31 = v2;
-        p.maxGain = PreferenceKeys.hybridValue("oldstyle_max_gain", p.maxGain);
-        p.saturation = PreferenceKeys.hybridValue("oldstyle_v2_saturation", p.saturation);
-        p.lowFrequency = PreferenceKeys.hybridSwitch("oldstyle_v1_lowfreq", p.lowFrequency);
-        p.lfThreshold = Math.round(PreferenceKeys.hybridValue("oldstyle_v1_lowfreq_threshold", p.lfThreshold));
-        p.dehaze = PreferenceKeys.hybridSwitch("oldstyle_dehaze", p.dehaze);
-        p.maxDark = Math.round(PreferenceKeys.hybridValue("oldstyle_dehaze_max_dark", p.maxDark));
-        p.percentile = PreferenceKeys.hybridValue("oldstyle_dehaze_percentile", p.percentile);
-        p.cornerStrength = PreferenceKeys.hybridValue("oldstyle_dehaze_corner", p.cornerStrength);
-        p.dehazeShading = PreferenceKeys.hybridSwitch("oldstyle_dehaze_shading", p.dehazeShading);
-        p.outSat = PreferenceKeys.hybridValue("oldstyle_out_sat", p.outSat);
-        p.vibrance = PreferenceKeys.hybridValue("oldstyle_out_vibrance", p.vibrance);
-        p.satPerStop = PreferenceKeys.hybridValue("oldstyle_out_sat_per_stop", p.satPerStop);
-        p.vibrancePerStop = PreferenceKeys.hybridValue("oldstyle_out_vibrance_per_stop", p.vibrancePerStop);
+        p.maxGain = value(s, "oldstyle_max_gain", p.maxGain);
+        p.saturation = value(s, "oldstyle_v2_saturation", p.saturation);
+        p.lowFrequency = s.flag("oldstyle_v1_lowfreq", p.lowFrequency);
+        p.lfThreshold = Math.round(value(s, "oldstyle_v1_lowfreq_threshold", p.lfThreshold));
+        p.dehaze = s.flag("oldstyle_dehaze", p.dehaze);
+        p.maxDark = Math.round(value(s, "oldstyle_dehaze_max_dark", p.maxDark));
+        p.percentile = value(s, "oldstyle_dehaze_percentile", p.percentile);
+        p.cornerStrength = value(s, "oldstyle_dehaze_corner", p.cornerStrength);
+        p.dehazeShading = s.flag("oldstyle_dehaze_shading", p.dehazeShading);
+        p.outSat = value(s, "oldstyle_out_sat", p.outSat);
+        p.vibrance = value(s, "oldstyle_out_vibrance", p.vibrance);
+        p.satPerStop = value(s, "oldstyle_out_sat_per_stop", p.satPerStop);
+        p.vibrancePerStop = value(s, "oldstyle_out_vibrance_per_stop", p.vibrancePerStop);
+        // ---- P630h ----
+        // «Экспозиция и HDR»
+        final String hdr = s.text("oldstyle_hdr", "auto");
+        p.hdrMode = "on".equals(hdr) ? com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.HDR_ON
+                : "off".equals(hdr) ? com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.HDR_OFF
+                : com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.HDR_AUTO;
+        p.baseEv = value(s, "oldstyle_ev", p.baseEv);
+        p.shortWhite = value(s, "oldstyle_highlight_target", p.shortWhite);
+        p.highPercentile = scaled(s, "oldstyle_highlight_percentile", p.highPercentile, 100f);
+        p.shadowEv = value(s, "oldstyle_shadow_ev", p.shadowEv);
+        p.centerSigma = value(s, "oldstyle_center", p.centerSigma);
+        p.fusionBase = value(s, "oldstyle_fusion_base", p.fusionBase);
+        p.v1HdrMin = value(s, "oldstyle_v1_hdr_min", p.v1HdrMin);
+        p.v1HdrMax = value(s, "oldstyle_v1_hdr_max", p.v1HdrMax);
+        p.v1RatioCap = value(s, "oldstyle_v1_hdr_cap", p.v1RatioCap);
+        p.v2HdrMin = value(s, "oldstyle_v2_hdr_min", p.v2HdrMin);
+        p.v2RatioMax = value(s, "oldstyle_v2_hdr_max", p.v2RatioMax);
+        p.v2Forgiveness = value(s, "oldstyle_v2_hdr_forgive", p.v2Forgiveness);
+        // «Тон и кривая»
+        p.curveMid = value(s, "oldstyle_curve_mid", p.curveMid);
+        p.curveContrast = value(s, "oldstyle_curve_contrast", p.curveContrast);
+        p.memoryShare = scaled(s, "oldstyle_v2_memory", p.memoryShare, 100f);
+        // «Цвет»
+        p.ccmStrength = value(s, "oldstyle_v1_ccm", p.ccmStrength);
+        p.lfStrength = value(s, "oldstyle_v1_lowfreq_strength", p.lfStrength);
+        p.lfChroma = s.flag("oldstyle_v1_lowfreq_chroma", p.lfChroma);
+        // «Серия»
+        p.burstFrames = Math.round(value(s, "oldstyle_burst_frames", p.burstFrames));
+        p.burstSeconds = value(s, "oldstyle_burst_time", p.burstSeconds);
+        p.shutterFloorMs = value(s, "oldstyle_shutter_floor", p.shutterFloorMs);
+        // «Видоискатель»
+        p.vfTone = s.flag("oldstyle_vf_tone", p.vfTone);
+        p.vfEv = value(s, "oldstyle_vf_ev", p.vfEv);
+        p.vfMatch = value(s, "oldstyle_vf_match", p.vfMatch);
+        p.vfSmooth = value(s, "oldstyle_vf_smooth", p.vfSmooth);
         return p;
+    }
+
+    /**
+     * A number row's value within its range (SettingsNumericRules: a stored or scam_dev.txt value past an end is the end - the ends
+     * are what the module was checked at, tools/check_tone_port.py), {@code fallback} when it is absent, not a number, or at the
+     * row's own default: the XML default of a row is its number rounded for the slider (0.9756 for 0.9756097793579102, 6.8 for
+     * 6.804, 16.7 ms for 1/60 s) - within half a slider step of {@code fallback} it is {@code fallback}, so a row put back to its
+     * default gives the picture of the row never touched.
+     */
+    static float value(Source s, String key, float fallback) {
+        final float v = s.number(key, fallback);
+        if (!Float.isFinite(v)) return fallback;
+        final Float step = STEPS.get(key);
+        if (Math.abs(v - fallback) <= (step != null ? step * 0.5f : 0f) + 1e-5f * Math.max(1f, Math.abs(fallback))) return fallback;
+        final double[] range = SettingsNumericRules.bounds("pref_scam_hybrid_" + key);
+        return range == null ? v : (float) Math.max(range[0], Math.min(range[1], v));
+    }
+
+    /** {@link #value} of a row shown in other units ({@code scale} of the number: percent); at the default the exact number. */
+    private static float scaled(Source s, String key, float fallback, float scale) {
+        final float shown = fallback * scale, v = value(s, key, shown);
+        return v == shown ? fallback : v / scale;
+    }
+
+    /** The slider step of the rows whose XML default is their number rounded (half of it is "at the default"). */
+    private static final java.util.Map<String, Float> STEPS = new java.util.HashMap<>();
+    static {
+        STEPS.put("oldstyle_fusion_base", 0.0001f);
+        STEPS.put("oldstyle_v1_hdr_max", 0.01f);
+        STEPS.put("oldstyle_shutter_floor", 0.1f);
     }
 
     /** V2: the pyramid of a full frame (10 levels) or of a postview (8): pref_scam_hybrid_oldstyle_v2_levels. */
@@ -153,13 +239,25 @@ public final class OldstyleMode {
         return "8".equals(PreferenceKeys.hybridString("oldstyle_v2_levels", "10"));
     }
 
-    /** The settings rows of each version (SettingsAvailability greys the other version's). */
-    public static final String[] V1_ROWS = {"pref_scam_hybrid_oldstyle_v1_lowfreq", "pref_scam_hybrid_oldstyle_v1_lowfreq_threshold"};
-    public static final String[] V2_ROWS = {"pref_scam_hybrid_oldstyle_v2_saturation", "pref_scam_hybrid_oldstyle_v2_levels"};
-    /** P630e: the rows of both versions (the gains' limit, the supplement's stages on our route). */
-    public static final String[] COMMON_ROWS = {"pref_scam_hybrid_oldstyle_max_gain", "pref_scam_hybrid_oldstyle_dehaze",
-            "pref_scam_hybrid_oldstyle_dehaze_max_dark", "pref_scam_hybrid_oldstyle_dehaze_percentile",
-            "pref_scam_hybrid_oldstyle_dehaze_corner", "pref_scam_hybrid_oldstyle_dehaze_shading", "pref_scam_hybrid_oldstyle_out_sat",
-            "pref_scam_hybrid_oldstyle_out_vibrance", "pref_scam_hybrid_oldstyle_out_sat_per_stop",
-            "pref_scam_hybrid_oldstyle_out_vibrance_per_stop"};
+    private static final String K = "pref_scam_hybrid_oldstyle_";
+    /** The settings rows of each version (SettingsAvailability greys the other version's: the keys' v1_ / v2_). */
+    public static final String[] V1_ROWS = {K + "v1_lowfreq", K + "v1_lowfreq_threshold",
+            // P630h
+            K + "v1_hdr_min", K + "v1_hdr_max", K + "v1_hdr_cap", K + "v1_ccm", K + "v1_lowfreq_strength", K + "v1_lowfreq_chroma"};
+    public static final String[] V2_ROWS = {K + "v2_saturation", K + "v2_levels",
+            // P630h
+            K + "v2_hdr_min", K + "v2_hdr_max", K + "v2_hdr_forgive", K + "v2_memory"};
+    /** P630e: the rows of both versions (the gains' limit, the supplement's stages on our route); P630h: the rest. */
+    public static final String[] COMMON_ROWS = {K + "max_gain", K + "dehaze", K + "dehaze_max_dark", K + "dehaze_percentile",
+            K + "dehaze_corner", K + "dehaze_shading", K + "out_sat", K + "out_vibrance", K + "out_sat_per_stop",
+            K + "out_vibrance_per_stop",
+            // P630h
+            K + "hdr", K + "ev", K + "highlight_target", K + "highlight_percentile", K + "shadow_ev", K + "center", K + "fusion_base",
+            K + "curve_mid", K + "curve_contrast", K + "burst_frames", K + "burst_time", K + "shutter_floor",
+            K + "vf_tone", K + "vf_ev", K + "vf_match", K + "vf_smooth"};
+    /** P630h: the group's sub-categories, in the page's order. */
+    public static final String[] CATEGORIES = {"oldstyle_exposure_category", "oldstyle_curve_category", "oldstyle_colour_category",
+            "oldstyle_dehaze_category", "oldstyle_burst_category", "oldstyle_viewfinder_category"};
+    /** P630h «Сбросить Oldstyle»: the row that puts every row of the categories back to its default (the version stays). */
+    public static final String RESET = "pref_oldstyle_tone_reset";
 }

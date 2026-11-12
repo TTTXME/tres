@@ -71,7 +71,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
      */
     private final java.util.concurrent.ExecutorService exifExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "ExifRead");
-        t.setPriority(Thread.NORM_PRIORITY - 1);
+        t.setPriority(Thread.NORM_PRIORITY); // P637: the page's title waits for it (NORM_PRIORITY - 1 is nice 10)
         return t;
     });
     private final java.util.concurrent.atomic.AtomicInteger exifGeneration = new java.util.concurrent.atomic.AtomicInteger();

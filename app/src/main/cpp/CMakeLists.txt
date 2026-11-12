@@ -134,8 +134,9 @@ target_compile_options(scameraAvif PRIVATE -O3 -fvisibility=hidden -fvisibility-
 target_link_options(scameraAvif PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections)
 target_link_libraries(scameraAvif PRIVATE scameraLibavif jnigraphics log)
 
-# P630b (owner, 2026-11-11: «Используй как основу для Oldstyle»): the owner's tone-port module (third_party/tone_port, unchanged,
-# its own CMake: static tone_port, C++17, -ffp-contract=off) behind the «Oldstyle» mode's JNI (library scameraTone).
+# P630b (owner, 2026-11-11: «Используй как основу для Oldstyle»): the owner's tone-port module (third_party/tone_port, its own
+# CMake: static tone_port, C++17, -ffp-contract=off; P630e's hook and P636's threads as the diffs beside it) behind the
+# «Oldstyle» mode's JNI (library scameraTone; the frame's work in oldstyle-tone-core.h).
 add_subdirectory(${SRC_DIR}/third_party/tone_port ${CMAKE_CURRENT_BINARY_DIR}/tone_port)
 add_library(scameraTone SHARED oldstyle-tone-jni.cpp)
 target_compile_options(scameraTone PRIVATE -O3 -fexceptions -ffp-contract=off -fvisibility=hidden)

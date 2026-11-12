@@ -170,7 +170,7 @@ class Pair:
         b = self.g.read(self.g.draw(self.vf, self.g.target(w, h, 'f4'), {'sTexture': self.tex}, vu))[..., :3]
         return a, b
 
-    def tone(self, version, gains, hdr, lut, **kw):
+    def tone(self, version, gains, hdr, lut, boost=1.0, **kw):
         """The viewfinder with the version's live tone (P630e) under the style: lut 1024 x RGBA 0..1."""
         u = uniforms(**kw)
         w, h = self.size
@@ -178,7 +178,7 @@ class Pair:
         lt.filter = (self.g.mgl.LINEAR, self.g.mgl.LINEAR)
         lt.repeat_x = lt.repeat_y = False
         vu = dict(u, resolution=(float(w), float(h)), uGain=1.0, uOsOn=1 if kw else 0, uLutOn=0, uLf=0, mirror=False,
-                  enablePeak=False, uOtOn=version, uOt=(gains[0], gains[1], 1.0 if hdr else 0.0))
+                  enablePeak=False, uOtOn=version, uOt=(gains[0], gains[1], 1.0 if hdr else 0.0, boost))
         return self.g.read(self.g.draw(self.vf, self.g.target(w, h, 'f4'), {'sTexture': self.tex, 'uOtLut': lt}, vu))[..., :3]
 
 
@@ -268,6 +268,16 @@ def live_tone_checks(g):
     check(np.abs(hd[small & lo] - bright[small & lo]).max() < 0.02, 'live tone HDR: all long where the long weight is 1')
     bigger = lin.max(-1) * 4.0 > 1.5
     check(np.abs(hd[bigger] - dark[bigger]).max() < 0.05, 'live tone HDR: all short where the long weight is 0')
+    # P630g: the white boost lifts only the frame's top (linear 0.85 up): a frame white at gain 0.45 with boost 2 is drawn at 0.9,
+    # the mid-tones as without it; SDR is the fusion's formula with both gains equal (no jump when the decision changes)
+    low = pair.tone(1, (0.45, 0.45), False, lut1)
+    kept = pair.tone(1, (0.45, 0.45), False, lut1, boost=2.0)
+    top, mid = lin.max(-1) > 0.97, lin.max(-1) < 0.84
+    check(np.abs(kept[mid] - low[mid]).max() < 1e-6 and kept[top].max() > low[top].max() + 0.2
+          and abs(kept[..., 0].max() - np.interp(0.9 * 1023, np.arange(1024), lut1[:, 0])) < 0.01,
+          'live tone white boost: the frame\'s white kept (%.2f -> %.2f), the mid-tones untouched' % (low[top].max(), kept[top].max()))
+    same = pair.tone(1, (1.5, 1.5), True, lut1)
+    check(np.abs(same - sdr).max() < 2e-3, 'live tone: HDR with both gains equal == SDR (%.1g)' % np.abs(same - sdr).max())
     styled = pair.tone(1, (1.5, 1.5), False, lut1, tone=0.5)
     check(np.abs(styled - sdr).mean() > 0.01, 'the style applies after the live tone')
     renderer = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java').read_text(encoding='utf-8')

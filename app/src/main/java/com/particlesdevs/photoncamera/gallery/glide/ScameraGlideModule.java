@@ -45,6 +45,10 @@ public final class ScameraGlideModule extends AppGlideModule {
         } catch (RuntimeException ignored) {
         }
         builder.setDiskCache(new com.bumptech.glide.load.engine.cache.InternalCacheDiskCacheFactory(context, DISK_CACHE_DIR, diskCacheBytes(usable)));
+        // P637: Glide's decode threads as it makes them (background priority), but known to DecodeBoost: in front for the gallery's
+        // open (a shot's CPU work at the default priority left them a tenth of a core)
+        builder.setSourceExecutor(com.bumptech.glide.load.engine.executor.GlideExecutor.newSourceBuilder().setThreadFactory(DecodeBoost.factory()).build());
+        builder.setDiskCacheExecutor(com.bumptech.glide.load.engine.executor.GlideExecutor.newDiskCacheBuilder().setThreadFactory(DecodeBoost.factory()).build());
         // the grid's thumbnails (~0.5 MB each at a 4-column cell) for about three screens of the full-screen size Glide counts in
         builder.setMemorySizeCalculator(new com.bumptech.glide.load.engine.cache.MemorySizeCalculator.Builder(context).setMemoryCacheScreens(3));
     }

@@ -191,7 +191,8 @@ public final class SensorModePick {
             final int[] table = brand() == Brand.OPLUS ? OppoNativeFullRes.table(physicalId, c) : SensorModeBand.table(c);
             final Pick p = of(row, table);
             // P631: a Xiaomi row whose HAL runs it only without the ISP stream
-            return p == null ? null : XiaomiSensorRow.mark(physicalId, OplusIsz.mark(physicalId, slot, p), table);
+            // P641: the Xiaomi 17 Ultra 75 mm's 4x ISZ rows (the kit's: a Tetra block; the stock row 12: refused)
+            return p == null ? null : XiaomiTeleIsz.mark(physicalId, XiaomiSensorRow.mark(physicalId, OplusIsz.mark(physicalId, slot, p), table), table);
         } catch (RuntimeException e) {
             return null;
         }

@@ -83,6 +83,45 @@ public class ScamHybridBurstRolesTest {
         Field f = ScamHybridBurst.class.getDeclaredField("base"); f.setAccessible(true); return (ImageFrame) f.get(burst);
     }
 
+    /**
+     * P641d: a DCG + LOFIC shot - the overflow read of an N frame's own exposure (LoficPair) is a short frame of the burst with
+     * the exposure and the noise it was handed, while a real bracket (a longer frame of another moment) is still left out of a
+     * DCG shot; the base frame's own overflow frame goes first.
+     */
+    @Test public void aDcgShotKeepsItsOverflowPairsAndDropsRealBrackets() throws Exception {
+        List<ImageFrame> frames = new ArrayList<>();
+        for (int i = 0; i < 3; i++) frames.add(frame(ImageFrame.CaptureRole.NORMAL, 10_000_000L, 50));
+        ImageFrame overflow = frame(ImageFrame.CaptureRole.EXTRA_SHORT, 1_250_000L, 50); // the main frame's exposure over the measured 8
+        overflow.pairedMain = frames.get(2);
+        overflow.timestamp = frames.get(2).timestamp + 1;
+        overflow.noiseSlope = .00015f / 8; overflow.noiseOffset = .000002f + 9.1e-8f;
+        frames.add(overflow);
+        frames.add(frame(ImageFrame.CaptureRole.LONG, 40_000_000L, 50));
+        Parameters p = parameters(); p.dcgShot = true;
+        Constructor<ScamHybridBurst> c = ScamHybridBurst.class.getDeclaredConstructor(List.class, Parameters.class, boolean.class);
+        c.setAccessible(true);
+        ScamHybridBurst b = c.newInstance(frames, p, false);
+        List<ImageFrame> sent = list(b, "frames");
+        List<Float> exposures = list(b, "exposures");
+        List<float[]> noise = list(b, "noise");
+        assertEquals("three N frames and the overflow frame; the long bracket left out", 4, sent.size());
+        assertTrue(sent.contains(overflow));
+        for (ImageFrame f : sent) assertNotEquals(ImageFrame.CaptureRole.LONG, f.getCaptureRole());
+        int at = sent.indexOf(overflow);
+        assertEquals("its exposure against the base: one over the measured ratio", 0.125f, exposures.get(at), 1e-4f);
+        assertEquals("its own noise description", .00015f / 8, noise.get(at)[0], 1e-9f);
+        assertEquals(1, ScamHybridBurst.lastOverflowPairs);
+        // the base frame's own overflow frame before another N frame's, a real short frame after both
+        ImageFrame base = frames.get(0), other = frames.get(1);
+        ImageFrame ofOther = frame(ImageFrame.CaptureRole.EXTRA_SHORT, 1_250_000L, 50), ofBase = frame(ImageFrame.CaptureRole.EXTRA_SHORT, 1_250_000L, 50);
+        ImageFrame real = frame(ImageFrame.CaptureRole.EXTRA_SHORT, 1_250_000L, 50);
+        ofOther.pairedMain = other; ofBase.pairedMain = base;
+        List<ImageFrame> shorts = new ArrayList<>(java.util.Arrays.asList(real, ofOther, ofBase));
+        assertEquals(2, ScamHybridBurst.overflowPairs(shorts));
+        ScamHybridBurst.pairedFirst(shorts, base);
+        assertEquals(java.util.Arrays.asList(ofBase, ofOther, real), shorts);
+    }
+
     /** P72: 17 Ultra in-sensor zoom alternates packed RAW10 and RAW14 frames: one merge keeps the layout most frames have. */
     @Test public void framesOfOneRawLayoutOnly() {
         List<ImageFrame> frames = new ArrayList<>();

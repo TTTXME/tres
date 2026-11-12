@@ -29,6 +29,8 @@ public final class FullResRecipeStore {
 
     static final String TAG = "SCAM_CAPTURE";
     static final String FAIL_PREFIX = "module_recipe_fail_";
+    /** P635b: a profile whose frame was judged real on this lens and firmware (its sessions need no proof still). */
+    static final String OK_PREFIX = "module_recipe_ok_";
 
     public static String key(String slot, String field) {
         return ModuleSensorSettings.prefix(slot) + field;
@@ -80,7 +82,7 @@ public final class FullResRecipeStore {
         if (p == null) return;
         final SharedPreferences.Editor e = p.edit();
         for (String field : FullResRecipe.FIELDS) e.remove(key(slot, field));
-        e.remove(FAIL_PREFIX + slot).apply();
+        e.remove(FAIL_PREFIX + slot).remove(OK_PREFIX + slot).apply();
     }
 
     /** The built-in profile of {@code camera} on this phone (FullResRecipePresets), for the page; null: none. */
@@ -119,16 +121,73 @@ public final class FullResRecipeStore {
         if (p != null && slot != null) p.edit().remove(FAIL_PREFIX + slot).apply();
     }
 
+    // ---------------------------------------------------------------- P635b: the proof
+
+    /** This very profile gave a real full frame on {@code slot} on this firmware. */
+    public static boolean proved(@Nullable SharedPreferences p, @Nullable String slot, FullResRecipe recipe, String fingerprint) {
+        return p != null && slot != null && stamp(recipe, fingerprint).equals(p.getString(OK_PREFIX + slot, null));
+    }
+
+    public static void prove(@Nullable SharedPreferences p, @Nullable String slot, FullResRecipe recipe, String fingerprint) {
+        if (p != null && slot != null) p.edit().putString(OK_PREFIX + slot, stamp(recipe, fingerprint)).apply();
+    }
+
+    public static boolean provedActive(@Nullable Active active) {
+        return active != null && proved(prefs(), active.slot, active.recipe, String.valueOf(Build.FINGERPRINT));
+    }
+
+    public static void proveActive(@Nullable Active active) {
+        if (active != null) prove(prefs(), active.slot, active.recipe, String.valueOf(Build.FINGERPRINT));
+    }
+
+    // ---------------------------------------------------------------- P635b: a picked full-size row runs as the recipe
+
+    /**
+     * P635b (owner's third log, Xiaomi 17 Ultra: the module's rows 11, 0 and 22 - 8192 wide - each gave the binned frame in a
+     * quarter of the buffer): a module whose picked sensor mode row is as wide as its camera's proven preset runs the preset's
+     * recipe instead of the row, the switch off or not - the row alone cannot give the full frame. Not an experimental preset
+     * (a guess never replaces what the owner picked), not a narrower row.
+     */
+    static boolean autoRoute(int row, @Nullable int[] table, @Nullable FullResRecipe preset) {
+        if (row < 0 || preset == null || preset.experimental) return false;
+        final int[] e = SensorModeBand.modeEntry(table, row);
+        return e != null && e[0] == preset.width && e[1] > 0 && e[1] <= preset.height;
+    }
+
+    /** The picked row of {@code slot} its camera's recipe runs instead of ({@link #autoRoute}); -1: none. */
+    public static int routedRow(@Nullable String slot, @Nullable String camera, @Nullable CameraCharacteristics c) {
+        try {
+            final int row = SensorModePick.picked(slot);
+            return autoRoute(row, SensorModeBand.table(c), presetFor(camera, c)) ? row : -1;
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** The recipe of {@code slot}'s camera failed on this firmware (the row's message says so). */
+    public static boolean failedHere(@Nullable String slot, @Nullable String camera, @Nullable CameraCharacteristics c) {
+        final FullResRecipe preset = presetFor(camera, c);
+        final SharedPreferences p = prefs();
+        return preset != null && failure(p, slot, profile(p, slot, preset, null), String.valueOf(Build.FINGERPRINT)) != null;
+    }
+
     // ---------------------------------------------------------------- the running lens
 
     /** What a session of the active lens runs. */
     public static final class Active {
         public final String slot;
         public final FullResRecipe recipe;
+        /** P635b: the module's picked sensor mode row this recipe runs instead of (the switch is off); -1: the switch is on. */
+        public final int autoRow;
 
         Active(String slot, FullResRecipe recipe) {
+            this(slot, recipe, -1);
+        }
+
+        Active(String slot, FullResRecipe recipe, int autoRow) {
             this.slot = slot;
             this.recipe = recipe;
+            this.autoRow = autoRow;
         }
     }
 
@@ -152,17 +211,22 @@ public final class FullResRecipeStore {
             if (physicalId == null || !PreferenceKeys.scamDevSwitch("fullres_recipe", true)) return null;
             final SharedPreferences p = prefs();
             final String slot = ModuleRegistry.active();
-            if (p == null || slot == null || !physicalId.equals(ModuleRegistry.camera(slot)) || !on(p, slot)) return null;
+            if (p == null || slot == null || !physicalId.equals(ModuleRegistry.camera(slot))) return null;
+            final int[] table = SensorModeBand.table(c);
+            final FullResRecipe preset = FullResRecipePresets.preset(FullResRecipePresets.Device.current(), physicalId, table);
+            // P635b: a picked row as wide as the proven preset runs as the recipe, the switch on or not
+            final int row = SensorModePick.picked(slot);
+            final boolean auto = !on(p, slot) && autoRoute(row, table, preset);
+            if (!on(p, slot) && !auto) return null;
             final List<String> problems = new ArrayList<>();
-            final FullResRecipe recipe = profile(p, slot, FullResRecipePresets.preset(FullResRecipePresets.Device.current(), physicalId,
-                    SensorModeBand.table(c)), problems);
+            final FullResRecipe recipe = profile(p, slot, preset, problems);
             final String blocked = blocked(p, slot, recipe, Build.VERSION.SDK_INT, String.valueOf(Build.FINGERPRINT));
             if (!problems.isEmpty()) Log.w(TAG, "FULLRES RECIPE camera " + physicalId + ": fields that do not parse (the preset's kept): " + problems);
             if (blocked != null) {
                 Log.w(TAG, "FULLRES RECIPE camera " + physicalId + " " + recipe + ": not run (" + blocked + "), the normal session (P635)");
                 return null;
             }
-            return new Active(slot, recipe);
+            return new Active(slot, recipe, auto ? row : -1);
         } catch (RuntimeException e) {
             Log.w(TAG, "FULLRES RECIPE: " + e);
             return null;

@@ -158,16 +158,10 @@ public final class MergeStamp {
             final Bitmap out = img.isMutable() ? img : img.copy(img.getConfig(), true);
             if (out == null) return img;
             final Canvas canvas = new Canvas(out);
-            final float size = Math.max(16f, Math.min(out.getWidth(), out.getHeight()) * .035f);
-            final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
-            text.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
-            text.setTextSize(size);
-            text.setColor(0xFFFFFFFF);
-            float width = 0;
-            for (String l : lines) width = Math.max(width, text.measureText(l));
-            final float pad = size * .45f, line = size * 1.25f, margin = size * .6f;
-            final RectF plate = new RectF(out.getWidth() - margin - width - 2 * pad, margin,
-                    out.getWidth() - margin, margin + 2 * pad + line * lines.length - (line - size));
+            final float size = size(out.getWidth(), out.getHeight());
+            final Paint text = text(size);
+            final float pad = size * .45f, line = size * 1.25f;
+            final RectF plate = plate(out.getWidth(), text, size, lines);
             final Paint back = new Paint(Paint.ANTI_ALIAS_FLAG);
             back.setColor(0xA0000000);
             canvas.drawRoundRect(plate, pad, pad, back);
@@ -177,6 +171,59 @@ public final class MergeStamp {
         } catch (RuntimeException e) {
             Log.w("MergeStamp", "not drawn: " + e);
             return img;
+        }
+    }
+
+    /** The stamp's text size on a {@code width} x {@code height} photo. */
+    private static float size(int width, int height) {
+        return Math.max(16f, Math.min(width, height) * .035f);
+    }
+
+    private static Paint text(float size) {
+        final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+        text.setTextSize(size);
+        text.setColor(0xFFFFFFFF);
+        return text;
+    }
+
+    /** The stamp's plate on a photo {@code width} wide. */
+    private static RectF plate(int width, Paint text, float size, String... lines) {
+        float w = 0;
+        for (String l : lines) w = Math.max(w, text.measureText(l));
+        final float pad = size * .45f, line = size * 1.25f, margin = size * .6f;
+        return new RectF(width - margin - w - 2 * pad, margin, width - margin, margin + 2 * pad + line * lines.length - (line - size));
+    }
+
+    /**
+     * P642: {@link #draw} for a photo that has no bitmap (the streamed JPEG's rows): {@link #draw} itself on a window of the rows
+     * (RgbaRows.window: a bitmap of the photo's size holding the photo only in the plate's rectangle grown by the text's size -
+     * the text sits inside the plate), the rectangle written back: the bytes the bitmap route's bitmap gets. Returns how to take
+     * it back; null: nothing drawn (no lines). Throws what went wrong, the rows as they were.
+     */
+    @Nullable
+    public static com.particlesdevs.photoncamera.processing.watermark.RgbaRows.Undo drawInto(
+            com.particlesdevs.photoncamera.processing.watermark.RgbaRows photo, String... lines) {
+        if (photo == null || lines == null || lines.length == 0) return null;
+        final float size = size(photo.width, photo.height);
+        final RectF plate = plate(photo.width, text(size), size, lines);
+        final android.graphics.Rect box = new android.graphics.Rect((int) Math.floor(plate.left - size), (int) Math.floor(plate.top - size),
+                (int) Math.ceil(plate.right + size), (int) Math.ceil(plate.bottom + size));
+        if (!box.intersect(0, 0, photo.width, photo.height)) return null;
+        final byte[] before = photo.bytes(box);
+        final Bitmap window = photo.window();
+        try {
+            photo.load(window, box);
+            if (draw(window, lines) != window) throw new IllegalStateException("the stamp was drawn on a copy of the window");
+            try {
+                photo.store(window, box);
+            } catch (RuntimeException e) {
+                photo.write(box, before);
+                throw e;
+            }
+            return photo.undo(box, before);
+        } finally {
+            window.recycle();
         }
     }
 }

@@ -24,37 +24,48 @@ import com.particlesdevs.photoncamera.settings.PreferenceKeys;
  * <p>
  * P586: the OnePlus 16 (PYB110, {@link OplusDcg}): the main's DCG row 28 and the tele's DAG row 2 / 4 by the sensor-mode pick,
  * the levels learned from the frames.
+ * <p>
+ * P641: the Xiaomi 17 Ultra ({@link XiaomiDualGain}): DCG on the main and the 75 mm, DCG + LOFIC on the main (the switch's third
+ * state, {@link #LOFIC}), «DSG» on the ultra wide - a ladder of ways of asking, each proven by the depth of the frames.
  */
 public final class Dcg14Mode {
     private static final String PREFS = "scam_dcg14";
     private static final String KEY_MODE = "mode";
     public static final int OFF = 0, DCG = 1;
+    /** P641: DCG + LOFIC, where a camera has it (the Xiaomi 17 Ultra's main); DCG anywhere else. */
+    public static final int LOFIC = 2;
 
     private Dcg14Mode() {}
 
     /** A phone with the switch: the vivo X300 Ultra, the X200 Ultra (its guarded routes), the Xiaomi 15 Ultra. */
     public static boolean device() {
-        return VivoQcomIsz.enabled() || VivoQcomModes.device() || XiaomiDcg.enabled() || OplusDcg.enabled();
+        return VivoQcomIsz.enabled() || VivoQcomModes.device() || XiaomiDcg.enabled() || OplusDcg.enabled() || XiaomiDualGain.enabled();
     }
 
     /** Whether this camera has a DCG mode (X300 Ultra: main, ultra-wide, tele; 15 Ultra: the main). */
     public static boolean available(@Nullable CameraCharacteristics c) {
         if (c == null || !device() || !PreferenceKeys.scamDevSwitch("dcg14", true)) return false;
         if (XiaomiDcg.device()) return XiaomiDcg.available(c);
+        if (XiaomiDualGain.device()) return XiaomiDualGain.available(c); // P641
         if (OplusDcg.device()) return OplusDcg.available(c); // P586
         if (VivoQcomModes.device()) return VivoQcomModes.dcgAvailable(c);
         return VivoQcomIsz.dcgAvailable(c);
     }
 
-    /** OFF or DCG (P107's LOFIC, mode 2, reads as DCG). */
+    /** OFF or DCG; P641: LOFIC on a phone with that choice (anywhere else a stored 2, P107's LOFIC, reads as DCG). */
     public static int mode() {
         SharedPreferences p = prefs();
-        return p == null || p.getInt(KEY_MODE, OFF) == OFF ? OFF : DCG;
+        return stored(p == null ? OFF : p.getInt(KEY_MODE, OFF), XiaomiDualGain.enabled());
+    }
+
+    /** The mode a stored value means: LOFIC only where the phone has the choice ({@code lofic}). */
+    static int stored(int value, boolean lofic) {
+        return value == OFF ? OFF : value == LOFIC && lofic ? LOFIC : DCG;
     }
 
     public static void setMode(int mode) {
         SharedPreferences p = prefs();
-        if (p != null) p.edit().putInt(KEY_MODE, mode == OFF ? OFF : DCG).apply();
+        if (p != null) p.edit().putInt(KEY_MODE, stored(mode, XiaomiDualGain.enabled())).apply();
     }
 
     public static boolean on() {
@@ -63,17 +74,33 @@ public final class Dcg14Mode {
 
     /** OFF -> DCG -> OFF. */
     public static int next(int mode) {
-        return mode == OFF ? DCG : OFF;
+        return next(mode, false);
+    }
+
+    /** P641: OFF -> DCG -> DCG + LOFIC -> OFF on a camera with that choice ({@code lofic}). */
+    public static int next(int mode, boolean lofic) {
+        return mode == OFF ? DCG : mode == DCG && lofic ? LOFIC : OFF;
     }
 
     public static String name(int mode) {
-        return mode == OFF ? "off" : "DCG";
+        return mode == OFF ? "off" : mode == LOFIC ? "DCG+LOFIC" : "DCG";
     }
 
-    /** P586: the switch's name for the owner: «14 бит (DCG)», «DAG (телевик)» on the OnePlus 16 tele. */
+    /**
+     * P586: the switch's name for the owner: «14 бит (DCG)», «DAG (телевик)» on the OnePlus 16 tele; P641: «DSG» on the Xiaomi 17
+     * Ultra's ultra wide, «DCG» / «DCG+LOFIC» on its main and 75 mm.
+     */
     public static String title() {
         final String oplus = OplusDcg.switchName();
-        return oplus != null ? oplus : com.particlesdevs.photoncamera.util.Lang.t("14 бит (DCG)", "14-bit (DCG)");
+        if (oplus != null) return oplus;
+        final String xiaomi = XiaomiDualGain.switchName(mode());
+        return xiaomi != null ? xiaomi : com.particlesdevs.photoncamera.util.Lang.t("14 бит (DCG)", "14-bit (DCG)");
+    }
+
+    /** P641: the top bar's badge: «DSG» on the Xiaomi 17 Ultra's ultra wide, «DCG+L» with DCG + LOFIC on, «DCG» anywhere else. */
+    public static String badge() {
+        final String xiaomi = XiaomiDualGain.switchName(mode());
+        return xiaomi == null ? "DCG" : xiaomi.equals(XiaomiDualGain.Kind.LOFIC.label) ? "DCG+L" : xiaomi;
     }
 
     @Nullable
@@ -112,6 +139,8 @@ public final class Dcg14Mode {
         try {
             if (PixelPro10.dcgMain(c)) return true;
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels l = com.particlesdevs.photoncamera.processing.RawLevels.current(c, null);
+            // P641: the Xiaomi 17 Ultra's proven dual-gain session (its ultra wide's DSG is a 12-bit stream)
+            if (XiaomiDualGain.frames(l.bits)) return true;
             // 14 bits at least: a 12-bit stream under a declared 10 was never seen as a DCG fusion
             return l.bits >= 14 && (l.bits > l.declaredBits || active(c));
         } catch (RuntimeException e) {
@@ -135,6 +164,7 @@ public final class Dcg14Mode {
     public static String apply(CaptureRequest.Builder builder, @Nullable CameraCharacteristics c, @Nullable String physicalId) {
         if (builder == null || !active(c)) return "";
         if (XiaomiDcg.device()) return XiaomiDcg.applySession(builder, c);
+        if (XiaomiDualGain.device()) return XiaomiDualGain.apply(builder); // P641: the session's variant (none: nothing)
         if (OplusDcg.device()) return OplusDcg.describe(physicalId); // P586: the pick sets the mode key itself
         if (VivoQcomModes.device()) return VivoQcomModes.apply(builder, c, physicalId);
         return VivoQcomIsz.applyDcg(builder, c);
@@ -142,6 +172,7 @@ public final class Dcg14Mode {
 
     /** P230: the vendor operation mode the DCG session runs (Xiaomi 15 Ultra: 0x9203), 0 when it needs none or is inactive. */
     public static int operationMode(@Nullable CameraCharacteristics c) {
+        if (XiaomiDualGain.device()) return XiaomiDualGain.operationMode(); // P641: 0 but for the main camera's last variant
         return XiaomiDcg.device() && active(c) ? XiaomiDcg.operationMode() : 0;
     }
 
@@ -151,11 +182,13 @@ public final class Dcg14Mode {
      */
     public static String applyRequest(CaptureRequest.Builder builder, @Nullable CameraCharacteristics c) {
         if (builder == null || !requestKeys(c)) return "";
+        if (XiaomiDualGain.device()) return XiaomiDualGain.apply(builder); // P641
         return XiaomiDcg.device() ? XiaomiDcg.applyRequest(builder, c) : VivoQcomModes.applyDcgRequest(builder);
     }
 
     /** P230: the active DCG route sets keys on every request (Xiaomi 15 Ultra; the X200 Ultra's guarded Telegram route). */
     public static boolean requestKeys(@Nullable CameraCharacteristics c) {
+        if (XiaomiDualGain.device()) return XiaomiDualGain.sessionActive(); // P641: a session whose variant was chosen
         return active(c) && (XiaomiDcg.device() || VivoQcomModes.telegramDcg());
     }
 

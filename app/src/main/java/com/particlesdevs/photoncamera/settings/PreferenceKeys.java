@@ -961,6 +961,12 @@ public class PreferenceKeys {
         // its share 0..1); "hybrid_tetra_motion_smooth 0" = before
         final float tetraSmooth = hybridValue("tetra_motion_smooth", 1f);
         if (tetraSmooth != 1f) out.append("mosaicTetraMotionSmooth ").append(Math.max(0f, Math.min(1f, tetraSmooth))).append('\n');
+        // P634 (owner, 2026-11-12: «Займись улучшением результата на Tetra»): «Быстрый» on Tetra - the along-edge pass where
+        // nearly one frame merged and the clipped lights' checker pass (worker fastTetraPost 1, fastTetraClipNotch 1); «Качество»
+        // - a refused normal frame from its weak homography (normalWeakHom 1); «Статика» on Quad / Tetra - the still-scene
+        // check's photometric tolerance and aligned level (staticBlockTol 0.005), P634b: its lattice pass leaves lines and its
+        // detail pass does not raise the colour period (staticLatticeLines 1, staticDetailLattice 1); "hybrid_tetra3 0" = before
+        if (hybridValue("tetra3", 1f) == 0f) out.append("fastTetraPost 0\nfastTetraClipNotch 0\nnormalWeakHom 0\nstaticBlockTol 0\nstaticLatticeLines 0\nstaticDetailLattice 0\n");
         // P601 (owner, 2026-11-10: «лицо женщины в автобусе за парнем видно только на качестве»): the fast route's donor flow picked
         // per 4 x 4 block among the tiles near the surroundings' flow where the tile field misfits, and a donor kept where its block
         // fits within the noise at that flow (worker fastFlowPick 2; 1 = the pick alone); "hybrid_fast_flow_pick 0" = before
@@ -1186,13 +1192,18 @@ public class PreferenceKeys {
     /**
      * P624: the static merge's lines (staticMerge 1, the iterations of pref_scam_hybrid_static_iters, 4..16, default 8) and the
      * GPU backend of scam_dev "static_vulkan" (0 GLES, 1 Vulkan first, -1 or absent = auto: the worker's self-test picks; P627: -2
-     * the CPU transcription only).
+     * the CPU transcription only). P639: scam_dev "static_plan" (1 or absent = the short schedule, 0 = the P624 one) and
+     * "static_slice_ms" (the length of one GPU submission of the solve, ms; absent = the worker's 6, 0 = a strip in one) - an A/B
+     * of the speed-up and of the viewfinder's pacing on the phone.
      */
     public static String staticTuning() {
         final int iters = Math.max(4, Math.min(16, Math.round(hybridValue("static_iters", 8f))));
         final Float vk = scamDevValue("static_vulkan");
         final int backend = vk == null ? -1 : vk >= 0.5f ? 1 : vk <= -1.5f ? -2 : vk <= -0.5f ? -1 : 0;
-        return "staticMerge 1\nstaticIters " + iters + "\nstaticVulkan " + backend + "\n";
+        final Float plan = scamDevValue("static_plan"), slice = scamDevValue("static_slice_ms");
+        return "staticMerge 1\nstaticIters " + iters + "\nstaticVulkan " + backend + "\n"
+                + (plan == null ? "" : "staticPlan " + (plan >= 0.5f ? 1 : 0) + "\n")
+                + (slice == null ? "" : "staticSliceMs " + Math.max(0f, Math.min(100f, slice)) + "\n");
     }
     /**
      * P624: the static merge's output (pref_scam_hybrid_static_sr): "sensor" (1x, default), "1.5x", "2x" - its super-resolution, in

@@ -1,24 +1,26 @@
 #include "tone_port.h"
 #include "rgb8_hdr.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 
 namespace tone {
 namespace {
 
+// SCAMERA P636: the dark exposure's storage is written whole by make_exposures before anything reads it: not zeroed first
+// (with one thread zeroed, as the vector was).
 struct ExposurePair {
     std::vector<uint8_t> bright;
-    std::vector<uint8_t> dark;
+    std::unique_ptr<uint8_t[]> dark;
+    size_t dark_bytes;
 };
 
-std::vector<uint8_t> tone_pair(Version version, const Image& frame, const ExposurePair& pair) {
-    const size_t stride = frame.width * 3;
-    const Image bright{pair.bright.data(), pair.bright.size(), frame.width, frame.height, stride, 0};
-    const Image dark{pair.dark.data(), pair.dark.size(), frame.width, frame.height, stride, 0};
-    return detail::tone_virtual_rgb8(version, bright, dark);
+std::vector<uint8_t> tone_pair(Version version, const Image& frame, ExposurePair& pair) {
+    return detail::tone_virtual_owned(version, frame.width, frame.height, pair.bright, pair.dark.get(), pair.dark_bytes);
 }
 
 #include "profile_tables.inc"
@@ -100,14 +102,19 @@ Pixel transform(const Matrix& matrix, const Pixel& p, unsigned shift) {
 template <typename Convert>
 ExposurePair make_exposures(ColorInput color, const Image& src, Convert convert) {
     const auto count = validate(src, color);
-    ExposurePair out{std::vector<uint8_t>(count * 3), std::vector<uint8_t>(count * 3)};
-    for (size_t y = 0; y < src.height; ++y) {
+    ExposurePair out{std::vector<uint8_t>(count * 3),
+                     std::unique_ptr<uint8_t[]>(detail::thread_count() > 1 ? new uint8_t[count * 3] : new uint8_t[count * 3]()),
+                     count * 3};
+    detail::parallel_rows(0, std::ptrdiff_t(src.height), 9 * std::ptrdiff_t(src.width),
+                          [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+    for (size_t y = size_t(first); y < size_t(last); ++y) {
         for (size_t x = 0; x < src.width; ++x) {
             const auto pixel = read_rgb_indices(color, src, x, y);
             const size_t offset = 3 * (y * src.width + x);
-            convert(pixel, out.bright.data() + offset, out.dark.data() + offset);
+            convert(pixel, out.bright.data() + offset, out.dark.get() + offset);
         }
     }
+    });
     return out;
 }
 
@@ -211,7 +218,7 @@ std::vector<uint8_t> tone_rgb8_hdr_matrices(Version version, ColorInput color, c
                                             const Matrix& bright, unsigned bright_shift,
                                             const Matrix& dark, unsigned dark_shift) {
     require(bright_shift <= 31 && dark_shift <= 31, "Invalid matrix shift");
-    const auto pair = make_exposures(color, src, [&](const Pixel& p, uint8_t* a, uint8_t* b) {
+    auto pair = make_exposures(color, src, [&](const Pixel& p, uint8_t* a, uint8_t* b) {
         const Pixel linear{inverse[p[0]], inverse[p[1]], inverse[p[2]]};
         const auto ab = transform(bright, linear, bright_shift);
         const auto bb = transform(dark, linear, dark_shift);

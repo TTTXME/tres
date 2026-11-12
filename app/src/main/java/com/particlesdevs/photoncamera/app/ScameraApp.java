@@ -254,8 +254,10 @@ public class ScameraApp extends Application {
         ScameraCrashReporter.install(this);
         // The firmware test has its own process. Do not open cameras, initialize
         // GPU pipelines or start background modules inside that process.
+        // P640: neither does the vivo SDK lease's guard process (LeaseGuardService): nothing of the app runs there.
         if (android.os.Build.VERSION.SDK_INT >= 28 &&
-                android.app.Application.getProcessName().endsWith(":scam")) {
+                (android.app.Application.getProcessName().endsWith(":scam")
+                        || android.app.Application.getProcessName().endsWith(":leaseguard"))) {
             super.onCreate();
             return;
         }
@@ -269,6 +271,8 @@ public class ScameraApp extends Application {
         super.onCreate();
         // Why the previous process ended (a native crash or a kill leaves no line of ours): into the log once
         com.particlesdevs.photoncamera.util.ExitReasons.logPrevious(this);
+        // P640: a vivo SDK lease nobody holds goes back (a process of ours that died with it), the guard is armed for the next
+        com.particlesdevs.photoncamera.capture.LeaseGuard.install(this);
     }
     private void initModules() {
 

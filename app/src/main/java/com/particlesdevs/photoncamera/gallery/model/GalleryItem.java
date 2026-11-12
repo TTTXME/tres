@@ -14,7 +14,7 @@ import java.util.Locale;
  * Created by Vibhor Srivastava on October 14, 2021
  */
 public class GalleryItem implements Checkable {
-    private final MediaFile file;
+    private MediaFile file;
     private final String mediaTypeTag;
     private boolean isChecked;
     private String displayName;
@@ -45,6 +45,11 @@ public class GalleryItem implements Checkable {
 
     public MediaFile getFile() {
         return file;
+    }
+
+    /** P637: the same photo under its MediaStore row once the scanner filed it (it was known by its path only). */
+    public void setFile(MediaFile file) {
+        this.file = file;
     }
 
     public ArrayList<GalleryItem> getFiles() {

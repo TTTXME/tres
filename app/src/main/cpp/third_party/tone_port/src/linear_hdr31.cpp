@@ -1,5 +1,6 @@
 #include "tone_port.h"
 #include "raw_image.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -114,7 +115,9 @@ RawLevel<Exposure> reduce(int width, int height, bool extend, ReadPixel read) {
     const auto border = [extend](int x, int length) {
         return extend ? std::clamp(x, 0, length - 1) : symmetric(x, length);
     };
-    for (int y = -next.padding; y < next.height + next.padding; ++y) {
+    detail::parallel_rows(-next.padding, next.height + next.padding, 48 * std::ptrdiff_t(next.width + 2 * next.padding),
+                          [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+    for (int y = static_cast<int>(first); y < static_cast<int>(last); ++y) {
         std::array<int, 4> yy{};
         for (int j = 0; j < 4; ++j) yy[j] = border(2 * y + j - 1, height);
         for (int x = -next.padding; x < next.width + next.padding; ++x) {
@@ -131,6 +134,7 @@ RawLevel<Exposure> reduce(int width, int height, bool extend, ReadPixel read) {
             for (size_t c = 0; c < result.size(); ++c) result[c] = static_cast<uint16_t>(sums[c] >> 5);
         }
     }
+    });
     return next;
 }
 
@@ -183,18 +187,22 @@ std::vector<uint16_t> tone_raw31_hdr(const RawRgbImage& src, float gain_short, f
     for (size_t i = levels.size() - 1; i > 0; --i) {
         const auto& fine = levels[i - 1];
         RawLevel<int16_t> next(fine.width, fine.height, fine.padding);
-        for (int y = -next.padding; y < next.height + next.padding; ++y) {
+        detail::parallel_rows(-next.padding, next.height + next.padding, 12 * std::ptrdiff_t(next.width + 2 * next.padding),
+                              [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+        for (int y = static_cast<int>(first); y < static_cast<int>(last); ++y) {
             for (int x = -next.padding; x < next.width + next.padding; ++x) {
                 const auto index = fine.index(x, y);
                 next.data[index] = static_cast<int16_t>(reconstruct(fine.data[index], levels[i], merged, x, y));
             }
         }
+        });
         merged = std::move(next);
     }
 
     const size_t count = src.width * src.height;
     std::vector<uint16_t> out(count * 3);
-    for (int y = 0; y < h; ++y) {
+    detail::parallel_rows(0, h, 24 * std::ptrdiff_t(w), [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+    for (int y = static_cast<int>(first); y < static_cast<int>(last); ++y) {
         for (int x = 0; x < w; ++x) {
             const size_t offset = size_t(y) * src.row_stride + x;
             const size_t target = size_t(y) * w + x;
@@ -207,6 +215,7 @@ std::vector<uint16_t> tone_raw31_hdr(const RawRgbImage& src, float gain_short, f
             }
         }
     }
+    });
     return out;
 }
 

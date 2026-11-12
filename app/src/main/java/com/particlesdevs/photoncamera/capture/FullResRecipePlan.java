@@ -174,9 +174,13 @@ public final class FullResRecipePlan {
         return out;
     }
 
-    /** The tags of a request ({@code still} or the repeating one). */
+    /**
+     * The tags of a request ({@code still} or the repeating one). P635c: none on the repeating request of a profile whose
+     * viewfinder carries no tags ({@link FullResRecipe#viewTags}): the session parameters and the stills keep theirs.
+     */
     public List<FullResRecipe.Tag> requestTags(boolean still) {
         final List<FullResRecipe.Tag> out = new ArrayList<>();
+        if (!still && !recipe.viewTags) return out;
         for (FullResRecipe.Tag t : recipe.tags) if (t.onRequest(still)) out.add(t);
         return out;
     }

@@ -369,6 +369,21 @@ public class PostPipeline extends GLBasePipeline {
                                           @androidx.annotation.Nullable java.nio.ByteBuffer pixels, int strideBytes) throws java.io.IOException {
             return wrap(out, width, height);
         }
+
+        /**
+         * P642: whether {@link #draw} has something to draw into the pixels (the watermark, the ES / L stamp): the readback is
+         * then mapped for writing as well; where it cannot be, the photo takes the bitmap route.
+         */
+        default boolean draws() { return false; }
+
+        /**
+         * P642: draws into the pixels about to be encoded (before {@link #wrap}, whose thumbnails then show it), the part
+         * {@link #crop} kept. Returns how to take the drawing back - run when the stream fails afterwards, because the bitmap
+         * route then reads the same pixels and draws on them itself; null: nothing drawn. Throws with the pixels as they
+         * were to give the photo to the bitmap route.
+         */
+        @androidx.annotation.Nullable
+        default Runnable draw(java.nio.ByteBuffer pixels, int width, int height, int strideBytes) { return null; }
     }
 
     /** P483: {@link #streamJpeg(int)} with the caller's crop and stream wrapper ({@code plan} null: the whole frame, plain JPEG). */
@@ -452,9 +467,16 @@ public class PostPipeline extends GLBasePipeline {
         final JpegPlan jpegPlan = streamPlan;
         streamQuality = -1;
         streamPlan = null;
+        glproc.sinkWrites = jpegPlan != null && jpegPlan.draws(); // P642
         glproc.rgbaSink = jpegQuality > 0 && !legacyRun && !tenBitOutput && PreferenceKeys.scamDevSwitch("jpeg_stream", true)
                 && com.particlesdevs.photoncamera.processing.JpegliEncoder.available() ? (rgba, w, h) -> {
+            // P642: a plan that draws needs pixels it may write
+            if (jpegPlan != null && jpegPlan.draws() && !glproc.sinkWritable) {
+                Log.i("PostPipeline", "streamed JPEG: the readback could not be mapped for the watermark, the bitmap path");
+                return false;
+            }
             final java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream(8 << 20);
+            Runnable undo = null;
             try {
                 final android.graphics.Rect crop = jpegPlan != null ? jpegPlan.crop(w, h) : null;
                 java.nio.ByteBuffer from = rgba;
@@ -469,13 +491,24 @@ public class PostPipeline extends GLBasePipeline {
                     cw = crop.width();
                     ch = crop.height();
                 }
+                if (jpegPlan != null && jpegPlan.draws()) undo = jpegPlan.draw(from, cw, ch, 4 * w); // P642
                 final java.io.OutputStream into = jpegPlan != null ? jpegPlan.wrap(jpeg, cw, ch, from, 4 * w) : jpeg;
                 com.particlesdevs.photoncamera.processing.JpegliEncoder.compress(from, cw, ch, 4 * w, jpegQuality, into);
                 if (into != jpeg) into.close();
                 streamedJpeg = jpeg.toByteArray();
                 return true;
             } catch (java.io.IOException | RuntimeException e) {
-                Log.w("PostPipeline", "streamed JPEG failed (" + e + "), the bitmap path");
+                // P642: the bitmap is made from these pixels next: as they were before the plan drew on them
+                boolean clean = true;
+                if (undo != null) try {
+                    undo.run();
+                } catch (RuntimeException undoFailed) {
+                    clean = false;
+                    Log.e("PostPipeline", "streamed JPEG: the drawing could not be taken back (" + undoFailed + ")");
+                }
+                Log.w("PostPipeline", "streamed JPEG " + (e instanceof com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.NotStreamed
+                        ? "not taken (" + e.getMessage() + ")" : "failed (" + e + ")") + ", the bitmap path");
+                if (!clean) throw new IllegalStateException("streamed JPEG: pixels left drawn on", e); // the tiles are read again
                 return false;
             }
         } : null;

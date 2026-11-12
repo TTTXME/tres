@@ -12,7 +12,12 @@ import java.util.Locale;
  * 8192x6144 of usage 0x100003 with the vendor stream use case 0x80103, a 640x480 YUV companion in the still, the still template,
  * current_mode [0] and xiaomi.remosaic.enabled [1] on the session and every request, no sensor pixel mode; the viewfinder the
  * binned 4096x3072 RAW stream beside it (the documents' dual-stream run; the ISP SurfaceTexture beside it was not tried there).
- * The 75 mm camera 4 is not solved in the documents: no preset.</li>
+ * </li>
+ * <li>P635d, Xiaomi 17 Ultra, cameras 3 (the ultra wide) and 4 (the 75 mm), experimental: the phone's own stream table (the
+ * owner's device report, 2026-10-11: mivivendorstreamconfig.json, the manual full-size RAW mode 0x900E of roles 0, 20, 21, 23 -
+ * a RAW16 stream of use case 0x80103) says the main camera's recipe is the vendor's for every rear camera. The sizes are the
+ * cameras' SensorModeTable rows (8192x6144 at 12 fps, row 0; the 75 mm 8160x6144 at 24 fps, the vendor's 50 MP row 2), so no
+ * frame rate is asked. Not run on a phone.</li>
  * <li>nubia (a camera with a full-size row in its sensor mode table), experimental: the stock camera's QCFA snapshot as P626 has
  * it (session mode 0x8012, the ZTE feature bit, app_mode, CustomRemosiac on the stills, the capture streams annotated
  * MAXIMUM_RESOLUTION) plus what the documents add - a companion stream in the still. Not run on a phone.</li>
@@ -62,6 +67,7 @@ public final class FullResRecipePresets {
 
     static final String QCOM_MODE = "org.codeaurora.qcamera3.sensor_meta_data.current_mode";
     static final String XIAOMI_REMOSAIC = "xiaomi.remosaic.enabled";
+    static final String XIAOMI_17_ULTRA_WIDE = "Xiaomi 17 Ultra 50 MP (ultra wide)", XIAOMI_17_ULTRA_TELE = "Xiaomi 17 Ultra 50 MP (75 mm)";
     static final String XIAOMI_17_ULTRA = "Xiaomi 17 Ultra 50 MP", NUBIA = "nubia QCFA snapshot + companion", ONEPLUS_16 = "OnePlus 16 row 25 + companion";
 
     /**
@@ -78,6 +84,15 @@ public final class FullResRecipePresets {
                     .tag(XIAOMI_REMOSAIC, FullResRecipe.TagType.U8_ARRAY, FullResRecipe.Target.BOTH, 1)
                     .stillTemplate("still").sessionTemplate("still").fps(30, 30)
                     .pixelMode(FullResRecipe.PixelMode.NEVER).preview(FullResRecipe.Preview.RAW).frames(4).build();
+        if (device.xiaomi17Ultra() && ("3".equals(camera) || "4".equals(camera))) {
+            final boolean tele = "4".equals(camera);
+            return new FullResRecipe.Builder().id(tele ? XIAOMI_17_ULTRA_TELE : XIAOMI_17_ULTRA_WIDE).size(tele ? 8160 : 8192, 6144)
+                    .usage(0x100003L).useCase(0x80103L).companion(FullResRecipe.Companion.YUV, 640, 480)
+                    .tag(QCOM_MODE, FullResRecipe.TagType.I32_ARRAY, FullResRecipe.Target.BOTH, tele ? 2 : 0)
+                    .tag(XIAOMI_REMOSAIC, FullResRecipe.TagType.U8_ARRAY, FullResRecipe.Target.BOTH, 1)
+                    .stillTemplate("still").sessionTemplate("still")
+                    .pixelMode(FullResRecipe.PixelMode.NEVER).preview(FullResRecipe.Preview.RAW).frames(4).experimental(true).build();
+        }
         if (device.nubia()) {
             final int[] full = fullRow(table);
             if (full == null) return null;

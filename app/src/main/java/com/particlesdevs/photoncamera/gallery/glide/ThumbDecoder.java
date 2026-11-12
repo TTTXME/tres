@@ -48,6 +48,13 @@ import java.util.Locale;
  */
 public final class ThumbDecoder implements ResourceDecoder<GalleryThumb, Bitmap> {
     private static final int HEAD = 64 * 1024;
+    /**
+     * P637: only a picture embedded in the file - a JPEG's, HEIC's or AVIF's EXIF (IFD1) thumbnail of any size with the picture's
+     * aspect, a DNG's JPEG preview - never a decode of the picture itself; a file without one fails the request. The viewer's
+     * first picture of a page whose thumbnail is not cached: a few ms, where a sampled decode would run beside the page's own.
+     */
+    public static final com.bumptech.glide.load.Option<Boolean> EMBEDDED_ONLY =
+            com.bumptech.glide.load.Option.memory("com.particlesdevs.photoncamera.gallery.glide.ThumbDecoder.EmbeddedOnly", false);
     private final Context context;
     private final BitmapPool pool;
 
@@ -82,11 +89,13 @@ public final class ThumbDecoder implements ResourceDecoder<GalleryThumb, Bitmap>
         final int reqW = width > 0 && width != Target.SIZE_ORIGINAL ? width : 2048;
         final int reqH = height > 0 && height != Target.SIZE_ORIGINAL ? height : 2048;
         ThumbPlan.Kind kind = ThumbPlan.Kind.OTHER;
+        final boolean embeddedOnly = Boolean.TRUE.equals(options.get(EMBEDDED_ONLY));
         try (Src src = Src.open(context, m)) {
             byte[] head = src.head(HEAD);
             kind = ThumbPlan.kindOf(m.name, head, head.length);
             Out out;
-            switch (kind) {
+            if (embeddedOnly) out = embedded(src, m, kind, reqW, reqH);
+            else switch (kind) {
                 case JPEG: out = jpeg(src, m, reqW, reqH); break;
                 case DNG: out = dng(src, m, reqW, reqH); break;
                 case RAW: out = raw(src, m, reqW, reqH); break;
@@ -101,12 +110,98 @@ public final class ThumbDecoder implements ResourceDecoder<GalleryThumb, Bitmap>
                     out.srcW, out.srcH, b.getWidth(), b.getHeight());
             return BitmapResource.obtain(b, pool);
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
-            ThumbTrace.failed(kind.name().toLowerCase(Locale.ROOT), m.name, e);
+            // P637: a file without an embedded picture is no failure (the page's own decode shows it)
+            if (!embeddedOnly) ThumbTrace.failed(kind.name().toLowerCase(Locale.ROOT), m.name, e);
             throw e instanceof IOException ? (IOException) e : new IOException(e);
         }
     }
 
     // ---------------------------------------------------------------- formats
+
+    /** P637: {@link #EMBEDDED_ONLY}: the file's embedded picture, else an IOException (nothing is decoded from the picture). */
+    private Out embedded(Src src, GalleryThumb m, ThumbPlan.Kind kind, int reqW, int reqH) throws IOException {
+        Out out = null;
+        switch (kind) {
+            case JPEG: {
+                ThumbPlan.Jpeg j = ThumbPlan.parseJpeg(src.map());
+                if (j != null && j.hasThumb() && ThumbPlan.sameAspect(j.thumbWidth, j.thumbHeight, j.width, j.height)) {
+                    byte[] data = new byte[j.thumbLength];
+                    ByteBuffer d = src.map().duplicate();
+                    d.position(j.thumbOffset);
+                    d.get(data);
+                    Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length);
+                    if (b != null) out = new Out(DngGlideDecoder.orient(b, j.orientation), "exif " + j.thumbWidth + "x" + j.thumbHeight, j.width, j.height);
+                }
+                break;
+            }
+            case HEIF:
+            case AVIF:
+                out = exifThumb(src, m, reqW, reqH, true);
+                break;
+            case DNG: {
+                DngPreview.Result r = DngPreview.read(src.map(), reqW, reqH, true, true);
+                if (r != null && r.isJpeg()) {
+                    byte[] data = new byte[r.jpegLength];
+                    ByteBuffer d = src.map().duplicate();
+                    d.position(r.jpegOffset);
+                    d.get(data);
+                    Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length);
+                    if (b != null) out = new Out(DngGlideDecoder.orient(b, r.orientation), "dng-preview " + r.width + "x" + r.height, r.width, r.height);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        if (out == null) throw new IOException("no embedded preview");
+        return out;
+    }
+
+    /**
+     * P637: the EXIF (IFD1) JPEG thumbnail of a HEIC / AVIF (the camera writes one, 512 px, P620; androidx ExifInterface finds the
+     * container's EXIF item), turned by the EXIF orientation; null without one, or - unless {@code anySize} - when it is too
+     * small for the request or the picture's size is unknown. Its own descriptor: ExifInterface moves the offset.
+     */
+    @Nullable
+    private Out exifThumb(Src src, GalleryThumb m, int reqW, int reqH, boolean anySize) {
+        ParcelFileDescriptor own = null;
+        try {
+            androidx.exifinterface.media.ExifInterface exif;
+            File direct = src.readablePath();
+            if (direct != null) exif = new androidx.exifinterface.media.ExifInterface(direct);
+            else {
+                own = context.getContentResolver().openFileDescriptor(m.uri, "r");
+                if (own == null) return null;
+                exif = new androidx.exifinterface.media.ExifInterface(own.getFileDescriptor());
+            }
+            if (!exif.hasThumbnail()) return null;
+            byte[] data = exif.getThumbnailBytes();
+            if (data == null || data.length == 0) return null;
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            final int tw = o.outWidth, th = o.outHeight;
+            final int w = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_WIDTH, 0),
+                    h = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_LENGTH, 0);
+            final int orientation = exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION, 1);
+            final boolean turned = orientation >= 5 && orientation <= 8;
+            // the thumbnail is stored unturned; the size the container reports is the stored or the displayed one
+            final boolean stored = ThumbPlan.sameAspect(tw, th, w, h);
+            if (w > 0 && h > 0 && !stored && !ThumbPlan.sameAspect(tw, th, h, w)) return null;
+            final int pw = stored ? w : h, ph = stored ? h : w;
+            if (!anySize && !ThumbPlan.enough(tw, th, pw, ph, turned ? reqH : reqW, turned ? reqW : reqH, m.cover)) return null;
+            Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length);
+            if (b == null) return null;
+            return new Out(DngGlideDecoder.orient(b, orientation), "exif " + tw + "x" + th, w, h);
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            return null;
+        } finally {
+            if (own != null) try {
+                own.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
 
     @Nullable
     private Out jpeg(Src src, GalleryThumb m, int reqW, int reqH) throws IOException {
@@ -253,6 +348,10 @@ public final class ThumbDecoder implements ResourceDecoder<GalleryThumb, Bitmap>
 
     @Nullable
     private Out heif(Src src, GalleryThumb m, int reqW, int reqH) throws IOException {
+        // P637: the camera's HEIC has an EXIF thumbnail (P620) and no HEIF thumbnail item: the platform's thumbnail was a decode
+        // of the whole HEVC picture
+        Out exif = exifThumb(src, m, reqW, reqH, false);
+        if (exif != null) return exif;
         File direct = src.readablePath();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && direct != null) {
             // the platform's own thumbnail: the HEIF thumbnail item when there is one, else its sampled decode
@@ -272,6 +371,8 @@ public final class ThumbDecoder implements ResourceDecoder<GalleryThumb, Bitmap>
 
     @Nullable
     private Out avif(Src src, GalleryThumb m, int reqW, int reqH) throws IOException {
+        Out exif = exifThumb(src, m, reqW, reqH, false); // P637: as the HEIC
+        if (exif != null) return exif;
         if (!AvifGlideDecoder.decodable()) return sampled(src, m, reqW, reqH, null);
         Size box = box(reqW, reqH, m.cover);
         Bitmap b = AvifGlideDecoder.decodeBytes(src.bytes(), box.getWidth(), box.getHeight());

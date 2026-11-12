@@ -30,6 +30,9 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.gallery.adapters.DepthPageTransformer;
 import com.particlesdevs.photoncamera.gallery.adapters.ImageAdapter;
+import com.particlesdevs.photoncamera.gallery.ui.CameraHandoff;
+import com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace;
+import com.particlesdevs.photoncamera.gallery.ui.ViewerCover;
 import com.particlesdevs.photoncamera.gallery.compare.SSIVListener;
 import com.particlesdevs.photoncamera.gallery.files.GalleryFileOperations;
 import com.particlesdevs.photoncamera.gallery.files.ImageFile;
@@ -169,9 +172,236 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         viewPager.setId(View.generateViewId());
         root.addView(viewPager, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         if (isCompareMode()) buildPaneOverlay(c);
-        else buildChrome(c);
+        else {
+            // P637: over the pages, under the bars
+            cover = new ViewerCover(c);
+            root.addView(cover.view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            // a single photo shown first (the camera's last one, the one another app asked for) and the lists read under it
+            seamlessUntil = android.os.SystemClock.uptimeMillis() + SEAMLESS_MS;
+            buildChrome(c);
+            beginOpening(viewModel.takeOpening());
+        }
         viewModel.getCurrentFolderImages().observe(getViewLifecycleOwner(), this::initImageAdapter);
         return root;
+    }
+
+    // ---------------------------------------------------------------- P637: opened by the camera's thumbnail
+
+    /** P637: the placeholder over the pages (null in compare mode). */
+    @Nullable private ViewerCover cover;
+    /** P637: this viewer's gallery was opened by the camera's thumbnail: it hears the camera's saves. */
+    private boolean cameraOpened;
+    /** P637: until then (uptime ms) a new list under a shown page is bound behind a copy of that page (no black flash). */
+    private long seamlessUntil;
+    /** P637: the saved shot's page is awaited («final photo ready» in the log). */
+    private boolean awaitingFinal;
+    /** P637: the shot the viewer was opened for was saved before this view could wait for it: its file is the one to show. */
+    private boolean expectSaved;
+    private int idlePolls;
+    @Nullable private String savedPath;
+    private final Runnable pendingPoll = this::pollPending, applySaved = this::applySaved, coverTimeout = this::coverTimedOut;
+    static final long PENDING_POLL_MS = 500, SAVED_SETTLE_MS = 60, COVER_MAX_MS = 5000, SEAMLESS_MS = 20_000;
+
+    private final CameraHandoff.Listener handoffListener = new CameraHandoff.Listener() {
+        @Override
+        public void saved(String path) {
+            if (root == null) return;
+            // the photo format comes last (a RAW of the same shot a moment before it): one rebind for the shot
+            savedPath = path;
+            root.removeCallbacks(applySaved);
+            root.postDelayed(applySaved, SAVED_SETTLE_MS);
+        }
+
+        @Override
+        public void scanned(String path, Uri row) {
+            if (root == null || viewModel == null) return;
+            if (viewModel.frontScanned(path, row) && viewPager != null) onPageShown(viewPager.getCurrentItem());
+        }
+    };
+
+    /**
+     * P637 (owner, 2026-11-12: «галерея очень долго открывается» - the viewer black for ~6 s when the camera's thumbnail was
+     * tapped right after a shot): the first view of a gallery the camera opened shows what the camera handed over at once -
+     * the shutter frame of a shot still processed under «Обработка снимка…» (the final photo takes its place when the camera
+     * saves it, from its file, before MediaStore knows it), else the camera's thumbnail until the last photo's page has its
+     * picture. {@code o} null: not opened by the camera, or not the first view.
+     */
+    private void beginOpening(@Nullable CameraHandoff.Open o) {
+        if (viewModel.openedByCamera()) {
+            cameraOpened = true;
+            CameraHandoff.listen(handoffListener);
+        }
+        if (o == null || cover == null) return;
+        boolean pending = o.pending;
+        if (pending) {
+            CameraHandoff.Saved s = CameraHandoff.lastSaved();
+            if (s != null && s.seq > o.saves) pending = false; // saved between the tap and this view: its file is shown below
+        }
+        final android.graphics.Bitmap picture = o.picture != null && !o.picture.isRecycled() ? o.picture : null;
+        if (pending || picture != null) cover.show(picture, pending, false);
+        GalleryOpenTrace.placeholder(o.what, pending, picture != null ? picture.getWidth() : 0, picture != null ? picture.getHeight() : 0);
+        if (pending) {
+            bindPendingMeta();
+            idlePolls = 0;
+            root.postDelayed(pendingPoll, PENDING_POLL_MS);
+        } else {
+            if (o.pending) { // the shot was saved meanwhile
+                CameraHandoff.Saved s = CameraHandoff.lastSaved();
+                savedPath = s != null ? s.path : null;
+                expectSaved = true;
+                root.post(applySaved);
+            }
+            if (picture != null) root.postDelayed(coverTimeout, COVER_MAX_MS);
+        }
+        // the frame that carries the placeholder
+        final View r = root;
+        r.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                r.getViewTreeObserver().removeOnPreDrawListener(this);
+                r.post(() -> GalleryOpenTrace.placeholderOnScreen(picture != null));
+                return true;
+            }
+        });
+    }
+
+    /** «Сегодня, 13:41» / «Обработка…» in the title while the shot's file does not exist. */
+    private void bindPendingMeta() {
+        if (chrome == null) return;
+        long now = System.currentTimeMillis();
+        chrome.bindMeta(GalleryUi.dayTime(now, now), Lang.t("Обработка…", "Processing…"), null, null, false);
+        if (miniExif != null) miniExif.setText("");
+    }
+
+    private boolean coverPending() {
+        return cover != null && cover.state() == ViewerCover.State.PENDING;
+    }
+
+    /** While the shot is processed: has the camera stopped working without a saved file (a failed shot)? */
+    private void pollPending() {
+        if (root == null || !coverPending()) return;
+        boolean busy;
+        try {
+            busy = com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy.getAsBoolean();
+        } catch (RuntimeException e) {
+            busy = false;
+        }
+        idlePolls = busy ? 0 : idlePolls + 1;
+        if (idlePolls >= 2) {
+            // nothing is in work: the shot was saved (the event missed, or saved a moment before the tap while the camera
+            // still counted it as in work) - its file, which MediaStore may not have yet - or it failed
+            CameraHandoff.Saved s = CameraHandoff.lastSaved();
+            if (s != null) {
+                savedPath = s.path;
+                expectSaved = true;
+                applySaved();
+            }
+            if (coverPending()) endPending(s != null ? "the saved file is gone" : "no shot is in work any more");
+            return;
+        }
+        root.postDelayed(pendingPoll, PENDING_POLL_MS);
+    }
+
+    /** The wait for the shot ends without its photo: the pages as they are. */
+    private void endPending(String why) {
+        if (!coverPending()) return;
+        if (root != null) root.removeCallbacks(pendingPoll);
+        cover.drop(true);
+        GalleryOpenTrace.shotGone(why);
+        updateExif();
+        if (viewPager != null && adapter != null) onPageShown(viewPager.getCurrentItem());
+    }
+
+    /**
+     * The camera saved a photo while this viewer is open: put first in the list from its file. A viewer still waiting under the
+     * placeholder moves to it (the placeholder stays until its page has a picture); one showing another photo keeps that photo.
+     */
+    private void applySaved() {
+        final String path = savedPath;
+        final boolean expected = expectSaved;
+        savedPath = null;
+        expectSaved = false;
+        if (root == null || viewModel == null || path == null) return;
+        CameraHandoff.Saved s = CameraHandoff.lastSaved();
+        final ImageFile f = CameraHandoff.fileOf(path, s != null && path.equals(s.path) ? s.row : null);
+        if (f == null) return;
+        final boolean waited = coverPending() || expected;
+        root.removeCallbacks(pendingPoll);
+        if (waited) {
+            cover.waitForPage();
+            awaitingFinal = true;
+            root.removeCallbacks(coverTimeout);
+            root.postDelayed(coverTimeout, COVER_MAX_MS);
+        } else {
+            GalleryItem shown = currentItem();
+            if (shown != null) viewModel.selectNext(shown.getFile().getFileUri()); // the photo viewed stays
+            coverWithPage();
+        }
+        GalleryOpenTrace.shotSaved(f.getDisplayName(), waited);
+        boolean busy = false;
+        try {
+            busy = com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy.getAsBoolean();
+        } catch (RuntimeException ignored) {
+        }
+        com.particlesdevs.photoncamera.gallery.glide.DecodeBoost.forOpen(busy);
+        viewModel.showFront(f, waited || currentItem() == null);
+    }
+
+    /** The shown page's picture copied over the pages, so a new list is bound behind it (no black frame between two binds). */
+    private void coverWithPage() {
+        if (cover == null || viewPager == null || root == null || cover.state() != ViewerCover.State.NONE) return;
+        CustomSSIV page = getCurrentSSIV();
+        int w = viewPager.getWidth(), h = viewPager.getHeight();
+        if (page == null || !page.isReady() || w <= 0 || h <= 0) return;
+        try {
+            android.graphics.Bitmap copy = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            viewPager.draw(new android.graphics.Canvas(copy));
+            cover.show(copy, false, true);
+            root.removeCallbacks(coverTimeout);
+            root.postDelayed(coverTimeout, COVER_MAX_MS);
+        } catch (RuntimeException | OutOfMemoryError e) {
+            // a hardware bitmap on the page (an Ultra HDR rendition) cannot be drawn into a copy: the plain rebind
+            com.particlesdevs.photoncamera.util.Log.d(TAG, "no copy of the page for the rebind: " + e);
+        }
+    }
+
+    /** The page under the cover has a picture: the cover goes. */
+    private void pageReadyUnderCover() {
+        if (cover == null || cover.state() != ViewerCover.State.PAGE) return;
+        CustomSSIV page = getCurrentSSIV();
+        if (page == null || !page.isReady()) return;
+        if (root != null) root.removeCallbacks(coverTimeout);
+        cover.drop(true);
+    }
+
+    /** The saved shot's page has its whole picture (the base tiles, not only the embedded preview): «final photo ready». */
+    private void finalPhotoLoaded() {
+        if (!awaitingFinal) return;
+        CustomSSIV page = getCurrentSSIV();
+        if (page == null || !page.isImageLoaded()) return;
+        awaitingFinal = false;
+        GalleryOpenTrace.finalPhotoReady();
+    }
+
+    /** A page that never got its picture (a decode failure) does not keep the cover. */
+    private void coverTimedOut() {
+        if (cover != null && cover.state() == ViewerCover.State.PAGE) cover.drop(true);
+    }
+
+    /**
+     * P637: while the placeholder stands for a shot still processed, the bars' actions have no photo to act on (the page under
+     * it is an older one); a photo known only by its file has no MediaStore row yet (a moment, until the scanner files it).
+     */
+    private boolean notYet(@Nullable GalleryItem item) {
+        if (coverPending()) {
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Снимок ещё обрабатывается", "The photo is still being processed"));
+            return true;
+        }
+        if (item != null && CameraHandoff.unfiled(item.getFile())) {
+            com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(getContext(), Lang.t("Снимок ещё сохраняется", "The photo is still being saved"));
+            return true;
+        }
+        return false;
     }
 
     private void buildChrome(Context c) {
@@ -272,7 +502,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     /** P498: the heart: the shown photo into / out of «Избранное». */
     private void onFavouriteClick() {
         GalleryItem item = currentItem();
-        if (item == null || getContext() == null || chrome == null) return;
+        if (item == null || getContext() == null || chrome == null || notYet(item)) return;
         boolean on = !GalleryView.isFavourite(requireContext(), item.getFile());
         GalleryView.setFavourite(requireContext(), Collections.singletonList(item.getFile()), on);
         chrome.setFavourite(on, true);
@@ -282,7 +512,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     /** P498: «Ещё» - slideshow, set as (photos), open with another app. */
     private void onMoreClick() {
         GalleryItem item = currentItem();
-        if (item == null || getContext() == null) return;
+        if (item == null || getContext() == null || notYet(item)) return;
         Context c = requireContext();
         boolean video = GalleryVideo.isVideo(item.getFile());
         List<GallerySheets.Action> actions = new ArrayList<>();
@@ -417,6 +647,16 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     public void onDestroyView() {
         stopSlideshow();
         playDisc = null;
+        // P637
+        if (cameraOpened) CameraHandoff.listen(null);
+        if (root != null) {
+            root.removeCallbacks(pendingPoll);
+            root.removeCallbacks(applySaved);
+            root.removeCallbacks(coverTimeout);
+        }
+        if (cover != null) cover.destroy();
+        cover = null;
+        awaitingFinal = false;
         if (liveHistogramCallback != null) exifDialogViewModel.getExifDataModel().removeOnPropertyChangedCallback(liveHistogramCallback);
         liveHistogramCallback = null;
         liveHistogram = null;
@@ -449,14 +689,18 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private void initImageAdapter(List<GalleryItem> galleryItems) {
         if (galleryItems == null) return;
+        final int before = this.galleryItems != null ? this.galleryItems.size() : 0;
         this.galleryItems = galleryItems;
         rawBases = GalleryFormat.rawBaseNames(galleryItems);
         // View destroyed (late edit/delete result): the LiveData observer rebuilds the adapter with the view.
         if (viewPager == null) return;
         if (galleryItems.isEmpty() && !isCompareMode()) { // nothing to show: the grid says so (its empty message, its folders)
+            if (coverPending()) return; // P637: the first shot of an empty library is still processed: its photo comes
             viewPager.post(this::onGalleryButtonClick);
             return;
         }
+        // P637: the media lists arriving under the camera's last photo already shown: bound behind a copy of its page
+        if (adapter != null && before == 1 && galleryItems.size() > 1 && android.os.SystemClock.uptimeMillis() < seamlessUntil) coverWithPage();
         adapter = new ImageAdapter(this.galleryItems);
         adapter.setImageViewClickListener(this::onImageViewClicked);
         adapter.setHdrStateListener(this);
@@ -464,13 +708,26 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         adapter.setImageEventListener(new SubsamplingScaleImageView.DefaultOnImageEventListener() {
             @Override
             public void onReady() {
-                com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.viewerReady(); // P617: once per gallery open
+                // P617: once per gallery open; P637: not for an older photo's page under the placeholder of a shot in work
+                if (!coverPending()) com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.viewerReady();
+                pageReadyUnderCover();
                 CustomSSIV page = getCurrentSSIV();
                 if (page != null) {
                     page.setDoubleTapZoomScale(page.getMinScale() * 2.5f);
                     page.setSwipeDownListener(isCompareMode() ? null : ImageViewerFragment.this::onGalleryButtonClick);
                 }
                 updateScaleText();
+            }
+
+            @Override
+            public void onImageLoaded() {
+                pageReadyUnderCover();
+                finalPhotoLoaded();
+            }
+
+            @Override
+            public void onImageLoadError(Exception e) {
+                coverTimedOut(); // P637: no picture will come for this page
             }
         });
         viewPager.setAdapter(adapter);
@@ -508,6 +765,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
             @Override
             public void onPageScrollStateChanged(int state) {
+                // P637: a swipe under the placeholder of a shot in work: the older photos (the new one is put first when saved)
+                if (state == ViewPager.SCROLL_STATE_DRAGGING && coverPending()) endPending("the viewer was swiped");
                 // P498: the play button stays with its page (hidden while a page slides)
                 if (playDisc != null && currentIsVideo())
                     Motion.fade(playDisc, state == ViewPager.SCROLL_STATE_IDLE);
@@ -732,6 +991,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     }
 
     private void onQuickCompare() {
+        if (notYet(currentItem())) return; // P637
         if (galleryItems.size() >= 2 && viewPager != null) {
             Bundle b = new Bundle(2);
             int image1pos = viewPager.getCurrentItem();
@@ -775,6 +1035,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
      */
     private void onEditButtonClick() {
         if (viewPager == null || galleryItems == null || getContext() == null || galleryItems.isEmpty() || navController == null) return;
+        if (notYet(currentItem())) return; // P637
         GalleryItem galleryItem = galleryItems.get(viewPager.getCurrentItem());
         String fileName = galleryItem.getFile().getDisplayName();
         Uri uri = galleryItem.getFile().getFileUri();
@@ -792,6 +1053,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     /** The old route: another app's editor (ACTION_EDIT chooser without this gallery). */
     private void onEditElsewhere() {
         if (viewPager == null || galleryItems == null || getContext() == null || galleryItems.isEmpty()) return;
+        if (notYet(currentItem())) return; // P637
         GalleryItem galleryItem = galleryItems.get(viewPager.getCurrentItem());
         if (galleryItem.getFile().getFileUri() == null) return;
         com.particlesdevs.photoncamera.gallery.editor.ExternalEdit.openInOtherApp(this, galleryItem.getFile().getFileUri(),
@@ -811,6 +1073,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private void onDeleteButtonClick() {
         if (viewPager == null || galleryItems.isEmpty() || getContext() == null) return;
+        if (notYet(currentItem())) return; // P637
         int position = viewPager.getCurrentItem();
         GalleryItem item = galleryItems.get(position);
         Runnable delete = () -> {
@@ -833,6 +1096,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private void onShareButtonClick() {
         if (viewPager == null || galleryItems.isEmpty()) return;
+        if (notYet(currentItem())) return; // P637
         GalleryItem galleryItem = galleryItems.get(viewPager.getCurrentItem());
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.putExtra(Intent.EXTRA_STREAM, galleryItem.getFile().getFileUri());
@@ -844,6 +1108,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     /** «Сведения»: the details sheet of the current photo (histogram filled when it is ready). */
     private void onExifButtonClick() {
         if (viewPager == null || galleryItems.isEmpty() || getContext() == null) return;
+        if (coverPending()) { // P637: no file to describe yet
+            notYet(null);
+            return;
+        }
         int position = viewPager.getCurrentItem();
         GalleryItem item = galleryItems.get(position);
         updateExif();
@@ -971,6 +1239,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     private void updateExif() {
         if (viewPager == null || root == null || getContext() == null) return;
         int position = viewPager.getCurrentItem();
+        if (coverPending()) { // P637: the title is the shot's in work, not the older photo's under the placeholder
+            bindPendingMeta();
+            return;
+        }
         if (galleryItems.isEmpty() || position < 0 || position >= galleryItems.size()) return;
         GalleryItem item = galleryItems.get(position);
         if (GalleryVideo.isVideo(item.getFile())) { // P498: «Сегодня, 11:17» / «Видео · 0:42 · MP4»
@@ -986,7 +1258,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         // P551: the file read on the EXIF thread; the page's labels bound when it is done (if the page is still shown)
         exifDialogViewModel.updateModelAsync(requireContext().getContentResolver(), item.getFile(), () -> {
             if (viewPager == null || root == null || getContext() == null || viewPager.getCurrentItem() != position
-                    || position >= galleryItems.size() || galleryItems.get(position) != item) return;
+                    || position >= galleryItems.size() || galleryItems.get(position) != item || coverPending()) return;
             bindExif(position, item);
         });
     }

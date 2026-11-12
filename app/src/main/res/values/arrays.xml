@@ -794,4 +794,14 @@
         <item>10</item>
         <item>8</item>
     </string-array>
+    <string-array name="scam_hybrid_oldstyle_hdr_entries">
+        <item>Auto</item>
+        <item>Always</item>
+        <item>Off</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_hdr_values" translatable="false">
+        <item>auto</item>
+        <item>on</item>
+        <item>off</item>
+    </string-array>
 </resources>

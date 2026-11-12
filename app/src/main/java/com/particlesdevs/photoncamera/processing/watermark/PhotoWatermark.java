@@ -31,7 +31,7 @@ public final class PhotoWatermark {
         return c == null ? null : PreferenceManager.getDefaultSharedPreferences(c);
     }
 
-    /** Whether the watermark switch is on (the photo then takes the bitmap route: the streamed JPEG has no bitmap to draw on). */
+    /** Whether the watermark switch is on (P642: a streamed JPEG gets it through {@link #applyRecordedInto}). */
     public static boolean on() {
         try {
             return com.particlesdevs.photoncamera.settings.PreferenceKeys.isShowWatermarkOn();
@@ -109,6 +109,91 @@ public final class PhotoWatermark {
         } catch (RuntimeException | OutOfMemoryError e) {
             Log.e(TAG, "watermark not drawn: " + e);
             return new Drawn(photo, null, null);
+        }
+    }
+
+    /** P642: the watermark's rectangle may take this share of a streamed photo at most (a frame around it: the bitmap route). */
+    static final int STREAM_AREA_DIVISOR = 4;
+
+    /** P642: a streamed photo whose watermark is left to the bitmap route (not an error: logged, the photo takes that route). */
+    public static final class NotStreamed extends RuntimeException {
+        NotStreamed(String why) { super(why); }
+    }
+
+    /** P642: what {@link #drawInto} did: the record and the plan as {@link Drawn}, and how to take the drawing back. */
+    public static final class DrawnInto {
+        @Nullable public final WatermarkPatch.Pending record;
+        @Nullable public final WatermarkPainter.Plan plan;
+        /** Null: nothing was drawn. */
+        @Nullable public final RgbaRows.Undo undo;
+
+        DrawnInto(@Nullable WatermarkPatch.Pending record, @Nullable WatermarkPainter.Plan plan, @Nullable RgbaRows.Undo undo) {
+            this.record = record;
+            this.plan = plan;
+            this.undo = undo;
+        }
+    }
+
+    /**
+     * P642: {@link #applyRecorded} for a streamed JPEG - the stored settings' watermark drawn into the rows about to be encoded
+     * ({@link #drawInto}); nothing drawn with the switch off. Throws {@link NotStreamed} (or what the drawing threw) with the
+     * rows as they were: the photo then takes the bitmap route, which draws it as before.
+     */
+    public static DrawnInto applyRecordedInto(RgbaRows photo, @Nullable ParseExif.ExifData exif) {
+        if (!on()) return new DrawnInto(null, null, null);
+        return drawInto(photo, WatermarkSpec.from(prefs()), info(exif), new WatermarkFonts(ScameraApp.getAppContext()), true, true);
+    }
+
+    /**
+     * P642: the rectangle of a {@code width} x {@code height} photo {@link #draw} reads and changes for {@code spec}: WatermarkArea's
+     * rectangles (every pixel the drawing may change and the record keeps) and the points «Авто» reads; null: it draws nothing.
+     */
+    @Nullable
+    static android.graphics.Rect touched(WatermarkSpec spec, WatermarkText.Info info, WatermarkPainter.Fonts fonts, int width, int height) {
+        WatermarkText text = WatermarkText.of(spec, info);
+        if (!text.any() && spec.layout != WatermarkSpec.Layout.FRAME) return null;
+        WatermarkPainter.Plan plan = WatermarkPainter.plan(spec, text, width, height, fonts);
+        if (plan.empty()) return null;
+        final android.graphics.Rect box = new android.graphics.Rect();
+        for (android.graphics.Rect r : WatermarkArea.of(plan)) box.union(r);
+        final android.graphics.Rect sampled = spec.colour == WatermarkSpec.Colour.AUTO ? WatermarkPainter.sampled(plan) : null;
+        if (sampled != null) box.union(sampled);
+        return box.isEmpty() || !box.intersect(0, 0, width, height) ? null : box;
+    }
+
+    /**
+     * P642: {@link #draw} for a photo that has no bitmap (the streamed JPEG's rows): {@link #draw} itself, with its record, on a
+     * window of the rows (RgbaRows.window: a bitmap of the photo's size holding the photo in {@link #touched} only), the
+     * rectangle written back - the bytes the bitmap route's bitmap gets there, and the same record. A watermark whose rectangle
+     * is more than 1 / {@link #STREAM_AREA_DIVISOR} of the photo (the frame layout) is not streamed.
+     */
+    public static DrawnInto drawInto(RgbaRows photo, WatermarkSpec spec, WatermarkText.Info info, WatermarkPainter.Fonts fonts,
+                                     boolean record, boolean later) {
+        final android.graphics.Rect box = touched(spec, info, fonts, photo.width, photo.height);
+        if (box == null) {
+            Log.i(TAG, "nothing to draw into the streamed JPEG's rows");
+            return new DrawnInto(null, null, null);
+        }
+        if ((long) box.width() * box.height() * STREAM_AREA_DIVISOR > (long) photo.width * photo.height)
+            throw new NotStreamed("the watermark's rectangle " + box.toShortString() + " is over 1/" + STREAM_AREA_DIVISOR + " of "
+                    + photo.width + "x" + photo.height);
+        final byte[] before = photo.bytes(box);
+        final Bitmap window = photo.window();
+        try {
+            photo.load(window, box);
+            final Drawn drawn = draw(window, spec, info, fonts, record, later);
+            if (drawn.photo != window) throw new IllegalStateException("the watermark was drawn on a copy of the window");
+            if (drawn.plan == null) return new DrawnInto(null, null, null);
+            try {
+                photo.store(window, box);
+            } catch (RuntimeException e) {
+                photo.write(box, before); // never half a watermark in the rows the bitmap route may still read
+                throw e;
+            }
+            Log.i(TAG, "watermark drawn into the streamed JPEG's rows through a window of " + box.width() + "x" + box.height() + " px");
+            return new DrawnInto(drawn.record, drawn.plan, photo.undo(box, before));
+        } finally {
+            window.recycle();
         }
     }
 

@@ -50,6 +50,15 @@ public class OldstyleToneTest {
         assertFalse(OldstyleTone.route(true, true, 200_540_160L, 6 * GB));
         assertTrue(OldstyleTone.route(true, true, 200_540_160L, 12 * GB));
         // unknown memory: P630b's 100 MP rule
+        // P630h «V2: доля памяти»: the default share is the route before the row; 30 % sends the 200 MP grid to V1 at 12 GB, 90 %
+        // keeps V2 at 6 GB
+        for (long px : new long[]{48_000_000L, 112_000_000L, 200_540_160L})
+            for (long gb : new long[]{4, 6, 8, 12})
+                assertEquals(OldstyleTone.route(true, true, px, gb * GB), OldstyleTone.route(true, true, px, gb * GB, OldstyleTone.MEMORY_SHARE));
+        assertEquals(new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params().memoryShare, OldstyleTone.MEMORY_SHARE, 0f);
+        assertFalse(OldstyleTone.route(true, true, 200_540_160L, 12 * GB, 0.3f));
+        assertTrue(OldstyleTone.route(true, true, 200_540_160L, 6 * GB, 0.9f));
+        assertFalse(OldstyleTone.route(false, true, 12_000_000L, 12 * GB, 0.9f));
         assertTrue(OldstyleTone.route(true, true, 100_000_000L, 0));
         assertFalse(OldstyleTone.route(true, true, 100_000_001L, 0));
         assertEquals(34L * 48_000_000L, OldstyleTone.bytes(false, true, 48_000_000L));
@@ -59,12 +68,29 @@ public class OldstyleToneTest {
         final String src = new String(Files.readAllBytes(Paths.get(
                 "src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/OldstyleTone.java")), StandardCharsets.UTF_8);
         // one planar frame and one RGB8 picture of the input's size, no scaling of its own
-        assertTrue(src.contains("OldstyleNative.planar(size.x, size.y)"));
+        // P636: from the native allocator (not zeroed), six bytes a pixel as OldstyleNative.planar's, and given back
+        assertTrue(src.contains("planar = buffer(Math.multiplyExact(Math.multiplyExact(size.x, size.y), 6));"));
+        assertTrue(src.contains("out = buffer(Math.multiplyExact(size.x * size.y, 3));"));
+        assertTrue(src.contains("for (ByteBuffer b : new ByteBuffer[]{strip, planar, out}) if (b != null) com.particlesdevs.photoncamera.util.Allocator.free(b);"));
         assertTrue(src.contains("rgb = new GLTexture(size, new GLFormat(GLFormat.DataType.SIMPLE_8, 3), out"));
         assertFalse(src.contains("sabre") || src.contains("resize"));
-        final String jni = new String(Files.readAllBytes(Paths.get("src/main/cpp/oldstyle-tone-jni.cpp")), StandardCharsets.UTF_8);
+        // P636: the frame's work is in oldstyle-tone-core.h
+        final String jni = new String(Files.readAllBytes(Paths.get("src/main/cpp/oldstyle-tone-core.h")), StandardCharsets.UTF_8);
         assertTrue(jni.contains("const size_t pw = (w + 31) / 32 * 32, ph = (h + 31) / 32 * 32;"));
         assertTrue(jni.contains("const size_t pw = up8(std::max<size_t>(w, 8)), ph = up8(std::max<size_t>(h, 8));"));
+        // P636: the threads are set before the module runs; the 16-bit read only where the driver names it, GL_INT otherwise
+        assertTrue(src.contains("OldstyleNative.setThreads(OldstyleNative.threadsFor(Runtime.getRuntime().availableProcessors(),"));
+        assertTrue(src.indexOf("OldstyleNative.setThreads(") < src.indexOf("OldstyleNative.render("));
+        assertTrue(src.contains("GLES30.glReadPixels(0, y, size.x, rows, GLES30.GL_RGBA_INTEGER, GLES30.GL_INT, strip);"));
+    }
+
+    /** P636: 16-bit samples only for the pair GL_RGBA_INTEGER / GL_SHORT (0x8D99 / 0x1402) and with the switch on. */
+    @Test public void sixteenBitReadOnlyWhereTheDriverNamesIt() {
+        assertTrue(OldstyleTone.read16(0x8D99, 0x1402, true));
+        assertFalse(OldstyleTone.read16(0x8D99, 0x1402, false));
+        assertFalse(OldstyleTone.read16(0x8D99, 0x1404, true)); // GL_INT
+        assertFalse(OldstyleTone.read16(0x1908, 0x1402, true)); // GL_RGBA
+        assertFalse(OldstyleTone.read16(0, 0, true));
     }
 
     @Test public void shadingGridOfTheLensShadingMap() {

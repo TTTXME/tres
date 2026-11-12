@@ -27,6 +27,7 @@ public:
     void zero(int b,size_t bytes) override{std::memset(buf[size_t(b)].data(),0,bytes);}
     void begin() override{}
     void submitWait() override{}
+    double slice() override{return 0;}
     void read(int b,size_t off,size_t bytes,void* dst) override{std::memcpy(dst,buf[size_t(b)].data()+off,bytes);}
     void stamp(int b,const std::vector<size_t>& words,uint32_t value) override{auto* m=reinterpret_cast<uint32_t*>(buf[size_t(b)].data());for(size_t w:words)m[w]=value;}
     void copy(int src,int dst,size_t bytes) override{std::memmove(buf[size_t(dst)].data(),buf[size_t(src)].data(),bytes);}
@@ -96,6 +97,11 @@ public:
             v=acc;return true;
         }
     };
+    // P639: the rows [row0, row0 + 16 gy) of a pass of n rows (a dispatch may be one slice of the pass)
+    template<class F> void span(int n,const StDispatch& d,F f){
+        const int lo=std::clamp(d.p.row0,0,n),hi=int(std::min<long long>(n,(long long)d.p.row0+16ll*d.gy));
+        rows(hi-lo,[&](int y){f(lo+y);});
+    }
     template<class F> void rows(int n,F f){ // rows 0..n-1 on the threads
         if(n<=0)return;
         const int t=std::min(threads,n);
@@ -113,21 +119,25 @@ public:
         case spInit:{ // kStInit
             c.raw=U(d.bind[2]);c.fld=F(d.bind[6]);
             float* zo=F(d.bind[3]);float* xo=F(d.bind[4]);const float* cd=F(d.bind[5]);
-            rows(P.RH,[&](int py){for(int px=0;px<P.WH;++px){
+            span(P.RH,d,[&](int py){for(int px=0;px<P.WH;++px){
                 const float pbx=(float(px)+0.5f)/float(P.s),pby=(float(py)+0.5f)/float(P.s)+float(P.r0);
                 float num[3]={0,0,0},den[3]={0,0,0};
                 const float sg=0.6f*float(P.s);
                 for(int k=0;k<P.K;++k){
                     if(c.fi[k*32+22]<0.5f)continue;
                     float fx,fy;c.fieldAt(k,pbx,pby,fx,fy);
-                    float ux,uy;c.hom(k*32,pbx-fx,pby-fy,ux,uy);
+                    const int hb=k*32;const float pmx=pbx-fx,pmy=pby-fy; // P639: the Jacobian of the inverse homography at u
+                    float ux,uy;c.hom(hb,pmx,pmy,ux,uy);
+                    const float di=c.fi[hb+15]*ux+c.fi[hb+16]*uy+c.fi[hb+17];
+                    const float jxx=(c.fi[hb+9]-pmx*c.fi[hb+15])/di,jxy=(c.fi[hb+12]-pmy*c.fi[hb+15])/di;
+                    const float jyx=(c.fi[hb+10]-pmx*c.fi[hb+16])/di,jyy=(c.fi[hb+13]-pmy*c.fi[hb+16])/di;
                     const int cx0=int(std::floor(ux-0.5f))-1,cy0=int(std::floor(uy-0.5f))-1;
                     for(int ny=0;ny<3;++ny)for(int nx=0;nx<3;++nx){
                         const int cx=cx0+nx,cy=cy0+ny;
                         const float yv=c.rawAt(k,cx,cy);
                         if(yv<-0.5f)continue;
-                        float qx,qy;c.hrPos(k,cx,cy,qx,qy);
-                        const float dx=qx-(float(px)+0.5f),dy=qy-(float(py)+0.5f);
+                        const float ex=float(cx)+0.5f-ux,ey=float(cy)+0.5f-uy;
+                        const float dx=float(P.s)*(jxx*ex+jyx*ey),dy=float(P.s)*(jxy*ex+jyy*ey);
                         const float wgt=std::exp(-(dx*dx+dy*dy)/(2.f*sg*sg));
                         const int ch=c.channel(cx,cy);
                         num[ch]+=wgt*yv;den[ch]+=wgt;
@@ -157,8 +167,9 @@ public:
         case spResid:{ // kStResid
             c.raw=U(d.bind[2]);c.zv=F(d.bind[3]);c.fld=F(d.bind[6]);
             float* sr=F(d.bind[4]);float* sw=F(d.bind[5]);float* srw=F(d.bind[7]);
-            rows(int(d.gz)*P.rows,[&](int row){
-                const int k=row/P.rows+P.frame0,wr=row%P.rows;
+            const int w0=std::clamp(P.row0,0,P.rows),wn=int(std::min<long long>(P.rows,(long long)P.row0+16ll*d.gy))-w0;
+            rows(int(d.gz)*wn,[&](int row){
+                const int k=row/wn+P.frame0,wr=row%wn+w0;
                 if(k>=P.K)return;
                 for(int x=0;x<P.W;++x){
                     const int y=wr+int(c.fi[k*32+21]);
@@ -166,15 +177,17 @@ public:
                     const float yv=c.rawAt(k,x,y);
                     float pred=0.f;bool ok=c.fi[k*32+22]>0.5f&&y>=0&&y<P.H&&yv>-0.5f;
                     if(ok){float qx,qy;c.hrPos(k,x,y,qx,qy);ok=c.forward(qx,qy,c.channel(x,y),pred);}
-                    if(P.mode==0){
+                    if(P.mode!=1){
                         float var=c.fi[k*32+18]*std::max(pred,0.f)+c.fi[k*32+19];
                         const float ol=c.fi[k*32+24];
                         if(ol>0.f){const float kn=c.fi[k*32+23];
                             const float t=std::clamp((std::max(pred,0.f)*c.fi[k*32+20]-0.9f*kn)/(0.2f*kn),0.f,1.f);
                             var+=(ol-c.fi[k*32+19])*t*t*(3.f-2.f*t);}
                         const bool use=ok&&yv<P.clipLvl;
+                        const float bw=use?std::min(P.sig2/std::max(var,1e-10f),16.f):0.f;
                         sr[o]=use?pred-yv:0.f;
-                        sw[o]=use?std::min(P.sig2/std::max(var,1e-10f),16.f):0.f;
+                        sw[o]=bw;
+                        if(P.mode==2){srw[2*size_t(o)]=use?pred-yv:0.f;srw[2*size_t(o)+1]=use?bw:0.f;} // P639: the pairs at once
                     } else {
                         srw[2*o]=ok?pred-yv:0.f;srw[2*o+1]=ok?sw[o]:0.f;
                     }
@@ -192,8 +205,9 @@ public:
                 const int g=32*P.K,site=((y&1)<<1)|(xc&1);
                 return (dn-c.fi[g])/std::max(c.fi[g+4]-c.fi[g],1.f)*c.fi[g+5+site]/c.fi[k*32+20];
             };
-            rows(int(d.gz)*P.rows,[&](int row){
-                const int k=row/P.rows+P.frame0,wr=row%P.rows;
+            const int w0=std::clamp(P.row0,0,P.rows),wn=int(std::min<long long>(P.rows,(long long)P.row0+16ll*d.gy))-w0;
+            rows(int(d.gz)*wn,[&](int row){
+                const int k=row/wn+P.frame0,wr=row%wn+w0;
                 if(k>=P.K)return;
                 for(int x=0;x<P.W;++x){
                     const int o=(k*P.rows+wr)*P.W+x;
@@ -219,9 +233,11 @@ public:
             break;}
         case spMin:{ // kStMin
             const float* st=F(d.bind[2]);const float* sw0=F(d.bind[3]);float* sw=F(d.bind[4]);uint32_t* cnt=U(d.bind[5]);const float* sr=F(d.bind[6]);
+            float* srw=F(d.bind[7]); // P639 (mode >= 2): the pairs (residual, final weight)
             std::vector<std::atomic<uint32_t>> acc(size_t(3*P.K));for(auto& a:acc)a=0;
-            rows(int(d.gz)*P.rows,[&](int row){
-                const int k=row/P.rows+P.frame0,wr=row%P.rows;
+            const int w0=std::clamp(P.row0,0,P.rows),wn=int(std::min<long long>(P.rows,(long long)P.row0+16ll*d.gy))-w0;
+            rows(int(d.gz)*wn,[&](int row){
+                const int k=row/wn+P.frame0,wr=row%wn+w0;
                 if(k>=P.K)return;
                 uint32_t a0=0,a1=0,a2=0;
                 for(int x=0;x<P.W;++x){
@@ -230,8 +246,10 @@ public:
                     if(k>0&&P.robK>0.f)for(int dy=-P.spread;dy<=P.spread;++dy){const int rr=std::clamp(wr+dy,0,P.rows-1);
                         for(int dx=-P.spread;dx<=P.spread;++dx)w=std::min(w,st[(k*P.rows+rr)*P.W+std::clamp(x+dx,0,P.W-1)]);}
                     const float b=sw0[o];sw[o]=b*w;
+                    if(P.mode>=2){srw[2*size_t(o)]=b>0.f?sr[o]:0.f;srw[2*size_t(o)+1]=b>0.f?b*w:0.f;}
                     const int y=wr+int(c.fi[k*32+21]);
-                    if(P.mode==1&&b>0.f&&y>=P.r0&&float(y)<float(P.r0)+float(P.RH)/float(P.s)){
+                    if((P.mode&1)==1&&b>0.f&&y>=P.r0&&float(y)<float(P.r0)+float(P.RH)/float(P.s)
+                       &&((uint32_t(x)*2654435761u+uint32_t(y)*2246822519u)>>28)==0u){ // P639: one sample in 16
                         ++a0;if(k>0&&w<0.5f)++a1;
                         const float e=std::min(b*w*sr[o]*sr[o]/P.sig2,4.f);a2+=uint32_t(e*256.f+0.5f);
                     }
@@ -245,7 +263,7 @@ public:
             const float wR=P.wbR,wB=P.wbB;
             auto luma=[&](const float* v){return 0.25f*wR*v[0]+0.5f*v[1]+0.25f*wB*v[2];};
             auto hub=[&](float dd){return dd/std::max(1.f,std::abs(dd)/P.delta);};
-            rows(P.RH,[&](int py){for(int px=0;px<P.WH;++px){
+            span(P.RH,d,[&](int py){for(int px=0;px<P.WH;++px){
                 const float pcx=float(px)+0.5f,pcy=float(py)+0.5f;
                 const float pbx=pcx/float(P.s),pby=pcy/float(P.s)+float(P.r0);
                 const float reachLr=(P.s==1?1.f:1.5f)/float(P.s);
@@ -303,7 +321,7 @@ public:
             c.raw=U(d.bind[2]);c.zv=F(d.bind[3]);const float* sw=F(d.bind[4]);c.fld=F(d.bind[6]);float* fldo=F(d.bind[7]);
             const int ntiles=int(d.gx)*int(d.gy)*int(d.gz);
             rows(ntiles,[&](int t){
-                const int tix=t%int(d.gx),tiy=(t/int(d.gx))%int(d.gy),k=t/(int(d.gx)*int(d.gy))+1;
+                const int tix=t%int(d.gx),tiy=(t/int(d.gx))%int(d.gy)+P.row0,k=t/(int(d.gx)*int(d.gy))+1+P.frame0;
                 const int ti=(k*P.nty+tiy)*P.ntx+tix;
                 const float bx0=float(tix*P.tile),by0=float(tiy*P.tile);
                 const float sy0=float(P.r0),sy1=float(P.r0)+float(P.RH)/float(P.s);
@@ -319,6 +337,7 @@ public:
                     fy0=std::max(fy0,row0);fy1=std::min(fy1,row0+P.rows);fx0=std::max(fx0,0);fx1=std::min(fx1,P.W);
                     const float sf=float(P.s);
                     for(int y=fy0;y<fy1;++y)for(int x=fx0;x<fx1;++x){
+                        if(P.mode==1&&(((x>>(P.bs+1))+(y>>(P.bs+1)))&1)!=0)continue; // P639: every second colour period
                         const int o=(k*P.rows+(y-row0))*P.W+x;
                         const float wgt=sw[o];
                         if(wgt<=0.f)continue;
@@ -360,7 +379,7 @@ public:
             const float* z=F(d.bind[2]);float* ob=F(d.bind[3]);
             const int ow=P.mode!=2?P.WH/P.s:P.WH;
             auto lz=[](float d){return std::abs(d)<1e-4f?1.f:2.f*std::sin(3.14159265f*d)*std::sin(1.57079633f*d)/(9.8696044f*d*d);};
-            rows(P.outRows,[&](int y){for(int x=0;x<ow;++x){
+            span(P.outRows,d,[&](int y){for(int x=0;x<ow;++x){
                 float v[3]={0,0,0};
                 if(P.mode==3){ // P627f: the Lanczos-2 1x photo
                     const float fs=float(P.s),cx=(float(x)+0.5f)*fs,cy=float(P.rows)+(float(y)+0.5f)*fs;

@@ -38,12 +38,16 @@ inline bool hybridStaticVkDenied(const std::string& device,std::string& why){
     return false;
 }
 
-// P627c: the worker's alarm for a static merge of w x h (seconds): 840 up to 12 MP on a GPU, in proportion above, x4 on the CPU
-// transcription, at most 3540 (ScamHybridBurst.workerTimeoutSeconds is this + 60)
+// P627c: the worker's alarm for a static merge of w x h (seconds), in proportion to the pixels, x4 on the CPU transcription, at
+// most 3540. P639 (owner's log 2026-11-12, Adreno 830: «worker alarm 881 s» over a merge meant to take ~10 s): 300 s per 12 MP on
+// a GPU (30x the flagship's time: a GPU that much slower still finishes), 1200 s on the CPU - a worker that steps down to the CPU
+// mid-shot re-arms itself with that one (hybridStaticRearm), and the app waits for it (ScamHybridBurst.workerTimeoutSeconds)
 inline unsigned hybridStaticAlarmSeconds(int w,int h,bool cpu){
-    const double mp=double(w)*double(h)/12e6;
-    return unsigned(std::lround(std::min(3540.0,std::max(840.0,840.0*mp*(cpu?4.0:1.0)))));
+    const double mp=double(w)*double(h)/12e6,per=cpu?1200.0:300.0;
+    return unsigned(std::lround(std::min(3540.0,std::max(per,per*mp))));
 }
+// the worker's alarm, re-armed (set by scam-neural-worker.cpp; a host tool leaves it empty)
+inline std::function<void(unsigned)>& hybridStaticRearm(){static std::function<void(unsigned)> f;return f;}
 
 // P627: the colour block the static merge models (1 Bayer, 2 Quad, 4 Tetra): the app's (header word 14), else measured
 inline int hybridStaticBlock(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report){
@@ -140,13 +144,37 @@ inline bool stLkAffine(const std::vector<StGrey>& ref,const std::vector<StGrey>&
 // by the frame's homography, 4 x 4 thumbnail blocks (32 x 32 RAW px), the block mean difference against the noise of that mean
 // (both frames, our noise model) plus a misregistration term; a block above 4 sigma moves. Returns the fraction of blocks.
 // P627: n = the sites a thumbnail pixel averages (8 greens of fastThumb; 64 of a colour-block thumbnail, stThumbBlocks)
-inline float hybridStaticMoving(const FastThumb& b,const FastThumb& f,const staticmerge::M3& Hinv,float slope,float offset,float n8=8.f){
+// P634: tol = the photometric tolerance of a block mean (x its level): a colour-block thumbnail pixel averages 64 sites, a block
+// 1024 - at ISO 50 its noise is ~0.1 % of the level and the 4 sigma test fired on what no model term holds (a lamp's flicker
+// bands, shading under the shift, haze): 17 - 25 % of a still church's blocks «moved» and the route merged its base frame alone
+// With it (tol > 0) the frame's level against the base is the median of the overlapping blocks' ratios (the ratio of the whole
+// thumbnails' means changes with the content the shift brings in: 2 - 5 % on a 1024 px window, every flat block «moved»), also
+// written to *level, and the misregistration term takes one-sided differences.
+inline float hybridStaticMoving(const FastThumb& b,const FastThumb& f,const staticmerge::M3& Hinv,float slope,float offset,float n8=8.f,float tol=0.f,float* level=nullptr){
     const int bw=f.w/4,bh=f.h/4;
     if(bw<1||bh<1)return 0.f;
-    const float gain=f.mean>1e-6f&&b.mean>1e-6f?b.mean/f.mean:1.f; // AE drift between frames
+    float gain=f.mean>1e-6f&&b.mean>1e-6f?b.mean/f.mean:1.f; // AE drift between frames
+    if(tol>0.f){
+        std::vector<float> ratios;ratios.reserve(size_t(bw)*bh);
+        for(int by=0;by<bh;++by)for(int bx=0;bx<bw;++bx){
+            double sb=0,sf=0;int n=0;
+            for(int j=0;j<4;++j)for(int i=0;i<4;++i){
+                const int x=4*bx+i,y=4*by+j;
+                const auto p=staticmerge::m3apply(Hinv,8.0*(x+0.5),8.0*(y+0.5));
+                const double tx=p[0]/8.0-0.5,ty=p[1]/8.0-0.5;
+                if(tx<1||ty<1||tx>b.w-2||ty>b.h-2)continue;
+                const int x0=int(tx),y0=int(ty);const double ax=tx-x0,ay=ty-y0;
+                auto at=[&](int xx,int yy){return double(b.v[size_t(yy)*b.w+xx]);};
+                sb+=(at(x0,y0)*(1-ax)+at(x0+1,y0)*ax)*(1-ay)+(at(x0,y0+1)*(1-ax)+at(x0+1,y0+1)*ax)*ay;sf+=f.v[size_t(y)*f.w+x];++n;
+            }
+            if(n>=8&&sf>1e-6*n&&sb>1e-6*n)ratios.push_back(float(sb/sf));
+        }
+        if(ratios.size()>=8){std::nth_element(ratios.begin(),ratios.begin()+std::ptrdiff_t(ratios.size()/2),ratios.end());gain=ratios[ratios.size()/2];}
+    }
+    if(level)*level=gain;
     long moving=0,total=0;
     for(int by=0;by<bh;++by)for(int bx=0;bx<bw;++bx){
-        double sd=0,sv=0,sg=0;int n=0;
+        double sd=0,sv=0,sg=0,sl=0;int n=0;
         for(int j=0;j<4;++j)for(int i=0;i<4;++i){
             const int x=4*bx+i,y=4*by+j;
             const auto p=staticmerge::m3apply(Hinv,8.0*(x+0.5),8.0*(y+0.5)); // frame thumb centre -> base RAW
@@ -156,12 +184,18 @@ inline float hybridStaticMoving(const FastThumb& b,const FastThumb& f,const stat
             auto at=[&](int xx,int yy){return double(b.v[size_t(yy)*b.w+xx]);};
             const double v=(at(x0,y0)*(1-ax)+at(x0+1,y0)*ax)*(1-ay)+(at(x0,y0+1)*(1-ax)+at(x0+1,y0+1)*ax)*ay;
             const double fv=f.v[size_t(y)*f.w+x]*gain;
-            sd+=fv-v;sv+=2.0*(slope*std::max(v,0.0)+offset)/n8;
+            sd+=fv-v;sv+=2.0*(slope*std::max(v,0.0)+offset)/n8;sl+=std::max(v,0.0);
+            if(tol>0.f){ // P634: one-sided differences - a 2 thumbnail px pattern (columns, a balustrade) has no central one
+                const double c=at(x0,y0),a0=at(x0+1,y0)-c,a1=c-at(x0-1,y0),b0=at(x0,y0+1)-c,b1=c-at(x0,y0-1);
+                sg+=0.5*(a0*a0+a1*a1+b0*b0+b1*b1);
+            } else {
             const double gx=0.5*(at(x0+1,y0)-at(x0-1,y0)),gy=0.5*(at(x0,y0+1)-at(x0,y0-1));sg+=gx*gx+gy*gy;
+            }
             ++n;
         }
         if(n<8)continue;
-        const double m=sd/n,vm=sv/(double(n)*n)+0.25*0.25*sg/n+1e-12; // 0.25 thumbnail px = 2 RAW px of misregistration
+        const double lv=tol*sl/n; // P634: the level's photometric tolerance (0 = none: Bayer as before)
+        const double m=sd/n,vm=sv/(double(n)*n)+0.25*0.25*sg/n+lv*lv+1e-12; // 0.25 thumbnail px = 2 RAW px of misregistration
         ++total;if(m*m/vm>16.0)++moving;
     }
     return total?float(moving)/float(total):1.f; // P627: no block of the frame overlaps the base (a diverged alignment): moving
@@ -189,6 +223,9 @@ struct StJob {
     bool hr=false;   // the HR solve as the result (1.5x / 2x), else its 2 x 2 box
     float maxShift=3.f; // P627c: the field's cap (6 when a frame's homography is the CPU affine)
     int s=2,T=8,Z=3,tile=64,stripMB=192;float chroma=0.3f,luma=1,huber=2,robust=3,wbR=1,wbB=1,chromaFloor=2,lumaFloor=1,flatK=0,edgeK=0;
+    float sliceMs=0; // P639: a submission of the solve is about this long (0: a strip's passes in one submission)
+    int plan=0;      // P639: 0 the P624 schedule, 1 the short one (stSolve)
+    int blocks=2,blockSteps=6,finalSteps=2,fieldHalf=1;
     bool lanczos=false; // P627f: the 1x photo through a Lanczos-2 low-pass (output mode 3), else the 2 x 2 box
     float priorFrames=0; // P627e: the priors' strength as of at least this many frames (0 = as of the frames taken)
     // P627: the colour block (log2), the frames' rows as uploaded (the sites' response divided out; empty = the RAW as it is),
@@ -197,19 +234,64 @@ struct StJob {
     std::function<void(int k,int y0,int rows,uint16_t* dst)> rawRows;
     std::vector<float> cd;int cdW=0,cdH=0;
     std::vector<float> dcgKnee,dcgLcg;
+    // P638: a strip's rows at most (the retry after a GLES failure halves them), and the rows the last solve ran its strips at
+    int maxRows=512;mutable int rowsTried=0;
 };
 struct StResult {
     std::vector<float> out;int ow=0,oh=0,ntx=0,nty=0,strips=0,rowsPerStrip=0;
     std::vector<uint32_t> counters;std::vector<float> fld;
-    double uploadMs=0,gpuMs=0,initMs=0;std::string backend;std::vector<std::pair<std::string,double>> passMs;
+    double uploadMs=0,gpuMs=0,initMs=0,sliceMaxMs=0;long slices=0;std::string backend; // P639: the pacing's slices
+    std::vector<std::pair<std::string,double>> passMs;
 };
 inline void stJobTuning(StJob& j,const HybridTuning& t){
     j.s=std::clamp(t.staticScale,1,2);j.T=std::clamp(t.staticIters,1,32);j.Z=std::clamp(t.staticZSteps,1,8);j.tile=std::clamp(t.staticTile,16,512);
     j.stripMB=std::max(32,t.staticStripMB);
     // P627c: within a quarter of the memory available (the GPU's buffers are the phone's RAM)
     if(const uint64_t avail=hybridMemAvailable())j.stripMB=std::max(32,std::min<int>(j.stripMB,int(avail>>22)));
+    j.sliceMs=std::max(0.f,t.staticSliceMs);j.plan=t.staticPlan;
+    // (the user's «число итераций», staticIters 4 .. 16, default 8: the blocks' steps in proportion - 8 is staticBlockSteps)
+    j.blocks=std::clamp(t.staticBlocks,1,8);j.blockSteps=std::clamp(int(std::lround(double(j.bs>=2?t.staticTetraBlockSteps:t.staticBlockSteps)*double(j.T)/8.0)),1,32);
+    j.finalSteps=std::clamp(t.staticFinalSteps,1,32);j.fieldHalf=t.staticFieldHalf!=0?1:0;
     j.lanczos=t.staticLanczos!=0;j.flatK=t.staticFlatK;j.edgeK=t.staticEdgeK;j.chroma=t.staticChroma;j.chromaFloor=std::max(0.f,t.staticChromaFloor);j.lumaFloor=std::max(0.f,t.staticLumaFloor);j.luma=t.staticLuma;j.huber=t.staticHuber;j.robust=t.staticRobust;
     if(j.s!=2)j.hr=false;
+}
+
+// P639: a pass as slices of about sliceMs each - its dispatch split by rows (kind 0: an HR pass, gy group rows), by rows x frames
+// (kind 1: a pass over the frames' samples, gy x gz) or by tile rows x frames (kind 2: the field pass) through row0 / frame0 -
+// every slice its own submission, waited for (StBackend::slice; GLES: with the next one already queued, so the GPU does not idle
+// while this thread wakes up - the viewfinder's draw waits behind two slices at most). The slice of a program is sized from the time its last ones took
+// (rate: ms per group row and frame, smoothed); the first one of a program is one group row of one frame. The same invocations run
+// on the same inputs whatever the split: the result does not depend on it (check_static_merge).
+inline void stSliced(StBackend& gpu,const StDispatch& d0,int kind,double sliceMs,double& rate,long& slices,double& longest){
+    using Clock=std::chrono::steady_clock;
+    auto ms=[](Clock::time_point a,Clock::time_point b){return std::chrono::duration<double,std::milli>(b-a).count();};
+    const int rows=int(d0.gy),frames=kind==0?1:int(d0.gz);
+    // a backend that keeps two slices queued returns from slice() when the one BEFORE is done: that wait is the earlier slice's
+    // time (the pass starts with nothing queued and ends with its last slice waited for)
+    const bool late=gpu.inFlight()>1;
+    if(late)gpu.drain();
+    auto took=[&](double t,int units){
+        if(units<=0)return;
+        const double unit=t/double(units);
+        rate=rate>0?0.6*rate+0.4*unit:unit;
+        longest=std::max(longest,t);};
+    int f=0,r=0,prev=0;
+    while(f<frames&&rows>0){
+        const long long want=rate>0?std::clamp<long long>((long long)(sliceMs/rate),1,(long long)rows*frames):1;
+        StDispatch d=d0;
+        int nf=1,nr=rows-r;
+        if(r==0&&want>=rows)nf=int(std::min<long long>(frames-f,want/rows));
+        else nr=int(std::min<long long>(rows-r,want));
+        d.p.row0=d0.p.row0+r*(kind==2?1:16);d.gy=uint32_t(nr);
+        if(kind!=0){d.p.frame0=d0.p.frame0+f;d.gz=uint32_t(nf);}
+        const auto t0=Clock::now();
+        gpu.dispatch(d);
+        gpu.slice();
+        took(ms(t0,Clock::now()),late?prev:nr*nf);
+        prev=nr*nf;++slices;
+        if(nf>1||nr==rows-r){f+=nf;r=0;} else r+=nr;
+    }
+    if(late){const auto t0=Clock::now();gpu.drain();took(ms(t0,Clock::now()),prev);}
 }
 
 // The solve on one backend: row strips (their margins solved and dropped), the HQS iterations recorded into one submission per
@@ -240,10 +322,11 @@ inline StResult stSolve(StBackend& gpu,const StJob& job){
         hrBuf=size_t(WH)*rowsHr*16;lrBuf=size_t(K)*rows*size_t(W)*4;
         return 3*hrBuf+6*lrBuf+lrBuf/2;
     };
-    int R=std::min(H,512)&~1;
+    int R=std::min({H,512,std::max(16,job.maxRows)})&~1;
     for(;;){size_t a,b;const size_t tot=bytesFor(R,a,b);
         if(R<=16||(tot<=budget&&a<=gpu.maxBuffer()&&b<=gpu.maxBuffer()))break;
         R=std::max(16,(R*3/4)&~1);}
+    job.rowsTried=R; // P638: what a retry after a failure halves
     const int rowsWin=std::min(H,R+extra);
     const size_t hrBytes=size_t(WH)*size_t(s)*size_t(R+2*margin)*16,lrFloats=size_t(K)*size_t(rowsWin)*size_t(W);
     const int strips=(H+R-1)/R;
@@ -306,6 +389,26 @@ inline StResult stSolve(StBackend& gpu,const StJob& job){
     const uint32_t kSentinel=0x7FA5C0DEu; // P613: a NaN no pass writes
     auto lr=[&](int prog,int mode,std::array<int,8> bind){StDispatch d;d.prog=prog;d.p=P;d.p.mode=mode;d.bind=bind;
         d.gx=uint32_t((W+15)/16);d.gy=uint32_t((rowsWin+15)/16);d.gz=uint32_t(K);return d;};
+    // P639: the passes as slices (stSliced), every slice its own submission, waited for
+    const bool sliced=job.sliceMs>0.f&&res.backend!="CPU";
+    std::array<double,spCount> rate{};
+    auto passAdd=[&](const std::string& name,double t){
+        if(res.backend=="Vulkan")return; // (its own timestamps)
+        for(auto& e:gpu.passMs)if(e.first==name){e.second+=t;return;}
+        gpu.passMs.emplace_back(name,t);};
+    auto run=[&](const StDispatch& d0,int kind){
+        const auto t0=Clock::now();
+        const std::string name=stPrograms()[d0.prog].name;
+        if(!sliced){gpu.dispatch(d0);gpu.flush();if(res.backend=="CPU")passAdd(name.c_str(),ms(t0,Clock::now()));return;}
+        stSliced(gpu,d0,kind,double(job.sliceMs),rate[size_t(d0.prog)],res.slices,res.sliceMaxMs);
+        passAdd(name.c_str(),ms(t0,Clock::now()));
+    };
+    auto copy=[&](int src,int dst,size_t bytes){
+        const auto t0=Clock::now();
+        gpu.copy(src,dst,bytes);
+        if(sliced)gpu.slice();
+        if(sliced||res.backend=="CPU")passAdd("copy",ms(t0,Clock::now()));
+    };
     for(int si=0;si<strips;++si){
         const int y0=si*R,y1=std::min(H,y0+R);
         const int r0=std::max(0,y0-margin)&~1,r1=std::min(H,y1+margin);
@@ -335,47 +438,100 @@ inline StResult stSolve(StBackend& gpu,const StJob& job){
         res.uploadMs+=ms(tu,Clock::now());
         const auto tg=Clock::now();
         gpu.begin();
-        const uint32_t hx=uint32_t((WH+15)/16),hy=uint32_t((P.RH+15)/16);
-        auto hrd=[&](int prog,int mode,std::array<int,8> bind){StDispatch d;d.prog=prog;d.p=P;d.p.mode=mode;d.bind=bind;d.gx=hx;d.gy=hy;return d;};
-        gpu.dispatch(hrd(spInit,cdRows>0?1:0,{{-1,bFrames,bRaw,bZ,bX,cdRows>0?int(bCd):-1,bFld,bZ}}));
+        auto hrd=[&](int prog,int mode,std::array<int,8> bind){StDispatch d;d.prog=prog;d.p=P;d.p.mode=mode;d.bind=bind;
+            d.gx=uint32_t((P.WH+15)/16);d.gy=uint32_t((P.RH+15)/16);return d;};
+        // the field step on the strip's own tile rows (P639: the others keep their value by the copy - 64 x 48 x 15 work groups a
+        // step whatever the strip's height, 46 080 against the ~3 000 a 162-row strip holds)
+        auto fieldStep=[&](int zb,int mode=0){
+            if(K<=1)return;
+            const float sy0=float(P.r0),sy1=float(P.r0)+float(P.RH)/float(P.s);
+            const int t0=std::clamp(int(std::floor((sy0+2.f)/float(tile))),0,nty),t1=std::clamp(int(std::ceil((sy1-2.f)/float(tile))),t0,nty);
+            copy(bFld,bFld2,fldBytes);
+            StDispatch d;d.prog=spField;d.p=P;d.p.mode=mode;d.bind={{-1,bFrames,bRaw,zb,bWb,-1,bFld,bFld2}};
+            d.gx=uint32_t(ntx);d.gy=uint32_t(t1-t0);d.gz=uint32_t(K-1);d.p.row0=t0;
+            if(t1>t0)run(d,2);
+            copy(bFld2,bFld,fldBytes);
+        };
         int zc=bZ,zn=bZ2;
-        for(int t=0;t<T;++t){
-            P.mu=mu[size_t(t)];
-            gpu.dispatch(lr(spResid,0,{{-1,bFrames,bRaw,zc,bR,bWb,bFld,-1}}));
-            StDispatch rb=lr(spRobust,0,{{-1,bFrames,bRaw,bR,bWb,bT,-1,-1}});
-            StDispatch mn=lr(spMin,t==T-1?1:0,{{-1,bFrames,bT,bWb,bW,bCnt,bR,-1}});
-            if(t<2){rb.p.robK=0;mn.p.robK=0;} // the first two iterations: z is the start image / the field is still settling
-            gpu.dispatch(rb);
-            gpu.dispatch(mn);
-            for(int zs=0;zs<Z;++zs){
-                gpu.dispatch(lr(spResid,1,{{-1,bFrames,bRaw,zc,bR,bW,bFld,bRW}}));
-                gpu.dispatch(hrd(spGather,0,{{-1,bFrames,zc,zn,bX,bRW,bFld,-1}}));
-                std::swap(zc,zn);
+        if(job.plan==0){ // the P624 schedule: T iterations of (weights, Z data steps, the field step), mu rising to K
+            run(hrd(spInit,cdRows>0?1:0,{{-1,bFrames,bRaw,bZ,bX,cdRows>0?int(bCd):-1,bFld,bZ}}),0);
+            const int Trun=T;
+            for(int t=0;t<Trun;++t){
+                P.mu=mu[size_t(t)];
+                run(lr(spResid,0,{{-1,bFrames,bRaw,zc,bR,bWb,bFld,-1}}),1);
+                StDispatch rb=lr(spRobust,0,{{-1,bFrames,bRaw,bR,bWb,bT,-1,-1}});
+                StDispatch mn=lr(spMin,t==Trun-1?1:0,{{-1,bFrames,bT,bWb,bW,bCnt,bR,bRW}}); // (binding 7: its pairs, modes >= 2 only)
+                if(t<2){rb.p.robK=0;mn.p.robK=0;} // the first two iterations: z is the start image / the field is still settling
+                run(rb,1);
+                run(mn,1);
+                for(int zs=0;zs<Z;++zs){
+                    run(lr(spResid,1,{{-1,bFrames,bRaw,zc,bR,bW,bFld,bRW}}),1);
+                    run(hrd(spGather,0,{{-1,bFrames,zc,zn,bX,bRW,bFld,-1}}),0);
+                    std::swap(zc,zn);
+                }
+                // the p-step: every iteration of the first four, then every second; on the base weights (noise model, clipping):
+                // the robust weights would drop a misregistered frame's textured samples - exactly the ones that measure it
+                if(K>1&&(t<4||(t-4)%2==1))fieldStep(zc);
+                if(t%2==1||t==Trun-1)copy(zc,bX,size_t(WH)*size_t(P.RH)*16); // the anchor follows the estimate
             }
-            if(K>1&&(t<4||(t-4)%2==1)){ // the p-step: every iteration of the first four, then every second
-                // on the base weights (noise model, clipping): the robust weights would drop a misregistered frame's textured
-                // samples - exactly the ones that measure its misregistration
-                StDispatch d;d.prog=spField;d.p=P;d.bind={{-1,bFrames,bRaw,zc,bWb,-1,bFld,bFld2}};
-                d.gx=uint32_t(ntx);d.gy=uint32_t(nty);d.gz=uint32_t(K-1);
-                gpu.dispatch(d);
-                gpu.copy(bFld2,bFld,fldBytes);
+        } else {
+            // P639 the short schedule: `blocks` blocks of `blockSteps` data steps, each followed by a field step, then `finalSteps`
+            // steps on the final robust weights. What the P624 schedule's many short rounds bought was the field (check_static_merge's
+            // burst: the truth's PSNR follows the field, not the number of data steps - 24 steps with the field of two rounds
+            // 35.84 dB, 13 steps as 2 x 6 + 1 36.03 dB, the P624 schedule 36.00 dB): a field step against an estimate that had
+            // six data steps is worth three against one that had three. The robust weights from the second block on (the first
+            // estimate is the frames' plain mean; a moving object must be out of the steps that follow), each weights pass
+            // leaving the gather its pairs (residual, weight) - no residual pass of its own for the step after it.
+            int wbuf=bWb;bool pairs=false;
+            auto zstep=[&]{
+                if(!pairs)run(lr(spResid,1,{{-1,bFrames,bRaw,zc,bR,wbuf,bFld,bRW}}),1);
+                StDispatch g=hrd(spGather,0,{{-1,bFrames,zc,zn,bX,bRW,bFld,-1}});
+                run(g,0);
+                std::swap(zc,zn);pairs=false;
+            };
+            auto weights=[&](bool robust,int mode){
+                if(!robust){ // the base weights and their pairs in one pass
+                    run(lr(spResid,2,{{-1,bFrames,bRaw,zc,bR,bWb,bFld,bRW}}),1);
+                    wbuf=bWb;pairs=true;
+                    if(mode==1){StDispatch mn=lr(spMin,1,{{-1,bFrames,bT,bWb,bW,bCnt,bR,bRW}});mn.p.robK=0;run(mn,1);} // (the counters)
+                    return;
+                }
+                run(lr(spResid,0,{{-1,bFrames,bRaw,zc,bR,bWb,bFld,-1}}),1);
+                run(lr(spRobust,0,{{-1,bFrames,bRaw,bR,bWb,bT,-1,-1}}),1);
+                run(lr(spMin,2|mode,{{-1,bFrames,bT,bWb,bW,bCnt,bR,bRW}}),1);
+                wbuf=bW;pairs=true;
+            };
+            const bool rob=K>1&&job.robust>0.f;
+            run(hrd(spInit,cdRows>0?1:0,{{-1,bFrames,bRaw,bZ,bX,cdRows>0?int(bCd):-1,bFld,bZ}}),0);
+            for(int a=0;a<job.blocks;++a){
+                P.mu=mu[size_t(std::min(a,T-1))];
+                weights(rob&&a>=1,0);
+                for(int zs=0;zs<job.blockSteps;++zs)zstep();
+                fieldStep(zc,job.fieldHalf);
+                copy(zc,bX,size_t(WH)*size_t(P.RH)*16); // the anchor follows the estimate
             }
-            if(t%2==1||t==T-1)gpu.copy(zc,bX,size_t(WH)*size_t(P.RH)*16); // the anchor follows the estimate
+            P.mu=mu[0];
+            weights(rob,1);
+            for(int zs=0;zs<job.finalSteps;++zs)zstep();
         }
         {
             StDispatch d=hrd(spOutput,hr?2:job.lanczos?3:1,{{-1,bFrames,zc,bOut,-1,-1,-1,-1}});
             d.p.rows=s*(y0-r0);d.p.outRows=orows;
             d.gx=uint32_t((ow+15)/16);d.gy=uint32_t((orows+15)/16);
-            gpu.dispatch(d);
+            run(d,0);
         }
         gpu.submitWait();
         res.gpuMs+=ms(tg,Clock::now());
         const size_t n=size_t(ow)*size_t(orows)*3;
         float* dst=res.out.data()+size_t(hr?s*y0:y0)*size_t(OW)*3;
         gpu.read(bOut,0,n*4,dst);
-        for(size_t w:stamps){uint32_t v;std::memcpy(&v,dst+w,4);
-            if(v==kSentinel)throw std::runtime_error("HYBRID STATIC STRIP GUARD: strip "+std::to_string(si)+" rows "+std::to_string(y0)+".."
-                +std::to_string(y1)+" not written (MemAvailable "+hybridMB(hybridMemAvailable())+" MB)");}
+        { // P638: how much of the strip is missing and how long its submission ran (a submission the driver gave up on leaves
+          // every stamp; the vivo X200 Ultra's log of 31258: strip 2 of 162 rows after two strips of ~2 s each)
+            size_t lost=0;for(size_t w:stamps){uint32_t v;std::memcpy(&v,dst+w,4);if(v==kSentinel)++lost;}
+            if(lost)throw std::runtime_error("HYBRID STATIC STRIP GUARD: strip "+std::to_string(si)+" rows "+std::to_string(y0)+".."
+                +std::to_string(y1)+" not written ("+std::to_string(lost)+" of "+std::to_string(stamps.size())+" stamps left, its GPU work "
+                +std::to_string(int(ms(tg,Clock::now())))+" ms, MemAvailable "+hybridMB(hybridMemAvailable())+" MB)");
+        }
         gpu.read(bCnt,0,size_t(3*K)*4,cnt.data());
         for(size_t i=0;i<cnt.size();++i)res.counters[i]+=cnt[i];
         scam_progress::step(1);
@@ -519,7 +675,12 @@ inline void stBox(const std::vector<float>& src,std::vector<float>& dst,int W,in
 // of P571 does not run): the same steps as ChromaMedianGpu::quadLattice (kQuadLatticeGlsl) - r = Y - box_P(Y) (no P-periodic part
 // passes a P x P box), clipped at 2.5 x its own local scale (1.2533 x the 32 x 32 mean of |r|: edges stay out of the estimate),
 // averaged per phase (x mod P, y mod P) over 8 x 8 samples of its phase, less its P x P box, taken off R, G and B
-inline void stLatticeCpu(std::vector<float>& rgb,int W,int H,int P){
+// P634b (owner, 2026-11-12, the palace windows of out_tetra3: «на кропах с мелкой деталью на статике полосы есть»): lines = 1 -
+// the estimate less its column-only and row-only parts (its mean over one period along y, along x; their common P x P mean back).
+// The sensor's lattice is periodic along both axes; a colonnade, a curtain's folds or window bars of about that period are along
+// one, and their share of the per-phase mean (it reaches 32 px along each axis) was taken off the luma as fine vertical / horizontal
+// stripes over the columns and the dark arch beside them (red, period 4 px: 0.13 -> 0.28 of the level x1000; «Качество» 0.15)
+inline void stLatticeCpu(std::vector<float>& rgb,int W,int H,int P,bool lines=false){
     if(W<8*P||H<8*P)return;
     const size_t n=size_t(W)*size_t(H);
     std::vector<float> y(n),t,r(n),a(n);
@@ -531,7 +692,44 @@ inline void stLatticeCpu(std::vector<float>& rgb,int W,int H,int P){
     for(size_t i=0;i<n;++i){const float c=2.5f*1.2533f*t[i];r[i]=std::clamp(r[i],-c,c);}
     stBox(r,a,W,H,8,P);   // the phase's mean over 8 x 8 of its samples
     stBox(a,t,W,H,P,1);   // less its box: the periodic part alone
+    if(lines){
+        for(size_t i=0;i<n;++i)r[i]=a[i]-t[i]; // the periodic part
+        const int lo=-(P/2),hi=P-1-P/2;
+        std::vector<float> v(n),h(n);
+        mergeRowBands(H,[&](int y0,int y1){for(int yy=y0;yy<y1;++yy){
+            const float* s=r.data()+size_t(yy)*W;float* dh=h.data()+size_t(yy)*W;float* dv=v.data()+size_t(yy)*W;
+            for(int x=0;x<W;++x){
+                double ax=0,ay=0;
+                for(int i=lo;i<=hi;++i){ax+=s[std::clamp(x+i,0,W-1)];ay+=r[size_t(std::clamp(yy+i,0,H-1))*W+x];}
+                dh[x]=float(ax/P);dv[x]=float(ay/P);
+            }}});
+        stBox(r,t,W,H,P,1); // their common part
+        for(size_t i=0;i<n;++i){const float l=r[i]-v[i]-h[i]+t[i];rgb[3*i]-=l;rgb[3*i+1]-=l;rgb[3*i+2]-=l;}
+        return;
+    }
     for(size_t i=0;i<n;++i){const float l=a[i]-t[i];rgb[3*i]-=l;rgb[3*i+1]-=l;rgb[3*i+2]-=l;}
+}
+// P634b: what the detail pass (stDetail) added to the luma, less its part locked to the colour period P - the per-phase mean
+// (x mod P, y mod P) over 8 x 8 samples of its phase less its P x P box, every harmonic of the period with the column-only and
+// row-only ones - taken back off R, G and B by the luma's ratio: the gain of the mid band stays on the picture's detail and is not a gain of the
+// sensor's own period (lines of 8 / 4 px along the block columns and rows: x1.16 «Качество»'s with it, at «Качество»'s without).
+// yb: the luma (R + 2 G + B) / 4 before the pass. The added part is clipped at 2.5 x its local scale as stLatticeCpu's estimate.
+inline void stDetailLatticeOff(std::vector<float>& rgb,const std::vector<float>& yb,int W,int H,int P){
+    const size_t n=size_t(W)*size_t(H);
+    if(W<8*P||H<8*P||yb.size()<n)return;
+    std::vector<float> r(n),a(n),t;
+    for(size_t i=0;i<n;++i)r[i]=0.25f*(rgb[3*i]+2.f*rgb[3*i+1]+rgb[3*i+2])-yb[i];
+    for(size_t i=0;i<n;++i)a[i]=std::abs(r[i]);
+    stBox(a,t,W,H,32,1);
+    for(size_t i=0;i<n;++i){const float c=2.5f*1.2533f*t[i];r[i]=std::clamp(r[i],-c,c);}
+    stBox(r,a,W,H,8,P);
+    stBox(a,t,W,H,P,1);
+    // as the pass put it on: by the luma's ratio (a saturated dark red took 4 x the luma's change in its red)
+    for(size_t i=0;i<n;++i){
+        const float l=a[i]-t[i],y=0.25f*(rgb[3*i]+2.f*rgb[3*i+1]+rgb[3*i+2]);
+        if(y>1e-6f){const float k=std::clamp((y-l)/y,0.5f,2.f);rgb[3*i]*=k;rgb[3*i+1]*=k;rgb[3*i+2]*=k;}
+        else{rgb[3*i]-=l;rgb[3*i+1]-=l;rgb[3*i+2]-=l;}
+    }
 }
 // P627f (owner, 2026-11-11: «Деталь должна быть лучше у статики»): the detail the solve recovered, brought out on the luma Y =
 // (R + 2G + B) / 4 of the 1x result in two bands - fine F = Y - G0.7(Y) and mid M = G0.7(Y) - Gsig(Y) - against the result's own
@@ -708,7 +906,9 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
     // reconstruction, the denoise of the app after it); never another mode's merge
     std::vector<M3> Hi(fidx.size());
     for(size_t k=0;k<fidx.size();++k)if(ok[k]&&!m3inv(Hc[k],Hi[k]))ok[k]=0;
-    std::string checkLine="HYBRID STATIC CHECK: moving-block fraction per frame (limit "+std::to_string(tune.staticMotionMax).substr(0,5)+")";
+    const bool blockCheck=b>1&&tune.staticBlockTol>0.f; // P634: the colour-block check (tolerance, aligned level, its own limit)
+    std::string checkLine="HYBRID STATIC CHECK: moving-block fraction per frame (limit "+std::to_string(blockCheck?std::min(tune.staticMotionMax,tune.staticBlockMotionMax):tune.staticMotionMax).substr(0,5)
+        +(blockCheck?", block tolerance "+std::to_string(tune.staticBlockTol).substr(0,6)+" of the level, aligned level":"")+")";
     int movingFrames=0;
     std::vector<float> photo; // per frame: base mean / frame mean (exposure-normalised thumbnails)
     {
@@ -720,12 +920,15 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
             const HybridFrame& f=input.frames[size_t(fidx[k])];
             const float gain=1.f/std::max(f.exposure,1e-6f);
             const FastThumb tf=b>1?stThumbBlocks(input,f.raw,gain):fastThumb(input,f.raw,gain);
-            const float frac=hybridStaticMoving(tb,tf,Hi[k],input.frames[0].slope,off18,b>1?64.f:8.f);
+            const float blockTol=b>1?std::max(tune.staticBlockTol,0.f):0.f;float level=1.f;
+            const float frac=hybridStaticMoving(tb,tf,Hi[k],input.frames[0].slope,off18,b>1?64.f:8.f,blockTol,&level);
             // the frame's brightness against the base (AE / light drift within a burst: up to 10 % seen, e193420): left in, the
             // frames' sites disagree by it and the 2x solve draws a Bayer-period checker
-            if(tf.mean>1e-6f&&tb.mean>1e-6f)photo[k]=std::clamp(tb.mean/tf.mean,0.8f,1.25f);
+            if(tf.mean>1e-6f&&tb.mean>1e-6f)photo[k]=std::clamp(blockTol>0.f?level:tb.mean/tf.mean,0.8f,1.25f); // P634: the aligned blocks' level
             char t[48];std::snprintf(t,sizeof(t)," %d:%.3f",fidx[k],frac);checkLine+=t;
-            if(frac>tune.staticMotionMax){ok[k]=0;++movingFrames;}
+            // P634: with the tolerance the fractions read lower (still scenes 0.000 - 0.003), so a colour-block frame counts as
+            // moving from staticBlockMotionMax: the moving scenes keep the frames the old test gave them
+            if(frac>(blockTol>0.f?std::min(tune.staticMotionMax,tune.staticBlockMotionMax):tune.staticMotionMax)){ok[k]=0;++movingFrames;}
         }
     }
     std::vector<int> use;for(size_t k=0;k<fidx.size();++k)if(ok[k])use.push_back(int(k));
@@ -906,11 +1109,16 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
             report(std::string("HYBRID STATIC GPU: no GPU backend started (")+e.what()+"); the CPU transcription of the same programs");
             gpu=std::make_unique<StCpu>();backendLine="CPU (no GPU backend): "+gpu->describe();
         }
-        bool smaller=false;
+        // P638 (the vivo X200 Ultra, build 31258: «strip 2 rows 324..486 not written» -> 192 strips of 16 rows, 145 s for a 12 MP
+        // shot): the first GLES failure halves the strips' rows (the same work in submissions half as long); only a second one
+        // goes to the smallest memory, whose 16-row strips solve three rows of margin for every row kept
+        int glesRetries=0;
         for(;;){
             try{res=stSolve(*gpu,job);break;}
             catch(const std::exception& e){
                 const std::string was=gpu->name();
+                // P639: what had been chosen and why (the line below named only the backend that finished the shot)
+                report("HYBRID STATIC GPU: failed on "+backendLine);
                 gpu.reset();
                 if(was=="Vulkan"){
                     stMarkBad(std::string("mid-shot: ")+e.what());
@@ -920,14 +1128,23 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
                         gpu=std::make_unique<StCpu>();backendLine="CPU (after Vulkan and GLES failed): "+gpu->describe();}
                     continue;
                 }
-                if(was=="GLES"&&!smaller){
-                    smaller=true;job.stripMB=std::max(32,job.stripMB/4);
-                    report(std::string("HYBRID STATIC GPU: GLES failed (")+e.what()+"); the shot again on GLES in smaller strips ("+std::to_string(job.stripMB)+" MB)");
+                if(was=="GLES"&&glesRetries<2){
+                    std::string how;
+                    if(glesRetries++==0&&job.rowsTried>32){
+                        job.maxRows=std::max(16,(job.rowsTried/2)&~1);
+                        how="strips of "+std::to_string(job.maxRows)+" rows (half of "+std::to_string(job.rowsTried)+")";
+                    }else{
+                        glesRetries=2;job.stripMB=std::max(32,job.stripMB/4);
+                        how=std::to_string(job.stripMB)+" MB";
+                    }
+                    report(std::string("HYBRID STATIC GPU: GLES failed (")+e.what()+"); the shot again on GLES in smaller strips ("+how+")");
                     try{gpu=std::make_unique<StGles>(hybridProgramCacheDir());backendLine="GLES (smaller strips after a failure): "+gpu->describe();continue;}
                     catch(const std::exception& e2){report(std::string("HYBRID STATIC GPU: GLES did not start again (")+e2.what()+")");}
                 }
                 if(was!="CPU"){
+                    job.maxRows=512; // P638: the halved strips were for the GPU's submissions
                     report(std::string("HYBRID STATIC GPU: ")+was+" failed ("+e.what()+"); the shot on the CPU transcription of the same programs");
+                    if(hybridStaticRearm())hybridStaticRearm()(hybridStaticAlarmSeconds(W,H,true));
                     gpu=std::make_unique<StCpu>();backendLine="CPU (after a GPU failure): "+gpu->describe();
                     continue;
                 }
@@ -997,7 +1214,7 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
     // P627b: Tetra (P = 8, the GPU pass is Quad's) and Quad without the GPU: the same lattice pass on the CPU
     if(tune.staticQuadLattice!=0&&(b==4||(b==2&&tune.chromaGpu<=0))){
         const auto q0=Clock::now();
-        stLatticeCpu(out,RW,RHt,std::max(2,int(std::lround(2.0*b*RW/std::max(W,1)))));
+        stLatticeCpu(out,RW,RHt,std::max(2,int(std::lround(2.0*b*RW/std::max(W,1)))),tune.staticLatticeLines!=0);
         report("HYBRID STATIC MOSAIC: "+std::string(b==4?"Tetra":"Quad")+" lattice off the luma (CPU, period "+std::to_string(2*b)+"): "+std::to_string(int(ms(q0,Clock::now())))+" ms");
     }
     if(b==2&&tune.staticQuadLattice!=0&&tune.chromaGpu>0){
@@ -1012,9 +1229,16 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
     if(const float amount=std::max(0.f,b>1?tune.staticDetail:tune.staticBayerDetail);amount>0.f||(b>1&&tune.staticDetailShrink>0.f)){ // P627f, last
         const auto t0=Clock::now();
         const float shrink=b>1?std::max(0.f,tune.staticDetailShrink):0.f;
+        // P634b: a Tetra result keeps the gain off its own colour period (stDetailLatticeOff). Quad as before: its lattice is the
+        // GPU pass's, at its period 4 the result sits under «Качество»'s already, and the estimate's own noise raised its 2 px
+        // lines (bm 0.50 -> 0.66, 142001 1.08 -> 1.39 of the level x1000)
+        const bool latOff=b==4&&tune.staticDetailLattice!=0&&amount>0.f;
+        std::vector<float> yb;
+        if(latOff){yb.resize(size_t(RW)*RHt);for(size_t i=0;i<yb.size();++i)yb[i]=0.25f*(out[3*i]+2.f*out[3*i+1]+out[3*i+2]);}
         const float k=stDetail(out,RW,RHt,amount,shrink,std::max(0.f,tune.staticDetailCore),tune.staticDetailSigma);
-        char t[200];std::snprintf(t,sizeof(t),"HYBRID STATIC DETAIL: mid band x%.2f above %.1f sigma, fine grain shrunk below %.1f sigma (noise at level 1 %.5f), %d ms",
-            double(1.f+amount),double(tune.staticDetailCore),double(shrink),double(k),int(ms(t0,Clock::now())));
+        if(latOff&&k>0.f)stDetailLatticeOff(out,yb,RW,RHt,std::max(2,int(std::lround(2.0*b*RW/std::max(W,1)))));
+        char t[240];std::snprintf(t,sizeof(t),"HYBRID STATIC DETAIL: mid band x%.2f above %.1f sigma, fine grain shrunk below %.1f sigma (noise at level 1 %.5f)%s, %d ms",
+            double(1.f+amount),double(tune.staticDetailCore),double(shrink),double(k),latOff&&k>0.f?", its gain off the colour period (P634b)":"",int(ms(t0,Clock::now())));
         report(t);
     }
     // ---- the worker's side outputs
@@ -1056,17 +1280,22 @@ inline std::vector<float> hybridStaticMerge(const HybridInput& input,const Hybri
         report(line);
     }
     if(!res.passMs.empty()){
-        std::string line="HYBRID STATIC GPU ms (timestamps, all strips):";
+        // (Vulkan: the GPU's timestamps; GLES / CPU, P639: the wall time of each pass's slices, waits included)
+        std::string line=std::string("HYBRID STATIC GPU ms (")+(res.backend=="Vulkan"?"timestamps":"per pass, its slices waited for")+", all strips):";
         for(const auto& e:res.passMs){char t[48];std::snprintf(t,sizeof(t)," %s=%.1f",e.first.c_str(),e.second);line+=t;}
         report(line);
     }
+    if(res.slices>0){char t[200];std::snprintf(t,sizeof(t),"HYBRID STATIC PACE: %ld submissions aimed at %.1f ms (mean %.1f, longest %.1f ms), each waited for before the next",
+        res.slices,double(job.sliceMs),waitMs/double(res.slices),res.sliceMaxMs);report(t);}
     const auto tEnd=Clock::now();
     {
-        char t[700];
+        char t[900];
+        const std::string sched=job.plan==0?std::to_string(T)+" iterations x "+std::to_string(Z)+" data steps"
+            :std::to_string(job.blocks)+" blocks x "+std::to_string(job.blockSteps)+" data steps + "+std::to_string(job.finalSteps)+" final";
         std::snprintf(t,sizeof(t),"HYBRID STATIC MERGE: %s, %d frames of %d taken (%d moving; %d of the burst not taken: other roles / above staticFrames), %dx%d -> %dx%d (%s, solve x%d, %s), %d strips of %d rows, "
-            "%d iterations x %d data steps, chroma %.2f luma %.2f huber %.2f robust %.1f tile %d; ms: align %.0f, check %.0f, gpu choice %.0f, "
+            "%s, chroma %.2f luma %.2f huber %.2f robust %.1f tile %d; ms: align %.0f, check %.0f, gpu choice %.0f, "
             "uploads %.0f, strips %.0f, total %.0f",
-            res.backend.c_str(),K,int(fidx.size()),movingFrames,others,W,H,RW,RHt,hr?(RW==2*W?"2x":"1.5x"):"1x",s,b==1?"Bayer":b==2?"Quad":"Tetra",strips,R,T,Z,tune.staticChroma,tune.staticLuma,
+            res.backend.c_str(),K,int(fidx.size()),movingFrames,others,W,H,RW,RHt,hr?(RW==2*W?"2x":"1.5x"):"1x",s,b==1?"Bayer":b==2?"Quad":"Tetra",strips,R,sched.c_str(),tune.staticChroma,tune.staticLuma,
             tune.staticHuber,tune.staticRobust,tile,ms(t0,tAlign),ms(tAlign,tCheck),res.initMs,uploadMs,waitMs,ms(t0,tEnd));
         report(t);
     }

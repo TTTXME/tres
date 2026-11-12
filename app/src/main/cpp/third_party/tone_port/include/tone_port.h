@@ -54,6 +54,11 @@ struct RawUnsignedImage {
     size_t plane_stride;
 };
 
+// SCAMERA P636: the threads the module's row loops may use (the output is the same bytes at any count). 1: the single-thread
+// module as it was (the default; the environment's TONE_PORT_THREADS sets another default); 0 or less: the cores, at most 8.
+void set_threads(int count);
+int threads();
+
 const Curve8& yuv_curve();
 const Curve12& raw_curve_31();
 Inverse invert(const Curve8& curve);

@@ -161,7 +161,20 @@ public class OldstyleAeTest {
         final OldstyleAe.Meter merge = OldstyleAe.meter(hot, 32, 24, false, 1f), vf = OldstyleAe.meter(hot, 32, 24, false, 1f, true);
         assertTrue(vf.clipped && merge.clipped);
         assertEquals(merge.shortRel * OldstyleAe.CLIPPED_STEP, vf.shortRel, 1e-6f);
-        assertEquals(merge.ratio(), vf.ratio(), 1e-5f);
+        // P630g: the ratio is fitted for the light S* keeps (twice the clipped one), so L* does not follow S* down by the whole stop
+        assertEquals(OldstyleAe.ratioFit(false, vf.high / OldstyleAe.CLIPPED_STEP, vf.geoMean, vf.mean), vf.ratio(), 1e-5f);
+        assertTrue(vf.ratio() > merge.ratio() && vf.longRel < merge.longRel && vf.longRel > merge.longRel * OldstyleAe.CLIPPED_STEP);
+        // and the step comes in softly: no jump of S* as the light crosses the clip level
+        assertEquals(1f, OldstyleAe.clippedFactor(0.5f), 0f);
+        assertEquals(1f, OldstyleAe.clippedFactor(OldstyleAe.CLIP_SOFT), 0f);
+        assertEquals(OldstyleAe.CLIPPED_STEP, OldstyleAe.clippedFactor(OldstyleAe.CLIP_LEVEL), 0f);
+        assertEquals(OldstyleAe.CLIPPED_STEP, OldstyleAe.clippedFactor(1.2f), 0f);
+        float last = 1f;
+        for (float x = 0.85f; x <= 1.0f; x += 0.002f) {
+            final float f = OldstyleAe.clippedFactor(x);
+            assertTrue(f <= last && last / f < 1.03f);
+            last = f;
+        }
         // flat scenes: the SDR TET (L*) puts them at one level whatever their own (the AE normalises the exposure)
         final float a = OldstyleAe.meter(scene(1), 32, 24, false, 1f).longRel * 0.035f;
         final float b = OldstyleAe.meter(scene(3), 32, 24, false, 1f).longRel * 0.42f;
@@ -233,6 +246,31 @@ public class OldstyleAeTest {
         assertArrayEquals(new float[]{photo.gainShort, photo.gainLong}, OldstyleAe.viewfinderGains(c, 16f), 1e-5f);
     }
 
+    /**
+     * P630f: the screen's tone is applied to the ISP frame, already brighter than the RAW the plan was metered on - both gains over
+     * the ISP's own gain (0.18 over the RAW mean, 1..16). The owner's room (RAW mean 0.051, light 0.329): 2.75 / 5.44 on the RAW,
+     * about 0.78 / 1.54 on the screen; a RAW as bright as the ISP frame or brighter keeps the gains.
+     */
+    @Test public void viewfinderGainsOverTheIspFramesBrightness() {
+        assertEquals(0.18f / 0.051f, OldstyleAe.ispGain(0.051f), 1e-5f);
+        assertEquals(1f, OldstyleAe.ispGain(0.3f), 0f);
+        assertEquals(16f, OldstyleAe.ispGain(0.001f), 0f);
+        assertEquals(1f, OldstyleAe.ispGain(0f), 0f);
+        assertEquals(1f, OldstyleAe.ispGain(Float.NaN), 0f);
+        final OldstyleAe.Capture room = new OldstyleAe.Capture(2.883, 5.437, 0.942f, true, true, 2.883, 5.437, 0f);
+        final float[] raw = OldstyleAe.viewfinderGains(room, 16f);
+        assertEquals(5.437f, raw[1], 1e-4f);
+        assertArrayEquals("the mean not known: the RAW's gains", raw, OldstyleAe.viewfinderGainsOnIsp(room, 16f), 0f);
+        room.meterMean = 0.051f;
+        final float[] screen = OldstyleAe.viewfinderGainsOnIsp(room, 16f);
+        assertEquals(raw[0] / (0.18f / 0.051f), screen[0], 1e-5f);
+        assertEquals(1.54f, screen[1], 0.01f);
+        assertEquals(raw[1] / raw[0], screen[1] / screen[0], 1e-5f);   // the two exposures' ratio is the plan's
+        // the meter's mean travels with the capture plan
+        final OldstyleAe.Meter m = OldstyleAe.meter(scene(14), 32, 24, true, 1f);
+        assertEquals(m.mean, OldstyleAe.capture(m, true, 1.0).meterMean, 0f);
+    }
+
     @Test public void bayerQuads() {
         // a 4 x 4 RGGB frame (black 64, white 1023): R 0.5, G 0.25 / 0.75 (mean 0.5), B 1 (clipped stays at white)
         final int w = 8, h = 4;
@@ -277,7 +315,15 @@ public class OldstyleAeTest {
     @Test public void stagesOfThePostArray() {
         final OldstyleAe.Params p = new OldstyleAe.Params();
         float[] post = p.post();
-        assertEquals(12, post.length);
+        // P630h: three more entries (the low-frequency colour's share, the tone curve's midtones and contrast), neutral by default
+        assertEquals(15, post.length);
+        assertEquals(1f, post[11], 0f);                                   // colour only
+        assertArrayEquals(new float[]{1f, 0f, 0f}, new float[]{post[12], post[13], post[14]}, 0f);
+        p.lfChroma = false;
+        p.lfStrength = 0.4f;
+        p.curveMid = -0.5f;
+        p.curveContrast = 0.25f;
+        assertArrayEquals(new float[]{0f, 0.4f, -0.5f, 0.25f}, java.util.Arrays.copyOfRange(p.post(), 11, 15), 0f);
         assertEquals(1f, post[0], 0f);                                    // dehaze / tint on by default
         assertEquals(OldstyleAe.DEHAZE_MAX_DARK, post[1], 0f);
         assertEquals(0f, post[4], 0f);                                    // the output saturation neutral: skipped
@@ -289,5 +335,176 @@ public class OldstyleAeTest {
         post = p.post();
         assertEquals(0f, post[0], 0f);
         assertEquals(0f, post[9], 0f);
+    }
+
+    private static OldstyleAe.Params params(boolean v31) {
+        final OldstyleAe.Params p = new OldstyleAe.Params();
+        p.v31 = v31;
+        return p;
+    }
+
+    /**
+     * P630h: with the rows untouched the meter, the rule and the plan are the ones before the rows - every control scene, both
+     * profiles, bit for bit (the Params overloads against the signatures the 45 table rows are held to).
+     */
+    @Test public void theRowsUntouchedAreTheRulesBefore() {
+        for (boolean v31 : new boolean[]{false, true}) {
+            for (int n = 1; n <= 15; n++) {
+                final float[] rgb = scene(n);
+                for (boolean capture : new boolean[]{false, true}) {
+                    final OldstyleAe.Meter a = OldstyleAe.meter(rgb, 32, 24, v31, 1f, capture), b = OldstyleAe.meter(rgb, 32, 24, params(v31), 1f, capture);
+                    assertArrayEquals(new float[]{a.high, a.geoMean, a.mean, a.shortRel, a.longRel, a.fractionLong},
+                            new float[]{b.high, b.geoMean, b.mean, b.shortRel, b.longRel, b.fractionLong}, 0f);
+                }
+                final OldstyleAe.Meter m = OldstyleAe.meter(rgb, 32, 24, v31, 1f, true);
+                for (float ev : new float[]{0f, -0.7f, 1f}) {
+                    final OldstyleAe.ExposurePlan a = OldstyleAe.rule(v31, m.shortRel, m.longRel, m.fractionLong, ev),
+                            b = OldstyleAe.rule(params(v31), m.shortRel, m.longRel, m.fractionLong, ev);
+                    assertEquals(a.useHdr, b.useHdr);
+                    assertEquals(a.hdrScene, b.hdrScene);
+                    assertArrayEquals(new float[]{a.shortPlan, a.longPlan}, new float[]{b.shortPlan, b.longPlan}, 0f);
+                }
+            }
+        }
+        assertArrayEquals(OldstyleAe.fusionGains(8f, 53.07f, 135.98f, 1f, 16f), OldstyleAe.fusionGains(8f, 53.07f, 135.98f, 1f, 16f, OldstyleAe.FUSION_BASE), 0f);
+    }
+
+    /** P630h «HDR» and its thresholds: each row moves the decision or the two exposures its way. */
+    @Test public void theHdrRowsMoveTheDecisionAndTheRatio() {
+        for (boolean v31 : new boolean[]{false, true}) {
+            final String v = v31 ? "3.1" : "2.7";
+            // a calm scene (L* / S* 1.2: under both profiles' start), a contrasty one (5), a huge one (40: past both ends)
+            final OldstyleAe.Params auto = params(v31), on = params(v31), off = params(v31);
+            on.hdrMode = OldstyleAe.HDR_ON;
+            off.hdrMode = OldstyleAe.HDR_OFF;
+            assertFalse(v, OldstyleAe.rule(auto, 1f, 1.2f, 0.9f, 0f).useHdr);
+            assertTrue(v, OldstyleAe.rule(auto, 1f, 5f, 0.9f, 0f).useHdr);
+            assertFalse(v, OldstyleAe.rule(auto, 1f, 40f, 0.9f, 0f).useHdr);
+            for (float ratio : new float[]{1.2f, 5f, 40f}) {
+                final OldstyleAe.ExposurePlan forced = OldstyleAe.rule(on, 1f, ratio, 0.9f, 0f), none = OldstyleAe.rule(off, 1f, ratio, 0.9f, 0f);
+                assertTrue(v + " on " + ratio, forced.useHdr);
+                // the ratio still capped (3.5 / 8), the excess to the short exposure with F 0.9
+                assertEquals(v + " on " + ratio, Math.min(ratio, v31 ? 8f : 3.5f), forced.longPlan / forced.shortPlan, 1e-4f);
+                assertFalse(v + " off " + ratio, none.useHdr);
+                assertArrayEquals(new float[]{1f, ratio}, new float[]{none.shortPlan, none.longPlan}, 0f);
+            }
+            assertFalse(v + ": no second exposure below the first", OldstyleAe.rule(on, 1f, 1f, 0.9f, 0f).useHdr);
+            assertFalse(OldstyleAe.rule(on, 1f, 0.8f, 0.9f, 0f).useHdr);
+            // «HDR от перепада» lower: the calm scene takes HDR; higher: the contrasty one does not
+            final OldstyleAe.Params low = params(v31), high = params(v31);
+            low.v1HdrMin = low.v2HdrMin = 1f;
+            high.v1HdrMin = high.v2HdrMin = 3f;
+            assertTrue(v, OldstyleAe.rule(low, 1f, 1.2f, 0.9f, 0f).useHdr);
+            assertFalse(v, OldstyleAe.rule(high, 1f, 2.5f, 0.9f, 0f).useHdr);
+            assertTrue(v, OldstyleAe.rule(auto, 1f, 2.5f, 0.9f, 0f).useHdr);
+            // «сила HDR»: the cap of the two exposures' ratio
+            final OldstyleAe.Params weak = params(v31), strong = params(v31);
+            weak.v1RatioCap = 1.5f;
+            weak.v2RatioMax = 2f;
+            weak.v2Forgiveness = 2f;
+            strong.v1RatioCap = 8f;
+            strong.v2RatioMax = 16f;
+            final float r = v31 ? 3.9f : 6f;
+            final OldstyleAe.ExposurePlan a = OldstyleAe.rule(weak, 1f, r, 0.9f, 0f), b = OldstyleAe.rule(auto, 1f, r, 0.9f, 0f),
+                    c = OldstyleAe.rule(strong, 1f, r, 0.9f, 0f);
+            assertTrue(v, a.useHdr && b.useHdr && c.useHdr);
+            assertEquals(v, v31 ? 2f : 1.5f, a.longPlan / a.shortPlan, 1e-4f);
+            assertEquals(v, v31 ? 3.9f : 3.5f, b.longPlan / b.shortPlan, 1e-4f);
+            assertEquals(v, r, c.longPlan / c.shortPlan, 1e-4f);
+        }
+        // V1 «HDR до перепада»: 6.804 by default - 10 is one exposure, with the row at 16 two
+        final OldstyleAe.Params wide = params(false);
+        wide.v1HdrMax = 16f;
+        assertFalse(OldstyleAe.rule(params(false), 1f, 10f, 0.9f, 0f).useHdr);
+        assertTrue(OldstyleAe.rule(wide, 1f, 10f, 0.9f, 0f).useHdr);
+        // V2 «запас сверх силы HDR»: 8 x 1.4 = 11.2 by default - 14 is one exposure, with the row at 2 (16) two, capped to 8
+        final OldstyleAe.Params forgiving = params(true);
+        forgiving.v2Forgiveness = 2f;
+        assertFalse(OldstyleAe.rule(params(true), 1f, 14f, 0.9f, 0f).useHdr);
+        final OldstyleAe.ExposurePlan e = OldstyleAe.rule(forgiving, 1f, 14f, 0.9f, 0f);
+        assertTrue(e.useHdr);
+        assertEquals(8f, e.longPlan / e.shortPlan, 1e-4f);
+    }
+
+    /** P630h: the rows of the meter and of the gains, each its way on a backlit scene (a dark room, a bright window at the edge). */
+    @Test public void theMeterAndGainRowsMoveThePlanTheirWay() {
+        final float[] rgb = scene(13);
+        for (boolean v31 : new boolean[]{false, true}) {
+            final String v = v31 ? "3.1" : "2.7";
+            final OldstyleAe.Plan base = OldstyleAe.plan(rgb, 32, 24, params(v31), 1f, null, 0);
+            assertTrue(v, base.hdr);
+            // «Экспозиция Oldstyle»: a stop is both exposures doubled (up to the limit), the decision and the ratio kept
+            final OldstyleAe.Params up = params(v31), down = params(v31);
+            up.baseEv = 1f;
+            down.baseEv = -1f;
+            final OldstyleAe.Plan brighter = OldstyleAe.plan(rgb, 32, 24, up, 1f, null, 0), darker = OldstyleAe.plan(rgb, 32, 24, down, 1f, null, 0);
+            assertEquals(v, base.gainShort * 2f, brighter.gainShort, base.gainShort * 1e-4f);
+            assertEquals(v, base.gainShort / 2f, darker.gainShort, base.gainShort * 1e-4f);
+            assertEquals(v, base.gainLong / 2f, darker.gainLong, base.gainLong * 1e-4f);
+            assertTrue(v, brighter.hdr && darker.hdr);
+            // ... and adds to the style's exposure
+            up.exposureEv = 1f;
+            assertEquals(v, base.gainShort * 4f, OldstyleAe.plan(rgb, 32, 24, up, 1f, null, 0).gainShort, base.gainShort * 4e-4f);
+            // «Запас по светам»: lower keeps the light further under white - the short exposure darker
+            final OldstyleAe.Params room = params(v31);
+            room.shortWhite = 0.5f;
+            final OldstyleAe.Meter plain = OldstyleAe.meter(rgb, 32, 24, params(v31), 1f, false), roomy = OldstyleAe.meter(rgb, 32, 24, room, 1f, false);
+            assertEquals(v, plain.shortRel * 0.5f / 0.95f, roomy.shortRel, plain.shortRel * 1e-5f);
+            assertEquals(v, plain.ratio(), roomy.ratio(), 1e-5f);
+            // «Яркость теней»: a stop up is L* doubled, S* as it was
+            final OldstyleAe.Params lifted = params(v31);
+            lifted.shadowEv = 1f;
+            final OldstyleAe.Meter l = OldstyleAe.meter(rgb, 32, 24, lifted, 1f, false);
+            assertEquals(v, plain.shortRel, l.shortRel, 0f);
+            assertEquals(v, plain.longRel * 2f, l.longRel, plain.longRel * 1e-5f);
+            // «Приглушение светов в HDR»: 1 is no trim (gS = S / actual), lower trims more
+            final OldstyleAe.Params none = params(v31), more = params(v31);
+            none.fusionBase = 1f;
+            more.fusionBase = 0.95f;
+            final OldstyleAe.Plan untrimmed = OldstyleAe.plan(rgb, 32, 24, none, 1f, null, 0), trimmed = OldstyleAe.plan(rgb, 32, 24, more, 1f, null, 0);
+            assertEquals(v, untrimmed.shortTet / untrimmed.actualTet, untrimmed.gainShort, 1e-5f);
+            assertTrue(v, trimmed.gainShort < base.gainShort && base.gainShort < untrimmed.gainShort);
+            assertEquals(v, base.gainLong, trimmed.gainLong, 0f);
+            // «Предел усиления»
+            final OldstyleAe.Params limited = params(v31);
+            limited.maxGain = 2f;
+            final OldstyleAe.Plan lim = OldstyleAe.plan(rgb, 32, 24, limited, 1f, null, 0);
+            assertTrue(v + " " + base.gainLong, base.gainLong > 2f);
+            assertEquals(v, 2f, lim.gainLong, 0f);
+        }
+        // «Что считать светом»: a small bright patch (1 % of the frame) - at 99.7 % it is the light, at 95 % the wall is
+        final float[] patch = new float[32 * 24 * 3];
+        java.util.Arrays.fill(patch, 0.1f);
+        for (int i = 0; i < 8; i++) for (int c = 0; c < 3; c++) patch[i * 3 + c] = 0.9f;
+        final OldstyleAe.Params all = params(false), most = params(false);
+        most.highPercentile = 0.95f;
+        all.highPercentile = 1f;
+        assertEquals(0.9f, OldstyleAe.meter(patch, 32, 24, params(false), 1f, false).high, 1e-6f);
+        assertEquals(0.9f, OldstyleAe.meter(patch, 32, 24, all, 1f, false).high, 1e-6f);
+        assertEquals(0.1f, OldstyleAe.meter(patch, 32, 24, most, 1f, false).high, 1e-6f);
+        assertTrue(OldstyleAe.meter(patch, 32, 24, most, 1f, false).shortRel > OldstyleAe.meter(patch, 32, 24, all, 1f, false).shortRel * 8f);
+        // «Вес центра кадра»: a window at the frame's edge clipped at L* - a narrow centre does not see it (F near 1), the whole
+        // frame alike counts its true share
+        final float[] window = scene(9);
+        final OldstyleAe.Params narrow = params(false), flat = params(false);
+        narrow.centerSigma = 0.2f;
+        flat.centerSigma = 2f;
+        final float fNarrow = OldstyleAe.meter(window, 32, 24, narrow, 1f, false).fractionLong, fPlain = OldstyleAe.meter(window, 32, 24, false, 1f).fractionLong,
+                fFlat = OldstyleAe.meter(window, 32, 24, flat, 1f, false).fractionLong;
+        assertTrue(fNarrow + " > " + fPlain + " > " + fFlat, fNarrow > fPlain && fPlain > fFlat);
+        assertEquals("the whole frame alike: the unclipped share itself (23 of 32 columns)", 23f / 32f, fFlat, 0.02f);
+    }
+
+    /** P630h «V1: сила цветовой матрицы»: none at 0, the matrix at 1, more of it past 1; the rows' sums (the white) stay. */
+    @Test public void theMatrixAtAShare() {
+        final float[] ccm = {1.62f, -0.48f, -0.14f, -0.21f, 1.41f, -0.20f, 0.03f, -0.52f, 1.49f};
+        assertTrue(ccm == OldstyleNative.ccmStrength(ccm, 1f));
+        assertArrayEquals(new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1}, OldstyleNative.ccmStrength(ccm, 0f), 0f);
+        final float[] more = OldstyleNative.ccmStrength(ccm, 1.5f);
+        assertEquals(1.93f, more[0], 1e-5f);
+        assertEquals(-0.72f, more[1], 1e-5f);
+        for (int r = 0; r < 3; r++)
+            assertEquals(ccm[r * 3] + ccm[r * 3 + 1] + ccm[r * 3 + 2], more[r * 3] + more[r * 3 + 1] + more[r * 3 + 2], 1e-5f);
+        assertTrue(ccm == OldstyleNative.ccmStrength(ccm, Float.NaN));
     }
 }

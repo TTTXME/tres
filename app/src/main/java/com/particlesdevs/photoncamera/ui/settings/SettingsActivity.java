@@ -619,6 +619,35 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     });
         }
 
+        /**
+         * P630h (owner: «Добавь больше настроек для Oldstyle» - with a row that undoes them): «Сбросить Oldstyle» - every row of the
+         * categories of «Oldstyle Тон» back to its default through {@link PageReset} (as the header's page reset does), confirmed;
+         * the tone version (the page's first row, also the camera panel's tile) and the panel's style are not this row's.
+         */
+        private void resetOldstyle() {
+            final Context c = getContext();
+            final PreferenceScreen screen = getPreferenceScreen();
+            if (c == null || screen == null) return;
+            DialogStyle.confirm(c, Lang.t(c, "Сбросить Oldstyle?", "Reset Oldstyle?"),
+                    Lang.t(c, "Все ползунки и переключатели «Oldstyle Тон» вернутся к значениям по умолчанию. Версия тона и стиль останутся.",
+                            "Every slider and switch of “Oldstyle Tone” goes back to its default. The tone version and the style stay."),
+                    Lang.t(c, "Сбросить", "Reset"), () -> {
+                        final int n = resetOldstyleRows(c, screen);
+                        android.widget.Toast.makeText(c, n == 0 ? Lang.t(c, "Всё уже по умолчанию", "Everything is at its default already")
+                                : Lang.t(c, "Сброшено параметров: " + n, "Settings reset: " + n), android.widget.Toast.LENGTH_SHORT).show();
+                    });
+        }
+
+        /** The rows of the categories of {@code screen} («Oldstyle Тон») back to their defaults; how many changed. */
+        static int resetOldstyleRows(Context c, PreferenceScreen screen) {
+            int n = 0;
+            for (String key : com.particlesdevs.photoncamera.settings.OldstyleMode.CATEGORIES) {
+                final Preference group = screen.findPreference(key);
+                if (group instanceof androidx.preference.PreferenceGroup) n += PageReset.reset(c, (androidx.preference.PreferenceGroup) group);
+            }
+            return n;
+        }
+
         /** P592: the store of the one-time tips (not the settings: a config import or a reset does not show them again). */
         static final String TIPS = "scamera_tips", TIP_LONG_PRESS = "long_press_tip_shown";
 
@@ -1454,6 +1483,10 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     if (p != null) p.setChecked(false);
                 }
             }
+            // P638: «Спорт» switched on here while «Oldstyle» is the camera's mode: the mode is «Спорт» (one mode at a time)
+            if (key.equals(com.particlesdevs.photoncamera.settings.MotionMode.PREF) && sharedPreferences.getBoolean(key, false))
+                com.particlesdevs.photoncamera.settings.MotionMode.settleWithOldstyle(
+                        android.preference.PreferenceManager.getDefaultSharedPreferences(mContext.getApplicationContext()));
             if (key.equals(com.particlesdevs.photoncamera.util.ScameraDebugLog.PREF_KEY)) {
                 boolean on = sharedPreferences.getBoolean(key, false);
                 // Only bind the context here. Calling init() would itself call
@@ -1606,6 +1639,11 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             Log.d("SettingsFragment", "onPreferenceTreeClick: " + preference.getKey());
             if (PreferenceKeys.Key.KEY_THEME_ACCENT.mValue.equals(preference.getKey())) {
                 getParentFragmentManager().beginTransaction().replace(R.id.settings_container,new AccentSettingsFragment()).addToBackStack("accent").commit();return true;
+            }
+            // P630h «Сбросить Oldstyle»: the rows of the group's categories back to their defaults (the version stays)
+            if (com.particlesdevs.photoncamera.settings.OldstyleMode.RESET.equals(preference.getKey())) {
+                resetOldstyle();
+                return true;
             }
             if ("pref_dcp_profile_key".equals(preference.getKey())) {
                 getParentFragmentManager().beginTransaction().replace(R.id.settings_container,new DcpSettingsFragment()).addToBackStack("dcp").commit();return true;

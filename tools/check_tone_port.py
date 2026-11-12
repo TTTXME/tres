@@ -7,8 +7,14 @@ the app's JNI path into it (oldstyle-tone-jni.cpp, processing/oldstyle/OldstyleN
 - the JNI library built for the host (the JDK's jni.h, the same sources and -ffp-contract=off) and driven through the shipped
   Java (javac): V1 SDR / HDR and V2 SDR / HDR / postview from a float frame through OldstyleAe.sample equal a direct C++ call of the
   module with the same int16 planes and parameters, byte for byte; the strip deinterleave; raw_hdr_gains_31 == OldstyleAe's gains;
-- the vendored copy is the owner's archive with the one P630e hook (third_party/tone_port.p630e.diff reverses cleanly; with the
-  extracted archive given, --archive DIR, the reversed copy is the archive byte for byte).
+- the vendored copy is the owner's archive with the P630e hook and the P636 threads (third_party/tone_port.p636.diff, then
+  tone_port.p630e.diff reverse cleanly; with the extracted archive given, --archive DIR, the reversed copy is the archive
+  byte for byte).
+P636 (speed, the same bytes): the module's regression at 1, 2, 3, 4 and 7 threads (TONE_PORT_THREADS; more than one thread
+takes the row kernels and the bands); the JNI checks below run on one thread and on four against the one-thread direct call;
+tools/bench_oldstyle_tone.cpp: the app's path on one thread (P630e's) == the banded path, nine cases (V1 / V2, HDR / SDR, the
+stages; three with P630h's rows away from their defaults: the curve's shape, half the low-frequency transfer, a matrix
+stronger than a camera's) on frames that are and are not multiples of 8 / 32.
 P630e, the owner's supplement (third_party/tone_supplement, hdr-ae-color-27-31.md):
 - its 45 plan rows (2.7 YUV, 3.1 YUV, 3.1 RAW): plan27 / plan31 from the table's S*, L*, F give its HDR, S, L and fusion_gains
   (S0 = 8, P = 1, M = 16) its gS / gL, each within 2e-7 of the value; the same rows through OldstyleAe's Java port and through
@@ -18,6 +24,11 @@ P630e, the owner's supplement (third_party/tone_supplement, hdr-ae-color-27-31.m
 - the YUV-route stages on our route in the JNI: dehaze / tint (multiple of 8 and not, unit and lens-shading grid) and output
   saturation equal a direct implementation from the supplement's functions; the low-frequency colour moves the bright exposure's
   shadow colour towards the linear reference (V1 HDR) and is a no-op on a frame whose colour it already has.
+P630h, the rows of «Oldstyle Тон» that reach the module (section 7), on V1 SDR / V1 HDR / V2 SDR / V2 HDR:
+- at their defaults the picture is the one without the rows, byte for byte; the tone curve's shape at all corners of its range
+  keeps black and white and moves the midtones / the contrast its way; the widest gains the rows allow run; V1's matrix share
+  0 / 1 / 1.5 and a matrix of rows up to 7.3 with a light past white (no Q16 wrap); the low-frequency transfer's share and its
+  colour-only switch; the viewfinder's LUT with the curve (previewLutCurve(0, 0) == previewLut, monotonic as the module's own).
 Usage: check_tone_port.py [--archive DIR]
 """
 import argparse
@@ -37,6 +48,8 @@ TP = ROOT / 'app/src/main/cpp/third_party/tone_port'
 JNI = ROOT / 'app/src/main/cpp/oldstyle-tone-jni.cpp'
 SUPP = ROOT / 'app/src/main/cpp/third_party/tone_supplement/tone_supplement.cpp'
 HOOK = ROOT / 'app/src/main/cpp/third_party/tone_port.p630e.diff'
+THREADS_DIFF = ROOT / 'app/src/main/cpp/third_party/tone_port.p636.diff'
+BENCH = ROOT / 'tools/bench_oldstyle_tone.cpp'
 JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/oldstyle'
 FAIL = []
 
@@ -298,6 +311,14 @@ import java.nio.file.*;
 public final class ToneHost {
     public static void main(String[] a) throws Exception {
         if (!OldstyleNative.load()) throw new IllegalStateException("no library");
+        if (a[0].equals("lut")) {
+            // P630h: the viewfinder's LUT of a version with a shaped curve ("-": previewLut itself)
+            byte[] lut = new byte[4096];
+            if (a[2].equals("-")) OldstyleNative.previewLut(Integer.parseInt(a[1]), lut);
+            else OldstyleNative.previewLutCurve(Integer.parseInt(a[1]), Float.parseFloat(a[2]), Float.parseFloat(a[3]), lut);
+            Files.write(Paths.get(a[4]), lut);
+            return;
+        }
         int w = Integer.parseInt(a[1]), h = Integer.parseInt(a[2]);
         ByteBuffer f = ByteBuffer.wrap(Files.readAllBytes(Paths.get(a[3]))).order(ByteOrder.LITTLE_ENDIAN);
         float scale = Float.parseFloat(a[4]);
@@ -316,6 +337,21 @@ public final class ToneHost {
         byte[] pl = new byte[w * h * 6];
         planar.position(0); planar.get(pl);
         Files.write(Paths.get(a[5]), pl);
+        // P636: the same frame as GL_SHORT strips (deinterleave16) gives the same planes
+        ByteBuffer planar16 = OldstyleNative.planar(w, h);
+        for (int y = 0; y < h; y += stripRows) {
+            int rows = Math.min(stripRows, h - y);
+            strip.clear();
+            for (int r = 0; r < rows; r++) for (int x = 0; x < w; x++) for (int c = 0; c < 4; c++)
+                strip.putShort((short) (c < 3 ? OldstyleAe.sample(f.getFloat((((y + r) * w + x) * 3 + c) * 4), scale) : 0));
+            strip.flip();
+            OldstyleNative.deinterleave16(strip, planar16, w, h, y, rows);
+        }
+        byte[] pl16 = new byte[w * h * 6];
+        planar16.position(0); planar16.get(pl16);
+        if (!java.util.Arrays.equals(pl, pl16)) throw new IllegalStateException("deinterleave16 != deinterleave");
+        if (OldstyleNative.threadsFor(8, 0f) != 7 || OldstyleNative.threadsFor(8, 1f) != 1 || OldstyleNative.threadsFor(2, 0f) != 2)
+            throw new IllegalStateException("threadsFor");
         float[] ccm = new float[9];
         String[] cs = a[6].split(",");
         for (int i = 0; i < 9; i++) ccm[i] = Float.parseFloat(cs[i]);
@@ -326,6 +362,12 @@ public final class ToneHost {
         p.cornerStrength = Float.parseFloat(ps[3]); p.outSat = Float.parseFloat(ps[4]); p.vibrance = Float.parseFloat(ps[5]);
         p.satPerStop = Float.parseFloat(ps[6]); p.vibrancePerStop = Float.parseFloat(ps[7]); p.lowFrequency = ps[8].equals("1");
         p.lfThreshold = Integer.parseInt(ps[9]);
+        // P630h: the rows' entries (absent: the defaults), and the CCM's share through OldstyleNative.ccmStrength
+        if (ps.length > 10) p.lfChroma = ps[10].equals("1");
+        if (ps.length > 11) p.lfStrength = Float.parseFloat(ps[11]);
+        if (ps.length > 12) p.curveMid = Float.parseFloat(ps[12]);
+        if (ps.length > 13) p.curveContrast = Float.parseFloat(ps[13]);
+        if (ps.length > 14) ccm = OldstyleNative.ccmStrength(ccm, Float.parseFloat(ps[14]));
         float[] shading = null; int sw = 0, sh = 0;
         if (!a[13].equals("-")) {
             ByteBuffer sb = ByteBuffer.wrap(Files.readAllBytes(Paths.get(a[13]))).order(ByteOrder.LITTLE_ENDIAN);
@@ -358,6 +400,9 @@ def main():
         rev = d / 'rev'
         rev.mkdir()
         shutil.copytree(TP, rev / 'tone_port')
+        r = subprocess.run(['patch', '-R', '-p0', '-s', '-i', str(THREADS_DIFF)], cwd=rev, capture_output=True, text=True)
+        check(r.returncode == 0 and not (rev / 'tone_port/src/parallel.cpp').exists(),
+              'the vendored tone_port is the P630e module plus the P636 threads (tone_port.p636.diff reverses cleanly)')
         r = subprocess.run(['patch', '-R', '-p0', '-s', '-i', str(HOOK)], cwd=rev, capture_output=True, text=True)
         check(r.returncode == 0, 'the vendored tone_port is the archive plus the P630e hook (the hook reverses cleanly)')
         if args.archive:
@@ -368,11 +413,26 @@ def main():
         # 1. the module's own regression, both profiles, full frame
         sh(['cmake', '-S', str(TP), '-B', str(d / 'build'), '-DCMAKE_BUILD_TYPE=Release', '-DTONE_BUILD_TESTS=ON'])
         sh(['cmake', '--build', str(d / 'build'), '--parallel'])
-        for profile in ('2.7', '3.1'):
-            r = subprocess.run([sys.executable, str(TP / 'tests/regression.py'), str(d / 'build/tone_check'), '--profile', profile,
-                                '--full-frame'], capture_output=True, text=True)
-            last = (r.stdout.strip().splitlines() or [''])[-1]
-            check(r.returncode == 0 and 'passed' in last, 'tone-port regression %s: %s' % (profile, last))
+        # P636: on one thread (the module as it was) and on several (the row kernels, the bands): the same 90 hashes
+        for threads in (1, 2, 3, 4, 7):
+            for profile in ('2.7', '3.1'):
+                r = subprocess.run([sys.executable, str(TP / 'tests/regression.py'), str(d / 'build/tone_check'), '--profile', profile,
+                                    '--full-frame', '--prefix', 'env', '--prefix', 'TONE_PORT_THREADS=%d' % threads],
+                                   capture_output=True, text=True)
+                last = (r.stdout.strip().splitlines() or [''])[-1]
+                check(r.returncode == 0 and 'passed' in last, 'tone-port regression %s, %d thread%s: %s'
+                      % (profile, threads, '' if threads == 1 else 's', last))
+        # P636: the app's path (oldstyle-tone-core.h) on one thread == on several, frames of awkward and of whole sizes
+        sh(['g++', '-std=c++17', '-O2', '-ffp-contract=off', '-I' + str(JNI.parent), '-I' + str(TP / 'include'), str(BENCH)]
+           + [str(q) for q in sorted((TP / 'src').glob('*.cpp'))] + ['-o', str(d / 'bench'), '-lpthread'])
+        r = subprocess.run([str(d / 'bench'), '--exhaustive'], capture_output=True, text=True)
+        check(r.returncode == 0 and ': 0 differ' in r.stdout, 'the banded pass\'s pixel functions == the supplement\'s: ' + r.stdout.strip())
+        for w, h, threads in ((1234, 1001, 4), (1000, 744, 3), (2048, 1536, 7), (67, 45, 2), (640, 20, 5)):
+            r = subprocess.run([str(d / 'bench'), str(w), str(h), str(threads), '1'], capture_output=True, text=True)
+            rows = r.stdout.strip().splitlines()
+            check(r.returncode == 0 and len(rows) == 9 and all('SAME BYTES' in row for row in rows),
+                  'Oldstyle tone %dx%d: one thread == %d threads, %d of 9 cases the same bytes' % (
+                      w, h, threads, sum('SAME BYTES' in row for row in rows)))
         # 2. the specification's numbers through the module
         (d / 'spec').mkdir()
         (d / 'spec/spec.cpp').write_text(SPEC_HARNESS.replace('../src/rgb8_hdr.h', str(TP / 'src/rgb8_hdr.h')))
@@ -413,10 +473,10 @@ def main():
         lib = d / 'libscameraTone_host.so'
         srcs = [str(p) for p in sorted((TP / 'src').glob('*.cpp'))] + [str(JNI)]
         sh(['g++', '-std=c++17', '-O2', '-fPIC', '-shared', '-ffp-contract=off', '-I' + str(TP / 'include')] + ['-I' + i for i in inc]
-           + srcs + ['-o', str(lib)])
+           + srcs + ['-o', str(lib), '-lpthread'])
         (d / 'direct.cpp').write_text(DIRECT)
         sh(['g++', '-std=c++17', '-O2', '-ffp-contract=off', '-I' + str(TP / 'include'), '-I' + str(SUPP.parent), str(d / 'direct.cpp'),
-            str(d / 'build/libtone_port.a'), '-o', str(d / 'direct')])
+            str(d / 'build/libtone_port.a'), '-o', str(d / 'direct'), '-lpthread'])
         pkg = d / 'java/com/particlesdevs/photoncamera/processing/oldstyle'
         pkg.mkdir(parents=True)
         for f in ('OldstyleNative.java', 'OldstyleAe.java'):
@@ -463,49 +523,54 @@ def main():
                   % (15 - len(misses), '2.7 YUV' if prof == 27 else '3.1 RAW', misses))
         rng = np.random.default_rng(6302)
         nothing = '0,48,0.2,0.2,0,1,0,0,0,16'
-        for w, h in ((161, 97), (256, 128)):
-            y, x = np.indices((h, w))
-            base = np.exp(rng.normal(-2.0, 1.2, (h, w, 1))) * np.array([1.0, 0.9, 0.8])
-            base = base * (1 + 0.5 * np.sin(x / 9.0))[..., None] + (x > w * 0.7)[..., None] * 2.5   # a light past white
-            base[3, 4] = (-0.05, 0.02, 9.0)
-            lin = base.astype(np.float16).astype(np.float32)
-            np.ascontiguousarray(lin, '<f4').tofile(d / 'lin.f32')
-            ccm = '1.62,-0.48,-0.14,-0.21,1.41,-0.20,0.03,-0.52,1.49'
-            # version, input scale, gS, gL, hdr, postview, saturation_adjustment
-            cases = [(1, 1.0, 1.3, 1.3, 0, 0, 0.0), (1, 1.0, 0.47, 3.2, 1, 0, 0.0), (2, 1.0, 1.2, 1.2, 0, 0, 0.0),
-                     (2, 0.25, 0.98, 10.0, 1, 0, 0.0), (2, 0.25, 1.1, 6.4, 1, 1, 0.2), (2, 1.0, 0.8, 7.0, 1, 0, -0.3)]
-            for ver, scale, gs, gl, hdr, post, sat in cases:
-                cm = ccm if ver == 1 else '1,0,0,0,1,0,0,0,1'
-                sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
-                           str(scale), str(d / 'planes.i16'), cm, str(gs), str(gl), str(hdr), str(post), str(sat), nothing, '-', '0', '0',
-                           str(d / 'jni.rgb')])
-                planes = np.fromfile(d / 'planes.i16', '<i2').reshape(3, h, w)
-                want_planes = np.clip(np.floor(lin * np.float32(scale) * np.float32(4095) + np.float32(0.5)), -32768, 32767).transpose(2, 0, 1)
-                check(np.array_equal(planes, want_planes), 'deinterleave: %dx%d planes from GL_INT strips (scale %g)' % (w, h, scale))
-                sh([str(d / 'direct'), str(ver), str(w), str(h), str(d / 'planes.i16'), str(gs), str(gl), str(hdr), str(post), str(sat), cm,
-                    str(d / 'direct.rgb'), '0', '48', '0.2', '0.2', '0', '0', '1', '0', '0', '-', '0', '0'])
-                same = (d / 'jni.rgb').read_bytes() == (d / 'direct.rgb').read_bytes()
-                check(same, 'JNI == module: V%d %dx%d hdr %d postview %d gains %s/%s' % (ver, w, h, hdr, post, gs, gl))
-            # 5. the YUV-route stages on our route: dehaze / tint (unit and lens-shading grid; this size a multiple of 8 or not) and
-            # the output saturation, JNI == the supplement's functions called here
-            sw, shh = 6, 5
-            gy, gx = np.mgrid[0:shh, 0:sw]
-            shading = (1 + 1.5 * (((gx + 0.5) / sw - 0.5) ** 2 + ((gy + 0.5) / shh - 0.5) ** 2) * 2).astype(np.float32)
-            np.ascontiguousarray(np.repeat(shading[..., None], 2, -1), '<f4').tofile(d / 'shading.f32')
-            for ver, gs, gl, hdr in ((1, 0.47, 3.2, 1), (2, 1.2, 1.2, 0)):
-                cm = ccm if ver == 1 else '1,0,0,0,1,0,0,0,1'
-                for dh, son, shd, params in ((1, 0, '-', (48, 0.2, 0.2)), (1, 0, 'shading', (64, 0.5, 0.35)), (0, 1, '-', (48, 0.2, 0.2)),
-                                             (1, 1, 'shading', (32, 1.0, 0.1))):
-                    sat = ('0.25', '1.3', '0.05', '0.02') if son else ('0', '1', '0', '0')
-                    post = '%d,%d,%g,%g,%s,%s,%s,%s,0,16' % ((dh,) + params + sat)
-                    sf = [str(d / 'shading.f32'), str(sw), str(shh)] if shd != '-' else ['-', '0', '0']
-                    sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
-                               '1', str(d / 'planes.i16'), cm, str(gs), str(gl), str(hdr), '0', '0', post] + sf + [str(d / 'jni.rgb')])
-                    sh([str(d / 'direct'), str(ver), str(w), str(h), str(d / 'planes.i16'), str(gs), str(gl), str(hdr), '0', '0', cm,
-                        str(d / 'direct.rgb'), str(dh), str(params[0]), str(params[1]), str(params[2]), str(son)] + list(sat) + sf)
-                    same = (d / 'jni.rgb').read_bytes() == (d / 'direct.rgb').read_bytes()
-                    check(same, 'JNI stages == the supplement: V%d %dx%d dehaze %d (%s grid, %s) saturation %d' % (
-                        ver, w, h, dh, 'shading' if shd != '-' else 'unit', params, son))
+        # P636: the JNI on one thread (P630e's path) and on four (the banded path); the direct call on one thread both times
+        for jni_threads in (1, 4):
+          tag = '' if jni_threads == 1 else ' (JNI on %d threads)' % jni_threads
+          jenv = dict(os.environ, TONE_PORT_THREADS=str(jni_threads))
+          denv = dict(os.environ, TONE_PORT_THREADS='1')
+          for w, h in ((161, 97), (256, 128)):
+              y, x = np.indices((h, w))
+              base = np.exp(rng.normal(-2.0, 1.2, (h, w, 1))) * np.array([1.0, 0.9, 0.8])
+              base = base * (1 + 0.5 * np.sin(x / 9.0))[..., None] + (x > w * 0.7)[..., None] * 2.5   # a light past white
+              base[3, 4] = (-0.05, 0.02, 9.0)
+              lin = base.astype(np.float16).astype(np.float32)
+              np.ascontiguousarray(lin, '<f4').tofile(d / 'lin.f32')
+              ccm = '1.62,-0.48,-0.14,-0.21,1.41,-0.20,0.03,-0.52,1.49'
+              # version, input scale, gS, gL, hdr, postview, saturation_adjustment
+              cases = [(1, 1.0, 1.3, 1.3, 0, 0, 0.0), (1, 1.0, 0.47, 3.2, 1, 0, 0.0), (2, 1.0, 1.2, 1.2, 0, 0, 0.0),
+                       (2, 0.25, 0.98, 10.0, 1, 0, 0.0), (2, 0.25, 1.1, 6.4, 1, 1, 0.2), (2, 1.0, 0.8, 7.0, 1, 0, -0.3)]
+              for ver, scale, gs, gl, hdr, post, sat in cases:
+                  cm = ccm if ver == 1 else '1,0,0,0,1,0,0,0,1'
+                  sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
+                             str(scale), str(d / 'planes.i16'), cm, str(gs), str(gl), str(hdr), str(post), str(sat), nothing, '-', '0', '0',
+                             str(d / 'jni.rgb')], env=jenv)
+                  planes = np.fromfile(d / 'planes.i16', '<i2').reshape(3, h, w)
+                  want_planes = np.clip(np.floor(lin * np.float32(scale) * np.float32(4095) + np.float32(0.5)), -32768, 32767).transpose(2, 0, 1)
+                  check(np.array_equal(planes, want_planes), 'deinterleave: %dx%d planes from GL_INT strips (scale %g)%s' % (w, h, scale, tag))
+                  sh([str(d / 'direct'), str(ver), str(w), str(h), str(d / 'planes.i16'), str(gs), str(gl), str(hdr), str(post), str(sat), cm,
+                      str(d / 'direct.rgb'), '0', '48', '0.2', '0.2', '0', '0', '1', '0', '0', '-', '0', '0'], env=denv)
+                  same = (d / 'jni.rgb').read_bytes() == (d / 'direct.rgb').read_bytes()
+                  check(same, 'JNI == module: V%d %dx%d hdr %d postview %d gains %s/%s%s' % (ver, w, h, hdr, post, gs, gl, tag))
+              # 5. the YUV-route stages on our route: dehaze / tint (unit and lens-shading grid; this size a multiple of 8 or not) and
+              # the output saturation, JNI == the supplement's functions called here
+              sw, shh = 6, 5
+              gy, gx = np.mgrid[0:shh, 0:sw]
+              shading = (1 + 1.5 * (((gx + 0.5) / sw - 0.5) ** 2 + ((gy + 0.5) / shh - 0.5) ** 2) * 2).astype(np.float32)
+              np.ascontiguousarray(np.repeat(shading[..., None], 2, -1), '<f4').tofile(d / 'shading.f32')
+              for ver, gs, gl, hdr in ((1, 0.47, 3.2, 1), (2, 1.2, 1.2, 0)):
+                  cm = ccm if ver == 1 else '1,0,0,0,1,0,0,0,1'
+                  for dh, son, shd, params in ((1, 0, '-', (48, 0.2, 0.2)), (1, 0, 'shading', (64, 0.5, 0.35)), (0, 1, '-', (48, 0.2, 0.2)),
+                                               (1, 1, 'shading', (32, 1.0, 0.1))):
+                      sat = ('0.25', '1.3', '0.05', '0.02') if son else ('0', '1', '0', '0')
+                      post = '%d,%d,%g,%g,%s,%s,%s,%s,0,16' % ((dh,) + params + sat)
+                      sf = [str(d / 'shading.f32'), str(sw), str(shh)] if shd != '-' else ['-', '0', '0']
+                      sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
+                                 '1', str(d / 'planes.i16'), cm, str(gs), str(gl), str(hdr), '0', '0', post] + sf + [str(d / 'jni.rgb')], env=jenv)
+                      sh([str(d / 'direct'), str(ver), str(w), str(h), str(d / 'planes.i16'), str(gs), str(gl), str(hdr), '0', '0', cm,
+                          str(d / 'direct.rgb'), str(dh), str(params[0]), str(params[1]), str(params[2]), str(son)] + list(sat) + sf, env=denv)
+                      same = (d / 'jni.rgb').read_bytes() == (d / 'direct.rgb').read_bytes()
+                      check(same, 'JNI stages == the supplement: V%d %dx%d dehaze %d (%s grid, %s) saturation %d%s' % (
+                          ver, w, h, dh, 'shading' if shd != '-' else 'unit', params, son, tag))
         # 5b. V1 lights far past white at a high SDR gain (and the low-frequency reference at the long gain) stay white: no wrap of
         # the module's Q16 CCM into a black hole (140250's sun before the JNI's V1_CEILING)
         w, h = 96, 64
@@ -543,6 +608,90 @@ def main():
         err = {lf: np.abs(chroma(outs[lf][region]) - chroma(ref[region])).mean() for lf in (0, 1)}
         check(scale >= 0 and err[1] <= err[0], 'low-frequency colour: the shadows\' colour error to the linear reference %.3f -> %.3f (scale %d/32)'
               % (err[0], err[1], scale))
+        # 7. P630h, the rows of «Oldstyle Тон» that reach the module: each at both ends of its range on every route (no error, black
+        # and white kept), and its direction on the picture
+        tone = 'com.particlesdevs.photoncamera.processing.oldstyle.ToneHost'
+        w, h = 160, 96
+        y, x = np.indices((h, w))
+        ramp = (x / (w - 1.0)) ** 2.2 * (0.6 + 0.4 * y / (h - 1.0))
+        frame = np.stack([ramp * 1.00, ramp * 0.85, ramp * 0.60], -1).astype(np.float32)
+        frame[:8, :8] = 0.0
+        frame[-8:, -8:] = 4.0
+        np.ascontiguousarray(frame, '<f4').tofile(d / 'lin.f32')
+        cam = '1.62,-0.48,-0.14,-0.21,1.41,-0.20,0.03,-0.52,1.49'
+        routes = (('V1 SDR', '1', '2.5', '2.5', '0'), ('V1 HDR', '1', '0.8', '3.2', '1'), ('V2 SDR', '2', '2.5', '2.5', '0'),
+                  ('V2 HDR', '2', '0.8', '3.2', '1'))
+
+        def run(route, post, ccm=None, gains=None):
+            name, ver, gs, gl, hdr = route
+            if gains:
+                gs, gl = gains
+            sh(java + [tone, ver, str(w), str(h), str(d / 'lin.f32'), '1', str(d / 'planes.i16'),
+                       ccm or (cam if ver == '1' else '1,0,0,0,1,0,0,0,1'), gs, gl, hdr, '0', '0', post, '-', '0', '0', str(d / 'jni.rgb')])
+            return np.fromfile(d / 'jni.rgb', np.uint8).reshape(h, w, 3).astype(np.float64)
+
+        base_post = '0,24,0.2,0.2,0,1,0,0,1,16'
+        luma = lambda a: a @ np.array([0.2126, 0.7152, 0.0722])
+        for route in routes:
+            name = route[0]
+            base = run(route, base_post)
+            check(np.array_equal(base, run(route, base_post + ',1,1,0,0,1')), '%s: the rows at their defaults give the picture without them' % name)
+            got = {}
+            for mid, con in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)):
+                o = run(route, base_post + ',1,1,%d,%d' % (mid, con))
+                got[(mid, con)] = o
+                check(o[:8, :8].max() <= 12 and o[-8:, -8:].min() >= 243, '%s: curve %+d / %+d keeps black and white (%d, %d)'
+                      % (name, mid, con, o[:8, :8].max(), o[-8:, -8:].min()))
+            body = (slice(12, h - 12), slice(12, w - 12))
+            m = {k: luma(v[body]).mean() for k, v in got.items()}
+            b = luma(base[body]).mean()
+            check(m[(-1, 0)] < b - 4 < b + 4 < m[(1, 0)], '%s: «Средние тона» -1 / 0 / +1 mean %.1f / %.1f / %.1f' % (name, m[(-1, 0)], b, m[(1, 0)]))
+            # the S-contrast spreads the picture about the middle: darker below, brighter above
+            lo, hi = luma(base[body]) < 90, luma(base[body]) > 170
+            dl = lambda k: (luma(got[k][body])[lo].mean() - luma(base[body])[lo].mean(), luma(got[k][body])[hi].mean() - luma(base[body])[hi].mean())
+            check(dl((0, 1))[0] < -1 and dl((0, 1))[1] > 1 and dl((0, -1))[0] > 1 and dl((0, -1))[1] < -1,
+                  '%s: «Контраст кривой» +1 shadows %+.1f lights %+.1f, -1 shadows %+.1f lights %+.1f' % ((name,) + dl((0, 1)) + dl((0, -1))))
+            # the widest exposures the rows allow (V2 max 16 x forgiveness 2, the base 0.95: gL / gS 36; the gains' limit 64)
+            for gains in (('0.3', '11'), ('1.7', '64'), ('0.02', '0.05')):
+                o = run(route, base_post, gains=gains)
+                check(o.shape == (h, w, 3), '%s: gains %s / %s run' % ((name,) + gains))
+        # V1: the matrix's share - 0 none (grey ramp stays the frame's own colour), 1.5 more colour, and no wrap of a light with it
+        v1 = routes[0]
+        chroma = lambda a: (a.max(-1) - a.min(-1))[12:h - 12, 12:w - 12].mean()
+        c0, c1, c15 = (chroma(run(v1, base_post + ',1,1,0,0,%s' % k)) for k in ('0', '1', '1.5'))
+        check(c0 < c1 < c15, 'V1: «Сила цветовой матрицы» 0 / 1 / 1.5 colour spread %.1f / %.1f / %.1f' % (c0, c1, c15))
+        for route in routes[:2]:
+            o = run(route, base_post + ',1,1,0,0,1.5', ccm='2.9,-1.5,-0.4,-0.9,2.6,-0.7,-0.2,-1.6,2.8', gains=('16', '16') if route[4] == '0' else ('0.9', '6'))
+            check(o[-6:, -6:].min() >= 240, '%s: a light past white with a matrix of rows up to 7.3 at share 1.5 stays white (darkest %d)'
+                  % (route[0], o[-6:, -6:].min()))
+        # V1 HDR: the transfer's share 0 is the transfer off, 0.5 between; colour-only off runs
+        dark = np.stack([0.010 + 0.004 * np.sin(x / 13.0), 0.008 + 0.0 * x, 0.006 + 0.004 * np.cos(y / 11.0)], -1)
+        np.ascontiguousarray(np.where((x > 100)[..., None], 0.75, dark).astype(np.float32), '<f4').tofile(d / 'lin.f32')
+        hdr1 = ('V1 HDR', '1', '0.9', '3.15', '1')
+        off, full = run(hdr1, '0,24,0.2,0.2,0,1,0,0,0,16', ccm='1,0,0,0,1,0,0,0,1'), run(hdr1, base_post + ',1,1', ccm='1,0,0,0,1,0,0,0,1')
+        zero, half = (run(hdr1, base_post + ',1,%s' % k, ccm='1,0,0,0,1,0,0,0,1') for k in ('0', '0.5'))
+        d_full, d_half = np.abs(full - off).mean(), np.abs(half - off).mean()
+        check(np.array_equal(zero, off) and 0 < d_half < d_full, 'V1 HDR: «Сила переноса цвета» 0 == off, 0.5 moves %.3f of the full %.3f' % (d_half, d_full))
+        # colour-only off: the brightness is transferred too and counts in the motion rejection - at the default threshold this
+        # scene's difference rejects the transfer (scale 0: the picture without it), at the row's largest it runs and differs
+        wide = '0,24,0.2,0.2,0,1,0,0,1,64'
+        strict, loose, colour = run(hdr1, base_post + ',0,1', ccm='1,0,0,0,1,0,0,0,1'), run(hdr1, wide + ',0,1', ccm='1,0,0,0,1,0,0,0,1'), \
+            run(hdr1, wide + ',1,1', ccm='1,0,0,0,1,0,0,0,1')
+        check(np.array_equal(strict, off) and not np.array_equal(loose, off) and not np.array_equal(loose, colour),
+              'V1 HDR: «Переносить только цвет» off - rejected at threshold 16, transfers colour and brightness at 64 (%.3f from colour only)'
+              % np.abs(loose - colour).mean())
+        # the viewfinder's LUT with the curve: unshaped it is previewLut's, shaped it stays monotonic and moves the way the photo does
+        for ver in ('1', '2'):
+            def lut(*c):
+                sh(java + [tone, 'lut', ver] + list(c) + [str(d / 'lut.bin')])
+                return np.fromfile(d / 'lut.bin', np.uint8).reshape(1024, 4).astype(np.int32)
+            plain = lut('-', '-')
+            dip = np.diff(plain[:, :3], axis=0).min()   # the module's own LUT: -1 on V2 (its dither)
+            for mid, con in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+                l = lut(str(mid), str(con))
+                check(np.diff(l[:, :3], axis=0).min() >= dip and l[0, :3].max() <= 2 and l[-1, :3].min() >= 250,
+                      'LUT V%s: curve %+d / %+d monotonic as the module\'s own (step >= %d), black and white kept' % (ver, mid, con, dip))
+            check(lut('1', '0')[200, 1] > plain[200, 1] > lut('-1', '0')[200, 1], 'LUT V%s: «Средние тона» moves the LUT as the photo' % ver)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     if FAIL:

@@ -31,6 +31,22 @@ public final class OldstyleAe {
     public static final float HIGH_PERCENTILE = 0.997f;
     /** The light percentile at or above this share of the frame's ceiling is clipped there: S* one step lower. */
     public static final float CLIP_LEVEL = 0.98f, CLIPPED_STEP = 0.5f;
+    /**
+     * P630g: the step comes in softly from this share of the ceiling up to {@link #CLIP_LEVEL} ({@link #clippedFactor}): a light
+     * that hovers at the clip level moved S* (and the whole live viewfinder with it) by a stop from one metering to the next.
+     */
+    public static final float CLIP_SOFT = 0.90f;
+
+    /**
+     * P630g: how much lower S* goes for a light at {@code share} of the frame's ceiling before a shot: 1 up to {@link #CLIP_SOFT},
+     * {@link #CLIPPED_STEP} from {@link #CLIP_LEVEL} on, log-linear between (continuous: no jump at a threshold).
+     */
+    public static float clippedFactor(float share) {
+        if (!(share > CLIP_SOFT)) return 1f;
+        if (share >= CLIP_LEVEL) return CLIPPED_STEP;
+        final double t = (share - CLIP_SOFT) / (CLIP_LEVEL - CLIP_SOFT);
+        return (float) Math.exp(t * Math.log(CLIPPED_STEP));
+    }
     /** F's centred Gaussian, in shares of the frame's width / height. */
     public static final float F_SIGMA = 0.47f;
     /** The fit of log(L* / S*): {1, log light, log geometric mean luma, log mean luma} (L* fit minus S* fit, per profile). */
@@ -38,6 +54,13 @@ public final class OldstyleAe {
     static final float[] RATIO31 = {2.1886f - 3.0133f, -0.4974f + 0.7101f, -1.7148f - 0.0899f, 1.0632f + 0.5216f};
 
     // ---- the supplement's rules (tone_supplement.cpp), FP32 --------------------------------------------------------------------
+
+    /** The supplement's numbers (tone_supplement.cpp): the defaults of {@link Params} (P630h: each a row of «Oldstyle Тон»). */
+    public static final float V1_HDR_MIN = 1.4500000476837158f, V1_HDR_MAX = 6.803999900817871f, V1_RATIO_CAP = 3.5f;
+    public static final float V2_HDR_MIN = 1.3300000429153442f, V2_RATIO_MAX = 8.0f, V2_FORGIVENESS = 1.3999999761581421f;
+    public static final float FUSION_BASE = 0.9756097793579102f;
+    /** P630h «HDR»: the supplement's rule, always two exposures when L* is above S*, never (one exposure at L*). */
+    public static final int HDR_AUTO = 0, HDR_ON = 1, HDR_OFF = 2;
 
     /** tone_supplement::ExposurePlan. */
     public static final class ExposurePlan {
@@ -66,21 +89,31 @@ public final class OldstyleAe {
 
     /** plan27: HDR within 1.45 .. 6.804 (both included), the ratio capped at 3.5. */
     public static ExposurePlan plan27(float shortCandidate, float longCandidate, float fractionLong) {
+        return plan27(shortCandidate, longCandidate, fractionLong, V1_HDR_MIN, V1_HDR_MAX, V1_RATIO_CAP);
+    }
+
+    /** P630h: plan27 with its three numbers (HDR from {@code min} to {@code max}, the ratio capped at {@code cap}). */
+    public static ExposurePlan plan27(float shortCandidate, float longCandidate, float fractionLong, float min, float max, float cap) {
         final float ratio = longCandidate / shortCandidate;
-        final boolean enoughRange = ratio >= 1.4500000476837158f;
-        final boolean use = enoughRange && ratio <= 6.803999900817871f;
+        final boolean enoughRange = ratio >= min;
+        final boolean use = enoughRange && ratio <= max;
         final ExposurePlan p = plan(enoughRange, use, shortCandidate, longCandidate);
-        if (use) capCaptureRatio(p, 3.5f, fractionLong);
+        if (use) capCaptureRatio(p, cap, fractionLong);
         return p;
     }
 
     /** plan31: scene flag at 1.33; RAW max 8 x 1.4, YUV 3.5 x 1.944; capped, then EV and the TET bounds. */
     public static ExposurePlan plan31(float shortCandidate, float longCandidate, float fractionLong, boolean rawPayload,
                                       boolean hdrDisabled, float ev, float minTet, float maxTet) {
+        return plan31(shortCandidate, longCandidate, fractionLong, hdrDisabled, ev, minTet, maxTet, V2_HDR_MIN,
+                rawPayload ? V2_RATIO_MAX : 3.5f, rawPayload ? V2_FORGIVENESS : 1.9440000057220459f);
+    }
+
+    /** P630h: plan31 with its three numbers (the scene flag from {@code min}, the ratio's {@code maxRatio} x {@code forgiveness}). */
+    public static ExposurePlan plan31(float shortCandidate, float longCandidate, float fractionLong, boolean hdrDisabled, float ev,
+                                      float minTet, float maxTet, float min, float maxRatio, float forgiveness) {
         final float ratio = longCandidate / shortCandidate;
-        final float maxRatio = rawPayload ? 8.0f : 3.5f;
-        final float forgiveness = rawPayload ? 1.3999999761581421f : 1.9440000057220459f;
-        final boolean scene = ratio >= 1.3300000429153442f;
+        final boolean scene = ratio >= min;
         final boolean use = scene && !hdrDisabled && ratio <= maxRatio * forgiveness;
         final ExposurePlan p = plan(scene, use, shortCandidate, longCandidate);
         if (use) {
@@ -103,7 +136,12 @@ public final class OldstyleAe {
     /** fusion_gains: {short, long} from the actual short TET (tone::raw_hdr_gains_31 is the same with common gain 1). */
     public static float[] fusionGains(float actualShortTet, float desiredShortTet, float desiredLongTet, float commonGain,
                                       float maxGain) {
-        final float base = 0.9756097793579102f;
+        return fusionGains(actualShortTet, desiredShortTet, desiredLongTet, commonGain, maxGain, FUSION_BASE);
+    }
+
+    /** P630h: fusion_gains with its base (the short exposure's trim: base ^ (L / S)). */
+    public static float[] fusionGains(float actualShortTet, float desiredShortTet, float desiredLongTet, float commonGain,
+                                      float maxGain, float base) {
         final float adjustedShort = powf(base, desiredLongTet / desiredShortTet) * desiredShortTet;
         final float shortGain = (adjustedShort / actualShortTet) * commonGain;
         final float longGain = (desiredLongTet / actualShortTet) * commonGain;
@@ -126,6 +164,10 @@ public final class OldstyleAe {
         /** S* and L* over the frame's TET. */
         public float shortRel, longRel;
         public float fractionLong;
+        /** P630g: max(R, G, B) of every sample, ascending (the light's distribution: OldstyleLive's white of a clipped frame). */
+        public float[] sortedMax;
+        /** P630g: the luma of every sample, ascending (OldstyleLive: the ISP's gain over this frame from the screen frame's mean). */
+        public float[] sortedLuma;
 
         public float ratio() {
             return longRel / shortRel;
@@ -152,27 +194,45 @@ public final class OldstyleAe {
      * still to be exposed); on a merge the light is what it is (a lower S* would only darken the picture: nothing more to recover).
      */
     public static Meter meter(float[] rgb, int w, int h, boolean v31, float ceiling, boolean capture) {
+        final Params p = new Params();
+        p.v31 = v31;
+        return meter(rgb, w, h, p, ceiling, capture);
+    }
+
+    /**
+     * P630h: the meter with the settings' numbers ({@code p}: the light's percentile and its place under white, the shadows' shift
+     * of L*, F's centre weighting; the profile {@code p.v31}).
+     */
+    public static Meter meter(float[] rgb, int w, int h, Params p, float ceiling, boolean capture) {
+        final boolean v31 = p.v31;
         final int n = Math.min(rgb.length / 3, Math.max(0, w) * Math.max(0, h));
         final Meter m = new Meter();
-        final float[] max = new float[n];
+        final float[] max = new float[n], luma = new float[n];
         double logSum = 0, sum = 0;
         for (int i = 0; i < n; i++) {
             final float r = clean(rgb[i * 3], ceiling), g = clean(rgb[i * 3 + 1], ceiling), b = clean(rgb[i * 3 + 2], ceiling);
             max[i] = Math.max(r, Math.max(g, b));
             final float y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            luma[i] = y;
             logSum += Math.log(Math.max(1e-4f, y));
             sum += y;
         }
+        Arrays.sort(luma);
         final float[] sorted = max.clone();
         Arrays.sort(sorted);
-        m.high = n == 0 ? 1f : Math.max(1e-3f, sorted[Math.min(n - 1, (int) (HIGH_PERCENTILE * (n - 1)))]);
+        m.sortedMax = sorted;
+        m.sortedLuma = luma;
+        m.high = n == 0 ? 1f : Math.max(1e-3f, sorted[Math.max(0, Math.min(n - 1, (int) (p.highPercentile * (n - 1))))]);
         m.geoMean = n == 0 ? 0.18f : (float) Math.exp(logSum / n);
         m.mean = n == 0 ? 0.18f : Math.max(1e-4f, (float) (sum / n));
         m.clipped = m.high >= CLIP_LEVEL * ceiling;
-        m.shortRel = SHORT_WHITE / m.high * (m.clipped && capture ? CLIPPED_STEP : 1f);
-        m.longRel = m.shortRel * ratioFit(v31, m.high, m.geoMean, m.mean);
+        // before a shot a light at the ceiling is taken for a brighter one (the frame holds no more than "at least white"): S* keeps
+        // that light, and L* / S* is fitted for it (P630g: L* followed S* down by the whole step with the ratio of the clipped light)
+        final float light = m.high / (capture ? clippedFactor(m.high / ceiling) : 1f);
+        m.shortRel = p.shortWhite / light;
+        m.longRel = m.shortRel * ratioFit(v31, light, m.geoMean, m.mean) * (p.shadowEv == 0f ? 1f : powf(2f, p.shadowEv));
         double kept = 0, total = 0;
-        final double k = 1.0 / (2.0 * F_SIGMA * F_SIGMA);
+        final double k = 1.0 / (2.0 * p.centerSigma * p.centerSigma);
         for (int y = 0; y < h; y++) {
             final double dy = (h > 1 ? y / (double) (h - 1) : 0.5) - 0.5;
             for (int x = 0; x < w; x++) {
@@ -216,13 +276,45 @@ public final class OldstyleAe {
          */
         public boolean lowFrequency = true;
         public int lfThreshold = LF_THRESHOLD;
+        // ---- P630h: the numbers behind the rows of «Oldstyle Тон»; every default the behaviour before the rows ----
+        /** {@link #HDR_AUTO}, {@link #HDR_ON}, {@link #HDR_OFF}. */
+        public int hdrMode = HDR_AUTO;
+        /** plan27: HDR from / to this L* / S*, the ratio's cap. */
+        public float v1HdrMin = V1_HDR_MIN, v1HdrMax = V1_HDR_MAX, v1RatioCap = V1_RATIO_CAP;
+        /** plan31 (RAW): the scene flag, the ratio's max and its forgiveness. */
+        public float v2HdrMin = V2_HDR_MIN, v2RatioMax = V2_RATIO_MAX, v2Forgiveness = V2_FORGIVENESS;
+        /** fusion_gains' base: the short exposure's trim by base ^ (L / S). */
+        public float fusionBase = FUSION_BASE;
+        /** The mode's own exposure shift in EV (before the tone, with the style's). */
+        public float baseEv = 0f;
+        /** The meter: the light's percentile (share of the samples) and where S* keeps it (share of white). */
+        public float highPercentile = HIGH_PERCENTILE, shortWhite = SHORT_WHITE;
+        /** The meter: L* over its fit, in EV (the shadows' exposure). */
+        public float shadowEv = 0f;
+        /** The meter: F's centred Gaussian (shares of the frame's sides; large: the whole frame alike). */
+        public float centerSigma = F_SIGMA;
+        /** The module's tone curve shaped: the midtones in EV-like steps (0: the module's), the S-contrast (-1 .. 1, 0: the module's). */
+        public float curveMid = 0f, curveContrast = 0f;
+        /** V1: the colour matrix's share (1: the camera's CCM, 0: none). */
+        public float ccmStrength = 1f;
+        /** V1's low-frequency colour: only the colour (true), or the brightness too; its share of the transfer (0 .. 1). */
+        public boolean lfChroma = true;
+        public float lfStrength = 1f;
+        /** The burst: frames (0: the photo mode's count), its longest capture in seconds, the shutter it may grow to in ms. */
+        public int burstFrames = 0;
+        public float burstSeconds = 0.7f, shutterFloorMs = 1000f / 60f;
+        /** The viewfinder's live tone: on, its own brightness in EV, its match to the photo (0 .. 1), its smoothing in seconds. */
+        public boolean vfTone = true;
+        public float vfEv = 0f, vfMatch = 1f, vfSmooth = 0.5f;
+        /** V2: the share of the free memory its buffers may take before V1 runs instead. */
+        public float memoryShare = 0.6f;
 
         /** OldstyleNative.render's post array. */
         public float[] post() {
             final boolean sat = Math.abs(outSat) >= 1f / 256f || Math.abs(vibrance - 1f) >= 1f / 256f
                     || Math.abs(satPerStop) >= 1e-4f || Math.abs(vibrancePerStop) >= 1e-4f;
             return new float[]{dehaze ? 1f : 0f, maxDark, percentile, cornerStrength, sat ? 1f : 0f, outSat, vibrance, satPerStop,
-                    vibrancePerStop, lowFrequency ? 1f : 0f, lfThreshold, 1f};
+                    vibrancePerStop, lowFrequency ? 1f : 0f, lfThreshold, lfChroma ? 1f : 0f, lfStrength, curveMid, curveContrast};
         }
     }
 
@@ -241,6 +333,16 @@ public final class OldstyleAe {
         public final double frameTet;
         /** The viewfinder's EV compensation, in the rule (plan27: in the candidates; plan31: its ev). */
         public final float ev;
+        /** P630f: the metered RAW frame's mean luma (0: not known), for the screen's tone ({@link OldstyleAe#ispGain}). */
+        public float meterMean;
+        /** P630g: the metered frame's max(R, G, B) samples, ascending (null: not known), and its ceiling. */
+        public float[] meterTop;
+        public float meterCeiling = 1f;
+        /** P630g: the metered frame's luma samples, ascending (null: not known). */
+        public float[] meterLuma;
+        /** P630g: the metered samples themselves (interleaved linear RGB, meterW x meterH; null: not kept). */
+        public float[] meterRgb;
+        public int meterW, meterH;
 
         public Capture(double shortCandidate, double longCandidate, float fractionLong, boolean hdrScene, boolean hdr,
                        double shortTet, double longTet, float ev) {
@@ -277,11 +379,44 @@ public final class OldstyleAe {
         return rule(v31, shortRel, longRel, fractionLong, 0f);
     }
 
+    /**
+     * P630h: the rule with the settings' numbers. «HDR» on: two exposures whenever L* is above S* (no lower or upper threshold, the
+     * ratio still capped); off: never (the plan is the candidates, the picture one exposure at L*).
+     */
+    public static ExposurePlan rule(Params p, float shortRel, float longRel, float fractionLong, float ev) {
+        final boolean on = p.hdrMode == HDR_ON, off = p.hdrMode == HDR_OFF;
+        final float open = Math.nextUp(1f);
+        if (p.v31) {
+            return plan31(shortRel, longRel, fractionLong, off, ev, 0f, Float.MAX_VALUE, on ? open : p.v2HdrMin, p.v2RatioMax,
+                    on ? Float.POSITIVE_INFINITY : p.v2Forgiveness);
+        }
+        final float k = powf(2f, ev);
+        final ExposurePlan e = plan27(shortRel * k, longRel * k, fractionLong, on ? open : p.v1HdrMin,
+                on ? Float.POSITIVE_INFINITY : p.v1HdrMax, p.v1RatioCap);
+        if (off) {
+            e.useHdr = false;
+            e.shortPlan = e.shortCandidate;
+            e.longPlan = e.longCandidate;
+        }
+        return e;
+    }
+
     /** The capture's plan of the viewfinder's metered frame at TET {@code frameTet} (ns x ISO), EV compensation {@code ev}. */
     public static Capture capture(Meter m, boolean v31, double frameTet, float ev) {
-        final ExposurePlan p = rule(v31, m.shortRel, m.longRel, m.fractionLong, ev);
-        return new Capture(m.shortRel * frameTet, m.longRel * frameTet, m.fractionLong, p.hdrScene, p.useHdr,
+        final Params p = new Params();
+        p.v31 = v31;
+        return capture(m, p, frameTet, ev);
+    }
+
+    /** P630h: the capture's plan through the settings' rule ({@link #rule(Params, float, float, float, float)}). */
+    public static Capture capture(Meter m, Params params, double frameTet, float ev) {
+        final ExposurePlan p = rule(params, m.shortRel, m.longRel, m.fractionLong, ev);
+        final Capture c = new Capture(m.shortRel * frameTet, m.longRel * frameTet, m.fractionLong, p.hdrScene, p.useHdr,
                 p.shortPlan * frameTet, p.longPlan * frameTet, ev);
+        c.meterMean = m.mean;
+        c.meterTop = m.sortedMax;
+        c.meterLuma = m.sortedLuma;
+        return c;
     }
 
     public static Capture capture(Meter m, boolean v31, double frameTet) {
@@ -352,6 +487,26 @@ public final class OldstyleAe {
         return new float[]{g, g};
     }
 
+    /** The mean of an ISP viewfinder frame linearised by 2.2 (its AE and tone put a scene about there). */
+    public static final float ISP_LINEAR_MEAN = 0.18f;
+
+    /**
+     * P630f: how much brighter than the RAW the ISP's viewfinder frame already is, linearised: {@link #ISP_LINEAR_MEAN} over the
+     * RAW frame's mean luma (the meter's), 1..16; 1 when the mean is not known. The plan's gains are over the RAW frame; the
+     * screen's tone is applied to the ISP frame, which its own gain and curve have brightened (owner's recording, a room: RAW
+     * mean 0.051, gains 2.75 / 5.44 on top of the ISP's ~3.5 - the keys of a keyboard burnt out).
+     */
+    public static float ispGain(float rawMean) {
+        return rawMean > 0f && Float.isFinite(rawMean) ? Math.max(1f, Math.min(16f, ISP_LINEAR_MEAN / rawMean)) : 1f;
+    }
+
+    /** P630f: {@link #viewfinderGains} for the ISP frame on the screen: both gains over {@link #ispGain} of the metered RAW mean. */
+    public static float[] viewfinderGainsOnIsp(Capture c, float maxGain) {
+        final float[] g = viewfinderGains(c, maxGain);
+        final float k = ispGain(c.meterMean);
+        return new float[]{g[0] / k, g[1] / k};
+    }
+
     /** V2's scale of the frame into the module: its brightest sample at most white (1 / max, at most 1). */
     public static float inputScale(float maxSample) {
         return maxSample > 1f && Float.isFinite(maxSample) ? 1f / maxSample : 1f;
@@ -369,7 +524,7 @@ public final class OldstyleAe {
      * the largest linear value the merge can hold.
      */
     public static Plan plan(float[] rgb, int w, int h, Params p, float ceiling, Capture capture, double actualFrameTet) {
-        final Meter m = meter(rgb, w, h, p.v31, ceiling);
+        final Meter m = meter(rgb, w, h, p, ceiling, false);
         final Plan plan = new Plan();
         plan.meter = m;
         float top = 0f;
@@ -388,7 +543,7 @@ public final class OldstyleAe {
             longRel = m.longRel;
             fraction = m.fractionLong;
         }
-        final ExposurePlan e = rule(p.v31, shortRel, longRel, fraction, capture != null && actualFrameTet > 0 ? capture.ev : 0f);
+        final ExposurePlan e = rule(p, shortRel, longRel, fraction, capture != null && actualFrameTet > 0 ? capture.ev : 0f);
         plan.shortCandidate = shortRel;
         plan.longCandidate = longRel;
         plan.fractionLong = fraction;
@@ -397,7 +552,7 @@ public final class OldstyleAe {
         plan.shortTet = e.shortPlan;
         plan.longTet = e.longPlan;
         // the style's exposure: both TETs (a real exposure change; the ratio and the decision stay)
-        final float k = powf(2f, p.exposureEv);
+        final float k = powf(2f, p.exposureEv + p.baseEv);
         plan.shortTet *= k;
         plan.longTet *= k;
         final float sdr = plan.longCandidate * k * (capture != null && actualFrameTet > 0 ? powf(2f, capture.ev) : 1f);
@@ -405,7 +560,7 @@ public final class OldstyleAe {
         plan.inputScale = p.v31 && plan.hdr ? inputScale(top) : 1f;
         plan.actualTet = plan.inputScale;
         if (plan.hdr) {
-            final float[] g = fusionGains(plan.actualTet, plan.shortTet, plan.longTet, 1f, p.maxGain);
+            final float[] g = fusionGains(plan.actualTet, plan.shortTet, plan.longTet, 1f, p.maxGain, p.fusionBase);
             plan.gainShort = g[0];
             plan.gainLong = g[1];
         } else {

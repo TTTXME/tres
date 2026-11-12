@@ -278,9 +278,11 @@ public class ScamHybridBurstAnyResolutionTest {
      */
     @Test public void theStaticMergeWaitsByItsOwnAlarm() {
         assertEquals(900, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, false, false));
-        assertEquals(934, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, false));      // 12.5 MP: alarm 874 + 60
-        assertEquals(3556, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, true));      // the CPU: x4, 3496 + 60
-        assertEquals(3556, ScamHybridBurst.workerTimeoutSeconds(8160, 6120, true, false));     // 50 MP: 3496 + 60 (other modes 2810)
+        // P639: the worker's alarm is 300 s per 12 MP on a GPU, 1200 s on the CPU; it re-arms itself with the CPU's when it steps
+        // down mid-shot, so the app waits for the CPU's on either backend
+        assertEquals(1308, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, false));     // 12.5 MP: the CPU's alarm 1248 + 60
+        assertEquals(1308, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, true));
+        assertEquals(3600, ScamHybridBurst.workerTimeoutSeconds(8160, 6120, true, false));     // 50 MP: the 3540 cap + 60 (other modes 2810)
         assertEquals(3600, ScamHybridBurst.workerTimeoutSeconds(16320, 12240, true, false));   // 200 MP: the 3540 cap + 60
     }
 

@@ -112,8 +112,9 @@ public class GalleryViewModel extends AndroidViewModel {
      */
     public void loadAsync(@androidx.annotation.Nullable Runnable then) {
         final int seq = ++loadSeq;
-        final long t0 = android.os.SystemClock.uptimeMillis();
+        final long asked = android.os.SystemClock.uptimeMillis();
         LOADER.execute(() -> {
+            final long t0 = android.os.SystemClock.uptimeMillis(); // P637: after the wait for an older read
             Media m = null;
             try {
                 m = read();
@@ -122,10 +123,12 @@ public class GalleryViewModel extends AndroidViewModel {
                 com.particlesdevs.photoncamera.util.Log.w("GalleryMedia", "load: " + e);
             }
             final Media read = m;
-            final long readMs = android.os.SystemClock.uptimeMillis() - t0;
+            final long done = android.os.SystemClock.uptimeMillis(), readMs = done - t0;
             main.post(() -> {
                 if (seq == loadSeq) publish(read != null ? read : empty()); // a failed read: the gallery's empty state, not a crash
-                com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.listed(read != null ? read.all.getFiles().size() : -1, readMs);
+                // P637: where the time went - waiting for the loader thread, the read, waiting for the main thread
+                com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.listed(read != null ? read.all.getFiles().size() : -1, readMs,
+                        t0 - asked, android.os.SystemClock.uptimeMillis() - done);
                 if (then != null) then.run();
             });
         });
@@ -184,9 +187,111 @@ public class GalleryViewModel extends AndroidViewModel {
         currentFolder_ = currentFolder;
         // P498: the view's filter / order and the photos pending deletion (GalleryView), the same list for the grid and the viewer
         final boolean fav = com.particlesdevs.photoncamera.gallery.model.GalleryView.FAVOURITES.equals(currentFolderName);
-        currentFolderImages.setValue(com.particlesdevs.photoncamera.gallery.model.GalleryView.active(getApplication(), fav)
+        // P637: the viewer showed the camera's last photo alone so far: it stays on that photo in the list read now
+        if (shownBase == null && front != null) frontSelect = true;
+        shownBase = com.particlesdevs.photoncamera.gallery.model.GalleryView.active(getApplication(), fav)
                 ? com.particlesdevs.photoncamera.gallery.model.GalleryView.apply(getApplication(), currentFolder.getFiles(), fav)
-                : currentFolder.getFiles());
+                : currentFolder.getFiles();
+        currentFolderImages.setValue(withFront(shownBase));
+    }
+
+    // ---------------------------------------------------------------- P637: the camera's newest photo ahead of the lists
+
+    /**
+     * P637 (owner, 2026-11-12: the viewer opened from the camera stayed black until MediaStore was read and, right after a shot,
+     * until the shot was saved and scanned): the camera's newest photo, known by its file in this process, shown first while the
+     * media lists do not have it - before the first read, and between its save and the scanner's row. It leaves when a read
+     * finds the same file (by path or row). Only «ALL» (and the list before the first read) gets it.
+     */
+    @androidx.annotation.Nullable private GalleryItem front;
+    /** The viewer moves to the front photo when it binds the next list. */
+    private boolean frontSelect;
+    /** The folder shown, filtered, without the front photo; null before the first list. */
+    @androidx.annotation.Nullable private List<GalleryItem> shownBase;
+
+    /**
+     * Shows {@code file} first in the viewer's list now ({@code select}: and moves the viewer to it; false: the viewer stays on
+     * the photo it shows, the caller says which with {@link #selectNext}). A file the list already has is only selected.
+     */
+    public void showFront(ImageFile file, boolean select) {
+        front = new GalleryItem(file);
+        frontSelect = select;
+        currentFolderImages.setValue(withFront(shownBase != null ? shownBase : new ArrayList<>()));
+    }
+
+    /** What the camera handed to this gallery at its tap (CameraHandoff), for the viewer's first view; null otherwise. */
+    @androidx.annotation.Nullable private com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.Open opening;
+
+    public void setOpening(@androidx.annotation.Nullable com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.Open o) {
+        opening = o;
+        if (o != null) byCamera = true;
+    }
+
+    private boolean byCamera;
+
+    /** This gallery was opened by the camera's thumbnail (its viewer hears the camera's saves). */
+    public boolean openedByCamera() {
+        return byCamera;
+    }
+
+    /** Once: the viewer's first view takes it. */
+    @androidx.annotation.Nullable
+    public com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.Open takeOpening() {
+        com.particlesdevs.photoncamera.gallery.ui.CameraHandoff.Open o = opening;
+        opening = null;
+        return o;
+    }
+
+    /** The front photo while the lists do not have it, else null. */
+    @androidx.annotation.Nullable
+    public GalleryItem front() {
+        return front;
+    }
+
+    /**
+     * The scanner filed the front photo: the same item gets its MediaStore row (the viewer's page stays as it is - the picture
+     * is the same file - and share / edit / delete have a row to work on). False when {@code path} is not the front photo.
+     */
+    public boolean frontScanned(String path, android.net.Uri row) {
+        if (front == null || path == null || !path.equals(front.getFile().getAbsolutePath())) return false;
+        com.particlesdevs.photoncamera.gallery.files.MediaFile f = front.getFile();
+        long id;
+        try {
+            id = android.content.ContentUris.parseId(row);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        front.setFile(new ImageFile(id, row, f.getDisplayName(), f.getLastModified(), f.getSize(), f.getAbsolutePath()));
+        setUpdatePending(true); // MediaStore has the row now: the library reads it when it is next shown
+        return true;
+    }
+
+    /** {@code list} with the front photo first when it applies and the list does not have it; selects it when asked. */
+    private List<GalleryItem> withFront(List<GalleryItem> list) {
+        if (front == null) return list;
+        if (currentFolderName != null && !"ALL".equals(currentFolderName)) return list;
+        final com.particlesdevs.photoncamera.gallery.files.MediaFile f = front.getFile();
+        for (GalleryItem i : list) {
+            if (!sameFile(f, i.getFile())) continue;
+            // the lists have it now: their item from here on
+            if (frontSelect || (pendingSelect != null && pendingSelect.equals(f.getFileUri()))) pendingSelect = i.getFile().getFileUri();
+            front = null;
+            frontSelect = false;
+            return list;
+        }
+        List<GalleryItem> out = new ArrayList<>(list.size() + 1);
+        out.add(front);
+        out.addAll(list);
+        if (frontSelect) pendingSelect = f.getFileUri();
+        frontSelect = false;
+        return out;
+    }
+
+    /** The same file: equal paths, else the same MediaStore row. */
+    static boolean sameFile(com.particlesdevs.photoncamera.gallery.files.MediaFile a, @androidx.annotation.Nullable com.particlesdevs.photoncamera.gallery.files.MediaFile b) {
+        if (b == null) return false;
+        if (a.getAbsolutePath() != null && a.getAbsolutePath().startsWith("/") && a.getAbsolutePath().equals(b.getAbsolutePath())) return true;
+        return a instanceof ImageFile && sameMedia((ImageFile) a, b);
     }
 
     /** P498: the folder shown, before the view's filter. */

@@ -33,8 +33,9 @@ struct StParams {
     int32_t K=0,W=0,H=0,s=2,r0=0,RH=0,WH=0,rows=0,cfa=0,mode=0,tile=64,ntx=1,nty=1,spread=2,frame0=0,outRows=0;
     float mu=0,stepc=1.8f,lc=0,ll=0,delta=1,robK=3,robTau=0.15f,clipLvl=0.98f,sig2=1,lam=0.1f,lamFloor=1e-4f,maxShift=3,wbR=1,wbB=1;
     int32_t bs=0; // P627: log2 of the colour block
+    int32_t row0=0; // P639: first row of this dispatch (the field pass: first tile row)
 };
-static_assert(sizeof(StParams)==124,"StParams: 31 scalars (the push constants' 128 B limit)");
+static_assert(sizeof(StParams)==128,"StParams: 32 scalars (the push constants' 128 B limit)");
 
 // buffer slots of a merge
 enum StBuf { bFrames, bRaw, bZ, bZ2, bX, bRW, bR, bWb, bT, bW, bFld, bFld2, bOut, bCnt, bCd, kStBufs }; // bCd: P627's colour prior
@@ -53,6 +54,16 @@ public:
     virtual void dispatch(const StDispatch& d)=0;
     virtual void copy(int src,int dst,size_t bytes)=0;
     virtual void submitWait()=0;                           // the recorded work, one fence
+    // P639: the work recorded since the last slice as its own submission, waited for; the ms it took. A strip's passes in one
+    // submission ran ~2 s on an Adreno 830 (12 MP, 162 rows): the viewfinder's draws queued behind it (2 - 3 fps) and the third
+    // strip was dropped by the driver (the kernel's 2 s limit on one command batch: P29's note in scam-hybrid.h dispatchRows),
+    // caught by the strip guard. Short slices: no batch near that limit, the viewfinder's work runs between two of them.
+    virtual double slice()=0;
+    // how many slices the backend keeps queued (1: slice() returns when its own work is done; 2 - GLES: when the one before is
+    // done, so the GPU always holds the next and does not idle while this thread wakes up) and the wait for all of them
+    virtual int inFlight() const{return 1;}
+    virtual void drain(){}
+    virtual void flush(){}                                 // P638: what was dispatched so far goes to the GPU now (not waited for)
     virtual void read(int buf,size_t off,size_t bytes,void* dst)=0; // after submitWait
     virtual void stamp(int buf,const std::vector<size_t>& words,uint32_t value)=0; // the strip guard's sentinels (before submit)
     virtual size_t maxBuffer() const=0;                    // the largest storage buffer the device takes
@@ -94,6 +105,8 @@ public:
     ~StGles() override{cleanup();}
     void cleanup(){
         if(display!=EGL_NO_DISPLAY&&context!=EGL_NO_CONTEXT&&eglMakeCurrent(display,surface,surface,context)){
+            for(GLsync f:pending)glDeleteSync(f);
+            pending.clear();
             for(GLuint p:prog)if(p)glDeleteProgram(p);
             if(ubo)glDeleteBuffers(1,&ubo);
             glDeleteBuffers(kStBufs,buf.data());
@@ -169,20 +182,42 @@ public:
         glDispatchCompute(d.gx,d.gy,d.gz);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_BUFFER_UPDATE_BARRIER_BIT|GL_UNIFORM_BARRIER_BIT);
     }
+    // P638: each pass a submission of its own (the same commands in the same order). A strip's ~80 passes went to the GPU as
+    // one batch of ~2 s: nothing else of the phone's GPU ran meanwhile (the viewfinder's draws of 1.9 - 2.0 s in the vivo
+    // X200 Ultra's log of 31258) and a batch that long is what a driver's hang detection gives up on (its rows not written).
+    // P639: the solve calls it after a pass it does not slice (staticSliceMs 0); a sliced pass's submissions are slice()'s,
+    // shorter and waited for
+    void flush() override{glFlush();}
     void copy(int src,int dst,size_t bytes) override{
         glBindBuffer(GL_COPY_READ_BUFFER,buf[size_t(src)]);glBindBuffer(GL_COPY_WRITE_BUFFER,buf[size_t(dst)]);
         glCopyBufferSubData(GL_COPY_READ_BUFFER,GL_COPY_WRITE_BUFFER,0,0,GLsizeiptr(bytes));
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_BUFFER_UPDATE_BARRIER_BIT);
     }
-    void submitWait() override{
-        if(std::getenv("SCAM_STATIC_GLES_FAIL"))throw std::runtime_error("SCAM_STATIC_GLES_FAIL (host check of the backend ladder)");
-        GLsync f=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);glFlush();
+    std::vector<GLsync> pending; // P639: the submissions not yet waited for (at most two)
+    void waitOldest(){
+        GLsync f=pending.front();pending.erase(pending.begin());
         scam_progress::FenceWait fw;
         for(;;){const GLenum r=glClientWaitSync(f,GL_SYNC_FLUSH_COMMANDS_BIT,50000000);
             if(r==GL_ALREADY_SIGNALED||r==GL_CONDITION_SATISFIED)break;
             if(r==GL_WAIT_FAILED){glDeleteSync(f);throw std::runtime_error("GLES static: fence wait failed");}
             scam_progress::tick();}
         glDeleteSync(f);
+    }
+    int inFlight() const override{return 2;}
+    double slice() override{
+        const auto t0=std::chrono::steady_clock::now();
+        GLsync f=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);glFlush();
+        if(!f){glFinish();glGetError();}
+        else {pending.push_back(f);while(pending.size()>1)waitOldest();}
+        return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+    }
+    void drain() override{while(!pending.empty())waitOldest();}
+    void submitWait() override{
+        if(std::getenv("SCAM_STATIC_GLES_FAIL"))throw std::runtime_error("SCAM_STATIC_GLES_FAIL (host check of the backend ladder)");
+        // P638: one failed strip (the n-th submission since the variable was set), the ones after it fine
+        if(const char* at=std::getenv("SCAM_STATIC_GLES_FAIL_AT")){static int n=0;
+            if(++n==std::atoi(at))throw std::runtime_error("SCAM_STATIC_GLES_FAIL_AT (host check: one strip fails)");}
+        slice();drain();
         const GLenum e=glGetError();
         if(e!=GL_NO_ERROR)throw std::runtime_error("GLES static: GL error "+std::to_string(e));
     }
@@ -468,6 +503,11 @@ public:
                     if(!found)passMs.emplace_back(tsNames[i],ms);
                 }
         }
+    }
+    double slice() override{
+        const auto t0=std::chrono::steady_clock::now();
+        submitWait();begin();
+        return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
     }
     void read(int b,size_t off,size_t bytes,void* dst) override{std::memcpy(dst,static_cast<const char*>(bufs[size_t(b)].map)+off,bytes);}
     void stamp(int b,const std::vector<size_t>& words,uint32_t value) override{

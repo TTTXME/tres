@@ -1,5 +1,6 @@
 #include "tone_port.h"
 #include "raw_image.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -129,7 +130,9 @@ std::vector<int16_t> tone_raw31_opponent(const RawUnsignedImage& src) {
     };
     const size_t count = width * height;
     std::vector<int16_t> output(3 * count);
-    for (size_t y = 0; y < height; ++y) {
+    detail::parallel_rows(0, std::ptrdiff_t(height), 12 * std::ptrdiff_t(width),
+                          [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+    for (size_t y = size_t(first); y < size_t(last); ++y) {
         for (size_t x = 0; x < width; ++x) {
             const size_t i = y * src.row_stride + x;
             const int r = map(src.data[i]);
@@ -142,6 +145,7 @@ std::vector<int16_t> tone_raw31_opponent(const RawUnsignedImage& src) {
             output[2 * count + offset] = static_cast<int16_t>(std::clamp(luma - b, -4095, 4095));
         }
     }
+    });
     return output;
 }
 
@@ -152,7 +156,9 @@ std::vector<uint8_t> pack_raw31_rgb8(const RawRgbImage& opponent, float saturati
         throw std::invalid_argument("Invalid RAW saturation adjustment");
     }
     std::vector<uint8_t> output(3 * opponent.width * opponent.height);
-    for (size_t y = 0; y < opponent.height; ++y) {
+    detail::parallel_rows(0, std::ptrdiff_t(opponent.height), 40 * std::ptrdiff_t(opponent.width),
+                          [&](std::ptrdiff_t first, std::ptrdiff_t last) {
+    for (size_t y = size_t(first); y < size_t(last); ++y) {
         for (size_t x = 0; x < opponent.width; ++x) {
             const size_t i = y * opponent.row_stride + x;
             const auto rgb = apply_raw_color31(opponent.data[i], opponent.data[opponent.plane_stride + i],
@@ -164,6 +170,7 @@ std::vector<uint8_t> pack_raw31_rgb8(const RawRgbImage& opponent, float saturati
             for (size_t c = 0; c < rgb.size(); ++c) output[dst + c] = quantize(rgb[c], dither);
         }
     }
+    });
     return output;
 }
 

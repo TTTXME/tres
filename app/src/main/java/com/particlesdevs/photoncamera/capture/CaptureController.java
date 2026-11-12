@@ -422,6 +422,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private volatile VivoSdkRawSession mVivoSdkRawSession;
     /** P275: the vivo SDK lease (VCF bypass, SDK RAW) an X300 Ultra ISZ module holds while its camera is open. */
     private volatile VivoSdkRawSession mIszLease;
+    /** P640: the lease's open / close steps (the camera thread, the device's callbacks, the lease thread). */
+    private final Object mIszLeaseLock = new Object();
     private volatile CameraDevice mVivoSdkRawDevice;
     private volatile VivoSdkFullResCapture mVivoSdkCapture;
     private String mVivoSdkCameraId;
@@ -612,6 +614,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 return;
             }
 
+            // P635b: the proof still of a recipe session (no shot in flight: a shot's frames go their own way below)
+            if (mRecipeProof == 2 && mRecipePlan != null && !mNativeRawPslCapture && !mScamRouted) {
+                Image proof;
+                try { proof = reader.acquireNextImage(); } catch (IllegalStateException closed) { return; }
+                if (proof != null) recipeProofFrame(proof);
+                return;
+            }
             if (mVivoSdkRawSession != null) {
                 Image image;
                 try { image = reader.acquireNextImage(); } catch (IllegalStateException closed) { return; }
@@ -953,6 +962,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     final Object nubiaRun = NubiaRemosaicProbe.token();
                     new Handler(Looper.getMainLooper()).post(() -> sendNubiaMaxResProof(nubiaRun));
                 }
+                // P635b: an unproven recipe's proof still, once the session's viewfinder runs
+                if (mRecipeProof == 1 && mRecipePlan != null && session == mCaptureSession) sendRecipeProof();
                 // P608: a frame verdict of the maximum-resolution session that waited for the mode, once the full row is reported
                 final int[] nubiaPending = mFullResSession ? NubiaRemosaicProbe.takePending(physicalID) : null;
                 if (nubiaPending != null) {
@@ -1051,9 +1062,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 }
                 mPreviewCaptureRequest = request;
                 mPreviewCaptureResult = result;
+                if (mRecipePlan != null && session == mCaptureSession) recipeAfTrace(request, result); // P635c
                 logSensorModeIndex(result);
                 VivoQcomModes.onResult(result, physicalID);
-                if (mDcgOperationMode != 0) XiaomiDcg.onResult(result, mCameraCharacteristics, physicalID); // P230: the mode the HAL runs
+                if (mDcgOperationMode != 0 && XiaomiDcg.device()) XiaomiDcg.onResult(result, mCameraCharacteristics, physicalID); // P230: the mode the HAL runs
+                // P641: the Xiaomi 17 Ultra's dual-gain variant: what the HAL reports, the depth it shows, the verdict once
+                if (XiaomiDualGain.sessionActive() && session == mCaptureSession
+                        && XiaomiDualGain.onResult(result, mCameraCharacteristics) == XiaomiDualGain.Verdict.FAILED) dualGainNextVariant();
                 if (mDcgRequestKeys && mImageReaderRaw != null) SensorModeBand.noteResult(mCameraCharacteristics, result,
                         mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(), physicalID);
                 if (XiaomiTeleZoom.active() && isCurrentPreviewSession(session)
@@ -1184,6 +1199,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P635: a camera error in a recipe session fails the profile (the documents' device error 4 of a wrong field set):
             // the camera reopens with its normal session
             if (retryWithoutRecipe(null, "camera error " + error)) return;
+            // P641: a camera error in a session of a dual-gain variant fails that variant; the camera reopens with the next one
+            if (XiaomiDualGain.sessionFailed("died with camera error " + error)) {
+                mDcgOperationMode = 0;
+                mDcgRequestKeys = false;
+                SensorModeBand.sessionEnd();
+            }
             if (retryWithoutVivoSdkFullRes(null, "camera error " + error)) return;
             // P598: a nubia remosaic-probe session the camera died in before its first frame: that setting failed, the next one
             // P626: or while the per-shot way's proof burst was in flight (its MAXIMUM_RESOLUTION requests)
@@ -1557,6 +1578,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mXiaomiRouted = false;
         if (mVivoSdkRawSession != null) return;
         if (!Objects.equals(logicalID, physicalID)) return;
+        // P641: a session that asks the 75 mm's sensor for a row of its own - the dual-gain switch (XiaomiDualGain) or a row picked
+        // on the module («Режим сенсора»: the 4x ISZ kit's rows 12 / 26 / 29) - opens the camera alone: in the logical SAT session
+        // the HAL chooses the row itself
+        final String direct = XiaomiTeleIsz.directReason(physicalID, mCameraCharacteristicsMap.get(physicalID));
+        if (direct != null) {
+            Log.i(TAG, "Xiaomi 17 Ultra camera " + physicalID + " opens alone, not through the logical camera: " + direct + " (P641)");
+            return;
+        }
         if (VivoQcomModes.device() && VivoQcomModes.spoofPackage() != null
                 && PreferenceKeys.scamDevSwitch("vivo_qcom_logical", false)) {
             try {
@@ -2247,8 +2276,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (null != mCameraDevice) {
                 mCameraDevice.close();
                 mCameraDevice = null;
+                giveIszLeaseBack(); // P640
             } else if (!wasOpening) {
                 closeVivoSdkRawSession(null);
+                giveIszLeaseBack(); // P640: a lease taken for an open that failed (no device, so no onClosed) went nowhere
             }
             if (mVivoSdkJpeg != null) { mVivoSdkJpeg.close(); mVivoSdkJpeg = null; }
             if (!isProcessing) {
@@ -2265,6 +2296,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 ImageReader closingCompanion = mRecipeCompanion; // P635
                 mRecipeCompanion = null;
                 if (closingCompanion != null) closingCompanion.close();
+                closeLoficReader(); // P641d
             }
             if (null != mMediaRecorder) {
                 mMediaRecorder.release();
@@ -3007,7 +3039,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         if (mVivoSdkRestorePending) closeVivoSdkRawSession(null);
         // P179: a FULLRES lease left by a process of ours that died (LOW_MEMORY) is given back before a camera opens
         // (any phone of the native route, its switch on or off: a lease of a session that was killed must come back)
-        if (mVivoSdkRawSession == null && VivoNativeFullRes.phone() != null) VivoSdkRawSession.recoverStale(ScameraApp.getAppContext());
+        // P640: and whatever else is set and held by nobody (a give that failed, values left with no journal)
+        if (mVivoSdkRawSession == null && VivoNativeFullRes.phone() != null) {
+            final String swept = VivoSdkRawSession.sweep(ScameraApp.getAppContext());
+            if (!"none".equals(swept) && !"held".equals(swept)) Log.w("SCAM_CAPTURE", "vivo SDK lease left set (a camera opens): " + swept);
+        }
         if (!mVivoSdkClosed.await(2000, TimeUnit.MILLISECONDS))
             throw new IllegalStateException("Previous Vivo SDK camera has not closed");
         String id = ScameraApp.getSettings().mCameraID;
@@ -3098,27 +3134,74 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * the camera opens hands the HAL our vendor keys whatever the package; the values found are given back when it closes.
      */
     private void openIszLease(String id) {
-        if (mIszLease != null || mIsRecordingVideo || !(VivoQcomIsz.leaseWanted(id) || VivoPd2454NativeRaw.leaseWanted(id) || SensorModePick.leaseWanted(id))) return;
-        try {
-            mIszLease = VivoSdkRawSession.open();
-            mCameraCharacteristicsMap.remove(id);
-            Log.i("SCAM_CAPTURE", "ISZ camera " + id + ": vivo SDK lease taken (VCF 33 = 2, SDK RAW 40 = 1), given back on close");
-        } catch (Exception failure) {
-            mIszLease = null;
-            Log.w("SCAM_CAPTURE", "ISZ camera " + id + ": vivo SDK lease refused: " + failure);
+        synchronized (mIszLeaseLock) {
+            if (mIszLease != null || mIsRecordingVideo || !(VivoQcomIsz.leaseWanted(id) || VivoPd2454NativeRaw.leaseWanted(id) || SensorModePick.leaseWanted(id))) return;
+            try {
+                mIszLease = VivoSdkRawSession.open();
+                mCameraCharacteristicsMap.remove(id);
+                Log.i("SCAM_CAPTURE", "ISZ camera " + id + ": vivo SDK lease taken (VCF 33 = 2, SDK RAW 40 = 1), given back on close (found "
+                        + mIszLease.found() + ")");
+            } catch (Exception failure) {
+                mIszLease = null;
+                Log.w("SCAM_CAPTURE", "ISZ camera " + id + ": vivo SDK lease refused: " + failure);
+            }
         }
     }
 
     private void closeIszLease() {
-        final VivoSdkRawSession lease = mIszLease;
-        if (lease == null) return;
-        mIszLease = null;
-        try {
-            lease.close();
-            Log.i("SCAM_CAPTURE", "ISZ: vivo SDK lease given back");
-        } catch (Exception failure) {
-            Log.e(TAG, "ISZ: vivo SDK properties not restored: " + failure);
+        synchronized (mIszLeaseLock) {
+            final VivoSdkRawSession lease = mIszLease;
+            if (lease == null) return;
+            mIszLease = null;
+            try {
+                lease.close();
+                Log.i("SCAM_CAPTURE", "ISZ: vivo SDK lease given back");
+            } catch (Exception failure) {
+                Log.e(TAG, "ISZ: vivo SDK properties not restored: " + failure);
+                LeaseGuard.sweep("a give-back failed", 700); // P640: the values stay on the lease's books until they are back
+            }
         }
+    }
+
+    /**
+     * P640 (owner, X200 Ultra: the stock camera's viewfinder black after ours until a reboot): the lease of the camera that was
+     * just closed goes back on the lease thread now - CameraDevice.close() has disconnected the HAL - without waiting for
+     * onClosed (a callback of a thread that may be gone). Only that lease: a camera opened meanwhile has its own.
+     */
+    private void giveIszLeaseBack() {
+        final VivoSdkRawSession lease = mIszLease;
+        try {
+            if (lease != null) LeaseGuard.executor().execute(() -> {
+                synchronized (mIszLeaseLock) {
+                    if (mIszLease == lease) closeIszLease();
+                }
+            });
+        } catch (RuntimeException e) {
+            Log.w(TAG, "ISZ: lease give-back not queued: " + e);
+        }
+        LeaseGuard.later(this::leaseWithoutCamera, 1200);
+    }
+
+    /**
+     * P640: 1.2 s after a camera closed - a lease this controller still holds with no camera open and none opening went
+     * nowhere (a callback that never came): it goes back; then what is set and held by nobody ({@link LeaseGuard#sweep}).
+     */
+    private void leaseWithoutCamera() {
+        if (mCameraDevice == null && !mCameraOpening.get()) {
+            synchronized (mIszLeaseLock) {
+                if (mIszLease != null) {
+                    Log.w("SCAM_CAPTURE", "ISZ: vivo SDK lease held with no camera open: given back");
+                    closeIszLease();
+                }
+            }
+            synchronized (mVivoSdkLock) {
+                if (mVivoSdkRawSession != null && !VivoSdkFullRes.oppo() && mCameraDevice == null && !mCameraOpening.get()) {
+                    Log.w("SCAM_CAPTURE", "FULLRES: vivo SDK lease held with no camera open: given back");
+                    closeVivoSdkRawSession(mVivoSdkRawDevice);
+                }
+            }
+        }
+        LeaseGuard.sweep("a camera closed", 0);
     }
 
     private void closeVivoSdkRawSession(@Nullable CameraDevice device) {
@@ -3244,6 +3327,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             } catch (CameraAccessException e) {
                 mCameraOpening.set(false);
                 closeVivoSdkRawSession(null);
+                closeIszLease(); // P640: no device, no onClosed - the lease of a refused open goes back here
                 // No device callback follows a refused open: the lock taken above is released here (it used to stay held, so
                 // the next open waited 1 s and failed with "Time out waiting to lock camera opening").
                 if (openLockAcquired) mCameraOpenCloseLock.release();
@@ -3258,17 +3342,20 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // taking the app down with the HAL.
                 mCameraOpening.set(false);
                 closeVivoSdkRawSession(null);
+                closeIszLease(); // P640: no device, no onClosed - the lease of a refused open goes back here
                 if (openLockAcquired) mCameraOpenCloseLock.release();
                 if (retryWithoutXiaomiRoute(width, height, e)) return;
                 retryOpen(width, height, e);
             } catch (InterruptedException e) {
                 mCameraOpening.set(false);
                 closeVivoSdkRawSession(null);
+                closeIszLease(); // P640: no device, no onClosed - the lease of a refused open goes back here
                 if (openLockAcquired) mCameraOpenCloseLock.release();
                 throw new RuntimeException("Interrupted while trying to lock camera opening.", e);
             } catch (RuntimeException e) {
                 mCameraOpening.set(false);
                 closeVivoSdkRawSession(null);
+                closeIszLease(); // P640: no device, no onClosed - the lease of a refused open goes back here
                 if (openLockAcquired) mCameraOpenCloseLock.release();
                 cameraEventsListener.onProcessingError(e.getMessage());
                 Log.e(TAG, Log.getStackTraceString(e));
@@ -3637,7 +3724,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mRawMaxFps = ViewfinderFps.maxFps(characteristics, mTargetFormat, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(),
                 useMaximumResolutionKey);
         // P230: a DCG mode (60 fps only) has its own limits, not the normal mode's of the same RAW size
-        mExposureLimits = ExposureLimits.of(physicalID + (Dcg14Mode.requestKeys(characteristics) ? "/dcg" : ""),
+        // P641: the Xiaomi 17 Ultra's route by its switch (its variant is chosen when the session is configured)
+        mExposureLimits = ExposureLimits.of(physicalID + ((XiaomiDualGain.device() ? Dcg14Mode.active(characteristics)
+                        : Dcg14Mode.requestKeys(characteristics)) ? "/dcg" : ""),
                 mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(), useMaximumResolutionKey);
         // Find out if we need to swap dimension to get the preview size relative to sensor
         // coordinate.
@@ -3901,7 +3990,22 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mModeBarrier = false;
             final boolean xiaomiLogical = mXiaomiRouted && !Objects.equals(physicalID, logicalID);
             XiaomiTeleZoom.startSession(xiaomiLogical, PreferenceKeys.scamDevSwitch("xiaomi_tele_fallback", false));
+            // P641: the Xiaomi 17 Ultra's dual-gain route (DCG, DCG + LOFIC, the ultra wide's DSG) chooses this session's
+            // variant before anything asks for its keys or its streams; a kind with nothing left steps down here and says so
+            final boolean dualGainWanted = !xiaomiLogical && !sdkFullRes && !mFullResSession && mRecipePlan == null
+                    && !mIsRecordingVideo && XiaomiDualGain.device() && Dcg14Mode.active(mCameraCharacteristics);
+            String dualGainNote = XiaomiDualGain.sessionStart(physicalID, mCameraCharacteristics, dualGainWanted);
+            // P641d: the «lofic-pair» variant needs its second stream's reader; without one that variant failed, the next runs
+            if (XiaomiDualGain.pairWanted()) {
+                if (!openLoficReader() && XiaomiDualGain.sessionFailed("has no reader for the overflow stream (RAW10 needs Android 13)")) {
+                    final String note = XiaomiDualGain.sessionStart(physicalID, mCameraCharacteristics, dualGainWanted);
+                    if (note != null) dualGainNote = note;
+                    if (XiaomiDualGain.pairWanted()) XiaomiDualGain.sessionEnd(); // never twice: the plain session
+                }
+            } else closeLoficReader();
+            if (dualGainNote != null) showToast(dualGainNote);
             setCaptureRequestBuilder();
+            if (mLoficReader != null) mPreviewRequestBuilder.addTarget(mLoficReader.getSurface()); // P641d: every frame has its pair
             if (mMosaicPreview && XiaomiTeleZoom.ispPreview()) {
                 // P41: the switch owns the tele's sensor mode (a module's tunable current_mode is overridden): ISP preview
                 mMosaicPreview = false;
@@ -3911,6 +4015,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
             // Here, we create a CameraCaptureSession for camera preview.
             List<Surface> surfaces = configureSurfaces(isBurstSession);
+            final Surface loficSurface = mLoficReader == null ? null : mLoficReader.getSurface(); // P641d
+            if (loficSurface != null) {
+                surfaces = new ArrayList<>(surfaces);
+                surfaces.add(loficSurface);
+            }
             Log.d(TAG, "createCameraPreviewSession() surfaces:" + Arrays.toString(surfaces.toArray()));
             ArrayList<OutputConfiguration> outputConfigurations = new ArrayList<>();
             boolean croppedRaw = false;
@@ -3943,6 +4052,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // P108: every stream of the full-resolution session (sizes of the max-resolution map) in MAXIMUM_RESOLUTION mode
                 // P626: a nubia per-shot way - the RAW alone, the viewfinder DEFAULT (NubiaMaxResPlan)
                 // P635: a recipe's outputs - the vendor stream use case of the capture RAW alone, pixel modes only when annotated
+                // P641d: the overflow stream as the vendor's stream sets have it - RAW10 of the vendor use case 524554
+                if (surfacei == loficSurface && Build.VERSION.SDK_INT >= 33) config.setStreamUseCase(LoficPair.USE_CASE);
                 if (mRecipePlan != null) recipeOutput(config, surfacei);
                 else if (mFullResSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     for (int pixelMode : NubiaMaxResPlan.pixelModes(true, nubiaPerShot(), surfacei == rawSurface ? NubiaMaxResPlan.Stream.RAW
@@ -4143,7 +4254,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 final int dcgOperationMode = dcgRoute ? Dcg14Mode.operationMode(mCameraCharacteristics) : 0;
                 mDcgOperationMode = dcgOperationMode;
                 mDcgRequestKeys = dcgRoute;
-                SensorModeBand.sessionStart(dcgRoute, mCameraCharacteristics, dcgOperationMode != 0 ? XiaomiDcg.dcgMode() : -1);
+                SensorModeBand.sessionStart(dcgRoute, mCameraCharacteristics, XiaomiDualGain.sessionActive() ? XiaomiDualGain.askedRow()
+                        : dcgOperationMode != 0 ? XiaomiDcg.dcgMode() : -1);
                 XiaomiDcg.newSession();
                 mVendorOperationMode = xiaomiLogical || dcgOperationMode != 0 ? 0 : vendorMode;
                 // P598: the nubia remosaic probe's setting may be the stock QCFA mode's session operation mode (0x8012); a refusal
@@ -4439,7 +4551,115 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mRecipe = active;
         mRecipePlan = plan;
         FullResRecipeSession.session(plan);
-        Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " on: " + active.recipe + " (module " + active.slot + ", P635)");
+        // P635b: an unproven profile's first session takes one still to be judged before the owner shoots
+        mRecipeProof = FullResRecipeStore.provedActive(active) ? 0 : 1;
+        Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " on: " + active.recipe + " (module " + active.slot
+                + (active.autoRow >= 0 ? ", instead of the module's sensor mode row " + active.autoRow + ": that row alone gives no full frame, P635b" : "")
+                + (mRecipeProof == 1 ? ", not proven on this firmware yet: one proof still follows" : ", proven on this firmware") + ", P635)");
+    }
+
+    /**
+     * P635b: the proof still of a recipe session - one request as a shot's (the profile's template, the capture RAW and the
+     * companion, the still tags), sent after the session's first preview result; its frame is judged (FullResTruth) and dropped.
+     * Not the sensor's full readout, a failed request or no frame in {@link #RECIPE_PROOF_TIMEOUT_MS}: the profile fails and the
+     * normal session opens before the owner takes a shot; a real frame is remembered for the lens and this firmware.
+     */
+    private void sendRecipeProof() {
+        final CameraCaptureSession session = mCaptureSession;
+        final CameraDevice device = mCameraDevice;
+        final FullResRecipePlan plan = mRecipePlan;
+        final ImageReader raw = mImageReaderRaw;
+        if (session == null || device == null || plan == null || raw == null || mRecipeProof != 1 || shotInFlight() || mShotInProgress) return;
+        mRecipeProof = 2;
+        try {
+            final CaptureRequest.Builder b = device.createCaptureRequest(plan.recipe.stillTemplate > 0 ? plan.recipe.stillTemplate : CameraDevice.TEMPLATE_STILL_CAPTURE);
+            b.addTarget(raw.getSurface());
+            final ImageReader companion = mRecipeCompanion;
+            if (companion != null) b.addTarget(companion.getSurface());
+            else if (plan.viewfinderCompanion() && surface != null) b.addTarget(surface);
+            VendorTagUtils.builderSessionApply(b, true, false, physicalID);
+            recipeFocus(b); // P635c: the proof still does not let go of the viewfinder's focus
+            final Integer pixelMode = plan.pixelMode(true);
+            if (pixelMode != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) b.set(CaptureRequest.SENSOR_PIXEL_MODE, pixelMode);
+            if (plan.recipe.fpsLow > 0) b.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(plan.recipe.fpsLow, plan.recipe.fpsHigh));
+            session.capture(b.build(), new CameraCaptureSession.CaptureCallback() {
+                @Override public void onCaptureFailed(@NonNull CameraCaptureSession s, @NonNull CaptureRequest request, @NonNull CaptureFailure failure) {
+                    if (mRecipeProof != 2 || mRecipePlan != plan) return;
+                    mRecipeProof = 0;
+                    new Handler(Looper.getMainLooper()).post(() -> retryWithoutRecipe(mCaptureSession, "the proof still failed (reason " + failure.getReason() + ")"));
+                }
+            }, mBackgroundHandler);
+            Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + ": proof still sent (template " + FullResRecipe.templateName(plan.recipe.stillTemplate)
+                    + " -> " + plan.targets(true) + ", P635b)");
+        } catch (CameraAccessException | IllegalStateException | IllegalArgumentException e) {
+            mRecipeProof = 0;
+            retryWithoutRecipe(session, "the proof still was refused (" + e.getMessage() + ")");
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (mRecipeProof != 2 || mRecipePlan != plan) return;
+            mRecipeProof = 0;
+            // a shot taken meanwhile is judged by its own first frame
+            if (!shotInFlight() && !mShotInProgress) retryWithoutRecipe(mCaptureSession, "no frame of the proof still in " + RECIPE_PROOF_TIMEOUT_MS + " ms");
+        }, RECIPE_PROOF_TIMEOUT_MS);
+    }
+
+    /** P635b: the proof still's frame: judged, closed; the verdict fails the profile or is remembered for the lens. */
+    private void recipeProofFrame(Image img) {
+        final FullResRecipeStore.Active active = mRecipe;
+        FullResTruth.Result truth = null;
+        try {
+            CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
+            if (c == null) c = mCameraCharacteristics;
+            final float black = com.particlesdevs.photoncamera.processing.RawLevels.current(c, null).meanBlack();
+            if (img.getFormat() == ImageFormat.RAW_SENSOR)
+                truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(), black);
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "FULLRES RECIPE proof: " + e);
+        } finally {
+            img.close();
+        }
+        mRecipeProof = 0;
+        if (truth == null || active == null) return;
+        Log.i("SCAM_CAPTURE", truth.line("FULLRES RECIPE proof") + " (camera " + physicalID + ", P635b)");
+        if (truth.notReal(XiaomiSensorRow.device())) {
+            final String why = "the proof still is not the sensor's full readout (" + truth.line("proof") + ")";
+            new Handler(Looper.getMainLooper()).post(() -> retryWithoutRecipe(mCaptureSession, why));
+        } else if (truth.verdict == FullResTruth.Verdict.REAL) {
+            FullResRecipeStore.proveActive(active);
+        }
+    }
+
+    /**
+     * P635b: the first frame of a picked row's session is not the sensor's full readout (FullResTruth: a picture in a part of the
+     * buffer only, a doubled frame, no pedestal where the camera declares one): the row is not used as if it worked - the module
+     * goes back to «Авто», the camera restarts with its normal session, and the message names the way to the full resolution.
+     */
+    private void rowNotReal(SensorModePick.Pick pick, FullResTruth.Result truth) {
+        final String slot = com.particlesdevs.photoncamera.settings.ModuleRegistry.active();
+        boolean preset = false, failed = false;
+        try {
+            CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
+            if (c == null) c = mCameraCharacteristics;
+            preset = FullResRecipeStore.presetFor(String.valueOf(physicalID), c) != null;
+            failed = preset && FullResRecipeStore.failedHere(slot, String.valueOf(physicalID), c);
+            ScameraApp.getSettingsManagerStatic().getDefaultPreferences().edit().putString(SensorModePick.prefKey(slot), "-1").apply();
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "sensor mode row: " + e);
+        }
+        Log.w("SCAM_CAPTURE", "camera " + physicalID + " sensor mode row " + pick.mode + " " + pick.size + " gives no full frame ("
+                + truth.line("FULLRES ROW") + "): the module is back on Auto, the normal session opens (P635b)");
+        final CameraCaptureSession session = mCaptureSession;
+        if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
+        final String base = Lang.t("Режим сенсора ", "Sensor mode ") + pick.mode + " (" + pick.size + ")"
+                + Lang.t(" отдаёт не полный кадр: в буфере только часть картинки. Модуль снова в «Авто».",
+                " delivers no full frame: only a part of the buffer holds a picture. The module is back on Auto.");
+        showError(base + (!preset ? ""
+                : failed ? Lang.t(" Рецепт полного разрешения на этом объективе не запустился — причина в настройках объектива.",
+                " The full-resolution recipe did not run on this lens: the reason is in the lens settings.")
+                : Lang.t(" Для полного разрешения включите «Полное разрешение (рецепт)» в настройках объектива.",
+                " For the full resolution turn on “Full resolution (recipe)” in the lens settings.")));
+        new Handler(Looper.getMainLooper()).post(this::restartCamera);
     }
 
     /** P635: the readers of a recipe session: the capture RAW (the stills'), the viewfinder's binned RAW, the companion. */
@@ -4545,11 +4765,16 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      */
     private void recipeVerdict(FullResRecipeShot shot) {
         final FullResTruth.Result verdict = shot.verdict();
-        if (verdict == null || verdict.verdict != FullResTruth.Verdict.UPSCALED) return;
-        com.particlesdevs.photoncamera.util.UiMessages.info(Lang.t("Рецепт полного разрешения дал увеличенный кадр, а не настоящий полный: снимок сохранён обычным.",
-                "The full-resolution recipe gave an upscaled frame, not the real full one: the photo is saved as a normal one."));
+        if (verdict == null) return;
+        // P635b: a real frame proves the profile for the lens and this firmware (no proof still at its next sessions)
+        if (!shot.notReal()) {
+            if (verdict.verdict == FullResTruth.Verdict.REAL) FullResRecipeStore.proveActive(mRecipe);
+            return;
+        }
+        com.particlesdevs.photoncamera.util.UiMessages.info(Lang.t("Рецепт полного разрешения не дал настоящего полного кадра: снимок сохранён обычным, если это возможно.",
+                "The full-resolution recipe gave no real full frame: the photo is saved as a normal one where that is possible."));
         if (mRecipe != null) {
-            recipeFailed("the stills are the binned frame written twice over (" + verdict.line() + ")");
+            recipeFailed("the stills are not the sensor's full readout (" + verdict.line() + ")");
             new Handler(Looper.getMainLooper()).post(this::restartCamera);
         }
     }
@@ -4635,6 +4860,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mDcgOperationMode = 0;
         mDcgRequestKeys = false;
         SensorModeBand.sessionEnd();
+        // P641: on the Xiaomi 17 Ultra the refused session's variant failed, the switch stays: the restarted camera takes the next
+        // variant (or steps down when none is left - XiaomiDualGain.sessionStart). Each failure is remembered, so this ends.
+        if (XiaomiDualGain.sessionFailed(why)) {
+            if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
+            new Handler(Looper.getMainLooper()).post(this::restartCamera);
+            return true;
+        }
         Dcg14Mode.setMode(Dcg14Mode.OFF);
         final String what = mode != 0 ? "session mode 0x" + Integer.toHexString(mode) : "DCG route";
         Log.w("SCAM_CAPTURE", "camera " + physicalID + ": DCG session (" + what + ") refused (" + why + "): DCG off, a normal session");
@@ -4674,10 +4906,260 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     /** P108: Pixel 10 Pro / Pro XL full-resolution session (RAW at the max-resolution size, MAXIMUM_RESOLUTION pixel mode). */
     private volatile boolean mFullResSession;
     /** P635: the full-resolution recipe this session runs (null: none), its plan, its companion reader and its shot in flight. */
+    /** P635c: the floor of a recipe session's viewfinder frames (RaisedPedestal), measured four times a second. */
+    private final com.particlesdevs.photoncamera.processing.RaisedPedestal mRecipeViewFloor =
+            new com.particlesdevs.photoncamera.processing.RaisedPedestal();
+    private int mRecipeViewFloorSession = Integer.MIN_VALUE;
+    private long mRecipeViewFloorAtNs, mRecipeViewFloorLogNs;
+    private float mRecipeViewBlackLogged = Float.NaN;
+    /** P635c: the autofocus of a recipe session, a log line a second (RecipeAfTrace). */
+    private final RecipeAfTrace mRecipeAfTrace = new RecipeAfTrace();
+    private int mRecipeAfSession = Integer.MIN_VALUE;
+
+    private boolean recipeViewFloorOn() {
+        return mRecipePlan != null && PreferenceKeys.scamDevSwitch("recipe_vf_floor", true);
+    }
+
+    /**
+     * P635c: the levels of a viewfinder frame for everything that reads its samples (the developed RAW viewfinder, the motion
+     * level, the RAW meters): the session's (RawLevels), and in a recipe session with the black its frames show themselves when
+     * they sit on a pedestal far above the declared one (RaisedPedestal: the Xiaomi 17 Ultra's binned stream beside the
+     * full-size one, ~560 DN for a declared 64 - the magenta viewfinder of the owner's log 2026-11-12). The photo's levels are
+     * its own frames' (Parameters), not these.
+     */
+    private com.particlesdevs.photoncamera.processing.RawLevels.Levels liveLevels(CameraCharacteristics c, CaptureResult result) {
+        final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
+                com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+        if (!recipeViewFloorOn()) return levels;
+        final float[] black = mRecipeViewFloor.black(mSessionGeneration.get(), levels.black, levels.white);
+        return black == levels.black ? levels : levels.withBlack(black, "black = the viewfinder frames' own floor");
+    }
+
+    /**
+     * P635c: a recipe session's viewfinder frame joins the session's floor (four times a second; the first frame at once, before
+     * anything develops it). One log line a session - the frame's block means by CFA site, the declared levels, the black used,
+     * the white balance gains and the exposure - and again when the black used moved by 2 % of the range.
+     */
+    private void recipeViewFloor(Image img, CaptureResult result) {
+        if (!recipeViewFloorOn() || img == null || img.getFormat() != ImageFormat.RAW_SENSOR || mPayloadBad || !mPreviewLayouts.isEmpty()) return;
+        final int generation = mSessionGeneration.get();
+        final long now = android.os.SystemClock.elapsedRealtimeNanos();
+        final boolean first = generation != mRecipeViewFloorSession;
+        if (!first && now - mRecipeViewFloorAtNs < 250_000_000L) return;
+        mRecipeViewFloorSession = generation;
+        mRecipeViewFloorAtNs = now;
+        try {
+            final Image.Plane plane = img.getPlanes()[0];
+            if (plane.getPixelStride() != 2) return;
+            final java.nio.ByteBuffer samples = plane.getBuffer().duplicate();
+            samples.position(0);
+            final com.particlesdevs.photoncamera.processing.RaisedPedestal.Stats stats =
+                    com.particlesdevs.photoncamera.processing.RaisedPedestal.measure(samples.order(java.nio.ByteOrder.nativeOrder())
+                            .asShortBuffer(), img.getWidth(), img.getHeight(), plane.getRowStride() / 2);
+            mRecipeViewFloor.observe(generation, stats);
+            if (stats == null) return;
+            CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
+            if (c == null) c = mCameraCharacteristics;
+            if (c == null) return;
+            final com.particlesdevs.photoncamera.processing.RawLevels.Levels declared =
+                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+            final float used = mRecipeViewFloor.black(generation, declared.black, declared.white)[0];
+            if (first) { mRecipeViewBlackLogged = Float.NaN; mRecipeViewFloorLogNs = 0; }
+            final boolean moved = Float.isNaN(mRecipeViewBlackLogged) || Math.abs(used - mRecipeViewBlackLogged) > 0.02f * declared.white;
+            if (!moved || !first && now - mRecipeViewFloorLogNs < 2_000_000_000L) return;
+            mRecipeViewBlackLogged = used;
+            mRecipeViewFloorLogNs = now;
+            final android.hardware.camera2.params.RggbChannelVector wb = result == null ? null : result.get(CaptureResult.COLOR_CORRECTION_GAINS);
+            final Long exposure = result == null ? null : result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+            final Integer iso = result == null ? null : result.get(CaptureResult.SENSOR_SENSITIVITY);
+            Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " viewfinder levels: frame " + img.getWidth() + "x" + img.getHeight()
+                    + " block means by CFA site " + stats + " (" + stats.blocks + " blocks); declared black " + declared.meanBlack() + " white "
+                    + declared.white + " -> black used " + used + (used > declared.meanBlack() + 1f ? " (the frames' own floor: a pedestal above the declared black)"
+                    : " (declared)") + "; WB gains " + (wb == null ? "none" : String.format(java.util.Locale.ROOT, "%.3f/%.3f/%.3f", wb.getRed(),
+                    (wb.getGreenEven() + wb.getGreenOdd()) * 0.5f, wb.getBlue())) + "; " + (exposure == null ? "?" : String.format(java.util.Locale.ROOT,
+                    "%.3f", exposure / 1e6)) + " ms ISO " + (iso == null ? "?" : iso) + " (P635c)");
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "FULLRES RECIPE viewfinder levels: " + e);
+        }
+    }
+
+    /** P635c: one total result of a recipe session's repeating request for the AF line (RecipeAfTrace). */
+    private void recipeAfTrace(CaptureRequest request, TotalCaptureResult result) {
+        final FullResRecipePlan plan = mRecipePlan;
+        if (plan == null || result == null) return;
+        try {
+            final int generation = mSessionGeneration.get();
+            if (generation != mRecipeAfSession) { mRecipeAfSession = generation; mRecipeAfTrace.reset(); }
+            boolean regions = false;
+            final MeteringRectangle[] af = request == null ? null : request.get(CaptureRequest.CONTROL_AF_REGIONS);
+            if (af != null) for (MeteringRectangle r : af) regions |= r != null && r.getMeteringWeight() > 0 && r.getWidth() > 0;
+            final String line = mRecipeAfTrace.frame(android.os.SystemClock.elapsedRealtime(), result.get(CaptureResult.CONTROL_AF_MODE),
+                    result.get(CaptureResult.CONTROL_AF_STATE), result.get(CaptureResult.LENS_STATE), result.get(CaptureResult.LENS_FOCUS_DISTANCE),
+                    request == null ? null : request.get(CaptureRequest.CONTROL_AF_TRIGGER), regions);
+            if (line != null) Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " AF: " + line + "; viewfinder request tags "
+                    + (plan.recipe.viewTags ? "on" : "off") + ", the result's: " + FullResRecipeTags.read(result, plan.recipe.tags) + " (P635c)");
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "FULLRES RECIPE AF: " + e);
+        }
+    }
+
+    /**
+     * P635c: the viewfinder's focus on a recipe still (its template alone, nothing copied from the preview): manual focus - AF
+     * off and the hand-set distance, without which the template's own would move the lens for the shot.
+     */
+    private void recipeFocus(CaptureRequest.Builder still) {
+        final CaptureRequest.Builder preview = mPreviewRequestBuilder;
+        if (preview == null || still == null) return;
+        final Integer af = preview.get(CaptureRequest.CONTROL_AF_MODE);
+        final Float distance = preview.get(CaptureRequest.LENS_FOCUS_DISTANCE);
+        if (af == null || af != CaptureRequest.CONTROL_AF_MODE_OFF || distance == null) return;
+        still.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+        still.set(CaptureRequest.LENS_FOCUS_DISTANCE, distance);
+    }
+
     private volatile FullResRecipeStore.Active mRecipe;
     private volatile FullResRecipePlan mRecipePlan;
     private volatile ImageReader mRecipeCompanion;
+
+    // ---------------------------------------------------------------- P641d: DCG + LOFIC as a pair of frames (LoficPair)
+
+    /** The reader of the overflow stream (RAW10, vendor use case 524554) of a «lofic-pair» session; null in any other. */
+    private volatile ImageReader mLoficReader;
+    /** The newest overflow frames, by sensor timestamp (copies; 8 x 15 MB at 12 MP). */
+    private final LoficPair.Ring mLoficRing = new LoficPair.Ring(8);
+    /** A checked main frame's blocks waiting for the overflow frame of the same timestamp, and its levels. */
+    private LoficPair.Stats mLoficMainStats;
+    private long mLoficMainTs;
+    private float mLoficMainBlack;
+    private int mLoficMainWhite;
+    /** Frames of one exposure share the sensor timestamp; half a millisecond covers a HAL that stamps the streams apart. */
+    private static final long LOFIC_PAIR_NS = 500_000L;
+
+    private void closeLoficReader() {
+        final ImageReader r = mLoficReader;
+        mLoficReader = null;
+        if (r != null) try { r.close(); } catch (RuntimeException ignored) { }
+        synchronized (mLoficRing) {
+            mLoficRing.clear();
+            mLoficMainStats = null;
+        }
+    }
+
+    /** The overflow stream's reader at the main RAW's size; false when it cannot be made here (the rung fails at once). */
+    private boolean openLoficReader() {
+        closeLoficReader();
+        final ImageReader raw = mImageReaderRaw;
+        if (Build.VERSION.SDK_INT < 33 || raw == null || mBackgroundHandler == null) return false;
+        try {
+            final ImageReader reader = ImageReader.newInstance(raw.getWidth(), raw.getHeight(), ImageFormat.RAW10, 3);
+            reader.setOnImageAvailableListener(r -> {
+                Image img = null;
+                try {
+                    img = r.acquireNextImage();
+                    if (img == null) return;
+                    final Image.Plane plane = img.getPlanes()[0];
+                    final long ts = img.getTimestamp();
+                    synchronized (mLoficRing) {
+                        mLoficRing.store(ts, plane.getBuffer(), img.getWidth(), img.getHeight(), plane.getRowStride());
+                        loficProof(ts);
+                    }
+                } catch (RuntimeException e) {
+                    Log.w("SCAM_CAPTURE", "XIAOMI DCG+LOFIC: overflow frame not read: " + e);
+                } finally {
+                    if (img != null) img.close();
+                }
+            }, mBackgroundHandler);
+            mLoficReader = reader;
+            Log.i("SCAM_CAPTURE", "XIAOMI DCG+LOFIC camera " + physicalID + ": overflow stream " + raw.getWidth() + "x" + raw.getHeight()
+                    + " RAW10, use case 0x" + Long.toHexString(LoficPair.USE_CASE) + ", in the repeating request and the stills; its frames"
+                    + " are kept by timestamp (8 newest) and proven against the main frames before any is used (P641d)");
+            return true;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "XIAOMI DCG+LOFIC camera " + physicalID + ": no reader for the overflow stream: " + e);
+            return false;
+        }
+    }
+
+    /** A checked main frame of a pair session: its blocks wait for (or meet) the overflow frame of its timestamp. */
+    private void loficMainFrame(Image img, @Nullable com.particlesdevs.photoncamera.processing.RawPayloadCheck.Layout layout) {
+        if (mLoficReader == null || !XiaomiDualGain.pairWanted() || img.getFormat() != ImageFormat.RAW_SENSOR
+                || com.particlesdevs.photoncamera.processing.RawLevels.knownBits() < 12) return;
+        try {
+            final java.nio.ByteBuffer buffer = img.getPlanes()[0].getBuffer();
+            final LoficPair.Samples samples = layout == null ? LoficPair.plain16(buffer, img.getPlanes()[0].getRowStride(), 0)
+                    : LoficPair.packed(buffer, layout.packedBits(), layout.stride, 0);
+            final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
+                    com.particlesdevs.photoncamera.processing.RawLevels.current(mCameraCharacteristics, null);
+            float black = 0f;
+            for (float b : levels.black) black += b / levels.black.length;
+            synchronized (mLoficRing) {
+                mLoficMainStats = LoficPair.stats(samples, img.getWidth(), img.getHeight());
+                mLoficMainTs = img.getTimestamp();
+                mLoficMainBlack = black;
+                mLoficMainWhite = levels.white;
+                loficProof(mLoficMainTs);
+            }
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "XIAOMI DCG+LOFIC: main frame not measured: " + e);
+        }
+    }
+
+    /** Under mLoficRing: the waiting main frame and the overflow frame of {@code timestamp} are both here: the pair is measured. */
+    private void loficProof(long timestamp) {
+        final LoficPair.Stats main = mLoficMainStats;
+        if (main == null || Math.abs(mLoficMainTs - timestamp) > LOFIC_PAIR_NS) return;
+        final LoficPair.Frame f = mLoficRing.find(mLoficMainTs, LOFIC_PAIR_NS);
+        if (f == null) return;
+        mLoficMainStats = null;
+        XiaomiDualGain.onPair(LoficPair.measure(main, mLoficMainBlack, mLoficMainWhite,
+                LoficPair.stats(LoficPair.packed(f.data, 10, f.stride, 0), f.width, f.height), 1023), mLoficMainTs);
+    }
+
+    /**
+     * A shot of a proven pair session: the newest N frames of the ring take the overflow frames of their timestamps along (a
+     * copy of the packed frame; two at most - the merge takes HybridPlan.bentoFrames of them). The ring frames are copied later
+     * (deferred), so each pair is measured where the burst is assembled, at the shot's levels and against the session's ratio
+     * (ScamProcessor.addOverflowFrames): one that is no pair there is left out.
+     */
+    private void attachLoficPartners(List<ImageFrame> normals) {
+        final double sessionRatio = XiaomiDualGain.pairRatio();
+        if (mLoficReader == null || normals == null || normals.isEmpty()) return;
+        if (!(sessionRatio > 0)) {
+            if (XiaomiDualGain.pairWanted()) Log.i("SCAM_HDR", "DCG+LOFIC: the overflow pair is not proven in this session yet: the shot is"
+                    + " the DCG frames alone (P641d)");
+            return;
+        }
+        final List<ImageFrame> newest = new ArrayList<>(normals);
+        newest.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+        int made = 0, missing = 0;
+        final String rung = "lofic-pair";
+        synchronized (mLoficRing) {
+            for (ImageFrame f : newest) {
+                if (made >= 2) break;
+                if (f == null || f.width <= 0 || f.height <= 0) continue;
+                final LoficPair.Frame o = mLoficRing.find(f.timestamp, LOFIC_PAIR_NS);
+                if (o == null || o.width != f.width) { missing++; continue; }
+                // the shot's 16:9 cut of the main frame (Wide169) is the overflow frame's too
+                final int first = o.height == f.height ? 0
+                        : com.particlesdevs.photoncamera.processing.Wide169.rows(o.width, o.height) == f.height
+                        ? com.particlesdevs.photoncamera.processing.Wide169.firstRow(o.width, o.height) : -1;
+                if (first < 0) { missing++; continue; }
+                try {
+                    f.overflow = LoficPair.partner(o, f.width, f.height, first, sessionRatio, rung);
+                    made++;
+                } catch (RuntimeException | OutOfMemoryError e) {
+                    Log.w("SCAM_HDR", "DCG+LOFIC: frame " + f.number + "'s overflow frame not taken: " + e);
+                }
+            }
+        }
+        Log.i("SCAM_HDR", "DCG+LOFIC shot: " + made + " of the " + normals.size() + " ring frames take their overflow frame along (rung "
+                + rung + ", session ratio " + String.format(Locale.ROOT, "%.3f", sessionRatio) + ", " + missing + " without a frame of their"
+                + " timestamp; overflow ring " + mLoficRing.describe() + "; P641d)");
+    }
     private volatile FullResRecipeShot mRecipeShot;
+    /** P635b: the proof still of a recipe session whose profile is not proven on this firmware: 0 none, 1 wanted, 2 sent. */
+    private volatile int mRecipeProof;
+    static final long RECIPE_PROOF_TIMEOUT_MS = 4000;
 
     /** P626 / P635: the session's capture RAW is targeted by the stills only (a nubia per-shot way, a full-resolution recipe). */
     private boolean perShot() {
@@ -5725,8 +6207,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
         if (c == null) c = mCameraCharacteristics;
         if (c == null) return;
-        final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+        final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels = liveLevels(c, result);
         // P365 (review): a RAW10 / RAW12 stream's frame too, unpacked (meterSamples)
         if (img == null || mPayloadBad || !mPreviewLayouts.isEmpty()) return;
         final java.nio.ByteBuffer samples = meterSamples(img);
@@ -5879,7 +6360,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final double exposure = exposureNs == null || iso == null ? 0 : exposureNs / 1e9 * iso;
         final int act = mParkedLens.observe(ts != null ? ts : android.os.SystemClock.elapsedRealtimeNanos(),
                 result.get(CaptureResult.CONTROL_AF_MODE), result.get(CaptureResult.LENS_FOCUS_DISTANCE),
-                result.get(CaptureResult.LENS_STATE), min == null ? 0f : min, exposure);
+                result.get(CaptureResult.LENS_STATE), min == null ? 0f : min, exposure, result.get(CaptureResult.CONTROL_AF_STATE));
         if (act == ParkedLens.NOTHING) return;
         if (act == ParkedLens.YIELD) { mParkedFocus = -1f; return; }
         final Handler handler = mBackgroundHandler;
@@ -5927,13 +6408,40 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         return mForcedStab && ForcedStabilization.rawOnlySwitch();
     }
 
+    /**
+     * P641: the running dual-gain variant (Xiaomi 17 Ultra) did not prove itself: the session is configured again, with the next
+     * variant (XiaomiDualGain.sessionStart) - after a shot in flight, never under it.
+     */
+    private void dualGainNextVariant() {
+        final Handler handler = mBackgroundHandler;
+        if (handler == null) return;
+        final int generation = mSessionGeneration.get();
+        handler.post(() -> {
+            if (!isCameraResumed || generation != mSessionGeneration.get() || mCaptureSession == null) return;
+            if (shotInFlight()) { mPendingPayloadRestart = true; return; }
+            mCaptureSession.close();
+            createCameraPreviewSession(false);
+        });
+    }
+
     private void watchRawPayload(Image img) {
+        // P641: a dual-gain session whose results changed depth: this frame is checked now (its payload may have changed)
+        if (XiaomiDualGain.sessionActive() && XiaomiDualGain.takeRecheck()) mPayloadFrames = 0;
         int n = mPayloadFrames++;
         if (n >= 4 && n % 30 != 0) return;
         com.particlesdevs.photoncamera.processing.RawPayloadCheck.Result payload =
                 com.particlesdevs.photoncamera.processing.RawPayloadCheck.check(img, rawPayloadWhite(null));
         OplusDcg.watchFrame(img.getFormat() == ImageFormat.RAW_SENSOR); // P593: a frame the depth watch can count on
-        if (payload.plain()) { mPayloadBad = false; mPreviewLayouts.clear(); return; }
+        if (payload.plain()) {
+            mPayloadBad = false;
+            mPreviewLayouts.clear();
+            // P641: a plain frame of a dual-gain session: the depth its samples proved (0: within the declared white)
+            if (XiaomiDualGain.sessionActive() && img.getFormat() == ImageFormat.RAW_SENSOR) {
+                XiaomiDualGain.onFrame(0, 0, com.particlesdevs.photoncamera.processing.RawLevels.sampledBits(), mCameraCharacteristics);
+                loficMainFrame(img, null); // P641d
+            }
+            return;
+        }
         if (img.getFormat() == ImageFormat.RAW_SENSOR) {
             // Xiaomi 17 Ultra tele on the logical camera: packed MIPI RAW10 / RAW14 behind RAW_SENSOR, read in that layout by the
             // colour-block measurement and the developed RAW viewfinder (the forced 2x ISZ shows that viewfinder)
@@ -5941,6 +6449,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (layout != null) {
                 addPreviewLayout(layout);
                 mPayloadBad = false;
+                // P641: a packed frame of a dual-gain session: its packing's depth and its darkest samples
+                if (XiaomiDualGain.sessionActive()) {
+                    XiaomiDualGain.onFrame(layout.packedBits(), layout.low, 0, mCameraCharacteristics);
+                    loficMainFrame(img, layout); // P641d
+                }
                 return;
             }
         }
@@ -5982,7 +6495,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             int cfa = mLiveCfaPattern >= 0 ? mLiveCfaPattern : arrangement == null ? -1 : arrangement;
             if (cfa < 0 || cfa > 3) return;
             com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+                    liveLevels(c, result);
             android.hardware.camera2.params.RggbChannelVector wb = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
             android.hardware.camera2.params.ColorSpaceTransform transform = result.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
             if (wb == null || transform == null) return;
@@ -6019,6 +6532,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (!isCameraResumed || !mLiveRawSession || mZslCapturing || mHybridZslCapture || mScamRingFrozen) return;
             final long lag = android.os.SystemClock.elapsedRealtimeNanos() - img.getTimestamp();
             com.particlesdevs.photoncamera.processing.VfStages.arrived(stageStart, lag >= 0 && lag < 2_000_000_000L ? lag : Long.MIN_VALUE);
+            recipeViewFloor(img, result); // P635c: before every meter of the frame
             watchRawPayload(img);
             observeRawLevel(img, result);
             xiaomiRowFrame(img, result); // P631
@@ -6252,6 +6766,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             final float black = com.particlesdevs.photoncamera.processing.RawLevels.current(c, null).meanBlack();
             Log.i("SCAM_CAPTURE", XiaomiSensorRow.frameLine(String.valueOf(physicalID), pick, SensorModeBand.reportedMode(result),
                     img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(), black));
+            // P635b: the row's first frame against the truth check - where the buffer holds a picture, its pedestal, its grain
+            final FullResTruth.Result truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(),
+                    img.getPlanes()[0].getRowStride(), black);
+            Log.i("SCAM_CAPTURE", truth.line("FULLRES ROW") + " (camera " + physicalID + " " + pick + ", P635b)");
+            if (truth.notReal(true) && PreferenceKeys.scamDevSwitch("fullres_row_truth", true)) rowNotReal(pick, truth);
         } catch (RuntimeException e) {
             Log.w("SCAM_CAPTURE", "Xiaomi sensor row frame: " + e);
         }
@@ -6479,7 +6998,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
             if (c == null) c = mCameraCharacteristics;
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+                    liveLevels(c, result);
             int cfa = mLiveCfaPattern;
             if (cfa < 0) {
                 Integer arrangement = c == null ? null : c.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
@@ -6738,7 +7257,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             }
             if (cfa > 3) return;
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+                    liveLevels(c, result);
             final java.nio.ByteBuffer samples = meterSamples(img);
             if (samples == null) return;
             final com.particlesdevs.photoncamera.processing.color.MosaicNeutral.Stat m =
@@ -6893,7 +7412,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
             if (c == null) c = mCameraCharacteristics;
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+                    liveLevels(c, result);
             float black = 0f;
             for (float b : levels.black) black += b / levels.black.length;
             // P365 (review): the plain 16-bit samples - a RAW10 / RAW12 frame unpacked (meterSamples), never read as 16-bit
@@ -7188,7 +7707,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             }
             if (cfa > 3) return;
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+                    liveLevels(c, result);
             float[] neutral = null;
             final android.util.Rational[] n = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
             if (n != null && n.length >= 3) neutral = new float[]{n[0].floatValue(), n[1].floatValue(), n[2].floatValue()};
@@ -7239,7 +7758,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             }
             if (cfa > 3) return;
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, result);
+                    liveLevels(c, result);
             float[] neutral = null;
             final android.util.Rational[] n = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
             if (n != null && n.length >= 3) neutral = new float[]{n[0].floatValue(), n[1].floatValue(), n[2].floatValue()};
@@ -7403,8 +7922,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P127: black and white at the stream's bit depth (RawLevels): the frame's dynamic black when it is in the stream's
             // units or only drifts (OPPO X8U 64 -> 60), rescaled when it is in other units (Realme GT8 Pro: 16 for 64, X300 Ultra
             // DCG: 1030.75 for 64 over 14-bit samples)
-            final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
-                    com.particlesdevs.photoncamera.processing.RawLevels.current(c, colorResult);
+            final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels = liveLevels(c, colorResult);
             float white = levels.white;
             float[] black = levels.black.clone();
             String sensorPrefix=com.particlesdevs.photoncamera.settings.ModuleSensorSettings.prefix(
@@ -8048,13 +8566,20 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         newest.buffer().duplicate().order(java.nio.ByteOrder.nativeOrder()).asShortBuffer(), newest.rowStride() / 2,
                         newest.getWidth(), newest.getHeight(), cfa == null ? 0 : cfa, levels.black, levels.white, gains, sw, sh);
                 final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
+                // P630h: the rows of «Oldstyle Тон» in the meter and the rule (the light's percentile and target, the shadows,
+                // F's centre, «HDR» and its thresholds)
+                final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params tune =
+                        com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2);
                 final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Meter m =
-                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.meter(rgb, sw, sh, v2, 1f, true);
+                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.meter(rgb, sw, sh, tune, 1f, true);
                 Integer comp = mPreviewRequestBuilder == null ? null : mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION);
                 android.util.Rational step = mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
                 final float ev = comp == null || step == null ? 0f : comp * step.floatValue();
                 final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c =
-                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.capture(m, v2, (double) nNs * nIso, ev);
+                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.capture(m, tune, (double) nNs * nIso, ev);
+                c.meterRgb = rgb; // P630g: the samples, for the live tone's calibration on the module's own picture of them
+                c.meterW = sw;
+                c.meterH = sh;
                 if (log) Log.i("SCAM_CAPTURE", String.format(java.util.Locale.ROOT,
                         "Oldstyle meter (%s): light %.3f%s geo %.4f mean %.4f -> %s (EV %+.2f, N %.3fms*ISO%d)", v2 ? "3.1" : "2.7",
                         m.high, m.clipped ? " clipped" : "", m.geoMean, m.mean, c, ev, nNs / 1e6, nIso));
@@ -8072,13 +8597,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private boolean mOldstyleToneLive;
 
     /**
-     * P630e «Oldstyle»: the viewfinder's base under the style - the version's tone (MainRenderer.setOldstyleTone; the GLSL of
+     * P630e «Oldstyle»: the viewfinder's base under the style - the version's tone (P630g: through OldstyleLive; the GLSL of
      * utils/import_oldstyle_tone_live) at the gains of the same plan as the shot's, metered on the ring's newest frame (over its
      * own TET: the ISP frame on the screen is that exposure); the version as the panel has it now (a V1 / V2 switch shows at once).
      */
     private void oldstyleViewfinder() {
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive live =
+                com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared();
         if (!com.particlesdevs.photoncamera.settings.OldstyleMode.on()) {
-            if (mOldstyleToneLive) com.particlesdevs.photoncamera.ui.camera.views.viewfinder.MainRenderer.setOldstyleTone(0, 1f, 1f, false);
+            if (mOldstyleToneLive || live.wantsLevel()) live.off(); // whoever turned it on (another controller instance too)
             mOldstyleToneLive = false;
             return;
         }
@@ -8088,9 +8615,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c = meterOldstyle(1, 1, false);
         if (c == null) return;
         final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
-        final float[] g = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.viewfinderGains(c,
-                com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2).maxGain);
-        com.particlesdevs.photoncamera.ui.camera.views.viewfinder.MainRenderer.setOldstyleTone(v2 ? 2 : 1, g[0], g[1], c.hdr);
+        // P630g: the plan goes to OldstyleLive, which puts it on the screen frame's own level (measured by the renderer), smoothed -
+        // never the RAW frame's gains on the ISP frame (the burnt-out viewfinder), never a plan before the level is known
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params =
+                com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2);
+        // P630h: the settings in the live tone - the tone curve's shape in its LUT, the rows of «Видоискатель» (off: no tone drawn)
+        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.curve(params.curveMid, params.curveContrast);
+        live.plan(System.nanoTime(), v2 ? 2 : 1, c, params,
+                params.vfTone ? com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.photoMean(c, params) : -1f,
+                params.vfTone ? com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.lut(v2 ? 2 : 1) : null);
         mOldstyleToneLive = true;
     }
 
@@ -8126,12 +8659,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (packed != null) {
                 // MIPI RAW10 / RAW14: bytes 0..3 of each 5- / 7-byte group are the high 8 bits of four samples (RAW14 read >> 4:
                 // its high byte is the 10-bit value >> 2 as RAW10's)
-                final int group = com.particlesdevs.photoncamera.util.RawUnpack.isRaw14(packed.format) ? 7 : 5;
+                // P641: RAW12 (a dual-gain session's 12-bit payload): bytes 0..1 of each 3-byte group, the high 8 bits of two samples
+                final boolean packed12 = packed.format == ImageFormat.RAW12;
+                final int group = com.particlesdevs.photoncamera.util.RawUnpack.isRaw14(packed.format) ? 7 : packed12 ? 3 : 5;
                 java.nio.ByteBuffer bytes = newest.buffer().duplicate();
                 int w = newest.getWidth(), h = newest.getHeight();
-                int limitHigh = packed.format == com.particlesdevs.photoncamera.util.RawUnpack.RAW14 ? limit >> 6 : limit >> 2;
+                int limitHigh = packed.format == com.particlesdevs.photoncamera.util.RawUnpack.RAW14 ? limit >> 6 : packed12 ? limit >> 4 : limit >> 2;
                 long clipped = 0, total = 0;
-                byte[] row = new byte[w * group / 4];
+                byte[] row = new byte[com.particlesdevs.photoncamera.util.RawUnpack.packedRowBytes(packed.format, w)];
                 for (int y = 0; y < h; y += 8) {
                     bytes.position(y * packed.stride);
                     bytes.get(row, 0, row.length);
@@ -9297,6 +9832,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // SCAM keeps the preview running: its L/S/ES must not reach the
             // viewfinder (they flashed dark/bright there), as in the stock camera.
             captureBuilder.addTarget(mImageReaderRaw.getSurface());
+            if (mLoficReader != null) captureBuilder.addTarget(mLoficReader.getSurface()); // P641d: a still's overflow read with it
             // P635: the recipe's companion stream in the same request (without it the full-size frame is the binned one doubled)
             final ImageReader recipeCompanion = mRecipeCompanion;
             if (recipePlan != null && recipeCompanion != null) captureBuilder.addTarget(recipeCompanion.getSurface());
@@ -9413,6 +9949,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 if (zslFrames != zslWanted) Log.i("SCAM_CAPTURE", "motion: " + sScamPending.get() + " shots wait for their merge, "
                         + zslFrames + " ring frames for this one (of " + zslWanted + ")");
                 mPendingZslNormalFrames = drainZslNormalFrames(zslFrames,stockPlan,scamZslRequested,scamHybridShot);
+                if (mLoficReader != null) attachLoficPartners(mPendingZslNormalFrames); // P641d: DCG + LOFIC pairs
                 if (!mPendingZslNormalFrames.isEmpty()) {
                     denoiseFrameCount = mPendingZslNormalFrames.size();
                     long[] zslTimestamps = new long[denoiseFrameCount];
@@ -9465,6 +10002,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             longFrameCount = denoiseFrameCount > 0
                     ? Math.max(0, frameCount - denoiseFrameCount - shortFrameCount) : 0;
             //if (frameCount == 1) frameCount++;
+            // P635c: a recipe shot takes the profile's frames (the plan is cut to them below): the counter shows as many
+            if (recipePlan != null) frameCount = Math.min(frameCount, recipePlan.recipe.frames);
             cameraEventsListener.onFrameCountSet(frameCount);
             Log.d(TAG, "HDRFact1:" + paramController.isManualMode() + " HDRFact2:" + ScameraApp.getSettings().alignAlgorithm);
             //IsoExpoSelector.HDR = (!manualParamModel.isManualMode()) && (ScameraApp.getSettings().alignAlgorithm == 0);
@@ -9543,8 +10082,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 } else if(oldstyleShot) {
                     // P630e: the burst at the plan's one exposure (no Bento, no Shasta), as many frames as the photo mode's ring gives
                     try {
-                        plan=HybridPlan.oldstyle(stockPlan.shutter(0),stockPlan.iso(0),oldstyleCapture,PreferenceKeys.getHybridZslFrames(),
-                                mCameraCharacteristics,mExposureLimits,manualPsl?0:HalMotion.motionCapNs(mPreviewCaptureResult));
+                        // P630h: the rows of «Серия» (frames, the burst's longest capture, the shutter it may grow to)
+                        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params burst=
+                                com.particlesdevs.photoncamera.settings.OldstyleMode.params(com.particlesdevs.photoncamera.settings.OldstyleMode.v2());
+                        plan=HybridPlan.oldstyle(stockPlan.shutter(0),stockPlan.iso(0),oldstyleCapture,
+                                burst.burstFrames>0?burst.burstFrames:PreferenceKeys.getHybridZslFrames(),
+                                mCameraCharacteristics,mExposureLimits,manualPsl?0:HalMotion.motionCapNs(mPreviewCaptureResult),
+                                HybridPlan.oldstyleBurstNs(burst.burstSeconds),HybridPlan.oldstyleFloorNs(burst.shutterFloorMs));
                     } catch(RuntimeException noPlan) {
                         Log.w("SCAM_CAPTURE","Oldstyle plan unavailable ("+noPlan.getMessage()+"): one N frame after the shutter");
                         plan=HybridPlan.single(stockPlan.shutter(0),stockPlan.iso(0));
@@ -9595,6 +10139,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // reconfigure between them, waiting for idle; behind three 4 s frames that wait passed its 12.5 s limit
                 // ("reconfigureCamera: Can't idle device in 12.5 seconds") and the camera died (error 4). The series takes the
                 // viewfinder's range (manual AE-off frames are timed by their exposure, not by this range).
+                // P635c: a recipe's still is its template alone (no preview settings copied): a hand-set focus goes with its AF mode
+                if(recipePlan!=null) recipeFocus(captureBuilder);
                 android.util.Range<Integer> fps=mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
                 if(fps!=null) captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,fps);
                 if(recipePlan!=null&&recipePlan.recipe.fpsLow>0) captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
@@ -9657,8 +10203,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mImageSaver = new ImageSaver(cameraEventsListener);
             mImageSaver.iszAspect4x3 = mShutterIszAspect4x3;
             // P635: the recipe shot's truth check on its first frame (a doubled frame is taken back to the binned one)
+            if (recipePlan != null && mRecipeProof == 2) mRecipeProof = 0; // P635b: the shot's own first frame is the proof now
             final FullResRecipeShot recipeShot = recipePlan == null ? null : new FullResRecipeShot(String.valueOf(physicalID),
-                    recipePlan.recipe.id.isEmpty() ? "own profile" : recipePlan.recipe.id);
+                    recipePlan.recipe.id.isEmpty() ? "own profile" : recipePlan.recipe.id,
+                    com.particlesdevs.photoncamera.processing.RawLevels.current(mCameraCharacteristics, null).meanBlack(), XiaomiSensorRow.device());
             mRecipeShot = recipeShot;
             mImageSaver.recipeShot = recipeShot;
             if (recipePlan != null) Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " shot: " + captures.size() + " stills template "

@@ -124,6 +124,33 @@ public final class GalleryThumb {
         return glide.asBitmap().load(of(file)).apply(options(gridPx(context)).onlyRetrieveFromCache(true).priority(Priority.IMMEDIATE));
     }
 
+    /** P637: the long side of the viewer's embedded first picture at most (the camera's EXIF thumbnail is 512 px, its DNG preview 1024). */
+    static final int EMBEDDED_PX = 1024;
+
+    /**
+     * P637: the viewer's first picture of a page whose grid thumbnail is not cached: only what the file embeds
+     * ({@link ThumbDecoder#EMBEDDED_ONLY}: a few ms), not kept on disk; the request fails for a file without one.
+     */
+    @NonNull
+    public static RequestBuilder<Bitmap> embedded(@NonNull RequestManager glide, @NonNull MediaFile file) {
+        return glide.asBitmap().load(fit(file)).apply(new RequestOptions()
+                .diskCacheStrategy(DiskCacheStrategy.NONE)
+                .override(EMBEDDED_PX, EMBEDDED_PX)
+                .dontTransform()
+                .set(ThumbDecoder.EMBEDDED_ONLY, true)
+                .priority(Priority.IMMEDIATE));
+    }
+
+    /**
+     * P637: the viewer's first picture of a HEIC / WebP / AVIF / DNG / RAW page: the grid's cached thumbnail, else - {@code raw}:
+     * the grid's thumbnail decoded now (a DNG's preview or sparse render, a RAW's own thumbnail: tens of ms beside a render of a
+     * second or more, and the grid has it afterwards); otherwise the file's embedded picture, nothing for a file without one.
+     */
+    @NonNull
+    public static RequestBuilder<Bitmap> first(@NonNull RequestManager glide, @NonNull Context context, @NonNull MediaFile file, boolean raw) {
+        return cached(glide, context, file).error(raw ? request(glide, of(file), gridPx(context)).priority(Priority.IMMEDIATE) : embedded(glide, file));
+    }
+
     @Override
     public boolean equals(Object o) {
         return o instanceof GalleryThumb && ((GalleryThumb) o).id.equals(id);

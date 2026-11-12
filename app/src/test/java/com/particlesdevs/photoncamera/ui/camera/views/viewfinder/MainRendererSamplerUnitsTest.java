@@ -152,7 +152,7 @@ public class MainRendererSamplerUnitsTest {
         assertTrue(src.contains("pinSamplers(hProgram, fss_default);"));
         assertTrue(src.contains("pinSamplers(hProgram2d, LiveLensFilter.to2d(fss_default));"));
         // each draw: the LUT's unit before the «tone off» return (31257 set it after)
-        final int method = src.indexOf("private void oldstyleTone(int[] l)");
+        final int method = src.indexOf("private void oldstyleTone(int[] l, float[] t)"); // P630g: the draw's tone state passed in
         final int unit = src.indexOf("GLES20.glUniform1i(l[2], OT_LUT_UNIT);", method), off = src.indexOf("if (t == null) return;", method);
         assertTrue(method > 0 && unit > method && off > unit);
         // the RAW viewfinder drops another pass's GL error instead of failing on it

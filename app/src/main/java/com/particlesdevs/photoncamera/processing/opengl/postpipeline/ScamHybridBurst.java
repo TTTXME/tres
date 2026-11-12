@@ -318,8 +318,11 @@ public final class ScamHybridBurst implements ScamTransport {
         }
         if (com.particlesdevs.photoncamera.settings.MotionMode.on()) {
             bracketed.clear();
-            shorts.clear();
+            shorts.removeIf(f -> f.pairedMain == null); // P641d: an overflow frame is its main frame's own exposure: no time offset
         }
+        lastOverflowPairs = overflowPairs(shorts);
+        if (lastOverflowPairs > 0) Log.i("SCAM_HDR", "hybrid DCG+LOFIC: " + lastOverflowPairs + " overflow frame(s) of the N frames' own"
+                + " exposures as short frames (no time offset; P641d)");
         if (dcg && !bracketed.isEmpty()) {
             // P320: a DCG frame holds the high- and the low-gain read of one exposure; a longer frame brings motion, not range
             Log.i("SCAM_HDR", "hybrid DCG: " + bracketed.size() + " bracketed frame(s) left out (no exposure brackets for DCG)");
@@ -428,6 +431,8 @@ public final class ScamHybridBurst implements ScamTransport {
         if (!shorts.isEmpty()) {
             final double target = ref / com.particlesdevs.photoncamera.capture.HybridPlan.ultrashortFactor();
             shorts.sort(Comparator.comparingDouble(f -> Math.abs(Math.log(product(f) / target))));
+            // P641d: among the overflow frames the base frame's own first (the same photons as the base: nothing to align)
+            pairedFirst(shorts, base);
             final double first = product(shorts.get(0));
             final int want = com.particlesdevs.photoncamera.capture.HybridPlan.bentoFrames();
             for (ImageFrame us : shorts) {
@@ -547,6 +552,26 @@ public final class ScamHybridBurst implements ScamTransport {
     }
 
     private double product(ImageFrame f) { return (double) f.measuredExposure * f.measuredIso; }
+
+    /** P641d: the overflow frames (LoficPair) the last burst took as short frames. */
+    public static volatile int lastOverflowPairs;
+
+    /** P641d: the frames of {@code shorts} that are an N frame's overflow read. */
+    static int overflowPairs(List<ImageFrame> shorts) {
+        int n = 0;
+        for (ImageFrame f : shorts) if (f.pairedMain != null) n++;
+        return n;
+    }
+
+    /** P641d: the overflow frame of {@code base} to the front, then the other overflow frames, the order otherwise kept. */
+    static void pairedFirst(List<ImageFrame> shorts, ImageFrame base) {
+        final List<ImageFrame> own = new ArrayList<>(), paired = new ArrayList<>(), rest = new ArrayList<>();
+        for (ImageFrame f : shorts) (f.pairedMain == null ? rest : f.pairedMain == base ? own : paired).add(f);
+        shorts.clear();
+        shorts.addAll(own);
+        shorts.addAll(paired);
+        shorts.addAll(rest);
+    }
 
     /**
      * Per-frame noise model in normalised units (slope, offset): the frame's own Camera2 profile, or the noise model profile
@@ -809,15 +834,16 @@ public final class ScamHybridBurst implements ScamTransport {
         return px <= CLASSIC_INPUT_PIXELS ? 900 : Math.min(3600, (long) Math.ceil(900.0 * px / CLASSIC_INPUT_PIXELS));
     }
     /**
-     * P627c: a «Статика» merge (its time grows with the pixels; x4 on its CPU transcription, {@code cpu}): the worker's own alarm
-     * (scam-static-merge.h hybridStaticAlarmSeconds: 840 s per 12 MP, x4 on the CPU, at most 3540 s) plus 60 s, never below the
-     * other routes' wait.
+     * P627c: a «Статика» merge (its time grows with the pixels; x4 on its CPU transcription): the worker's own alarm plus 60 s,
+     * never below the other routes' wait. P639: the alarm is 300 s per 12 MP on a GPU and 1200 s on the CPU (scam-static-merge.h
+     * hybridStaticAlarmSeconds, at most 3540 s); a worker that steps down to the CPU mid-shot re-arms itself with the CPU's, so
+     * the app waits for that one whatever the backend it asked for ({@code cpu} kept for the callers).
      */
     public static long workerTimeoutSeconds(int w, int h, boolean statik, boolean cpu) {
         final long base = workerTimeoutSeconds(w, h);
         if (!statik) return base;
         final double mp = (double) w * h / 12e6;
-        final long alarm = Math.round(Math.min(3540.0, Math.max(840.0, 840.0 * mp * (cpu ? 4.0 : 1.0))));
+        final long alarm = Math.round(Math.min(3540.0, Math.max(1200.0, 1200.0 * mp)));
         return Math.max(base, alarm + 60);
     }
     /** P627c: the worker's wait for this burst (its mode and, «Статика», its backend). */

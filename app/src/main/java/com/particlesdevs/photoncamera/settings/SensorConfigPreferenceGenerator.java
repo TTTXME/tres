@@ -259,6 +259,7 @@ public class SensorConfigPreferenceGenerator {
         }
 
         addSensorModePick(context, category, physicalId);
+        addDualGain(context, category, physicalId); // P641
         addFullResRecipe(context, category, physicalId, refresh); // P635
 
         // P266 «Проверить частоты кадров»: asked here, run by the next session of this module (FpsProbe)
@@ -310,12 +311,105 @@ public class SensorConfigPreferenceGenerator {
         category.addPreference(sensorModeRow(context, slot, rows));
     }
 
+    /** The key of the P641 row of {@code slot}. */
+    static String dualGainKey(String slot) {
+        return "pref_sensorconfig_" + slot + "_dualgain";
+    }
+
+    /**
+     * P641 «DCG / DCG+LOFIC» («DSG» on the ultra wide) of the Xiaomi 17 Ultra: the lens page's row of the dual-gain switch - the
+     * same switch as the top bar's DCG button, with DCG + LOFIC as a choice of its own on the main camera. Shown only on a camera
+     * whose table has the vendor's row (XiaomiDualGain.offered). Choosing a mode here also forgets the ways that failed on this
+     * firmware, so each is tried once more.
+     */
+    private static void addDualGain(Context context, PreferenceCategory category, String slot) {
+        if (!com.particlesdevs.photoncamera.capture.XiaomiDualGain.enabled()) return; // any other phone: nothing is asked
+        final String camera;
+        final java.util.List<com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind> kinds;
+        try {
+            camera = ModuleRegistry.slots().contains(slot) ? ModuleSensorSettings.physical(slot) : toPhysicalId(slot);
+            kinds = com.particlesdevs.photoncamera.capture.XiaomiDualGain.offered(camera, ((android.hardware.camera2.CameraManager)
+                    context.getSystemService(Context.CAMERA_SERVICE)).getCameraCharacteristics(camera));
+        } catch (Exception unavailable) {
+            return;
+        }
+        if (kinds.isEmpty()) return;
+        category.addPreference(dualGainRow(context, slot, camera, kinds));
+    }
+
+    /** The P641 row for the {@code kinds} of {@code camera} (built apart for its test). */
+    public static ListPreference dualGainRow(Context context, String slot, String camera,
+                                             java.util.List<com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind> kinds) {
+        final String[] entries = new String[kinds.size() + 1], values = new String[kinds.size() + 1];
+        entries[0] = Lang.t(context, "Выкл.", "Off");
+        values[0] = String.valueOf(com.particlesdevs.photoncamera.capture.Dcg14Mode.OFF);
+        final StringBuilder names = new StringBuilder();
+        for (int i = 0; i < kinds.size(); i++) {
+            final com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind kind = kinds.get(i);
+            entries[i + 1] = kind.label;
+            values[i + 1] = String.valueOf(kind == com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind.LOFIC
+                    ? com.particlesdevs.photoncamera.capture.Dcg14Mode.LOFIC : com.particlesdevs.photoncamera.capture.Dcg14Mode.DCG);
+            names.append(i == 0 ? "" : " / ").append(kind.label);
+        }
+        final ListPreference row = new ListPreference(context);
+        row.setKey(dualGainKey(slot));
+        row.setPersistent(false); // the switch itself is Dcg14Mode's (one for the phone, as the top bar's button)
+        final String title = names + Lang.t(context, " (двойное усиление сенсора)", " (the sensor's dual gain)");
+        row.setTitle(title);
+        row.setDialogTitle(title);
+        row.setEntries(entries);
+        row.setEntryValues(values);
+        final int mode = com.particlesdevs.photoncamera.capture.Dcg14Mode.mode();
+        String shown = values[0];
+        for (String v : values) if (v.equals(String.valueOf(mode))) shown = v;
+        if (mode != com.particlesdevs.photoncamera.capture.Dcg14Mode.OFF && shown.equals(values[0])) shown = values[1]; // LOFIC stored, a camera without it: its DCG / DSG
+        row.setValue(shown);
+        row.setIcon(com.particlesdevs.photoncamera.R.drawable.settings_ic_sensor);
+        row.setOrder(98);
+        row.setSummaryProvider(p -> {
+            final StringBuilder state = new StringBuilder();
+            for (com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind kind : kinds)
+                state.append(state.length() == 0 ? "" : ". ").append(com.particlesdevs.photoncamera.capture.XiaomiDualGain.state(camera, kind));
+            return state + Lang.t(context, ". Опытная функция: на телефоне не проверена.", ". Experimental: not proven on a phone.");
+        });
+        row.setOnPreferenceChangeListener((p, value) -> {
+            int chosen;
+            try {
+                chosen = Integer.parseInt(String.valueOf(value));
+            } catch (NumberFormatException e) {
+                return false;
+            }
+            com.particlesdevs.photoncamera.capture.XiaomiDualGain.tryAgain(camera);
+            com.particlesdevs.photoncamera.capture.Dcg14Mode.setMode(chosen);
+            return true;
+        });
+        com.particlesdevs.photoncamera.ui.settings.SettingHelp.describe(row, Lang.t(context,
+                "Режим сенсора с двумя усилениями в одном кадре: больше деталей в тенях и светах, RAW глубже 10 бит (14 бит, на сверхширокой"
+                        + " камере DSG — 12 бит). DCG+LOFIC — кадр DCG + кадр переполнения LOFIC той же экспозиции, склеиваются вместе:"
+                        + " второй кадр идёт отдельным потоком и хранит света, выбитые в первом; камера берёт его в склейку, только когда"
+                        + " сами кадры это подтверждают, иначе снимает один 14-битный кадр этого режима; не проверено на телефоне."
+                        + " Это тот же переключатель, что кнопка DCG в верхней строке. Камера перебирает несколько способов включить"
+                        + " режим и проверяет каждый по самим кадрам: первый сработавший запоминается для этой прошивки, несработавшие"
+                        + " больше не пробуются. Если не сработал ни один, DCG+LOFIC заменяется на DCG, а DCG и DSG выключаются. Выбор режима"
+                        + " здесь заново разрешает все способы. На телефоне не проверено: проверяйте днём, на контрастной сцене.",
+                "A sensor mode with two gains in one frame: more detail in shadows and highlights, a RAW deeper than 10 bits (14 bits; the"
+                        + " ultra wide's DSG is 12 bits). DCG+LOFIC is a DCG frame + a LOFIC overflow frame of the same exposure, merged"
+                        + " together: the second frame comes on a stream of its own and holds the highlights the first one clips; the camera"
+                        + " takes it into the merge only when the frames themselves prove it, else it shoots the mode's 14-bit frame alone;"
+                        + " not proven on a phone. This is the same switch as the DCG button of the top bar. The camera goes through several ways of"
+                        + " turning the mode on and checks each on the frames themselves: the first that works is remembered for this firmware,"
+                        + " the ones that failed are not tried again. If none works, DCG+LOFIC becomes DCG, and DCG and DSG switch off. Choosing"
+                        + " a mode here allows every way again. Not proven on a phone: test by day, on a contrasty scene."));
+        return row;
+    }
+
     /**
      * P635 «Полное разрешение (рецепт)»: the switch and, while it is on, the profile's fields (FullResRecipeRows), prefilled from
      * the preset of the module's camera on this phone.
      */
     private static void addFullResRecipe(Context context, PreferenceCategory category, String slot, @Nullable Runnable refresh) {
         com.particlesdevs.photoncamera.capture.FullResRecipe preset = null;
+        int routedRow = -1; // P635b: the module's picked full-size row the recipe runs instead of
         try {
             final String camera = ModuleRegistry.slots().contains(slot) ? ModuleSensorSettings.physical(slot) : toPhysicalId(slot);
             android.hardware.camera2.CameraCharacteristics c = null;
@@ -325,9 +419,10 @@ public class SensorConfigPreferenceGenerator {
                 // no camera service (a preview of the page): the preset by the phone and the camera id alone
             }
             preset = com.particlesdevs.photoncamera.capture.FullResRecipeStore.presetFor(camera, c);
+            routedRow = com.particlesdevs.photoncamera.capture.FullResRecipeStore.routedRow(slot, camera, c);
         } catch (RuntimeException ignored) {
         }
-        FullResRecipeRows.add(context, category, slot, preset, refresh);
+        FullResRecipeRows.add(context, category, slot, preset, routedRow, refresh);
     }
 
     /** The «Режим сенсора» row of {@code slot} for the rows of its camera's table (P384: built apart for its bind test). */
@@ -399,6 +494,7 @@ public class SensorConfigPreferenceGenerator {
             if (p instanceof TunableKeyPreference || ("pref_sensorconfig_" + physicalId + "_add_tunablekey").equals(p.getKey())
                     || ("pref_sensorconfig_" + physicalId + "_fpsprobe").equals(p.getKey())
                     || com.particlesdevs.photoncamera.capture.SensorModePick.prefKey(physicalId).equals(p.getKey())
+                    || dualGainKey(physicalId).equals(p.getKey()) // P641: built again with the section
                     || FullResRecipeRows.ours(p.getKey(), physicalId)) { // P635: built again with the section
                 toRemove.add(p);
             }

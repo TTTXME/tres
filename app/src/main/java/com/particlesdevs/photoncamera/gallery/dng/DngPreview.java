@@ -100,6 +100,15 @@ public final class DngPreview {
      * mapped file (a 50 MP 16-bit DNG: about 18 MB of its 100 MB read instead of all of it).
      */
     public static Result read(ByteBuffer buffer, int reqW, int reqH, boolean thumbnail) throws IOException {
+        return read(buffer, reqW, reqH, thumbnail, false);
+    }
+
+    /**
+     * P637: {@link #read}; {@code previewOnly}: only an embedded JPEG preview (the one large enough, else the largest), null when
+     * the file has none - the raw is never rendered (the viewer's first picture of a DNG page).
+     */
+    @androidx.annotation.Nullable
+    public static Result read(ByteBuffer buffer, int reqW, int reqH, boolean thumbnail, boolean previewOnly) throws IOException {
         DngPreview p = new DngPreview(buffer);
         p.sparse = thumbnail;
         int need = Math.max(reqW, reqH);
@@ -120,6 +129,7 @@ public final class DngPreview {
         Result r = new Result();
         r.orientation = p.orientation;
         if (bestJpeg != null) return jpeg(r, bestJpeg);
+        if (previewOnly) return largestJpeg != null ? jpeg(r, largestJpeg) : null;
         if (raw != null) {
             try {
                 p.render(raw, reqW > 0 ? reqW : need, reqH > 0 ? reqH : need, r);

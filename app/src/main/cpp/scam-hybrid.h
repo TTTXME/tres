@@ -676,6 +676,15 @@ struct HybridTuning {
     // rotation left lights at the frame's edge several px off, Bento refused their cores and blended the misplaced halo; its centre
     // within 6 px of the coarse translation, else as before; 0 = the global translation, as before
     int usWeakHom=1;
+    // P634 (owner, 2026-11-12, nine Tetra shots of storm waves from the phone: 2 - 13 of 3 - 14 normal frames «too few inliers»,
+    // 33 - 77 of ~450 tracks at 0.7 - 1.0 px - the water takes most of the tracks - and merged at 1 - 4 % against 20 % of the
+    // accepted ones): such a normal frame starts its local alignment from that homography (>= 30 inliers within normalWeakHomRms
+    // px, its centre within max(6 px, 0.4 % of the frame's long side) of the coarse translation) instead of the coarse translation
+    // alone, which leaves a hand-held tele frame's rotation and rolling-shutter stretch (0.5 % = 8 px at the frame's edge) to the
+    // 6 px local field. The frame stays out of the motion tests as before. 0 = the translation, as before. Host bursts: one frame
+    // of the reference app's Tetra 3 bus window (merge share 0.12 -> 0.14); the phone's shots are not replayable here - its log line decides.
+    int normalWeakHom=1;
+    float normalWeakHomRms=1.2f;
     // P607: the Bento blend's «ultrashort colour at its own clip» (flag bit 5 and the colour bits) where the frames holding at least
     // half the blend's weight are at their clip there, not only where every frame is: one frame a hair under its clip (registration,
     // noise) left a lamp's ring unflagged at 0.95 of the clip beside the flagged core - ScamRgb recovered the core's clipped green to
@@ -1125,6 +1134,11 @@ struct HybridTuning {
     // luma (Quad: the fast route's GPU pass, Tetra / no GPU: its CPU twin stLatticeCpu; 0 = off)
     int staticMerge=0,staticIters=8,staticZSteps=3,staticScale=2,staticFrames=16,staticTile=64,staticVulkan=-1,staticStripMB=512,staticProfile=1; // P627c: 512 (was 192: strips of 16 - 36 rows at 12 MP)
     int staticMosaicChroma=1,staticQuadLattice=1;
+    // P634b: 1 - the CPU lattice pass (Tetra; Quad without the GPU) leaves the column-only and row-only parts of its per-phase
+    // estimate in the picture (stLatticeCpu lines: a colonnade's or a curtain's period is not the sensor's lattice); 0 = as P627b
+    int staticLatticeLines=1;
+    // P634b: 1 - a Tetra result's detail pass does not raise what is locked to the colour period (stDetailLatticeOff); 0 = as P627f
+    int staticDetailLattice=1;
     float staticChromaFloor=2.f; // P627b: the colour prior's noise factor floor on Quad / Tetra (x the ISO 400 variance)
     float staticLumaFloor=1.f;   // P627b: the luma prior's (tetra_tc: the grain of an ISO 50 solve; 0 = as P624)
     // P627b: the native merge's along-edge smoothing on a Quad / Tetra static result (its strength). P627d (owner: «Верни
@@ -1145,6 +1159,16 @@ struct HybridTuning {
     // at or under the Sabre routes' on the six crops (0.3: tetra_tc 1 % over); Bayer 0.2, no shrink: check_static_merge's Bayer burst (truth = the pixel's box,
     // no lens) at 35.75 dB, 0.3 or the shrink took it under «Качество» + 0.5 dB (research/handoff/PLAN.md P627f)
     int staticLanczos=1;
+    // P639 (owner's log 2026-11-12, vivo X200 Ultra, Adreno 830, 12 MP x 16 frames: «"статика" нереально долго обрабатывается и
+    // видоискатель при этом работает словно в 2 фпс» - 153 s, a strip dropped by the driver, the viewfinder at 2 - 11 fps):
+    // staticSliceMs - the solve's passes as GPU submissions of about this many ms, each waited for (0: a strip's passes in one
+    // submission, ~2 s at 12 MP - the driver's limit, and the viewfinder's draws behind it); staticPlan 1 - the short schedule
+    // (scam-static-merge.h stSolve: staticBlocks blocks of staticBlockSteps data steps, a field step after each, then
+    // staticFinalSteps on the final robust weights; the field steps on every second colour period of a frame, staticFieldHalf),
+    // 0 - the P624 schedule (staticIters x staticZSteps)
+    float staticSliceMs=6.f;
+    // (Tetra 10 steps a block: its 4 x 4 blocks' priors settle slower - the flat noise of tetra_tc / car +10 % with 8, +5 % with 10)
+    int staticPlan=1,staticBlocks=2,staticBlockSteps=6,staticTetraBlockSteps=10,staticFinalSteps=2,staticFieldHalf=1;
     float staticDetail=0.25f,staticBayerDetail=0.2f,staticDetailShrink=1.5f,staticDetailCore=6.f,staticDetailSigma=3.f;
     float staticPriorFrames=16.f,staticTetraPriorFrames=32.f;
     // P627c (Bayer): its own prior floors, its plain chroma median's share and along-edge strength (0 = off). P627d: staticFlatK -
@@ -1154,6 +1178,13 @@ struct HybridTuning {
     // Quality's, the 2 px checker / zipper under it, the twigs' line detail as before; along-edge did nothing there)
     float staticBayerChromaFloor=2.f,staticBayerLumaFloor=1.f,staticBayerChroma=1.f,staticBayerAlongEdge=0.f,staticFlatK=2.f;
     float staticChroma=0.3f,staticLuma=1.f,staticHuber=2.f,staticRobust=3.f,staticMotionMax=0.03f;
+    // P634: the photometric tolerance of the static check's block means on Quad / Tetra (x the level, hybridStaticMoving; 0 = the
+    // noise and misregistration terms alone and the whole thumbnails' level ratio, as before; Bayer never takes it)
+    float staticBlockTol=0.005f;
+    // P634: with it a frame is moving from this fraction of blocks (never above staticMotionMax): still scenes read 0.000 - 0.003
+    // then, and 0.017 takes the frames of a moving scene the old test took at 0.03 (people on a promenade, 12 MP: 10 of 15; the
+    // bus, car, people and splash windows: the same frames) - all 15 of that promenade doubled the lattice on its walkers
+    float staticBlockMotionMax=0.017f;
     // P555: the fast native merge reads its normalised blocks through the texture cache (an RGBA32UI image); 0 = the storage buffers
     int mosaicNatTex=0; // P563: 0 by default - on the Adreno 750 (nubia, 50 MP Quad, 11 frames) the image made the merge 62 s against 26 s
     // P563 (owner, 2026-11-08: «на быстрой склейке у Нубии есть сетка, на качестве её нет»): the fast route's Quad / Tetra result gets
@@ -1176,6 +1207,18 @@ struct HybridTuning {
     float fastQuadFlatNoise=1.5f;
     // P596: its notch along lines fades out from half this many merged frames to this many (0 = everywhere, as before)
     float fastQuadLineFrames=8.f;
+    // P634 (owner, 2026-11-12: «Займись улучшением результата на Tetra»; «максимум детализации, при этом не ухудшив движущиеся
+    // объекты и не добавив новых артефактов»): the fast route's Tetra (4x4) result takes two of the native merge's passes:
+    // fastTetraPost 1 - the along-edge smoothing where the route merged the base nearly alone, by its own frame map (1 + the
+    // donors' weight; its share 1 - smoothstep(1, 1 + fastTetraAlongEdgeK, frames)); fastTetraClipNotch 1 - P548's pass (the
+    // sensor's diagonal checker in the glow round a clipped light). 0 / 0 = the route's result as before, bit for bit.
+    // Tried for detail and not kept (they bring the beads / stair-steps back or add noise, measured on five still Tetra windows
+    // through the app chain): P596's noise-gated de-grid on Tetra with its line notch faded (+2 % mid, stair-steps +8 .. 15 %),
+    // its «flat» part alone with the site response in the unpack (+0.7 .. 1.9 %, flat noise +0 .. 5 %), the texture kernel x0.7 /
+    // x0.5 on both routes (+0 .. 1 %, noise +3 .. 11 %), the native luma guide faded by the colours' support (+1.3 % for +8 %
+    // stair-steps, +4 % for +25 %: what the guide takes is the beads), the native kernel / edge / flat scales (0).
+    int fastTetraPost=1,fastTetraClipNotch=1;
+    float fastTetraAlongEdgeK=3.f;
     // P596: the fast route's Quad base-frame fallback (merge_quad's linear cone where few donors merged) stretched along the local
     // edge by this anisotropy (0 = the round cone, as before). Synthetic burst, the 3 px / frame object's outline 34.8 -> 36.6 dB
     // at 1.2 (0.6: 36.1, 2: 36.5); 140309 one frame alone, the facade's grooves 0.028 -> 0.050 (quality's demosaic 0.082); static
@@ -1555,7 +1598,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
             ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit)
             ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMosaicChroma",nullptr,&t.fastMosaicChroma)||set("fastSiteGain",nullptr,&t.fastSiteGain)||set("mosaicNatTile",nullptr,&t.mosaicNatTile)||set("fastQuadLattice",nullptr,&t.fastQuadLattice)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
-            ||set("fastQuadFlatNoise",&t.fastQuadFlatNoise)||set("fastQuadLineFrames",&t.fastQuadLineFrames)||set("baseDemosaicQuadRadius",&t.baseDemosaicQuadRadius)||set("mosaicQuadFine",&t.mosaicQuadFine)||set("fastQuadCone",&t.fastQuadCone)||set("mosaicQuadTexture",&t.mosaicQuadTexture) // P596
+            ||set("normalWeakHom",nullptr,&t.normalWeakHom)||set("normalWeakHomRms",&t.normalWeakHomRms)||set("fastTetraPost",nullptr,&t.fastTetraPost)||set("fastTetraClipNotch",nullptr,&t.fastTetraClipNotch)||set("fastTetraAlongEdgeK",&t.fastTetraAlongEdgeK)||set("fastQuadFlatNoise",&t.fastQuadFlatNoise)||set("fastQuadLineFrames",&t.fastQuadLineFrames)||set("baseDemosaicQuadRadius",&t.baseDemosaicQuadRadius)||set("mosaicQuadFine",&t.mosaicQuadFine)||set("fastQuadCone",&t.fastQuadCone)||set("mosaicQuadTexture",&t.mosaicQuadTexture) // P596
             ||set("mosaicQuadTextureFrames",&t.mosaicQuadTextureFrames) // P596
             ||set("fastFlowPick",nullptr,&t.fastFlowPick) // P601
             ||set("fastLightFill",&t.fastLightFill) // P607
@@ -1565,8 +1608,8 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("staticScale",nullptr,&t.staticScale)||set("staticFrames",nullptr,&t.staticFrames)||set("staticTile",nullptr,&t.staticTile)
             ||set("staticVulkan",nullptr,&t.staticVulkan)||set("staticStripMB",nullptr,&t.staticStripMB)||set("staticProfile",nullptr,&t.staticProfile)
             ||set("staticChroma",&t.staticChroma)||set("staticLuma",&t.staticLuma)||set("staticHuber",&t.staticHuber)
-            ||set("staticRobust",&t.staticRobust)||set("staticMotionMax",&t.staticMotionMax)
-            ||set("staticMosaicChroma",nullptr,&t.staticMosaicChroma)||set("staticQuadLattice",nullptr,&t.staticQuadLattice)||set("staticChromaFloor",&t.staticChromaFloor)||set("staticLumaFloor",&t.staticLumaFloor)||set("staticFlatK",&t.staticFlatK)||set("staticEdgeK",&t.staticEdgeK)||set("staticPriorFrames",&t.staticPriorFrames)||set("staticTetraPriorFrames",&t.staticTetraPriorFrames)||set("staticTetraAlongEdgePasses",nullptr,&t.staticTetraAlongEdgePasses)||set("staticLanczos",nullptr,&t.staticLanczos)||set("staticDetail",&t.staticDetail)||set("staticBayerDetail",&t.staticBayerDetail)||set("staticDetailShrink",&t.staticDetailShrink)||set("staticDetailCore",&t.staticDetailCore)||set("staticDetailSigma",&t.staticDetailSigma)||set("staticBayerChromaFloor",&t.staticBayerChromaFloor)||set("staticBayerLumaFloor",&t.staticBayerLumaFloor)||set("staticBayerChroma",&t.staticBayerChroma)||set("staticBayerAlongEdge",&t.staticBayerAlongEdge)||set("staticAlongEdge",&t.staticAlongEdge) // P627
+            ||set("staticRobust",&t.staticRobust)||set("staticMotionMax",&t.staticMotionMax)||set("staticLatticeLines",nullptr,&t.staticLatticeLines)||set("staticDetailLattice",nullptr,&t.staticDetailLattice)||set("staticBlockTol",&t.staticBlockTol)||set("staticBlockMotionMax",&t.staticBlockMotionMax)
+            ||set("staticMosaicChroma",nullptr,&t.staticMosaicChroma)||set("staticQuadLattice",nullptr,&t.staticQuadLattice)||set("staticChromaFloor",&t.staticChromaFloor)||set("staticLumaFloor",&t.staticLumaFloor)||set("staticFlatK",&t.staticFlatK)||set("staticEdgeK",&t.staticEdgeK)||set("staticPriorFrames",&t.staticPriorFrames)||set("staticTetraPriorFrames",&t.staticTetraPriorFrames)||set("staticTetraAlongEdgePasses",nullptr,&t.staticTetraAlongEdgePasses)||set("staticLanczos",nullptr,&t.staticLanczos)||set("staticSliceMs",&t.staticSliceMs)||set("staticPlan",nullptr,&t.staticPlan)||set("staticBlocks",nullptr,&t.staticBlocks)||set("staticBlockSteps",nullptr,&t.staticBlockSteps)||set("staticTetraBlockSteps",nullptr,&t.staticTetraBlockSteps)||set("staticFinalSteps",nullptr,&t.staticFinalSteps)||set("staticFieldHalf",nullptr,&t.staticFieldHalf)||set("staticDetail",&t.staticDetail)||set("staticBayerDetail",&t.staticBayerDetail)||set("staticDetailShrink",&t.staticDetailShrink)||set("staticDetailCore",&t.staticDetailCore)||set("staticDetailSigma",&t.staticDetailSigma)||set("staticBayerChromaFloor",&t.staticBayerChromaFloor)||set("staticBayerLumaFloor",&t.staticBayerLumaFloor)||set("staticBayerChroma",&t.staticBayerChroma)||set("staticBayerAlongEdge",&t.staticBayerAlongEdge)||set("staticAlongEdge",&t.staticAlongEdge) // P627
             ||set("denoise",nullptr,&t.denoise); // P600
         }
         if(report&&!applied.empty())report("HYBRID TUNING FILE "+path+":"+applied);
@@ -13901,6 +13944,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     std::vector<bool> aligned(n,true);
     // P334: normal donors the alignment refused, handed to F6 from the identity (left out of the hand-motion and still-burst tests)
     std::vector<bool> idStart(n,false);
+    std::vector<char> weakStart(static_cast<size_t>(n),0); // P634: refused normal frames that start from their weak homography
     int stillSeen=-1; // P335: the burst's donors (aligned ones) moved: 0, a still burst: 1, not tested: -1 (plainChromaHand)
     // P33 W2.1: the F6 field in tile-row bands (LaStream). Phase 1 of a frame (gray, L1 field) starts as soon as the alignment
     // publishes its homography, the bands once the refined frames are known (commit below) and run alongside the GPU merge. Plain
@@ -14185,7 +14229,21 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                     char line[160];std::snprintf(line,sizeof(line),"HYBRID GPU ALIGN f=%d: no GPU homography: global translation (%+.2f, %+.2f) px",f,t.x,t.y);
                     report(line);
                 }
-                else if(role==kRoleNormal&&tune.localAlign>0){BackwardHomography m;m.h={1,0,r.coarseX,0,1,r.coarseY,0,0};H[f]=m;idStart[f]=true;aligned[f]=true;}
+                else if(role==kRoleNormal&&tune.localAlign>0){
+                    BackwardHomography m;m.h={1,0,r.coarseX,0,1,r.coarseY,0,0};
+                    // P634: a normal frame's refused but solved homography (>= 30 inliers within normalWeakHomRms px, its centre
+                    // near the coarse translation) in place of that translation alone, the rest as before
+                    if(r.weak&&tune.normalWeakHom>0&&r.rms<=tune.normalWeakHomRms){
+                        const float cx=0.5f*float(w),cy=0.5f*float(h),d=r.hw[6]*cx+r.hw[7]*cy+1.f;
+                        if(std::abs(d)>1e-6f){
+                            const float x=(r.hw[0]*cx+r.hw[1]*cy+r.hw[2])/d-cx,y=(r.hw[3]*cx+r.hw[4]*cy+r.hw[5])/d-cy;
+                            // (0.4 % of the frame's long side, at least the ultrashort rule's 6 px: the phone's accepted frames sat 7 - 10 px
+                            // off their coarse shift at 4080 px - the block match weighs the water, the tracks the shore)
+                            if(std::hypot(x-r.coarseX,y-r.coarseY)<=std::max(6.f,0.004f*float(std::max(w,h)))){m.h=r.hw;weakStart[size_t(f)]=1;}
+                        }
+                    }
+                    H[f]=m;idStart[f]=true;aligned[f]=true;
+                }
                 else if(tune.bentoUsRegister>=2&&role==kRoleUltrashort&&!usFallbackInline&&!usRegDone[size_t(f)]){
                     aligned[f]=false; // P371: decided after the loop (above)
                     if(input.usPending&&input.usPending->checked.valid())usFallbackWait.push_back(f);
@@ -14373,6 +14431,9 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         std::string ids;
         for(int f=1;f<n;++f)if(idStart[f])ids+=(ids.empty()?"":",")+std::to_string(f);
         if(!ids.empty())report("HYBRID ALIGN: frames "+ids+" refused by the alignment: local alignment from the identity and the rejection");
+        std::string weak;
+        for(int f=1;f<n&&f<int(weakStart.size());++f)if(weakStart[size_t(f)])weak+=(weak.empty()?"":",")+std::to_string(f);
+        if(!weak.empty())report("HYBRID ALIGN: frames "+weak+" of them from their weak homography (P634: >= 30 inliers, its centre near the coarse shift), not the translation alone");
     }
     if(tune.profile){ // the homographies, so the residual alignment error can be measured offline (sabre2x_61.md F7b / R4)
         for(int f=1;f<n;++f){

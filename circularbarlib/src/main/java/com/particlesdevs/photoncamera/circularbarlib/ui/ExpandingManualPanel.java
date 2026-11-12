@@ -231,29 +231,96 @@ public class ExpandingManualPanel extends LinearLayout {
     }
 
     /**
+     * P630g (owner, 2026-11-12, a screenshot: the «Oldstyle» style panel open and the manual row showing through it; «у нас иногда
+     * не скрываются ручные настройки»): another panel has taken this row's place. The row was hidden there by its alpha alone,
+     * from outside - and anything that showed the row again brought it back under the open panel: the shade going down
+     * ({@link #setShadeShown} fades to 1), a binding refresh, a fade cancelled half way - and the parent's LayoutTransition
+     * (camera_container has animateLayoutChanges): every time the row became VISIBLE the transition ran its own APPEARING
+     * animator on it, alpha 0 -> 1 some 300 ms later, which no cancel() of ours stops: a panel opened in that time hid the row and
+     * the transition showed it again under the panel («иногда»). Now the row has one rule, {@link #shown}: the shade down and
+     * nothing in its place; both setters go through {@link #applyShown}, which every refresh re-asserts; the row's visibility
+     * changes without the parent's transition ({@link #visibility}); a row that is not shown takes no touches from the first
+     * frame of its fade.
+     */
+    private boolean covered;
+
+    public boolean isCovered() {
+        return covered;
+    }
+
+    /** The one rule of the row's visibility: the shade is down and no other panel is in its place. */
+    public boolean shown() {
+        return shadeShown && !covered;
+    }
+
+    /** Another panel takes the row's place ({@code covered}) or gives it back: a fade in place (no slide: the panel is there). */
+    public void setCovered(boolean covered, boolean animate) {
+        final boolean was = shown();
+        this.covered = covered;
+        applyShown(animate, was != shown(), false);
+    }
+
+    /**
      * Shows the panel while the shade is HIDDEN and hides it at the other levels: a short fade and slide (alpha, 16dp down),
      * INVISIBLE at the end so it takes no touches. Nothing else changes, so it comes back open or closed with the same
-     * parameter selected.
+     * parameter selected. P630g: while another panel is in its place ({@link #setCovered}) it stays hidden whatever the shade does.
      */
     public void setShadeShown(boolean shown, boolean animate) {
-        boolean changed = shown != shadeShown;
+        final boolean was = shown();
         shadeShown = shown;
+        applyShown(animate, was != shown(), true);
+    }
+
+    /** Brings the row to {@link #shown} ({@code slide}: the shade's slide with the fade; without it the fade alone). */
+    private void applyShown(boolean animate, boolean changed, boolean slide) {
+        final boolean shown = shown();
         animate().cancel();
-        float slide = dp(SHADE_SLIDE_DP);
+        final float down = shadeShown ? 0f : dp(SHADE_SLIDE_DP);
         if (!animate) {
+            visibility(shown ? VISIBLE : INVISIBLE);
             setAlpha(shown ? 1f : 0f);
-            setTranslationY(shown ? 0f : slide);
-            setVisibility(shown ? VISIBLE : INVISIBLE);
+            setTranslationY(down);
             return;
         }
-        if (!changed && (shown ? getVisibility() == VISIBLE && getAlpha() == 1f : getVisibility() != VISIBLE)) return;
-        if (shown) {
-            setVisibility(VISIBLE);
-            animate().alpha(1f).translationY(0f).setDuration(SHADE_RETURN_MS).setInterpolator(SHEET).start();
-        } else {
-            animate().alpha(0f).translationY(slide).setDuration(SHADE_LEAVE_MS).setInterpolator(new DecelerateInterpolator())
-                    .withEndAction(() -> { if (!shadeShown) setVisibility(INVISIBLE); }).start();
+        // (the cancelled fade may have left it half way: finished here whatever "changed" says)
+        if (!changed && (shown ? getVisibility() == VISIBLE && getAlpha() == 1f : getVisibility() != VISIBLE)) {
+            if (!shown) setAlpha(0f);
+            return;
         }
+        if (shown) {
+            visibility(VISIBLE);
+            animate().alpha(1f).translationY(0f).setDuration(SHADE_RETURN_MS).setInterpolator(SHEET).withEndAction(null).start();
+        } else {
+            animate().alpha(0f).translationY(slide ? down : getTranslationY()).setDuration(SHADE_LEAVE_MS).setInterpolator(new DecelerateInterpolator())
+                    .withEndAction(() -> { if (!shown()) visibility(INVISIBLE); }).start();
+        }
+    }
+
+    /**
+     * P630g: the row's visibility without the parent's LayoutTransition: its APPEARING / DISAPPEARING animators would fade the row
+     * on their own clock (see {@link #covered}); the row's fades are {@link #applyShown}'s alone. The transition's other types
+     * (the siblings' moves) stay.
+     */
+    private void visibility(int value) {
+        if (getVisibility() == value) return;
+        final android.animation.LayoutTransition t = getParent() instanceof android.view.ViewGroup
+                ? ((android.view.ViewGroup) getParent()).getLayoutTransition() : null;
+        final boolean appearing = t != null && t.isTransitionTypeEnabled(android.animation.LayoutTransition.APPEARING);
+        final boolean disappearing = t != null && t.isTransitionTypeEnabled(android.animation.LayoutTransition.DISAPPEARING);
+        if (appearing) t.disableTransitionType(android.animation.LayoutTransition.APPEARING);
+        if (disappearing) t.disableTransitionType(android.animation.LayoutTransition.DISAPPEARING);
+        try {
+            setVisibility(value);
+        } finally {
+            if (appearing) t.enableTransitionType(android.animation.LayoutTransition.APPEARING);
+            if (disappearing) t.enableTransitionType(android.animation.LayoutTransition.DISAPPEARING);
+        }
+    }
+
+    /** P630g: a row that is not shown takes no touches, also while it is still fading out. */
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        return shown() && super.dispatchTouchEvent(ev);
     }
 
     @Override

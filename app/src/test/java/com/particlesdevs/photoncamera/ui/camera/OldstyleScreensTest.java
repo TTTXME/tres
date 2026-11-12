@@ -341,6 +341,138 @@ public class OldstyleScreensTest {
         assertEquals(View.GONE, s.b.oldstyleControls.getVisibility());
     }
 
+    private static void idle(int ms) {
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofMillis(ms));
+    }
+
+    private static void assertRowHidden(String when, ExpandingManualPanel panel) {
+        assertFalse(when, panel.shown());
+        assertEquals(when, View.INVISIBLE, panel.getVisibility());
+        assertEquals(when, 0f, panel.getAlpha(), 0f);
+        final long t = android.os.SystemClock.uptimeMillis();
+        final android.view.MotionEvent down = android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, 40f, 20f, 0);
+        assertFalse(when + ": no touches", panel.dispatchTouchEvent(down));
+        down.recycle();
+    }
+
+    private static void assertRowShown(String when, ExpandingManualPanel panel) {
+        assertTrue(when, panel.shown());
+        assertEquals(when, View.VISIBLE, panel.getVisibility());
+        assertEquals(when, 1f, panel.getAlpha(), 0f);
+    }
+
+    /**
+     * P630g (owner's screenshot: the style panel open, the manual row showing through it; «у нас иногда не скрываются ручные
+     * настройки»): the row is hidden exactly while the panel is open - one rule (the shade down and nothing in its place), whatever
+     * comes in between: the shade going up and down under the open panel (its return faded the row back to 1: the screenshot), a
+     * binding refresh, a close during the open fade, an open during the shade's fade, the chrome rebuilt (a rotation, a resume)
+     * over the same row, the mode left with the panel open. A hidden row takes no touches from the start of its fade.
+     */
+    @Test
+    public void manualRowHiddenExactlyWhileThePanelIsOpen() throws Exception {
+        Screen s = screen(true);
+        ExpandingManualPanel panel = oldstyleScreen(s);
+        View pro = s.b.layoutBottombar.getRoot().findViewById(R.id.pro_button);
+        OldstyleControls controls = new OldstyleControls(s.b.oldstyleControls, s.b.oldstyleHud, s.b.layoutViewfinder.texture, null);
+        controls.apply(true, panel, pro, false);
+        layout(s);
+        assertRowShown("the mode, the panel closed", panel);
+        // open, animated: no touches at once, hidden when the fade ends
+        controls.setOpen(true, true);
+        assertFalse(panel.shown());
+        final long t0 = android.os.SystemClock.uptimeMillis();
+        final android.view.MotionEvent early = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 40f, 20f, 0);
+        assertFalse("a tap on a manual tile while the panel opens", panel.dispatchTouchEvent(early));
+        early.recycle();
+        idle(600);
+        assertRowHidden("open", panel);
+        // the screenshot's interleaving: the shade up and down again under the open panel (the binding's return of the row)
+        com.particlesdevs.photoncamera.ui.camera.binding.CustomBinding.setManualPanelShown(panel, false);
+        controls.setShadeShown(true);
+        idle(600);
+        assertRowHidden("the shade up", panel);
+        com.particlesdevs.photoncamera.ui.camera.binding.CustomBinding.setManualPanelShown(panel, true);
+        controls.setShadeShown(false);
+        idle(600);
+        assertTrue(controls.isOpen());
+        assertRowHidden("the shade down again, the panel still open", panel);
+        layout(s);
+        write(draw(s), "ui_panel_open_row_hidden");
+        // the parent animates layout changes (camera_container): its transition is not let at the row - no animator of its own
+        // fades the row in after ours hid it (the «иногда» of the owner's report)
+        final android.animation.LayoutTransition transition = ((ViewGroup) panel.getParent()).getLayoutTransition();
+        assertTrue("the fixture has the layout's transition", transition != null && transition.isTransitionTypeEnabled(android.animation.LayoutTransition.APPEARING));
+        controls.setOpen(false, false);
+        assertRowShown("closed: shown at once, no transition fading it in from 0", panel);
+        assertFalse(transition.isRunning());
+        controls.setOpen(true, true);
+        idle(600);
+        assertRowHidden("open again", panel);
+        assertTrue(transition.isTransitionTypeEnabled(android.animation.LayoutTransition.APPEARING)
+                && transition.isTransitionTypeEnabled(android.animation.LayoutTransition.DISAPPEARING));
+        // a binding refresh (the same value again, laid out or not), the 300 ms refreshes of the mode: nothing shows it
+        for (int i = 0; i < 3; i++) {
+            com.particlesdevs.photoncamera.ui.camera.binding.CustomBinding.setManualPanelShown(panel, true);
+            panel.setShadeShown(true, i % 2 == 0);
+            controls.bind();
+            idle(100);
+        }
+        idle(600);
+        assertRowHidden("refreshes while open", panel);
+        // someone's fade of the row cancelled half way and its alpha set from outside: the next refresh puts it back
+        panel.setAlpha(1f);
+        assertFalse("still no touches", panel.shown());
+        controls.setShadeShown(true);
+        controls.setShadeShown(false);
+        idle(600);
+        assertRowHidden("after a foreign alpha", panel);
+        // close during the open fade, open during the close fade
+        controls.setOpen(false, true);
+        idle(60);
+        controls.setOpen(true, true);
+        idle(60);
+        controls.setOpen(false, true);
+        idle(600);
+        assertFalse(controls.isOpen());
+        assertRowShown("closed after open / close / open / close", panel);
+        controls.setOpen(true, true);
+        idle(60);
+        controls.setOpen(false, true);
+        idle(30);
+        controls.setOpen(true, true);
+        idle(600);
+        assertRowHidden("open after close / open", panel);
+        // open during the shade's own fade of the row (the shade leaving, then back)
+        controls.setOpen(false, false);
+        assertRowShown("closed", panel);
+        panel.setShadeShown(false, true);
+        idle(60);
+        controls.setOpen(true, true);
+        idle(60);
+        panel.setShadeShown(true, true);
+        idle(600);
+        assertRowHidden("opened while the shade's fade ran", panel);
+        // the chrome rebuilt over the same row (a rotation, a resume): the new controls are closed - the row is given back
+        OldstyleControls rebuilt = new OldstyleControls(s.b.oldstyleControls, s.b.oldstyleHud, s.b.layoutViewfinder.texture, null);
+        rebuilt.apply(true, panel, pro, false);
+        layout(s);
+        assertFalse(rebuilt.isOpen());
+        assertRowShown("rebuilt, closed", panel);
+        rebuilt.setOpen(true, false);
+        assertRowHidden("rebuilt, open", panel);
+        // the mode left with the panel open: the row is the other mode's again (collapsed there, but not covered)
+        rebuilt.apply(false, panel, pro, false);
+        assertFalse(panel.isCovered());
+        assertTrue(panel.shown());
+        assertEquals(1f, panel.getAlpha(), 0f);
+        assertEquals(View.VISIBLE, panel.getVisibility());
+        // and with the shade up outside the mode the row follows the shade as before
+        panel.setShadeShown(false, false);
+        assertEquals(View.INVISIBLE, panel.getVisibility());
+        panel.setShadeShown(true, false);
+        assertRowShown("the shade's own rule", panel);
+    }
+
     private static Bitmap stack(Bitmap a, Bitmap b) {
         Bitmap both = Bitmap.createBitmap(a.getWidth(), a.getHeight() * 2, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(both);

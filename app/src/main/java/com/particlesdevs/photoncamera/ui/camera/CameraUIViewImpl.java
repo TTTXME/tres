@@ -166,6 +166,15 @@ public class CameraUIViewImpl implements CameraUIView {
     @Override
     public void updateBadges() {
         if (topbar != null) bindBadges(topbar);
+        // P638: «Спорт» switched on by the shade, the settings or a restored backup while «Oldstyle» was the mode: one mode, and the
+        // Oldstyle controls leave the screen with it
+        try {
+            com.particlesdevs.photoncamera.settings.MotionMode.settleWithOldstyle(
+                    android.preference.PreferenceManager.getDefaultSharedPreferences(ScameraApp.getAppContext()));
+        } catch (RuntimeException noContext) {
+            // the switch below shows the stored flags as they are
+        }
+        if (com.particlesdevs.photoncamera.settings.MotionMode.takeSettled()) cameraFragment.onCameraModeChanged();
         // P574: the bottom row's Sport | Photo switch follows the setting (a tap, the shade, the settings)
         if (cameraFragment.cameraFragmentBinding != null)
             com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.bindModes(cameraFragment.cameraFragmentBinding.layoutBottombar.getRoot(), true);

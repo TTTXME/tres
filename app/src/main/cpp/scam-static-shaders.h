@@ -72,6 +72,7 @@ PARAMS {
     float wbR;    // white balance gains (G = 1): the regularisers work on white-balanced colour (a grey texture is no colour)
     float wbB;
     int bs;       // P627: log2 of the CFA's colour block (0 Bayer, 1 Quad 2x2, 2 Tetra 4x4): the colour period is 2 << bs
+    int row0;     // P639: first row of this dispatch (a pass split into short submissions; the field pass: its first tile row)
 } pc;
 
 layout(std430, binding = 1) readonly buffer StFrames { float fi[]; };
@@ -177,21 +178,28 @@ vec2 stCdAt(vec2 pb) {
     return mix(mix(cd[y0 * cw + x0], cd[y0 * cw + x1], a.x), mix(cd[y1 * cw + x0], cd[y1 * cw + x1], a.x), a.y);
 }
 void main() {
-    int px = int(gl_GlobalInvocationID.x), py = int(gl_GlobalInvocationID.y);
+    int px = int(gl_GlobalInvocationID.x), py = int(gl_GlobalInvocationID.y) + pc.row0;
     if (px >= pc.WH || py >= pc.RH) return;
     vec2 pb = vec2((float(px) + 0.5) / float(pc.s), (float(py) + 0.5) / float(pc.s) + float(pc.r0));
     vec3 num = vec3(0.0), den = vec3(0.0);
     float sg = 0.6 * float(pc.s);
     for (int k = 0; k < pc.K; ++k) {
         if (fi[k * 32 + 22] < 0.5) continue;
-        vec2 u = stHom(k * 32, pb - stFieldAt(k, pb));
+        // P639: the nine samples' HR offsets from this pixel through the inverse homography's Jacobian at u, (A - p g^T) / d
+        // (p = the pixel's own base position less the field, where u maps back), the field as at the pixel - a homography and
+        // a field look-up per frame, not per sample (the offsets agree to ~1e-4 px, as the gather's)
+        int hb = k * 32;
+        vec2 pm = pb - stFieldAt(k, pb);
+        vec2 u = stHom(hb, pm);
+        float di = fi[hb + 15] * u.x + fi[hb + 16] * u.y + fi[hb + 17];
+        vec2 jx = (vec2(fi[hb + 9], fi[hb + 12]) - pm * fi[hb + 15]) / di, jy = (vec2(fi[hb + 10], fi[hb + 13]) - pm * fi[hb + 16]) / di;
         int cx0 = int(floor(u.x - 0.5)) - 1, cy0 = int(floor(u.y - 0.5)) - 1;
         for (int ny = 0; ny < 3; ++ny) for (int nx = 0; nx < 3; ++nx) {
             int cx = cx0 + nx, cy = cy0 + ny;
             float yv = stRaw(k, cx, cy);
             if (yv < -0.5) continue;
-            vec2 q = stHrPos(k, cx, cy);
-            vec2 d = q - vec2(float(px) + 0.5, float(py) + 0.5);
+            vec2 e = vec2(float(cx) + 0.5, float(cy) + 0.5) - u;
+            vec2 d = float(pc.s) * (jx * e.x + jy * e.y);
             float wgt = exp(-dot(d, d) / (2.0 * sg * sg));
             int c = stChannel(cx, cy);
             if (c == 0) { num.x += wgt * yv; den.x += wgt; }
@@ -223,7 +231,8 @@ void main() {
 
 // per RAW sample of every frame: the residual against z, its base weight (sig2 / var of our noise model at the prediction; 0 where
 // the footprint leaves the strip or the sample is clipped). mode 0: r -> sr, weight -> sw; mode 1: weighted residual w r -> sr
-// (the z-steps; sw holds the final weight)
+// (the z-steps; sw holds the final weight); mode 2 (P639): as mode 0 and the pairs (r, base weight) for a gather that follows on
+// the base weights (no robust pass in between: the pass of mode 1 would compute the same residual again)
 static const char* kStResid=R"ST(
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(std430, binding = 2) readonly buffer StRaw { uint raw[]; };
@@ -234,14 +243,14 @@ layout(std430, binding = 6) readonly buffer StFld { vec2 fld[]; };
 layout(std430, binding = 7) writeonly buffer StRW { vec2 srw[]; }; // mode 1: (residual, weight) pairs for the gather
 )ST" "%FIELD%" R"ST(
 void main() {
-    int x = int(gl_GlobalInvocationID.x), wr = int(gl_GlobalInvocationID.y), k = int(gl_GlobalInvocationID.z) + pc.frame0;
+    int x = int(gl_GlobalInvocationID.x), wr = int(gl_GlobalInvocationID.y) + pc.row0, k = int(gl_GlobalInvocationID.z) + pc.frame0;
     if (x >= pc.W || wr >= pc.rows || k >= pc.K) return;
     int y = wr + int(fi[k * 32 + 21]);
     int o = (k * pc.rows + wr) * pc.W + x;
     float yv = stRaw(k, x, y);
     float pred;
     bool ok = fi[k * 32 + 22] > 0.5 && y >= 0 && y < pc.H && yv > -0.5 && stForward(stHrPos(k, x, y), stChannel(x, y), pred);
-    if (pc.mode == 0) {
+    if (pc.mode != 1) {
         float var = fi[k * 32 + 18] * max(pred, 0.0) + fi[k * 32 + 19];
         float ol = fi[k * 32 + 24];
         if (ol > 0.0) { // P627 DCG: the LCG zone's offset above the knee (own exposure), smoothstep over 0.9 .. 1.1 x the knee
@@ -250,8 +259,10 @@ void main() {
             var += (ol - fi[k * 32 + 19]) * t * t * (3.0 - 2.0 * t);
         }
         bool use = ok && yv < pc.clipLvl;
+        float bw = use ? min(pc.sig2 / max(var, 1e-10), 16.0) : 0.0;
         sr[o] = use ? pred - yv : 0.0;
-        sw[o] = use ? min(pc.sig2 / max(var, 1e-10), 16.0) : 0.0;
+        sw[o] = bw;
+        if (pc.mode == 2) srw[o] = use ? vec2(pred - yv, bw) : vec2(0.0);
     } else {
         srw[o] = ok ? vec2(pred - yv, sw[o]) : vec2(0.0); // one load per sample in the gather (it weighs and sums the weights)
     }
@@ -281,7 +292,7 @@ float stRaw2(int k, int x, int yy) {
     return (dn - fi[g]) / max(fi[g + 4] - fi[g], 1.0) * fi[g + 5 + site] / fi[k * 32 + 20];
 }
 void main() {
-    int x = int(gl_GlobalInvocationID.x), wr = int(gl_GlobalInvocationID.y), k = int(gl_GlobalInvocationID.z) + pc.frame0;
+    int x = int(gl_GlobalInvocationID.x), wr = int(gl_GlobalInvocationID.y) + pc.row0, k = int(gl_GlobalInvocationID.z) + pc.frame0;
     if (x >= pc.W || wr >= pc.rows || k >= pc.K) return;
     int o = (k * pc.rows + wr) * pc.W + x;
     if (k == 0 || pc.robK <= 0.0) { st[o] = 1.0; return; }
@@ -326,9 +337,10 @@ layout(std430, binding = 3) readonly buffer StWb { float sw0[]; };
 layout(std430, binding = 4) writeonly buffer StW { float sw[]; };
 layout(std430, binding = 5) buffer StCount { uint cnt[]; };
 layout(std430, binding = 6) readonly buffer StR { float sr[]; };
+layout(std430, binding = 7) writeonly buffer StRW { vec2 srw[]; }; // P639 (mode >= 2): (residual, final weight) for the gather
 )ST" R"ST(
 void main() {
-    int x = int(gl_GlobalInvocationID.x), wr = int(gl_GlobalInvocationID.y), k = int(gl_GlobalInvocationID.z) + pc.frame0;
+    int x = int(gl_GlobalInvocationID.x), wr = int(gl_GlobalInvocationID.y) + pc.row0, k = int(gl_GlobalInvocationID.z) + pc.frame0;
     if (x >= pc.W || wr >= pc.rows || k >= pc.K) return;
     int o = (k * pc.rows + wr) * pc.W + x;
     float w = 1.0;
@@ -340,10 +352,15 @@ void main() {
     }
     float b = sw0[o];
     sw[o] = b * w;
+    // P639: the residual this weight was made from, paired with it - the gather that follows needs no residual pass of its own
+    if (pc.mode >= 2) srw[o] = b > 0.0 ? vec2(sr[o], b * w) : vec2(0.0);
     // the last iteration (mode 1), the strip's own rows: valid / rejected samples, the normalised data residual w r^2 / sig2
     // (1 = at the noise; x 256 fixed point, each sample capped at 4)
     int y = wr + int(fi[k * 32 + 21]);
-    if (pc.mode == 1 && b > 0.0 && y >= pc.r0 && float(y) < float(pc.r0) + float(pc.RH) / float(pc.s)) {
+    // (P639: on one sample in 16, a hash of its place - the shares and the mean are those of all; the atomics were a tenth of
+    // the pass's time)
+    if ((pc.mode & 1) == 1 && b > 0.0 && y >= pc.r0 && float(y) < float(pc.r0) + float(pc.RH) / float(pc.s)
+        && ((uint(x) * 2654435761u + uint(y) * 2246822519u) >> 28) == 0u) {
         atomicAdd(cnt[2 * k], 1u);
         if (k > 0 && w < 0.5) atomicAdd(cnt[2 * k + 1], 1u);
         float e = min(b * w * sr[o] * sr[o] / pc.sig2, 4.0);
@@ -375,7 +392,7 @@ vec2 stFieldAt(int k, vec2 pb) {
 float stLuma(vec4 v) { return 0.25 * pc.wbR * v.x + 0.5 * v.y + 0.25 * pc.wbB * v.z; }
 float stHub(float d) { return d / max(1.0, abs(d) / pc.delta); }
 void main() {
-    int px = int(gl_GlobalInvocationID.x), py = int(gl_GlobalInvocationID.y);
+    int px = int(gl_GlobalInvocationID.x), py = int(gl_GlobalInvocationID.y) + pc.row0;
     if (px >= pc.WH || py >= pc.RH) return;
     vec2 pc0 = vec2(float(px) + 0.5, float(py) + 0.5);
     vec2 pb = vec2(pc0.x / float(pc.s), pc0.y / float(pc.s) + float(pc.r0));
@@ -389,6 +406,9 @@ void main() {
         vec2 u = stHom(k * 32, pb - fd);
         int cx0 = int(ceil(u.x - 0.5 - reachLr)), cy0 = int(ceil(u.y - 0.5 - reachLr));
         int row0 = int(fi[k * 32 + 21]);
+        // (P639: the inverse homography read once per frame - stHom(k * 32 + 9, .) below, its nine values local)
+        int hi = k * 32 + 9;
+        float i0 = fi[hi], i1 = fi[hi + 1], i2 = fi[hi + 2], i3 = fi[hi + 3], i4 = fi[hi + 4], i5 = fi[hi + 5], i6 = fi[hi + 6], i7 = fi[hi + 7], i8 = fi[hi + 8];
         for (int ny = 0; ny < 2; ++ny) {
             int cy = cy0 + ny, wr = cy - row0;
             if (wr < 0 || wr >= pc.rows || cy < 0 || cy >= pc.H) continue;
@@ -397,7 +417,8 @@ void main() {
                 if (cx < 0 || cx >= pc.W) continue;
                 vec2 rv = rw[(k * pc.rows + wr) * pc.W + cx];
                 if (rv.y <= 0.0) continue;
-                vec2 q0 = stHom(k * 32 + 9, vec2(float(cx) + 0.5, float(cy) + 0.5)) + fd;
+                vec2 cc = vec2(float(cx) + 0.5, float(cy) + 0.5);
+                vec2 q0 = vec2(i0 * cc.x + i1 * cc.y + i2, i3 * cc.x + i4 * cc.y + i5) / (i6 * cc.x + i7 * cc.y + i8) + fd;
                 vec2 q = float(pc.s) * q0 - vec2(0.0, float(pc.s * pc.r0));
                 float wgt = stKern(q.x - pc0.x) * stKern(q.y - pc0.y) * rv.y;
                 if (wgt <= 0.0) continue;
@@ -461,7 +482,7 @@ shared float red[5][256];
 #endif
 void main() {
     int lid = int(gl_LocalInvocationID.x);
-    int tix = int(gl_WorkGroupID.x), tiy = int(gl_WorkGroupID.y), k = int(gl_WorkGroupID.z) + 1;
+    int tix = int(gl_WorkGroupID.x), tiy = int(gl_WorkGroupID.y) + pc.row0, k = int(gl_WorkGroupID.z) + 1 + pc.frame0;
     int ti = (k * pc.nty + tiy) * pc.ntx + tix;
     // tile rect (base LR) and whether the strip's HR rows hold it
     float bx0 = float(tix * pc.tile), by0 = float(tiy * pc.tile);
@@ -483,6 +504,9 @@ void main() {
         float sf = float(pc.s);
         for (int i = lid; i < npx; i += 256) {
             int x = fx0 + i % nw, y = fy0 + i / nw;
+            // P639 (mode 1): every second colour period of the frame, as a checker - half the samples (two unknowns a tile
+            // from ~2000 samples a frame), all the colours
+            if (pc.mode == 1 && (((x >> (pc.bs + 1)) + (y >> (pc.bs + 1))) & 1) != 0) continue;
             int o = (k * pc.rows + (y - row0)) * pc.W + x;
             float wgt = sw[o];
             if (wgt <= 0.0) continue;
@@ -554,7 +578,7 @@ layout(std430, binding = 2) readonly buffer StZ { vec4 z[]; };
 layout(std430, binding = 3) writeonly buffer StO { float ob[]; };
 )ST" R"ST(
 void main() {
-    int x = int(gl_GlobalInvocationID.x), y = int(gl_GlobalInvocationID.y);
+    int x = int(gl_GlobalInvocationID.x), y = int(gl_GlobalInvocationID.y) + pc.row0;
     int ow = pc.mode != 2 ? pc.WH / pc.s : pc.WH;
     if (x >= ow || y >= pc.outRows) return;
     vec3 v;

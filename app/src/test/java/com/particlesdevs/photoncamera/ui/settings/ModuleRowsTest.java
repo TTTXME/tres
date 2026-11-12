@@ -522,6 +522,30 @@ public class ModuleRowsTest {
      * The bound rows: the sensor mode row's picked row is its value on the right, not the summary's first line too; a camera key's
      * shown name breaks after its dots while the key's own title stays the name; deleting a copy is in the warning colour.
      */
+    /**
+     * P641: the lens page's dual-gain row of the Xiaomi 17 Ultra - «DCG / DCG+LOFIC» on the main camera, «DSG» on the ultra wide
+     * (the row is built only on a camera whose table has the vendor's row: none on this test's phone).
+     */
+    @Test public void theDualGainRowOfTheSeventeenUltra() {
+        androidx.preference.ListPreference main = SensorConfigPreferenceGenerator.dualGainRow(context, "back1", "2", Arrays.asList(
+                com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind.DCG, com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind.LOFIC));
+        assertEquals("DCG / DCG+LOFIC (the sensor's dual gain)", String.valueOf(main.getTitle()));
+        assertEquals("[Off, DCG, DCG+LOFIC]", Arrays.toString(main.getEntries()));
+        assertEquals("the switch's states (Dcg14Mode)", "[0, 1, 2]", Arrays.toString(main.getEntryValues()));
+        assertFalse("the switch is the top bar's, not a module's value", main.isPersistent());
+        assertEquals("pref_sensorconfig_back1_dualgain", main.getKey());
+        assertTrue(String.valueOf(main.getSummary()), String.valueOf(main.getSummary()).endsWith("Experimental: not proven on a phone."));
+        String help = String.valueOf(SettingHelp.text(context, main));
+        assertTrue(help, help.contains("checks each on the frames themselves") && help.contains("Not proven on a phone"));
+        androidx.preference.ListPreference wide = SensorConfigPreferenceGenerator.dualGainRow(context, "back2", "3",
+                Collections.singletonList(com.particlesdevs.photoncamera.capture.XiaomiDualGain.Kind.DSG));
+        assertEquals("the ultra wide's is DSG", "DSG (the sensor's dual gain)", String.valueOf(wide.getTitle()));
+        assertEquals("[Off, DSG]", Arrays.toString(wide.getEntries()));
+        assertTrue(wide.callChangeListener("1"));
+        assertFalse("no number: refused", wide.callChangeListener("x"));
+        com.particlesdevs.photoncamera.capture.Dcg14Mode.setMode(com.particlesdevs.photoncamera.capture.Dcg14Mode.OFF);
+    }
+
     @Test public void boundRowsShowTheirTexts() {
         String copy = seed(true);
         try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class)) {
@@ -671,6 +695,16 @@ public class ModuleRowsTest {
         assertEquals("No preset for this lens: set the RAW size and the other fields.",
                 com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, true, null, empty, "size"));
         assertEquals("Own profile", com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, true, null, empty, null));
+        // P635b: a picked full-size row runs as the recipe while the switch is off - the line says so, or why it does not
+        assertEquals("Preset: Xiaomi 17 Ultra 50 MP. Runs for sensor mode 11", com.particlesdevs.photoncamera.settings.FullResRecipeRows.routed(context,
+                com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, false, recipe, recipe, null), false, 11, null));
+        assertEquals("Preset: Xiaomi 17 Ultra 50 MP. Sensor mode 11 by the recipe: Did not run: camera error 4. Change a field or reset to the preset to try again.",
+                com.particlesdevs.photoncamera.settings.FullResRecipeRows.routed(context,
+                        com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, false, recipe, recipe, "failed:camera error 4"), false, 11, "failed:camera error 4"));
+        assertEquals("the switch on: its own line", "Xiaomi 17 Ultra 50 MP", com.particlesdevs.photoncamera.settings.FullResRecipeRows.routed(context,
+                "Xiaomi 17 Ultra 50 MP", true, 11, null));
+        assertEquals("no row picked", "Preset: Xiaomi 17 Ultra 50 MP", com.particlesdevs.photoncamera.settings.FullResRecipeRows.routed(context,
+                "Preset: Xiaomi 17 Ultra 50 MP", false, -1, null));
         assertTrue(com.particlesdevs.photoncamera.settings.FullResRecipeRows.ours(on, slot));
         assertFalse(com.particlesdevs.photoncamera.settings.FullResRecipeRows.ours(SensorModePick.prefKey(slot), slot));
     }

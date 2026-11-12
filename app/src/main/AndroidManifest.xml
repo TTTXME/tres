@@ -429,6 +429,11 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode" />
+        <!-- P640: the vivo SDK lease's guard, a process of its own: gives the phone's values back when the camera process dies -->
+        <service
+            android:name="com.particlesdevs.photoncamera.capture.LeaseGuardService"
+            android:exported="false"
+            android:process=":leaseguard" />
         <service
             android:name="com.particlesdevs.photoncamera.gallery.video.VideoPlaybackService"
             android:exported="false"

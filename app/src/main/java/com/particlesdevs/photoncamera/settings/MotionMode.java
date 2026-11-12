@@ -129,6 +129,34 @@ public final class MotionMode {
     }
 
     /**
+     * P638: «Спорт» was switched on outside the viewfinder's mode switch - the shade's tile, the settings' switch, a restored
+     * backup - while «Oldstyle» is the camera's mode. Both flags stayed on: the switch went on showing «Oldstyle» with its manual
+     * row and its tone in the viewfinder, while the shots were «Спорт»'s (the ring alone at the shutter ceiling, the mode's merge
+     * values) under the Oldstyle tone. The mode becomes «Спорт» as the switch makes it (OldstyleMode.select: the Oldstyle flag off,
+     * the photo modes' manual values back in {@code manual}). True when it changed the mode: the camera's screen follows
+     * ({@link #takeSettled}), and the caller restarts a running session where nothing else does.
+     */
+    public static boolean settleWithOldstyle(@Nullable android.content.SharedPreferences manual) {
+        try {
+            if (!PreferenceKeys.isMotionMode() || !OldstyleMode.on()) return false;
+            if (!OldstyleMode.select(OldstyleMode.Mode.SPORT, manual)) return false;
+        } catch (RuntimeException noSettings) {
+            return false;
+        }
+        settled = true;
+        return true;
+    }
+
+    private static volatile boolean settled;
+
+    /** P638: whether {@link #settleWithOldstyle} changed the mode since the last call (the camera's screen takes it once). */
+    public static boolean takeSettled() {
+        final boolean was = settled;
+        settled = false;
+        return was;
+    }
+
+    /**
      * P113: ring frames a «Движение» shot takes while {@code pending} earlier shots wait for their merge: all it wants with an
      * empty queue, at most 4 behind 2-3 shots, 2 behind more (the stock snapshot mode drops to fewer frames, down to one, when its
      * capture queue fills): a fast series keeps going without the memory and the merge time of full bursts piling up.

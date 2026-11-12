@@ -376,4 +376,9 @@
         <item>10 (полный кадр)</item>
         <item>8 (превью)</item>
     </string-array>
+    <string-array name="scam_hybrid_oldstyle_hdr_entries">
+        <item>Авто</item>
+        <item>Всегда</item>
+        <item>Выкл</item>
+    </string-array>
 </resources>

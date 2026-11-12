@@ -50,6 +50,8 @@ public final class ScameraCrashReporter {
         final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
 
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            // P640: the vivo SDK lease is the phone's state - it goes back before anything else of a dying process
+            com.particlesdevs.photoncamera.capture.VivoSdkRawSession.onCrash();
             try {
                 write(appContext, thread, throwable);
             } catch (Throwable ignored) {

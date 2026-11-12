@@ -124,6 +124,8 @@ public final class TopBar {
         ViewCompat.setTooltipText(tb.formatButton, Lang.t(c, "Формат и размер", "Format and size"));
         // DCG
         boolean dcg = dcgHere, dcgOn = dcg && Dcg14Mode.mode() != Dcg14Mode.OFF;
+        final String dcgText = Dcg14Mode.badge(); // P641: «DSG» on the Xiaomi 17 Ultra's ultra wide, «DCG+L» with LOFIC on
+        if (!dcgText.contentEquals(tb.dcgBadge.getText())) tb.dcgBadge.setText(dcgText);
         tb.dcgBadge.setTextColor(dcgOn ? accent : ShadeStyle.TEXT);
         tb.dcgBadge.setSelected(dcgOn);
         tb.dcgBadge.setActivated(dcgOn);

@@ -64,7 +64,22 @@ final class LiveSceneMeter {
      * restored before returning.
      */
     void measure(java.nio.FloatBuffer pVertex, java.nio.FloatBuffer pTexCoord, int previewTexture) {
+        measure(pVertex, pTexCoord, previewTexture, EVERY_N_FRAMES, 1f);
+    }
+
+    /** P630g: frames between measurements while the Oldstyle live tone follows the frame's level (about 15 a second). */
+    static final int LIVE_TONE_FRAMES = 2;
+    /** The series gain of the frame in the tile waiting to be read, and frames since SceneLuma got a value. */
+    private float pendingGain = 1f;
+    private int sinceScene = EVERY_N_FRAMES;
+
+    /**
+     * As above every {@code every} frames; {@code gain}: the frame's series gain (MainRenderer's uGain: the tone sees the frame
+     * times it). P630g: the tile also gives the frame's linear mean to the Oldstyle live tone (OldstyleLive.level).
+     */
+    void measure(java.nio.FloatBuffer pVertex, java.nio.FloatBuffer pTexCoord, int previewTexture, int every, float gain) {
         if (failed) return;
+        sinceScene++;
         if (pendingRead) { // P551: read the tile one frame after it was drawn - the GPU has finished it, no pipeline stall
             pendingRead = false;
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
@@ -75,8 +90,9 @@ final class LiveSceneMeter {
             publish();
             return;
         }
-        if (++frameCounter < EVERY_N_FRAMES) return;
+        if (++frameCounter < Math.max(1, every)) return;
         frameCounter = 0;
+        pendingGain = gain;
 
         if (program == 0 && !init()) return;
 
@@ -116,8 +132,31 @@ final class LiveSceneMeter {
         readback.position(0);
         long sum = 0;
         for (int i = 0; i < TILE * TILE; i++) sum += readback.get(i * 4) & 0xFF;
-        // P82: the mean brightness for the manual panel's shutter / ISO priority
-        com.particlesdevs.photoncamera.manual.SceneLuma.publish(sum / (255.0 * TILE * TILE));
+        // P82: the mean brightness for the manual panel's shutter / ISO priority (at its own rate: one tile in eight frames)
+        if (com.particlesdevs.photoncamera.manual.SceneLuma.wanted() && sinceScene >= EVERY_N_FRAMES) {
+            sinceScene = 0;
+            com.particlesdevs.photoncamera.manual.SceneLuma.publish(sum / (255.0 * TILE * TILE));
+        }
+        // P630g: the frame's own level for the Oldstyle live tone
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive live =
+                com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared();
+        if (live.wantsLevel()) live.level(System.nanoTime(), linearMean(readback, TILE * TILE, pendingGain));
+    }
+
+    private static final float[] LINEAR = new float[256];
+
+    static {
+        for (int i = 0; i < 256; i++) LINEAR[i] = (float) Math.pow(i / 255.0, 2.2);
+    }
+
+    /**
+     * P630g: the linear mean of {@code count} RGBA8 texels' display luma (their R): each to the power 2.2 (as the live tone
+     * linearises the frame), times the frame's series gain, at most white.
+     */
+    static float linearMean(ByteBuffer rgba, int count, float gain) {
+        double sum = 0;
+        for (int i = 0; i < count; i++) sum += Math.min(1f, LINEAR[rgba.get(i * 4) & 0xFF] * gain);
+        return count <= 0 ? 0f : (float) (sum / count);
     }
 
     private boolean init() {

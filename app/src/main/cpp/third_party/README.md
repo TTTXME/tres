@@ -55,6 +55,16 @@ static, `-ffp-contract=off`, FP32) and linked into `scameraTone` (`../oldstyle-t
 mode's tone (postpipeline/OldstyleTone). `tools/check_tone_port.py` builds it on the host and runs its regression
 (both profiles, `--full-frame`) and the app's JNI path against it.
 
+P636 (speed, `tone_port.p636.diff` on top of the hook's; reverse it first, then `tone_port.p630e.diff`, to get the
+owner's archive): `tone::set_threads` (default 1; the environment's `TONE_PORT_THREADS` on the host) and
+`src/parallel.{h,cpp}` - the module's row loops in bands of rows on several threads (each row is written by one band and
+read by none of its loop). With more than one thread the 8-bit HDR pyramid (`src/rgb8_hdr.cpp`) also runs its row
+form: the tree of rounding averages of a pixel's seven bytes in one 64-bit word, `upsample`'s four taps as two blended
+rows, level storage not zeroed first, the result written into the bright exposure's storage. All integer arithmetic of
+the same values; the float loops (2.7 finish, 3.1) keep their code and only run in bands. With one thread every loop
+runs as it was. The regression's 90 hashes hold at 1, 2, 3, 4 and 7 threads; the diff is regenerated with
+`diff -ruN` of the module against its P630e state (new files with a `/dev/null` old name).
+
 ## tone-port supplement (P630e)
 
 | Directory | Source | Licence |
@@ -67,4 +77,8 @@ beside it. Compiled into `scameraTone` through `../oldstyle-tone-jni.cpp` (-ffp-
 checks its plans against the document's 45 tables and its YUV conversions against its hashes. The app uses its rules through
 `processing/oldstyle/OldstyleAe` (a Java port in FP32, held to the same tables and to the C++ by the host check) and its
 YUV-route stages on our RAW route in the JNI (dehaze / tint and output saturation on the module's RGB8, the low-frequency colour
-inside the 2.7 HDR, our merge as its colour reference).
+inside the 2.7 HDR, our merge as its colour reference). P636: on more than one thread `../oldstyle-tone-core.h` runs these
+stages in bands: the supplement's `dehaze_stats` on the samples it reads and its tables, and its per-pixel integer
+functions written without the branches of `floor_shift` / `signed16` / `clip8` (the same values: compared with the
+supplement's over all 2^24 triples by `tools/bench_oldstyle_tone.cpp --exhaustive`; the dither of `dehaze_yuv444` is copied
+there, compared by OldstyleNativeTest) - the supplement's file is unchanged and its functions stay the check's reference.

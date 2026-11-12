@@ -1013,6 +1013,10 @@ public class SettingsBarLayout extends LinearLayout {
             host.applyCameraControl(e.settingType, (int) Math.round(Double.parseDouble(value.toString())));
         } else {
             catalog().write(e, value);
+            // P638: the «Спорт» tile in the «Oldstyle» mode leaves that mode (before the session it restarts reads the manual values)
+            if (ShadeCatalog.MOTION.equals(e.key))
+                com.particlesdevs.photoncamera.settings.MotionMode.settleWithOldstyle(
+                        android.preference.PreferenceManager.getDefaultSharedPreferences(getContext().getApplicationContext()));
             host.onSettingWritten(e);
         }
         rebindValues();

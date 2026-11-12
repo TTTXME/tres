@@ -677,6 +677,7 @@ public class ScamProcessor extends ProcessorBase {
                 com.particlesdevs.photoncamera.processing.ShotTimeline.mark("dcg_done"); // P625: dcg=
                 applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, characteristics, iszAspect4x3);
                 com.particlesdevs.photoncamera.processing.ShotTimeline.mark("neutral_done"); // P625: neutral=
+                if (dcgShot) addOverflowFrames(processingParameters, images, dcgLinear); // P641d: DCG + LOFIC pairs
                 fieldOfView(processingParameters, iszAspect4x3, zoomResidual);
                 ParseExif.syncWithParameters(exifData, processingParameters);
                 Log.i("SCAM_HDR", "Reference calibration timestamp=" + scamReference.timestamp
@@ -980,18 +981,24 @@ public class ScamProcessor extends ProcessorBase {
         final boolean postAb = com.particlesdevs.photoncamera.processing.opengl.postpipeline.PostAb.wanted(processingParameters, pipeline.film);
         // P483 (speed): a shot whose JPEG needs no bitmap-only step is encoded from the final readback (no bitmap, no copy into one)
         // and saved as the bytes ImageSaver writes for the same pixels (jpegStreamRoute; scam_dev.txt "jpeg_stream 0": the bitmap)
+        final boolean stampOn = com.particlesdevs.photoncamera.processing.MergeStamp.on();
+        final boolean watermarkOn = com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.on();
         final Point streamHybridFinal = hybridOut != null ? com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastFinalSize : null;
         final boolean jpegStream = jpegStreamRoute(PreferenceKeys.scamDevSwitch("jpeg_stream", true), postAb, pipeline.tenBitOutput,
                 pipeline.p3Output, PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film),
                 ScameraApp.getSettings().hdrOutput, PreferenceKeys.getPhotoFormat(), PreferenceKeys.getJpegFastEncoder(),
-                // P628: the watermark is drawn into the photo's bitmap (PhotoWatermark), which the streamed JPEG has none of
-                pipeline.record != null, com.particlesdevs.photoncamera.processing.MergeStamp.on()
-                        || com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.on(), zoomCrop,
+                // P628: the watermark is drawn into the photo's bitmap (PhotoWatermark), which the streamed JPEG has none of;
+                // P642: the stream draws both marks into its own rows (scam_dev.txt "jpeg_stream_marks 0": the bitmap as before)
+                pipeline.record != null, marksNeedBitmap(stampOn, watermarkOn,
+                        PreferenceKeys.scamDevSwitch("jpeg_stream_marks", true)), zoomCrop,
                 hybridResizeNeeded(streamHybridFinal, processingParameters.hybridFinalSize, processingParameters.rawSize),
                 pipeline.debugData.isEmpty(), com.particlesdevs.photoncamera.processing.JpegliEncoder.available());
         final boolean[] exifInStream = {false};
         // P620: the streamed JPEG's thumbnails come from its final readback (no bitmap of the photo exists)
         final Bitmap[] streamDngPreview = {null};
+        // P642: the streamed JPEG's watermark record (the pixels under the mark, coded beside the encode)
+        final com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch.Pending[] streamWatermark = {null};
+        final String streamPlanNote = planNote;
         final boolean dngPreviewWanted = dngPreviewTarget != null;
         if (jpegStream) {
             final boolean isz = iszAspect4x3;
@@ -1002,6 +1009,33 @@ public class ScamProcessor extends ProcessorBase {
                 }
                 @Override public java.io.OutputStream wrap(java.io.OutputStream out, int width, int height) {
                     return wrap(out, width, height, null, 0);
+                }
+                @Override public boolean draws() {
+                    return stampOn || watermarkOn;
+                }
+                @Override public Runnable draw(java.nio.ByteBuffer pixels, int width, int height, int strideBytes) {
+                    // P642: the bitmap route's two drawings, in its order (the stamp, then the watermark over what is there),
+                    // into the rows the encoder reads; the watermark's «Авто» ink and its record see the stamp as there
+                    final long t0 = System.nanoTime();
+                    final com.particlesdevs.photoncamera.processing.watermark.RgbaRows rows =
+                            new com.particlesdevs.photoncamera.processing.watermark.RgbaRows(pixels, width, height, strideBytes);
+                    final com.particlesdevs.photoncamera.processing.watermark.RgbaRows.Undo stampUndo = !stampOn ? null
+                            : com.particlesdevs.photoncamera.processing.MergeStamp.drawInto(rows, streamStampLines(streamPlanNote));
+                    final com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.DrawnInto mark;
+                    try {
+                        mark = com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.applyRecordedInto(rows, streamExif);
+                    } catch (RuntimeException | OutOfMemoryError e) {
+                        if (stampUndo != null) stampUndo.run();
+                        throw e instanceof RuntimeException ? (RuntimeException) e : new IllegalStateException(e);
+                    }
+                    streamWatermark[0] = mark.record;
+                    Log.i(TAG, "streamed JPEG marks (P642): " + (stampUndo != null ? "stamp " : "") + (mark.undo != null ? "watermark " : "")
+                            + "drawn into the rows in " + (System.nanoTime() - t0) / 1000000 + " ms");
+                    return () -> {
+                        streamWatermark[0] = null;
+                        if (mark.undo != null) mark.undo.run();
+                        if (stampUndo != null) stampUndo.run();
+                    };
                 }
                 @Override public java.io.OutputStream wrap(java.io.OutputStream out, int width, int height,
                                                            @androidx.annotation.Nullable java.nio.ByteBuffer pixels, int strideBytes) {
@@ -1229,7 +1263,8 @@ public class ScamProcessor extends ProcessorBase {
                 : streamDngPreview[0];
         if (dngPreview != streamDngPreview[0] && streamDngPreview[0] != null) streamDngPreview[0].recycle(); // the stream fell back
         final com.particlesdevs.photoncamera.processing.PhotoOutput.Result saved = streamedJpeg != null
-                ? com.particlesdevs.photoncamera.processing.PhotoOutput.saveStreamedJpeg(imageFile, streamedJpeg, exifData, exifInStream[0])
+                ? com.particlesdevs.photoncamera.processing.PhotoOutput.saveStreamedJpeg(imageFile, streamedJpeg, exifData, exifInStream[0],
+                        streamWatermark[0])
                 : hdrOutput || pipeline.p3Output
                 ? com.particlesdevs.photoncamera.processing.PhotoOutput.save(imageFile, img, exifData,
                         ScameraApp.getSettings().ultraHdr ? gain : null, hdrOutput ? gain : null, colourSpace, watermarkPatch)
@@ -1270,6 +1305,24 @@ public class ScamProcessor extends ProcessorBase {
      * lab shot (its preview); no merge stamp, no debug overlay; no digital zoom crop (it is scaled back to the photo size) and no
      * hybrid resize on the CPU. The ISZ 4:3 crop is a sub-rectangle of the readback (PostPipeline.JpegPlan), so it may stream.
      */
+    /**
+     * P642: whether the shot's marks (the ES / L stamp, the watermark) keep it off the streamed JPEG: only with the stream's own
+     * drawing switched off (scam_dev.txt "jpeg_stream_marks 0") - on, the stream draws them into its rows (PostPipeline.JpegPlan.draw).
+     */
+    static boolean marksNeedBitmap(boolean stamp, boolean watermark, boolean streamDraws) {
+        return (stamp || watermark) && !streamDraws;
+    }
+
+    /** P642: the stamp's lines as the bitmap route makes them after the pipeline (the merge's facts are set before it). */
+    static String[] streamStampLines(@androidx.annotation.Nullable String planNote) {
+        return com.particlesdevs.photoncamera.processing.MergeStamp.lines(planNote,
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastEsCaptured,
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastEsSent,
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastLongCaptured,
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastLongSent,
+                com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastReport);
+    }
+
     static boolean jpegStreamRoute(boolean switchOn, boolean postAb, boolean tenBit, boolean p3, boolean gainMap, boolean hdrOutput,
                                    com.particlesdevs.photoncamera.processing.PhotoFormat format, boolean fastEncoder, boolean labRecord,
                                    boolean stamp, float zoomCrop, boolean hybridResize, boolean noDebugOverlay, boolean jpegli) {
@@ -1675,7 +1728,10 @@ public class ScamProcessor extends ProcessorBase {
     /** P322: the phones whose DCG ISO was seen inflated by the range (vivo X300 / X200 Ultra), not the Xiaomi 15 Ultra's route. */
     public static boolean isoInflationSeen() {
         // P593: nor the OnePlus 16's row 28 (OplusDcg.isoInflated: its measured noise is the HAL profile's, not that / 16)
-        return !com.particlesdevs.photoncamera.capture.XiaomiDcg.device() && com.particlesdevs.photoncamera.capture.OplusDcg.isoInflated();
+        // P641: nor the Xiaomi 17 Ultra's (the device report's DCG session: ISO 50, the sensor's base, and the plain session's
+        // noise profile under a dynamic black of 1024)
+        return !com.particlesdevs.photoncamera.capture.XiaomiDcg.device() && !com.particlesdevs.photoncamera.capture.XiaomiDualGain.device()
+                && com.particlesdevs.photoncamera.capture.OplusDcg.isoInflated();
     }
 
     public static float isoScale(double range, double declaredRange) {
@@ -1702,7 +1758,67 @@ public class ScamProcessor extends ProcessorBase {
         if (dropped > 0) Log.w("SCAM_HDR", "DCG RAW " + why + ": " + dropped + " frame(s) of another exposure left out");
     }
 
+    /** P641d: the DCG shot's codes were shown linear as they are (no knee, nothing expanded): frames of another exposure may join. */
+    private boolean dcgLinear;
+
+    /**
+     * P641d: the overflow reads the shot's N frames took along (DCG + LOFIC, LoficPair) join the burst as those exposures' short
+     * frames - measured once more against their main frame at the shot's final levels, rescaled to them, their exposure the main
+     * frame's over the measured ratio. Only while the main frames' codes are shown linear ({@code linear}: P320's rule for any
+     * frame of another exposure), two at most (the merge takes HybridPlan.bentoFrames of them), and only a pair that still
+     * measures as one.
+     */
+    static int addOverflowFrames(Parameters p, ArrayList<ImageFrame> images, boolean linear) {
+        int with = 0, added = 0;
+        String rung = "";
+        for (ImageFrame f : new ArrayList<>(images)) {
+            final ImageFrame.Overflow partner = f == null ? null : f.overflow;
+            if (partner == null) continue;
+            f.overflow = null;
+            with++;
+            rung = partner.rung;
+            if (!linear || added >= 2 || f.buffer == null || partner.width != f.width || partner.height != f.height) continue;
+            try {
+                final com.particlesdevs.photoncamera.capture.LoficPair.Short s = com.particlesdevs.photoncamera.capture.LoficPair.asShort(
+                        com.particlesdevs.photoncamera.capture.LoficPair.plain16(f.buffer, f.width * 2, 0), partner, p.blackLevel,
+                        p.whiteLevel, f.measuredExposure, f.noiseSlope, f.noiseOffset, 1023);
+                if (s.buffer == null) {
+                    Log.w("SCAM_HDR", "DCG+LOFIC: frame " + f.number + "'s overflow frame is no pair at the shot's levels (" + s.measure + "): left out");
+                    continue;
+                }
+                final ImageFrame o = new ImageFrame(s.buffer);
+                o.width = f.width;
+                o.height = f.height;
+                o.timestamp = f.timestamp + 1; // the same exposure: its own stamp for the burst's bookkeeping, no time offset
+                o.pairedMain = f;
+                o.measuredRole = ImageFrame.CaptureRole.EXTRA_SHORT;
+                o.sourceFormat = f.sourceFormat;
+                o.number = 1000 + f.number;
+                o.measuredIso = f.measuredIso;
+                o.measuredExposure = s.exposure;
+                o.noiseSlope = s.noiseSlope;
+                o.noiseOffset = s.noiseOffset;
+                o.frameGyro = f.frameGyro;
+                o.pair = f.pair;
+                o.focusDiopters = f.focusDiopters;
+                images.add(o);
+                added++;
+                Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "DCG+LOFIC: frame %d + its overflow read: measured ratio %.3f, overflow"
+                                + " black %.1f / white 1023 (RAW10), residual %.3f, %d blocks, %d clipped in the main frame (%d held); as a short frame:"
+                                + " exposure %d ns of %d, noise slope %.3g offset %.3g (a model: the main frame's photons over the ratio)",
+                        f.number, s.measure.ratio, s.measure.black, s.measure.residual, s.measure.blocks, s.measure.clipped, s.measure.rescued,
+                        s.exposure, f.measuredExposure, s.noiseSlope, s.noiseOffset));
+            } catch (RuntimeException | OutOfMemoryError e) {
+                Log.w("SCAM_HDR", "DCG+LOFIC: frame " + f.number + "'s overflow frame not prepared (" + e + "): left out");
+            }
+        }
+        if (with > 0) Log.i("SCAM_HDR", "DCG+LOFIC: " + added + " of " + with + " overflow pair(s) go to the merge with the DCG frames (rung "
+                + rung + (linear ? "" : "; none: the DCG codes were not shown linear, no frame of another exposure joins") + "; P641d)");
+        return added;
+    }
+
     private void dcgLinearity(Parameters p, ArrayList<ImageFrame> frames, ImageFrame reference) {
+        dcgLinear = false;
         p.dcgIsoScale = dcgIsoScale(p, characteristics);
         if (p.dcgIsoScale > 1f) {
             Log.i("SCAM_HDR", "DCG ISO scale x" + p.dcgIsoScale + " (" + p.levelSource + ")");
@@ -1726,7 +1842,10 @@ public class ScamProcessor extends ProcessorBase {
             keepReferenceExposure(frames, reference, "linearity not proven");
             return;
         }
-        if (r.verdict != com.particlesdevs.photoncamera.processing.RawLinearity.Verdict.COMPANDED) return;
+        if (r.verdict != com.particlesdevs.photoncamera.processing.RawLinearity.Verdict.COMPANDED) {
+            dcgLinear = true; // P641d
+            return;
+        }
         for (ImageFrame f : frames)
             if (f != null && f.buffer != null && f.buffer.isReadOnly()) {
                 Log.w("SCAM_HDR", "DCG RAW companded but frame " + f.number + " is read-only: not linearised");

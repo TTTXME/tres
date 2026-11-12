@@ -317,6 +317,15 @@ public final class PhotoOutput {
      * written into the file afterwards as ImageSaver does then).
      */
     public static Result saveStreamedJpeg(Path base, byte[] jpeg, ParseExif.ExifData exif, boolean exifInStream) {
+        return saveStreamedJpeg(base, jpeg, exif, exifInStream, null);
+    }
+
+    /**
+     * P642: as above; {@code watermark} (null: none) is the record of the watermark the stream drew into its rows, appended to
+     * the file as {@link #save} appends it to its JPEG (the 8-bit record, after the file and its EXIF are written).
+     */
+    public static Result saveStreamedJpeg(Path base, byte[] jpeg, ParseExif.ExifData exif, boolean exifInStream,
+                                          @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch.Pending watermark) {
         final Result result = new Result();
         final Path file = PhotoFormat.JPEG.fileFor(base);
         final long start = System.nanoTime();
@@ -340,6 +349,7 @@ public final class PhotoOutput {
                     Log.e(TAG, "EXIF write failed: " + android.util.Log.getStackTraceString(e));
                 }
             }
+            if (ok && watermark != null) appendWatermark(file, watermark, false); // P642
         } finally {
             SavingFiles.end(file);
         }

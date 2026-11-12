@@ -63,6 +63,9 @@ public class FdRegionDecoder implements ImageRegionDecoder {
     public Point init(Context context, @NonNull Uri uri) throws Exception {
         this.context = context.getApplicationContext();
         this.uri = uri;
+        // P637: the viewer's tiles at the default priority (AsyncTask runs them at background priority: a tenth of a core while a
+        // shot is processed)
+        com.particlesdevs.photoncamera.gallery.glide.DecodeBoost.here();
         Entry e = open();
         synchronized (this) {
             count = 1;
@@ -129,6 +132,7 @@ public class FdRegionDecoder implements ImageRegionDecoder {
     @NonNull
     @Override
     public Bitmap decodeRegion(@NonNull Rect rect, int sampleSize) {
+        com.particlesdevs.photoncamera.gallery.glide.DecodeBoost.here(); // P637
         Entry e;
         try {
             e = acquire();

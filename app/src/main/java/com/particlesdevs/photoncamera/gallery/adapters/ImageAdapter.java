@@ -66,7 +66,9 @@ public class ImageAdapter extends PagerAdapter {
     /** P620: the JPEG pages' first pictures (the grid's cached thumbnail and the header): two pages at a time. */
     private static final ExecutorService PREVIEW_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "GalleryPreview");
-        t.setPriority(Thread.NORM_PRIORITY - 1);
+        // P637: the default priority (NORM_PRIORITY - 1 is nice 10: a tenth of a core beside a shot's processing) - a header read
+        // and a cache lookup the page's first picture waits for
+        t.setPriority(Thread.NORM_PRIORITY);
         return t;
     });
     private final List<GalleryItem> galleryItemList;
@@ -215,7 +217,8 @@ public class ImageAdapter extends PagerAdapter {
         Glide.with(app)
                 .asBitmap()
                 .load(raw ? com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.fit(item.getFile()) : item.getFile().getFileUri())
-                .thumbnail(com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.cached(Glide.with(app), app, item.getFile()))
+                // P637: not only when cached - a new photo's embedded picture (its EXIF thumbnail, a DNG's preview) at once
+                .thumbnail(com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.first(Glide.with(app), app, item.getFile(), raw))
                 // P621: another app's DNG whose descriptor cannot be mapped (a pipe): its stream through Glide's decoders, as before
                 .error(raw ? Glide.with(app).asBitmap().load(item.getFile().getFileUri())
                         .apply(RequestOptions.signatureOf(GalleryKeys.of(item.getFile())))

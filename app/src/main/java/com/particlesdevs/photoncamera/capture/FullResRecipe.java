@@ -121,10 +121,10 @@ public final class FullResRecipe {
     public static final String ON = "recipe", SIZE = "recipesize", USAGE = "recipeusage", USE_CASE = "recipeusecase",
             COMPANION = "recipecompanion", TAGS = "recipetags", TEMPLATE = "recipetemplate", SESSION = "recipesession",
             FPS = "recipefps", PIXEL_MODE = "recipepixelmode", PREVIEW = "recipepreview", FRAMES = "recipeframes",
-            OP_MODE = "recipeopmode";
+            OP_MODE = "recipeopmode", VIEW_TAGS = "recipeviewtags";
     /** The editable fields, in the page's order. */
     public static final List<String> FIELDS = Collections.unmodifiableList(java.util.Arrays.asList(SIZE, USAGE, USE_CASE, COMPANION,
-            TAGS, TEMPLATE, SESSION, FPS, PIXEL_MODE, PREVIEW, FRAMES, OP_MODE));
+            TAGS, VIEW_TAGS, TEMPLATE, SESSION, FPS, PIXEL_MODE, PREVIEW, FRAMES, OP_MODE));
 
     /** The templates a field may name, as CameraDevice.TEMPLATE_*. */
     public static final String[] TEMPLATES = {"preview", "still", "record", "snapshot", "zsl", "manual"};
@@ -155,6 +155,11 @@ public final class FullResRecipe {
     public final int operationMode;
     /** Not proven on a phone: said on the page and in the log. */
     public final boolean experimental;
+    /**
+     * P635c: the repeating (viewfinder) request carries the request tags too (the owner's documents ran it so). Off: the session
+     * parameters and the stills alone carry them - a viewfinder whose camera then keeps its own mode (its autofocus, its levels).
+     */
+    public final boolean viewTags;
 
     private FullResRecipe(Builder b) {
         id = b.id;
@@ -175,6 +180,7 @@ public final class FullResRecipe {
         frames = b.frames;
         operationMode = b.operationMode;
         experimental = b.experimental;
+        viewTags = b.viewTags;
     }
 
     /** A profile under construction: the engine's neutral start (no size, no use case, no tag: nothing of a phone). */
@@ -192,6 +198,7 @@ public final class FullResRecipe {
         int frames = 1;
         int operationMode;
         boolean experimental;
+        boolean viewTags = true;
 
         public Builder id(String v) { id = v == null ? "" : v; return this; }
         public Builder size(int w, int h) { width = w; height = h; return this; }
@@ -207,13 +214,14 @@ public final class FullResRecipe {
         public Builder frames(int v) { frames = Math.max(1, Math.min(MAX_FRAMES, v)); return this; }
         public Builder operationMode(int v) { operationMode = v; return this; }
         public Builder experimental(boolean v) { experimental = v; return this; }
+        public Builder viewTags(boolean v) { viewTags = v; return this; }
         public FullResRecipe build() { return new FullResRecipe(this); }
     }
 
     public Builder edit() {
         final Builder b = new Builder().id(id).size(width, height).usage(usage).useCase(useCase)
                 .companion(companion, companionWidth, companionHeight).fps(fpsLow, fpsHigh).pixelMode(pixelMode).preview(preview)
-                .frames(frames).operationMode(operationMode).experimental(experimental);
+                .frames(frames).operationMode(operationMode).experimental(experimental).viewTags(viewTags);
         b.stillTemplate = stillTemplate;
         b.sessionTemplate = sessionTemplate;
         b.tags.addAll(tags);
@@ -244,6 +252,7 @@ public final class FullResRecipe {
         final StringBuilder t = new StringBuilder();
         for (Tag tag : tags) t.append(t.length() == 0 ? "" : "\n").append(tag);
         out.put(TAGS, t.toString());
+        out.put(VIEW_TAGS, viewTags ? "yes" : "no");
         out.put(TEMPLATE, templateName(stillTemplate));
         out.put(SESSION, templateName(sessionTemplate));
         out.put(FPS, fpsLow > 0 && fpsHigh >= fpsLow ? fpsLow + "-" + fpsHigh : "");
@@ -323,6 +332,11 @@ public final class FullResRecipe {
                 b.tags.addAll(tags);
                 return true;
             }
+            case VIEW_TAGS:
+                if (low.equals("yes") || low.equals("1") || low.equals("on") || low.equals("true")) b.viewTags(true);
+                else if (low.equals("no") || low.equals("0") || low.equals("off") || low.equals("false")) b.viewTags(false);
+                else return false;
+                return true;
             case TEMPLATE:
             case SESSION: {
                 final int t = template(low);

@@ -1669,7 +1669,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             if(std::fabs(dn)>1e-6f)homShift[size_t(k)]=2.f*std::hypot((h[0]*cx+h[1]*cy+h[2])/dn-cx,(h[3]*cx+h[4]*cy+h[5])/dn-cy);
         }
     });
-    if(effMap)g.readBuffer(bEff,size_t(w2)*h2*4,[&](const void* m){eff.assign(static_cast<const float*>(m),static_cast<const float*>(m)+size_t(w2)*h2);});
+    // P634: a Tetra result's few-frame pass reads the frame map too
+    const bool tetraPost=quad&&sensorType==2&&tune.fastTetraPost!=0&&OW==W&&OH==H;
+    if(effMap||tetraPost)g.readBuffer(bEff,size_t(w2)*h2*4,[&](const void* m){eff.assign(static_cast<const float*>(m),static_cast<const float*>(m)+size_t(w2)*h2);});
     std::vector<uint16_t> hlMask; // P480
     if(bHlMask){
         hybridHighlightMaskHeader(hlMask,w2,h2);hlMask.resize(8+size_t(w2)*h2);
@@ -1785,6 +1787,42 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         chromaKeepNext(false);
         report("HYBRID FAST MERGE MOSAIC: chroma median (dual 5-point, taps "+std::to_string(std::max(1,b/2))+" px of the "+std::to_string(OW)+"x"
             +std::to_string(OH)+" result, "+how+") "+std::to_string(int(ms(c0,Clock::now())))+" ms (P563)");
+    }
+    if(tetraPost&&!streamed&&eff.size()==size_t(w2)*h2&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f){
+        // P634 (owner, 2026-11-12: «Займись улучшением результата на Tetra»; «максимум детализации, при этом не ухудшив движущиеся
+        // объекты и не добавив новых артефактов»): where this route merged the base frame nearly alone (a moving subject: 1 - 2
+        // frames in its map against 15 - 30 beside it) the 4x4 blocks' one-frame reconstruction keeps 4 / 8 px stair-steps along
+        // edges. The native merge's along-edge smoothing (P525 / P531, taps step 2) on this route's result by its own frame map
+        // (bilinear from its half grid), its share 1 - smoothstep(1, 1 + fastTetraAlongEdgeK, frames): it averages along an
+        // edge only, across it and in texture nothing; pixels of 4 frames and more are not touched. (The motion smoothing of
+        // P603 was tried here as well: the splash's noise -22 % but its texture -8 % - not taken.)
+        const auto c0=Clock::now();
+        std::vector<float> ef(size_t(OW)*OH);
+        mergeRowBands(OH,[&](int y0,int y1){
+            for(int y=y0;y<y1;++y){
+                const float fy=std::clamp((float(y)+0.5f)*float(h2)/float(OH)-0.5f,0.f,float(h2-1));
+                const int ya=int(fy),yb=std::min(ya+1,h2-1);const float ty=fy-float(ya);
+                const float* ra=eff.data()+size_t(ya)*w2;const float* rb=eff.data()+size_t(yb)*w2;float* d=ef.data()+size_t(y)*OW;
+                for(int x=0;x<OW;++x){
+                    const float fx=std::clamp((float(x)+0.5f)*float(w2)/float(OW)-0.5f,0.f,float(w2-1));
+                    const int xa=int(fx),xb=std::min(xa+1,w2-1);const float tx=fx-float(xa);
+                    d[x]=(ra[xa]*(1.f-tx)+ra[xb]*tx)*(1.f-ty)+(rb[xa]*(1.f-tx)+rb[xb]*tx)*ty;
+                }
+            }
+        });
+        const size_t nEdge=hybridAlongEdge(out,OW,OH,ef,0,0,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2);
+        char line[220];
+        std::snprintf(line,sizeof(line),"HYBRID FAST MERGE MOSAIC: Tetra few-frame pass (P634): along-edge smoothing (K %.0f, step 2) %zu px (%.2f %%), cpu, %d ms",
+            double(tune.fastTetraAlongEdgeK),nEdge,100.0*double(nEdge)/std::max(1.0,double(OW)*OH),int(ms(c0,Clock::now())));
+        report(line);
+    }
+    if(quad&&sensorType==2&&!streamed&&tune.fastTetraClipNotch!=0&&tune.mosaicTetraNotchClipReach>0.f&&OW==W&&clipFlags&&clipFlags->size()==size_t(OW)*OH){
+        // P634: the Tetra sensor's own diagonal checker in the glow round a clipped light (P548's pass of the native merge: the
+        // base frame has it, so has this route's result - a car's headlight on the reference app's Tetra burst 2)
+        const auto c0=Clock::now();
+        const size_t n=hybridClipLatticeNotch(out,OW,OH,*clipFlags,tune.mosaicTetraNotchClipReach);
+        report("HYBRID FAST MERGE MOSAIC: clipped lights' Tetra checker (P548 / P634, reach "+std::to_string(int(tune.mosaicTetraNotchClipReach))+" px) "
+            +std::to_string(n)+" px, "+std::to_string(int(ms(c0,Clock::now())))+" ms");
     }
     if(quad&&sensorType==1&&tune.fastQuadLattice!=0&&!streamed&&tune.chromaGpu>0){
         // P571 (owner, 2026-11-09: «Сетку сделай такой же как на качестве и даже лучше»): the 2 / 4 px lattice the base's own Quad

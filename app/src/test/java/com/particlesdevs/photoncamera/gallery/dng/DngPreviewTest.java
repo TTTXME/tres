@@ -193,6 +193,33 @@ public class DngPreviewTest {
         assertEquals(6, r.orientation);
     }
 
+    /** P637: the viewer's first picture of a DNG page: only an embedded preview, of any size; the raw is never rendered. */
+    @Test
+    public void previewOnlyTakesAnEmbeddedJpegOrNothing() throws Exception {
+        Tiff t = new Tiff();
+        t.tag(0xFE, 4, 1, 1);
+        t.tag(0x100, 4, 1, 256);
+        t.tag(0x101, 4, 1, 192);
+        t.tag(0x103, 3, 1, 7);
+        t.tag(0x106, 3, 1, 6);
+        byte[] fake = new byte[]{(byte) 0xFF, (byte) 0xD8, 1, 2, 3, 4, (byte) 0xFF, (byte) 0xD9};
+        t.blob(0x111, 4, 1, fake);
+        t.tag(0x117, 4, 1, fake.length);
+        DngPreview.Result small = DngPreview.read(ByteBuffer.wrap(t.build()), 1024, 1024, true, true);
+        assertTrue("a small preview is still a first picture", small != null && small.isJpeg());
+        assertEquals(256, small.width);
+        // a raw without a preview: nothing (the page's own render shows it)
+        double[] n = {0.5, 1.0, 0.7};
+        int[] raw = scene(n, 64, 1023);
+        Tiff bare = baseTags(16, 1, n, 64, 1023);
+        ByteBuffer d = ByteBuffer.allocate(2 * W * H).order(ByteOrder.LITTLE_ENDIAN);
+        for (int v : raw) d.putShort((short) v);
+        bare.blob(0x111, 4, 1, d.array());
+        bare.tag(0x117, 4, 1, 2 * W * H);
+        assertTrue(DngPreview.read(ByteBuffer.wrap(bare.build()), 1024, 1024, true, true) == null);
+        assertTrue("the same file still renders when asked to", DngPreview.read(ByteBuffer.wrap(bare.build()), W / 2, H / 2, true, false) != null);
+    }
+
     /**
      * A big-endian OpcodeList2 of four GainMaps (R, the two greens, B of an RGGB mosaic: pitch 2), 3 x 3 points: 1 at the
      * centre, {@code corner[c]} at the corners, the mean of the two at the edge midpoints.

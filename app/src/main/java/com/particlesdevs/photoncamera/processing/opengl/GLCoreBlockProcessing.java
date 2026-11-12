@@ -256,6 +256,13 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
     public RgbaSink rgbaSink;
     /** P483: the last {@link #drawBlocksToBitmap} gave its pixels to {@link #rgbaSink} (no bitmap). */
     public boolean sinkTook;
+    /**
+     * P642: the sink draws into the rows before it encodes them (the watermark of a streamed JPEG): the pixel-pack buffer is
+     * mapped for reading and writing; {@link #sinkWritable} tells the sink whether that mapping was given (false: read only,
+     * as before - the sink then leaves the rows to the bitmap).
+     */
+    public boolean sinkWrites;
+    public boolean sinkWritable;
 
     public Bitmap drawBlocksToBitmap() {
         sinkTook = false;
@@ -459,7 +466,21 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             } catch (OutOfMemoryError pendingGpuStorage) {
                 Log.w(TAG, "bitmap allocation postponed until queued GPU work finishes");
             }
-            final java.nio.Buffer view = GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, (int) bytes, GLES30.GL_MAP_READ_BIT);
+            // P642: read / write for a sink that draws; a driver that refuses it gets the read-only mapping of before
+            java.nio.Buffer view = null;
+            sinkWritable = false;
+            if (sink != null && sinkWrites) {
+                view = GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, (int) bytes, GLES30.GL_MAP_READ_BIT | GLES30.GL_MAP_WRITE_BIT);
+                if (view != null && glGetError() == GL_NO_ERROR) {
+                    sinkWritable = true;
+                } else {
+                    if (view != null) GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER);
+                    drainGlErrors();
+                    view = null;
+                    Log.w(TAG, "final readback: no read / write mapping for the streamed JPEG's watermark, read only");
+                }
+            }
+            if (view == null) view = GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, (int) bytes, GLES30.GL_MAP_READ_BIT);
             mapped = view != null;
             if (!(view instanceof ByteBuffer) || view.capacity() < bytes || glGetError() != GL_NO_ERROR) return null;
             timing.readBack(); // the map waits for the GPU's copies
@@ -681,6 +702,10 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             makeCurrent();
             GLES30.glDeleteFramebuffers(1, bindFB, 0);
             GLES30.glDeleteRenderbuffers(1, bindRB, 0);
+            // P638: gone - the deletes below are for a context that could not be made current here only (they ran again after
+            // super.close() had released the context: «call to OpenGL ES API with no current context» in every shot's log)
+            bindFB[0] = 0;
+            bindRB[0] = 0;
         } catch (Exception ignored) {}
         try {
             super.close();

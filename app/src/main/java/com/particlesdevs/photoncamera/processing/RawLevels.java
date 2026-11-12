@@ -101,6 +101,12 @@ public final class RawLevels {
             return (black[0] + black[1] + black[2] + black[3]) / 4f;
         }
 
+        /** P635c: these levels with another black ({@code why} joins the source): a stream whose frames show their own. */
+        public Levels withBlack(float[] other, String why) {
+            if (other == null || other.length < 4 || other == black) return this;
+            return new Levels(Arrays.copyOf(other, 4), white, bits, declaredBits, dynamicBlack, source + ", " + why);
+        }
+
         @Override public String toString() {
             return String.format(Locale.ROOT, "%d bit, black %s, white %d (%s)", bits, Arrays.toString(black), white, source);
         }

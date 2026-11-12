@@ -2,6 +2,32 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-12 — Speed
+
+- «Static» processes a shot several times faster, and the viewfinder no longer freezes meanwhile.
+- Oldstyle is processed noticeably faster; a photo with a watermark (up to 16 MP) is saved without the delay.
+- The gallery opens from the camera at once: while the shot is processed it shows the frame with «Processing the shot…».
+
+## 2026-11-12 — Xiaomi 17 Ultra
+
+- DCG on the main camera and the 75 mm, DCG+LOFIC on the main (the DCG frame and the overflow frame are merged together), DSG on the ultra wide; waits for a check on the phone.
+- 50 MP: the pink viewfinder and the black frame with a strip are fixed; trial 50 MP presets for the ultra wide and the 75 mm.
+- 75 mm: the kit's 4x ISZ modes (12, 26, 29) are supported; the stock firmware has no real 4x ISZ.
+
+## 2026-11-12 — Oldstyle
+
+- Fixed: the black and the blown-out viewfinder, the focus, the overlong burst and the manual row under the style panel.
+- «Oldstyle Tone»: more settings and «Reset Oldstyle».
+
+## 2026-11-12 — vivo: the stock camera after ours
+
+- After our camera the stock camera's viewfinder no longer stays black until a reboot; waits for a check on the phone.
+
+## 2026-11-12 — Tetra and fixes
+
+- Tetra and Quad: «Static» merges every frame of a still scene, «Fast» leaves fewer jaggies on moving subjects.
+- The «Sport» tile in Oldstyle mode switches the mode as a whole.
+
 ## 2026-11-12 — Full resolution by recipe
 
 - Lens settings: a «Full resolution (recipe)» switch — 50 MP on the Xiaomi 17 Ultra's main camera with the usual viewfinder; waits for a check on the phone.

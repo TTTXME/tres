@@ -75,6 +75,13 @@ public final class RawPayloadCheck {
             final int clip = knownDepthClip(buffer, width, height, rowStride);
             if (clip > 0) RawLevels.noteSaturation(clip);
         }
+        // P641: a dual-gain session of a known depth (Xiaomi 17 Ultra) whose RAW_SENSOR buffer may hold the packed MIPI payload:
+        // a frame with a packed layout is no plain one, whatever the known depth (the unchecked frame would be read as 16-bit)
+        if (sKeepDepth && known > 4095 && whiteLevel > 0 && whiteLevel <= 4095 && buffer != null) {
+            final Layout packed = packedLayout(buffer, width, height, Math.max(1, Math.round(RawLevels.staticBlack())), whiteLevel);
+            if (packed != null) return new Result("RAW_SENSOR holds " + packed.describe() + " in a session of a known depth", 1f,
+                    1f - (float) packed.stride * height / Math.max(1, buffer.capacity()), packed.format == android.graphics.ImageFormat.RAW10);
+        }
         whiteLevel = Math.max(whiteLevel, known);
         if (buffer == null || width <= 0 || height <= 0 || whiteLevel <= 0 || whiteLevel > 4095) return UNCHECKED;
         String geometry = String.format(Locale.ROOT, "%dx%d, rowStride %d, %d bytes", width, height, rowStride, buffer.capacity());
@@ -236,12 +243,79 @@ public final class RawPayloadCheck {
     /** Format and row stride of a packed payload behind RAW_SENSOR (RawUnpack format codes), see {@link #packedLayout}. */
     public static final class Layout {
         public final int format, stride;
-        Layout(int format, int stride) { this.format = format; this.stride = stride; }
+        /** P641: the darkest 2 % of the samples the layout was judged on, at the packing's own depth (0: not measured, RAW10). */
+        public final int low;
+        Layout(int format, int stride) { this(format, stride, 0); }
+        Layout(int format, int stride, int low) { this.format = format; this.stride = stride; this.low = low; }
+        /** P641: the depth of the packing (10, 12, 14). */
+        public int packedBits() {
+            return format == android.graphics.ImageFormat.RAW10 ? 10 : format == android.graphics.ImageFormat.RAW12 ? 12 : 14;
+        }
         public String describe() {
             return (format == android.graphics.ImageFormat.RAW10 ? "packed MIPI RAW10"
+                    : format == android.graphics.ImageFormat.RAW12 ? "packed MIPI RAW12"
                     : format == com.particlesdevs.photoncamera.util.RawUnpack.RAW14_TO_10 ? "packed MIPI RAW14 (14-bit values, read >> 4)"
                     : "packed MIPI RAW14") + " (stride " + stride + ")";
         }
+    }
+
+    private static volatile boolean sKeepDepth;
+
+    /**
+     * P641: the session asked for a dual-gain sensor row (Xiaomi 17 Ultra, XiaomiDualGain): a packed RAW14 payload keeps its 14
+     * bits (no {@code >> 4} into the declared range - the session's levels follow the frames), and a packed RAW12 payload (the
+     * ultra wide's 12-bit DSG, three quarters of the buffer) is a layout too. Off in every other session.
+     */
+    public static void setKeepDepth(boolean keep) {
+        sKeepDepth = keep;
+    }
+
+    public static boolean keepDepth() {
+        return sKeepDepth;
+    }
+
+    /**
+     * P641: a packed MIPI RAW12 payload behind RAW_SENSOR (two samples in three bytes, {@code width * 12 / 8} bytes a row), by the
+     * zero tail as the others; taken when its sample rows decode to a plausible image at the 12-bit scale (darkest samples from
+     * 2.5 x the black up: read against 4 x the white) or at the declared one. Null otherwise.
+     */
+    static Layout packedLayout12(ByteBuffer buffer, int width, int height, int black, int white) {
+        if (buffer == null || width < 4 || (width & 3) != 0 || height < 2 || white <= 0) return null;
+        final int rowBytes = width * 12 / 8, capacity = buffer.capacity();
+        if ((long) rowBytes * height > capacity) return null;
+        final int end = dataEnd(buffer);
+        if (end <= 0 || end > capacity - rowBytes) return null;
+        int stride = 0;
+        for (int s = rowBytes; s <= rowBytes + 128; s++) {
+            long first = (long) (height - 1) * s + rowBytes, all = (long) height * s;
+            if (all > capacity) break;
+            if (first <= end + 8L && end <= all) { stride = s; break; }
+        }
+        if (stride == 0) return null;
+        int[] values = new int[2 * 64 * (width / 16 + 1)];
+        int n = 0;
+        for (int r = 0; r < 64; r++) {
+            final int y = (int) ((long) (2 * r + 1) * height / 128);
+            for (int g = 0; g + 1 < width / 2; g += 8) {
+                final int at = y * stride + g * 3;
+                final int b2 = buffer.get(at + 2) & 0xff;
+                values[n++] = ((buffer.get(at) & 0xff) << 4) | (b2 & 0x0f);
+                values[n++] = ((buffer.get(at + 1) & 0xff) << 4) | (b2 >> 4);
+            }
+        }
+        if (n < 1000) return null;
+        int[] sorted = java.util.Arrays.copyOf(values, n);
+        java.util.Arrays.sort(sorted);
+        final int low = sorted[n / 50];
+        final int shift = low >= 2.5f * Math.max(black, 1) ? 2 : 0;
+        int over = 0;
+        for (int i = 0; i < n; i++) if ((values[i] >> shift) > white * 1.05f) over++;
+        if (over > 0.3f * n) return null;
+        if (shift == 2) {
+            final int clip = clipPlateau(values, n);
+            if (clip > 0) RawLevels.noteSaturation(clip);
+        }
+        return new Layout(android.graphics.ImageFormat.RAW12, stride, low);
     }
 
     /**
@@ -255,6 +329,10 @@ public final class RawPayloadCheck {
     public static Layout packedLayout(ByteBuffer buffer, int width, int height, int black, int white) {
         int stride10 = packedStride(buffer, width, height);
         if (stride10 > 0) return new Layout(android.graphics.ImageFormat.RAW10, stride10);
+        if (sKeepDepth) { // P641: a dual-gain session's 12-bit payload
+            final Layout twelve = packedLayout12(buffer, width, height, black, white);
+            if (twelve != null) return twelve;
+        }
         if (buffer == null || width < 4 || (width & 3) != 0 || height < 2 || white <= 0) return null;
         final int rowBytes = width * 14 / 8, capacity = buffer.capacity();
         if ((long) rowBytes * height > capacity) return null;
@@ -285,8 +363,14 @@ public final class RawPayloadCheck {
         int over = 0;
         for (int i = 0; i < n; i++) if ((values[i] >> shift) > white * 1.05f) over++;
         if (over > 0.3f * n) return null;
-        return new Layout(shift == 4 ? com.particlesdevs.photoncamera.util.RawUnpack.RAW14_TO_10
-                : com.particlesdevs.photoncamera.util.RawUnpack.RAW14, stride);
+        // P641: a dual-gain session keeps the 14 bits (the levels follow the frames); elsewhere they go to the declared range.
+        // Its clip is measured on the same samples (a packed frame never reaches the plain check's plateau measurement)
+        if (sKeepDepth && shift == 4) {
+            final int clip = clipPlateau(values, n);
+            if (clip > 0) RawLevels.noteSaturation(clip);
+        }
+        return new Layout(shift == 4 && !sKeepDepth ? com.particlesdevs.photoncamera.util.RawUnpack.RAW14_TO_10
+                : com.particlesdevs.photoncamera.util.RawUnpack.RAW14, stride, low);
     }
 
     /** P72: the payload ending at {@code end} (see {@link #dataEnd}) has {@code layout}'s geometry (a cheap per-frame test). */

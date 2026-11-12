@@ -40,6 +40,25 @@ public final class OldstyleNative {
     /** Copies {@code rows} rows of RGBA int32 pixels ({@code strip}: the RGBA16I frame read as GL_INT) into {@code planar} at row {@code y0}. */
     public static native void deinterleave(ByteBuffer strip, ByteBuffer planar, int width, int height, int y0, int rows);
 
+    /** P636: the same from RGBA int16 pixels (the frame read as GL_SHORT where the driver names that pair: half the bytes). */
+    public static native void deinterleave16(ByteBuffer strip, ByteBuffer planar, int width, int height, int y0, int rows);
+
+    /**
+     * P636 (speed, the same bytes): the threads of the module's and the stages' row loops. 1: the single-thread path of P630e
+     * (the reference of the banded one); 0 or less: the cores, at most 8. Returns the count in use.
+     */
+    public static native int setThreads(int count);
+
+    /**
+     * The threads of a shot's tone: scam_dev "oldstyle_threads" when set (1: the one-thread path as before P636), else the
+     * cores less one (the viewfinder's), 2 .. 8.
+     */
+    public static int threadsFor(int cores, float dev) {
+        final int asked = Math.round(dev);
+        if (asked >= 1) return Math.min(16, asked);
+        return Math.max(2, Math.min(8, cores - 1));
+    }
+
     /**
      * The tone of the frame into {@code out} (width x height x 3 RGB8). {@code version}: {@link #V1} (profile 2.7: the planes are
      * linear RGB before the CCM, {@code ccm} row-major through the supplement's awb_ccm, finish_raw27_rgb, with {@code hdr} the
@@ -47,8 +66,11 @@ public final class OldstyleNative {
      * _sdr). The gains are OldstyleAe.Plan's (fusion_gains over the frame's actual TET); without HDR {@code gainLong} is the one.
      * P630e: {@code post} (OldstyleAe.Params.post, null: none) runs the supplement's YUV-route stages on our route: the
      * low-frequency colour inside V1's HDR, then dehaze / tint and the output saturation on the RGB8; {@code shading} the dehaze's
-     * U / V gain map ({@code shadingW} x {@code shadingH} x 2, null: the unit grid). {@code info} (null or 6 floats): the
-     * low-frequency scale (-1 not run), the dehaze's shadow / white / dark cut, the module's and the stages' milliseconds.
+     * U / V gain map ({@code shadingW} x {@code shadingH} x 2, null: the unit grid). {@code info} (null, 6 or 8 floats): the
+     * low-frequency scale (-1 not run), the dehaze's shadow / white / dark cut, the module's and the stages' milliseconds;
+     * P636: the threads used and the input gain's milliseconds (inside the module's).
+     * P630h: {@code post} also carries the low-frequency colour's share and the tone curve's shape (entries 12 .. 14; a 12-entry
+     * array: the module's own).
      */
     public static native int render(int version, ByteBuffer planar, int width, int height, float[] ccm, float gainShort,
                                     float gainLong, boolean hdr, boolean postview, float saturation, float[] post, float[] shading,
@@ -66,6 +88,26 @@ public final class OldstyleNative {
      * linear i / 1023, A the long exposure's weight of the version's fusion at that level (255: all long).
      */
     public static native void previewLut(int version, byte[] out);
+
+    /**
+     * P630h: {@link #previewLut} with the tone curve shaped as the shot's ({@code curveMid}, {@code curveContrast}: OldstyleAe.Params;
+     * 0, 0 the module's own curve - the same LUT as previewLut's).
+     */
+    public static native void previewLutCurve(int version, float curveMid, float curveContrast, byte[] out);
+
+    /**
+     * P630h: V1's colour matrix at a share of itself: identity + {@code strength} x (ccm - identity), row-major (1: the matrix, 0:
+     * none - the white-balanced sensor colour; the rows' sums, the white, stay).
+     */
+    public static float[] ccmStrength(float[] ccm, float strength) {
+        if (ccm == null || ccm.length != 9 || strength == 1f || !Float.isFinite(strength)) return ccm;
+        final float[] out = new float[9];
+        for (int i = 0; i < 9; i++) {
+            final float id = i % 4 == 0 ? 1f : 0f;
+            out[i] = id + strength * (ccm[i] - id);
+        }
+        return out;
+    }
 
     /** Row-major a x b of 3 x 3. */
     public static float[] mul(float[] a, float[] b) {

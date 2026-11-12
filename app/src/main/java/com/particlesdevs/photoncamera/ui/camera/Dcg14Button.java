@@ -15,8 +15,10 @@ final class Dcg14Button {
 
     /** Toggles DCG; returns the message for the band («14 бит (DCG): вкл. · перезапуск») or why it did not switch. */
     static String toggleMode(CameraFragment fragment) {
-        int mode = Dcg14Mode.next(Dcg14Mode.mode());
-        if (!com.particlesdevs.photoncamera.capture.SensorModeSwitches.setDcg(mode != Dcg14Mode.OFF))
+        // P641: a third state, DCG + LOFIC, on a camera that has it (the Xiaomi 17 Ultra's main)
+        int mode = Dcg14Mode.next(Dcg14Mode.mode(), com.particlesdevs.photoncamera.capture.XiaomiDualGain.loficOffered(
+                com.particlesdevs.photoncamera.capture.CaptureController.mCameraCharacteristics));
+        if (!com.particlesdevs.photoncamera.capture.SensorModeSwitches.setDcgMode(mode))
             return com.particlesdevs.photoncamera.util.Lang.t("Нет обычного модуля этой камеры для DCG", "No plain module of this camera for DCG");
         Log.i(TAG, "DCG 14 bit mode " + Dcg14Mode.name(mode));
         if (fragment.captureController != null) fragment.captureController.restartCamera();

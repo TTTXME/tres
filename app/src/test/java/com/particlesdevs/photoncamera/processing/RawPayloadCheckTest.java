@@ -303,4 +303,102 @@ public class RawPayloadCheckTest {
         RawPayloadCheck.setWideEnabled(true);
         assertFalse("a new session forgets the rows", RawPayloadCheck.check(b, W, H, STRIDE, WHITE).plain());
     }
+    // ---------------------------------------------------------------- P641: a dual-gain session (Xiaomi 17 Ultra)
+
+    /**
+     * P641: the report's DCG session - packed MIPI RAW14 behind RAW_SENSOR, the darkest samples at 16 x the declared black. In a
+     * dual-gain session the 14 bits are kept (no >> 4 into the declared range); in every other session they are read as before.
+     */
+    @Test
+    public void aDualGainSessionKeepsThe14Bits() {
+        int[][] v = scene(1, 41);
+        ByteBuffer b = packedMipi14(v, 16, W * 14 / 8);
+        try {
+            RawPayloadCheck.setKeepDepth(true);
+            RawPayloadCheck.Layout l = RawPayloadCheck.packedLayout(b, W, H, BLACK, WHITE);
+            assertNotNull(l);
+            assertEquals(com.particlesdevs.photoncamera.util.RawUnpack.RAW14, l.format);
+            assertEquals(14, l.packedBits());
+            assertTrue("the darkest samples at 16 x the black: " + l.low, l.low >= 8 * BLACK);
+            ByteBuffer out = ByteBuffer.allocateDirect(W * H * 2).order(ByteOrder.nativeOrder());
+            assertTrue(com.particlesdevs.photoncamera.util.RawUnpack.unpack(b.duplicate(), l.format, W, H, l.stride, out));
+            for (int y = 0; y < H; y += 37) for (int x = 0; x < W; x += 13)
+                assertEquals(16 * v[y][x], out.getShort((y * W + x) * 2) & 0xffff);
+        } finally {
+            RawPayloadCheck.setKeepDepth(false);
+        }
+        assertEquals("any other session: the declared range, as before", com.particlesdevs.photoncamera.util.RawUnpack.RAW14_TO_10,
+                RawPayloadCheck.packedLayout(b, W, H, BLACK, WHITE).format);
+    }
+
+    /** MIPI RAW12 rows (3 bytes per 2 px) of the values v x scale, {@code stride} apart, into a RAW16-sized buffer of w x h. */
+    private static ByteBuffer packedMipi12(int[][] v, int w, int h, int scale, int stride) {
+        ByteBuffer into = ByteBuffer.allocateDirect(w * 2 * h).order(ByteOrder.LITTLE_ENDIAN);
+        for (int y = 0; y < h; y++) for (int x = 0, at = y * stride; x < w; x += 2, at += 3) {
+            int p0 = v[y % H][x % W] * scale, p1 = v[y % H][(x + 1) % W] * scale;
+            into.put(at, (byte) (p0 >> 4)); into.put(at + 1, (byte) (p1 >> 4));
+            into.put(at + 2, (byte) ((p0 & 0x0f) | ((p1 & 0x0f) << 4)));
+        }
+        return into;
+    }
+
+    /**
+     * P641: a 12-bit dual-gain payload (the ultra wide's DSG, by the 14-bit one's analogy): packed MIPI RAW12, three quarters of
+     * the buffer. A layout only in a dual-gain session; its values stay 12-bit.
+     */
+    @Test
+    public void aDualGainSessionReadsAPackedRaw12Payload() {
+        final int w = 1024, h = 96; // wide enough for the RAW10 padding search (128 bytes) not to reach the RAW12 row
+        int[][] v = scene(1, 42);
+        ByteBuffer b = packedMipi12(v, w, h, 4, w * 12 / 8);
+        assertEquals("no RAW10 payload", 0, RawPayloadCheck.packedStride(b, w, h));
+        assertEquals("any other session: no layout", null, RawPayloadCheck.packedLayout(b, w, h, BLACK, WHITE));
+        try {
+            RawPayloadCheck.setKeepDepth(true);
+            RawPayloadCheck.Layout l = RawPayloadCheck.packedLayout(b, w, h, BLACK, WHITE);
+            assertNotNull(l);
+            assertEquals(android.graphics.ImageFormat.RAW12, l.format);
+            assertEquals(12, l.packedBits());
+            assertEquals(w * 12 / 8, l.stride);
+            assertTrue("the darkest samples at the 12-bit scale (4 x the 10-bit values): " + l.low, l.low >= 4 * BLACK);
+            assertTrue(RawPayloadCheck.fits(l, RawPayloadCheck.dataEnd(b), w, h));
+            ByteBuffer out = ByteBuffer.allocateDirect(w * h * 2).order(ByteOrder.nativeOrder());
+            assertTrue(com.particlesdevs.photoncamera.util.RawUnpack.unpack(b.duplicate(), l.format, w, h, l.stride, out));
+            for (int y = 0; y < h; y += 7) for (int x = 0; x < w; x += 13)
+                assertEquals(4 * v[y % H][x % W], out.getShort((y * w + x) * 2) & 0xffff);
+            // garbage that ends at three quarters of the buffer is no layout
+            ByteBuffer junk = ByteBuffer.allocateDirect(w * 2 * h).order(ByteOrder.LITTLE_ENDIAN);
+            Random r = new Random(5);
+            for (int i = 0; i < w * 12 / 8 * h; i++) junk.put(i, (byte) (1 + r.nextInt(255)));
+            assertEquals(null, RawPayloadCheck.packedLayout12(junk, w, h, BLACK, WHITE));
+        } finally {
+            RawPayloadCheck.setKeepDepth(false);
+        }
+    }
+
+    /**
+     * P641: once a dual-gain session's depth is known (14 bit), a frame is not taken for plain unchecked: its packed payload is
+     * still found (read as 16-bit samples it would be noise). Without the route a known depth leaves the frame unchecked, as P230.
+     */
+    @Test
+    public void aKnownDepthDoesNotHideAPackedPayload() {
+        ByteBuffer b = packedMipi14(scene(1, 43), 16, W * 14 / 8);
+        try {
+            RawLevels.newSession(true);
+            RawLevels.noteKnownBits(new float[]{64, 64, 64, 64}, WHITE, 14, "test");
+            assertTrue("the 15 Ultra's plain 14-bit route: unchecked", RawPayloadCheck.check(b, W, H, STRIDE, WHITE).plain());
+            RawPayloadCheck.setKeepDepth(true);
+            RawPayloadCheck.Result packed = RawPayloadCheck.check(b, W, H, STRIDE, WHITE);
+            assertFalse(packed.plain());
+            assertTrue(packed.error, packed.error.contains("packed MIPI RAW14"));
+            // a plain 14-bit frame of the same session stays plain
+            ByteBuffer plain = zeroed();
+            Random r = new Random(44);
+            for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) plain.putShort(y * STRIDE + 2 * x, (short) (1024 + r.nextInt(9000)));
+            assertTrue(RawPayloadCheck.check(plain, W, H, STRIDE, WHITE).plain());
+        } finally {
+            RawPayloadCheck.setKeepDepth(false);
+            RawLevels.newSession(true);
+        }
+    }
 }

@@ -216,7 +216,10 @@ public class CaNetPTest {
         final PreferenceManager pm = new PreferenceManager(context);
         final PreferenceScreen root = pm.inflateFromResource(context, R.xml.preferences, null);
         assertEquals("pref_scam_hybrid_processing", root.getPreference(0).getKey());
-        final Preference method = root.getPreference(1);
+        // P629: the group «Шумоподавление и склейка» sits right under «Режим обработки»; the switch and its page follow it
+        // (P638: this class was not in the workflow's list and kept the order of before P629)
+        assertEquals("scam_hybrid_dnmerge_screen", root.getPreference(1).getKey());
+        final Preference method = root.getPreference(2);
         assertEquals("pref_scam_hybrid_fringe_method", method.getKey());
         assertTrue(method instanceof SegmentedListPreference);
         final SegmentedListPreference list = (SegmentedListPreference) method;
@@ -225,9 +228,9 @@ public class CaNetPTest {
         assertEquals("classic", list.getEntryValues()[1].toString());
         final String xmlRoot = read_("src/main/res/xml/preferences.xml");
         assertTrue(xmlRoot.contains("android:entryValues=\"@array/scam_hybrid_fringe_method_values\" android:defaultValue=\"classic\""));
-        assertEquals("fringe_net_screen", root.getPreference(2).getKey());
-        assertTrue(root.getPreference(2) instanceof PreferenceScreen);
-        final PreferenceGroup page = (PreferenceGroup) root.getPreference(2);
+        assertEquals("fringe_net_screen", root.getPreference(3).getKey());
+        assertTrue(root.getPreference(3) instanceof PreferenceScreen);
+        final PreferenceGroup page = (PreferenceGroup) root.getPreference(3);
         assertEquals(9, page.getPreferenceCount());
         final Map<String, Object> v = new HashMap<>();
         assertTrue(new SettingsAvailability(v).hidden("fringe_net_screen"));

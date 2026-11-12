@@ -76,4 +76,43 @@ public class PhotoOutputWatermarkTest {
         assertEquals(WatermarkPatch.FORMAT_1010102, tenBack.format);
         assertTrue(tenBack.verify());
     }
+
+    /**
+     * P642: the streamed JPEG's file is the stream's bytes with the record of the watermark drawn into its rows appended as the
+     * bitmap route appends it to its JPEG (the 8-bit record at the end); without a record the stream's bytes alone.
+     */
+    @Test public void theStreamedJpegGetsItsRecord() throws Exception {
+        final int w = 640, h = 480;
+        final java.nio.ByteBuffer rows = java.nio.ByteBuffer.allocateDirect(4 * w * h);
+        for (int i = 0; i < w * h; i++) rows.put((byte) (i * 7)).put((byte) (i / w)).put((byte) (i * 3 + 90)).put((byte) 0xFF);
+        rows.position(0);
+        WatermarkText.Info info = WatermarkText.Info.sample("vivo X200 Ultra", 1_794_405_900_000L);
+        PhotoWatermark.DrawnInto d = PhotoWatermark.drawInto(new com.particlesdevs.photoncamera.processing.watermark.RgbaRows(rows, w, h, 4 * w),
+                new WatermarkSpec(), info, new WatermarkFonts(RuntimeEnvironment.getApplication()), true, true);
+        assertNotNull(d.record);
+        assertNotNull(d.undo);
+        // the stream's JPEG of those rows (any encoder here: the file's assembly is what is checked)
+        Bitmap marked = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        marked.copyPixelsFromBuffer(rows);
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        assertTrue(marked.compress(Bitmap.CompressFormat.JPEG, 95, jpeg));
+        File dir = java.nio.file.Files.createTempDirectory("streamed").toFile();
+        PhotoOutput.Result saved = PhotoOutput.saveStreamedJpeg(new File(dir, "SCA_1").toPath(), jpeg.toByteArray(), null, true, d.record);
+        assertEquals(1, saved.files.size());
+        File file = saved.files.get(0).toFile();
+        // the bitmap route's way: the JPEG written, then appendWatermark of the 8-bit record
+        File other = new File(dir, "other.jpg");
+        try (FileOutputStream o = new FileOutputStream(other)) {
+            o.write(jpeg.toByteArray());
+        }
+        PhotoOutput.appendWatermark(other.toPath(), d.record, false);
+        assertArrayEquals(java.nio.file.Files.readAllBytes(other.toPath()), java.nio.file.Files.readAllBytes(file.toPath()));
+        WatermarkPatch back = WatermarkStore.read(file);
+        assertNotNull(back);
+        assertArrayEquals(d.record.get().eightBit().toBytes(), back.toBytes());
+        assertTrue(back.verify());
+        // no record: the stream's bytes
+        PhotoOutput.Result plain = PhotoOutput.saveStreamedJpeg(new File(dir, "SCA_2").toPath(), jpeg.toByteArray(), null, true);
+        assertArrayEquals(jpeg.toByteArray(), java.nio.file.Files.readAllBytes(plain.files.get(0)));
+    }
 }
