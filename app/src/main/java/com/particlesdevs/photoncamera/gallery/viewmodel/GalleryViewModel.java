@@ -130,8 +130,71 @@ public class GalleryViewModel extends AndroidViewModel {
                 com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.listed(read != null ? read.all.getFiles().size() : -1, readMs,
                         t0 - asked, android.os.SystemClock.uptimeMillis() - done);
                 if (then != null) then.run();
+                if (read != null) checkOtherRaw(); // P645: after the list is out, never ahead of it
             });
         });
+    }
+
+    // ---------------------------------------------------------------- P645: the other RAWs join after the first list
+
+    /** P645: the other-RAW check, one at a time and off the loader thread (a later load does not wait for it). */
+    private static final java.util.concurrent.ExecutorService RAW_CHECK = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "GalleryRaw");
+        t.setDaemon(true);
+        return t;
+    });
+    /** A check is queued and not started yet: another ask adds nothing. */
+    private static final java.util.concurrent.atomic.AtomicBoolean RAW_QUEUED = new java.util.concurrent.atomic.AtomicBoolean();
+    /** The shown list is being replaced by the RAW join: the grid and the viewer keep the item they show (main thread). */
+    private boolean joining;
+
+    /**
+     * P645 (owner, 2026-11-12, vivo X200 Ultra: «other RAW 61 rows 5772 ms» of the 5877 ms before the gallery had any list): the
+     * RAWs MediaStore does not file as images are brought up to date on their own thread after the list is set (OtherRawCache: no
+     * query while MediaStore is unchanged, else the known rows by id and the rows changed since); a changed set is read into the
+     * lists and joins «ALL» where the grid and the viewer show it, keeping the item on the screen ({@link #joining}).
+     */
+    private void checkOtherRaw() {
+        if (!RAW_QUEUED.compareAndSet(false, true)) return;
+        final android.app.Application app = getApplication();
+        final android.content.ContentResolver resolver = app.getContentResolver();
+        final long asked = android.os.SystemClock.uptimeMillis();
+        try {
+            RAW_CHECK.execute(() -> {
+                RAW_QUEUED.set(false);
+                com.particlesdevs.photoncamera.gallery.files.OtherRawCache.Result r = null;
+                try {
+                    r = GalleryFileOperations.checkOtherRaw(app, resolver);
+                } catch (RuntimeException | LinkageError e) {
+                    com.particlesdevs.photoncamera.util.Log.w("GalleryMedia", "other RAW check: " + e);
+                }
+                if (r == null || !r.changed) return;
+                final com.particlesdevs.photoncamera.gallery.files.OtherRawCache.Result found = r;
+                main.post(() -> joinOtherRaw(found, asked));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            RAW_QUEUED.set(false);
+        }
+    }
+
+    /** P645: the changed RAWs into the lists (read again: the images and videos are reused or read in ~0.1 s). Main thread. */
+    private void joinOtherRaw(com.particlesdevs.photoncamera.gallery.files.OtherRawCache.Result r, long asked) {
+        loadAsync(() -> {
+            com.particlesdevs.photoncamera.gallery.ui.GalleryOpenTrace.rawJoined(r.rows, android.os.SystemClock.uptimeMillis() - asked);
+            // only «ALL» is re-shown (an album or «Избранное» keeps its list; its chip / the albums page get the new lists)
+            if (!"ALL".equals(currentFolderName) || shownBase == null) return;
+            joining = true;
+            try {
+                showKeeping("ALL");
+            } finally {
+                joining = false;
+            }
+        });
+    }
+
+    /** P645: the list set now is the RAW join: whoever shows a list keeps the item it shows (main thread, during the set). */
+    public boolean joining() {
+        return joining;
     }
 
     /** P617: the gallery's MediaStore reads, one at a time, off the main thread. */
@@ -288,7 +351,7 @@ public class GalleryViewModel extends AndroidViewModel {
     }
 
     /** The same file: equal paths, else the same MediaStore row. */
-    static boolean sameFile(com.particlesdevs.photoncamera.gallery.files.MediaFile a, @androidx.annotation.Nullable com.particlesdevs.photoncamera.gallery.files.MediaFile b) {
+    public static boolean sameFile(com.particlesdevs.photoncamera.gallery.files.MediaFile a, @androidx.annotation.Nullable com.particlesdevs.photoncamera.gallery.files.MediaFile b) {
         if (b == null) return false;
         if (a.getAbsolutePath() != null && a.getAbsolutePath().startsWith("/") && a.getAbsolutePath().equals(b.getAbsolutePath())) return true;
         return a instanceof ImageFile && sameMedia((ImageFile) a, b);

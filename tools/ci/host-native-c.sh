@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# P624 «Статика»: the static merge beats the Sabre routes on a static synthetic burst, the Gauss-Newton field converges, a moving
-# scene falls back to «Качество», strips equal one strip; on Vulkan (Mesa lavapipe, mesa-vulkan-drivers) the same result as
-# GLES within the self-test's tolerance, the self-test and the auto choice (skipped with a message without a Vulkan ICD)
-g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_static_merge.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-static-merge
-LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-static-merge
 # P364: the GPU homography and field on their error paths (no broken promise, no slot off by one) and the memory they hold
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -DSCAM_LA_GPU_FAULTS tools/check_la_gpu_errors.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-la-gpu-errors
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-la-gpu-errors

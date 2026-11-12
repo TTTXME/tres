@@ -92,4 +92,23 @@ public class DecodeBoostTest {
         assertEquals(Process.THREAD_PRIORITY_DEFAULT, got[0]);
         assertEquals("a thread already ahead is not lowered", Process.THREAD_PRIORITY_DISPLAY, got[1]);
     }
+
+    /** P645: the grid's first fill puts the decode threads in front again (however late the list came), once per open. */
+    @Test
+    public void theGridsFirstFillBoostsOncePerOpen() {
+        DecodeBoost.forOpen(false);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(DecodeBoost.OPEN_MS + 100));
+        assertEquals("the open's boost is over (the list came late)", DecodeBoost.IDLE, DecodeBoost.level());
+        DecodeBoost.forGrid();
+        assertTrue("the grid's first screen in front", DecodeBoost.level() < DecodeBoost.IDLE);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(DecodeBoost.OPEN_MS + 100));
+        assertEquals("bounded in time", DecodeBoost.IDLE, DecodeBoost.level());
+        DecodeBoost.forGrid();
+        assertEquals("once per open", DecodeBoost.IDLE, DecodeBoost.level());
+        DecodeBoost.forOpen(false);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(DecodeBoost.OPEN_MS + 100));
+        DecodeBoost.forGrid();
+        assertTrue("a new open's grid again", DecodeBoost.level() < DecodeBoost.IDLE);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(DecodeBoost.OPEN_MS + 100));
+    }
 }

@@ -162,6 +162,12 @@ class Pair:
             if name in self.vf:
                 self.vf[name].value = unit
 
+    def frame(self, img):
+        """Another frame of the same size on the same texture (the programs kept)."""
+        h, w = img.shape[:2]
+        assert (w, h) == self.size
+        self.tex.write(np.concatenate([img, np.ones((h, w, 1), np.float32)], -1).astype(np.float32).tobytes())
+
     def run(self, **kw):
         u = uniforms(**kw)
         w, h = self.size
@@ -170,16 +176,56 @@ class Pair:
         b = self.g.read(self.g.draw(self.vf, self.g.target(w, h, 'f4'), {'sTexture': self.tex}, vu))[..., :3]
         return a, b
 
-    def tone(self, version, gains, hdr, lut, boost=1.0, **kw):
-        """The viewfinder with the version's live tone (P630e) under the style: lut 1024 x RGBA 0..1."""
+    def tone(self, grid, level=1.0, **kw):
+        """The viewfinder with the tone preview (P643d) under the style: grid = OldstyleLive's FLOATS coefficients (node order row,
+        bin, gy, gx; 4 a row), uploaded as MainRenderer does (RGBA16F, GX x 3 GL GY, linear filtering); level = uOtLevel."""
         u = uniforms(**kw)
         w, h = self.size
-        lt = self.g.ctx.texture((1024, 1), 4, np.ascontiguousarray(lut, np.float32).tobytes(), dtype='f4')
+        tex = np.ascontiguousarray(np.asarray(grid, np.float32).reshape(3 * GL * GY, GX, 4), np.float16)
+        lt = self.g.ctx.texture((GX, 3 * GL * GY), 4, tex.tobytes(), dtype='f2')
         lt.filter = (self.g.mgl.LINEAR, self.g.mgl.LINEAR)
         lt.repeat_x = lt.repeat_y = False
         vu = dict(u, resolution=(float(w), float(h)), uGain=1.0, uOsOn=1 if kw else 0, uLutOn=0, uLf=0, mirror=False,
-                  enablePeak=False, uOtOn=version, uOt=(gains[0], gains[1], 1.0 if hdr else 0.0, boost))
+                  enablePeak=False, uOtOn=1, uOtLevel=float(level))
         return self.g.read(self.g.draw(self.vf, self.g.target(w, h, 'f4'), {'sTexture': self.tex, 'uOtLut': lt}, vu))[..., :3]
+
+
+GX, GY, GL = 16, 12, 8          # OldstyleLive's grid
+LUMA3 = np.array([0.2126, 0.7152, 0.0722])
+
+
+def identity_grid():
+    """Every node the identity transform."""
+    g = np.zeros((3, GL, GY, GX, 4), np.float64)
+    for r in range(3):
+        g[r, ..., r] = 1.0
+    return g.ravel()
+
+
+def apply_grid(grid, img, level=1.0):
+    """OldstyleLive.apply on an image (u along x, v along y of the texture: row 0 at v = 0), numpy."""
+    g = np.asarray(grid, np.float64).reshape(3, GL, GY, GX, 4)
+    h, w = img.shape[:2]
+    c = np.clip(img.astype(np.float64), 0, 1)
+    if level != 1.0:
+        c = np.clip(c ** 2.2 * level, 0, 1) ** (1 / 2.2)
+    l = np.clip(c @ LUMA3, 0, 1) * (GL - 1)
+    b0 = np.minimum(np.floor(l), GL - 2).astype(int)
+    fb = l - b0
+    yy, xx = np.mgrid[0:h, 0:w]
+    gx = np.clip((xx + 0.5) / w * GX - 0.5, 0, GX - 1)
+    gy = np.clip((yy + 0.5) / h * GY - 0.5, 0, GY - 1)
+    x0, y0 = np.minimum(gx.astype(int), GX - 2), np.minimum(gy.astype(int), GY - 2)
+    fx, fy = gx - x0, gy - y0
+    x = np.concatenate([c, np.ones((h, w, 1))], -1)
+    out = np.zeros((h, w, 3))
+    for db in (0, 1):
+        for dy in (0, 1):
+            for dx in (0, 1):
+                wt = (fb if db else 1 - fb) * (fy if dy else 1 - fy) * (fx if dx else 1 - fx)
+                for r in range(3):
+                    out[..., r] += wt * (g[r, b0 + db, y0 + dy, x0 + dx] * x).sum(-1)
+    return np.clip(out, 0, 1)
 
 
 def adjust_checks(g, rng):
@@ -240,49 +286,33 @@ def adjust_checks(g, rng):
 
 
 def live_tone_checks(g):
-    """P630e: the viewfinder's live tone (utils/import_oldstyle_tone_live, spliced by MainRenderer): off it is the frame as before;
-    SDR is the version's LUT of the linearised frame times the gain (each channel); HDR blends the two gains' tones by the LUT's long
-    weight of the low-passed light - all long where that weight is 1, all short where it is 0; the version's LUT is what changes the
-    picture (V1 / V2 switched live); the style comes after it (its exposure in the gains, MainRenderer.toneGains)."""
-    x = np.linspace(0, 1, 1024, dtype=np.float32)
-    lut1 = np.stack([x ** 0.6, x ** 0.6, x ** 0.6, np.clip((0.8 - x) / 0.3, 0, 1)], -1)    # a curve and a long weight like the module's
-    lut2 = np.stack([x ** 0.45, x ** 0.45, x ** 0.45, np.clip((0.7 - x) / 0.2, 0, 1)], -1)
+    """P643d: the viewfinder's preview of the tone (utils/import_oldstyle_tone_live, spliced by MainRenderer): off it is the frame as
+    it is; with the identity grid it is the frame; with any grid it is OldstyleLive.apply (the cell bilinear by the texture
+    coordinate, the two luma bins round the pixel's luma, each node an affine 3 x 4) within half-float and filtering; the level is
+    applied in linear light before the grid; the style comes after it."""
     h, w = 64, 96
     yy, xx = np.mgrid[0:h, 0:w]
     img = np.stack([xx / (w - 1), (xx / (w - 1)) * 0.8, (yy / (h - 1)) * 0.6], -1).astype(np.float32)
     pair = Pair(g, img)
     _, plain = pair.run()
-    check(np.abs(plain - img).max() < 1e-6, 'live tone off (uOtOn 0): the frame as it is')
-    lin = img.astype(np.float64) ** 2.2
-    look = lambda l, v: np.stack([np.interp(np.clip(v[..., c], 0, 1) * 1023, np.arange(1024), l[:, c]) for c in range(3)], -1)
-    sdr = pair.tone(1, (1.5, 1.5), False, lut1)
-    check(np.abs(sdr - look(lut1, lin * 1.5)).max() < 2e-3, 'live tone SDR: the LUT of the linearised frame x the gain (%.1g)'
-          % np.abs(sdr - look(lut1, lin * 1.5)).max())
-    v2 = pair.tone(2, (1.5, 1.5), False, lut2)
-    check(np.abs(v2 - sdr).mean() > 0.02, 'live tone: the version\'s LUT changes the picture (V1 / V2 live)')
-    hd = pair.tone(1, (0.5, 4.0), True, lut1)
-    dark, bright = look(lut1, lin * 0.5), look(lut1, lin * 4.0)
-    lo = np.ones((h, w), bool)
-    lo[:, w // 2:] = False   # the left half: the low-passed light x 4 below 0.5 (all long)
-    small = lin[..., :3].max(-1) * 4.0 < 0.3
-    check(np.abs(hd[small & lo] - bright[small & lo]).max() < 0.02, 'live tone HDR: all long where the long weight is 1')
-    bigger = lin.max(-1) * 4.0 > 1.5
-    check(np.abs(hd[bigger] - dark[bigger]).max() < 0.05, 'live tone HDR: all short where the long weight is 0')
-    # P630g: the white boost lifts only the frame's top (linear 0.85 up): a frame white at gain 0.45 with boost 2 is drawn at 0.9,
-    # the mid-tones as without it; SDR is the fusion's formula with both gains equal (no jump when the decision changes)
-    low = pair.tone(1, (0.45, 0.45), False, lut1)
-    kept = pair.tone(1, (0.45, 0.45), False, lut1, boost=2.0)
-    top, mid = lin.max(-1) > 0.97, lin.max(-1) < 0.84
-    check(np.abs(kept[mid] - low[mid]).max() < 1e-6 and kept[top].max() > low[top].max() + 0.2
-          and abs(kept[..., 0].max() - np.interp(0.9 * 1023, np.arange(1024), lut1[:, 0])) < 0.01,
-          'live tone white boost: the frame\'s white kept (%.2f -> %.2f), the mid-tones untouched' % (low[top].max(), kept[top].max()))
-    same = pair.tone(1, (1.5, 1.5), True, lut1)
-    check(np.abs(same - sdr).max() < 2e-3, 'live tone: HDR with both gains equal == SDR (%.1g)' % np.abs(same - sdr).max())
-    styled = pair.tone(1, (1.5, 1.5), False, lut1, tone=0.5)
-    check(np.abs(styled - sdr).mean() > 0.01, 'the style applies after the live tone')
+    check(np.abs(plain - img).max() < 1e-6, 'tone preview off (uOtOn 0): the frame as it is')
+    same = pair.tone(identity_grid())
+    check(np.abs(same - img).max() < 2e-3, 'tone preview, the identity grid: the frame (%.1g)' % np.abs(same - img).max())
+    rng = np.random.default_rng(643)
+    grid = identity_grid().reshape(3, GL, GY, GX, 4)
+    grid = grid + rng.normal(0, 0.15, grid.shape) * np.array([1, 1, 1, 0.3])
+    grid = grid.ravel()
+    out = pair.tone(grid).astype(np.float64)
+    want = apply_grid(grid, img)
+    check(np.abs(out - want).max() < 6e-3, 'tone preview: OldstyleLive.apply of a random grid (%.1g)' % np.abs(out - want).max())
+    lev = pair.tone(grid, level=0.5).astype(np.float64)
+    want = apply_grid(grid, img, 0.5)
+    check(np.abs(lev - want).max() < 6e-3, 'tone preview: the level in linear light before the grid (%.1g)' % np.abs(lev - want).max())
+    styled = pair.tone(grid, tone=0.5)
+    check(np.abs(styled - out).mean() > 0.01, 'the style applies after the tone preview')
     renderer = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java').read_text(encoding='utf-8')
     check('shaders/utils/import_oldstyle_tone_live.glsl' in renderer and 'OLDSTYLE_TONE_MARKER = "//#oldstyle_tone"' in renderer,
-          'MainRenderer splices the live tone into main_fs')
+          'MainRenderer splices the tone preview into main_fs')
 
 
 def glslc_checks():

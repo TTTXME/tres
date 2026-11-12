@@ -1042,10 +1042,7 @@ public:
         if(!solved)out.why="RANSAC failed";
         else if(out.inliers<60||out.inliers<0.2*out.tracked){
             out.why="too few inliers"; // (a night ultrashort frame: ~1/3 of the tracks)
-            // P607: weak (>= 30 inliers within 1.5 px) for the night ultrashort; P627c: hw holds the solved H in any case (the static
-            // merge takes >= 12 inliers within 0.75 px: Ark's school burst found 24 corners a frame, every one an inlier)
-            for(int i=0;i<8;++i)out.hw[size_t(i)]=float(H[size_t(i)]);
-            if(out.inliers>=30&&rms<=1.5)out.weak=true;
+            if(out.inliers>=30&&rms<=1.5){out.weak=true;for(int i=0;i<8;++i)out.hw[size_t(i)]=float(H[size_t(i)]);} // P607
         }
         else {for(int i=0;i<8;++i)out.h[size_t(i)]=float(H[size_t(i)]);out.ok=true;out.why="ok";}
         out.ms=std::chrono::duration<double,std::milli>(Clock::now()-homAt[p]).count();

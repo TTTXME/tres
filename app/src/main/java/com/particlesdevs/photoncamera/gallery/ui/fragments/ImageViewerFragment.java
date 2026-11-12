@@ -690,6 +690,12 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     private void initImageAdapter(List<GalleryItem> galleryItems) {
         if (galleryItems == null) return;
         final int before = this.galleryItems != null ? this.galleryItems.size() : 0;
+        // P645: the other RAWs joining the list under a page shown: that page stays (by its file, not its index)
+        GalleryItem keep = null;
+        if (viewModel != null && viewModel.joining() && adapter != null && viewPager != null && this.galleryItems != null) {
+            int at = viewPager.getCurrentItem();
+            if (at >= 0 && at < this.galleryItems.size()) keep = this.galleryItems.get(at);
+        }
         this.galleryItems = galleryItems;
         rawBases = GalleryFormat.rawBaseNames(galleryItems);
         // View destroyed (late edit/delete result): the LiveData observer rebuilds the adapter with the view.
@@ -701,6 +707,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         }
         // P637: the media lists arriving under the camera's last photo already shown: bound behind a copy of its page
         if (adapter != null && before == 1 && galleryItems.size() > 1 && android.os.SystemClock.uptimeMillis() < seamlessUntil) coverWithPage();
+        else if (keep != null) coverWithPage(); // P645: no black flash for the RAW join's rebind either
         adapter = new ImageAdapter(this.galleryItems);
         adapter.setImageViewClickListener(this::onImageViewClicked);
         adapter.setHdrStateListener(this);
@@ -737,6 +744,9 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (select != null)
             for (int i = 0; i < galleryItems.size(); i++)
                 if (select.equals(galleryItems.get(i).getFile().getFileUri())) seek_position = i;
+        if (select == null && keep != null)
+            for (int i = 0; i < galleryItems.size(); i++)
+                if (GalleryViewModel.sameFile(keep.getFile(), galleryItems.get(i).getFile())) seek_position = i;
         int position = Math.max(0, Math.min(seek_position, galleryItems.size() - 1));
         viewPager.setCurrentItem(position);
         final ViewPager pager = viewPager;

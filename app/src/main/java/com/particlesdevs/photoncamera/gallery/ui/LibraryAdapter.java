@@ -166,6 +166,18 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         }, false).dispatchUpdatesTo(this);
     }
 
+    /** P645: the identity of the row at {@code position} (keyOf), null outside the rows. */
+    @androidx.annotation.Nullable
+    public String keyAt(int position) {
+        return position >= 0 && position < rows.size() ? keyOf(rows.get(position), items) : null;
+    }
+
+    /** P645: the row of the identity {@code key} (keyAt), -1 for none. */
+    public int positionOfKey(String key) {
+        for (int p = 0; p < rows.size(); ++p) if (key.equals(keyOf(rows.get(p), items))) return p;
+        return -1;
+    }
+
     /** A row's identity: its day for a header, its file for a photo. */
     static String keyOf(Row r, List<GalleryItem> items) {
         if (r.type == HEADER) return "d" + (r.item < items.size() ? dayKey(items.get(r.item).getFile().getLastModified()) : r.label);

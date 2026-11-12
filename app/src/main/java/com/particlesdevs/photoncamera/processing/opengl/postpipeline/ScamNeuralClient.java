@@ -600,9 +600,7 @@ public final class ScamNeuralClient {
             reader.setDaemon(true);reader.start();
             }
             // P27 any resolution: a Hybrid merge above 16 MP gets a wait in proportion to its pixels (900 s up to 16 MP, unchanged).
-            // P627c: «Статика» by its own alarm (the pixels, its backend)
-            final long timeoutS=!hybridMerge?900:scamBurst instanceof ScamHybridBurst?((ScamHybridBurst)scamBurst).workerTimeoutSeconds()
-                    :ScamHybridBurst.workerTimeoutSeconds(scamBurst.width(),scamBurst.height());
+            final long timeoutS=hybridMerge?ScamHybridBurst.workerTimeoutSeconds(scamBurst.width(),scamBurst.height()):900;
             if(timeoutS>900)log.accept("CLIENT: worker timeout "+timeoutS+" s for "+scamBurst.width()+"x"+scamBurst.height());
             final WorkerWatchdog.Worker watched=completion.watched(new WorkerWatchdog.Worker(){
                 @Override public boolean waitFor(long ms) throws InterruptedException{return child.waitFor(ms);}

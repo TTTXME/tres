@@ -34,22 +34,27 @@ final class LiveSceneMeter {
             "  gl_Position = vec4(vPosition, 0.0, 1.0);\n" +
             "}\n";
 
-    /** Averages a block of the preview per output texel: its (display-encoded) luminance. */
+    /**
+     * Averages a block of the preview per output texel (four taps a quarter of a texel round its centre): its display RGB, and in
+     * alpha its (display-encoded) luminance (SceneLuma). P643d: the RGB is the ScamMaster tone preview's sample of the frame.
+     */
     private static final String FS =
             "#extension GL_OES_EGL_image_external : require\n" +
             "precision mediump float;\n" +
             "uniform samplerExternalOES sTexture;\n" +
+            "uniform vec2 uQuarter;\n" +
             "varying vec2 texCoord;\n" +
             "void main() {\n" +
-            "  vec3 c = texture2D(sTexture, texCoord).rgb;\n" +
+            "  vec3 c = 0.25 * (texture2D(sTexture, texCoord + uQuarter).rgb + texture2D(sTexture, texCoord - uQuarter).rgb\n" +
+            "      + texture2D(sTexture, texCoord + vec2(uQuarter.x, -uQuarter.y)).rgb + texture2D(sTexture, texCoord + vec2(-uQuarter.x, uQuarter.y)).rgb);\n" +
             "  float y = dot(c, vec3(0.2126, 0.7152, 0.0722));\n" +
-            "  gl_FragColor = vec4(y, y, y, 1.0);\n" +
+            "  gl_FragColor = vec4(c, y);\n" +
             "}\n";
 
     private int program = 0;
     private int fbo = 0;
     private int tex = 0;
-    private int aPosition, aTexCoord, uTexture;
+    private int aPosition, aTexCoord, uTexture, uQuarter;
     private boolean failed = false;
     private int frameCounter = 0;
     private boolean pendingRead = false;
@@ -67,7 +72,7 @@ final class LiveSceneMeter {
         measure(pVertex, pTexCoord, previewTexture, EVERY_N_FRAMES, 1f);
     }
 
-    /** P630g: frames between measurements while the Oldstyle live tone follows the frame's level (about 15 a second). */
+    /** P643d: frames between measurements while the ScamMaster tone preview follows the frame's tile (about 15 a second). */
     static final int LIVE_TONE_FRAMES = 2;
     /** The series gain of the frame in the tile waiting to be read, and frames since SceneLuma got a value. */
     private float pendingGain = 1f;
@@ -75,7 +80,7 @@ final class LiveSceneMeter {
 
     /**
      * As above every {@code every} frames; {@code gain}: the frame's series gain (MainRenderer's uGain: the tone sees the frame
-     * times it). P630g: the tile also gives the frame's linear mean to the Oldstyle live tone (OldstyleLive.level).
+     * times it). P643d: the tile also gives the frame's RGB to the ScamMaster tone preview (OldstyleLive.screen).
      */
     void measure(java.nio.FloatBuffer pVertex, java.nio.FloatBuffer pTexCoord, int previewTexture, int every, float gain) {
         if (failed) return;
@@ -106,6 +111,7 @@ final class LiveSceneMeter {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, previewTexture);
         GLES20.glUniform1i(uTexture, 0);
+        GLES20.glUniform2f(uQuarter, 0.25f / TILE, 0.25f / TILE);
 
         GLES20.glEnableVertexAttribArray(aPosition);
         GLES20.glEnableVertexAttribArray(aTexCoord);
@@ -131,16 +137,16 @@ final class LiveSceneMeter {
     private void publish() {
         readback.position(0);
         long sum = 0;
-        for (int i = 0; i < TILE * TILE; i++) sum += readback.get(i * 4) & 0xFF;
+        for (int i = 0; i < TILE * TILE; i++) sum += readback.get(i * 4 + 3) & 0xFF;
         // P82: the mean brightness for the manual panel's shutter / ISO priority (at its own rate: one tile in eight frames)
         if (com.particlesdevs.photoncamera.manual.SceneLuma.wanted() && sinceScene >= EVERY_N_FRAMES) {
             sinceScene = 0;
             com.particlesdevs.photoncamera.manual.SceneLuma.publish(sum / (255.0 * TILE * TILE));
         }
-        // P630g: the frame's own level for the Oldstyle live tone
+        // P643d: the frame's tile for the ScamMaster tone preview
         final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive live =
                 com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared();
-        if (live.wantsLevel()) live.level(System.nanoTime(), linearMean(readback, TILE * TILE, pendingGain));
+        if (live.wantsScreen()) live.screen(System.nanoTime(), tileRgb(readback, TILE, pendingGain), TILE, TILE);
     }
 
     private static final float[] LINEAR = new float[256];
@@ -150,13 +156,21 @@ final class LiveSceneMeter {
     }
 
     /**
-     * P630g: the linear mean of {@code count} RGBA8 texels' display luma (their R): each to the power 2.2 (as the live tone
-     * linearises the frame), times the frame's series gain, at most white.
+     * P643d: the tile ({@code size} x {@code size} RGBA8, read from the bottom row up) as display RGB 0..1, rows in the order of the
+     * external texture's t (the tile is drawn with the texture coordinates as they are: its bottom row is t = 1), with the frame's
+     * series gain in light (the power 2.2 and back, at most white) when it is not 1 - the frame as the viewfinder's shader has it.
      */
-    static float linearMean(ByteBuffer rgba, int count, float gain) {
-        double sum = 0;
-        for (int i = 0; i < count; i++) sum += Math.min(1f, LINEAR[rgba.get(i * 4) & 0xFF] * gain);
-        return count <= 0 ? 0f : (float) (sum / count);
+    static float[] tileRgb(ByteBuffer rgba, int size, float gain) {
+        final float[] out = new float[size * size * 3];
+        for (int j = 0; j < size; j++) {
+            final int row = size - 1 - j;   // the readback's row j is at t = 1 - (j + 0.5) / size
+            for (int i = 0; i < size; i++)
+                for (int c = 0; c < 3; c++) {
+                    final int v = rgba.get((j * size + i) * 4 + c) & 0xFF;
+                    out[(row * size + i) * 3 + c] = gain == 1f ? v / 255f : (float) Math.pow(Math.min(1f, LINEAR[v] * gain), 1.0 / 2.2);
+                }
+        }
+        return out;
     }
 
     private boolean init() {
@@ -186,6 +200,7 @@ final class LiveSceneMeter {
         aPosition = GLES20.glGetAttribLocation(program, "vPosition");
         aTexCoord = GLES20.glGetAttribLocation(program, "vTexCoord");
         uTexture = GLES20.glGetUniformLocation(program, "sTexture");
+        uQuarter = GLES20.glGetUniformLocation(program, "uQuarter");
 
         int[] t = new int[1];
         GLES20.glGenTextures(1, t, 0);

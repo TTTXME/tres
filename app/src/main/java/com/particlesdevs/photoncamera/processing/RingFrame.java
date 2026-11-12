@@ -22,6 +22,8 @@ public interface RingFrame {
     long[] arenaSlot();
     /** Gives the frame back (the camera's buffer, or the ring's hold on the slot). */
     void close();
+    /** P646: the camera's Image of a frame held as one (its colour planes for the YUV merge), null for a ring slot copy. */
+    default Image image() { return null; }
 
     /** The camera's Image as a ring frame. */
     static RingFrame of(Image image) {
@@ -35,6 +37,7 @@ public interface RingFrame {
             @Override public ByteBuffer buffer() { return image.getPlanes()[0].getBuffer(); }
             @Override public long[] arenaSlot() { return null; }
             @Override public void close() { image.close(); }
+            @Override public Image image() { return image; }
         };
     }
 }

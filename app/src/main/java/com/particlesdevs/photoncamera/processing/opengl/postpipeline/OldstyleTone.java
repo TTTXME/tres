@@ -25,8 +25,8 @@ import static android.opengl.GLES20.GL_NEAREST;
  * stays ours; only the tone stage is the module's.
  * <ol>
  *   <li>The clean linear RGB of the merge (why/v2_clean) and its strided samples (why/v2_stride, WhyV2Ae.stride) for the plan
- *       (P630e, OldstyleAe.plan: the supplement's plan27 / plan31 and fusion_gains, from the shot's capture plan when the burst was
- *       exposed by it, else metered on the merge; the style's exposure in both TETs).</li>
+ *       (P630e, OldstyleAe.plan: the supplement's plan27 / plan31 and fusion_gains, metered on the merge - P643: the frames come at the
+ *       photo mode's exposure, the tone only decides its gains; the style's exposure in both TETs).</li>
  *   <li>The module's frame: oldstyle/linear (the same colour chain, no clamp at 0; V1 before our CCM, V2 after it; V2 scaled so its
  *       light stays within white) as RGBA16I, read back in strips of {@link #STRIP} rows (GL_RGBA_INTEGER / GL_INT) into one planar int16 frame.</li>
  *   <li>One call of the module on the whole frame (its pyramid and 3.1's shadow curve read the whole frame: no tiles): V1
@@ -42,15 +42,12 @@ public final class OldstyleTone extends Node {
     private final boolean v2;
     private final OldstyleAe.Params params;
     private final boolean postview;
-    @androidx.annotation.Nullable
-    private final OldstyleAe.Capture capture;
 
-    public OldstyleTone(boolean v2, OldstyleAe.Params params, boolean postview, @androidx.annotation.Nullable OldstyleAe.Capture capture) {
+    public OldstyleTone(boolean v2, OldstyleAe.Params params, boolean postview) {
         super("", "OldstyleTone");
         this.v2 = v2;
         this.params = params;
         this.postview = postview;
-        this.capture = capture;
     }
 
     @Override public void Compile() {}
@@ -191,13 +188,13 @@ public final class OldstyleTone extends Node {
             final double frameTet = pipeline.mParameters.exposureTime * 1e9 * pipeline.mParameters.iso;
             // the version by memory first (the plan of V2 and V1 differ in their rules), with the HDR of V2's plan
             params.v31 = v2;
-            OldstyleAe.Plan plan = OldstyleAe.plan(rgbSamples, sw, sh, params, shorts ? WhyV2Stats.MAX_CEILING : 1f, capture, frameTet);
+            OldstyleAe.Plan plan = OldstyleAe.plan(rgbSamples, sw, sh, params, shorts ? WhyV2Stats.MAX_CEILING : 1f);
             final boolean useV2 = route(v2, plan.hdr, pixels, available, params.memoryShare);
             if (v2 && !useV2) {
                 Log.i("SCAM_PIPELINE", "Oldstyle V2 chosen, V1 used: " + (bytes(true, plan.hdr, pixels) >> 20) + " MB of buffers for "
                         + size.x + "x" + size.y + ", " + (available >> 20) + " MB available");
                 params.v31 = false;
-                plan = OldstyleAe.plan(rgbSamples, sw, sh, params, shorts ? WhyV2Stats.MAX_CEILING : 1f, capture, frameTet);
+                plan = OldstyleAe.plan(rgbSamples, sw, sh, params, shorts ? WhyV2Stats.MAX_CEILING : 1f);
             }
             if (!useV2 && bytes(false, plan.hdr, pixels) > (long) (available * (double) params.memoryShare) && available > 0)
                 Log.w("SCAM_PIPELINE", "Oldstyle: " + (bytes(false, plan.hdr, pixels) >> 20) + " MB of V1 buffers for " + size.x + "x"

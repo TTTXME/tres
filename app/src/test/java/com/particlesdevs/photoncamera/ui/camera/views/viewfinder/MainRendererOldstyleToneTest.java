@@ -1,13 +1,16 @@
 package com.particlesdevs.photoncamera.ui.camera.views.viewfinder;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
+
+import com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe;
+import com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive;
 
 import org.junit.After;
 import org.junit.Test;
@@ -20,139 +23,152 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 /**
- * P630e «Oldstyle»: the viewfinder shows the version's tone under the style, in the photo's order - the live tone (its gains the
- * shot's plan, the style's exposure in them) spliced before the style in main_fs, the style's own exposure 0 while the tone is live,
- * the version switched live (the LUT made per version), off outside the mode. The picture: tools/check_oldstyle_tone.py (GPU).
+ * P643d «ScamMaster»: the viewfinder shows the preview of the tone under the style, in the photo's order - OldstyleLive's bilateral
+ * grid (the ISP frame carried to the module's own picture of the viewfinder's frame: its local tone and colour) spliced before the
+ * style in main_fs, the style's own exposure 0 while it is drawn (the module's picture has it), off outside the mode, with «Тон в
+ * видоискателе» off, and on the developed-RAW pass (not the frame the grid was fitted on). The picture: tools/check_oldstyle_tone.py
+ * and tools/check_oldstyle_live.py (GPU). The tests of P643b's luma curve and of P630e .. P630g's tone went with them.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
 public class MainRendererOldstyleToneTest {
-    @After public void off() {
-        MainRenderer.setOldstyleTone(0, 1f, 1f, false);
+    private static String read(String path) throws Exception {
+        return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
     }
 
-    @Test public void theStylesExposureGoesIntoTheGains() {
+    @After public void off() {
+        OldstyleLive.shared().off();
+    }
+
+    @Test public void theStylesExposureIsInTheModulesPicture() throws Exception {
         final float[] style = new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle()
                 .set(com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle.Param.EXPOSURE, 100)
                 .set(com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle.Param.TONE, 30).uniforms();
-        MainRenderer.setOldstyleTone(2, 0.9f, 3.5f, true);
-        final float[] t = MainRenderer.oldstyleTone();
-        assertArrayEquals(new float[]{2f, 0.9f, 3.5f, 1f}, t, 0f);
-        final float k = (float) Math.pow(2, 1.5);
-        assertArrayEquals(new float[]{0.9f * k, 3.5f * k}, MainRenderer.toneGains(t, style), 1e-5f);
-        assertArrayEquals(new float[]{0.9f, 3.5f}, MainRenderer.toneGains(t, null), 0f);
         final float[] after = MainRenderer.styleAfterTone(style, true);
         assertEquals(0f, after[2], 0f);
         assertEquals(style[0], after[0], 0f);
-        assertSame(style, MainRenderer.styleAfterTone(style, false));   // no live tone: the style keeps its exposure
-        MainRenderer.setOldstyleTone(0, 1f, 1f, false);
-        assertNull(MainRenderer.oldstyleTone());
+        assertSame(style, MainRenderer.styleAfterTone(style, false));   // no preview drawn: the style keeps its exposure
+        // the picture the preview follows is made with the style's exposure, as the shot's snapshot makes the photo's
+        final String capture = read("src/main/java/com/particlesdevs/photoncamera/capture/CaptureController.java");
+        final int viewfinder = capture.indexOf("private void oldstyleViewfinder() {");
+        final String body = capture.substring(viewfinder, capture.indexOf("\n    }\n", viewfinder));
+        assertTrue(body.contains("params.exposureEv = com.particlesdevs.photoncamera.settings.OldstyleMode.style().exposureEv();"));
+        assertTrue(body.indexOf("params.exposureEv =") < body.indexOf("OldstyleLive.photoRgb(frame[0], sw, sh, frame[1], params)"));
+        assertTrue(read("src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/ShotLook.java")
+                .contains("exposureEv = style.exposureEv()"));
     }
 
     @Test public void theToneIsSplicedBeforeTheStyle() throws Exception {
-        final String main = new String(Files.readAllBytes(Paths.get("src/main/assets/shaders/preview/main_fs.glsl")), StandardCharsets.UTF_8);
+        final String main = read("src/main/assets/shaders/preview/main_fs.glsl");
         final String spliced = MainRenderer.oldstyleSplice(main, "//ADJUST", "//TONE");
         assertTrue(spliced.contains("//ADJUST") && spliced.contains("//TONE"));
         assertFalse(spliced.contains(MainRenderer.OLDSTYLE_TONE_MARKER));
-        final int tone = main.indexOf("color.rgb = oldstyleToneLive("), style = main.indexOf("color.rgb = oldstyleStyle(");
+        final int tone = main.indexOf("color.rgb = oldstyleToneLive(uv, color.rgb);"), style = main.indexOf("color.rgb = oldstyleStyle(");
         assertTrue(tone > 0 && style > tone);
         // right after the series gain, before the lens filter and the LUT (the photo: the tone, then the style)
-        assertTrue(tone < main.indexOf("color.rgb = lensFilter("));
-        final String src = new String(Files.readAllBytes(Paths.get(
-                "src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java")), StandardCharsets.UTF_8);
-        // per version (P630f: ToneLut) and, P630h, per shape of the tone curve: the LUT and its key are OldstyleLive's
-        assertTrue(src.contains("final int key = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.lutKey(version);")
-                && src.contains("final byte[] lut = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.lut(version);")
-                && src.contains("if (mToneLut.ready(key)) return true;") && src.contains("mToneLut.uploaded(texture, key);"));
-        assertFalse(src.contains("OldstyleNative.previewLut("));
-        final String capture = new String(Files.readAllBytes(Paths.get(
-                "src/main/java/com/particlesdevs/photoncamera/capture/CaptureController.java")), StandardCharsets.UTF_8);
-        // the version as the panel has it at each metering (a V1 / V2 switch shows at once), off outside the mode
-        // P630g: the plan goes to OldstyleLive (the screen frame's own level, smoothed, calibrated on the module's picture), the
-        // version of each metering with it; off outside the mode whoever turned it on
-        // P630h: with the settings (the gains' limit and base, the mode's exposure, the rows of «Видоискатель»), the tone curve's
-        // shape in the LUT before the plan
-        assertTrue(capture.contains("live.plan(System.nanoTime(), v2 ? 2 : 1, c, params,"));
-        assertTrue(capture.indexOf("OldstyleLive.curve(params.curveMid, params.curveContrast);") > 0
-                && capture.indexOf("OldstyleLive.curve(params.curveMid, params.curveContrast);") < capture.indexOf("live.plan(System.nanoTime(), v2 ? 2 : 1, c, params,"));
-        assertTrue(capture.contains("OldstyleLive.photoMean(c, params)"));
-        assertTrue(capture.contains("if (mOldstyleToneLive || live.wantsLevel()) live.off();"));
-        assertFalse("never the RAW frame's gains straight onto the screen", capture.contains("MainRenderer.setOldstyleTone("));
-        // the renderer draws with OldstyleLive's state of this frame (null: no tone) and measures the frame's level for it
-        assertTrue(src.contains("final float[] liveTone = readyTone(0f);"));
-        assertTrue(src.contains("OldstyleLive.shared().gains(System.nanoTime(), assumedLevel)"));
+        assertTrue(tone < main.indexOf("color.rgb = lensFilter(") && tone > main.indexOf("if (uGain != 1.0)"));
+        final String src = read("src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java");
         assertTrue(src.contains("mSceneMeter.measure(pVertex, pTexCoord, hTex[0], LiveSceneMeter.LIVE_TONE_FRAMES, mFrameGain);"));
-        final String shader = new String(Files.readAllBytes(Paths.get("src/main/assets/shaders/utils/import_oldstyle_tone_live.glsl")), StandardCharsets.UTF_8);
-        assertTrue(shader.contains("uniform vec4 uOt;") && shader.contains("smoothstep(" + com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.WHITE_FROM + ", 1.0,"));
+        // P643d: the shader is the bilateral grid - an affine 3 x 4 a node, the cell by the texture coordinate the frame is sampled at,
+        // the two luma bins round the pixel's luma; no taps of the frame (what made the blotches), no tone of its own
+        final String shader = read("src/main/assets/shaders/utils/import_oldstyle_tone_live.glsl");
+        final String code = shader.replaceAll("(?m)//.*$", "");
+        assertTrue(code.contains("uniform int uOtOn;") && code.contains("uniform highp sampler2D uOtLut;") && code.contains("uniform highp float uOtLevel;"));
+        assertFalse(code.contains("LF_SAMPLE") || code.contains("otLowPass"));
+        assertTrue(code.contains("const highp float OT_GX = " + OldstyleLive.GX + ".0, OT_GY = " + OldstyleLive.GY + ".0, OT_GL = " + OldstyleLive.GL + ".0;"));
+        assertTrue(code.contains("highp float y = cell.y + (row * OT_GL + bin) * OT_GY;"));   // OldstyleLive.index's texture rows
+        assertEquals(OldstyleLive.GX, MainRenderer.OT_TEX_W);
+        assertEquals(3 * OldstyleLive.GL * OldstyleLive.GY, MainRenderer.OT_TEX_H);
+        assertTrue(src.contains("GLES30.GL_RGBA16F, OT_TEX_W, OT_TEX_H, 0, GLES20.GL_RGBA, GLES20.GL_FLOAT"));
+        assertEquals(OldstyleLive.index(1, 2, 3, 4), ((((1 * OldstyleLive.GL) + 2) * OldstyleLive.GY + 3) * OldstyleLive.GX + 4) * 4);
+        final String capture = read("src/main/java/com/particlesdevs/photoncamera/capture/CaptureController.java");
+        assertTrue(capture.contains("live.photo(System.nanoTime(), com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.photoRgb(frame[0], sw, sh, frame[1], params),"));
+        assertTrue(capture.contains("if (mOldstyleToneLive || live.wantsScreen()) live.off();"));
+        assertFalse(capture.contains("meterOldstyle") || capture.contains("oldstyleShot") || capture.contains("HybridPlan.oldstyle"));
     }
 
     /**
-     * P630f (owner, OPPO PHY110: «После первого снимка или включения лога чёрный экран»): the tone's LUT texture belongs to one GL
-     * context - after a new one (the gallery and back, the settings and back) nothing of it is ready, whatever version was
-     * uploaded before, so the LUT is uploaded again; the renderer forgets it first thing in onSurfaceCreated.
+     * P630f (owner, OPPO PHY110: «После первого снимка или включения лога чёрный экран»): the tone's texture belongs to one GL
+     * context - after a new one (the gallery and back, the settings and back) nothing of it is there, so it is made again; the
+     * renderer forgets it first thing in onSurfaceCreated. P643d: with it the grid's generation it holds (a new context uploads
+     * the grid again).
      */
-    @Test public void theLutIsUploadedAgainInANewGlContext() throws Exception {
+    @Test public void theTextureIsMadeAgainInANewGlContext() throws Exception {
         final MainRenderer.ToneLut lut = new MainRenderer.ToneLut();
-        assertFalse(lut.ready(1));
-        lut.uploaded(7, 1);
-        assertTrue(lut.ready(1));
-        assertFalse("the other version: its own upload", lut.ready(2));
+        assertFalse(lut.ready());
+        lut.created(7);
+        assertTrue(lut.ready());
+        lut.generation = 5;
         lut.contextLost();
-        assertFalse("a new context: the old texture is gone", lut.ready(1));
+        assertFalse("a new context: the old texture is gone", lut.ready());
+        assertEquals(Integer.MIN_VALUE, lut.generation);
         assertEquals(0, lut.texture);
-        lut.uploaded(3, 2);
-        assertTrue(lut.ready(2));
-        final String src = new String(Files.readAllBytes(Paths.get(
-                "src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java")), StandardCharsets.UTF_8);
+        lut.created(3);
+        assertTrue(lut.ready());
+        final String src = read("src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java");
         final int created = src.indexOf("public void onSurfaceCreated(GL10 gl, EGLConfig config) {"), lost = src.indexOf("mToneLut.contextLost();");
         assertTrue(created > 0 && lost > created && lost - created < 200);
         // the upload asks the holder, binds the holder's texture, and no texture name is kept outside it
-        assertTrue(src.contains("if (mToneLut.ready(key)) return true;"));
+        assertTrue(src.contains("if (!mToneLut.ready()) {") && src.contains("mToneLut.created(t[0]);"));
         assertTrue(src.contains("GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mToneLut.texture);"));
+        assertTrue(src.contains("mToneLut.generation = g.generation;"));
         assertFalse(src.contains("mOtLutTex"));
     }
 
     /**
-     * P630g: the tone of a draw - a state set by hand wins (the tests, a forced state), else OldstyleLive's; nothing while that has
-     * no plan or no level (the frame as it is: never a half-made tone), and the style keeps its exposure then.
+     * The grid of a draw is OldstyleLive's or none: nothing before a fit (the module's picture and the frame's tile), nothing once the
+     * preview is off; the developed-RAW pass (its frame is not the one the grid was fitted on) draws none.
      */
-    @Test public void theDrawTakesOldstyleLivesStateOrNoTone() {
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive live =
-                com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared();
+    @Test public void theDrawTakesOldstyleLivesGridOrNoTone() throws Exception {
+        final OldstyleLive live = OldstyleLive.shared();
         live.off();
-        assertNull(MainRenderer.toneNow(0f));
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c =
-                new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(1.0, 2.0, 0.8f, true, true, 1.0, 2.0, 0f);
-        c.meterMean = 0.06f;
-        live.plan(System.nanoTime(), 2, c, 16f);
-        assertNull("a plan without the frame's level: no tone yet", MainRenderer.toneNow(0f));
-        assertTrue(live.wantsLevel());
-        live.level(System.nanoTime(), 0.18f);
-        final float[] t = MainRenderer.toneNow(0f);
-        assertEquals(2f, t[0], 0f);
-        assertEquals(5, t.length);
-        // the ISP frame three times the RAW's mean: the plan's gains over that
-        assertEquals(2f / 3f, t[2], 0.02f);
-        assertEquals(2f, t[2] / t[1] * (float) Math.pow(0.9756097793579102, 2.0), 0.02f);
-        // a frame nobody measures (the developed RAW through the filter pass): the assumed level
-        assertEquals(t[2], MainRenderer.toneNow(0.18f)[2], 0.01f);
-        MainRenderer.setOldstyleTone(1, 0.5f, 1.5f, true);
-        assertArrayEquals(new float[]{1f, 0.5f, 1.5f, 1f}, MainRenderer.toneNow(0f), 0f);
-        MainRenderer.setOldstyleTone(0, 1f, 1f, false);
-        live.off();
-        assertNull(MainRenderer.toneNow(0f));
+        final int n = 32;
+        final float[] picture = new float[n * n * 3], frame = new float[n * n * 3];
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < n; i++)
+                for (int c = 0; c < 3; c++) {
+                    frame[(j * n + i) * 3 + c] = 0.05f + 0.5f * i / n + 0.3f * j / n;
+                    picture[(j * n + i) * 3 + c] = Math.min(1f, frame[(j * n + i) * 3 + c] * 1.4f);
+                }
+        final long now = System.nanoTime();
+        assertNull(live.grid(now));
+        live.photo(now, new OldstyleLive.Picture(picture, true), n, n, new OldstyleAe.Params());
+        assertNull("the module's picture without the frame's tile: no tone yet", live.grid(now));
+        assertTrue(live.wantsScreen());
+        live.screen(now, frame, n, n);
+        live.photo(now + 1_000_000L, new OldstyleLive.Picture(picture, true), n, n, new OldstyleAe.Params());
+        final OldstyleLive.Grid g = live.grid(now + 2_000_000L);
+        assertNotNull(g);
+        assertEquals(OldstyleLive.FLOATS, g.coefficients.length);
+        assertTrue("the frame lifted to the picture", OldstyleLive.apply(g.coefficients, 1f, new float[]{0.3f, 0.3f, 0.3f}, 0.5f, 0.5f)[1] > 0.36f);
+        final OldstyleAe.Params off = new OldstyleAe.Params();
+        off.vfTone = false;
+        live.photo(now + 3_000_000L, new OldstyleLive.Picture(picture, true), n, n, off);
+        assertNull("«Тон в видоискателе» off: the photo mode's viewfinder", live.grid(now + 4_000_000L));
+        final String src = read("src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java");
+        assertTrue(src.contains("OldstyleLive.shared().grid(System.nanoTime(),"));
+        assertTrue(src.contains("oldstyleUniforms(uOsOn2d, uOsAdjust2d, false);") && src.contains("oldstyleTone(uOtTone2d, null);"));
+        assertTrue(src.contains("oldstyleUniforms(uOsOn, uOsAdjust, liveTone != null);") && src.contains("oldstyleTone(uOtTone, liveTone);"));
+        assertTrue(src.contains("if (l[2] >= 0) GLES20.glUniform1f(l[2], g.level);"));
     }
 
-    /** P630g: LiveSceneMeter's level of a tile - each texel's display luma to the power 2.2, times the series gain, at most white. */
-    @Test public void theFramesLinearLevel() {
-        final java.nio.ByteBuffer tile = java.nio.ByteBuffer.allocate(4 * 4);
-        final int[] codes = {0, 128, 255, 186};
-        for (int i = 0; i < 4; i++) tile.put(i * 4, (byte) codes[i]);
-        final double[] lin = {0, Math.pow(128 / 255.0, 2.2), 1, Math.pow(186 / 255.0, 2.2)};
-        assertEquals((float) ((lin[0] + lin[1] + lin[2] + lin[3]) / 4), LiveSceneMeter.linearMean(tile, 4, 1f), 1e-5f);
-        // a series frame twice brighter on the screen: each texel x 2, white stays white
-        assertEquals((float) ((2 * lin[1] + 1 + Math.min(1.0, 2 * lin[3])) / 4), LiveSceneMeter.linearMean(tile, 4, 2f), 1e-5f);
-        assertEquals((float) ((Math.min(1.0, 8 * lin[1]) + 1 + 1) / 4), LiveSceneMeter.linearMean(tile, 4, 8f), 1e-5f);
-        assertEquals(0f, LiveSceneMeter.linearMean(tile, 0, 1f), 0f);
+    /**
+     * The tile as the shader has the frame before the tone: display RGB, rows in the order of the texture's t (the readback's bottom row
+     * is t = 1), the series gain in light.
+     */
+    @Test public void theFramesTileForThePreview() {
+        final java.nio.ByteBuffer tile = java.nio.ByteBuffer.allocate(2 * 2 * 4);
+        final int[][] px = {{200, 100, 50}, {0, 0, 0}, {64, 64, 64}, {255, 255, 255}};   // readback rows: bottom (t = 1) first
+        for (int i = 0; i < 4; i++) for (int c = 0; c < 3; c++) tile.put(i * 4 + c, (byte) px[i][c]);
+        final float[] rgb = LiveSceneMeter.tileRgb(tile, 2, 1f);
+        // the readback's row 0 (t = 1) is the tile's row 1
+        assertEquals(200 / 255f, rgb[(1 * 2 + 0) * 3], 0f);
+        assertEquals(50 / 255f, rgb[(1 * 2 + 0) * 3 + 2], 0f);
+        assertEquals(64 / 255f, rgb[0], 0f);
+        assertEquals(1f, rgb[(0 * 2 + 1) * 3], 0f);
+        // a series frame drawn at twice the light: each value times 2 ^ (1 / 2.2), at most white
+        final float[] lifted = LiveSceneMeter.tileRgb(tile, 2, 2f);
+        assertEquals(64 / 255f * (float) Math.pow(2, 1 / 2.2), lifted[0], 1e-4f);
+        assertEquals(1f, lifted[(0 * 2 + 1) * 3], 0f);
     }
 }

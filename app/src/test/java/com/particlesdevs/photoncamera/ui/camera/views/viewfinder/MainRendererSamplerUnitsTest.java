@@ -104,7 +104,7 @@ public class MainRendererSamplerUnitsTest {
     }
 
     @Test public void theLinkedProgramGetsEveryUnitBeforeItsFirstDrawWithTheToneOff() throws Exception {
-        MainRenderer.setOldstyleTone(0, 1f, 1f, false); // outside the Oldstyle mode: the owner's case
+        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared().off(); // outside the Oldstyle mode: the owner's case
         final Recorder gl = new Recorder();
         MainRenderer.pinSamplers(mainFragment(), gl);
         assertEquals("the tone's LUT off unit 0", 13, gl.unitOf("uOtLut"));
@@ -152,8 +152,8 @@ public class MainRendererSamplerUnitsTest {
         assertTrue(src.contains("pinSamplers(hProgram, fss_default);"));
         assertTrue(src.contains("pinSamplers(hProgram2d, LiveLensFilter.to2d(fss_default));"));
         // each draw: the LUT's unit before the «tone off» return (31257 set it after)
-        final int method = src.indexOf("private void oldstyleTone(int[] l, float[] t)"); // P630g: the draw's tone state passed in
-        final int unit = src.indexOf("GLES20.glUniform1i(l[2], OT_LUT_UNIT);", method), off = src.indexOf("if (t == null) return;", method);
+        final int method = src.indexOf("private void oldstyleTone(int[] l, com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.Grid g)"); // P643d: the draw's grid or none
+        final int unit = src.indexOf("GLES20.glUniform1i(l[1], OT_LUT_UNIT);", method), off = src.indexOf("if (g == null) return;", method);
         assertTrue(method > 0 && unit > method && off > unit);
         // the RAW viewfinder drops another pass's GL error instead of failing on it
         final String raw = new String(Files.readAllBytes(Paths.get(

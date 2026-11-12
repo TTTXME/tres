@@ -35,13 +35,13 @@ public class CropUpscaleTest {
      * P258 / P267 (owner, 2026-10-19: «При выкл сохраняй только днг без ремозаика»; «Склейка должны быть, просто без
      * ремозаика»): a mosaic shot without our remosaic is merged and its merged mosaic DNG is the shot - saved whatever the RAW
      * setting says, uncompressed (Scam Remosaic reads uncompressed 16-bit CFA only), the reference frame as captured when the merge
-     * gave none, and the shot ends there (no photo).
+     * gave none, and the shot ends there (no photo). P646: a YUV shot has no RAW, so no DNG and Bayer blocks.
      */
     @Test public void aMosaicShotWithoutRemosaicIsItsMergedMosaicDngAlone() throws Exception {
         String s = src("src/main/java/com/particlesdevs/photoncamera/processing/processor/ScamProcessor.java");
-        int block = s.indexOf("mergedDngBlock = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic;");
+        int block = s.indexOf("mergedDngBlock = yuvShot ? 1 : com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic;");
         int flag = s.indexOf("mosaicDngOnly = mergedDngBlock > 1;", block);
-        int dng = s.indexOf("if (mosaicDngOnly || ((saveRAW >= 1) && alignAlgorithm != 2)) {", flag);
+        int dng = s.indexOf("if (!yuvShot && (mosaicDngOnly || ((saveRAW >= 1) && alignAlgorithm != 2))) {", flag);
         int check = s.indexOf("final boolean mosaicDng = mosaicDngOnly;", dng);
         int merged = s.indexOf("if (scamMergedDng != null) {", check);
         int stacked = s.indexOf("imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters, true)", merged);
@@ -73,7 +73,7 @@ public class CropUpscaleTest {
         int gain = d.indexOf("setGainMap(parameters.gainMap,", params);
         assertTrue("the block before the GainMap", params > 0 && block > params && gain > block);
         String s = src("src/main/java/com/particlesdevs/photoncamera/processing/processor/ScamProcessor.java");
-        int ref = s.indexOf("referenceDngBlock = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastStreamBlock;");
+        int ref = s.indexOf("referenceDngBlock = yuvShot ? 1 : com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastStreamBlock;");
         int merged = s.indexOf("processingParameters.dngMosaicBlock = mergedDngBlock;", ref);
         int mergedSave = s.indexOf("ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters, true)", merged);
         int mergedReset = s.indexOf("processingParameters.dngMosaicBlock = 1;", mergedSave);

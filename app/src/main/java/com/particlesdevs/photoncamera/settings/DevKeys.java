@@ -56,13 +56,11 @@ public final class DevKeys {
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
-            "static_slice_ms", // P639: the static merge's GPU submissions (the same photo bit for bit)
             "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
             "jpeg_stream", // P483: the JPEG encoded from the mapped readback (the same bytes)
             "jpeg_stream_marks", // P642: the watermark and the ES / L stamp drawn into the streamed JPEG's rows (the same file)
             "ahb_transport", // P482: the merge RGB in the app's hardware buffer instead of the memfd (the same bytes)
             "tex_pool", // P477: the textures' storage reused within a post run (memory, the same pixels)
-            "static_vulkan", // P624: the static merge's GPU API (the same photo within 2e-3, the self-test checks it)
             "post_noise_quantile_gpu",
             "jpeg_aq", "jpeg_fast_tables", // P443: how the JPEG is written, not the replayed image
             "hybrid_la_threads", "hybrid_la_stream", "hybrid_la_scam", "hybrid_rgb_half", "worker_gpu_normal_priority",
@@ -342,12 +340,6 @@ public final class DevKeys {
         k.add(n(merge, "hybrid_mosaic_tetra_kernel_scale", null, Lang.t("Tetra днём: масштаб ядра", "Tetra by day: kernel scale")));
         k.add(n(merge, "hybrid_mosaic_nat_tex", "0", Lang.t("Quad / Tetra «Качество»: чтение блоков склейки через текстурный кэш (1 вкл., 0 буферы; результат тот же, на Adreno 750 медленнее)",
                 "Quad / Tetra «Quality»: merge blocks read through the texture cache (1 on, 0 storage buffers; same result, slower on the Adreno 750)")));
-        k.add(n(merge, "static_vulkan", "-1", Lang.t("«Статика»: GPU склейки (1 Vulkan, 0 GLES, -1 авто: самопроверка на первом снимке версии выбирает быстрый совпадающий, -2 только процессор; сбой Vulkan - снимок заново на GLES, сбой GLES - на процессоре, всё той же «Статикой»)",
-                "«Static»: the merge's GPU API (1 Vulkan, 0 GLES, -1 auto: a self-test on the version's first shot picks the faster matching one, -2 the CPU only; a Vulkan failure redoes the shot on GLES, a GLES failure on the CPU, still «Static»)")));
-        k.add(n(merge, "static_plan", "1", Lang.t("«Статика»: расписание решения (1 короткое: грубая стадия на сетке RAW, затем 6 шагов Чебышёва на 2x - в ~3 раза быстрее при той же детальности; 0 прежнее: 8 итераций по 3 шага)",
-                "«Static»: the solve's schedule (1 short: a coarse stage at the RAW grid, then 6 Chebyshev steps at 2x - about 3x faster with the same detail; 0 the earlier one: 8 iterations of 3 steps)")));
-        k.add(n(merge, "static_slice_ms", "6", Lang.t("«Статика»: длина одной порции работы GPU, мс (между порциями рисуется видоискатель; 0 - полоса одной порцией, как раньше; снимок тот же)",
-                "«Static»: the length of one GPU submission, ms (the viewfinder draws between them; 0 - a strip in one submission, as before; the same photo)")));
         k.add(n(merge, "hybrid_fast_mosaic_chroma", "1", Lang.t("Quad / Tetra «Быстрый»: цветовая медиана после склейки против цветной сетки (1 вкл., 0 как раньше)",
                 "Quad / Tetra «Fast»: chroma median after the merge against the colour lattice (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_site_gain", "1", Lang.t("Quad «Быстрый»: поправка чувствительности пикселей блока, как в «Качестве» (1 вкл., 0 только QPC)",
@@ -358,8 +350,8 @@ public final class DevKeys {
                 "Photo local contrast (WHY tone): the fused luma's small differences boosted, strong edges left alone (0 off, as before; 0..1)")));
         k.add(n(merge, "hybrid_tetra_motion_smooth", "1", Lang.t("Tetra: сглаживание шума движущихся объектов там, где склеилось мало кадров (точки и бусины за идущим человеком), края сохраняются (1 вкл., 0 как раньше; 0..1)",
                 "Tetra: smoothing of the noise of moving subjects where few frames merged (dots and beads behind a walking person), edges kept (1 on, 0 as before; 0..1)")));
-        k.add(n(merge, "hybrid_tetra3", "1", Lang.t("Tetra и «Статика»: «Быстрый» на Tetra сглаживает ступеньки вдоль краёв там, где склеился почти один кадр, и убирает шахматку у пересвеченных огней; «Качество» выравнивает кадр со слабой гомографией по ней, а не одним сдвигом; «Статика» на Quad / Tetra не принимает неподвижную сцену за движущуюся и склеивает все её кадры (1 вкл., 0 как раньше)",
-                "Tetra and «Static»: «Fast» on Tetra smooths the stair-steps along edges where nearly one frame merged and takes the checker off clipped lights; «Quality» starts a frame with a weak homography from it, not from a shift alone; «Static» on Quad / Tetra no longer takes a still scene for a moving one and merges all of its frames (1 on, 0 as before)")));
+        k.add(n(merge, "hybrid_tetra3", "1", Lang.t("Tetra: «Быстрый» на Tetra сглаживает ступеньки вдоль краёв там, где склеился почти один кадр, и убирает шахматку у пересвеченных огней; «Качество» выравнивает кадр со слабой гомографией по ней, а не одним сдвигом (1 вкл., 0 как раньше)",
+                "Tetra: «Fast» on Tetra smooths the stair-steps along edges where nearly one frame merged and takes the checker off clipped lights; «Quality» starts a frame with a weak homography from it, not from a shift alone (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_quad_detail", "1", Lang.t("Quad: детализация ремозаика - «Быстрый» не размывает мелкую текстуру и полосы как шум или решётку, конус вдоль края на движении; «Качество» - тензор структуры по зелёным пикселям (мелкие полосы, фасады), узкий конус на движении (1 вкл., 0 как раньше)",
                 "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
@@ -673,6 +665,9 @@ public final class DevKeys {
                 "«Full resolution (recipe)»: the RAW viewfinder's black is taken from the frames themselves when they sit far above the declared black (otherwise the viewfinder is pink and washed out). 0: the declared black.")));
         k.add(s(cap, "fullres_recipe", true, Lang.t("«Полное разрешение (рецепт)» в настройках объектива: 0 — рецепты не запускаются ни на одном объективе, обычная сессия",
                 "“Full resolution (recipe)” of the lens settings: 0 - no recipe runs on any lens, the normal session")));
+        // P646 «Склейка YUV» (capture/YuvMergeRoute)
+        k.add(s(cap, "yuv_merge", true, Lang.t("«Склейка YUV» в настройках объектива: 0 — ни один объектив не склеивает YUV (у камеры без RAW снимок из буфера её кривой)",
+                "“YUV merge” of the lens settings: 0 - no lens merges YUV (a camera without RAW: its ring frames at the camera's curve)")));
         k.add(s(cap, "xiaomi_row_raw_only", true, Lang.t("Xiaomi: полноразмерный режим сенсора (17 Ultra, 50 Мп) — сессия только с RAW, без ISP-потока; цветовой блок мозаики меряется от собственного уровня чёрного кадра",
                 "Xiaomi: the sensor's full-size row (17 Ultra, 50 MP) in a RAW-only session, no ISP stream; the mosaic's colour block measured over the frame's own black floor")));
         // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)
@@ -811,10 +806,10 @@ public final class DevKeys {
         k.add(s(post, "prep_warm", true, Lang.t("Прогрев подготовки снимка: при открытии камеры один раз прогоняется расчёт уровня чёрного на пробном кадре, чтобы первый снимок не ждал компиляции кода. Выкл — без прогрева, как до P625",
                 "Warm-up of the shot's preparation: when the camera opens, the black level scan runs once on a test frame, so the first shot does not wait for its code to compile. Off: no warm-up, as before P625")));
         // P636: «Oldstyle»'s tone in bands of rows on several threads; its frame read from the GPU in 16-bit samples
-        k.add(n(post, "oldstyle_threads", null, Lang.t("«Oldstyle»: потоков тона (1 — один поток, как до P636; пусто — ядра минус одно, до 8). Те же байты",
-                "Oldstyle: threads of the tone (1: one thread, as before P636; empty: the cores less one, up to 8). The same bytes")));
-        k.add(s(post, "oldstyle_read16", true, Lang.t("«Oldstyle»: кадр для тона читается с GPU 16-битными отсчётами, где драйвер это предлагает (вдвое меньше байт). Выкл — 32-битными, как раньше",
-                "Oldstyle: the tone's frame is read from the GPU in 16-bit samples where the driver offers it (half the bytes). Off: 32-bit, as before")));
+        k.add(n(post, "oldstyle_threads", null, Lang.t("«ScamMaster»: потоков тона (1 — один поток, как до P636; пусто — ядра минус одно, до 8). Те же байты",
+                "ScamMaster: threads of the tone (1: one thread, as before P636; empty: the cores less one, up to 8). The same bytes")));
+        k.add(s(post, "oldstyle_read16", true, Lang.t("«ScamMaster»: кадр для тона читается с GPU 16-битными отсчётами, где драйвер это предлагает (вдвое меньше байт). Выкл — 32-битными, как раньше",
+                "ScamMaster: the tone's frame is read from the GPU in 16-bit samples where the driver offers it (half the bytes). Off: 32-bit, as before")));
         k.add(s(post, "exif_beside_encode", true, Lang.t("JPEG через картинку (водяной знак, штамп, кроп): блок EXIF с миниатюрой готовится рядом с кодированием, а не до него (тот же файл). Выкл — до кодирования, как раньше",
                 "A JPEG saved through the bitmap (watermark, stamp, crop): the EXIF block with its thumbnail is made beside the encode, not before it (the same file). Off: before the encode, as before")));
         // P235: the shot arena of a FULLRES burst made at the press (RingArenaMove)

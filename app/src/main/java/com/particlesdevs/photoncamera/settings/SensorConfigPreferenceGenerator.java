@@ -261,6 +261,7 @@ public class SensorConfigPreferenceGenerator {
         addSensorModePick(context, category, physicalId);
         addDualGain(context, category, physicalId); // P641
         addFullResRecipe(context, category, physicalId, refresh); // P635
+        YuvMergeRows.add(context, category, physicalId, com.particlesdevs.photoncamera.capture.YuvMergeRoute.cameraOf(physicalId)); // P646
 
         // P266 «Проверить частоты кадров»: asked here, run by the next session of this module (FpsProbe)
         androidx.preference.Preference probe = new androidx.preference.Preference(context);
@@ -495,6 +496,7 @@ public class SensorConfigPreferenceGenerator {
                     || ("pref_sensorconfig_" + physicalId + "_fpsprobe").equals(p.getKey())
                     || com.particlesdevs.photoncamera.capture.SensorModePick.prefKey(physicalId).equals(p.getKey())
                     || dualGainKey(physicalId).equals(p.getKey()) // P641: built again with the section
+                    || com.particlesdevs.photoncamera.capture.YuvMergeRoute.key(physicalId).equals(p.getKey()) // P646
                     || FullResRecipeRows.ours(p.getKey(), physicalId)) { // P635: built again with the section
                 toRemove.add(p);
             }

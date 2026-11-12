@@ -57,6 +57,8 @@ public class ScamProcessor extends ProcessorBase {
     private boolean scamCapture;
     /** This shot is merged by the SCAM Hybrid (its own settings profile), not by SCAM HDR (SCAM). */
     private boolean hybridShot;
+    /** P646 «Склейка YUV»: the shot's frames are YUV / P010 (processing/yuv/YuvBurst merges them; the RAW steps are skipped). */
+    private boolean yuvShot;
     /** P27: the merge route the queued shot was captured for (null: the current setting). */
     public Boolean ownedHybridRoute;
     /** W1.3: the post pipeline whose GL teardown waits until the JPEG is saved (null: none pending). */
@@ -174,6 +176,7 @@ public class ScamProcessor extends ProcessorBase {
         // the SCAM HDR keys otherwise (PreferenceKeys.isHybridShot), even if the route changes meanwhile.
         this.hybridShot = scamCapture && (ownedHybridRoute != null ? ownedHybridRoute : PreferenceKeys.isScamHybridEnabled());
         ownedHybridRoute = null;
+        this.yuvShot = com.particlesdevs.photoncamera.processing.yuv.YuvFrames.isYuv(imageFormat);
         android.util.Log.i("SCAM_HDR", "route=" + PreferenceKeys.mergeRoute() + (hybridShot ? " (SCAM Hybrid merges)" : scamCapture ? " (SCAM HDR merges)" : " (no SCAM route)"));
         this.fullpairs = ownedPairs != null ? ownedPairs : IsoExpoSelector.fullpairs;
         Log.d(TAG, "start()");
@@ -194,7 +197,7 @@ public class ScamProcessor extends ProcessorBase {
         try {
             processingStage = "camera metadata";
             Camera2ApiAutoFix.ApplyRes(captureResult, characteristics); // P370 (review): the shot's black-level pattern
-            if (CaptureController.isRawFormat(imageFormat)) {
+            if (CaptureController.isRawFormat(imageFormat) || yuvShot) { // P646: a YUV shot takes the same steps, its merge YuvBurst
                 processBurst();
             } else {
                 Log.d(TAG, "Processing skipped: unsupported image format " + imageFormat);
@@ -450,7 +453,7 @@ public class ScamProcessor extends ProcessorBase {
         if (mImageFramesToProcess.isEmpty()) throw new IllegalStateException("no RAW frame with data received");
         // P162 «Обрезка кадра»: the RAW's zero padding (vivo X200 Pro / Pro Mini: 4000x3000 of image in 4096x3072) and the
         // manual margins are cut off every frame before anything reads them
-        final RawCrop.Shot rawCrop = cropFrames();
+        final RawCrop.Shot rawCrop = yuvShot ? null : cropFrames(); // P646: a YUV frame has no RAW padding
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("crop_done"); // P625: HYBRID JAVA PREP's crop=
         // P27 any resolution: the Hybrid merges any RAW stream at its own resolution. Only a stream beyond the hard limits (the
         // sensor-grid RGB float result above 2 GB, i.e. above ~178 MP, or a side above the GPU's texture / render-target limit) is
@@ -458,7 +461,7 @@ public class ScamProcessor extends ProcessorBase {
         final int gpuMaxSide = GLLimits.get().maxSide();
         final boolean halfCapable = PreferenceKeys.isScamHybridEnabled();
         int rawBinning = 1;
-        if (!RawBin.fits(mImageFramesToProcess.get(0).width, mImageFramesToProcess.get(0).height, gpuMaxSide, halfCapable)) {
+        if (!yuvShot && !RawBin.fits(mImageFramesToProcess.get(0).width, mImageFramesToProcess.get(0).height, gpuMaxSide, halfCapable)) {
             // P127: the stream's levels at its bit depth (RawLevels) for the mosaic check of the binning
             final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
                     com.particlesdevs.photoncamera.processing.RawLevels.current(characteristics, captureResult);
@@ -619,7 +622,8 @@ public class ScamProcessor extends ProcessorBase {
         final int sharpnessBlock = 1; // P129: SHDR measures the sharpness on the frames as streamed (SCAM HDR's mosaic modes are gone)
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("sharp_start");
         final ArrayList<ImageFrame> measured = images;
-        com.particlesdevs.photoncamera.util.ParallelWork.forEach(measured.size(), k -> measured.get(k).computeSharpness(sharpnessBlock));
+        // P646: a YUV burst's sharpness is the merge's own (its sharpest base); the RAW measure would read the packed planes as RAW16
+        if (!yuvShot) com.particlesdevs.photoncamera.util.ParallelWork.forEach(measured.size(), k -> measured.get(k).computeSharpness(sharpnessBlock));
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("sharp_done");
         // W1.0: one line for the burst instead of two per frame (OPPO's log flow control dropped the shot's rows).
         StringBuilder frameLog = new StringBuilder("frames ").append(images.size()).append(" (index=mpy/iso/sharpness/shakiness, L long, S short):");
@@ -637,7 +641,7 @@ public class ScamProcessor extends ProcessorBase {
         // ~70 log lines), the normal frames' exposure time set after it and the EXIF sync made here were all replaced by that pass
         // (FillDynamicParameters, ParseExif.syncWithParameters) before anything read them (FillFrameLevelsTest).
         processingParameters.FillFrameLevels(captureResult);
-        refineBlackFromDarkestFrame(processingParameters, images);
+        if (!yuvShot) refineBlackFromDarkestFrame(processingParameters, images);
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("levels_done"); // P625: levels=
         processingParameters.cameraRotation = cameraRotation;
         processingStage = "frame selection";
@@ -672,10 +676,10 @@ public class ScamProcessor extends ProcessorBase {
                 processingParameters.FillDynamicParameters(referenceMetadata, captureRequest,
                         scamReference.measuredIso);
                 com.particlesdevs.photoncamera.processing.ShotTimeline.mark("dyn_done"); // P625: dyn=
-                refineBlackFromDarkestFrame(processingParameters, images);
+                if (!yuvShot) refineBlackFromDarkestFrame(processingParameters, images);
                 if (dcgShot) dcgLinearity(processingParameters, images, scamReference);
                 com.particlesdevs.photoncamera.processing.ShotTimeline.mark("dcg_done"); // P625: dcg=
-                applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, characteristics, iszAspect4x3);
+                if (!yuvShot) applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, characteristics, iszAspect4x3);
                 com.particlesdevs.photoncamera.processing.ShotTimeline.mark("neutral_done"); // P625: neutral=
                 if (dcgShot) addOverflowFrames(processingParameters, images, dcgLinear); // P641d: DCG + LOFIC pairs
                 fieldOfView(processingParameters, iszAspect4x3, zoomResidual);
@@ -692,10 +696,10 @@ public class ScamProcessor extends ProcessorBase {
                     // P220: the merge worker's heartbeat moves the ring (MergeProgress, from ScamNeuralClient's reader thread)
                     com.particlesdevs.photoncamera.processing.MergeProgress.listener =
                             share -> progress(com.particlesdevs.photoncamera.processing.ProcessingProgress.merge(share));
-                    com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.beginShot(hybridShot); // P277: «Сохранять снимки для лаборатории»
+                    com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.beginShot(hybridShot && !yuvShot); // P277: «Сохранять снимки для лаборатории»
                     // P576: a crop shot's frames cut to the crop's window (the levels and the colour above stay the whole frame's),
                     // merged on the Sabre grid its photo needs
-                    if (hybridShot) {
+                    if (hybridShot && !yuvShot) {
                         processingStage = "Sabre crop window";
                         sabrePlan = SabreCrop.cut(images, processingParameters, zoomResidual,
                                 !(saveRAW == 2 && alignAlgorithm != 2), gpuMaxSide);
@@ -707,6 +711,12 @@ public class ScamProcessor extends ProcessorBase {
                         processingStage = "Hybrid merge";
                     }
                     try {
+                        // P646 «Склейка YUV»: the lens's YUV frames merged by our YUV merge (linear RGB, the camera's colour)
+                        if (yuvShot) {
+                            processingStage = "YUV merge";
+                            scamOwnedOutput = com.particlesdevs.photoncamera.processing.yuv.YuvBurst.process(images, processingParameters,
+                                    characteristics, referenceMetadata);
+                        } else
                         scamOwnedOutput = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.process(
                                 ScameraApp.getAppContext(), images, processingParameters, saveRAW >= 1 && alignAlgorithm != 2);
                     } finally {
@@ -728,8 +738,8 @@ public class ScamProcessor extends ProcessorBase {
                             }
                         }
                     }
-                    mergedDngBlock = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic;
-                    referenceDngBlock = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastStreamBlock;
+                    mergedDngBlock = yuvShot ? 1 : com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic;
+                    referenceDngBlock = yuvShot ? 1 : com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastStreamBlock;
                     mosaicDngOnly = mergedDngBlock > 1;
                     // P190: a FULLRES series the merge cut (the worker, a fallback tier, the memory budget) is said aloud
                     final String notice = com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.takeSeriesNotice();
@@ -764,12 +774,14 @@ public class ScamProcessor extends ProcessorBase {
         referenceRaw = output;
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("ref_copy"); // P236
         releaseFrames(images);
-        ByteBuffer scamMergedDng=com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng;
+        ByteBuffer scamMergedDng=yuvShot?null:com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng;
         com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng=null;
         Log.d(TAG, "Alignment elapsed:" + (System.currentTimeMillis() - startTime) + " ms");
         // P620: the DNG that gets the developed photo as its preview once the photo is saved (null: none)
         Path dngPreviewTarget = null;
-        if (mosaicDngOnly || ((saveRAW >= 1) && alignAlgorithm != 2)) {
+        // P646: a YUV shot has no RAW for a DNG («RAW only» saves its photo)
+        if (yuvShot && saveRAW >= 1) Log.i(TAG, "DNG: none for a YUV shot (no RAW frame), the photo only");
+        if (!yuvShot && (mosaicDngOnly || ((saveRAW >= 1) && alignAlgorithm != 2))) {
             boolean imageSaved = false;
             // P243: the DNG carries the JPEG's white balance and colour matrix (DngColour); scam_dev dng_colour_jpeg 0: the camera's
             // dual-illuminant profile as before. P370 (review): a camera whose own ColorMatrix a DNG cannot carry (all zero without
@@ -924,7 +936,7 @@ public class ScamProcessor extends ProcessorBase {
         // size). Like mosaic SR, the pipeline size follows the RGB; the LSC map is sampled in normalised coordinates.
         // Only a hybrid shot has the hybrid's output size: the static keeps the last hybrid shot's size, which a SCAM HDR
         // shot (sensor size) must not take (it rendered the SCAM HDR RGB at the 2x size, black).
-        final Point hybridOut = hybridShot ? com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastOutputSize : null;
+        final Point hybridOut = hybridShot && !yuvShot ? com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastOutputSize : null;
         processingParameters.hybridFinalSize = null;
         // P503 «Уменьшить до» (any Sabre scale, 1X too): resized on the GPU at the end of the pipeline (HybridFinalResize); the CPU
         // resize below only remains as a fallback when the pipeline did not apply it.
@@ -954,11 +966,11 @@ public class ScamProcessor extends ProcessorBase {
         final SabreCrop.Plan window = sabrePlan;
         processingParameters.filmFrameScale = com.particlesdevs.photoncamera.processing.opengl.postpipeline.FilmHalation.filmFrameScale(
                 window != null ? window.remaining() : zoomCrop, iszAspect4x3, processingParameters.rawSize);
-        if (hybridShot) com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.snapshot(processingParameters, String.valueOf(processingParameters.physicalID)); // P277
+        if (hybridShot && !yuvShot) com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.snapshot(processingParameters, String.valueOf(processingParameters.physicalID)); // P277
         PostPipeline pipeline = new PostPipeline();
         openPipeline = pipeline;
         // P277: a lab shot's pipeline records the whole frame's statistics (the lab's fragments use them)
-        if (hybridShot && com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.recording()) pipeline.record = new com.particlesdevs.photoncamera.processing.opengl.postpipeline.LabFrame();
+        if (hybridShot && !yuvShot && com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamLab.recording()) pipeline.record = new com.particlesdevs.photoncamera.processing.opengl.postpipeline.LabFrame();
         // «HEIC 10 бит»: the final image comes out RGBA_1010102 for the HEVC Main10 HEIC; every 8-bit file of the shot gets an
         // 8-bit copy at its encode (PhotoOutput). The same for a 10 / 12-bit or lossless AVIF, which takes the 10 bits as they
         // are. Off: the pipeline output is the ARGB_8888 bitmap as before.

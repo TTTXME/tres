@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
  * sub-category with a range (SettingsNumericRules = the slider's), a default inside it and RU / EN title and help; untouched (and
  * put back to the XML default) the numbers are exactly the behaviour before the rows; each row reaches one number of
  * OldstyleAe.Params and no other; a value past an end is the end; and with any row at either end of its range - one at a time, all
- * together, and mixed at random - the metering, the plan of the capture and of the merge and the viewfinder's live tone stay
+ * together, and mixed at random - the metering, the tone's plan of the frame and the viewfinder's curve stay
  * finite and inside their limits on scenes from black to burnt out (the module's own ends: tools/check_tone_port.py, section 7).
  */
 public class OldstyleSettingsTest {
@@ -180,7 +180,8 @@ public class OldstyleSettingsTest {
             assertTrue(lang.contains("<string name=\"prefs_oldstyle_tone_reset_title\">"));
             assertTrue(lang.contains("<string name=\"prefs_oldstyle_tone_reset_summary\">"));
         }
-        assertTrue(ru.contains("<string name=\"prefs_oldstyle_tone_reset_title\">Сбросить Oldstyle</string>"));
+        // P643c (owner: «Так же переименуй Oldstyle в ScamMaster»): the visible name, the key as it was
+        assertTrue(ru.contains("<string name=\"prefs_oldstyle_tone_reset_title\">Сбросить ScamMaster</string>"));
         // a row of one version carries the version in its key (SettingsAvailability greys by it)
         for (String key : OldstyleMode.V1_ROWS) assertTrue(key, SettingsAvailability.oldstyleV1Only(key));
         for (String key : OldstyleMode.V2_ROWS) assertTrue(key, SettingsAvailability.oldstyleV2Only(key));
@@ -211,6 +212,9 @@ public class OldstyleSettingsTest {
             assertEquals(mode, mode.equals("off"), a.reason(o + "v1_hdr_cap") != null);
             assertEquals(mode, mode.equals("off"), b.reason(o + "v2_hdr_max") != null);
             assertEquals(mode, mode.equals("off"), a.reason(o + "fusion_base") != null);
+            // P643d: without HDR the photo is the AE's frame - the meter's rows decide nothing then
+            for (String k : new String[]{"highlight_target", "highlight_percentile", "shadow_ev", "center"})
+                assertEquals(mode + " " + k, mode.equals("off"), a.reason(o + k) != null);
             assertEquals(null, a.reason(o + "ev"));
             assertEquals(null, a.reason(o + "max_gain"));
             assertEquals(null, a.reason(o + "hdr"));
@@ -228,6 +232,49 @@ public class OldstyleSettingsTest {
         assertEquals(null, noTone.reason(o + "curve_mid"));
     }
 
+    /**
+     * P643c (owner, 2026-11-12: «Так же переименуй Oldstyle в ScamMaster»): a user reads «ScamMaster» wherever the mode is named -
+     * every title, hint and list entry of the resources in both languages, the greyed rows' reasons, the developer keys'
+     * descriptions, the one name the camera screen's texts are made of. What a user does not see keeps "oldstyle": the preference
+     * keys and their values (stored settings), the scam_dev keys, the resource names.
+     */
+    @Test public void theModeIsCalledScamMasterWhereAUserReadsIt() throws IOException {
+        assertEquals("ScamMaster", OldstyleMode.NAME);
+        final Pattern text = Pattern.compile("<(?:string|item)[^>]*>([^<]*)</(?:string|item)>");
+        for (String file : new String[]{"values/strings_settings.xml", "values-ru/strings_settings.xml", "values/arrays.xml", "values-ru/arrays.xml",
+                "values/strings.xml", "values-ru/strings.xml"}) {
+            final String xml = read("src/main/res/" + file);
+            final Matcher m = text.matcher(xml);
+            while (m.find()) assertFalse(file + ": " + m.group(1), m.group(1).contains("Oldstyle") || m.group(1).toLowerCase(java.util.Locale.ROOT).contains("scam master"));
+        }
+        final String ru = read("src/main/res/values-ru/strings_settings.xml"), en = read("src/main/res/values/strings_settings.xml");
+        assertTrue(ru.contains("<string name=\"prefs_oldstyle_tone_screen_title\">ScamMaster Тон</string>"));
+        assertTrue(en.contains("<string name=\"prefs_oldstyle_tone_screen_title\">ScamMaster Tone</string>"));
+        assertTrue(en.contains("<string name=\"prefs_oldstyle_tone_reset_title\">Reset ScamMaster</string>"));
+        for (String arrays : new String[]{"values/arrays.xml", "values-ru/arrays.xml"}) {
+            final String xml = read("src/main/res/" + arrays);
+            assertTrue(xml.contains("<item>ScamMaster V1</item>") && xml.contains("<item>ScamMaster V2</item>"));
+        }
+        // the stored values of the version list stay v1 / v2, the keys stay pref_scam_hybrid_oldstyle_*
+        assertTrue(read("src/main/res/values/arrays.xml").contains("<string-array name=\"scam_hybrid_oldstyle_version_values\" translatable=\"false\">"));
+        assertEquals("pref_scam_hybrid_oldstyle_version", OldstyleMode.VERSION);
+        assertEquals("pref_oldstyle_mode", OldstyleMode.PREF);
+        for (Row r : rows()) assertTrue(r.key, r.key.startsWith("oldstyle_"));
+        // the greyed rows' reasons
+        final Map<String, Object> v2 = new HashMap<>();
+        v2.put(OldstyleMode.VERSION, "v2");
+        assertTrue(new SettingsAvailability(v2).reason(K + "oldstyle_v1_ccm").contains("ScamMaster V1"));
+        assertTrue(new SettingsAvailability(new HashMap<>()).reason(K + "oldstyle_v2_saturation").contains("ScamMaster V2"));
+        // the Java texts a user reads: no literal of the old name left in a Lang.t(...) or beside one
+        for (String file : new String[]{"ui/settings/SettingsActivity.java", "ui/camera/OldstyleControls.java", "ui/camera/CameraUIController.java",
+                "ui/camera/views/BottomChrome.java", "settings/SettingsAvailability.java", "settings/DevKeys.java"}) {
+            // (literal by literal, in order: the code between two literals is not one)
+            final Matcher m = Pattern.compile("\"(?:[^\"\\\\\\n]|\\\\.)*\"").matcher(read("src/main/java/com/particlesdevs/photoncamera/" + file)
+                    .replaceAll("(?m)^\\s*(//|\\*|/\\*).*$", "").replaceAll("Log\\.[a-z]\\([^;]*;", ""));
+            while (m.find()) assertFalse(file + ": " + m.group(), m.group().contains("Oldstyle"));
+        }
+    }
+
     @Test public void untouchedAndAtTheirDefaultsTheRowsAreTheBehaviourBefore() throws Exception {
         for (boolean v2 : new boolean[]{false, true}) {
             final OldstyleAe.Params plain = new OldstyleAe.Params();
@@ -243,7 +290,6 @@ public class OldstyleSettingsTest {
             assertEquals(OldstyleAe.V1_HDR_MAX, stored.v1HdrMax, 0f);
             assertEquals(OldstyleAe.HIGH_PERCENTILE, stored.highPercentile, 0f);
             assertEquals(0.6f, stored.memoryShare, 0f);
-            assertEquals(16_666_667L, com.particlesdevs.photoncamera.capture.HybridPlan.oldstyleFloorNs(stored.shutterFloorMs));
         }
         // the numbers before the rows, by name (a default changed in OldstyleAe.Params would change the photo of every user)
         final OldstyleAe.Params p = new OldstyleAe.Params();
@@ -263,8 +309,7 @@ public class OldstyleSettingsTest {
                 p.lfStrength}, 0f);
         assertTrue(p.lfChroma && p.vfTone && p.dehaze && p.lowFrequency);
         assertEquals(0, p.burstFrames);
-        assertArrayEquals(new float[]{0.7f, 1000f / 60f, 0f, 1f, 0.5f, 0.6f}, new float[]{p.burstSeconds, p.shutterFloorMs, p.vfEv, p.vfMatch,
-                p.vfSmooth, p.memoryShare}, 0f);
+        assertArrayEquals(new float[]{0f, 1f, 0.5f, 0.6f}, new float[]{p.vfEv, p.vfMatch, p.vfSmooth, p.memoryShare}, 0f);
     }
 
     @Test public void eachRowReachesOneNumberAndNoOther() throws Exception {
@@ -353,54 +398,51 @@ public class OldstyleSettingsTest {
                 for (int n = 0; n < 7; n++) {
                     final String tag = what + " V" + (v2 ? 2 : 1) + " hdr " + q.hdrMode + " scene " + n;
                     final float[] rgb = scene(n);
-                    for (boolean capture : new boolean[]{true, false}) {
-                        final OldstyleAe.Meter m = OldstyleAe.meter(rgb, 32, 24, q, 1f, capture);
-                        finite(tag + " S*", m.shortRel);
-                        finite(tag + " L*", m.longRel);
-                        assertTrue(tag + " S* " + m.shortRel + " L* " + m.longRel, m.shortRel > 0f && m.longRel > 0f);
-                        assertTrue(tag + " F " + m.fractionLong, m.fractionLong >= 0f && m.fractionLong <= 1f);
-                    }
-                    final OldstyleAe.Meter m = OldstyleAe.meter(rgb, 32, 24, q, 1f, true);
-                    final OldstyleAe.Capture c = OldstyleAe.capture(m, q, 1.0, 0.33f);
-                    assertTrue(tag + " capture " + c, c.shortTet > 0 && c.longTet > 0 && c.frameTet > 0 && Double.isFinite(c.frameTet)
-                            && Double.isFinite(c.shortTet) && Double.isFinite(c.longTet));
-                    if (q.hdrMode == OldstyleAe.HDR_OFF) assertFalse(tag, c.hdr);
-                    if (q.hdrMode == OldstyleAe.HDR_ON) assertEquals(tag, m.longRel > m.shortRel, c.hdr);
-                    // the merge of a burst exposed at the plan (and of one the sensor could not give: a quarter of it)
-                    for (double given : new double[]{1.0, 0.25}) {
-                        final double tet = c.frameTet * given;
-                        final float[] merged = new float[rgb.length];
-                        for (int i = 0; i < rgb.length; i++) merged[i] = (float) Math.min(1.0, rgb[i] * tet);
-                        for (OldstyleAe.Capture from : new OldstyleAe.Capture[]{c, null}) {
-                            final OldstyleAe.Plan plan = OldstyleAe.plan(merged, 32, 24, q, 1f, from, tet);
-                            finite(tag + " gS", plan.gainShort);
-                            finite(tag + " gL", plan.gainLong);
-                            assertTrue(tag + " gains " + plan.gainShort + " / " + plan.gainLong + " within (0, M]", plan.gainShort > 0f
-                                    && plan.gainLong > 0f && plan.gainShort <= q.maxGain * 1.0011f && plan.gainLong <= q.maxGain * 1.0011f);
-                            if (plan.hdr) assertTrue(tag + " short over long", plan.gainShort <= plan.gainLong * 1.0001f);
-                            else assertEquals(tag, plan.gainShort, plan.gainLong, 0f);
-                            if (q.hdrMode == OldstyleAe.HDR_OFF) assertFalse(tag, plan.hdr);
-                            assertTrue(tag + " input scale", plan.inputScale > 0f && plan.inputScale <= 1f);
-                            // the module's own limits of what the tone hands it (check_tone_port.py runs it at these)
-                            // (L / S at most 16 by the rows, the base at least 0.95: 16 / 0.95 ^ 16 = 36.4)
-                            assertTrue(tag + " ratio " + plan.gainLong / plan.gainShort, plan.gainLong / plan.gainShort < 37f);
-                        }
+                    final OldstyleAe.Meter m = OldstyleAe.meter(rgb, 32, 24, q, 1f);
+                    finite(tag + " S*", m.shortRel);
+                    finite(tag + " L*", m.longRel);
+                    assertTrue(tag + " S* " + m.shortRel + " L* " + m.longRel, m.shortRel > 0f && m.longRel > 0f);
+                    assertTrue(tag + " F " + m.fractionLong, m.fractionLong >= 0f && m.fractionLong <= 1f);
+                    // the tone's plan of the frame as the camera gave it, and of one a stop and two darker (P643: the exposure is
+                    // the photo mode's, the plan only decides the gains)
+                    for (float given : new float[]{1f, 0.5f, 0.25f}) {
+                        final float[] frame = new float[rgb.length];
+                        for (int i = 0; i < rgb.length; i++) frame[i] = Math.min(1f, rgb[i] * given);
+                        final OldstyleAe.Plan plan = OldstyleAe.plan(frame, 32, 24, q, 1f);
+                        finite(tag + " gS", plan.gainShort);
+                        finite(tag + " gL", plan.gainLong);
+                        assertTrue(tag + " gains " + plan.gainShort + " / " + plan.gainLong + " within (0, M]", plan.gainShort > 0f
+                                && plan.gainLong > 0f && plan.gainShort <= q.maxGain * 1.0011f && plan.gainLong <= q.maxGain * 1.0011f);
+                        if (plan.hdr) assertTrue(tag + " short over long", plan.gainShort <= plan.gainLong * 1.0001f);
+                        else assertEquals(tag, plan.gainShort, plan.gainLong, 0f);
+                        if (q.hdrMode == OldstyleAe.HDR_OFF) assertFalse(tag, plan.hdr);
+                        if (q.hdrMode == OldstyleAe.HDR_ON) assertEquals(tag, plan.longCandidate > plan.shortCandidate, plan.hdr);
+                        assertTrue(tag + " input scale", plan.inputScale > 0f && plan.inputScale <= 1f);
+                        // the module's own limits of what the tone hands it (check_tone_port.py runs it at these): L / S at most
+                        // 16 by the rows, the base at least 0.95 - 16 / 0.95 ^ 16 = 36.4
+                        assertTrue(tag + " ratio " + plan.gainLong / plan.gainShort, plan.gainLong / plan.gainShort < 37f);
                     }
                     for (float v : q.post()) finite(tag + " post", v);
-                    // the viewfinder: a plan, a level, the gains to draw with
+                    // the viewfinder's grid for a screen frame of this scene and a picture of it (its display values, darker: a
+                    // tone of its own), with the rows of «Видоискатель» at this setting
+                    final float[] screen = new float[rgb.length], picture = new float[rgb.length];
+                    for (int i = 0; i < rgb.length; i++) {
+                        screen[i] = (float) Math.pow(Math.min(1f, rgb[i] * 2f), 1 / 2.2);
+                        picture[i] = screen[i] * 0.8f;
+                    }
                     final OldstyleLive live = new OldstyleLive();
-                    c.meterRgb = rgb;
-                    c.meterW = 32;
-                    c.meterH = 24;
-                    live.plan(1_000_000_000L, v2 ? 2 : 1, c, q, 0.4f, null);
-                    live.level(1_000_000_000L, 0.2f);
-                    live.plan(1_300_000_000L, v2 ? 2 : 1, c, q, 0.4f, null);
-                    final float[] g = live.gains(1_400_000_000L);
-                    if (!q.vfTone || !(c.meterMean > 0f)) continue;
-                    assertNotNull(tag + " viewfinder gains", g);
-                    for (int i = 1; i <= 2; i++)
-                        assertTrue(tag + " screen gain " + g[i], g[i] >= OldstyleLive.MIN_GAIN && g[i] <= OldstyleLive.MAX_GAIN);
-                    assertTrue(tag + " white boost " + g[4], g[4] >= 1f && g[4] <= OldstyleLive.WHITE_BOOST_MAX);
+                    live.photo(1_000_000_000L, new OldstyleLive.Picture(picture, true), 32, 24, q);
+                    live.screen(1_000_000_000L, screen, 32, 24);
+                    live.photo(1_050_000_000L, new OldstyleLive.Picture(picture, true), 32, 24, q);
+                    final OldstyleLive.Grid g = live.grid(1_100_000_000L);
+                    if (!q.vfTone || n == 0 || n == 4) {
+                        // off, or a flat scene (black, burnt out) - no orientation to find: nothing drawn
+                        if (!q.vfTone) assertEquals(tag, null, g);
+                        continue;
+                    }
+                    if (g == null) continue;   // a scene the two frames' correlation cannot place (no structure): the frame as it is
+                    for (float v : g.coefficients) assertTrue(tag + " grid " + v, Float.isFinite(v));
+                    assertTrue(tag + " level " + g.level, g.level > 0f && Float.isFinite(g.level));
                 }
             }
         }
@@ -410,7 +452,7 @@ public class OldstyleSettingsTest {
         exercise("defaults", new Values());
         final List<Row> rows = new ArrayList<>();
         for (Row r : rows()) if (r.min != null) rows.add(r);
-        assertTrue(rows.size() >= 30);
+        assertTrue(rows.size() >= 28);
         for (Row r : rows) {
             exercise(r.key + " at its least", new Values().with(r.key, r.min));
             exercise(r.key + " at its most", new Values().with(r.key, r.max));

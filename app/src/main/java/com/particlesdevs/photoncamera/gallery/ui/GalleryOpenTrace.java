@@ -45,8 +45,14 @@ public final class GalleryOpenTrace {
         savedAt = 0;
         thumbs = fromMemory = fromDisk = 0;
         com.particlesdevs.photoncamera.gallery.glide.ThumbTrace.reset(); // P620: the decodes' formats and sources from this open
-        Log.i(TAG, "open: " + route + (GalleryOpenTrace.tapAt > 0 ? " (tap -> gallery " + (openedAt - GalleryOpenTrace.tapAt) + " ms)" : ""));
-        MainWatch.start(openedAt);
+        Log.i(TAG, "open: " + route + (GalleryOpenTrace.tapAt > 0 ? " (tap -> gallery " + (openedAt - GalleryOpenTrace.tapAt) + " ms)" : "")
+                + (activityAt > 0 && openedAt - activityAt < COLD_MS ? ", gallery onCreate +" + (openedAt - activityAt) + " ms" : ""));
+        try {
+            coldStart(); // P645
+        } catch (RuntimeException | LinkageError ignored) {
+        }
+        // P645: watched since the activity's onCreate began (activityStarting); a later open of the same activity from here
+        if (activityAt <= 0 || openedAt - activityAt > MainWatch.WATCH_MS) MainWatch.start(openedAt);
     }
 
     /** P637: «+T ms» after the gallery's start and, opened by the camera's thumbnail, after the tap. */
@@ -132,6 +138,80 @@ public final class GalleryOpenTrace {
         listed = true;
         Log.i(TAG, "media listed +" + since() + " ms: " + items + " items, read " + readMs + " ms off the main thread"
                 + (queuedMs >= 0 ? " (queued " + queuedMs + " ms, read, posted " + postedMs + " ms late)" : ""));
+    }
+
+    /** P645: the other RAWs changed by their check joined the lists ({@code rows}: how many there are; {@code ms}: since asked). */
+    public static void rawJoined(int rows, long ms) {
+        if (openedAt == 0) return;
+        Log.i(TAG, "other RAW joined +" + since() + " ms: " + rows + " RAW files, " + ms + " ms after the list asked for the check");
+    }
+
+    // ---------------------------------------------------------------- P645: the process's own start
+
+    /** The process's first gallery open was logged (once per process). */
+    private static boolean coldLogged;
+    /** The gallery activity's onCreate began (uptime ms; 0: not seen). */
+    private static long activityAt;
+
+    /**
+     * P645 (owner, 2026-11-12: «долго открывается даже если открывать её с рабочего стола»): the gallery activity's onCreate
+     * begins ({@code at}: uptime ms, before its theme, its window, its layout): the main thread is watched from here, the open's first frame is logged,
+     * and the first open of a process logs where the process's start went.
+     */
+    public static void activityStarting(android.app.Activity activity, long at) {
+        activityAt = at;
+        MainWatch.start(activityAt);
+        try {
+            final android.view.View decor = activity.getWindow().getDecorView();
+            decor.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override
+                public boolean onPreDraw() {
+                    if (decor.getViewTreeObserver().isAlive()) decor.getViewTreeObserver().removeOnPreDrawListener(this);
+                    firstFrame();
+                    return true;
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // no window: no first-frame line
+        }
+    }
+
+    /** P645: the gallery window's first frame (whatever it shows: the grid's empty frame, the viewer's placeholder). */
+    static void firstFrame() {
+        long now = SystemClock.uptimeMillis();
+        long process = processStart();
+        Log.i(TAG, "window first frame " + (openedAt > 0 && openedAt >= activityAt ? at() + ", " : "") + "activity onCreate +" + (activityAt > 0 ? now - activityAt : -1)
+                + " ms" + (process > 0 && now - process < COLD_MS ? ", process start +" + (now - process) + " ms" : ""));
+    }
+
+    /** A process started longer ago than this is no cold start of the gallery (the camera's process, an earlier open). */
+    static final long COLD_MS = 30_000;
+
+    /** The process's start (uptime ms), 0 when unknown. */
+    static long processStart() {
+        try {
+            return android.os.Process.getStartUptimeMillis();
+        } catch (RuntimeException | LinkageError e) {
+            return 0;
+        }
+    }
+
+    /** P645: once per process, at its first open: process start -> app onCreate -> its end -> the gallery's onCreate -> the open. */
+    private static void coldStart() {
+        if (coldLogged) return;
+        coldLogged = true;
+        long process = processStart();
+        com.particlesdevs.photoncamera.app.ScameraApp.StartTimes app = com.particlesdevs.photoncamera.app.ScameraApp.startTimes();
+        Log.i(TAG, coldLine(process, app.createStart, app.createEnd, activityAt, openedAt, app.steps));
+    }
+
+    static String coldLine(long process, long appStart, long appEnd, long activity, long open, String steps) {
+        if (appStart <= 0 || appEnd < appStart) return "process: the app's start not timed";
+        if (process <= 0 || activity <= 0 || activity - process > COLD_MS)
+            return "process: warm (started " + (process > 0 && activity > 0 ? (activity - process) / 1000 + " s" : "?") + " before this gallery)";
+        return "process: cold start -> app onCreate +" + (appStart - process) + " ms, app onCreate " + (appEnd - appStart) + " ms ("
+                + steps + "), app ready -> gallery onCreate +" + (activity - appEnd) + " ms, gallery onCreate -> open +" + (open - activity)
+                + " ms, process start -> open " + (open - process) + " ms";
     }
 
     /** The grid drew its first frame with {@code items} photos. */

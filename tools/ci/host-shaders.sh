@@ -9,10 +9,6 @@ python3 tools/check_scam_capture_sequence.py
 python3 tools/check_shader_fp16.py
 # P612: no GLSL loop index over a parameter of its function (Mali-G925 leaks it: «int * float», the blend refused)
 python3 tools/check_glsl_loop_shadow.py
-# P624: the static merge's shaders compile as GLSL ES 3.10 and as Vulkan GLSL (the NDK's glslc), and the committed SPIR-V
-# (scam-static-spirv.h) is of the current sources
-g++ -std=c++17 -O1 -Iapp/src/main/cpp tools/static/gen_static_spirv.cpp -o /tmp/gen-static-spirv
-/tmp/gen-static-spirv "$(ls "$ANDROID_HOME"/ndk/*/shader-tools/*/glslc | head -1)" app/src/main/cpp/scam-static-spirv.h --check
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py

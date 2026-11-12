@@ -34,6 +34,8 @@ public final class SettingsAvailability {
     private boolean bentoBlend = true;
     /** P320: the camera running now takes DCG frames (its shots take no shadow frames: HybridPlan). */
     private boolean dcg;
+    /** P646: the current module's lens merges YUV frames (capture.YuvMergeRoute: its «Склейка YUV» switch in the lens settings). */
+    private boolean yuvMerge;
     private boolean rawViewfinder = true;
     public SettingsAvailability(Map<String, ?> values) { this.values = values; }
     public SettingsAvailability rawViewfinder(boolean supported) { rawViewfinder = supported; return this; }
@@ -57,6 +59,8 @@ public final class SettingsAvailability {
     /** The fact behind «Кадры светов: ширина ядра»: the highlight frames are blended after the merge (not with scam_dev bento_blend 0). */
     public SettingsAvailability bentoBlend(boolean on) { bentoBlend = on; return this; }
     public SettingsAvailability dcg(boolean on) { dcg = on; return this; }
+    /** P646: the fact behind the YUV rows of «Шумоподавление и склейка»: the current module's lens has «Склейка YUV» on. */
+    public SettingsAvailability yuvMerge(boolean on) { yuvMerge = on; return this; }
     private String text(String key, String fallback) {
         Object value = values.get(key); return value == null ? fallback : value.toString();
     }
@@ -202,8 +206,8 @@ public final class SettingsAvailability {
     /** P630: why a row of the other «Oldstyle» tone version is inactive, null when it acts with the chosen one. */
     String oldstyleVersionReason(String key) {
         if (oldstyleV2() ? oldstyleV1Only(key) : oldstyleV2Only(key))
-            return oldstyleV2() ? Lang.t("Только для Oldstyle V1: выбран V2.", "Oldstyle V1 only: V2 is chosen.")
-                    : Lang.t("Только для Oldstyle V2: выбран V1.", "Oldstyle V2 only: V1 is chosen.");
+            return oldstyleV2() ? Lang.t("Только для ScamMaster V1: выбран V2.", "ScamMaster V1 only: V2 is chosen.")
+                    : Lang.t("Только для ScamMaster V2: выбран V1.", "ScamMaster V2 only: V1 is chosen.");
         return null;
     }
 
@@ -219,8 +223,9 @@ public final class SettingsAvailability {
         final String k = key.substring(OLD.length()), hdr = text(OLD + "hdr", "auto").trim();
         if (!hdr.equals("auto") && any(k, "v1_hdr_min", "v1_hdr_max", "v2_hdr_min", "v2_hdr_forgive"))
             return Lang.t("Только при HDR «Авто»: сейчас решение HDR задано вручную.", "Only with HDR “Auto”: the HDR decision is set by hand now.");
-        if (hdr.equals("off") && any(k, "v1_hdr_cap", "v2_hdr_max", "fusion_base"))
-            return Lang.t("HDR выключен: снимок из одной экспозиции.", "HDR is off: the photo is one exposure.");
+        // P643d: without HDR the photo is the frame as the AE exposed it - the meter's rows decide nothing then either
+        if (hdr.equals("off") && any(k, "v1_hdr_cap", "v2_hdr_max", "fusion_base", "highlight_target", "highlight_percentile", "shadow_ev", "center"))
+            return Lang.t("HDR выключен: снимок — кадр как есть.", "HDR is off: the photo is the frame as it is.");
         if (k.startsWith("dehaze_") && !on(OLD + "dehaze", true))
             return Lang.t("Включите «Убирать дымку».", "Turn on “Remove haze”.");
         if (k.startsWith("v1_lowfreq_") && !on(OLD + "v1_lowfreq", true))
@@ -242,17 +247,18 @@ public final class SettingsAvailability {
     }
 
     /** P629: the merge routes of «Режим обработки» (pref_scam_hybrid_processing), as bits of {@link #routes}. */
-    static final int FAST = 1, QUALITY = 2, STATIC = 4, ALL = FAST | QUALITY | STATIC;
+    static final int FAST = 1, QUALITY = 2, ALL = FAST | QUALITY;
     private static final String HYB = "pref_scam_hybrid_";
 
     /**
      * P629 (owner, 2026-11-11: «Группу шумоподавление и склейка перемести под выбор склейки Быстро/Качество/Статика как мы сделали с
      * настройками тонмапинга»): the rows of «Шумоподавление и склейка» that only the SCAM merge reads - «Качество» (worker
-     * hybridReconstruct after its two route branches: HybridTuning cdm, filterVariance, dilate*, boost*, varianceThreshold,
+     * hybridReconstruct after its route branch: HybridTuning cdm, filterVariance, dilate*, boost*, varianceThreshold,
      * motionThreshold, chromaDiff*, dezipper, hot*, cellClip, kernelScale, snrScale, rawNoise, widenBelow, weightCap, fwe,
      * sabre61, s61*, localAlign, laGpu, mochi; the CRE source: the alignment only that merge takes). The fast route
-     * (scam-fast-merge.h) and the static route (scam-static-merge.h) read none of them. The Quad / Tetra rows are not here: the fast
-     * and static routes read the mosaic merge's tuning themselves (P627: every mode merges its own Quad / Tetra), so they act in all three.
+     * (scam-fast-merge.h) reads none of them. The Quad / Tetra rows are not here: the fast route reads the mosaic merge's tuning
+     * itself (P627: every mode merges its own Quad / Tetra), so they act in both modes; so do the kernel's texture / bokeh /
+     * transition footprints (the fast route's hybridKernelFootprint). P644: «Статика» and its rows are gone - two modes.
      */
     static final java.util.Set<String> QUALITY_ONLY = new java.util.HashSet<>(java.util.Arrays.asList(
             HYB + "cre_source", HYB + "local_align", HYB + "la_engine",
@@ -266,47 +272,80 @@ public final class SettingsAvailability {
             HYB + "mm_motion_boost", HYB + "mm_boost_value", HYB + "mm_motion_threshold",
             // the groups whose rows are all «Качество»'s
             "scam_hybrid_merge_align_category", "scam_hybrid_merge_reject_category", "scam_hybrid_merge_final_category"));
-    /** P629: the kernel's texture / bokeh / transition footprints: the fast route reads them too (hybridKernelFootprint). */
-    static final java.util.Set<String> FAST_AND_QUALITY = new java.util.HashSet<>(java.util.Arrays.asList(
-            HYB + "kernel_texture", HYB + "kernel_bokeh", HYB + "kernel_transition"));
-
     /**
-     * P629: the routes {@code key} acts on ({@link #FAST} | {@link #QUALITY} | {@link #STATIC}): «Статика»'s own rows and group
-     * (pref_scam_hybrid_static_*: PreferenceKeys.staticTuning / staticOutputMode; a row added to the group later takes its prefix),
-     * {@link #QUALITY_ONLY}, {@link #FAST_AND_QUALITY}; every other row (the denoise after the merge, the burst's frames, «Спорт»'s
-     * capture, Quad / Tetra) acts on all three.
+     * P629: the routes {@code key} acts on ({@link #FAST} | {@link #QUALITY}): {@link #QUALITY_ONLY}; every other row (the denoise
+     * after the merge, the burst's frames, «Спорт»'s capture, Quad / Tetra, the kernel's footprints) acts on both.
      */
     static int routes(String key) {
-        if (key.startsWith(HYB + "static_") || key.equals("scam_hybrid_static_category")) return STATIC;
-        if (QUALITY_ONLY.contains(key)) return QUALITY;
-        if (FAST_AND_QUALITY.contains(key)) return FAST | QUALITY;
-        return ALL;
+        return QUALITY_ONLY.contains(key) ? QUALITY : ALL;
     }
 
     /** P629: the chosen «Режим обработки» as a route bit (PreferenceKeys.processingMode: any other value is «Быстрый»). */
     private int route() {
         final String mode = text(HYB + "processing", "fast").trim();
-        return mode.equals("quality") ? QUALITY : mode.equals("static") ? STATIC : FAST;
+        return mode.equals("quality") ? QUALITY : FAST;
     }
 
     /** P629: why a row or group of «Шумоподавление и склейка» does not act with the chosen processing mode, null when it does. */
     String routeReason(String key) {
-        final int routes = routes(key), route = route();
-        if ((routes & route) != 0) return null;
-        if (routes == STATIC)
-            return Lang.t("Только для режима «Статика» (Режим обработки).", "“Static” processing mode only (Processing mode).");
-        // P627: no mode hands its shots to another mode's merge, so a «Качество» row does nothing in «Быстрый» / «Статика»
-        if (routes == QUALITY)
-            return Lang.t("Только для режима «Качество» (Режим обработки).", "“Quality” processing mode only (Processing mode).");
-        return Lang.t("Только для режимов «Быстрый» и «Качество» (Режим обработки).",
-                "“Fast” and “Quality” processing modes only (Processing mode).");
+        if ((routes(key) & route()) != 0) return null;
+        // P627: no mode hands its shots to another mode's merge, so a «Качество» row does nothing in «Быстрый»
+        return Lang.t("Только для режима «Качество» (Режим обработки).", "“Quality” processing mode only (Processing mode).");
     }
 
-    /** P614: why a whole group (a category of the page) is inactive: the tone version, P629: the processing mode. */
+    /** P646 «Склейка YUV»: the rows and the group of the YUV merge itself (pref_scam_hybrid_yuv_*). */
+    static final String YUV = HYB + "yuv_", YUV_GROUP = "scam_hybrid_yuv_category";
+
+    static boolean yuvOwn(String key) {
+        return key.startsWith(YUV) || key.equals(YUV_GROUP);
+    }
+
+    /**
+     * P646 (owner, 2026-11-12: «При включенной склейке YUV на определенном модуле в "Noise reduction and merge" все настройки которые
+     * с ним не работают должны быть серыми»): the rows and groups of «Шумоподавление и склейка» the YUV route does not read - the
+     * RAW merges' own (the worker's merge of the Fast / Quality routes: alignment, rejection, kernel, the final pass, the
+     * mosaics, «Спорт»'s capture and rejection, the RAW series' frame counts). The rows it does read stay open: the denoise after
+     * the merge (the same post pipeline; the YUV merge gives it its per-pixel frame count), the pyramid denoise, the resolve's
+     * speckle filter and the ZSL buffer (the ring of its «from the ZSL buffer» capture). YuvMergeSettingsTest walks the group.
+     */
+    static final java.util.Set<String> RAW_MERGE_ONLY = new java.util.HashSet<>(java.util.Arrays.asList(
+            HYB + "zsl_frames", HYB + "fullres50_frames", HYB + "fullres50_zsl", HYB + "fullres200_frames",
+            HYB + "kernel_texture", HYB + "kernel_bokeh", HYB + "kernel_transition",
+            "scam_hybrid_motion_screen", "scam_hybrid_merge_align_category",
+            "scam_hybrid_merge_reject_category", "scam_hybrid_merge_kernel_category", "scam_hybrid_merge_quad_category",
+            "scam_hybrid_mosaic_screen", "scam_hybrid_mosaic_native_category", "scam_hybrid_merge_final_category"));
+
+    static boolean rawMergeOnly(String key) {
+        return RAW_MERGE_ONLY.contains(key) || QUALITY_ONLY.contains(key) || key.startsWith(HYB + "mm_") || key.startsWith(HYB + "mosaic_");
+    }
+
+    /** P646: why a row or group of «Шумоподавление и склейка» does not act with the current lens's merge route, null when it does. */
+    String yuvReason(String key) {
+        if (yuvOwn(key)) {
+            if (!yuvMerge) return Lang.t("Только при «Склейке YUV» (настройки объектива текущего модуля).",
+                    "Only with “YUV merge” on (the current module's lens settings).");
+            final boolean zsl = text(YUV + "capture", "after").trim().equals("zsl");
+            if (zsl && key.equals(YUV + "bracket"))
+                return Lang.t("Брекетинг — только с кадрами после спуска (YUV: кадры серии).",
+                        "Brackets need the frames after the shutter (YUV: series frames).");
+            if (any(key, YUV + "es_ev", YUV + "long_ev", YUV + "deghost") && (zsl || !on(YUV + "bracket", true)))
+                return Lang.t("Включите «YUV: брекетинг экспозиции» (кадры после спуска).",
+                        "Turn on “YUV: exposure brackets” (frames after the shutter).");
+            return null;
+        }
+        if (yuvMerge && rawMergeOnly(key))
+            return Lang.t("Не действует при «Склейке YUV» (настройки объектива): этот модуль склеивает кадры YUV.",
+                    "No effect with “YUV merge” (lens settings): this module merges YUV frames.");
+        return null;
+    }
+
+    /** P614: why a whole group (a category of the page) is inactive: the tone version, P629: the processing mode, P646: YUV. */
     public String groupReason(String key) {
         if (key == null) return null;
         final String version = toneVersionReason(key);
-        return version != null ? version : routeReason(key);
+        if (version != null) return version;
+        final String yuv = yuvReason(key);
+        return yuv != null ? yuv : routeReason(key);
     }
 
     public String reason(String key) {
@@ -318,6 +357,9 @@ public final class SettingsAvailability {
         if (version != null) return version;
         final String oldstyle = oldstyleRowReason(key);
         if (oldstyle != null) return oldstyle;
+        // P646: a row of «Шумоподавление и склейка» the current lens's route (YUV or RAW) does not read
+        final String yuv = yuvReason(key);
+        if (yuv != null) return yuv;
         // P629: a row of «Шумоподавление и склейка» another processing mode's merge reads (whatever else holds, it does not act here)
         final String route = routeReason(key);
         if (route != null) return route;

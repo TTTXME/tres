@@ -47,3 +47,8 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-bayer-quads-policy
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_bayer_quads_tuning.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-bayer-quads-tuning
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-bayer-quads-tuning
 python3 tools/check_bayer_quads_memory.py
+
+# P646 «Склейка YUV»: the port == the owner's reference (tools/yuv-merge-ref) on random 8-bit bursts, both profiles; 16-bit samples;
+# our alignment, the burst's own noise LUT, the sharpest base, guided chroma, the linear bracket (no ghost, highlights back), HLG P010
+g++ -pthread -std=c++17 -O2 -ffp-contract=off -fsanitize=address,undefined -Iapp/src/main/cpp -Itools/yuv-merge-ref tools/check_yuv_merge.cpp -o /tmp/check-yuv-merge
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-yuv-merge

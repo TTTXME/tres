@@ -53,4 +53,13 @@ public class GalleryOpenTraceTest {
         assertEquals("the top frames only", GalleryOpenTrace.MainWatch.FRAMES, line.split("\n").length - 1);
         assertFalse("no watch thread in a host test (its looper is paused)", GalleryOpenTrace.MainWatch.enabled);
     }
+
+    /** P645: the first open of a process says where the process's start went; an open in an older process says it was warm. */
+    @Test
+    public void theColdStartLine() {
+        assertEquals("process: cold start -> app onCreate +120 ms, app onCreate 80 ms (settings + migrations 50), app ready -> gallery onCreate"
+                        + " +40 ms, gallery onCreate -> open +60 ms, process start -> open 300 ms",
+                GalleryOpenTrace.coldLine(1000, 1120, 1200, 1240, 1300, "settings + migrations 50"));
+        assertEquals("process: warm (started 95 s before this gallery)", GalleryOpenTrace.coldLine(1000, 1100, 1200, 96_000, 96_050, ""));
+    }
 }

@@ -10,26 +10,23 @@ public class SettingsModelCheck {
     static void inactive(Map<String,Object> p,String key){if(new SettingsAvailability(merge(p)).reason(key)==null)throw new AssertionError("Unexpectedly active: "+key);}
     /** P629: each processing mode greys the rows only another mode's merge reads; the rows every merge reads stay active. */
     static void routes(){
-        Map<String,Object> fast=new HashMap<>(),quality=new HashMap<>(),stat=new HashMap<>(),odd=new HashMap<>();
+        // P644: two modes («Статика» gone; a stored "static" is migrated to «Качество» before anything reads it)
+        Map<String,Object> fast=new HashMap<>(),quality=new HashMap<>(),odd=new HashMap<>();
         fast.put("pref_scam_hybrid_processing","fast");quality.put("pref_scam_hybrid_processing","quality");
-        stat.put("pref_scam_hybrid_processing","static");odd.put("pref_scam_hybrid_processing","something else");
-        for(Map<String,Object> m:Arrays.asList(new HashMap<String,Object>(),fast,odd,stat))
+        odd.put("pref_scam_hybrid_processing","something else");
+        for(Map<String,Object> m:Arrays.asList(new HashMap<String,Object>(),fast,odd))
             for(String k:new String[]{"pref_scam_hybrid_cdm","pref_scam_hybrid_sabre61","pref_scam_hybrid_local_align","pref_scam_hybrid_mochi",
                     "pref_scam_hybrid_mm_boost_value","pref_scam_hybrid_cre_source"})
                 if(new SettingsAvailability(m).reason(k)==null)throw new AssertionError("P629: "+k+" active with "+m);
         for(String k:new String[]{"pref_scam_hybrid_cdm","pref_scam_hybrid_sabre61","pref_scam_hybrid_kernel_texture"})
             if(new SettingsAvailability(quality).reason(k)!=null)throw new AssertionError("P629: "+k+" inactive with quality");
         if(new SettingsAvailability(fast).reason("pref_scam_hybrid_kernel_texture")!=null)throw new AssertionError("P629: footprint inactive in fast");
-        if(new SettingsAvailability(stat).reason("pref_scam_hybrid_kernel_texture")==null)throw new AssertionError("P629: footprint active in static");
         for(Map<String,Object> m:Arrays.asList(fast,quality))
-            if(new SettingsAvailability(m).reason("pref_scam_hybrid_static_iters")==null)throw new AssertionError("P629: static row active in "+m);
-        if(new SettingsAvailability(stat).reason("pref_scam_hybrid_static_iters")!=null)throw new AssertionError("P629: static row inactive in static");
-        for(Map<String,Object> m:Arrays.asList(fast,quality,stat))
             for(String k:new String[]{"pref_scam_hybrid_denoise","pref_scam_hybrid_why_dn_factor","pref_scam_hybrid_why_ms_luma","pref_scam_hybrid_zsl_frames",
                     "pref_scam_hybrid_mosaic_path","pref_scam_hybrid_why_sharp_gain"})
                 if(new SettingsAvailability(m).reason(k)!=null)throw new AssertionError("P629: "+k+" inactive with "+m);
         // «Спорт»'s capture rows act in every mode (with the mode on); its rejection rows are the SCAM merge's
-        for(Map<String,Object> m:Arrays.asList(fast,quality,stat)){
+        for(Map<String,Object> m:Arrays.asList(fast,quality)){
             m.put("pref_motion_mode",true);
             if(new SettingsAvailability(m).reason("pref_scam_hybrid_mm_shutter")!=null)throw new AssertionError("P629: Sport shutter inactive with "+m);
             if((new SettingsAvailability(m).reason("pref_scam_hybrid_mm_boost_value")==null)!=(m==quality))throw new AssertionError("P629: Sport boost with "+m);
@@ -97,8 +94,8 @@ public class SettingsModelCheck {
         eq(SettingsNumericRules.value("pref_scam_hybrid_bento_factor","32",8),16);
         eq(SettingsNumericRules.value("pref_scam_hybrid_zsl_frames","99",20),65); // P578
         eq(SettingsNumericRules.value("pref_scam_hybrid_zsl_frames","7.6",20),8);
-        eq(SettingsNumericRules.value("pref_scam_hybrid_static_iters","40",8),16); // P624
-        eq(SettingsNumericRules.value("pref_scam_hybrid_static_iters","1",8),4);
+        // P644: «Статика»'s iterations are gone with the route and unbounded
+        if(SettingsNumericRules.bounds("pref_scam_hybrid_static_iters")!=null)throw new AssertionError("removed static row still bounded");
         if(SettingsNumericRules.error("pref_scam_hybrid_zsl_frames","3")==null)throw new AssertionError("hybrid N below 4 accepted");
         eq(SettingsNumericRules.value("pref_scam_hybrid_noise_photon","0",1),.25);
         // P10: the SCAMERA tone keys (headroom, AgX, Exposure Fusion) and their hybrid copies are gone and unbounded

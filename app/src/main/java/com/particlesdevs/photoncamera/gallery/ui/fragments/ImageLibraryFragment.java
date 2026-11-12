@@ -392,9 +392,16 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             grid.setLayoutAnimation(lac);
             grid.scheduleLayoutAnimation();
         }
+        final boolean first = firstFill && !items.isEmpty();
         if (!items.isEmpty()) firstFill = false;
+        // P645: the other RAWs joining the list shown (after the first list): the row at the top of the screen stays where it is
+        final String anchor = viewModel != null && viewModel.joining() ? topKey() : null;
+        final int anchorTop = anchor != null ? topOffset() : 0;
         adapter.setItems(items);
+        if (anchor != null) keepTop(anchor, anchorTop);
         traceFirstFrame(items.size());
+        // P645: the grid's first screen of thumbnails decoded ahead of a shot still processed (bounded, once per open)
+        if (first) com.particlesdevs.photoncamera.gallery.glide.DecodeBoost.forGrid();
         com.particlesdevs.photoncamera.gallery.ocr.OcrIndex.touch(); // P617: the new list's thumbnails load first
         empty.setText(filtered() ? Lang.t("Нет снимков по этому фильтру", "No photos match this filter")
                 : GalleryView.FAVOURITES.equals(activeFolder) ? Lang.t("В избранном пока пусто: сердце в просмотре добавляет снимок",
@@ -402,6 +409,28 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         onSelectionChanged();
         if (grid != null) grid.post(this::updateRange);
+    }
+
+    /** P645: the key of the first row on the screen, null without one. */
+    @Nullable
+    private String topKey() {
+        if (layout == null || adapter == null) return null;
+        int p = layout.findFirstVisibleItemPosition();
+        return p >= 0 ? adapter.keyAt(p) : null;
+    }
+
+    /** P645: the top of the first row on the screen against the grid's top (px). */
+    private int topOffset() {
+        if (layout == null || grid == null) return 0;
+        View v = layout.findViewByPosition(layout.findFirstVisibleItemPosition());
+        return v != null ? v.getTop() - grid.getPaddingTop() : 0;
+    }
+
+    /** P645: the row {@code key} back at {@code top} when the new list moved it (rows were put above it). */
+    private void keepTop(String key, int top) {
+        if (layout == null || adapter == null) return;
+        int p = adapter.positionOfKey(key);
+        if (p >= 0 && p != layout.findFirstVisibleItemPosition()) layout.scrollToPositionWithOffset(p, top);
     }
 
     /** P617: the grid's first frame with photos in the log (GalleryOpenTrace, once per gallery open). */

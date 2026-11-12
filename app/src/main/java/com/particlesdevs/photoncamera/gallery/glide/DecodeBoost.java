@@ -53,6 +53,7 @@ public final class DecodeBoost {
      * processed (its CPU threads compete).
      */
     public static void forOpen(boolean busy) {
+        gridBoosted = false;
         level = front(busy);
         until = SystemClock.uptimeMillis() + OPEN_MS;
         apply(level);
@@ -61,6 +62,27 @@ public final class DecodeBoost {
         main.postDelayed(LOWER, OPEN_MS);
         Log.i(TAG, "decode threads at priority " + level + " for " + OPEN_MS + " ms (" + TIDS.size() + " threads"
                 + (busy ? ", a shot is processed" : "") + ")");
+    }
+
+    /** P645: the grid of this open had its boost ({@link #forGrid}). */
+    private static volatile boolean gridBoosted;
+
+    /**
+     * P645 (owner, 2026-11-12: the gallery slow from the launcher too; vivo log: the list +5877 ms, the open's boost long over,
+     * the first thumbnail +13583 ms while a 153 s «Статика» merge ran at the default priority): the grid's first fill of an open
+     * puts the decode threads in front again for {@link #OPEN_MS} from then (its first screen of thumbnails, however late the list
+     * came or the user went back from the viewer), once per open. Main thread.
+     */
+    public static void forGrid() {
+        if (gridBoosted) return;
+        gridBoosted = true;
+        boolean busy = false;
+        try {
+            busy = com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.busy.getAsBoolean();
+        } catch (RuntimeException | LinkageError ignored) {
+        }
+        forOpen(busy);
+        gridBoosted = true;
     }
 
     private static void lower() {
@@ -114,6 +136,7 @@ public final class DecodeBoost {
 
     /** Tests: no open is on. */
     static void reset() {
+        gridBoosted = false;
         until = 0;
         level = IDLE;
     }

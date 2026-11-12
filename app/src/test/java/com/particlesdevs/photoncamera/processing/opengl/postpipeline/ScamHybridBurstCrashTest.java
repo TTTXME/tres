@@ -268,15 +268,12 @@ public class ScamHybridBurstCrashTest {
         }
     }
 
-    /** P627: «Статика»'s retries stay on «Статика» - GLES, then the CPU transcription in a worker that opens no GPU. */
-    @Test public void staticRetriesStayStatic() {
-        assertEquals("", ScamHybridBurst.staticBackendTuning(Integer.MIN_VALUE));
-        assertEquals("staticVulkan 0\n", ScamHybridBurst.staticBackendTuning(0));
-        final String cpu = ScamHybridBurst.staticBackendTuning(-2);
-        assertTrue(cpu, cpu.startsWith("staticVulkan -2\n"));
-        assertTrue(cpu, cpu.contains("gpuAlign 0\n") && cpu.contains("laGpu 0\n") && cpu.contains("chromaGpu 0\n"));
-        assertFalse(cpu, cpu.contains("fastMerge") || cpu.contains("staticMerge 0"));
-        assertEquals("«Статика»", ScamHybridBurst.modeName("static"));
+    /**
+     * P627: the log names the user's mode. P644: «Статика» and its retry ladder (GLES, then the CPU transcription:
+     * staticBackendTuning) are gone with the route; the two modes left keep their names (a stored "static" is «Качество» by then:
+     * SettingsMigration.removeObsolete).
+     */
+    @Test public void theLogNamesTheMode() {
         assertEquals("«Качество»", ScamHybridBurst.modeName("quality"));
         assertEquals("«Быстрый»", ScamHybridBurst.modeName("fast"));
     }

@@ -272,14 +272,6 @@ int main(int argc,char** argv) {
                 scam::HybridInput hin=hybridBurst.hybrid?hybridBurst.input:scam::hybridFromScamBurst(mapped->burst);
                 if(std::getenv("SCAM_MERGED_DNG"))hin.mergedDng=true;
                 sensorPixels=size_t(hin.w)*hin.h;
-                // P627c: «Статика»'s time grows with the pixels and on its CPU transcription ~4x: its alarm in proportion. P639:
-                // 300 s per 12 MP on the GPU, 1200 s on the CPU (hybridStaticAlarmSeconds; re-armed when the solve steps down to the
-                // CPU mid-shot), at most 3540 s; the app waits for the CPU's (ScamHybridBurst.workerTimeoutSeconds)
-                if(tuning.staticMerge>0){
-                    const unsigned a=scam::hybridStaticAlarmSeconds(hin.w,hin.h,tuning.staticVulkan<=-2);
-                    alarm(a);report("HYBRID STATIC: worker alarm "+std::to_string(a)+" s");
-                    scam::hybridStaticRearm()=[report](unsigned sec){alarm(sec);report("HYBRID STATIC: worker alarm re-armed "+std::to_string(sec)+" s (the CPU transcription)");};
-                }
                 // P320: a DCG burst (header flag 32): the two-zone noise check runs on it; the app's DCG tuning lines (bento 1,
                 // shastaEnable 0, mochi 0) come last in the job's hybrid_tuning.txt, the values in effect are reported here
                 if(hin.dcg)report("HYBRID DCG: dual conversion gain burst (header flag 32), tuning bento="+std::to_string(tuning.bento)
@@ -314,8 +306,8 @@ int main(int argc,char** argv) {
                 if(access((std::string(argv[2])+"/hl-mask").c_str(),F_OK)==0||(std::getenv("SCAM_HL_MASK")&&std::getenv("SCAM_HYBRID")))
                     scam::hybridHighlightMaskOut()=&hlMask;
                 // P627 (owner, 2026-11-11: every mode stays the mode the user chose): the route of this shot, the only one that makes it
-                if(tuning.staticMerge<=0)report(tuning.fastMerge>0?"HYBRID ROUTE: «Быстрый» (the fast merge route; no other route takes this shot)"
-                                                                  :"HYBRID ROUTE: «Качество» (the SCAM merge; no other route takes this shot)");
+                report(tuning.fastMerge>0?"HYBRID ROUTE: «Быстрый» (the fast merge route; no other route takes this shot)"
+                                         :"HYBRID ROUTE: «Качество» (the SCAM merge; no other route takes this shot)");
                 result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
                 // P501: the app's Sabre 1.5x size; a result at another grid (the SCAM merge's 2x, a fallback's 1x) is resampled to it
                 if(hin.outW>0&&result.size()!=size_t(hin.outW)*hin.outH*3){

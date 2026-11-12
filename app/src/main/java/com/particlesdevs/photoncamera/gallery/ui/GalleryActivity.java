@@ -50,7 +50,9 @@ public class GalleryActivity extends BaseActivity {
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        final long createdAt = android.os.SystemClock.uptimeMillis();
         super.onCreate(savedInstanceState);
+        GalleryOpenTrace.activityStarting(this, createdAt); // P645: the open's own start, its first frame, the process's start
         // Hide system UI immediately to prevent flickering
         hideSystemUI();
         

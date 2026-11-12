@@ -3,12 +3,6 @@
     <string-array name="scam_hybrid_processing_entries">
         <item>Быстрый</item>
         <item>Качество</item>
-        <item>Статика</item>
-    </string-array>
-    <string-array name="scam_hybrid_static_sr_entries">
-        <item>1.0× (размер сенсора, по умолчанию)</item>
-        <item>1.5×</item>
-        <item>2.0×</item>
     </string-array>
     <string-array name="scam_hybrid_fringe_method_entries">
         <item>Нейросеть</item>
@@ -369,8 +363,8 @@
         <item>11 ноября 2026, 14:05</item>
     </string-array>
     <string-array name="scam_hybrid_oldstyle_version_entries">
-        <item>Oldstyle V1</item>
-        <item>Oldstyle V2</item>
+        <item>ScamMaster V1</item>
+        <item>ScamMaster V2</item>
     </string-array>
     <string-array name="scam_hybrid_oldstyle_v2_levels_entries">
         <item>10 (полный кадр)</item>

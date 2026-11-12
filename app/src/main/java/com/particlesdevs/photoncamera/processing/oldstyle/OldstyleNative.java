@@ -87,6 +87,8 @@ public final class OldstyleNative {
      * P630e: the viewfinder's tone LUT of {@code version} into {@code out} (1024 x RGBA8): RGB the module's tone of the neutral
      * linear i / 1023, A the long exposure's weight of the version's fusion at that level (255: all long).
      */
+    // (P643b: the app no longer draws with this LUT - the viewfinder's preview is OldstyleLive's curve; the module's tone of a
+    // neutral ramp stays for the host check of the module, tools/check_tone_port.py)
     public static native void previewLut(int version, byte[] out);
 
     /**

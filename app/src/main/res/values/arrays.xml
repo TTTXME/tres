@@ -139,22 +139,10 @@
     <string-array name="scam_hybrid_processing_entries">
         <item>Fast</item>
         <item>Quality</item>
-        <item>Static</item>
     </string-array>
     <string-array name="scam_hybrid_processing_values" translatable="false">
         <item>fast</item>
         <item>quality</item>
-        <item>static</item>
-    </string-array>
-    <string-array name="scam_hybrid_static_sr_entries">
-        <item>1.0× (sensor size, default)</item>
-        <item>1.5×</item>
-        <item>2.0×</item>
-    </string-array>
-    <string-array name="scam_hybrid_static_sr_values" translatable="false">
-        <item>sensor</item>
-        <item>1.5x</item>
-        <item>2x</item>
     </string-array>
     <string-array name="scam_hybrid_fringe_method_entries">
         <item>Neural</item>
@@ -779,8 +767,8 @@
         <item>text</item>
     </string-array>
     <string-array name="scam_hybrid_oldstyle_version_entries">
-        <item>Oldstyle V1</item>
-        <item>Oldstyle V2</item>
+        <item>ScamMaster V1</item>
+        <item>ScamMaster V2</item>
     </string-array>
     <string-array name="scam_hybrid_oldstyle_v2_levels_entries">
         <item>10 (full frame)</item>

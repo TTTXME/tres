@@ -296,7 +296,9 @@ public class GalleryFileOperations {
             }
         }
         final long t1 = android.os.SystemClock.uptimeMillis();
-        int rawRows = appendOtherRawFiles(contentResolver, folders);
+        // P645: the other RAWs of the last check (memory or a small file), no query: the check runs after the list is out
+        int rawRows = appendCachedRaw(OtherRawCache.rows(rawFile(app)), folders);
+        final String rawOrigin = OtherRawCache.origin();
         final long t2 = android.os.SystemClock.uptimeMillis();
         int videoRows = appendVideos(contentResolver, folders);
         final long t3 = android.os.SystemClock.uptimeMillis();
@@ -304,10 +306,46 @@ public class GalleryFileOperations {
         ALL_FOLDERS.addAll(folders.finish());
         lastScanKey = key;
         Log.i(SCAN_TAG, "scan: images " + imageRows + " rows " + (t1 - t0) + " ms, other RAW " + rawRows + " rows " + (t2 - t1)
-                + " ms, videos " + videoRows + " rows " + (t3 - t2) + " ms, " + ALL_FOLDERS.size() + " folders, total "
-                + (android.os.SystemClock.uptimeMillis() - t0) + " ms on " + Thread.currentThread().getName()
-                + (key == null ? " (no MediaStore generation: every open scans)" : ""));
+                + " ms (from the " + rawOrigin + " cache, checked after the list), videos " + videoRows + " rows " + (t3 - t2) + " ms, "
+                + ALL_FOLDERS.size() + " folders, total " + (android.os.SystemClock.uptimeMillis() - t0) + " ms on "
+                + Thread.currentThread().getName() + (key == null ? " (no MediaStore generation: every open scans)" : ""));
         return new ArrayList<>(ALL_FOLDERS);
+    }
+
+    /** P645: the cached other RAWs into the folders (a row the images have already is not added again); the rows added. */
+    static int appendCachedRaw(List<OtherRawCache.Row> rows, Folders folders) {
+        int n = 0;
+        for (OtherRawCache.Row r : rows) {
+            if (folders.has(r.id) || r.bucket == null) continue;
+            folders.add(r.bucket, r.bucketId, r.file());
+            n++;
+        }
+        return n;
+    }
+
+    /**
+     * P645: the other RAWs brought up to MediaStore now ({@link OtherRawCache#check}; any thread but the main one, outside the
+     * folder lists' lock while it queries); a changed set makes the next read build the folders again. Logged.
+     */
+    public static OtherRawCache.Result checkOtherRaw(@NonNull Context context, @NonNull ContentResolver resolver) {
+        return checkOtherRaw(OtherRawCache.mediaStore(context, resolver), rawFile(context));
+    }
+
+    /** Tests: the other-RAW cache's file instead of the app's. */
+    @Nullable static java.io.File rawFileForTests;
+
+    @Nullable
+    static java.io.File rawFile(@Nullable Context c) {
+        return rawFileForTests != null ? rawFileForTests : OtherRawCache.fileOf(c);
+    }
+
+    static OtherRawCache.Result checkOtherRaw(OtherRawCache.Source source, @Nullable java.io.File file) {
+        OtherRawCache.Result r = OtherRawCache.check(source, file);
+        if (r.changed) synchronized (GalleryFileOperations.class) {
+            lastScanKey = null; // the folders are built again, with the new rows
+        }
+        Log.i(SCAN_TAG, "other RAW check: " + r + " on " + Thread.currentThread().getName());
+        return r;
     }
 
     private static final String SCAN_TAG = "GalleryMedia";
@@ -399,42 +437,12 @@ public class GalleryFileOperations {
         return n;
     }
 
-    /**
+    /*
      * P352 (owner, 2026-10-26: «галерея должна работать с любыми Рав форматами»): camera RAWs MediaStore does not file as images
      * (CR3, 3FR, IIQ, MRW, X3F... as application/octet-stream or without a type) from the Files collection, by extension, into
-     * the folders of their bucket. Android 10+ (the bucket columns of Files); only what this app may see there. Returns the rows
-     * added.
+     * the folders of their bucket. Android 10+ (the bucket columns of Files); only what this app may see there. P645: the query
+     * lives in OtherRawCache (cached, checked after the first list), the rows join the folders in appendCachedRaw.
      */
-    static int appendOtherRawFiles(@NonNull ContentResolver resolver, Folders folders) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0;
-        StringBuilder sel = new StringBuilder(MediaStore.Files.FileColumns.MEDIA_TYPE + " != " + MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE + " AND (");
-        List<String> args = new ArrayList<>();
-        for (String ext : com.particlesdevs.photoncamera.gallery.raw.RawFormats.EXTENSIONS) {
-            if (!args.isEmpty()) sel.append(" OR ");
-            sel.append(MediaStore.MediaColumns.DISPLAY_NAME).append(" LIKE ?");
-            args.add("%." + ext);
-        }
-        sel.append(')');
-        String[] projection = {MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.DATE_ADDED,
-                MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.BUCKET_ID,
-                MediaStore.MediaColumns.BUCKET_DISPLAY_NAME};
-        Uri files = MediaStore.Files.getContentUri("external");
-        int n = 0;
-        try (Cursor c = resolver.query(files, projection, sel.toString(), args.toArray(new String[0]), null)) {
-            if (c == null) return 0;
-            while (c.moveToNext()) {
-                long id = c.getLong(0);
-                String bucket = c.getString(6);
-                if (folders.has(id) || bucket == null) continue;
-                folders.add(bucket, c.getLong(5), new ImageFile(id, ContentUris.withAppendedId(files, id), c.getString(1),
-                        TimeUnit.SECONDS.toMillis(c.getLong(2)), c.getLong(3), c.getString(4)));
-                n++;
-            }
-        } catch (RuntimeException e) {
-            Log.w("GalleryFileOperations", "RAW files query: " + e);
-        }
-        return n;
-    }
 
 }
 

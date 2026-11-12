@@ -142,6 +142,11 @@ add_library(scameraTone SHARED oldstyle-tone-jni.cpp)
 target_compile_options(scameraTone PRIVATE -O3 -fexceptions -ffp-contract=off -fvisibility=hidden)
 target_link_libraries(scameraTone PRIVATE tone_port log)
 
+# P646 «Склейка YUV»: the burst merge of a lens that gives YUV (scam-yuv-merge.h; processing/yuv/YuvMergeNative).
+add_library(scameraYuv SHARED scam-yuv-jni.cpp)
+target_compile_options(scameraYuv PRIVATE -O3 -fexceptions -ffp-contract=off -fvisibility=hidden)
+target_link_libraries(scameraYuv PRIVATE log)
+
 # Final, memory-bounded resampling of successful Vivo RGB output.
 add_library(lanczosDownscale SHARED lanczos-downscale-jni.cpp)
 target_compile_options(lanczosDownscale PRIVATE -O3)

@@ -833,23 +833,6 @@ public final class ScamHybridBurst implements ScamTransport {
         final long px = (long) w * h;
         return px <= CLASSIC_INPUT_PIXELS ? 900 : Math.min(3600, (long) Math.ceil(900.0 * px / CLASSIC_INPUT_PIXELS));
     }
-    /**
-     * P627c: a «Статика» merge (its time grows with the pixels; x4 on its CPU transcription): the worker's own alarm plus 60 s,
-     * never below the other routes' wait. P639: the alarm is 300 s per 12 MP on a GPU and 1200 s on the CPU (scam-static-merge.h
-     * hybridStaticAlarmSeconds, at most 3540 s); a worker that steps down to the CPU mid-shot re-arms itself with the CPU's, so
-     * the app waits for that one whatever the backend it asked for ({@code cpu} kept for the callers).
-     */
-    public static long workerTimeoutSeconds(int w, int h, boolean statik, boolean cpu) {
-        final long base = workerTimeoutSeconds(w, h);
-        if (!statik) return base;
-        final double mp = (double) w * h / 12e6;
-        final long alarm = Math.round(Math.min(3540.0, Math.max(1200.0, 1200.0 * mp)));
-        return Math.max(base, alarm + 60);
-    }
-    /** P627c: the worker's wait for this burst (its mode and, «Статика», its backend). */
-    long workerTimeoutSeconds() {
-        return workerTimeoutSeconds(width, height, PreferenceKeys.staticProcessing(), staticBackend == -2);
-    }
 
     @Override public int cfa() { return cfa; }
     @Override public boolean mergedDng() { return mergedDng; }
@@ -868,7 +851,6 @@ public final class ScamHybridBurst implements ScamTransport {
     public String tuningOverride() {
         // P267: the remosaic and the mosaic DNG layout first (still after the user's tuning)
         return REMOSAIC_TUNING + (dngMosaic > 1 ? "dngMosaic 1\n" : "") + (conservative ? CONSERVATIVE_TUNING : "") + avoidedTuning()
-                + staticBackendTuning(staticBackend) // P627: «Статика»'s retry on GLES / the CPU (no other mode's lines: P501's are gone)
                 + sceneEvTuning(sceneEv) + neutralTuning(neutral)
                 + (strictTwoX ? "grid 2\nauto2x 0\n" : "") + seriesTuning() + (dcg ? dcgTuning(com.particlesdevs.photoncamera.capture.HybridPlan.bentoMode()) : "");
     }
@@ -1112,26 +1094,15 @@ public final class ScamHybridBurst implements ScamTransport {
     public static volatile int lastStreamBlock = 1;
     /** Final JPEG size of the last hybrid shot (the bitmap is resized to it after the whole pipeline). */
     public static volatile android.graphics.Point lastFinalSize;
-    /**
-     * P27: the worker died at GPU init in this process (Mali, X200 Pro): further shots go straight to the CPU fallback. P627: a
-     * «Статика» shot still merges - its CPU transcription in a worker that opens no GPU (staticVulkan -2).
-     */
+    /** P27: the worker died at GPU init in this process (Mali, X200 Pro): further shots go straight to the CPU fallback. */
     private static volatile String gpuUnusable;
     /*
      * P627 (owner, 2026-11-11: «Every processing mode must ALWAYS stay on the mode the user selected - no automatic hand-over»):
-     * P501's scamMergeBlack (a black SCAM merge sent «Качество» / «Статика» shots, the retry first, to the fast route) and P509b's
+     * P501's scamMergeBlack (a black SCAM merge sent «Качество» shots, the retry first, to the fast route) and P509b's
      * fastRouteHung (a hung fast merge sent the retry and the session's later «Быстрый» shots to the SCAM merge) are gone. A black
      * or hung merge is retried on the same route (the conservative retry); a second failure saves the base frame alone (cpuSingle,
      * its «HYBRID ROUTE» log line), never another mode's merge.
      */
-    /**
-     * P627: the static merge's backend for this attempt (scam-hybrid.h staticVulkan: 0 GLES, -2 the CPU transcription;
-     * Integer.MIN_VALUE = the user's setting): «Статика»'s ladder of retries stays on «Статика».
-     */
-    int staticBackend = Integer.MIN_VALUE;
-    static String staticBackendTuning(int backend) {
-        return backend == Integer.MIN_VALUE ? "" : "staticVulkan " + backend + "\n" + (backend <= -2 ? "gpuAlign 0\nlaGpu 0\nchromaGpu 0\n" : "");
-    }
     /** P501: whether the worker report says the fast merge route made the result. */
     static boolean fastRouteMerged(String report) {
         return report != null && currentAttempt(report).contains("(fast merge)");
@@ -1593,7 +1564,6 @@ public final class ScamHybridBurst implements ScamTransport {
         // P627 (owner, 2026-11-11: «Every processing mode must ALWAYS stay on the mode the user selected»): the shot stays on its mode.
         // A route that cannot run at all saves the base frame alone (routeCannotRun: its «HYBRID ROUTE» line), never another mode's merge.
         final String mode = PreferenceKeys.processingMode();
-        final boolean staticMode = "static".equals(mode);
         if ("fast".equals(mode) && avoidedSteps.contains(STEP_FAST)) {
             if (burst.strictTwoX) throw new IOException(Lang.t("SHDR: склейка 2× «Быстрого» недоступна на этом GPU",
                     "SHDR: the «Fast» Sabre 2x merge is unavailable on this GPU"));
@@ -1602,16 +1572,13 @@ public final class ScamHybridBurst implements ScamTransport {
         if (gpuUnusable != null) {
             if (burst.strictTwoX) throw new IOException(Lang.t("SHDR: склейка 2× на GPU недоступна (",
                     "SHDR: Sabre 2x GPU merge is unavailable (") + gpuUnusable + ")");
-            if (!staticMode) return routeCannotRun(burst, mode, "GPU merge unusable in this session (" + gpuUnusable + ")");
-            burst.staticBackend = -2; // «Статика»: its CPU transcription in a worker that opens no GPU
-            Log.w("SCAM_HDR", "HYBRID ROUTE: «Статика» on the CPU (GPU merge unusable in this session: " + gpuUnusable + ")");
+            return routeCannotRun(burst, mode, "GPU merge unusable in this session (" + gpuUnusable + ")");
         }
         try {
             final ByteBuffer merged = ScamNeuralClient.processScamBurst(context, burst);
             if (blackResult(ScamNeuralClient.lastJobReport)) throw new IOException(BLACK_RESULT);
             p.mosaicBlock = mergedBlock(burst.mosaicBlock, ScamNeuralClient.lastJobReport);
             lastNormals = burst.normalCount();
-            if (burst.staticBackend == -2) { lastMergeTier = "cpu-static"; lastFallbackFrames = burst.frames.size(); }
             return merged;
         } catch (Exception first) {
             if (burst.strictTwoX) throw new IOException(Lang.t("SHDR: склейка 2× не завершена; замена на 1× или увеличение отключена",
@@ -1627,27 +1594,18 @@ public final class ScamHybridBurst implements ScamTransport {
                 learnFromCrash(report);
                 storeLearned(context); // P377: a same-result variant the driver died on stays off on this build
             }
-            if (!staticMode && gpuUnusable != null) return routeCannotRun(burst, mode, gpuUnusable);
+            if (gpuUnusable != null) return routeCannotRun(burst, mode, gpuUnusable);
             if ("fast".equals(mode) && avoidedSteps.contains(STEP_FAST))
                 return routeCannotRun(burst, mode, "its GPU programs crashed the driver compiler (" + crashStage(report) + ")");
-            // P627: the retries of the same route. «Статика»: the conservative retry, then GLES, then the CPU transcription (no GPU:
-            // the CPU at once); the others: the conservative retry, once more while each crash names a further optional step to
-            // leave out (at most 3), a black merge twice ends it (the GPU merge off for the session)
-            final List<Integer> ladder = new ArrayList<>();
-            if (staticMode) {
-                if (gpuUnusable == null) {
-                    if (retry) ladder.add(burst.staticBackend);
-                    if (burst.staticBackend != 0) ladder.add(0);
-                }
-                if (burst.staticBackend != -2 || ladder.isEmpty()) ladder.add(-2);
-            } else if (retry) for (int i = 0; i < 3; i++) ladder.add(Integer.MIN_VALUE);
-            else Log.w("SCAM_HDR", "Hybrid conservative retry skipped (" + (first instanceof WorkerWatchdog.StalledException
+            // P627: the retries of the same route: the conservative retry, once more while each crash names a further optional step
+            // to leave out (at most 3), a black merge twice ends it (the GPU merge off for the session)
+            final int attempts = retry ? 3 : 0;
+            if (!retry) Log.w("SCAM_HDR", "Hybrid conservative retry skipped (" + (first instanceof WorkerWatchdog.StalledException
                     ? "the worker hung waiting for the GPU" : "the worker timed out") + ")");
             String previous = report, previousWhy = why;
-            for (int attempt = 0; attempt < ladder.size(); attempt++) {
+            for (int attempt = 0; attempt < attempts; attempt++) {
                 try {
                     ScamHybridBurst safe = new ScamHybridBurst(frames, p, true);
-                    safe.staticBackend = staticMode ? ladder.get(attempt) : Integer.MIN_VALUE;
                     safe.mergedDng = safe.dngMosaic > 1; // P267
                     lastOutputSize = new android.graphics.Point(safe.outWidth, safe.outHeight);
                     lastFinalSize = new android.graphics.Point(safe.finalWidth, safe.finalHeight);
@@ -1656,10 +1614,9 @@ public final class ScamHybridBurst implements ScamTransport {
                     if (blackResult(ScamNeuralClient.lastJobReport)) throw new IOException(BLACK_RESULT);
                     p.mosaicBlock = mergedBlock(safe.mosaicBlock, ScamNeuralClient.lastJobReport);
                     lastNormals = safe.normalCount();
-                    lastMergeTier = safe.staticBackend == -2 ? "cpu-static" : "gpu-conservative";
+                    lastMergeTier = "gpu-conservative";
                     lastFallbackFrames = safe.frames.size();
-                    Log.w("SCAM_HDR", "Hybrid fallback=" + lastMergeTier + " after: " + why + " (the same mode: " + mode
-                            + (staticMode ? ", static backend " + safe.staticBackend : "") + ")"
+                    Log.w("SCAM_HDR", "Hybrid fallback=" + lastMergeTier + " after: " + why + " (the same mode: " + mode + ")"
                             + (avoidedSteps.isEmpty() ? "" : " (left out: " + avoidedSteps + ")"));
                     return out;
                 } catch (Exception second) {
@@ -1668,13 +1625,6 @@ public final class ScamHybridBurst implements ScamTransport {
                     previousWhy = String.valueOf(second.getMessage());
                     final boolean learned = learnFromCrash(previous);
                     storeLearned(context);
-                    if (staticMode) {
-                        // a worker that died at GPU init again: straight to the CPU rung
-                        if (gpuInitDeath((long) burst.width * burst.height, previous) && ladder.get(attempt) != -2) {
-                            while (attempt + 1 < ladder.size() && ladder.get(attempt + 1) != -2) attempt++;
-                        }
-                        continue;
-                    }
                     // P500: black twice (the full and the conservative merge): this GPU's merge is not used again this session
                     if (BLACK_RESULT.equals(previousWhy)) { gpuUnusable = BLACK_RESULT; break; }
                     if (!conservativeRetry(second) || !learned || gpuUnusable != null) break;
@@ -1688,7 +1638,7 @@ public final class ScamHybridBurst implements ScamTransport {
 
     /** P627: the user's mode as the log names it. */
     static String modeName(String mode) {
-        return "static".equals(mode) ? "«Статика»" : "quality".equals(mode) ? "«Качество»" : "«Быстрый»";
+        return "quality".equals(mode) ? "«Качество»" : "«Быстрый»";
     }
     /**
      * P627 (owner, 2026-11-11: «If a route genuinely cannot run at all ... the shot must still be saved: say exactly what happens then

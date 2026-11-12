@@ -1134,7 +1134,7 @@ public class PostPipeline extends GLBasePipeline {
         final ShotLook.Oldstyle oldstyle = look != null ? look.oldstyle : ShotLook.Oldstyle.now();
         if (oldstyle != null && film != null) Log.i("SCAM_PIPELINE", "Oldstyle mode with a film simulation: the Why tone used");
         if (oldstyle != null && film == null) {
-            add(new OldstyleTone(oldstyle.v2, oldstyle.params, oldstyle.postview, oldstyle.capture));
+            add(new OldstyleTone(oldstyle.v2, oldstyle.params, oldstyle.postview));
             if (!oldstyle.style.neutralAfterTone()) add(new OldstyleStyleNode(oldstyle.style));
             Log.i("SCAM_PIPELINE", "tone Oldstyle " + (oldstyle.v2 ? "V2" : "V1") + " style " + oldstyle.style);
             tail(null, false);

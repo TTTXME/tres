@@ -649,7 +649,6 @@ public class PreferenceKeys {
     public static String hybridOutputMode() {
         Float dev = scamDevValue("hybrid_output");
         if (dev != null) { final float v = dev; return v == 2f ? "2x" : v == 1.5f || v == 16f || v == 20f ? "1.5x" : "sensor"; }
-        if (staticProcessing()) return staticOutputMode(); // P624: «Статика» has its own super-resolution setting
         return outputMode(hybridString("output", "sensor"));
     }
     /** P501: a stored output value as the current modes (the old 12 MP is the sensor size, 16 / 20 MP the 1.5x grid). */
@@ -963,10 +962,8 @@ public class PreferenceKeys {
         if (tetraSmooth != 1f) out.append("mosaicTetraMotionSmooth ").append(Math.max(0f, Math.min(1f, tetraSmooth))).append('\n');
         // P634 (owner, 2026-11-12: «Займись улучшением результата на Tetra»): «Быстрый» on Tetra - the along-edge pass where
         // nearly one frame merged and the clipped lights' checker pass (worker fastTetraPost 1, fastTetraClipNotch 1); «Качество»
-        // - a refused normal frame from its weak homography (normalWeakHom 1); «Статика» on Quad / Tetra - the still-scene
-        // check's photometric tolerance and aligned level (staticBlockTol 0.005), P634b: its lattice pass leaves lines and its
-        // detail pass does not raise the colour period (staticLatticeLines 1, staticDetailLattice 1); "hybrid_tetra3 0" = before
-        if (hybridValue("tetra3", 1f) == 0f) out.append("fastTetraPost 0\nfastTetraClipNotch 0\nnormalWeakHom 0\nstaticBlockTol 0\nstaticLatticeLines 0\nstaticDetailLattice 0\n");
+        // - a refused normal frame from its weak homography (normalWeakHom 1); "hybrid_tetra3 0" = before
+        if (hybridValue("tetra3", 1f) == 0f) out.append("fastTetraPost 0\nfastTetraClipNotch 0\nnormalWeakHom 0\n");
         // P601 (owner, 2026-11-10: «лицо женщины в автобусе за парнем видно только на качестве»): the fast route's donor flow picked
         // per 4 x 4 block among the tiles near the surroundings' flow where the tile field misfits, and a donor kept where its block
         // fits within the noise at that flow (worker fastFlowPick 2; 1 = the pick alone); "hybrid_fast_flow_pick 0" = before
@@ -1148,7 +1145,6 @@ public class PreferenceKeys {
         if (shiftMax > 0f) out.append("donorShiftMax ").append(shiftMax).append('\n');
         if (fastSport > 0 && fastProcessing()) out.append("fastMergeSport ").append(fastSport & 3).append('\n');
         if (fastProcessing()) out.append(FAST_TUNING); // P474: last, over the lines above
-        if (staticProcessing()) out.append(staticTuning()); // P624 / P627: «Статика» (no FAST_TUNING: the route handles every burst itself)
         // P600: «Все шумодавы» off - the worker's own denoise stages off too ("denoise 0", applied after every line); on: no line
         out.append(com.particlesdevs.photoncamera.processing.opengl.postpipeline.DenoiseStages.workerTuning());
         return out.toString();
@@ -1172,45 +1168,18 @@ public class PreferenceKeys {
         return "v2".equals(hybridString("tone_version", "v1"));
     }
     /**
-     * P474 / P624: «Режим обработки» (pref_scam_hybrid_processing): "fast" (default), "quality" (the full merge) or "static"
-     * («Статика»: the static merge, scam-static-merge.h). P627 (owner, 2026-11-11): every mode stays the mode chosen - no route hands
-     * a shot to another (moving frames, Quad / Tetra / DCG, GPU failures and limits are handled inside each). Any other stored value
-     * reads as "fast".
+     * P474: «Режим обработки» (pref_scam_hybrid_processing): "fast" (default) or "quality" (the full merge). P627 (owner,
+     * 2026-11-11): every mode stays the mode chosen - no route hands a shot to another (moving frames, Quad / Tetra / DCG, GPU
+     * failures and limits are handled inside each). P644: «Статика» ("static") is gone - a stored one becomes "quality" once
+     * (SettingsMigration.removeObsolete). Any other stored value reads as "fast".
      */
     public static String processingMode() {
         final String v = hybridString("processing", "fast");
-        return "quality".equals(v) || "static".equals(v) ? v : "fast";
+        return "quality".equals(v) ? v : "fast";
     }
     /** P474: «Быстрый». */
     public static boolean fastProcessing() {
         return "fast".equals(processingMode());
-    }
-    /** P624: «Статика». */
-    public static boolean staticProcessing() {
-        return "static".equals(processingMode());
-    }
-    /**
-     * P624: the static merge's lines (staticMerge 1, the iterations of pref_scam_hybrid_static_iters, 4..16, default 8) and the
-     * GPU backend of scam_dev "static_vulkan" (0 GLES, 1 Vulkan first, -1 or absent = auto: the worker's self-test picks; P627: -2
-     * the CPU transcription only). P639: scam_dev "static_plan" (1 or absent = the short schedule, 0 = the P624 one) and
-     * "static_slice_ms" (the length of one GPU submission of the solve, ms; absent = the worker's 6, 0 = a strip in one) - an A/B
-     * of the speed-up and of the viewfinder's pacing on the phone.
-     */
-    public static String staticTuning() {
-        final int iters = Math.max(4, Math.min(16, Math.round(hybridValue("static_iters", 8f))));
-        final Float vk = scamDevValue("static_vulkan");
-        final int backend = vk == null ? -1 : vk >= 0.5f ? 1 : vk <= -1.5f ? -2 : vk <= -0.5f ? -1 : 0;
-        final Float plan = scamDevValue("static_plan"), slice = scamDevValue("static_slice_ms");
-        return "staticMerge 1\nstaticIters " + iters + "\nstaticVulkan " + backend + "\n"
-                + (plan == null ? "" : "staticPlan " + (plan >= 0.5f ? 1 : 0) + "\n")
-                + (slice == null ? "" : "staticSliceMs " + Math.max(0f, Math.min(100f, slice)) + "\n");
-    }
-    /**
-     * P624: the static merge's output (pref_scam_hybrid_static_sr): "sensor" (1x, default), "1.5x", "2x" - its super-resolution, in
-     * place of pref_scam_hybrid_output while «Статика» is on (the same sizes and caps: ScamHybridBurst.sabreSize / sabre2xFits).
-     */
-    public static String staticOutputMode() {
-        return outputMode(hybridString("static_sr", "sensor"));
     }
     /**
      * P195 (owner, 2026-10-17: «добавь так же возможность отключать наш 2х2 и 4х4 ремозаик чтобы получать фото без него»):
@@ -1224,6 +1193,10 @@ public class PreferenceKeys {
     }
     /** The hybrid's N frames from the ZSL ring (pref_scam_hybrid_zsl_frames, 4..65, default 20; P578: was 44). */
     public static int getHybridZslFrames() {
+        // P643: «Oldstyle» takes the photo mode's capture; its row «Кадров в серии» (0: the photo mode's count) is the one number
+        // of the capture the mode still sets - here, where the photo mode's count is read, within the same 4 .. 65
+        final int oldstyle = OldstyleMode.on() && !isMotionMode() ? Math.round(hybridValue("oldstyle_burst_frames", 0f)) : 0;
+        if (oldstyle > 0) return Math.max(4, Math.min(65, oldstyle));
         return Math.round(hybridValue("zsl_frames", 20f));
     }
     /**
@@ -1457,9 +1430,13 @@ public class PreferenceKeys {
         }
     }
 
-    /** P494: no long and no ultrashort frames - «Спорт» or the HDR tile off. */
+    /**
+     * P494: no long and no ultrashort frames - «Спорт» or the HDR tile off. P643: or «Oldstyle» - its series is one exposure
+     * (owner, P630e: «capture like the originals»), now the photo mode's own N frames with the photo mode's bracketed frames off,
+     * decided here where the photo mode decides it (the plan, the worker's tuning and the frame counts all read this).
+     */
     public static boolean noHdrFrames() {
-        return isMotionMode() || !hdrFrames();
+        return isMotionMode() || !hdrFrames() || OldstyleMode.on();
     }
 
     public static boolean isMotionMode() {

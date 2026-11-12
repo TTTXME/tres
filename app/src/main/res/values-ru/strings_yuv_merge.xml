@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="prefs_scam_hybrid_yuv_category_title">Склейка YUV</string>
+    <string name="prefs_scam_hybrid_yuv_capture_title">YUV: кадры серии</string>
+    <string name="prefs_scam_hybrid_yuv_capture_summary">После спуска: камера снимает серию с нашей тоновой кривой, своим шумодавом на минимуме и без своей резкости, поэтому кадры можно вернуть в линейный свет и работает брекетинг экспозиции; фото затем получает наш тон, цвет и резкость. Из буфера ZSL: без задержки спуска, но в кадрах кривая камеры (снимается по оценке) и брекетинга нет.</string>
+    <string name="prefs_scam_hybrid_yuv_frames_title">YUV: кадров в серии</string>
+    <string name="prefs_scam_hybrid_yuv_frames_summary">Кадры при обычной экспозиции, которые склеиваются. Больше — меньше шума, но дольше и больше памяти (10-битный кадр 8 Мп — 24 МБ); число урезается до того, что помещается в память.</string>
+    <string name="prefs_scam_hybrid_yuv_10bit_title">YUV: 10 бит (P010, HLG)</string>
+    <string name="prefs_scam_hybrid_yuv_10bit_summary">Если камера даёт 10-битный поток YUV в размере фото рядом с обычным видоискателем, серия снимается в 10 битах (HLG) и склеивается в 10 битах: плавнее переходы и больше запаса в светах. Если камера отказывает в сессии — 8 бит, это запоминается для камеры.</string>
+    <string name="prefs_scam_hybrid_yuv_profile_title">YUV: профиль порогов</string>
+    <string name="prefs_scam_hybrid_yuv_profile_summary">Порядок двух умножений порога пикселя: 2.7 (порог блока × множитель × масштаб плитки) или 3.1 (масштаб плитки × множитель × порог блока). Различаются только там, где масштаб плитки снижен, округлением на один уровень.</string>
+    <string name="prefs_scam_hybrid_yuv_threshold_title">YUV: порог склейки</string>
+    <string name="prefs_scam_hybrid_yuv_threshold_summary">Насколько пиксель кадра может отличаться от опорного и всё же склеиться, × измеренный шум. Больше — меньше шума, но выше риск двоения на движении; меньше — чище движение, больше шума.</string>
+    <string name="prefs_scam_hybrid_yuv_search_title">YUV: поиск сдвига</string>
+    <string name="prefs_scam_hybrid_yuv_search_summary">На сколько пикселей весь кадр мог сдвинуться между кадрами серии. Больше — находит сильную дрожь рук, чуть дольше.</string>
+    <string name="prefs_scam_hybrid_yuv_local_title">YUV: поиск сдвига плиток</string>
+    <string name="prefs_scam_hybrid_yuv_local_summary">На сколько пикселей каждая плитка 32×32 может сдвинуться сама после сдвига всего кадра: движущиеся объекты и изгибы бегущего затвора.</string>
+    <string name="prefs_scam_hybrid_yuv_chroma_check_title">YUV: проверка цвета плиток</string>
+    <string name="prefs_scam_hybrid_yuv_chroma_check_summary">Плитка кадра, чей средний цвет отличается от опорного (движущийся цветной объект), не склеивается или ослабляется.</string>
+    <string name="prefs_scam_hybrid_yuv_own_noise_title">YUV: шум по самой серии</string>
+    <string name="prefs_scam_hybrid_yuv_own_noise_summary">Пороги берутся из шума, измеренного на самой серии (ровные участки кадров друг против друга, по яркости). Выкл. — только по профилю шума камеры: оценка, не знающая её собственной обработки.</string>
+    <string name="prefs_scam_hybrid_yuv_sharpest_title">YUV: опорный — самый резкий</string>
+    <string name="prefs_scam_hybrid_yuv_sharpest_summary">Самый резкий кадр серии становится опорным, на который склеиваются остальные (меньше смаза от дрожи рук). Выкл. — первый кадр.</string>
+    <string name="prefs_scam_hybrid_yuv_guided_chroma_title">YUV: цвет по яркости</string>
+    <string name="prefs_scam_hybrid_yuv_guided_chroma_summary">Цвет в кадрах — в половинном разрешении (4:2:0); склеенный цвет доводится до полного разрешения по границам яркости, а не ступеньками по 2 пикселя.</string>
+    <string name="prefs_scam_hybrid_yuv_bracket_title">YUV: брекетинг экспозиции</string>
+    <string name="prefs_scam_hybrid_yuv_bracket_summary">Где сцене это нужно, к серии добавляются короткие кадры (для светов) и длинный (для теней) и склеиваются в линейном свете. Пиксель берёт такой кадр только там, где он совпадает с опорным (без двоения) и опорный не выбит. Только с кадрами после спуска.</string>
+    <string name="prefs_scam_hybrid_yuv_es_ev_title">YUV: короткие кадры, EV</string>
+    <string name="prefs_scam_hybrid_yuv_es_ev_summary">Насколько кадры светов темнее обычной экспозиции (3 EV — 1/8).</string>
+    <string name="prefs_scam_hybrid_yuv_long_ev_title">YUV: длинный кадр, EV</string>
+    <string name="prefs_scam_hybrid_yuv_long_ev_summary">Насколько кадр теней ярче (2 EV — ×4); сначала растёт усиление, выдержка — только до предела съёмки с рук.</string>
+    <string name="prefs_scam_hybrid_yuv_deghost_title">YUV: защита от двоения</string>
+    <string name="prefs_scam_hybrid_yuv_deghost_summary">Насколько близок (× шум) должен быть пиксель кадра брекетинга к опорному, чтобы его взять. Меньше — надёжнее на движении, меньше пикселей выигрывают от брекетинга.</string>
+    <string-array name="scam_hybrid_yuv_capture_entries">
+        <item>После спуска (своя кривая, брекетинг)</item>
+        <item>Из буфера ZSL (кривая камеры)</item>
+    </string-array>
+    <string-array name="scam_hybrid_yuv_profile_entries">
+        <item>3.1</item>
+        <item>2.7</item>
+    </string-array>
+</resources>

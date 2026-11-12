@@ -57,6 +57,9 @@ public class SaverImplementation {
             // This image is not valid, skip it
             return null;
         }
+        // P646 «Склейка YUV»: a YUV / P010 frame keeps its three planes (packed planar), never the RAW reads below
+        if (com.particlesdevs.photoncamera.processing.yuv.YuvFrames.isYuv(image.getFormat()))
+            return com.particlesdevs.photoncamera.processing.yuv.YuvFrames.frame(image);
         // Post-shutter frames are kept but marked: the burst writers drop or refuse a frame that is not plain 16-bit.
         RawPayloadCheck.Result payload = RawPayloadCheck.check(image,
                 RawPayloadCheck.whiteLevel(CaptureController.mCameraCharacteristics, null));

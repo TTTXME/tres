@@ -1300,6 +1300,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final CameraDevice device = mCameraDevice;
         if (device == null || mIsRecordingVideo) return false;
         final String id = physicalID;
+        if (!isRawFormat(mTargetFormat) && YuvMergeRoute.refuseTenBit(id)) {
+            // P646: the YUV route's P010 / HLG10 session refused: the same route at 8 bits
+            try { session.close(); } catch (Exception ignored) {}
+            final Handler handler = mBackgroundHandler;
+            if (handler == null) return false;
+            handler.post(() -> {
+                if (!isCameraResumed || mCameraDevice != device) return;
+                UpdateCameraCharacteristics(id);
+                createCameraPreviewSession(false);
+            });
+            return true;
+        }
         if (!isRawFormat(mTargetFormat)) {
             // A YUV session (the camera lists no RAW size, or its RAW sessions failed): retrying it as it is only fails again
             // (vivo X200 Pro front camera, owner's log 2026-10-08). Smaller streams next: the preview, then the YUV stream.
@@ -3406,8 +3418,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         final boolean sdkFullRes = mVivoSdkRawSession != null;
         if (sdkFullRes) { mTargetFormat = ImageFormat.RAW_SENSOR; useMaximumResolutionKey = false; }
         if (sDemotedFrom != 0) { // the previous camera ran without a RAW stream: this one starts from the RAW format again
-            if (mTargetFormat == YUV_FORMAT) mTargetFormat = sDemotedFrom;
+            if (mTargetFormat == YUV_FORMAT || mTargetFormat == YuvMergeRoute.P010) mTargetFormat = sDemotedFrom;
             sDemotedFrom = 0;
+        }
+        // P646 «Склейка YUV»: a lens with the route on runs the YUV session (its largest YUV / P010 stream is the shot's reader)
+        final YuvMergeRoute.Session yuvRoute = YuvMergeRoute.session(sdkFullRes || mIsRecordingVideo ? null : String.valueOf(physicalID),
+                map, characteristics);
+        if (yuvRoute != null) {
+            if (isRawFormat(mTargetFormat)) sDemotedFrom = mTargetFormat;
+            mTargetFormat = yuvRoute.format;
         }
         if (isRawFormat(mTargetFormat)) {
             final boolean noRawSizes = map.getOutputSizes(ImageFormat.RAW_SENSOR) == null && map.getOutputSizes(ImageFormat.RAW10) == null
@@ -4027,6 +4046,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             final Surface yuvSurface = mImageReaderPreview == null ? null : mImageReaderPreview.getSurface();
             for (Surface surfacei : surfaces) {
                 var config = new OutputConfiguration(surfacei);
+                // P646: the YUV route's 10-bit stream is the HLG10 profile's (the viewfinder stays STANDARD)
+                if (surfacei == rawSurface && mTargetFormat == YuvMergeRoute.P010 && Build.VERSION.SDK_INT >= 33)
+                    config.setDynamicRangeProfile(android.hardware.camera2.params.DynamicRangeProfiles.HLG10);
                 // P41b: on the Xiaomi logical camera the viewfinder (and a recording) is the logical camera's stream, zoomed and
                 // switched by the HAL as for the stock camera; the image readers stay the tele's physical streams
                 final boolean vivoLogicalStream = VivoQcomModes.wantsStreamUsage() && "2".equals(logicalID);
@@ -8464,6 +8486,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // P179: the plain session that shows the viewfinder while a 200 MP shot is merged holds a small ring (no shot is taken
         // then; the merge needs the memory)
         if (PixelPro10.fullResSuspended() || fullResMergeRunning()) return Math.min(SUSPENDED_RING, PreferenceKeys.getZslBufferCountValue());
+        // P646: the YUV route holds the camera's Images (12 MB, P010 24 MB each): its series after the shutter takes no ring frame
+        // (the ring only meters), its ZSL capture the route's own frames
+        final YuvMergeRoute.Session yuv = YuvMergeRoute.current();
+        if (yuv != null) return yuv.afterShutter ? SUSPENDED_RING
+                : Math.max(SUSPENDED_RING, Math.min(PreferenceKeys.getZslBufferCountValue(), Math.round(PreferenceKeys.hybridValue("yuv_frames", 6f)) + 2));
         // P578 (owner, 2026-11-09: up to 65 frames in the merge): the ring holds at least the merge's N, so a long merge is not cut
         // to the buffer's 50 (ZslRing.create still keeps it within the memory budget)
         return Math.max(PreferenceKeys.getZslBufferCountValue(), Math.min(100, PreferenceKeys.getHybridZslFrames()));
@@ -8530,22 +8557,19 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private volatile float mLastZslShadow = Float.NaN;
 
     /**
-     * P630e «Oldstyle»: the capture plan of the newest plain 16-bit ring frame (its RAW quads, black / white of the stream, the
-     * frame's white balance) through OldstyleAe.meter and the profile's rule (plan27 / plan31), the viewfinder's EV compensation in
-     * the candidates; null when no plain frame is there (a packed stream: the burst then at N, the tone meters the merge).
+     * P643d «ScamMaster»: the newest plain 16-bit ring frame as sw x sh linear RGB cells (each the mean of up to 3 x 3 of its RAW
+     * quads; black / white of the stream, the frame's white balance and lens shading map; 1 = the frame's white) over the part of
+     * the sensor the viewfinder shows (the zoom's crop, cut to the stream's aspect) - what the photo will be made of (P643: the
+     * photo mode's capture, at the viewfinder's exposure) - and the frame's colour matrix (white-balanced RGB to linear sRGB; null:
+     * none), for the tone preview's picture. Null when no plain frame is there (a packed stream: no preview of the tone).
      */
     @androidx.annotation.Nullable
-    private com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture meterOldstyle(long nNs, int nIso) {
-        return meterOldstyle(nNs, nIso, true);
-    }
-
-    @androidx.annotation.Nullable
-    private com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture meterOldstyle(long nNs, int nIso, boolean log) {
-        if (nNs <= 0 || nIso <= 0 || mCameraCharacteristics == null) return null;
+    private float[][] oldstyleFrame(int sw, int sh) {
+        if (mCameraCharacteristics == null) return null;
         try {
-            RingFrame newest = null;
-            CaptureResult meta = null;
             synchronized (mZslBufferLock) {
+                RingFrame newest = null;
+                CaptureResult meta = null;
                 int looked = 0;
                 for (java.util.Iterator<RingFrame> it = mZslRingBuffer.descendingIterator(); it.hasNext() && looked < 4; looked++) {
                     final RingFrame candidate = it.next();
@@ -8561,70 +8585,91 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 android.hardware.camera2.params.RggbChannelVector wb = meta == null ? null : meta.get(CaptureResult.COLOR_CORRECTION_GAINS);
                 final float[] gains = wb == null ? new float[]{1f, 1f, 1f}
                         : new float[]{wb.getRed(), (wb.getGreenEven() + wb.getGreenOdd()) * 0.5f, wb.getBlue()};
-                final int sw = 64, sh = 48;
-                final float[] rgb = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.bayerQuads(
-                        newest.buffer().duplicate().order(java.nio.ByteOrder.nativeOrder()).asShortBuffer(), newest.rowStride() / 2,
-                        newest.getWidth(), newest.getHeight(), cfa == null ? 0 : cfa, levels.black, levels.white, gains, sw, sh);
-                final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
-                // P630h: the rows of «Oldstyle Тон» in the meter and the rule (the light's percentile and target, the shadows,
-                // F's centre, «HDR» and its thresholds)
-                final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params tune =
-                        com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2);
-                final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Meter m =
-                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.meter(rgb, sw, sh, tune, 1f, true);
-                Integer comp = mPreviewRequestBuilder == null ? null : mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION);
-                android.util.Rational step = mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
-                final float ev = comp == null || step == null ? 0f : comp * step.floatValue();
-                final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c =
-                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.capture(m, tune, (double) nNs * nIso, ev);
-                c.meterRgb = rgb; // P630g: the samples, for the live tone's calibration on the module's own picture of them
-                c.meterW = sw;
-                c.meterH = sh;
-                if (log) Log.i("SCAM_CAPTURE", String.format(java.util.Locale.ROOT,
-                        "Oldstyle meter (%s): light %.3f%s geo %.4f mean %.4f -> %s (EV %+.2f, N %.3fms*ISO%d)", v2 ? "3.1" : "2.7",
-                        m.high, m.clipped ? " clipped" : "", m.geoMean, m.mean, c, ev, nNs / 1e6, nIso));
-                return c;
+                // the zoom: the crop region over the active array, and the zoom ratio round its centre
+                final Rect active = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                final Rect region = meta == null ? null : meta.get(CaptureResult.SCALER_CROP_REGION);
+                Float zoom = meta == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.R ? null : meta.get(CaptureResult.CONTROL_ZOOM_RATIO);
+                final float[] part = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.shownPart(
+                        active == null ? 0 : active.width(), active == null ? 0 : active.height(),
+                        region == null || active == null ? null : new int[]{region.left - active.left, region.top - active.top, region.width(), region.height()},
+                        zoom == null ? 1f : zoom);
+                final int fw = newest.getWidth(), fh = newest.getHeight(), stride = newest.rowStride() / 2;
+                final Size stream = mPreviewSize;
+                final float[] shown = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.shownPart(part, fw, fh, stream == null
+                        ? 0f : Math.max(stream.getWidth(), stream.getHeight()) / (float) Math.max(1, Math.min(stream.getWidth(), stream.getHeight())));
+                part[0] = shown[0];
+                part[1] = shown[1];
+                part[2] = shown[2];
+                part[3] = shown[3];
+                final int x0 = Math.min(fw - 16, Math.round(part[0] * fw)) & ~1, y0 = Math.min(fh - 16, Math.round(part[1] * fh)) & ~1;
+                final int cw = Math.max(16, Math.min(fw - x0, Math.round(part[2] * fw))) & ~1, ch = Math.max(16, Math.min(fh - y0, Math.round(part[3] * fh))) & ~1;
+                final java.nio.ShortBuffer all = newest.buffer().duplicate().order(java.nio.ByteOrder.nativeOrder()).asShortBuffer();
+                all.position(Math.max(0, y0) * stride + Math.max(0, x0));
+                final android.hardware.camera2.params.LensShadingMap map = meta == null
+                        || com.particlesdevs.photoncamera.processing.render.Parameters.rawShadingAlreadyApplied(lc == null ? mCameraCharacteristics : lc)
+                        ? null : meta.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP);
+                float[] lsc = null;
+                if (map != null && map.getColumnCount() > 1 && map.getRowCount() > 1) {
+                    lsc = new float[map.getGainFactorCount()];
+                    map.copyGainFactors(lsc, 0);
+                }
+                final float[] rgb = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.bayerBox(all.slice(), stride, cw, ch,
+                        cfa == null ? 0 : cfa, levels.black, levels.white, gains, sw, sh, 3, lsc, map == null ? 0 : map.getColumnCount(),
+                        map == null ? 0 : map.getRowCount(), x0, y0, fw, fh);
+                final android.hardware.camera2.params.ColorSpaceTransform cst = meta == null ? null : meta.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
+                float[] ccm = null;
+                if (cst != null) {
+                    ccm = new float[9];
+                    for (int i = 0; i < 9; i++) ccm[i] = cst.getElement(i % 3, i / 3).floatValue();
+                }
+                return new float[][]{rgb, ccm};
             }
         } catch (RuntimeException e) {
-            Log.w("SCAM_CAPTURE", "Oldstyle meter failed: the burst at N", e);
+            Log.w("SCAM_CAPTURE", "Oldstyle: the viewfinder's frame for the tone preview not read", e);
             return null;
         }
     }
 
-    /** P630e: the viewfinder's Oldstyle tone metered at most this often (the ring's newest frame). */
+    /** The tone preview's picture of the module at most this often (the ring's newest frame). */
     private static final long OLDSTYLE_VIEWFINDER_NS = 300_000_000L;
     private long mOldstyleMeterNs;
     private boolean mOldstyleToneLive;
 
     /**
-     * P630e «Oldstyle»: the viewfinder's base under the style - the version's tone (P630g: through OldstyleLive; the GLSL of
-     * utils/import_oldstyle_tone_live) at the gains of the same plan as the shot's, metered on the ring's newest frame (over its
-     * own TET: the ISP frame on the screen is that exposure); the version as the panel has it now (a V1 / V2 switch shows at once).
+     * P643d «ScamMaster»: the viewfinder's base under the style - the preview of the tone. The module itself draws the photo of the
+     * ring's newest frame (a 160 x 120 thumbnail of the shown part: the tone's own plan of that frame, the settings, the style's
+     * exposure, the frame's colour matrix - the photo is taken at this exposure, P643), and OldstyleLive carries the screen frame
+     * to that picture (its bilateral grid); the version and the settings as they are now (a V1 / V2 switch, a moved row show with
+     * the next picture). Nothing here touches the camera: the viewfinder's exposure is the photo mode's.
      */
     private void oldstyleViewfinder() {
         final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive live =
                 com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared();
         if (!com.particlesdevs.photoncamera.settings.OldstyleMode.on()) {
-            if (mOldstyleToneLive || live.wantsLevel()) live.off(); // whoever turned it on (another controller instance too)
+            if (mOldstyleToneLive || live.wantsScreen()) live.off(); // whoever turned it on (another controller instance too)
             mOldstyleToneLive = false;
             return;
         }
         final long now = android.os.SystemClock.elapsedRealtimeNanos();
         if (mOldstyleToneLive && now - mOldstyleMeterNs < OLDSTYLE_VIEWFINDER_NS) return;
         mOldstyleMeterNs = now;
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c = meterOldstyle(1, 1, false);
-        if (c == null) return;
+        mOldstyleToneLive = true;
         final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
-        // P630g: the plan goes to OldstyleLive, which puts it on the screen frame's own level (measured by the renderer), smoothed -
-        // never the RAW frame's gains on the ISP frame (the burnt-out viewfinder), never a plan before the level is known
         final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params =
                 com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2);
-        // P630h: the settings in the live tone - the tone curve's shape in its LUT, the rows of «Видоискатель» (off: no tone drawn)
-        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.curve(params.curveMid, params.curveContrast);
-        live.plan(System.nanoTime(), v2 ? 2 : 1, c, params,
-                params.vfTone ? com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.photoMean(c, params) : -1f,
-                params.vfTone ? com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.lut(v2 ? 2 : 1) : null);
-        mOldstyleToneLive = true;
+        if (!params.vfTone) {
+            live.off(); // «Тон в видоискателе» off: the photo mode's viewfinder under the style
+            return;
+        }
+        // as the shot's snapshot takes it (ShotLook.Oldstyle): the style's exposure before the tone
+        params.exposureEv = com.particlesdevs.photoncamera.settings.OldstyleMode.style().exposureEv();
+        // (the module's local tone depends a little on the frame's size: on the host a 160 x 120 picture's mean is within 7 % of
+        // the photo's, a 240 x 180 one no closer on every scene, at twice the cost - tools/check_oldstyle_live.py)
+        final int sw = 160, sh = 120;
+        final float[][] frame = oldstyleFrame(sw, sh);
+        if (frame == null) return; // no plain frame now: the last fit stays until it is stale (OldstyleLive.STALE_NS)
+        live.photo(System.nanoTime(), com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.photoRgb(frame[0], sw, sh, frame[1], params),
+                sw, sh, params);
     }
 
     private float zslClipFraction() {
@@ -8877,14 +8922,21 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             Allocator.binning = ScameraApp.getSettings().binning;
             // Deferred: the copy of ~20 RAWs (~200 ms) runs after the bracket is
             // submitted, in parallel with its exposure (startZslCopy).
-            ImageFrame frame = defer
+            // P646: a YUV ring frame keeps its colour planes (packed at its copy)
+            final boolean yuvFrame = com.particlesdevs.photoncamera.processing.yuv.YuvFrames.isYuv(format);
+            ImageFrame frame = defer || yuvFrame
                     ? ImageFrame.deferred(img, format, width, rowStride, offset, capacity)
                     : new ImageFrame(img.buffer(), format, width, rowStride, offset, capacity);
+            if (yuvFrame) {
+                com.particlesdevs.photoncamera.processing.yuv.YuvFrames.deferPack(frame, img, format);
+                if (!defer) frame.materialize();
+            }
             // P365: a frame unpacked into its ring slot on arrival keeps its stream's RAW10 / RAW12 (the post-shutter frames' layout)
             frame.timestamp = img.getTimestamp();frame.fromZsl=true;frame.sourceFormat=ZslRing.sourceFormat(img, format);
             frame.setCaptureMetadata(selectedMetadata.get(frame.timestamp));
             frame.width = ScameraApp.getSettings().binning ? width / 2 : width;
             frame.height = ScameraApp.getSettings().binning ? height / 2 : height;
+            if (yuvFrame) { frame.width = img.getWidth(); frame.height = img.getHeight(); } // the whole packed frame
             if (!defer) img.close();
             mExposures.put(frame.timestamp, frame.measuredExposure > 0 && frame.measuredIso > 0
                     ? frame.measuredExposure / 1e9 * frame.measuredIso : exposureProduct);
@@ -9765,6 +9817,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P315: not in an OPPO-family picked sensor mode (nothing is exposed after the shutter there: the ring at the
             // viewfinder's exposure)
             final boolean manualPsl = flash == null && scamHybridSelected && paramController.pslShutterNs() > 0 && SensorModePick.seriesAllowed();
+            // P646 «Склейка YUV»: a YUV session's series after the shutter (our curve, NR minimal, edge off, brackets) takes no ring
+            // frame; a YUV session from the ring (the camera's curve) takes no bracket
+            final YuvMergeRoute.Session yuvRoute = isRawFormat(mTargetFormat) ? null : YuvMergeRoute.current();
+            final boolean yuvAfter = flash == null && !manualPsl && yuvRoute != null && yuvRoute.afterShutter;
+            final boolean yuvRing = !isRawFormat(mTargetFormat) && !yuvAfter;
+            float[] yuvMeter = null;
+            if (yuvAfter) synchronized (mZslBufferLock) { yuvMeter = YuvMergeRoute.meter(mZslRingBuffer.peekLast()); }
+            final float[] yuvScene = yuvMeter;
             ScamStockAe.Plan planned;
             {
                 if(!hybridZslRequested)throw new IllegalStateException((scamHybridSelected?"Hybrid":"SCAM HDR")+Lang.t(" требует ZSL RAW-поток"," needs the ZSL RAW stream"));
@@ -9773,14 +9833,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 planned=hybridNPlan(manualPsl);
             }
             final ScamStockAe.Plan stockPlan=planned;
-            // P630e «Oldstyle»: one exposure for the whole burst, after the shutter (the ring is at the viewfinder's AE exposure, not
-            // the plan's): the newest ring frame metered first (before the ring is cleared), the burst then exposed at S / the SDR TET.
-            // A manual exposure keeps its own (N), a picked sensor mode that takes no series keeps the ring (SensorModePick).
-            final boolean oldstyleShot = flash == null && scamHybridSelected && com.particlesdevs.photoncamera.settings.OldstyleMode.on()
-                    && !com.particlesdevs.photoncamera.settings.MotionMode.on() && SensorModePick.seriesAllowed() && stockPlan != null;
-            final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture oldstyleCapture =
-                    oldstyleShot && !paramController.manualExposure() ? meterOldstyle(stockPlan.shutter(0), stockPlan.iso(0)) : null;
-            if (oldstyleShot && mShutterLook != null && mShutterLook.oldstyle != null) mShutterLook.oldstyle.capture = oldstyleCapture;
+            // P643 (owner: «Для Oldstyle убери своей AE, используй такой же как и у режима фото»): an Oldstyle shot has no branch
+            // of its own here - the photo mode's capture as it is (the ring at the viewfinder's exposure, the same plan, manual
+            // row, flash, sizes); what is the mode's is in the settings the plan reads: no ultrashort and no long frames
+            // (PreferenceKeys.noHdrFrames) and its own frame count when the row is set (getHybridZslFrames).
             // The capture route of this shot (P27: a SCAM HDR shot without an S/ES plan is captured and merged by the Hybrid).
             final boolean scamHybridShot=scamHybridSelected;
             final HybridPlan[] hybridPlanHolder={null};
@@ -9793,7 +9849,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             {
                 mLiveRawRouter.clear();
                 mNativeRawPslCapture=true;mZslCapturing=true;
-                if(!hybridZslRequested || manualPsl || oldstyleShot) synchronized(mZslBufferLock) {
+                if(!hybridZslRequested || manualPsl || yuvAfter) synchronized(mZslBufferLock) {
                     for(RingFrame image:mZslRingBuffer)image.close();
                     mZslRingBuffer.clear();mHexZslResults.clear();
                 }
@@ -9839,7 +9895,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P90 (owner: the viewfinder froze 0.7-0.8 s at every shot): as WhyCam and other stock cameras do, the series also feeds the viewfinder;
             // the renderer scales each series frame back to the viewfinder's exposure (ViewfinderGain), so nothing flashes.
             // scam_dev "series_viewfinder 0": RAW only, as before.
-            if (surface != null && mRepeatingIsp && !VivoPd2454NativeRaw.active(physicalID) && !mIspSurfaceOff
+            // P646: not the YUV route's series (its own tone curve would flash on the viewfinder)
+            if (surface != null && mRepeatingIsp && !VivoPd2454NativeRaw.active(physicalID) && !mIspSurfaceOff && !yuvAfter
                     // P626: a MAXIMUM_RESOLUTION still takes the RAW alone; P635: a recipe's still the viewfinder only as its companion
                     && (recipePlan != null ? recipePlan.viewfinderCompanion() : NubiaMaxResPlan.viewfinderInStill(nubiaPerShot()))
                     && PreferenceKeys.scamDevSwitch("series_viewfinder", true)) {
@@ -9921,9 +9978,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     mLiveRawRouter.clear();
                     mScamRouted = true;
                 }
-            } else if (manualPsl || oldstyleShot) {
+            } else if (manualPsl || yuvAfter) {
                 // as an empty ring: every frame after the shutter, the viewfinder keeps running, RAWs routed by their timestamp
-                // (P630e: Oldstyle's one exposure as well)
+                // (P646: the YUV route's series as well)
                 mHybridZslCapture = false;
                 mZslCapturing = true;
                 mPendingZslNormalFrames = new ArrayList<>();
@@ -9931,7 +9988,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     mLiveRawRouter.clear();
                     mScamRouted = true;
                 }
-                Log.i("SCAM_CAPTURE", oldstyleShot ? "Oldstyle: one exposure after the shutter, the ZSL ring is not used"
+                Log.i("SCAM_CAPTURE", yuvAfter ? "YUV MERGE: the series after the shutter (" + yuvRoute + "), the ZSL ring is not used"
                         : "manual shutter " + paramController.pslShutterNs() + " ns: PSL, the ZSL ring is not used");
             } else if (hybridZslRequested) {
                 // Block preview RAWs first. Do not route them into ImageSaver:
@@ -10072,27 +10129,25 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         // P113: «Движение» shoots from the ring alone, as the stock snapshot mode (no frames after the shutter)
                         plan=com.particlesdevs.photoncamera.settings.MotionMode.on() ? HybridPlan.zslOnly(nNs,nIso)
                                 : !SensorModePick.seriesAllowed() ? HybridPlan.zslOnly(nNs,nIso,SensorModePick.SERIES_REASON)
-                                // P627b: «Статика» merges the ring's N frames alone - nothing after the shutter
-                                : HybridPlan.staticMode() ? HybridPlan.zslOnly(nNs,nIso,HybridPlan.STATIC_REASON)
+                                // P646: YUV frames at the camera's curve: no bracket (its light cannot be compared)
+                                : yuvRing ? HybridPlan.zslOnly(nNs,nIso,"YUV merge from the ring, the camera's curve: no brackets (P646)")
                                 : HybridPlan.build(nNs,nIso,mLastZslClipFraction,mCameraCharacteristics,mExposureLimits);
                     } catch(RuntimeException noPlan) {
                         Log.w("SCAM_CAPTURE","hybrid plan unavailable ("+noPlan.getMessage()+"): one more N frame after the shutter");
                         plan=HybridPlan.single(nNs,nIso);
                     }
-                } else if(oldstyleShot) {
-                    // P630e: the burst at the plan's one exposure (no Bento, no Shasta), as many frames as the photo mode's ring gives
-                    try {
-                        // P630h: the rows of «Серия» (frames, the burst's longest capture, the shutter it may grow to)
-                        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params burst=
-                                com.particlesdevs.photoncamera.settings.OldstyleMode.params(com.particlesdevs.photoncamera.settings.OldstyleMode.v2());
-                        plan=HybridPlan.oldstyle(stockPlan.shutter(0),stockPlan.iso(0),oldstyleCapture,
-                                burst.burstFrames>0?burst.burstFrames:PreferenceKeys.getHybridZslFrames(),
-                                mCameraCharacteristics,mExposureLimits,manualPsl?0:HalMotion.motionCapNs(mPreviewCaptureResult),
-                                HybridPlan.oldstyleBurstNs(burst.burstSeconds),HybridPlan.oldstyleFloorNs(burst.shutterFloorMs));
-                    } catch(RuntimeException noPlan) {
-                        Log.w("SCAM_CAPTURE","Oldstyle plan unavailable ("+noPlan.getMessage()+"): one N frame after the shutter");
-                        plan=HybridPlan.single(stockPlan.shutter(0),stockPlan.iso(0));
-                    }
+                } else if(yuvAfter) {
+                    // P646: N + ES + L after the shutter at our curve (YuvMergePlan), from the viewfinder's metered exposure
+                    final CaptureResult metered=mPreviewCaptureResult;
+                    final Long mNs=metered==null?null:metered.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                    final Integer mIso=metered==null?null:metered.get(CaptureResult.SENSOR_SENSITIVITY);
+                    final long yNs=stockPlan!=null&&stockPlan.shutter(0)>0?stockPlan.shutter(0):mNs!=null?mNs:0;
+                    final int yIso=stockPlan!=null&&stockPlan.iso(0)>0?stockPlan.iso(0):mIso!=null?mIso:0;
+                    plan=YuvMergePlan.build(yNs,yIso,mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE),
+                            mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE),yuvScene[0],yuvScene[1],
+                            YuvMergePlan.Tuning.read(),com.particlesdevs.photoncamera.processing.yuv.YuvFrames.packedBytes(
+                                    mImageReaderRaw.getWidth(),mImageReaderRaw.getHeight(),yuvRoute.format==YuvMergeRoute.P010?10:8),
+                            yuvRoute.curve||yuvRoute.hlg);
                 } else {
                     plan=com.particlesdevs.photoncamera.settings.MotionMode.on()
                             ? HybridPlan.autoExposure(Math.min(4, PreferenceKeys.getHybridZslFrames()))
@@ -10146,6 +10201,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 if(recipePlan!=null&&recipePlan.recipe.fpsLow>0) captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
                         new android.util.Range<>(recipePlan.recipe.fpsLow,recipePlan.recipe.fpsHigh)); // P635
                 captureBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
+                // P646: the YUV route's series: our tone curve, the camera's noise reduction minimal, its sharpening off
+                if(yuvAfter) Log.i("SCAM_CAPTURE","YUV MERGE series controls: "+YuvMergeRoute.applyCaptureControls(captureBuilder,mCameraCharacteristics,yuvRoute));
                 long[] times=new long[plan.requests.size()];
                 for(int i=0;i<plan.requests.size();i++) {
                     HybridPlan.Request r=plan.requests.get(i);

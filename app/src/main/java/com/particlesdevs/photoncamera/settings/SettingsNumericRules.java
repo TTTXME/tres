@@ -70,7 +70,14 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_dn_chroma_floor": return new double[]{0,5,0};
             case "pref_scam_hybrid_dn_chroma_2x_keep": return new double[]{0,1,0};
             case "pref_scam_hybrid_zsl_frames": return new double[]{4,65,1};
-            case "pref_scam_hybrid_static_iters": return new double[]{4,16,1}; // P624 «Статика»: HQS iterations
+            // P646 «Склейка YUV»
+            case "pref_scam_hybrid_yuv_frames": return new double[]{2,12,1};
+            case "pref_scam_hybrid_yuv_search": return new double[]{8,128,1};
+            case "pref_scam_hybrid_yuv_local": return new double[]{1,12,1};
+            case "pref_scam_hybrid_yuv_threshold": return new double[]{0.5,3,0};
+            case "pref_scam_hybrid_yuv_es_ev": return new double[]{1,4,0};
+            case "pref_scam_hybrid_yuv_long_ev": return new double[]{0.5,3,0};
+            case "pref_scam_hybrid_yuv_deghost": return new double[]{1,6,0};
             // P190: frames of a FULLRES 50 MP shot (0 = as «Кадров в склейке») and of a 200 MP one (the owner's floor of 3)
             case "pref_scam_hybrid_fullres50_frames": return new double[]{0,65,1};
             case "pref_scam_hybrid_fullres200_frames": return new double[]{3,64,1};
@@ -206,8 +213,6 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_oldstyle_v1_ccm": return new double[]{0,1.5,0};
             case "pref_scam_hybrid_oldstyle_v1_lowfreq_strength": return new double[]{0,1,0};
             case "pref_scam_hybrid_oldstyle_burst_frames": return new double[]{0,40,1};
-            case "pref_scam_hybrid_oldstyle_burst_time": return new double[]{0.2,3,0};
-            case "pref_scam_hybrid_oldstyle_shutter_floor": return new double[]{2,125,0};
             case "pref_scam_hybrid_oldstyle_vf_ev": return new double[]{-1,1,0};
             case "pref_scam_hybrid_oldstyle_vf_match": return new double[]{0,1,0};
             case "pref_scam_hybrid_oldstyle_vf_smooth": return new double[]{0.05,2,0};

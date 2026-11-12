@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P646 «Склейка YUV»: the rows of the YUV merge in «Noise reduction and merge» (the lens switch is in the lens settings). -->
+<resources>
+    <string name="prefs_scam_hybrid_yuv_category_title">YUV merge</string>
+    <string name="prefs_scam_hybrid_yuv_capture_title">YUV: series frames</string>
+    <string name="prefs_scam_hybrid_yuv_capture_summary">After the shutter: the camera shoots the series with our own tone curve, its noise reduction at minimum and its sharpening off, so the frames can be brought back to linear light and the exposure brackets work; the photo then gets our tone, colour and sharpening. From the ZSL buffer: no shutter lag, but the frames carry the camera\'s own curve (an estimate is undone) and there are no brackets.</string>
+    <string name="prefs_scam_hybrid_yuv_frames_title">YUV: frames in the series</string>
+    <string name="prefs_scam_hybrid_yuv_frames_summary">Frames at the normal exposure that are merged. More: less noise, but longer and more memory (a 10-bit frame of 8 MP takes 24 MB); the count is cut to what fits in memory.</string>
+    <string name="prefs_scam_hybrid_yuv_10bit_title">YUV: 10 bit (P010, HLG)</string>
+    <string name="prefs_scam_hybrid_yuv_10bit_summary">Where the camera gives a 10-bit YUV stream at the photo size beside the normal viewfinder, the series is taken in 10 bits (HLG) and merged in 10 bits: smoother gradients and more highlight room. If the camera refuses the session, 8 bits are used and remembered for this camera.</string>
+    <string name="prefs_scam_hybrid_yuv_profile_title">YUV: threshold profile</string>
+    <string name="prefs_scam_hybrid_yuv_profile_summary">The order of the two multiplications of a pixel\'s threshold: 2.7 (the block threshold × the multiplier × the tile\'s scale) or 3.1 (the tile\'s scale × the multiplier × the block threshold). They differ only where a tile\'s scale was lowered, by a rounding of one level.</string>
+    <string name="prefs_scam_hybrid_yuv_threshold_title">YUV: merge threshold</string>
+    <string name="prefs_scam_hybrid_yuv_threshold_summary">How far a frame\'s pixel may differ from the base and still be merged, × the measured noise. Higher: less noise, more risk of ghosts on movement; lower: cleaner movement, more noise.</string>
+    <string name="prefs_scam_hybrid_yuv_search_title">YUV: shift search</string>
+    <string name="prefs_scam_hybrid_yuv_search_summary">How far (pixels) the whole frame may have moved between frames of the series. Larger finds stronger hand shake, takes a little longer.</string>
+    <string name="prefs_scam_hybrid_yuv_local_title">YUV: tile shift search</string>
+    <string name="prefs_scam_hybrid_yuv_local_summary">How far (pixels) each 32×32 tile may move on its own after the whole frame\'s shift: moving objects and rolling-shutter bends.</string>
+    <string name="prefs_scam_hybrid_yuv_chroma_check_title">YUV: tile colour check</string>
+    <string name="prefs_scam_hybrid_yuv_chroma_check_summary">A tile of a frame whose mean colour differs from the base\'s (a moving coloured object) is left out of the merge or weakened.</string>
+    <string name="prefs_scam_hybrid_yuv_own_noise_title">YUV: noise from the series</string>
+    <string name="prefs_scam_hybrid_yuv_own_noise_summary">The thresholds come from the noise measured on the series itself (flat areas of the frames against each other, by brightness). Off: from the camera\'s noise profile only, an estimate that does not know the camera\'s own processing.</string>
+    <string name="prefs_scam_hybrid_yuv_sharpest_title">YUV: sharpest base</string>
+    <string name="prefs_scam_hybrid_yuv_sharpest_summary">The sharpest frame of the series becomes the base the others are merged onto (less blur from hand shake). Off: the first frame.</string>
+    <string name="prefs_scam_hybrid_yuv_guided_chroma_title">YUV: colour by brightness</string>
+    <string name="prefs_scam_hybrid_yuv_guided_chroma_summary">The frames carry colour at half resolution (4:2:0); the merged colour is brought to full resolution following the brightness edges instead of 2-pixel steps.</string>
+    <string name="prefs_scam_hybrid_yuv_bracket_title">YUV: exposure brackets</string>
+    <string name="prefs_scam_hybrid_yuv_bracket_summary">Where the scene needs them, short frames (for the highlights) and a long one (for the shadows) are added to the series and merged in linear light. A pixel takes such a frame only where it agrees with the base (no ghosts) and the base is not clipped. Only with frames after the shutter.</string>
+    <string name="prefs_scam_hybrid_yuv_es_ev_title">YUV: short frames, EV</string>
+    <string name="prefs_scam_hybrid_yuv_es_ev_summary">How much darker the highlight frames are than the normal exposure (3 EV: 1/8).</string>
+    <string name="prefs_scam_hybrid_yuv_long_ev_title">YUV: long frame, EV</string>
+    <string name="prefs_scam_hybrid_yuv_long_ev_summary">How much brighter the shadow frame is (2 EV: ×4); the gain rises first, the shutter only up to a hand-held limit.</string>
+    <string name="prefs_scam_hybrid_yuv_deghost_title">YUV: ghost protection</string>
+    <string name="prefs_scam_hybrid_yuv_deghost_summary">How close (× the noise) a bracket frame\'s pixel must be to the base to be used. Lower: safer on movement, fewer pixels gain from the bracket.</string>
+    <string-array name="scam_hybrid_yuv_capture_entries">
+        <item>After the shutter (our curve, brackets)</item>
+        <item>From the ZSL buffer (camera\'s curve)</item>
+    </string-array>
+    <string-array name="scam_hybrid_yuv_capture_values" translatable="false">
+        <item>after</item>
+        <item>zsl</item>
+    </string-array>
+    <string-array name="scam_hybrid_yuv_profile_entries">
+        <item>3.1</item>
+        <item>2.7</item>
+    </string-array>
+    <string-array name="scam_hybrid_yuv_profile_values" translatable="false">
+        <item>31</item>
+        <item>27</item>
+    </string-array>
+</resources>

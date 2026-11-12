@@ -57,7 +57,8 @@ import static org.junit.Assert.assertFalse;
  * настройками тонмапинга»): the main page with «Шумоподавление и склейка» right under «Режим обработки», and the group's page with
  * each mode chosen, drawn at 390 x 844 px (mdpi) in Russian and English into build/reports/dnmerge-settings/
  * (&lt;lang&gt;_&lt;mode&gt;_&lt;page&gt;_NN.png). The rows only another mode's merge reads are greyed and still shown; the mode
- * switched (on the main page, or elsewhere while the group's page is open) greys or wakes them in place.
+ * switched (on the main page, or elsewhere while the group's page is open) greys or wakes them in place. P644: two modes («Статика»,
+ * its group and rows gone); the checks of «Быстрый» and «Качество» as before.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, qualifiers = "ru-w390dp-h844dp-mdpi")
@@ -147,12 +148,12 @@ public class DnMergeSettingsShotsTest {
 
     /** The rows of each route as the group's page shows them with {@code mode} chosen. */
     private static void assertRoutes(SettingsActivity.SettingsFragment page, String mode) {
-        final boolean fast = mode.equals("fast"), quality = mode.equals("quality"), stat = mode.equals("static");
+        final boolean fast = mode.equals("fast"), quality = mode.equals("quality");
         // every mode: the denoise, the frames, Quad / Tetra
         for (String key : new String[]{"pref_scam_hybrid_denoise", "pref_scam_hybrid_why_ms_chroma", "pref_scam_hybrid_zsl_frames",
                 "scam_hybrid_motion_screen", "scam_hybrid_mosaic_screen"})
             assertTrue(mode + " " + key, enabled(page.findPreference(key)));
-        // «Качество»'s rows and groups: greyed (still shown) with the other two
+        // «Качество»'s rows and groups: greyed (still shown) with «Быстрый»
         for (String key : new String[]{"pref_scam_hybrid_cdm", "pref_scam_hybrid_local_align", "pref_scam_hybrid_mochi",
                 "pref_scam_hybrid_sabre61", "pref_scam_hybrid_kernel"}) {
             assertEquals(mode + " " + key, quality, enabled(page.findPreference(key)));
@@ -163,15 +164,14 @@ public class DnMergeSettingsShotsTest {
             assertEquals(mode + " " + group, quality, SettingsStyle.restingAlpha(page.findPreference(group)) == 1f);
             assertTrue(group, page.findPreference(group).isVisible());
         }
-        // the kernel's footprints: «Быстрый» and «Качество»
-        assertEquals(mode, !stat, enabled(page.findPreference("pref_scam_hybrid_kernel_texture")));
-        // «Статика»'s rows
-        for (String key : new String[]{"pref_scam_hybrid_static_sr", "pref_scam_hybrid_static_iters"})
-            assertEquals(mode + " " + key, stat, enabled(page.findPreference(key)));
-        assertEquals(mode, stat, SettingsStyle.restingAlpha(page.findPreference("scam_hybrid_static_category")) == 1f);
+        // the kernel's footprints: «Быстрый» and «Качество» both read them
+        assertTrue(mode, enabled(page.findPreference("pref_scam_hybrid_kernel_texture")));
+        // P644: «Статика»'s group and rows are gone
+        for (String key : new String[]{"scam_hybrid_static_category", "pref_scam_hybrid_static_sr", "pref_scam_hybrid_static_iters"})
+            assertNull(mode + " " + key, page.findPreference(key));
         for (String group : new String[]{"scam_hybrid_nr_merge_category", "scam_hybrid_merge_frames_category", "scam_hybrid_merge_kernel_category"})
             assertEquals(mode + " " + group, 1f, SettingsStyle.restingAlpha(page.findPreference(group)), 0f);
-        assertTrue(fast || quality || stat);
+        assertTrue(fast || quality);
     }
 
     /** The main page's top and the group's page with {@code mode} chosen. */
@@ -213,15 +213,16 @@ public class DnMergeSettingsShotsTest {
             assertRoutes(page, "quality");
             Preference cdm = page.findPreference("pref_scam_hybrid_cdm");
             // the shade or another window sets it while the page is open
-            prefs.edit().putString(MODE, "static").commit();
+            prefs.edit().putString(MODE, "fast").commit();
             idleFor(100);
             assertFalse("greyed at once", enabled(cdm));
-            assertRoutes(page, "static");
-            ((LinearLayoutManager) page.getListView().getLayoutManager()).scrollToPositionWithOffset(position(page, "scam_hybrid_static_category"), 0);
-            shot(activity, lang + "_flip_to_static");
-            prefs.edit().putString(MODE, "fast").commit();
-            idleFor(400);
             assertRoutes(page, "fast");
+            ((LinearLayoutManager) page.getListView().getLayoutManager()).scrollToPositionWithOffset(position(page, "scam_hybrid_merge_align_category"), 0);
+            shot(activity, lang + "_flip_to_fast");
+            prefs.edit().putString(MODE, "quality").commit();
+            idleFor(400);
+            assertTrue("woken at once", enabled(cdm));
+            assertRoutes(page, "quality");
             activity.getSupportFragmentManager().popBackStackImmediate();
             idleFor(600);
             // back on the main page: the group's row as before (never greyed: every mode reads rows of it)
@@ -230,13 +231,13 @@ public class DnMergeSettingsShotsTest {
     }
 
     @Test public void denoiseAndMergeEveryModeRu() throws Exception {
-        for (String mode : new String[]{"fast", "quality", "static"}) drawAll("ru", mode);
+        for (String mode : new String[]{"fast", "quality"}) drawAll("ru", mode);
         followsTheSwitch("ru");
     }
 
     @Test @Config(qualifiers = "en-w390dp-h844dp-mdpi")
     public void denoiseAndMergeEveryModeEn() throws Exception {
-        for (String mode : new String[]{"fast", "quality", "static"}) drawAll("en", mode);
+        for (String mode : new String[]{"fast", "quality"}) drawAll("en", mode);
         followsTheSwitch("en");
     }
 }

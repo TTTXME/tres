@@ -98,6 +98,42 @@ public class SettingsAuditFixTest {
         prefs.edit().putString("pref_cfa_key","3").commit();assertEquals(3,PreferenceKeys.getCFAValue());
     }
 
+    /**
+     * P644 (owner, 2026-11-12: «полностью вырежи "Статику"»): «Режим обработки» lost «Статика»: a stored one becomes «Качество» in
+     * the main settings, every module profile and the baseline (each its own copy), its two rows go with their stored values and
+     * shade tiles, «Быстрый» / «Качество» stay as chosen (P627), and a second run changes nothing.
+     */
+    @Test public void staticProcessingBecomesQualityEverywhere() {
+        ListPreference mode=inflate().findPreference("pref_scam_hybrid_processing");
+        assertNotNull(mode);
+        assertEquals(Arrays.asList("fast","quality"),Arrays.asList(Arrays.stream(mode.getEntryValues()).map(CharSequence::toString).toArray()));
+        assertEquals(mode.getEntryValues().length,mode.getEntries().length);
+        SharedPreferences[] module=profiles();
+        prefs.edit().putString("pref_scam_hybrid_processing","static").putString("pref_scam_hybrid_static_sr","2x")
+                .putString("pref_scam_hybrid_static_iters","12").putString("pref_scam_hybrid_cdm","0.11")
+                .putString(ShadeTiles.KEY,ShadeTiles.join(Arrays.asList("pref_scam_hybrid_static_iters","pref_scam_hybrid_processing"))).commit();
+        module[0].edit().clear().putString("pref_scam_hybrid_processing","static").putString("pref_scam_hybrid_static_iters","6").commit();
+        module[1].edit().clear().putString("pref_scam_hybrid_processing","fast").commit();
+        module[2].edit().clear().putString("pref_scam_hybrid_processing","quality").putString("pref_scam_hybrid_static_sr","1.5x").commit();
+        SettingsMigration.removeObsolete(context,prefs);
+        assertEquals("quality",prefs.getString("pref_scam_hybrid_processing",""));
+        assertEquals("quality",module[0].getString("pref_scam_hybrid_processing",""));
+        assertEquals("«Быстрый» stays «Быстрый»","fast",module[1].getString("pref_scam_hybrid_processing",""));
+        assertEquals("quality",module[2].getString("pref_scam_hybrid_processing",""));
+        for(SharedPreferences p:new SharedPreferences[]{prefs,module[0],module[1],module[2]})
+            for(String key:p.getAll().keySet())assertFalse(key,key.startsWith("pref_scam_hybrid_static_"));
+        assertEquals("the other rows stay","0.11",prefs.getString("pref_scam_hybrid_cdm",""));
+        assertEquals(ShadeTiles.join(Collections.singletonList("pref_scam_hybrid_processing")),prefs.getString(ShadeTiles.KEY,""));
+        for(SharedPreferences p:new SharedPreferences[]{prefs,module[0],module[1],module[2]})
+            assertFalse("a second run changes nothing",SettingsMigration.removeObsolete(p));
+        assertEquals("quality",PreferenceKeys.processingMode());
+        assertFalse(PreferenceKeys.fastProcessing());
+        // a backup restored with «Статика» goes through the same pass (BackupRestoreUtil.migrate)
+        prefs.edit().putString("pref_scam_hybrid_processing","static").commit();
+        assertTrue(SettingsMigration.removeObsolete(prefs));
+        assertEquals("quality",prefs.getString("pref_scam_hybrid_processing",""));
+    }
+
     /** The per-module exposure limits (ISO / shutter / balance) were read by nothing: their stored values are dropped. */
     @Test public void sensorExposureLimitsAreDropped() {
         prefs.edit().putString("pref_sensorconfig_back0_exposurebalanceisolimit","800")

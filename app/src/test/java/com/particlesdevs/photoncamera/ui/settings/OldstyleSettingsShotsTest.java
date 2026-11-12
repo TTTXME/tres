@@ -200,7 +200,8 @@ public class OldstyleSettingsShotsTest {
             SettingsActivity.SettingsFragment group = shown(activity);
             Preference reset = group.findPreference(com.particlesdevs.photoncamera.settings.OldstyleMode.RESET);
             assertTrue(enabled(reset));
-            assertEquals("Сбросить Oldstyle", String.valueOf(reset.getTitle()));
+            // P643c (owner: «Так же переименуй Oldstyle в ScamMaster»): the mode's visible name
+            assertEquals("Сбросить ScamMaster", String.valueOf(reset.getTitle()));
             reset.performClick();
             idleFor(400);
             // the confirmation is up and nothing is reset before it is answered

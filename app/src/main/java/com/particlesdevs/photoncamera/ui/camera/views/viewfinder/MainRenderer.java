@@ -371,8 +371,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glUniform1i(mirror, mMirrorPreview ? 1 : 0);
 
         GLES20.glUniform1f(uGain, mFrameGain);
-        // P630g: the tone's state of this draw (the plan over this frame's measured level; null: not ready - no tone)
-        final float[] liveTone = readyTone(0f);
+        // P643d: the tone preview's grid of this draw (null: off or not ready - the frame as it is)
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.Grid liveTone = readyTone();
         oldstyleUniforms(uOsOn, uOsAdjust, liveTone != null);
         oldstyleTone(uOtTone, liveTone);
         mLensFilter.apply();
@@ -385,8 +385,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         // blank, and re-bind this program afterwards since the meter uses its
         // own. Only runs on one frame in eight.
         // P82: while the manual panel's software shutter / ISO priority needs the viewfinder's brightness
-        // P630g: or while the Oldstyle live tone follows this frame's level (more often: the series frames of a shot)
-        final boolean toneLevel = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared().wantsLevel();
+        // P643b: or while the Oldstyle tone preview follows this frame's lumas (more often: the series frames of a shot)
+        final boolean toneLevel = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared().wantsScreen();
         if (toneLevel || com.particlesdevs.photoncamera.manual.SceneLuma.wanted()) {
             if (toneLevel) mSceneMeter.measure(pVertex, pTexCoord, hTex[0], LiveSceneMeter.LIVE_TONE_FRAMES, mFrameGain);
             else mSceneMeter.measure(pVertex, pTexCoord, hTex[0]);
@@ -631,10 +631,10 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glUniform1i(mirror2d, 0);
         GLES20.glUniform1f(uGain2d, 1f);
         GLES20.glUniform2f(resolution2d, rawW, rawH);
-        // P630g: the developed-RAW frame is not measured: the plan over the level a developed frame is assumed to have
-        final float[] tone = readyTone(com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.ISP_LINEAR_MEAN);
-        oldstyleUniforms(uOsOn2d, uOsAdjust2d, tone != null);
-        oldstyleTone(uOtTone2d, tone);
+        // P643d: the grid maps the ISP's frame (fitted on LiveSceneMeter's tile of it): the developed-RAW frame is another input
+        // (our own development, its own tone and colour) - no grid for it, the frame as it is under the style
+        oldstyleUniforms(uOsOn2d, uOsAdjust2d, false);
+        oldstyleTone(uOtTone2d, null);
         mRawLensFilter.apply();
         pVertex.position(0);
         GLES20.glEnableVertexAttribArray(vPosition2d);
@@ -704,89 +704,100 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
     static final String OLDSTYLE_TONE_MARKER = "//#oldstyle_tone";
 
     /**
-     * P630e «Oldstyle»: the viewfinder's base under the style - the version's tone (1 V1, 2 V2, 0 off) at the plan's two gains
-     * (CaptureController.oldstyleViewfinder: the shot's plan metered on the ring's newest frame). The style's «Экспозиция» acts
-     * here, before the tone, as on the photo (both gains times 2^EV; the style's own exposure then 0: oldstyleUniforms).
+     * P643d «ScamMaster»: the viewfinder's base under the style - the preview of the tone: OldstyleLive's bilateral grid (the ISP
+     * frame carried to the module's own picture of the viewfinder's frame; the GLSL of utils/import_oldstyle_tone_live). The style's
+     * «Экспозиция» is in the module's picture (CaptureController.oldstyleViewfinder), so the style's own exposure is 0 on the screen
+     * while the preview is drawn (oldstyleUniforms).
      */
-    private static volatile float[] sOldstyleTone;
     private int[] uOtTone = {-1, -1, -1}, uOtTone2d = {-1, -1, -1};
     /**
-     * P630f (owner, 2026-11-12, OPPO PHY110: «После первого снимка или включения лога чёрный экран»): the tone's LUT texture of the
-     * GL context in use. The renderer outlives its context (the gallery after a shot, the settings and back: a new context, log
-     * «GLPreview: viewfinder GPU priority» again), the texture does not - but its name and version were kept, so the LUT was never
-     * uploaded again: the sampler read a texture with no image, every colour of the tone came out 0, a black viewfinder while the
-     * mode was on (VF_DRAW still 30 fps). Forgotten with the context ({@link #contextLost}, onSurfaceCreated).
+     * P630f (owner, 2026-11-12, OPPO PHY110: «После первого снимка или включения лога чёрный экран»): the tone's texture of the GL
+     * context in use. The renderer outlives its context (the gallery after a shot, the settings and back: a new context), the
+     * texture does not - its name kept from the old context read as a texture with no image, a black viewfinder while the mode
+     * was on. Forgotten with the context ({@link #contextLost}, onSurfaceCreated); P643d: with it the grid's generation it holds,
+     * so a new context uploads the grid again.
      */
     static final class ToneLut {
-        int texture, version;
+        int texture, generation = Integer.MIN_VALUE;
 
-        /** The texture of {@code version} is uploaded in this context. */
-        boolean ready(int version) {
-            return texture != 0 && this.version == version;
+        /** A texture of this context is there. */
+        boolean ready() {
+            return texture != 0;
         }
 
-        void uploaded(int texture, int version) {
+        void created(int texture) {
             this.texture = texture;
-            this.version = version;
+            generation = Integer.MIN_VALUE;
         }
 
         /** A new GL context: nothing of the old one is there. */
         void contextLost() {
             texture = 0;
-            version = 0;
+            generation = Integer.MIN_VALUE;
         }
     }
 
     private final ToneLut mToneLut = new ToneLut();
-    /** The texture unit of the tone's LUT (units of their own: the frame 0, uLut 1, the lens filter's 2 / 3; {@link #samplerUnit}). */
+    /** The texture unit of the tone's grid (units of their own: the frame 0, uLut 1, the lens filter's 2 / 3; {@link #samplerUnit}). */
     static final int OT_LUT_UNIT = 13;
-
-    public static void setOldstyleTone(int version, float gainShort, float gainLong, boolean hdr) {
-        sOldstyleTone = version <= 0 ? null : new float[]{version, gainShort, gainLong, hdr ? 1f : 0f};
-    }
-
-    /** The live tone now: {version, gain short, gain long, hdr} or null (off). */
-    public static float[] oldstyleTone() {
-        final float[] t = sOldstyleTone;
-        return t == null ? null : t.clone();
-    }
-
-    /** The live tone's gains with the style's exposure (its uniform u[2], ±1 = ±1.5 EV): {short, long}. */
-    static float[] toneGains(float[] tone, float[] style) {
-        final float k = style != null && style.length > 2 ? (float) Math.pow(2.0, 1.5 * style[2]) : 1f;
-        return new float[]{tone[1] * k, tone[2] * k};
-    }
+    /** The grid's texture: GX texels across, (3 rows x GL bins x GY) down (OldstyleLive.index). */
+    static final int OT_TEX_W = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.GX,
+            OT_TEX_H = 3 * com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.GL
+                    * com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.GY;
 
     private static int[] locateTone(int program) {
-        return new int[]{GLES20.glGetUniformLocation(program, "uOtOn"), GLES20.glGetUniformLocation(program, "uOt"),
-                GLES20.glGetUniformLocation(program, "uOtLut")};
+        return new int[]{GLES20.glGetUniformLocation(program, "uOtOn"), GLES20.glGetUniformLocation(program, "uOtLut"),
+                GLES20.glGetUniformLocation(program, "uOtLevel")};
     }
 
     /**
-     * P630g: the tone to draw this frame with - {version, gain short, gain long, hdr}: a state set by hand
-     * ({@link #setOldstyleTone}), else OldstyleLive's (the shot's plan over the frame's level: measured, or {@code assumedLevel}
-     * when > 0); null: off or not ready (no plan yet, no level yet) - the frame as it is, never a half-made tone.
+     * P643d: the grid to draw this frame with (OldstyleLive.grid; its coefficients only when the texture of this context does not
+     * hold its generation yet), null: off or not ready (no fit yet, the module's picture or the frame's tile stale) - the frame as
+     * it is, never a half-made tone.
      */
-    static float[] toneNow(float assumedLevel) {
-        final float[] fixed = sOldstyleTone;
-        if (fixed != null) return fixed;
-        return com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared().gains(System.nanoTime(), assumedLevel);
+    com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.Grid toneNow() {
+        return com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.shared().grid(System.nanoTime(),
+                mToneLut.ready() ? mToneLut.generation : Integer.MIN_VALUE);
     }
 
-    /** {@link #toneNow} with its version's LUT uploaded in this context (null without the library: no tone). */
-    private float[] readyTone(float assumedLevel) {
-        final float[] t = toneNow(assumedLevel);
-        return t != null && toneLut((int) t[0]) ? t : null;
+    /** {@link #toneNow} in this context's texture (uploaded when it is a new generation); null: no tone this draw. */
+    private com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.Grid readyTone() {
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.Grid g = toneNow();
+        if (g == null) return null;
+        if (g.coefficients == null && mToneLut.ready() && mToneLut.generation == g.generation) return g;
+        if (g.coefficients == null) return null;
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + OT_LUT_UNIT);
+        if (!mToneLut.ready()) {
+            final int[] t = new int[1];
+            GLES20.glGenTextures(1, t, 0);
+            if (t[0] == 0) {
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                return null;
+            }
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0]);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            mToneLut.created(t[0]);
+        }
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mToneLut.texture);
+        // RGBA16F (filterable in ES 3.0) from floats
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4);
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F, OT_TEX_W, OT_TEX_H, 0, GLES20.GL_RGBA, GLES20.GL_FLOAT,
+                ByteBuffer.allocateDirect(g.coefficients.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().put(g.coefficients).position(0));
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        mToneLut.generation = g.generation;
+        return g;
     }
 
-    private void oldstyleTone(int[] l, float[] t) {
-        // P631b: the LUT's sampler on its own unit with the tone off too - left at its default 0 it shared the unit of the
+    private void oldstyleTone(int[] l, com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.Grid g) {
+        // P631b: the grid's sampler on its own unit with the tone off too - left at its default 0 it shared the unit of the
         // camera's external frame (two sampler types on one unit: every draw of this program failed, GL_INVALID_OPERATION)
-        if (l[2] >= 0) GLES20.glUniform1i(l[2], OT_LUT_UNIT);
-        if (l[0] >= 0) GLES20.glUniform1i(l[0], t == null ? 0 : (int) t[0]);
-        if (t == null) return;
-        final float[] g = toneGains(t, sOldstyle);
-        if (l[1] >= 0) GLES20.glUniform4f(l[1], g[0], g[1], t[3], t.length > 4 ? t[4] : 1f); // P630g: + the white boost
+        if (l[1] >= 0) GLES20.glUniform1i(l[1], OT_LUT_UNIT);
+        if (l[0] >= 0) GLES20.glUniform1i(l[0], g != null ? 1 : 0);
+        if (g == null) return;
+        if (l[2] >= 0) GLES20.glUniform1f(l[2], g.level);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + OT_LUT_UNIT);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mToneLut.texture);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
@@ -866,32 +877,6 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                 Log.w("MainRenderer", "viewfinder sampler " + name + " has no unit of its own in MainRenderer.samplerUnit: spare unit " + unit);
             if (location >= 0) gl.unit(location, unit);
         }
-    }
-
-    /** The version's LUT texture (OldstyleNative.previewLut, made once per version on this GL thread); false: no library. */
-    private boolean toneLut(int version) {
-        // P630h: the LUT is OldstyleLive's (the settings' tone curve in it); its key is another when the version or the curve is
-        final int key = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.lutKey(version);
-        if (mToneLut.ready(key)) return true;
-        final byte[] lut = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleLive.lut(version);
-        if (lut == null) return false;
-        int texture = mToneLut.texture;
-        if (texture == 0) {
-            final int[] t = new int[1];
-            GLES20.glGenTextures(1, t, 0);
-            texture = t[0];
-        }
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + OT_LUT_UNIT);
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 1024, 1, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE,
-                java.nio.ByteBuffer.wrap(lut));
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        mToneLut.uploaded(texture, key);
-        return true;
     }
 
     /** P630c: the style's four vec4 (uOs0..uOs3, OldstyleStyle.uniforms). */

@@ -22,6 +22,13 @@ import com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle;
 public final class OldstyleMode {
     private OldstyleMode() {}
 
+    /**
+     * P643c (owner, 2026-11-12: «Так же переименуй Oldstyle в ScamMaster»): the mode's name wherever a user reads it (the mode
+     * switch, the tone's rows and their hints in the resources, toasts, dialogs, the greyed rows' reasons, the developer keys'
+     * descriptions). The preference keys, scam_dev keys, classes, shaders, the library and the log lines keep "oldstyle": stored
+     * settings, tooling and the greps of past logs depend on them.
+     */
+    public static final String NAME = "ScamMaster";
     public static final String PREF = "pref_oldstyle_mode";
     /** The tone version of the mode (module-local as every tone row): "v1" (2.7) or "v2" (3.1). */
     public static final String VERSION = "pref_scam_hybrid_oldstyle_version";
@@ -194,8 +201,6 @@ public final class OldstyleMode {
         p.lfChroma = s.flag("oldstyle_v1_lowfreq_chroma", p.lfChroma);
         // «Серия»
         p.burstFrames = Math.round(value(s, "oldstyle_burst_frames", p.burstFrames));
-        p.burstSeconds = value(s, "oldstyle_burst_time", p.burstSeconds);
-        p.shutterFloorMs = value(s, "oldstyle_shutter_floor", p.shutterFloorMs);
         // «Видоискатель»
         p.vfTone = s.flag("oldstyle_vf_tone", p.vfTone);
         p.vfEv = value(s, "oldstyle_vf_ev", p.vfEv);
@@ -231,7 +236,6 @@ public final class OldstyleMode {
     static {
         STEPS.put("oldstyle_fusion_base", 0.0001f);
         STEPS.put("oldstyle_v1_hdr_max", 0.01f);
-        STEPS.put("oldstyle_shutter_floor", 0.1f);
     }
 
     /** V2: the pyramid of a full frame (10 levels) or of a postview (8): pref_scam_hybrid_oldstyle_v2_levels. */
@@ -253,7 +257,7 @@ public final class OldstyleMode {
             K + "out_vibrance_per_stop",
             // P630h
             K + "hdr", K + "ev", K + "highlight_target", K + "highlight_percentile", K + "shadow_ev", K + "center", K + "fusion_base",
-            K + "curve_mid", K + "curve_contrast", K + "burst_frames", K + "burst_time", K + "shutter_floor",
+            K + "curve_mid", K + "curve_contrast", K + "burst_frames",
             K + "vf_tone", K + "vf_ev", K + "vf_match", K + "vf_smooth"};
     /** P630h: the group's sub-categories, in the page's order. */
     public static final String[] CATEGORIES = {"oldstyle_exposure_category", "oldstyle_curve_category", "oldstyle_colour_category",

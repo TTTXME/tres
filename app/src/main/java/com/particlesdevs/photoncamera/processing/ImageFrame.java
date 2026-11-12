@@ -21,6 +21,11 @@ public class ImageFrame {
      * Ultra tele in in-sensor zoom alternates RAW10 and RAW14 frames; one merge takes frames of one layout only.
      */
     public int sourceFormat;
+    /** P646 «Склейка YUV»: bits of a YUV frame's packed planar samples (8, 10; 0: a RAW frame), and the session's HLG10 stream. */
+    public int yuvBits;
+    public boolean yuvHlg;
+    /** P646: packs a deferred YUV ring frame's three planes at its copy (null: the RAW copy of plane 0). */
+    public java.util.function.Supplier<ByteBuffer> yuvPacker;
     /** SCAM: L exposure ratio for an L built from the ZSL N frames (0 = L was captured). */
     public float syntheticLongRatio = 0;
     public int width, height;
@@ -265,6 +270,10 @@ public class ImageFrame {
     public synchronized void materialize() {
         if (pendingImage == null) return;
         try {
+            if (yuvPacker != null) { // P646: a YUV ring frame keeps its colour planes (packed planar)
+                buffer = yuvPacker.get();
+                return;
+            }
             // P91: a plain RAW16 ring frame in the ring's memfd goes to the worker as it is: one more view of its slot (pinned until
             // the merge frees it), no copy after the press
             final long[] slot = pendingImage.arenaSlot();

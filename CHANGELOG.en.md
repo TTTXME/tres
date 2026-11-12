@@ -2,6 +2,24 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-12 — YUV merge
+
+- A new merge for cameras without RAW: a series of YUV frames with brackets, our tone and colour; switched on in the lens settings, on by default on the vivo X200 Pro's front camera. Waits for a check on the phone.
+- Before, a shot of such a camera was not saved at all.
+
+## 2026-11-12 — «Static» removed
+
+- The «Static» processing mode is removed: «Fast» and «Quality» remain; a chosen «Static» became «Quality».
+
+## 2026-11-12 — A faster gallery
+
+- The gallery (from the home screen too) shows the photos at once instead of waiting for the search for other cameras' RAWs: they join afterwards without the grid jumping.
+
+## 2026-11-12 — ScamMaster
+
+- Oldstyle is renamed ScamMaster; it shoots at the «Photo» exposure, the tone is 2.7 / 3.1.
+- The viewfinder has no burn-out, blotches or violet shadows and shows the tone and colour of the photo to come.
+
 ## 2026-11-12 — Speed
 
 - «Static» processes a shot several times faster, and the viewfinder no longer freezes meanwhile.

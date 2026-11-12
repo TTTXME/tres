@@ -29,7 +29,7 @@ vec2 osUv, osPx, osPy;
 vec3 osShift;
 #define OS_TAP(off) (LF_SAMPLE(osUv + (off).x * osPx + (off).y * osPy) + osShift)
 //#oldstyle_adjust
-// P630e: the Oldstyle version's tone under the style (MainRenderer splices utils/import_oldstyle_tone_live.glsl; uOtOn 0 off)
+// P643d: the preview of the ScamMaster tone under the style (MainRenderer splices utils/import_oldstyle_tone_live.glsl; uOtOn 0 off)
 //#oldstyle_tone
 void main() {
     vec2 uv = texCoord.xy;
@@ -40,7 +40,7 @@ void main() {
     vec4 frame = texture(sTexture, uv);
     vec4 color = frame;
     if (uGain != 1.0) color.rgb = pow(clamp(pow(max(color.rgb, 0.0), vec3(2.2)) * uGain, 0.0, 1.0), vec3(1.0 / 2.2));
-    if (uOtOn > 0) color.rgb = oldstyleToneLive(uv, color.rgb, px, py, resolution);
+    if (uOtOn > 0) color.rgb = oldstyleToneLive(uv, color.rgb);
     color.rgb = lensFilter(uv, color.rgb, px, -py, resolution);
     if (uLutOn == 1) {
         vec3 lc = (clamp((clamp(color.rgb, 0.0, 1.0) - uLutMin) * uLutScale, 0.0, 1.0) * (uLutSize - 1.0) + 0.5) / uLutSize;

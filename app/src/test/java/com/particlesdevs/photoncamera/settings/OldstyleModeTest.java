@@ -141,7 +141,6 @@ public class OldstyleModeTest {
         assertEquals(0f, shot.params.outSat, 0f);
         assertEquals(1f, shot.params.vibrance, 0f);
         assertEquals(st.exposureEv(), shot.params.exposureEv, 0f);
-        assertNull(shot.capture);
         OldstyleMode.setV2(true);
         shot = ShotLook.Oldstyle.now();
         assertTrue(shot.v2);
@@ -163,6 +162,60 @@ public class OldstyleModeTest {
         OldstyleMode.resetStyle();
         assertTrue(OldstyleMode.style().neutral());
         assertFalse(shot.style.neutral());
+    }
+
+    /**
+     * P643 (owner: «Для Oldstyle убери своей AE, используй такой же как и у режима фото»): the mode has no capture of its own.
+     * What it still sets is read where the photo mode reads it: no ultrashort and no long frames (its series is one exposure, as
+     * the HDR tile off gives it - the plan, the worker's tuning and the frame counts all ask PreferenceKeys.noHdrFrames), and the
+     * frame count when the row «Кадров в серии» is set (0: the photo mode's). The shot's snapshot carries no exposure plan.
+     */
+    @Test public void theCaptureIsThePhotoModesWithItsBracketsOff() throws Exception {
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_bento", "2");
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_shasta", true);
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_zsl_frames", "12");
+        OldstyleMode.select(OldstyleMode.Mode.PHOTO, prefs);
+        assertFalse(PreferenceKeys.noHdrFrames());
+        assertEquals(2f, PreferenceKeys.hybridValue("bento", 0f), 0f);
+        assertTrue(PreferenceKeys.hybridSwitch("shasta", false));
+        assertEquals(12, PreferenceKeys.getHybridZslFrames());
+        OldstyleMode.select(OldstyleMode.Mode.OLDSTYLE, prefs);
+        assertTrue(PreferenceKeys.noHdrFrames());
+        assertEquals(0f, PreferenceKeys.hybridValue("bento", 2f), 0f);
+        assertFalse(PreferenceKeys.hybridSwitch("shasta", true));
+        assertTrue(PreferenceKeys.hybridTuningText().contains("bento 0.0"));
+        assertEquals("the plan takes no ultrashort frame", 0, com.particlesdevs.photoncamera.capture.HybridPlan.bentoMode());
+        assertFalse("and no long one", com.particlesdevs.photoncamera.capture.HybridPlan.shastaEnabled());
+        assertEquals("«Кадров в серии» 0: the photo mode's count", 12, PreferenceKeys.getHybridZslFrames());
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_oldstyle_burst_frames", "9");
+        assertEquals(9, PreferenceKeys.getHybridZslFrames());
+        assertEquals(9, OldstyleMode.params(false).burstFrames);
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_oldstyle_burst_frames", "2");
+        assertEquals("within the photo mode's 4 .. 65", 4, PreferenceKeys.getHybridZslFrames());
+        // the rows of the mode's own capture are gone: a value stored under them is read by nobody
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_oldstyle_burst_time", "3");
+        manager.set(SettingsManager.SCOPE_GLOBAL, "pref_scam_hybrid_oldstyle_shutter_floor", "125");
+        final String xml = new String(Files.readAllBytes(Paths.get("src/main/res/xml/preferences.xml")), StandardCharsets.UTF_8);
+        assertFalse(xml.contains("oldstyle_burst_time") || xml.contains("oldstyle_shutter_floor"));
+        for (java.lang.reflect.Field f : com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params.class.getFields())
+            assertFalse(f.getName(), f.getName().equals("burstSeconds") || f.getName().equals("shutterFloorMs"));
+        // back in «Фото»: its own count and brackets again, the Oldstyle row not read
+        OldstyleMode.select(OldstyleMode.Mode.PHOTO, prefs);
+        assertEquals(12, PreferenceKeys.getHybridZslFrames());
+        assertFalse(PreferenceKeys.noHdrFrames());
+        assertEquals(2, com.particlesdevs.photoncamera.capture.HybridPlan.bentoMode());
+        assertTrue(com.particlesdevs.photoncamera.capture.HybridPlan.shastaEnabled());
+        // the controller has no branch for the mode at the shot, and nothing of the tone's plan reaches the capture
+        final String controller = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/com/particlesdevs/photoncamera/capture/CaptureController.java")), StandardCharsets.UTF_8);
+        for (String gone : new String[]{"oldstyleShot", "meterOldstyle", "HybridPlan.oldstyle", "OldstyleAe.Capture", "OldstyleAe.meter("})
+            assertFalse(gone, controller.contains(gone));
+        final String plan = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/com/particlesdevs/photoncamera/capture/HybridPlan.java")), StandardCharsets.UTF_8);
+        for (String gone : new String[]{"HybridPlan oldstyle(", "oldstyleCap", "oldstyleFrames", "OLDSTYLE_", "factorise(", "flickerDown("})
+            assertFalse(gone, plan.contains(gone));
+        assertTrue(plan.contains("static boolean oneExposure() {") && plan.contains("|| com.particlesdevs.photoncamera.settings.OldstyleMode.on();"));
+        for (java.lang.reflect.Field f : ShotLook.Oldstyle.class.getFields()) assertFalse(f.getName(), f.getName().equals("capture"));
     }
 
     private static SettingsAvailability with(String version) {

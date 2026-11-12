@@ -33,9 +33,10 @@ int main() {
     assert(d.fastLightFill == 1.f && d.usWeakHom == 1 && d.usClipVote == 1);
     // P613: the merge's strip guard on by default; the app's "hybrid_strip_guard 0" sends stripGuard 0
     assert(d.stripGuard == 1);
-    // P634: the Tetra pack on by default; the app's "hybrid_tetra3 0" sends the four values of before
+    // P634: the Tetra pack on by default; the app's "hybrid_tetra3 0" sends the values of before (P644: «Статика»'s three gone
+    // with the route)
     assert(d.fastTetraPost == 1 && d.fastTetraClipNotch == 1 && d.fastTetraAlongEdgeK == 3.f);
-    assert(d.normalWeakHom == 1 && d.normalWeakHomRms == 1.2f && d.staticBlockTol == 0.005f && d.staticBlockMotionMax == 0.017f);
+    assert(d.normalWeakHom == 1 && d.normalWeakHomRms == 1.2f);
 
     const char* tmp = std::getenv("TMPDIR");
     std::string tmpl = std::string(tmp && *tmp ? tmp : "/tmp") + "/hybrid-neutral-XXXXXX";
@@ -43,7 +44,7 @@ int main() {
     if (!mkdtemp(dir)) { std::perror("mkdtemp"); return 1; }
     {
         std::ofstream f(std::string(dir) + "/hybrid_tuning.txt");
-        f << "baseDemosaicNeutral 0\nwbR 0.4787\nwbB 0.6535\nfastQuadFlatNoise 0\nfastQuadLineFrames 0\nbaseDemosaicQuadRadius 2.2\nfastQuadCone 0\nmosaicQuadFine 0\nmosaicQuadTexture 1\nfastFlowPick 0\nfastLightFill 0\nusWeakHom 0\nusClipVote 0\nstripGuard 0\nfastTetraPost 0\nfastTetraClipNotch 0\nnormalWeakHom 0\nstaticBlockTol 0\nstaticLatticeLines 0\nstaticDetailLattice 0\n";
+        f << "baseDemosaicNeutral 0\nwbR 0.4787\nwbB 0.6535\nfastQuadFlatNoise 0\nfastQuadLineFrames 0\nbaseDemosaicQuadRadius 2.2\nfastQuadCone 0\nmosaicQuadFine 0\nmosaicQuadTexture 1\nfastFlowPick 0\nfastLightFill 0\nusWeakHom 0\nusClipVote 0\nstripGuard 0\nfastTetraPost 0\nfastTetraClipNotch 0\nnormalWeakHom 0\n";
     }
     const HybridTuning t = loadHybridTuning(dir, [](const std::string&) {});
     assert(t.baseDemosaicNeutral == 0.f && t.wbR == 0.4787f && t.wbB == 0.6535f);
@@ -51,7 +52,7 @@ int main() {
     assert(t.fastFlowPick == 0);
     assert(t.fastLightFill == 0.f && t.usWeakHom == 0 && t.usClipVote == 0);
     assert(t.stripGuard == 0);
-    assert(t.fastTetraPost == 0 && t.fastTetraClipNotch == 0 && t.normalWeakHom == 0 && t.staticBlockTol == 0.f && t.staticLatticeLines == 0 && t.staticDetailLattice == 0);
+    assert(t.fastTetraPost == 0 && t.fastTetraClipNotch == 0 && t.normalWeakHom == 0);
     std::remove((std::string(dir) + "/hybrid_tuning.txt").c_str());
     rmdir(dir);
 

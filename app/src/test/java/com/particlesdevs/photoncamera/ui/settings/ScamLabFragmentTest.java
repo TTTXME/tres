@@ -137,9 +137,9 @@ public class ScamLabFragmentTest {
                 H + "shasta_sharpness", H + "shasta_max_ratio", H + "lut_sigma", H + "bento_factor", H + "shasta_ev",
                 // the denoise engine and the Resolve rows (P443; the SCAM 9.6 tables left the menu)
                 H + "resolve_speckle_strength", H + "why_dn_factor", H + "why_dn_luma_revert", H + "why_dn_motion_revert", H + "why_dn_grain",
-                // P629: «Шумоподавление и склейка» - the pyramid denoise, the merge, «Статика», Quad / Tetra
+                // P629: «Шумоподавление и склейка» - the pyramid denoise, the merge, Quad / Tetra (P644: «Статика»'s rows gone)
                 H + "why_hl_soft", H + "why_v2_hr_amount", H + "why_bracket_denoise", H + "why_hr_room", H + "why_delta_chroma",   // P629b
-                H + "why_ms_chroma", H + "zsl_frames", H + "cdm", H + "kernel_texture", H + "static_sr", H + "static_iters", H + "mosaic_path", H + "mochi",
+                H + "why_ms_chroma", H + "zsl_frames", H + "cdm", H + "kernel_texture", H + "mosaic_path", H + "mochi",
                 // «Движение», the noise model, the photo size
                 H + "mm_boost_value", H + "mm_bento", H + "mm_shutter", H + "noise_photon", "pref_noise_model_profile_key",
                 H + "downsampler", H + "auto2x", H + "output", "pref_crop_upscale",
@@ -147,6 +147,8 @@ public class ScamLabFragmentTest {
                 H + "colour_warmth", H + "why_agx_sat", H + "colour_tint", "pref_color_method_key", FilmSim.GRAIN_KEY,
                 LensFilters.KEY, "pref_film_lut", H + "colour_mono", "pref_portrait_enabled", "pref_portrait_skin_warmth"})
             assertTrue(key, offered.contains(key));
+        // P644: the lab offers no row of the removed «Статика»
+        for (String gone : new String[]{H + "static_sr", H + "static_iters"}) assertFalse(gone, offered.contains(gone));
         // a fixed-at-the-shot entry is a row the lab shows (none left unreachable)
         for (String key : ScamLabFragment.AT_SHOT) assertTrue("AT_SHOT " + key, offered.contains(key));
         // and every row offered has its control

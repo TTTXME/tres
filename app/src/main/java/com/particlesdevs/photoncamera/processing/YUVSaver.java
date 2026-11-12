@@ -3,29 +3,22 @@ package com.particlesdevs.photoncamera.processing;
 import android.media.Image;
 import com.particlesdevs.photoncamera.util.Log;
 
-import com.particlesdevs.photoncamera.app.ScameraApp;
-
-public class YUVSaver extends DefaultSaver{
+/**
+ * P646 «Склейка YUV»: the frames of a YUV session's shot (a camera without RAW, or a lens with «Склейка YUV» on) are kept as the
+ * RAW16Saver keeps RAWs - packed planar copies (processing/yuv/YuvFrames) - and merged by ScamProcessor's YUV route. Before P646
+ * this saver dropped every frame ("YUV: Single Frame, Not Processed!") and ScamProcessor skipped the format: no photo at all.
+ */
+public class YUVSaver extends DefaultSaver {
     private static final String TAG = "YUVSaver";
     public YUVSaver(ProcessingEventsListener processingEventsListener) {
         super(processingEventsListener);
     }
 
     public void addImage(Image image) {
-        Log.d(TAG, "start buffersize:" + IMAGE_BUFFER.size());
-        IMAGE_BUFFER.add(getFrame(image));
-        if (IMAGE_BUFFER.size() == ScameraApp.getCaptureController().mMeasuredFrameCnt && ScameraApp.getSettings().frameCount != 1) {
-
-//            scamProcessor.start(dngFile, jpgFile, IMAGE_BUFFER, mImage.getFormat(),
-//                        CaptureController.mCameraCharacteristics, CaptureController.mCaptureResult,
-//                        () -> clearImageReader(mReader));
-
-            IMAGE_BUFFER.clear();
-        }
-        if (ScameraApp.getSettings().frameCount == 1) {
-            IMAGE_BUFFER.clear();
-            processingEventsListener.onProcessingFinished("YUV: Single Frame, Not Processed!");
-
-        }
+        Log.d(TAG, "start buffer size:" + IMAGE_BUFFER.size());
+        final ImageFrame frame = getFrame(image);
+        if (frame != null) IMAGE_BUFFER.add(frame);
+        image.close();
+        bufferLock = false;
     }
 }

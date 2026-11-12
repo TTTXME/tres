@@ -265,25 +265,12 @@ public class ScamHybridBurstAnyResolutionTest {
         assertTrue(failure.getMessage(), failure.getMessage().contains("not enough available memory"));
     }
 
+    /** P644: with «Статика» gone (its own alarm-based wait, P627c / P639) every hybrid merge waits by this one rule. */
     @Test public void theWorkerWaitGrowsOnlyAbove16Megapixels() {
         assertEquals(900, ScamHybridBurst.workerTimeoutSeconds(4080, 3060));
         assertEquals(900, ScamHybridBurst.workerTimeoutSeconds(4000, 4000));
         assertEquals(2810, ScamHybridBurst.workerTimeoutSeconds(8160, 6120));
         assertEquals(3600, ScamHybridBurst.workerTimeoutSeconds(15000, 11900));
-    }
-
-    /**
-     * P627c: «Статика» waits by its own alarm (840 s per 12 MP, x4 on its CPU transcription, at most 3540) + 60 s, never below the
-     * other routes' wait; the other modes as before.
-     */
-    @Test public void theStaticMergeWaitsByItsOwnAlarm() {
-        assertEquals(900, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, false, false));
-        // P639: the worker's alarm is 300 s per 12 MP on a GPU, 1200 s on the CPU; it re-arms itself with the CPU's when it steps
-        // down mid-shot, so the app waits for the CPU's on either backend
-        assertEquals(1308, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, false));     // 12.5 MP: the CPU's alarm 1248 + 60
-        assertEquals(1308, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, true));
-        assertEquals(3600, ScamHybridBurst.workerTimeoutSeconds(8160, 6120, true, false));     // 50 MP: the 3540 cap + 60 (other modes 2810)
-        assertEquals(3600, ScamHybridBurst.workerTimeoutSeconds(16320, 12240, true, false));   // 200 MP: the 3540 cap + 60
     }
 
     /**

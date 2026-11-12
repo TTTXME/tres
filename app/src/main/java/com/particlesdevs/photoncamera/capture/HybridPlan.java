@@ -152,26 +152,23 @@ public final class HybridPlan {
         this.nShutterNs = nShutterNs; this.nIso = nIso; this.description = description;
     }
 
-    /**
-     * P627b (owner, 2026-11-11: «Да, отключи брекетинг при Статике»): «Режим обработки» «Статика» merges the burst's N frames
-     * only (the static merge reads no ultrashort / bracketed frame), so none is shot: the ZSL shot takes the ring alone
-     * (CaptureController: zslOnly with {@link #STATIC_REASON}), a plan built after the shutter has no Bento and no Shasta. The
-     * sensor mode, the N frames' exposure and their count are unchanged.
-     */
-    public static boolean staticMode() {
-        try { return PreferenceKeys.staticProcessing(); } catch (RuntimeException e) { return false; }
-    }
-    public static final String STATIC_REASON = "«Статика»: the ring's N frames only, no ultrashort / bracketed frames";
-
     /** Preferences of the plan: the hybrid's own pref_scam_hybrid_* (scam_dev.txt "hybrid_<key>" overrides), never SCAM HDR's. */
-    public static boolean shastaEnabled() { return !com.particlesdevs.photoncamera.settings.MotionMode.on() && PreferenceKeys.hdrFrames() && PreferenceKeys.hybridSwitch("shasta", true); } // P494
+    /**
+     * P643: «Oldstyle» takes the photo mode's plan with the bracketed frames off (its series is one exposure) - here, beside «Спорт»
+     * and the HDR tile, where the plan decides whether there are any.
+     */
+    static boolean oneExposure() {
+        return com.particlesdevs.photoncamera.settings.MotionMode.on() || !PreferenceKeys.hdrFrames()
+                || com.particlesdevs.photoncamera.settings.OldstyleMode.on();
+    }
+    public static boolean shastaEnabled() { return !oneExposure() && PreferenceKeys.hybridSwitch("shasta", true); } // P494
     /** P313 (owner, 2026-10-21: «длинных достаточно 2-3, 5 не нужны»): at most 3, a stored 4 or 5 takes 3. */
     public static int bracketCount() { return Math.max(0, Math.min(3, Math.round(PreferenceKeys.hybridValue("shasta_frames", 3f)))); }
     /** P68: Shasta "always": the frames are taken whatever their ratio to N (above 1.2) and merged unless they moved (worker). */
     public static boolean shastaForced() { return PreferenceKeys.getHybridShastaMode() == 2; }
     public static double bracketEv() { return Math.max(1, Math.min(4, PreferenceKeys.hybridValue("shasta_ev", 1f))); }
     /** 0 off, 1 auto (needs clipping in the buffered frame), 2 force. */
-    public static int bentoMode() { return com.particlesdevs.photoncamera.settings.MotionMode.on() || !PreferenceKeys.hdrFrames() ? 0 // P494
+    public static int bentoMode() { return oneExposure() ? 0 // P494
             : Math.max(0, Math.min(2, Math.round(PreferenceKeys.hybridValue("bento", 2f)))); }
     /** Ultrashort exposure = N / factor; SCAM ultrashort_tet_factor 8 (default). */
     public static double ultrashortFactor() { return Math.max(2, Math.min(16, PreferenceKeys.hybridValue("bento_factor", 8f))); }
@@ -240,8 +237,7 @@ public final class HybridPlan {
         // auto (its forced Bento ran on masks of 0.001-0.01 % of the frame: ~130 ms a shot with nothing to replace)
         // P79: the Redmi Note 11 Pro as well (3 of its 17 frames went through every GPU pass with weight 0: "would fall back: not
         // enough clipping" in each of the owner's shots).
-        final boolean still = staticMode(); // P627b: «Статика» - no Bento, no Shasta
-        final int bento = still ? 0 : bentoMode() == 2 && (dcg || DeviceDefaults.pixel7() || DeviceDefaults.redmiNote11Pro()) ? 1 : bentoMode();
+        final int bento = bentoMode() == 2 && (dcg || DeviceDefaults.pixel7() || DeviceDefaults.redmiNote11Pro()) ? 1 : bentoMode();
         if (bento == 2 || (bento == 1 && clipFraction > bentoTriggerClip())) {
             final double factor = ultrashortFactor(), target = n / factor;
             final int floor = gainFloorAtN ? Math.max(isos.getLower(), nIso) : isos.getLower();
@@ -251,11 +247,11 @@ public final class HybridPlan {
             if (ratio < 0.5) for (int i = bentoFrames(); i > 0; i--) out.add(new Request(ImageFrame.CaptureRole.EXTRA_SHORT, ns, iso, ratio));
             else why.append(" us skipped (sensor floor)");
             if (gainFloorAtN) why.append(" DCG: ultrashort by the shutter");
-        } else why.append(still ? " «Статика»: no ultrashort" : bento == 0 ? " bento off" : String.format(Locale.ROOT, " no clipping (%.4f)%s", clipFraction,
+        } else why.append(bento == 0 ? " bento off" : String.format(Locale.ROOT, " no clipping (%.4f)%s", clipFraction,
                 dcg ? " DCG: highlights kept in the frame" : ""));
         // Bracketed (Shasta): gain first at the N shutter (no extra motion blur), the shutter lengthens only beyond the sensor's
         // gain range, within the handheld cap. Never for DCG (above): its high-gain read holds the shadows.
-        final int count = shastaEnabled() && !dcg && !still ? bracketCountFor(bracketCount()) : 0;
+        final int count = shastaEnabled() && !dcg ? bracketCountFor(bracketCount()) : 0;
         if (count > 0) {
             // P409: deep shadows in the buffered frame: +2 EV (the frames' light first from the shutter, below)
             final boolean deep = shastaDeep() && sDeepShadow >= DEEP_SHADOW_SHARE;
@@ -280,7 +276,7 @@ public final class HybridPlan {
             else if (ratio < 1.2) why.append(String.format(Locale.ROOT, " brackets skipped (ratio %.2f)", ratio));
             else for (int i = 0; i < count; i++) out.add(new Request(ImageFrame.CaptureRole.LONG, ns, iso, ratio));
             if (sMotionCapNs > 0) why.append(String.format(Locale.ROOT, " HAL motion: shutter cap %.1fms", handheldCap(nShutterNs, sMotionCapNs) / 1e6));
-        } else why.append(still ? " «Статика»: no bracketed frames" : dcg ? " DCG: no shasta" : " shasta off");
+        } else why.append(dcg ? " DCG: no shasta" : " shasta off");
         // Nothing to add after the shutter: one more frame at N keeps the capture path uniform.
         if (out.isEmpty()) out.add(new Request(ImageFrame.CaptureRole.NORMAL, nShutterNs, nIso, 1.0));
         String description = String.format(Locale.ROOT, "hybrid plan: N=%.3fms*ISO%d clip=%.4f requests=%s%s",
@@ -416,123 +412,6 @@ public final class HybridPlan {
         return new Range<>(r.getLower(), Math.max(r.getLower(), cap));
     }
 
-    /**
-     * P630e «Oldstyle» (owner / coordinator, 2026-11-12: «capture like the originals - one exposure for the whole burst»): {@code frames}
-     * N frames after the shutter, all at one exposure, no ultrashort (Bento) and no bracketed (Shasta) frames - the tone makes the
-     * long exposure digitally from the merge (OldstyleAe: fusion_gains over the frames' actual TET). The exposure is the capture plan's
-     * ({@code capture}, the viewfinder's frame metered before the shot: S with HDR, else the SDR TET L*), or N as it is without one
-     * (a manual exposure, no meterable frame). Factorised as time x gain within the sensor's ranges: the shutter first, up to the
-     * burst's cap ({@link #oldstyleCap}), at whole flicker periods once it is one or longer, then the gain; what the ISO range
-     * cannot give stays missing (the tone's gains read the frames' actual TET). The sensor mode is the session's.
-     * <p>
-     * P630f (owner's log, OPPO PHY110, 2026-11-12, a room: «N=9.988ms*ISO4935 ... -> 20 x 120.000ms*ISO1184»): the shutter went up to
-     * the 125 ms cap of the bracketed frames - those are few and pass a sharpness gate, this is the whole burst, hand-held: twenty
-     * 120 ms frames, 2.4 s of exposure, every one smeared. The burst's shutter now stays at the viewfinder's own (the HAL's AE
-     * chose it for the hand) or 1/60 s when that is shorter, and the frame count fits {@link #OLDSTYLE_BURST_NS} of capture
-     * ({@link #oldstyleFrames}); that scene: 20 x 10 ms at the sensor's highest ISO up to 14 200.
-     */
-    public static HybridPlan oldstyle(long nShutterNs, int nIso, @androidx.annotation.Nullable
-            com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture capture, int frames,
-            CameraCharacteristics characteristics, ExposureLimits limits, long motionCapNs) {
-        return oldstyle(nShutterNs, nIso, capture, frames, characteristics, limits, motionCapNs, OLDSTYLE_BURST_NS, BRACKET_SAFE_SHUTTER_NS);
-    }
-
-    /**
-     * P630h: the Oldstyle burst with the rows of «Серия»: {@code burstNs} its longest capture ({@link #OLDSTYLE_BURST_NS}),
-     * {@code floorNs} the shutter a frame may grow to when the viewfinder's is shorter ({@link #BRACKET_SAFE_SHUTTER_NS}, 1/60 s).
-     */
-    public static HybridPlan oldstyle(long nShutterNs, int nIso, @androidx.annotation.Nullable
-            com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture capture, int frames,
-            CameraCharacteristics characteristics, ExposureLimits limits, long motionCapNs, long burstNs, long floorNs) {
-        Range<Long> times = capped(characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE), limits == null ? Long.MAX_VALUE : limits.shutterCap());
-        Range<Integer> isos = capped(characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE), limits == null ? Integer.MAX_VALUE : limits.isoCap());
-        if (times == null || isos == null || nShutterNs <= 0 || nIso <= 0)
-            throw new IllegalStateException(Lang.t("Oldstyle: нет экспозиции превью или диапазонов сенсора", "Oldstyle: no preview exposure or sensor ranges"));
-        final double n = (double) nShutterNs * nIso;
-        final double target = capture != null && capture.frameTet > 0 && Double.isFinite(capture.frameTet) ? capture.frameTet : n;
-        // P630f: without a capture plan the exposure is N's own shutter and ISO (a hand-set exposure is not re-split into another
-        // shutter of the same TET), within the sensor's ranges
-        final long[] f = capture == null
-                ? new long[]{Math.max(times.getLower(), Math.min(times.getUpper(), nShutterNs)), Math.max(isos.getLower(), Math.min(isos.getUpper(), nIso))}
-                : factorise(target, times, isos, oldstyleCap(nShutterNs, motionCapNs, floorNs), nShutterNs);
-        final long ns = f[0];
-        final int iso = (int) f[1];
-        final double ratio = (double) ns * iso / n;
-        final List<Request> out = new ArrayList<>();
-        for (int i = oldstyleFrames(frames, ns, burstNs); i > 0; i--) out.add(new Request(ImageFrame.CaptureRole.NORMAL, ns, iso, ratio));
-        final String description = String.format(Locale.ROOT,
-                "hybrid plan: Oldstyle one exposure N=%.3fms*ISO%d %s -> %d x %.3fms*ISO%d (TET x%.3f of N, %.3f of the plan's), no Bento / Shasta",
-                nShutterNs / 1e6, nIso, capture != null ? capture.toString() : "no capture plan (N as it is)", out.size(), ns / 1e6, iso,
-                ratio, (double) ns * iso / target);
-        return new HybridPlan(out, ns, iso, description);
-    }
-
-    /** P630h: the row's milliseconds as the shutter floor; at its default (1/60 s) exactly {@link #BRACKET_SAFE_SHUTTER_NS}. */
-    public static long oldstyleFloorNs(float ms) {
-        if (!(ms > 0f) || Math.abs(ms - 1000f / 60f) < 0.05f) return BRACKET_SAFE_SHUTTER_NS;
-        return Math.round(ms * 1e6);
-    }
-
-    /** P630h: the row's seconds as the burst's longest capture, to the millisecond (0.7 s is exactly {@link #OLDSTYLE_BURST_NS}). */
-    public static long oldstyleBurstNs(float seconds) {
-        return seconds > 0f && Float.isFinite(seconds) ? Math.round(seconds * 1000.0) * 1_000_000L : OLDSTYLE_BURST_NS;
-    }
-
-    /** P630f: the longest capture of an Oldstyle burst, a frame's shortest period in it (30 fps) and the fewest frames it takes. */
-    static final long OLDSTYLE_BURST_NS = 700_000_000L, OLDSTYLE_FRAME_NS = 33_333_333L;
-    static final int OLDSTYLE_MIN_FRAMES = 4;
-
-    /**
-     * P630f: the shutter cap of the Oldstyle burst - every frame of it is hand-held and merged, so no longer than the viewfinder's
-     * own shutter, or {@link #BRACKET_SAFE_SHUTTER_NS} (1/60 s; less under the HAL's motion cap) when that is shorter.
-     */
-    static long oldstyleCap(long nShutterNs, long motionCapNs) {
-        return oldstyleCap(nShutterNs, motionCapNs, BRACKET_SAFE_SHUTTER_NS);
-    }
-
-    /** P630h: {@link #oldstyleCap(long, long)} with the row «Удлинять выдержку до» in place of 1/60 s. */
-    static long oldstyleCap(long nShutterNs, long motionCapNs, long floorNs) {
-        long cap = floorNs > 0 ? floorNs : BRACKET_SAFE_SHUTTER_NS;
-        if (motionCapNs > 0) cap = Math.min(cap, motionCapNs);
-        return Math.max(nShutterNs, cap);
-    }
-
-    /**
-     * P630f: the frames of an Oldstyle burst at {@code shutterNs}: {@code wanted} (the photo mode's ring count) while they fit
-     * {@link #OLDSTYLE_BURST_NS} of capture, never fewer than {@link #OLDSTYLE_MIN_FRAMES} (or {@code wanted} when that is fewer).
-     */
-    static int oldstyleFrames(int wanted, long shutterNs) {
-        return oldstyleFrames(wanted, shutterNs, OLDSTYLE_BURST_NS);
-    }
-
-    /** P630h: the row «Самая долгая серия» in place of 0.7 s. */
-    static int oldstyleFrames(int wanted, long shutterNs, long burstNs) {
-        final int want = Math.max(1, wanted);
-        final long fit = (burstNs > 0 ? burstNs : OLDSTYLE_BURST_NS) / Math.max(shutterNs, OLDSTYLE_FRAME_NS);
-        return (int) Math.max(Math.min(want, OLDSTYLE_MIN_FRAMES), Math.min(want, fit));
-    }
-
-    /**
-     * P630e: {time, ISO} of a TET {@code target} (ns x ISO): the shutter first at the lowest ISO, up to {@code capNs} (not below
-     * the sensor's shortest), down to whole flicker periods once it is one or longer, then the ISO (rounded, within its range).
-     */
-    static long[] factorise(double target, Range<Long> times, Range<Integer> isos, long capNs, long nShutterNs) {
-        final long upper = Math.max(times.getLower(), Math.min(times.getUpper(), capNs));
-        long ns = Math.max(times.getLower(), Math.min(upper, Math.round(target / isos.getLower())));
-        ns = Math.max(times.getLower(), flickerDown(ns));
-        final int iso = (int) Math.max(isos.getLower(), Math.min(isos.getUpper(), Math.round(target / ns)));
-        return new long[]{ns, iso};
-    }
-
-    /** P630e: a shutter of a whole flicker period or more down to whole periods (pref_antibanding_hz_key; none: as it is). */
-    static long flickerDown(long ns) {
-        int hz;
-        try { hz = PreferenceKeys.getAntibandingHz(); } catch (RuntimeException e) { hz = 0; }
-        if (hz <= 0) return ns;
-        final long period = Math.round(1e9 / hz);
-        return ns < period ? ns : ns / period * period;
-    }
-
     /** P27: one N frame after the shutter, the plan when Bento / Shasta cannot be planned. */
     /**
      * P113 «Движение» (owner, 2026-10-13: «не могу снять быстро подряд например 5 фото … таким же быстрым как моментальный
@@ -540,6 +419,11 @@ public final class HybridPlan {
      * buffer as well). No HAL flush, lead or AE restore frame, no series to wait for: the shot is complete at the press and the
      * shutter is free for the next one.
      */
+    /** P646: a plan built elsewhere (YuvMergePlan: the YUV merge's series after the shutter). */
+    static HybridPlan of(List<Request> requests, long nShutterNs, int nIso, String description) {
+        return new HybridPlan(new ArrayList<>(requests), nShutterNs, nIso, description);
+    }
+
     public static HybridPlan zslOnly(long nShutterNs, int nIso) {
         return zslOnly(nShutterNs, nIso, "Sport mode: nothing after the shutter");
     }

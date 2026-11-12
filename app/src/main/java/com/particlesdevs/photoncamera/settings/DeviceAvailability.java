@@ -27,7 +27,8 @@ public final class DeviceAvailability {
                 .oppoTunedColor(com.particlesdevs.photoncamera.processing.render.OppoTunedColor.applies())
                 .mosaicStreams(com.particlesdevs.photoncamera.processing.MosaicBlockStore.anyMosaic())
                 .bentoBlend(bentoBlend())
-                .dcg(dcgOn());
+                .dcg(dcgOn())
+                .yuvMerge(com.particlesdevs.photoncamera.capture.YuvMergeRoute.activeOn(values)); // P646: the current module's lens
     }
 
     /**

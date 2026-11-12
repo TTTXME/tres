@@ -89,7 +89,7 @@ final class CameraUIController implements CameraUIEventsListener,
                 cameraFragment.onCameraModeChanged();
                 cameraFragment.showSnackBar(mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.SPORT ? Lang.t(view.getContext(), "Спорт", "Sport")
                         : mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.PHOTO ? Lang.t(view.getContext(), "Фото", "Photo")
-                        : "Oldstyle " + (com.particlesdevs.photoncamera.settings.OldstyleMode.v2() ? "V2" : "V1"));
+                        : com.particlesdevs.photoncamera.settings.OldstyleMode.NAME + " " + (com.particlesdevs.photoncamera.settings.OldstyleMode.v2() ? "V2" : "V1"));
                 Log.i(TAG, "camera mode " + mode);
                 this.restartCamera();
                 break;

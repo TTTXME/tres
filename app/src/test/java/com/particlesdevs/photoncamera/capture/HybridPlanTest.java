@@ -59,38 +59,16 @@ public class HybridPlanTest {
     }
 
     /**
-     * P627b (owner, 2026-11-11: «отключи брекетинг при Статике»): per processing mode - «Статика» shoots no ultrashort and no
-     * bracketed frame (after the shutter, a hand-set long shutter, an empty ring), its N frames as in the other modes; «Быстрый»
-     * and «Качество» keep the plan of before.
+     * P627b kept «Быстрый» and «Качество» on the plan of before while «Статика» shot no Bento / Shasta frame; P644 removed «Статика»
+     * (and HybridPlan.staticMode with it): the plan after the shutter takes the ultrashort and the bracketed frames as before.
      */
-    @Test public void staticModeShootsNoBracket() {
+    @Test public void processingModesShootTheBracket() {
         pinned.put("bento", 2f);
-        final CameraCharacteristics cam = camera(6400);
-        // «Быстрый» / «Качество»: Bento and Shasta as before
-        prefs.when(PreferenceKeys::staticProcessing).thenReturn(false);
-        HybridPlan other = HybridPlan.build(8_333_333L, 400, .2f, cam, null);
+        HybridPlan plan = HybridPlan.build(8_333_333L, 400, .2f, camera(6400), null);
         boolean us = false, longs = false;
-        for (HybridPlan.Request r : other.requests) { us |= r.role == ImageFrame.CaptureRole.EXTRA_SHORT; longs |= r.role == ImageFrame.CaptureRole.LONG; }
-        assertTrue(other.description, us && longs);
-        // «Статика»
-        prefs.when(PreferenceKeys::staticProcessing).thenReturn(true);
-        assertTrue(HybridPlan.staticMode());
-        HybridPlan still = HybridPlan.build(8_333_333L, 400, .2f, cam, null);
-        assertEquals(still.description, 1, still.requests.size());
-        assertEquals(ImageFrame.CaptureRole.NORMAL, still.requests.get(0).role);
-        assertEquals(8_333_333L, still.requests.get(0).shutterNs);
-        assertEquals(400, still.requests.get(0).iso);
-        assertTrue(still.description, still.description.contains("«Статика»: no ultrashort") && still.description.contains("«Статика»: no bracketed frames"));
-        HybridPlan back = HybridPlan.buildNormalBack(8_333_333L, 400, .2f, cam, 4, null);
-        assertEquals(back.description, 4, back.requests.size());
-        for (HybridPlan.Request r : back.requests) assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
-        HybridPlan psl = HybridPlan.manualLong(500_000_000L, 100, .2f, cam, null, false);
-        assertEquals(psl.description, HybridPlan.MANUAL_NORMALS, psl.requests.size());
-        for (HybridPlan.Request r : psl.requests) assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
-        // the ZSL shot: the ring alone, nothing after the shutter
-        HybridPlan ring = HybridPlan.zslOnly(8_333_333L, 400, HybridPlan.STATIC_REASON);
-        assertTrue(ring.requests.isEmpty());
-        assertTrue(ring.description, ring.description.contains("«Статика»"));
+        for (HybridPlan.Request r : plan.requests) { us |= r.role == ImageFrame.CaptureRole.EXTRA_SHORT; longs |= r.role == ImageFrame.CaptureRole.LONG; }
+        assertTrue(plan.description, us && longs);
+        assertFalse(plan.description, plan.description.contains("Статика"));
     }
 
     private static CameraCharacteristics camera(int isoMax) {
@@ -561,185 +539,45 @@ public class HybridPlanTest {
     }
 
     /**
-     * P630h «Серия» of «Oldstyle Тон»: the burst's longest capture, the shutter a frame may grow to and the frame count as rows -
-     * at their defaults the burst of P630f, each row its way, the ends of their ranges (0.2 .. 3 s, 2 .. 125 ms, 1 .. 40 frames)
-     * still a burst the sensor can take.
+     * P643 (owner: «Для Oldstyle убери своей AE, используй такой же как и у режима фото»): «Oldstyle» has no plan of its own any
+     * more - HybridPlan.oldstyle, its shutter cap, burst length and flicker factorisation are gone, and their tests with them
+     * (oldstyleTakesOneExposure, oldstyleBurstRows, oldstyleBurstOfTheOwnersRoomStaysHandHeld, oldstyleShutterOnWholeFlickerPeriods:
+     * they held a capture that no longer exists). An Oldstyle shot is planned by {@link HybridPlan#build} as a «Фото» shot is, with
+     * the bracketed frames off the way the HDR tile and «Спорт» turn them off (HybridPlan.oneExposure; the worker's tuning and
+     * the frame counts by PreferenceKeys.noHdrFrames - OldstyleModeTest): N at the viewfinder's own exposure, nothing ultrashort
+     * or long.
      */
-    @Test public void oldstyleBurstRows() {
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture sdr =
-                new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(3e9, 1e10, 1f, false, false, 3e9, 1e10, 0f);
-        // the defaults are the constants of P630f
-        assertEquals(16_666_667L, HybridPlan.oldstyleFloorNs(1000f / 60f));
-        assertEquals(16_666_667L, HybridPlan.oldstyleFloorNs(16.7f));
-        assertEquals(16_666_667L, HybridPlan.oldstyleFloorNs(0f));
-        assertEquals(8_000_000L, HybridPlan.oldstyleFloorNs(8f));
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params rows = new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params();
-        // (to the millisecond: 0.7f in nanoseconds is 699 999 988 - a frame fewer in a burst of 1/30 s frames)
-        assertEquals(HybridPlan.OLDSTYLE_BURST_NS, HybridPlan.oldstyleBurstNs(rows.burstSeconds));
-        assertEquals(HybridPlan.OLDSTYLE_BURST_NS, HybridPlan.oldstyleBurstNs(0f));
-        assertEquals(200_000_000L, HybridPlan.oldstyleBurstNs(0.2f));
-        assertEquals(3_000_000_000L, HybridPlan.oldstyleBurstNs(3f));
-        for (long n : new long[]{1_000_000L, 10_000_000L, 50_000_000L, 120_000_000L}) {
-            for (int frames : new int[]{1, 4, 8, 20, 40}) {
-                final HybridPlan a = HybridPlan.oldstyle(n, 800, sdr, frames, camera(6400), null, 0),
-                        b = HybridPlan.oldstyle(n, 800, sdr, frames, camera(6400), null, 0, HybridPlan.oldstyleBurstNs(rows.burstSeconds),
-                                HybridPlan.oldstyleFloorNs(rows.shutterFloorMs));
-                assertEquals(a.requests.size(), b.requests.size());
-                assertEquals(a.requests.get(0).shutterNs, b.requests.get(0).shutterNs);
-                assertEquals(a.requests.get(0).iso, b.requests.get(0).iso);
-            }
-        }
-        // «Удлинять выдержку до»: the viewfinder at 4 ms - up to 8 ms the gain makes the rest, up to 1/15 s less gain is needed
-        HybridPlan plan = HybridPlan.oldstyle(4_000_000L, 800, sdr, 8, camera(6400), null, 0, HybridPlan.OLDSTYLE_BURST_NS, 8_000_000L);
-        assertEquals(8_000_000L, plan.requests.get(0).shutterNs);
-        assertEquals(1250, plan.requests.get(0).iso);
-        plan = HybridPlan.oldstyle(4_000_000L, 800, sdr, 8, camera(6400), null, 0, HybridPlan.OLDSTYLE_BURST_NS, 66_666_667L);
-        assertTrue(plan.requests.get(0).shutterNs > 16_666_667L && plan.requests.get(0).shutterNs <= 66_666_667L);
-        assertTrue(plan.requests.get(0).iso < 300);
-        // ... never under the viewfinder's own shutter, and the HAL's motion cap still holds it
-        assertEquals(50_000_000L, HybridPlan.oldstyleCap(50_000_000L, 0, 2_000_000L));
-        assertEquals(8_000_000L, HybridPlan.oldstyleCap(4_000_000L, 8_000_000L, 125_000_000L));
-        assertEquals(125_000_000L, HybridPlan.oldstyleCap(4_000_000L, 0, 125_000_000L));
-        // «Самая долгая серия»: 20 frames at 1/15 s take 1.3 s - 10 of them fit 0.7 s, all 20 fit 3 s, four are always taken
-        assertEquals(10, HybridPlan.oldstyleFrames(20, 66_666_667L, 700_000_000L));
-        assertEquals(20, HybridPlan.oldstyleFrames(20, 66_666_667L, 3_000_000_000L));
-        assertEquals(4, HybridPlan.oldstyleFrames(20, 66_666_667L, 200_000_000L));
-        assertEquals(6, HybridPlan.oldstyleFrames(20, 10_000_000L, 200_000_000L));     // a frame's period is 1/30 s at the least
-        // «Кадров в серии»: the count asked for while it fits the burst
-        assertEquals(40, HybridPlan.oldstyleFrames(40, 10_000_000L, 3_000_000_000L));
-        assertEquals(21, HybridPlan.oldstyleFrames(40, 10_000_000L, 700_000_000L));
-        assertEquals(1, HybridPlan.oldstyleFrames(1, 10_000_000L, 700_000_000L));
-        // the ends of the rows together: a burst within the sensor's ranges, at least a frame, no longer than the row allows
-        for (long burst : new long[]{200_000_000L, 3_000_000_000L}) {
-            for (long floor : new long[]{2_000_000L, 125_000_000L}) {
-                for (int frames : new int[]{1, 40}) {
-                    for (long n : new long[]{100_000L, 4_000_000L, 200_000_000L}) {
-                        plan = HybridPlan.oldstyle(n, 400, sdr, frames, camera(6400), null, 0, burst, floor);
-                        final int count = plan.requests.size();
-                        final long ns = plan.requests.get(0).shutterNs;
-                        final String what = burst + " " + floor + " " + frames + " " + n + ": " + plan.description;
-                        assertTrue(what, count >= 1 && count <= frames);
-                        assertTrue(what, ns > 0 && plan.requests.get(0).iso >= 50 && plan.requests.get(0).iso <= 6400);
-                        assertTrue(what, ns <= Math.max(n, floor));
-                        assertTrue(what, count <= 4 || count * Math.max(ns, HybridPlan.OLDSTYLE_FRAME_NS) <= burst);
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * P630e «Oldstyle»: one exposure for the whole burst - only N frames, all at the capture plan's TET (S with HDR, the SDR TET
-     * without), the shutter first and the gain after it, no ultrashort and no bracketed frame whatever Bento / Shasta are set to;
-     * without a capture plan the N exposure as it is. Other plans are unchanged (the tests above). P630f: the shutter up to the
-     * burst's own cap (the viewfinder's shutter, or 1/60 s when that is shorter), not the bracketed frames' 125 ms.
-     */
-    @Test public void oldstyleTakesOneExposure() {
+    @Test public void anOldstyleShotIsThePhotoModesPlanWithoutBrackets() {
         pinned.put("bento", 2f);
         pinned.put("shasta", 1f);
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture hdr =
-                new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(4e9 * 0.4, 4e9 * 1.4, 0.75f, true, true,
-                        4e9 * 0.4, 4e9 * 1.4, 0f);
-        // N 10 ms x ISO 400 (TET 4e9 ns x ISO); S = 0.4 N = 1.6e9: 1/60 s at ISO 96 (32 ms at ISO 50 before P630f)
-        HybridPlan plan = HybridPlan.oldstyle(10_000_000L, 400, hdr, 8, camera(6400), null, 0);
-        assertEquals(8, plan.requests.size());
-        for (HybridPlan.Request r : plan.requests) {
-            assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
-            assertEquals(16_666_667L, r.shutterNs);
-            assertEquals(96, r.iso);
-            assertEquals(hdr.frameTet, (double) r.shutterNs * r.iso, hdr.frameTet * 0.01);
+        prefs.when(PreferenceKeys::hdrFrames).thenReturn(true);
+        prefs.when(() -> PreferenceKeys.hybridSwitch(anyString(), org.mockito.ArgumentMatchers.anyBoolean())).thenAnswer(i -> i.getArgument(1));
+        // the photo mode's own plan of a frame with clipped light: frames of other exposures
+        final HybridPlan photo = HybridPlan.build(10_000_000L, 400, 0.4f, camera(6400), null);
+        boolean other = false;
+        for (HybridPlan.Request r : photo.requests) other |= r.role != ImageFrame.CaptureRole.NORMAL;
+        assertTrue(photo.description, other && HybridPlan.shastaEnabled() && HybridPlan.bentoMode() == 2);
+        com.particlesdevs.photoncamera.settings.OldstyleMode.overrideForTest(true);
+        try {
+            assertEquals(0, HybridPlan.bentoMode());
+            assertFalse(HybridPlan.shastaEnabled());
+            for (float clip : new float[]{0f, 0.05f, 0.4f}) {
+                final HybridPlan plan = HybridPlan.build(10_000_000L, 400, clip, camera(6400), null);
+                assertEquals(10_000_000L, plan.nShutterNs);
+                for (HybridPlan.Request r : plan.requests) {
+                    assertEquals(plan.description, ImageFrame.CaptureRole.NORMAL, r.role);
+                    assertEquals(10_000_000L, r.shutterNs);
+                    assertEquals(400, r.iso);
+                }
+                // a hand-set long shutter and an empty ring too: the photo mode's plans, nothing bracketed
+                for (HybridPlan.Request r : HybridPlan.manualLong(100_000_000L, 100, clip, camera(6400), null, false).requests)
+                    assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
+                for (HybridPlan.Request r : HybridPlan.buildNormalBack(10_000_000L, 400, clip, camera(6400), 4, null).requests)
+                    assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
+            }
+        } finally {
+            com.particlesdevs.photoncamera.settings.OldstyleMode.overrideForTest(null);
         }
-        assertEquals(16_666_667L, plan.nShutterNs);
-        assertTrue(plan.description, plan.description.contains("Oldstyle one exposure") && plan.description.contains("S*="));
-        // a bright scene: S below what 1/60 s gives at the lowest ISO - the shutter shortens, the ISO at its floor
-        plan = HybridPlan.oldstyle(1_000_000L, 50, new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(
-                2.5e7, 6e7, 0.8f, true, true, 2.5e7, 6e7, 0f), 8, camera(6400), null, 0);
-        assertEquals(500_000L, plan.requests.get(0).shutterNs);
-        assertEquals(50, plan.requests.get(0).iso);
-        // the SDR TET of a flat scene, the viewfinder already at 50 ms: the shutter stays the viewfinder's, the rest in gain
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture sdr =
-                new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(3e9, 1e10, 1f, false, false, 3e9, 1e10, 0f);
-        plan = HybridPlan.oldstyle(50_000_000L, 1600, sdr, 4, camera(6400), null, 0);
-        assertEquals(4, plan.requests.size());
-        assertEquals(50_000_000L, plan.requests.get(0).shutterNs);
-        assertEquals(200, plan.requests.get(0).iso);
-        // the HAL's motion cap never takes the shutter below the N shutter ...
-        plan = HybridPlan.oldstyle(50_000_000L, 1600, sdr, 4, camera(6400), null, 20_000_000L);
-        assertEquals(50_000_000L, plan.requests.get(0).shutterNs);
-        assertEquals(200, plan.requests.get(0).iso);
-        // ... and holds it under 1/60 s when the viewfinder's is shorter still
-        plan = HybridPlan.oldstyle(4_000_000L, 800, sdr, 4, camera(6400), null, 8_000_000L);
-        assertEquals(8_000_000L, plan.requests.get(0).shutterNs);
-        assertEquals(1250, plan.requests.get(0).iso);
-        assertEquals(16_666_667L, HybridPlan.oldstyleCap(4_000_000L, 0));
-        assertEquals(8_000_000L, HybridPlan.oldstyleCap(4_000_000L, 8_000_000L));
-        assertEquals(50_000_000L, HybridPlan.oldstyleCap(50_000_000L, 8_000_000L));
-        // past the ISO range: what is missing stays missing (the tone's gains read the frames' actual TET)
-        plan = HybridPlan.oldstyle(100_000_000L, 6400, new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(
-                1e13, 1e13, 1f, false, false, 1e13, 1e13, 0f), 4, camera(6400), null, 0);
-        assertEquals(6400, plan.requests.get(0).iso);
-        assertEquals(100_000_000L, plan.requests.get(0).shutterNs);
-        // no capture plan (a manual exposure, no meterable frame): N as it is, still no Bento / Shasta frame
-        plan = HybridPlan.oldstyle(8_333_333L, 500, null, 6, camera(6400), null, 0);
-        assertEquals(6, plan.requests.size());
-        for (HybridPlan.Request r : plan.requests) {
-            assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
-            assertEquals(8_333_333L, r.shutterNs);
-            assertEquals(500, r.iso);
-        }
-        // the photo mode's plan with the same settings still brackets (unchanged)
-        final HybridPlan photo = HybridPlan.build(10_000_000L, 400, .01f, camera(6400), null, false);
-        boolean others = false;
-        for (HybridPlan.Request r : photo.requests) others |= r.role != ImageFrame.CaptureRole.NORMAL;
-        assertTrue(photo.description, others);
-    }
-
-    /**
-     * P630f, the owner's log (OPPO PHY110, a room, mains light at 100 Hz): N = 9.988 ms x ISO 4935, the plan's S = 1.421e11
-     * (x2.88 of N). The burst was 20 x 120 ms x ISO 1184 - 2.4 s hand-held. Now: the shutter no longer than 1/60 s, on the
-     * flicker's period (10 ms), the rest of S in gain up to the sensor's ISO range, the twenty frames within 0.7 s.
-     */
-    @Test public void oldstyleBurstOfTheOwnersRoomStaysHandHeld() {
-        prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(100);
-        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture room =
-                new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(1.421e11, 2.680e11, 0.942f, true, true,
-                        1.421e11, 2.680e11, 0f);
-        HybridPlan plan = HybridPlan.oldstyle(9_988_000L, 4935, room, 20, camera(25600), null, 0);
-        assertEquals(20, plan.requests.size());
-        long total = 0;
-        for (HybridPlan.Request r : plan.requests) {
-            assertEquals(ImageFrame.CaptureRole.NORMAL, r.role);
-            assertEquals(10_000_000L, r.shutterNs);
-            assertEquals(14210, r.iso);
-            total += Math.max(r.shutterNs, HybridPlan.OLDSTYLE_FRAME_NS);
-        }
-        assertTrue(total <= HybridPlan.OLDSTYLE_BURST_NS);
-        // a sensor that ends at ISO 6400: the shutter does not lengthen for it (0.45 of the plan's TET, the tone's gains the rest)
-        plan = HybridPlan.oldstyle(9_988_000L, 4935, room, 20, camera(6400), null, 0);
-        assertEquals(10_000_000L, plan.requests.get(0).shutterNs);
-        assertEquals(6400, plan.requests.get(0).iso);
-        // the frame count fits the capture budget: a hand-set 120 ms shutter takes 5 frames of the 20, 1 s the fewest (4)
-        assertEquals(5, HybridPlan.oldstyle(120_000_000L, 1184, null, 20, camera(6400), null, 0).requests.size());
-        assertEquals(4, HybridPlan.oldstyle(1_000_000_000L, 100, null, 20, camera(6400), null, 0).requests.size());
-        assertEquals(20, HybridPlan.oldstyleFrames(20, 16_666_667L));
-        assertEquals(21, HybridPlan.oldstyleFrames(30, 10_000_000L));
-        assertEquals(14, HybridPlan.oldstyleFrames(30, 50_000_000L));
-        assertEquals(2, HybridPlan.oldstyleFrames(2, 1_000_000_000L));
-        assertEquals(1, HybridPlan.oldstyleFrames(0, 10_000_000L));
-    }
-
-    @Test public void oldstyleShutterOnWholeFlickerPeriods() {
-        prefs.when(PreferenceKeys::getAntibandingHz).thenReturn(100);
-        // 25 ms at ISO 50 wanted (TET 1.25e9), the viewfinder at 25 ms: down to 20 ms (two periods of 100 Hz), the ISO up
-        final HybridPlan plan = HybridPlan.oldstyle(25_000_000L, 50, new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(
-                1.25e9, 1.25e9, 1f, false, false, 1.25e9, 1.25e9, 0f), 4, camera(6400), null, 0);
-        assertEquals(20_000_000L, plan.requests.get(0).shutterNs);
-        assertEquals(63, plan.requests.get(0).iso);
-        // P630f: under the burst's 1/60 s cap the same TET takes one period (10 ms) and the gain
-        final HybridPlan capped = HybridPlan.oldstyle(10_000_000L, 125, new com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture(
-                1.25e9, 1.25e9, 1f, false, false, 1.25e9, 1.25e9, 0f), 4, camera(6400), null, 0);
-        assertEquals(10_000_000L, capped.requests.get(0).shutterNs);
-        assertEquals(125, capped.requests.get(0).iso);
     }
 
     private static HybridPlan.Request longOf(HybridPlan p) {

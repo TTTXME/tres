@@ -178,7 +178,7 @@ public final class BottomChrome {
         if (old != null) {
             final boolean chosenOld = mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.OLDSTYLE;
             old.setImageResource(chosenOld ? R.drawable.cv_os_cassette_fill : R.drawable.cv_os_cassette);
-            modeDisc(old, chosenOld, accent, animate, "Oldstyle");
+            modeDisc(old, chosenOld, accent, animate, com.particlesdevs.photoncamera.settings.OldstyleMode.NAME);
         }
     }
 

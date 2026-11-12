@@ -39,13 +39,6 @@ public final class ShotLook {
         public final boolean v2, postview;
         public final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params;
         public final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle style;
-        /**
-         * P630e: the shot's exposure plan (CaptureController: the viewfinder's frame metered before the shot, the burst exposed at S
-         * or the SDR TET); null - the lab's renders, a manual exposure, no meterable frame - plans on the merge itself.
-         */
-        @Nullable
-        public volatile com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture capture;
-
         public Oldstyle(boolean v2, boolean postview, com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params,
                         com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle style) {
             this.v2 = v2;
@@ -67,7 +60,7 @@ public final class ShotLook {
         }
 
         @Override public String toString() {
-            return "Oldstyle " + (v2 ? "V2" : "V1") + " " + style + (capture != null ? " capture " + capture : "");
+            return "Oldstyle " + (v2 ? "V2" : "V1") + " " + style;
         }
     }
 

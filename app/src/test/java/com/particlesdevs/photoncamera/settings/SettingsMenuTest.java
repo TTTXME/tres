@@ -1766,15 +1766,15 @@ public class SettingsMenuTest {
         assertEquals(Arrays.asList("pref_scam_hybrid_zsl_frames","pref_scam_hybrid_fullres50_frames","pref_scam_hybrid_fullres50_zsl",
                 "pref_scam_hybrid_fullres200_frames","pref_zsl_buffer_count_key","scam_hybrid_motion_screen"),
                 keys(screen.findPreference("scam_hybrid_merge_frames_category")));
-        // P624: «Статика» (its resolution and iterations) after the frames; P629: «Шумоподавление и склейка» - the denoise groups of the
-        // former «Шумоподавление», then the merge groups of the former «Склейка», each in its order
+        // P629: «Шумоподавление и склейка» - the denoise groups of the former «Шумоподавление», then the merge groups of the former
+        // «Склейка», each in its order (P644: «Статика»'s group after the frames is gone with the route)
         assertEquals(Arrays.asList("scam_hybrid_nr_merge_category","scam_hybrid_resolve_optics_category",
                 "scam_hybrid_ms_general_category","scam_hybrid_ms_luma_category","scam_hybrid_ms_chroma_category",
-                "scam_hybrid_merge_frames_category","scam_hybrid_static_category","scam_hybrid_merge_align_category","scam_hybrid_merge_reject_category",
+                "scam_hybrid_merge_frames_category","scam_hybrid_yuv_category","scam_hybrid_merge_align_category","scam_hybrid_merge_reject_category",
                 "scam_hybrid_merge_kernel_category","scam_hybrid_merge_quad_category","scam_hybrid_merge_final_category"),
                 keys(screen.findPreference("scam_hybrid_dnmerge_screen")));
         assertEquals("prefscreen",((Preference)screen.findPreference("scam_hybrid_dnmerge_screen")).getParent().getKey());
-        assertEquals(Arrays.asList("pref_scam_hybrid_static_sr","pref_scam_hybrid_static_iters"),keys(screen.findPreference("scam_hybrid_static_category")));
+        assertNull(screen.findPreference("scam_hybrid_static_category"));
         assertEquals(Arrays.asList("scam_hybrid_capture_category","scam_hybrid_shasta_category"),   // P629b: the shoulder went to the tone
                 keys(screen.findPreference("scam_hybrid_hdr_screen")));
         assertEquals(Arrays.asList("scam_hybrid_defringe_category","scam_hybrid_recovery_category"),keys(screen.findPreference("scam_hybrid_artifacts_screen")));
@@ -2252,10 +2252,10 @@ public class SettingsMenuTest {
         List<String> keys=new ArrayList<>();
         for(int i=0;i<category.getPreferenceCount();i++){String key=category.getPreference(i).getKey();keys.add(key.startsWith("pref_sensorconfig_back1_")?key.substring("pref_sensorconfig_back1_".length()):key);}
         // Sensor rows, the module's live RAW AE controls, vendor keys, then its reset.
-        // P635: the full-resolution recipe's switch after them (off: the one row, no field)
+        // P635: the full-resolution recipe's switch after them (off: the one row, no field); P646: «Склейка YUV» before it
         keys.remove("oismode");
         assertEquals(Arrays.asList("blackleveloverride","whiteleveloverride","sessiontype","ispsurface","rawfps","rawviewfinder",
-                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","recipe","fpsprobe","add_tunablekey",
+                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","yuvmerge","recipe","fpsprobe","add_tunablekey",
                 "pref_reset_sensor_config_settings_back1"),keys);
         assertFalse(((androidx.preference.SwitchPreferenceCompat)category.findPreference("pref_sensorconfig_back1_recipe")).isChecked());
         androidx.preference.ListPreference ae=category.findPreference("pref_sensorconfig_back1_ae_engine");

@@ -628,9 +628,9 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             final Context c = getContext();
             final PreferenceScreen screen = getPreferenceScreen();
             if (c == null || screen == null) return;
-            DialogStyle.confirm(c, Lang.t(c, "Сбросить Oldstyle?", "Reset Oldstyle?"),
-                    Lang.t(c, "Все ползунки и переключатели «Oldstyle Тон» вернутся к значениям по умолчанию. Версия тона и стиль останутся.",
-                            "Every slider and switch of “Oldstyle Tone” goes back to its default. The tone version and the style stay."),
+            DialogStyle.confirm(c, Lang.t(c, "Сбросить ScamMaster?", "Reset ScamMaster?"),
+                    Lang.t(c, "Все ползунки и переключатели «ScamMaster Тон» вернутся к значениям по умолчанию. Версия тона и стиль останутся.",
+                            "Every slider and switch of “ScamMaster Tone” goes back to its default. The tone version and the style stay."),
                     Lang.t(c, "Сбросить", "Reset"), () -> {
                         final int n = resetOldstyleRows(c, screen);
                         android.widget.Toast.makeText(c, n == 0 ? Lang.t(c, "Всё уже по умолчанию", "Everything is at its default already")

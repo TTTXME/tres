@@ -50,15 +50,15 @@ public class ScameraApp extends Application {
         return t;
     });
     private final Handler mainThreadHandler = HandlerCompat.createAsync(Looper.getMainLooper());
-    private Settings mSettings;
-    private Gravity mGravity;
-    private Gyro mGyro;
-    private Vibration mVibration;
+    private volatile Settings mSettings;
+    private volatile Gravity mGravity;
+    private volatile Gyro mGyro;
+    private volatile Vibration mVibration;
     //private Parameters mParameters;
-    private PreviewParameters mPreviewParameters;
+    private volatile PreviewParameters mPreviewParameters;
     private CaptureController mCaptureController;
     private SettingsManager mSettingsManager;
-    private AssetLoader mAssetLoader;
+    private volatile AssetLoader mAssetLoader;
     private ObjectLoader objectLoader;
     private AudioManager audioManager;
 
@@ -86,20 +86,50 @@ public class ScameraApp extends Application {
         return sApp.mainThreadHandler;
     }
 
+    /*
+     * P645 (owner, 2026-11-12: the gallery slow from the launcher too): the camera's own objects are made at their first use, not
+     * at every process start - the gallery's process (its launcher icon, a VIEW from another app) never uses them, and the sensor
+     * service (Gravity, Gyro) is looked up only then. The camera gets the same objects as before, at its first call.
+     */
     public static Settings getSettings() {
-        return sApp.mSettings;
+        final ScameraApp a = sApp;
+        Settings s = a.mSettings;
+        if (s == null) synchronized (a) {
+            if ((s = a.mSettings) == null) a.mSettings = s = new Settings();
+        }
+        return s;
     }
 
     public static Gravity getGravity() {
-        return sApp.mGravity;
+        final ScameraApp a = sApp;
+        Gravity g = a.mGravity;
+        if (g == null) synchronized (a) {
+            if ((g = a.mGravity) == null) a.mGravity = g = new Gravity(a.sensors());
+        }
+        return g;
     }
 
     public static Gyro getGyro() {
-        return sApp.mGyro;
+        final ScameraApp a = sApp;
+        Gyro g = a.mGyro;
+        if (g == null) synchronized (a) {
+            if ((g = a.mGyro) == null) a.mGyro = g = new Gyro(a.sensors());
+        }
+        return g;
     }
 
     public static Vibration getVibration() {
-        return sApp == null ? null : sApp.mVibration;
+        final ScameraApp a = sApp;
+        if (a == null) return null;
+        Vibration v = a.mVibration;
+        if (v == null) synchronized (a) {
+            if ((v = a.mVibration) == null) a.mVibration = v = new Vibration(a);
+        }
+        return v;
+    }
+
+    private SensorManager sensors() {
+        return (SensorManager) getSystemService(Context.SENSOR_SERVICE);
     }
 
     /*public static Parameters getParameters() {
@@ -107,7 +137,12 @@ public class ScameraApp extends Application {
     }*/
 
     public static PreviewParameters getPreviewParameters() {
-        return sApp.mPreviewParameters;
+        final ScameraApp a = sApp;
+        PreviewParameters p = a.mPreviewParameters;
+        if (p == null) synchronized (a) {
+            if ((p = a.mPreviewParameters) == null) a.mPreviewParameters = p = new PreviewParameters();
+        }
+        return p;
     }
 
     public static CaptureController getCaptureController() {
@@ -119,7 +154,12 @@ public class ScameraApp extends Application {
     }
 
     public static AssetLoader getAssetLoader() {
-        return sApp.mAssetLoader;
+        final ScameraApp a = sApp;
+        AssetLoader l = a.mAssetLoader;
+        if (l == null) synchronized (a) {
+            if ((l = a.mAssetLoader) == null) a.mAssetLoader = l = new AssetLoader(a);
+        }
+        return l;
     }
 
     /** P156: a restart is on its way (an imported config or a reset): nothing may move the module profiles meanwhile. */
@@ -266,41 +306,73 @@ public class ScameraApp extends Application {
         // P214b: the build in logcat at every process start (the daily file gets it when the camera screen attaches it)
         android.util.Log.i("ScameraBuild", com.particlesdevs.photoncamera.util.BuildIdentity.line());
         Log.d("ScameraApp", "Initializing modules");
+        createStart = android.os.SystemClock.uptimeMillis();
         initModules();
         com.particlesdevs.photoncamera.util.ScameraDebugLog.init(this);
         super.onCreate();
+        step("debug log");
         // Why the previous process ended (a native crash or a kill leaves no line of ours): into the log once
         com.particlesdevs.photoncamera.util.ExitReasons.logPrevious(this);
         // P640: a vivo SDK lease nobody holds goes back (a process of ours that died with it), the guard is armed for the next
         com.particlesdevs.photoncamera.capture.LeaseGuard.install(this);
+        step("lease guard");
+        createEnd = android.os.SystemClock.uptimeMillis();
+        android.util.Log.i("ScameraApp", "app onCreate " + (createEnd - createStart) + " ms (" + steps + ")");
     }
+
+    // ---------------------------------------------------------------- P645: the app start's own time, for the gallery's log
+
+    /** The app's onCreate (uptime ms; 0: not run in this process). */
+    private static volatile long createStart, createEnd, lastStep;
+    private static final StringBuilder steps = new StringBuilder();
+
+    /** One step of the app's onCreate done: its time since the step before into {@link #steps}. */
+    private static void step(String what) {
+        long now = android.os.SystemClock.uptimeMillis();
+        synchronized (steps) {
+            if (steps.length() > 0) steps.append(", ");
+            steps.append(what).append(' ').append(now - (lastStep > 0 ? lastStep : createStart));
+        }
+        lastStep = now;
+    }
+
+    /** P645: when this process's app onCreate ran and what took its time (GalleryOpenTrace's «process: cold start» line). */
+    public static final class StartTimes {
+        public final long createStart, createEnd;
+        public final String steps;
+
+        StartTimes(long createStart, long createEnd, String steps) {
+            this.createStart = createStart;
+            this.createEnd = createEnd;
+            this.steps = steps;
+        }
+    }
+
+    public static StartTimes startTimes() {
+        synchronized (steps) {
+            return new StartTimes(createStart, createEnd, steps.toString());
+        }
+    }
+
     private void initModules() {
 
         SimpleStorageHelper.init(this);
 
-        SensorManager sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        mGravity = new Gravity(sensorManager);
-
-        mGyro = new Gyro(sensorManager);
-
-        mVibration = new Vibration(this);
+        // P645: Gravity, Gyro, Vibration, Settings, PreviewParameters and AssetLoader at their first use (their getters)
+        step("services");
 
         mSettingsManager = new SettingsManager(this);
+        step("settings + migrations");
 
         MigrationManager.migrate(mSettingsManager);
 
         PreferenceKeys.initialise(mSettingsManager);
+        step("preference keys");
 
-
-        mSettings = new Settings();
-
-        //mParameters = new Parameters();
-        mPreviewParameters = new PreviewParameters();
-        mAssetLoader = new AssetLoader(this);
-        
-        // Initialize gallery icon visibility based on preference
-        applyGalleryIconVisibility();
+        // Initialize gallery icon visibility based on preference. P645: off the start (a package manager call or two; the
+        // launcher's state for a setting changed in the settings screen, which applies it itself too)
+        executorService.execute(this::applyGalleryIconVisibility);
         //test();
     }
     

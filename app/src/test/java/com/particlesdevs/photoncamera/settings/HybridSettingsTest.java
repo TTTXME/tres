@@ -1365,7 +1365,7 @@ public class HybridSettingsTest {
                 +"scam_hybrid_merge_reject_category=pref_scam_hybrid_hot_sigma,pref_scam_hybrid_cdm";
         prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
                 .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
-                .putString(SettingsLayout.KEY,layout).putString("pref_scam_hybrid_cdm","0.11").putString("pref_scam_hybrid_processing","static").commit();
+                .putString(SettingsLayout.KEY,layout).putString("pref_scam_hybrid_cdm","0.11").putString("pref_scam_hybrid_processing","quality").commit(); // (P644: was "static", gone)
         assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
         final java.util.Map<String,java.util.List<String>> joined=SettingsLayout.parse(prefs.getString(SettingsLayout.KEY,""));
         assertEquals(Arrays.asList("scam_hybrid_ms_chroma_category","scam_hybrid_nr_merge_category","scam_hybrid_merge_kernel_category",
@@ -1373,7 +1373,7 @@ public class HybridSettingsTest {
         assertFalse(joined.containsKey("scam_hybrid_merge_screen"));assertFalse(joined.containsKey("scam_hybrid_photo_screen"));
         assertEquals(Arrays.asList("root_colour","root_lenses"),joined.get("prefscreen"));
         assertEquals(Arrays.asList("pref_scam_hybrid_hot_sigma","pref_scam_hybrid_cdm"),joined.get("scam_hybrid_merge_reject_category"));
-        assertEquals("0.11",prefs.getString("pref_scam_hybrid_cdm",""));assertEquals("static",prefs.getString("pref_scam_hybrid_processing",""));
+        assertEquals("0.11",prefs.getString("pref_scam_hybrid_cdm",""));assertEquals("quality",prefs.getString("pref_scam_hybrid_processing",""));
         assertEquals(1,prefs.getInt(SettingsMigration.DNMERGE_REV,0));
         // once: an order set on the group afterwards stays
         final String later=SettingsLayout.KEY;
@@ -1387,9 +1387,9 @@ public class HybridSettingsTest {
         // the stored order applies to the group as built: an unplaced group keeps its place after the one before it
         final SettingsLayout.Page page=new SettingsLayout.Page(SettingsMigration.DNMERGE_PAGE).add(SettingsMigration.DNMERGE_PAGE,
                 Arrays.asList("scam_hybrid_nr_merge_category","scam_hybrid_ms_chroma_category","scam_hybrid_merge_frames_category",
-                        "scam_hybrid_static_category","scam_hybrid_merge_kernel_category"));
+                        "scam_hybrid_merge_align_category","scam_hybrid_merge_kernel_category")); // (P644: the static group's place)
         assertEquals(Arrays.asList("scam_hybrid_ms_chroma_category","scam_hybrid_nr_merge_category","scam_hybrid_merge_kernel_category",
-                "scam_hybrid_merge_frames_category","scam_hybrid_static_category"),SettingsLayout.apply(page,joined).get(SettingsMigration.DNMERGE_PAGE));
+                "scam_hybrid_merge_frames_category","scam_hybrid_merge_align_category"),SettingsLayout.apply(page,joined).get(SettingsMigration.DNMERGE_PAGE));
     }
 
     @Test public void toneLayoutCarriesOnce() {

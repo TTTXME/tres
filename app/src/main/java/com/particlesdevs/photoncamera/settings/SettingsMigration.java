@@ -198,7 +198,9 @@ public final class SettingsMigration {
             "pref_scam_hybrid_noise_source", "pref_scam_hybrid_bento_weight",
             // P333: the fusion's guided filter gave way to a Laplacian pyramid (pref_scam_hybrid_why_ef_coarse); the post_ab old run
             // and the RAW viewfinder's vf_why 2 keep its WhyCam values (WhyFusion.GF_RADIUS / GF_EPS)
-            "pref_scam_hybrid_why_gf_radius", "pref_scam_hybrid_why_gf_eps_e3"));
+            "pref_scam_hybrid_why_gf_radius", "pref_scam_hybrid_why_gf_eps_e3",
+            // P644: «Статика» is gone (its value of «Режим обработки»: removeObsolete below), its resolution and iterations
+            "pref_scam_hybrid_static_sr", "pref_scam_hybrid_static_iters"));
     static final String[] OBSOLETE_PREFIXES = {"pref_raisr_", "pref_softpqe_",
             "pref_snr_", "pref_mfsr_", "scamera_mosaic_sr_", "pref_hdrplus_", "pref_tunable_esd4d_", "pref_tunable_pyramidalignment_",
             // P5: the legacy post-processing and the tunables of its nodes
@@ -255,6 +257,16 @@ public final class SettingsMigration {
         // the Quad stream is set in «Quad Bayer — совместимость»); a stored one of them becomes «Авто» (-1).
         Object cfa = prefs.getAll().get(CFA_KEY);
         if (cfa != null && isRemovedCfa(cfa)) { e.putString(CFA_KEY, "-1"); changed = true; }
+        // P644 (owner, 2026-11-12: «полностью вырежи "Статику" и всё что с ним связано»): «Режим обработки» lost «Статика»: a stored
+        // "static" becomes «Качество» (of the two modes left, the slower one of finer detail; P627: the shot then stays on it). Every
+        // place this pass runs: the main settings, every module profile and the baseline at each start, a restored backup or a
+        // module snapshot as it is applied; the value is its own marker - once converted nothing matches again
+        Object processing = prefs.getAll().get(PROCESSING_KEY);
+        if (processing != null && REMOVED_PROCESSING.equals(String.valueOf(processing).trim())) {
+            e.putString(PROCESSING_KEY, "quality");
+            com.particlesdevs.photoncamera.util.Log.i("SettingsMigration", "P644: processing mode \"static\" -> \"quality\" (the static merge route is gone)");
+            changed = true;
+        }
         // P316: «Радиус окна, px» of the native mosaic lost 5 and 6 (a Tetra T1 window is at most 8 sensor px, which 4 gives
         // already; a Quad window above 3 left the fast native merge): a stored 5 or 6 becomes 4
         Object window = prefs.getAll().get(MOSAIC_WINDOW_KEY);
@@ -297,6 +309,8 @@ public final class SettingsMigration {
     static final String MOSAIC_WINDOW_KEY = "pref_scam_hybrid_mosaic_window";
     static final String BENTO_CHROMA_SIGMA_KEY = "pref_scam_hybrid_bento_chroma_sigma";
     static final String CFA_KEY = "pref_cfa_key";
+    /** P644: «Режим обработки» and its removed value «Статика». */
+    static final String PROCESSING_KEY = ScamHybridKeys.PREFIX + "processing", REMOVED_PROCESSING = "static";
     /** The removed «Фильтр Байера» values: MONO (4) and QUAD (-2). */
     static boolean isRemovedCfa(Object value) {
         double v = PreferenceNumber.read(value, -1);

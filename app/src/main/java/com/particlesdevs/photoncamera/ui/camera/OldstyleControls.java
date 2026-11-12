@@ -182,7 +182,7 @@ public final class OldstyleControls {
         // the round button above the row's right end
         button = new FrameLayout(context);
         button.setTag("oldstyle_adjust_button");
-        button.setContentDescription(Lang.t(context, "Стиль Oldstyle", "Oldstyle style"));
+        button.setContentDescription(Lang.t(context, "Стиль ScamMaster", "ScamMaster style"));
         buttonIcon = new ImageView(context);
         buttonIcon.setImageResource(R.drawable.cv_os_style);
         button.addView(buttonIcon, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
@@ -191,8 +191,8 @@ public final class OldstyleControls {
         column.addView(button, blp);
         button.setOnClickListener(v -> setOpen(true, true));
         button.setOnLongClickListener(v -> {
-            say(Lang.t(context, "Стиль Oldstyle: палитра «Тон» и «Цвет» и расширенные настройки. Видно сразу в видоискателе и так же на фото.",
-                    "Oldstyle style: the «Tone» and «Color» palette and advanced settings. Shown live in the viewfinder, the same on the photo."));
+            say(Lang.t(context, "Стиль ScamMaster: палитра «Тон» и «Цвет» и расширенные настройки. Видно сразу в видоискателе и так же на фото.",
+                    "ScamMaster style: the «Tone» and «Color» palette and advanced settings. Shown live in the viewfinder, the same on the photo."));
             return true;
         });
         Motion.press(button);
@@ -408,13 +408,13 @@ public final class OldstyleControls {
     private void menu(View anchorView) {
         android.widget.PopupMenu m = new android.widget.PopupMenu(context, anchorView);
         m.getMenu().add(0, 1, 0, Lang.t(context, "Сбросить стиль", "Reset the style"));
-        m.getMenu().add(0, 2, 1, Lang.t(context, "Тон: ", "Tone: ") + (OldstyleMode.v2() ? "Oldstyle V2 → V1" : "Oldstyle V1 → V2"));
+        m.getMenu().add(0, 2, 1, Lang.t(context, "Тон: ", "Tone: ") + (OldstyleMode.v2() ? OldstyleMode.NAME + " V2 → V1" : OldstyleMode.NAME + " V1 → V2"));
         m.getMenu().add(0, 3, 2, Lang.t(context, "Справка", "Help"));
         m.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) askReset();
             else if (item.getItemId() == 2) {
                 OldstyleMode.setV2(!OldstyleMode.v2());
-                say("Oldstyle " + (OldstyleMode.v2() ? "V2" : "V1"));
+                say(OldstyleMode.NAME + " " + (OldstyleMode.v2() ? "V2" : "V1"));
             } else say(tab == PALETTE ? help(context, Param.TONE) : help(context, chosen));
             return true;
         });
