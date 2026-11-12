@@ -1,7 +1,7 @@
 # Signing key
 
-The APK is signed with the SCAMERA release key (`CN=SCAMERA`, alias `scamera`, RSA 4096, PKCS12). The repository is
-public, so the key is **not** in it:
+The APK is signed with the SCAMERA release key (`CN=SCAMERA`, alias `scamera`, RSA 4096, PKCS12). The key is
+never in the repository (private since 2026-11-12):
 
 - local builds (`app/build.gradle`, `tools/package_scam_neural.py`) read `SCAMERA-PC/signing/signing.properties`
   next to the project (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`), or the environment variables
