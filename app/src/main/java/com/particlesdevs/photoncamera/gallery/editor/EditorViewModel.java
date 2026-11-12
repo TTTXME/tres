@@ -34,6 +34,11 @@ public final class EditorViewModel extends AndroidViewModel {
     EditState state = new EditState();
     /** The tone before a style was picked (the style's 0 %). */
     @Nullable EditState styleBase;
+    /** P619: the «LUT» tab's tables, loaded off the main thread, and the last ones delivered (the picture's, the copy's start). */
+    final EditLook.Loader lookLoader = new EditLook.Loader();
+    @Nullable volatile EditLook.Tables lookTables;
+    /** P619: how long the copy waits for a film's reference table the picture is still waiting for. */
+    static final long LOOK_WAIT_MS = 30_000;
     private volatile boolean loading;
     /**
      * The decoded source this ViewModel owns, set before it is posted to {@link #source}; {@code cleared} after onCleared;
@@ -95,6 +100,7 @@ public final class EditorViewModel extends AndroidViewModel {
         }
         exportProgress.setValue(0f);
         final EditState snapshot = s.copy();
+        final EditLook.Tables have = lookTables;
         Thread t = new Thread(() -> {
             try {
                 if (ready != null) {
@@ -106,7 +112,9 @@ public final class EditorViewModel extends AndroidViewModel {
                         Thread.currentThread().interrupt();
                     }
                 }
-                EditExporter.Result r = EditExporter.export(getApplication(), src, snapshot, exportProgress::postValue);
+                // P619: the copy takes the look the picture ends at (the film's reference table, when it is coming)
+                EditLook.Tables look = EditLook.on(snapshot) ? EditLook.blocking(getApplication(), snapshot, have, LOOK_WAIT_MS) : null;
+                EditExporter.Result r = EditExporter.export(getApplication(), src, snapshot, look, exportProgress::postValue);
                 exported.postValue(r);
             } catch (Exception | OutOfMemoryError e) {
                 Log.e(TAG, "export: " + e);
@@ -126,6 +134,7 @@ public final class EditorViewModel extends AndroidViewModel {
 
     @Override
     protected void onCleared() {
+        lookLoader.shutdown();
         EditSource s;
         synchronized (lock) {
             cleared = true;

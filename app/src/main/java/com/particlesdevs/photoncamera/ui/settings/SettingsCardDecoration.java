@@ -122,6 +122,7 @@ public final class SettingsCardDecoration extends RecyclerView.ItemDecoration {
 
     /** How far a row has faded in or out (its alpha against the alpha it rests at). */
     private static float fade(Item item) {
+        if (SettingsMotion.dimming(item.view)) return 1f;   // P614: a row turning on or off is not a row coming or going
         float rest = SettingsStyle.restingAlpha(item.p);
         return rest <= 0f ? 1f : Math.max(0f, Math.min(1f, item.view.getAlpha() / rest));
     }

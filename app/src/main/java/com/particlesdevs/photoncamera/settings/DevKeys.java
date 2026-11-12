@@ -52,12 +52,14 @@ public final class DevKeys {
      * matrix of the Parameters, hybrid_clip_flags: a flag of the burst); or only the DNG reads them; or nothing does any more.
      */
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "post_priority", "gpu_low_priority", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
+            "post_priority", "gpu_low_priority", "post_gpu_pace", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
+            "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
             "jpeg_stream", // P483: the JPEG encoded from the mapped readback (the same bytes)
             "ahb_transport", // P482: the merge RGB in the app's hardware buffer instead of the memfd (the same bytes)
             "tex_pool", // P477: the textures' storage reused within a post run (memory, the same pixels)
+            "static_vulkan", // P624: the static merge's GPU API (the same photo within 2e-3, the self-test checks it)
             "post_noise_quantile_gpu",
             "jpeg_aq", "jpeg_fast_tables", // P443: how the JPEG is written, not the replayed image
             "hybrid_la_threads", "hybrid_la_stream", "hybrid_la_scam", "hybrid_rgb_half", "worker_gpu_normal_priority",
@@ -197,6 +199,9 @@ public final class DevKeys {
                 "Series frames with the viewfinder's settings (no camera pipeline switch between them; off: as before)")));
         k.add(s(vf, "mosaic_preview", true, Lang.t("Модуль, измеренный как мозаика, сразу показывает RAW-видоискатель", "A module measured as a mosaic starts on the RAW viewfinder")));
         k.add(n(vf, "vf_priority", "1", Lang.t("Высокий приоритет потока видоискателя (0 — обычный)", "High priority of the viewfinder thread (0: normal)")));
+        // P616: LiveRawFrame.viewCap
+        k.add(s(vf, "vf_busy_half", true, Lang.t("RAW-видоискатель во время обработки снимка: кадр Bayer уменьшается вдвое (до 2048 по длинной стороне; разрешение видоискателя модуля — «Авто»), фото не меняется",
+                "RAW viewfinder while a shot is processed: a Bayer frame is halved (to 2048 on its long side; the module's viewfinder resolution on «Auto»), the photo is unchanged")));
         // P314: the photo's tone per pixel by default (one pass, the AE on the CPU), the guided-filter chain of P301 as 2
         k.add(s(vf, "vf_black_floor", true, Lang.t("RAW-видоискатель: чёрный по самому кадру, когда поток пришёл без чёрного пьедестала (OPPO ISZ, режим сенсора)", "RAW viewfinder: the black from the frame itself when the stream lost its black pedestal (OPPO ISZ, a sensor mode)")));
         k.add(n(vf, "vf_why", "1", Lang.t("RAW-видоискатель: тон Why итогового фото — 1: по каждому пикселю (быстро), 2: локально направляемым фильтром (прежнее слияние фото, до пирамиды Лапласа; тяжелее, замедляет обработку), 0: собственный вид видоискателя",
@@ -333,12 +338,14 @@ public final class DevKeys {
         k.add(n(merge, "hybrid_mosaic_tetra_kernel_scale", null, Lang.t("Tetra днём: масштаб ядра", "Tetra by day: kernel scale")));
         k.add(n(merge, "hybrid_mosaic_nat_tex", "0", Lang.t("Quad / Tetra «Качество»: чтение блоков склейки через текстурный кэш (1 вкл., 0 буферы; результат тот же, на Adreno 750 медленнее)",
                 "Quad / Tetra «Quality»: merge blocks read through the texture cache (1 on, 0 storage buffers; same result, slower on the Adreno 750)")));
+        k.add(n(merge, "static_vulkan", "-1", Lang.t("«Статика»: GPU склейки (1 Vulkan, 0 GLES, -1 авто: самопроверка на первом снимке версии выбирает быстрый совпадающий, -2 только процессор; сбой Vulkan - снимок заново на GLES, сбой GLES - на процессоре, всё той же «Статикой»)",
+                "«Static»: the merge's GPU API (1 Vulkan, 0 GLES, -1 auto: a self-test on the version's first shot picks the faster matching one, -2 the CPU only; a Vulkan failure redoes the shot on GLES, a GLES failure on the CPU, still «Static»)")));
         k.add(n(merge, "hybrid_fast_mosaic_chroma", "1", Lang.t("Quad / Tetra «Быстрый»: цветовая медиана после склейки против цветной сетки (1 вкл., 0 как раньше)",
                 "Quad / Tetra «Fast»: chroma median after the merge against the colour lattice (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_site_gain", "1", Lang.t("Quad «Быстрый»: поправка чувствительности пикселей блока, как в «Качестве» (1 вкл., 0 только QPC)",
                 "Quad «Fast»: the block sites' response correction of «Quality» (1 on, 0 the QPC alone)")));
-        k.add(n(merge, "hybrid_fast_quad_lattice", "1", Lang.t("Quad «Быстрый»: убирать мелкую решётку 2 / 4 px по яркости после склейки (1 вкл., 0 выкл.)",
-                "Quad «Fast»: take the fine 2 / 4 px lattice off the luma after the merge (1 on, 0 off)")));
+        k.add(n(merge, "hybrid_fast_quad_lattice", "2", Lang.t("Quad «Быстрый»: убирать мелкую решётку 2 / 4 px по яркости после склейки - относительно яркости пикселя, без сетки на тёмных ветках на фоне неба (2 вкл., 1 как раньше, 0 выкл.)",
+                "Quad «Fast»: take the fine 2 / 4 px lattice off the luma after the merge - relative to the pixel's level, no grid on dark branches against the sky (2 on, 1 as before, 0 off)")));
         k.add(n(merge, "hybrid_why_local_contrast", "0.3", Lang.t("Локальный контраст снимка (тон WHY): усиление мелких перепадов яркости слитого изображения, без ореолов у резких краёв (0 выкл., как раньше; 0..1)",
                 "Photo local contrast (WHY tone): the fused luma's small differences boosted, strong edges left alone (0 off, as before; 0..1)")));
         k.add(n(merge, "hybrid_tetra_motion_smooth", "1", Lang.t("Tetra: сглаживание шума движущихся объектов там, где склеилось мало кадров (точки и бусины за идущим человеком), края сохраняются (1 вкл., 0 как раньше; 0..1)",
@@ -431,6 +438,9 @@ public final class DevKeys {
                 "Highlights: the lens's violet and magenta fringe on the dark side of an edge against a bright light (window frames, objects against the sky) goes neutral; coloured lights (violet signs, LEDs) and everything beyond 6 px of the edge as before; 0: off")));
         k.add(n(post, "post_priority", null, Lang.t("Приоритет потока обработки (nice; пусто — не менять)", "Priority of the processing thread (nice; empty: unchanged)")));
         k.add(n(post, "gpu_low_priority", "2", Lang.t("Приоритет GPU-контекста обработки: 2 — средний, 1 — низкий, 0 — обычный", "Priority of the processing GPU context: 2 medium, 1 low, 0 normal")));
+        // P616: GpuPace (the post's GPU queue a few blocks deep, so the viewfinder's draws are not stuck behind it)
+        k.add(n(post, "post_gpu_pace", null, Lang.t("Блоков обработки в очереди GPU, не больше (видоискатель не ждёт за ними): пусто — 2 на Adreno, без ограничения на других GPU; 0 — без ограничения",
+                "Processing blocks queued on the GPU at most (the viewfinder does not wait behind them): empty: 2 on Adreno, no limit on other GPUs; 0: no limit")));
         k.add(s(post, "hybrid_why_rim_support", true, Lang.t("Пропуск пустых областей защиты граней перед тонмапингом", "Skip empty light-rim support before tone mapping")));
         k.add(s(post, "hybrid_why_edge_luma_cache", true, Lang.t("Кэш исходной яркости для защиты резких границ", "Cache scene luminance for sharp-edge protection")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",
@@ -488,6 +498,8 @@ public final class DevKeys {
         // P394: the sharpening's overshoot held and the pixel steps smoothed along strong edges
         k.add(n(post, "hybrid_why_edge_hold", "1.0", Lang.t("Тон: на резких границах (рама окна, край лампы на фоне света) резкость сглаживается вдоль границы и не выходит за яркость соседей — без тёмной обводки и лесенки; текстура как раньше; 0 — выкл.",
                 "Tone: at strong edges (a window frame, a lamp's rim against light) the sharpening is smoothed along the edge and held within its neighbours' light - no dark outline, no pixel steps; texture as before; 0: off")));
+        k.add(n(post, "hybrid_why_edge_hold_light", "1", Lang.t("Тон: сглаживание вдоль резких границ только там, где светлая сторона доходит до белого (край лампы, рама окна на фоне света или белого неба); мелкий текст средней яркости (наклейка) остаётся чётким, без тёмной обводки; 0 — на всех резких границах, как раньше",
+                "Tone: smoothing along strong edges only where the bright side reaches white (a lamp's rim, a window frame against light or a white sky); small mid-tone text (a sticker) stays crisp, without a dark outline; 0: every strong edge, as before")));
         // P595: the Richardson-Lucy halo clamp relative at a dark / bright edge (no white dots on dark objects against the sky)
         k.add(n(post, "hybrid_why_sharp_rl_edge_guard", "1.0", Lang.t("Резкость: на границе тёмного и светлого (мачты, тросы, рамы на фоне неба или окна) выброс не выходит за яркость соседей — без белых точек и бусин по краю; сила резкости и текстура как раньше; 0 — выкл.",
                 "Sharpening: at a dark / bright edge (masts, cables, frames against the sky or a window) the overshoot stays within its neighbours' light - no white dots or beads along the edge; strength and texture as before; 0: off")));
@@ -564,8 +576,25 @@ public final class DevKeys {
                 "Tone: detail in the light above white (a window, a sunlit wall): the highlights' local contrast, darkening only; a smooth sky and the sun's glow untouched; 0 = off")));
         k.add(n(post, "hybrid_why_hl_local_rim", "1", Lang.t("Тон: деталь в светах не затемняет спад яркости источника света (без серой полосы вдоль свечения вывески, без тёмных точек в светящемся окне); 1 вкл., 0 как раньше",
                 "Tone: highlight detail does not darken a light's falloff (no grey band along a sign's glow, no dark specks in a lit window); 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_hl_local_smooth", "1", Lang.t("Тон: деталь в светах считается плавно между точками сетки (без зубцов по краю фары, без пунктира по яркому краю капота); 1 вкл., 0 как раньше",
+                "Tone: highlight detail is blended smoothly between grid points (no teeth along a lamp's rim, no dashed line along a hood's bright edge); 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_hl_measured_landing", "1", Lang.t("Тон «Быстрый»: нейтральный свет, измеренный короткими кадрами, уходит в белый, а не в оттенок соседнего цветного огня (без лососевых пятен у оранжевого стекла фары); 1 вкл., 0 как раньше",
+                "Tone, «Fast» route: neutral light the short frames measured lands on white, not on a coloured neighbour's tint (no salmon blotches by an orange lamp lens); 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_hl_measured_max", "1", Lang.t("Тон «Быстрый»: измеренный короткими кадрами свет выше белого сжимается по самому яркому каналу (насыщенный цвет — только от 3x белого), а мягкий переход в белое считается от измеренного потолка (фара: янтарное стекло с рёбрами и белый блик вместо оранжевого пятна); 1 вкл., 0 как раньше",
+                "Tone, «Fast» route: light above white the short frames measured is compressed by its brightest channel (a saturated colour only from 3 x white), and the landing on white follows the measured ceiling (a headlamp: its amber lens with ridges and a white glare instead of an orange blob); 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_rim_far", "1", Lang.t("Тон: тёмная полоса между ярким светом и другой яркой областью (стекло под наклейкой над белым кузовом, тёмная линия молдинга) остаётся тёмной; 1 вкл., 0 как раньше",
+                "Tone: a dark strip between bright light and another bright area (the glass under a sticker above a white body, a trim's dark line) stays dark; 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_hl_measured_scene", "1", Lang.t("Тон «Быстрый»: блик, измеренный короткими кадрами, уходит в мягкое плечо и тогда, когда слияние опустило его ниже белого (без серого ореола вокруг ядра фары); 1 вкл., 0 как раньше",
+                "Tone, «Fast» route: glare the short frames measured takes the soft shoulder also where the fusion took it under white (no grey lobe round a lamp's glare core); 1 on, 0 as before")));
+        k.add(n(post, "hybrid_why_hl_measured_glare", "0.7", Lang.t("Тон «Быстрый»: цветной свет рядом с белым бликом, измеренным короткими кадрами, плавно переходит в белое на нескольких пикселях (без жёсткого белого пятна на янтарном стекле фары; остальное стекло сохраняет цвет); 0 — как раньше",
+                "Tone, «Fast» route: coloured light beside a white glare streak the short frames measured fades into white over a few pixels (no hard white patch on a headlamp's amber lens; the rest of the lens keeps its colour); 0 as before")));
+        k.add(n(post, "hybrid_why_hl_measured_detail", "0.5", Lang.t("Тон «Быстрый»: доля мелкой детали в свете выше белого, измеренном короткими кадрами (рёбра стекла фары, рисунок отражателя); 0 — как раньше",
+                "Tone, «Fast» route: the share of fine detail kept in light above white the short frames measured (a headlamp lens's ridges, a reflector's pattern); 0 = as before")));
         k.add(n(post, "hybrid_why_hl_local_night", "1", Lang.t("Тон: ночью деталь в светах и деталь запаса Bento гаснут по доле ночи (без бледных точек и штрихов в белых ядрах вывесок и фонарей); 1 вкл., 0 как раньше",
                 "Tone: at night the highlight detail and the Bento headroom detail fade with the night share (no pale dots or strokes in the white cores of signs and lamps); 1 on, 0 as before")));
+        // P623: the fast merge's measured light above white on the real-headroom shoulder (why/combine HL_MEASURED)
+        k.add(n(post, "hybrid_why_hl_measured", "1", Lang.t("Тон «Быстрый»: свет выше белого, измеренный короткими кадрами (солнце, его свечение), идёт по плечу настоящего запаса - ровное свечение без серого кольца и белого диска; ниже белого без изменений; 1 вкл., 0 как раньше",
+                "Tone, «Fast» route: light above white the short frames measured (the sun, its glow) takes the real-headroom shoulder - one smooth glow, no grey ring round a white disc; at and below white unchanged; 1 on, 0 as before")));
         // P513: the portrait offsets with a face found (WhyTone.portraitOffsets)
         k.add(n(post, "hybrid_why_portrait_off_ae_target", "0.05", Lang.t("Портрет: прибавка к цели AE, когда найдено лицо",
                 "Portrait: added to the AE target when a face is found")));
@@ -615,6 +644,9 @@ public final class DevKeys {
                 "nubia 50 MP: only setting N against the HAL's remosaic (1 no keys, 2 the stock 50 MP keys, 3 the stock QCFA mode 0x8012, 4–6 RawCbSourceType 1–3, 7 EnableXCFAOptimization 1, 8 EnableIdealRAW 1; its verdict is kept too); 0 = one after another, with the trials' memory")));
         k.add(s(cap, "nubia_probe_reset", false, Lang.t("nubia 50 Мп: при каждом запуске забывать пробы способов против ремозаика HAL (снова с первого)",
                 "nubia 50 MP: forget the trials of the settings against the HAL's remosaic at every app start (from the first again)")));
+        // P631: the Xiaomi 17 Ultra's full-size row in a RAW-only session, its colour block measured over the frame's floor (XiaomiSensorRow)
+        k.add(s(cap, "xiaomi_row_raw_only", true, Lang.t("Xiaomi: полноразмерный режим сенсора (17 Ultra, 50 Мп) — сессия только с RAW, без ISP-потока; цветовой блок мозаики меряется от собственного уровня чёрного кадра",
+                "Xiaomi: the sensor's full-size row (17 Ultra, 50 MP) in a RAW-only session, no ISP stream; the mosaic's colour block measured over the frame's own black floor")));
         // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)
         k.add(s(cap, "oplus_table_fallback", true, Lang.t("OnePlus 16: таблица режимов сенсора из отчёта SCAM TEST, если камера не отдаёт её в Java",
                 "OnePlus 16: the sensor-mode table of the SCAM TEST report when the camera gives none to Java")));
@@ -742,6 +774,11 @@ public final class DevKeys {
         // P236: the shot's frames closed off the critical path after the merge (ScamProcessor.releaseFrames)
         k.add(s(post, "release_async", true, Lang.t("После склейки кадры снимка освобождаются в фоне, обработка начинается сразу (не для 200 Мп). Выкл — сначала освобождение (~0.4 с на 50 Мп), как до P236",
                 "After the merge the shot's frames are freed in the background and the processing starts at once (not for 200 MP). Off: freed first (~0.4 s at 50 MP), as before P236")));
+        // P625: the RAW crop moves the kept rows inside the frames' own slots; the burst preparation's Java loop compiled ahead
+        k.add(s(post, "raw_crop_in_place", true, Lang.t("Обрезка RAW (X200 Pro, ручные поля, кроп зума) на месте: строки сдвигаются в своём буфере кадра, без нового буфера на все кадры, воркер, запущенный при нажатии, остаётся в деле. Выкл — копия в новый буфер, как до P625",
+                "The RAW crop (X200 Pro, manual margins, the zoom's crop) in place: the rows move inside each frame's own buffer, no new buffer for the whole burst, the worker started at the press stays usable. Off: copied into a new buffer, as before P625")));
+        k.add(s(post, "prep_warm", true, Lang.t("Прогрев подготовки снимка: при открытии камеры один раз прогоняется расчёт уровня чёрного на пробном кадре, чтобы первый снимок не ждал компиляции кода. Выкл — без прогрева, как до P625",
+                "Warm-up of the shot's preparation: when the camera opens, the black level scan runs once on a test frame, so the first shot does not wait for its code to compile. Off: no warm-up, as before P625")));
         // P235: the shot arena of a FULLRES burst made at the press (RingArenaMove)
         k.add(s(cap, "fullres_press_arena", true, Lang.t("FULLRES 50 Мп: общий буфер снимка создаётся при нажатии — кадры серии пишутся сразу в него, кадры кольца переносятся, пока идёт серия. Выкл — перенос всей серии перед склейкой (как до P235)",
                 "FULLRES 50 MP: the shot's shared buffer is made at the press - the stills go straight into it, the ring frames move in while the series runs. Off: the whole burst moved before the merge (as before P235)")));

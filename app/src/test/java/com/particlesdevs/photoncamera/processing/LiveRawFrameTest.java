@@ -292,6 +292,16 @@ public class LiveRawFrameTest {
     /** P266: «Разрешение видоискателя RAW» - the plain Bayer frame halved (one 2 x 2 quad of each 4 x 4) until it fits. */
     @Test
     public void theViewfinderSizeHalvesAPlainBayerFrame() {
+        // P616: while a shot is processed (module size on auto) a 12 MP Bayer frame goes to the GPU halved once (6 MB, not 24)
+        assertEquals(LiveRawFrame.BUSY_LONG_SIDE, LiveRawFrame.viewCap(0, true, true));
+        assertEquals(1, LiveRawFrame.halvings(4096, 3072, LiveRawFrame.viewCap(0, true, true)));
+        assertEquals(1, LiveRawFrame.halvings(4080, 3072, LiveRawFrame.viewCap(0, true, true)));
+        assertEquals("not busy: the whole frame", 0, LiveRawFrame.viewCap(0, false, true));
+        assertEquals("vf_busy_half 0: as before", 0, LiveRawFrame.viewCap(0, true, false));
+        assertEquals("the module's «Full» wins", -1, LiveRawFrame.viewCap(-1, true, true));
+        assertEquals("the module's own size wins", 1440, LiveRawFrame.viewCap(1440, true, true));
+        assertEquals("a frame already small enough is not touched", 0, LiveRawFrame.halvings(2048, 1536, LiveRawFrame.viewCap(0, true, true)));
+        assertTrue("a Quad frame keeps its cell means (no halving of the mosaic)", LiveRawFrame.binsCellMeans(4096, 3072, 2, LiveRawFrame.viewCap(0, true, true)));
         assertEquals(0, LiveRawFrame.halvings(4096, 3072, 0));
         assertEquals(0, LiveRawFrame.halvings(1920, 1440, 1920));
         assertEquals(1, LiveRawFrame.halvings(4096, 3072, 2880));

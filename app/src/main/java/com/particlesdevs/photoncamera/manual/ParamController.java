@@ -852,6 +852,12 @@ public class ParamController implements Observer {
         }
     }
 
+    /** P630e: a hand-set ISO or shutter (Oldstyle keeps it for its burst: no metered plan). */
+    public boolean manualExposure() {
+        final ManualParamModel m = manualParamModel;
+        return m != null && (m.getCurrentISOValue() != ManualParamModel.ISO_AUTO || m.getCurrentExposureValue() != ManualParamModel.EXPOSURE_AUTO);
+    }
+
     public boolean isManualMode() {
         if (manualParamModel != null)
             return manualParamModel.isManualMode();

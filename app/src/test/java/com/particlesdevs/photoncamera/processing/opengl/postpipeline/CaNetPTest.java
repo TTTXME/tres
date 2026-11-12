@@ -43,9 +43,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * P493 (owner, 2026-11-03): «Подавление аберраций» - the fringe net (CaNetP v3) or the classic P399, never both, never neither; the
- * net's settings («Настройки нейросети») reach its shader's defines / uniform with the trained v3 values as defaults; the weight
- * asset is the handoff's (sha256, layer table of weights_v3/weights.json).
+ * P493 (owner, 2026-11-03): «Подавление аберраций» - the fringe net (CaNetP v4, P615) or the classic P399, never both, never neither; the
+ * net's settings («Настройки нейросети») reach its shader's defines / uniform with the trained values as defaults; the weight
+ * asset is P615's v4 (sha256, v3's layer table: weights_v3/weights.json).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
@@ -108,9 +108,11 @@ public class CaNetPTest {
         try { return read(path); } catch (IOException e) { throw new AssertionError(e); }
     }
 
-    /** The weight asset: the handoff's v3 file, its layout the layer table's. */
-    @Test public void weightsAreV3() throws Exception {
-        final byte[] blob = Files.readAllBytes(src("src/main/assets/canet/canetp_v3.bin").toPath());
+    /** The weight asset: P615's v4 file (the only one shipped), its layout the layer table's. */
+    @Test public void weightsAreV4() throws Exception {
+        assertEquals("canet/canetp_v4.bin", CaNetP.WEIGHTS);
+        assertFalse("v3 is not shipped beside v4", src("src/main/assets/canet/canetp_v3.bin").exists());
+        final byte[] blob = Files.readAllBytes(src("src/main/assets/canet/canetp_v4.bin").toPath());
         assertEquals(CaNetP.WEIGHTS_SHA256, CaNetP.sha256(blob));
         assertEquals(2309, CaNetP.totalTexels());
         // weights_v3/weights.json: texels and offsets of c1 .. c6
@@ -129,7 +131,7 @@ public class CaNetPTest {
         }
     }
 
-    /** Every row of «Настройки нейросети» reaches its define / uniform; untouched, the trained v3 settings. */
+    /** Every row of «Настройки нейросети» reaches its define / uniform; untouched, the trained settings (P615: YB_LO 0.05). */
     @Test public void settingsReachTheShader() throws IOException {
         final String shader = read("src/main/assets/shaders/canet/canet_p.glsl");
         CaNetP.Settings s = CaNetP.Settings.read();
@@ -139,17 +141,17 @@ public class CaNetPTest {
         assertEquals("1", gate.get("GREEN"));
         assertEquals("1", gate.get("SRC_RULES"));
         assertEquals(1.5f, Float.parseFloat(gate.get("NEAR_LO")), 0f);
-        assertEquals(0.12f, Float.parseFloat(gate.get("YB_LO")), 1e-6f);
+        assertEquals(0.05f, Float.parseFloat(gate.get("YB_LO")), 1e-6f);
         assertEquals("12", gate.get("REACH"));
         assertEquals("3", apply.get("MODE"));
         assertEquals("1", apply.get("BOOST"));
         assertEquals(0.3f, Float.parseFloat(apply.get("BOOST_MIN")), 1e-6f);
         assertEquals("1", apply.get("NO_FLIP"));
         assertEquals(1f, s.strengthUniform(1f), 0f);
-        // the shader's own defaults are the same trained values (handoff README: HUE_LO 205, GREEN 1, SRC_RULES 1, NEAR_LO 1.5, YB_LO 0.12,
-        // BOOST 1, BOOST_MIN 0.3, REACH 12)
+        // the shader's own defaults are the same trained values (handoff README: HUE_LO 205, GREEN 1, SRC_RULES 1, NEAR_LO 1.5, BOOST 1,
+        // BOOST_MIN 0.3, REACH 12; P615: YB_LO 0.05)
         for (String d : new String[]{"#define HUE_LO 205.0\n", "#define GREEN 1\n", "#define SRC_RULES 1\n", "#define NEAR_LO 1.5\n",
-                "#define YB_LO 0.12\n", "#define BOOST 1\n", "#define BOOST_MIN 0.3\n", "#define REACH 12\n", "#define NO_FLIP 1\n"})
+                "#define YB_LO 0.05\n", "#define BOOST 1\n", "#define BOOST_MIN 0.3\n", "#define REACH 12\n", "#define NO_FLIP 1\n"})
             assertTrue(d, shader.contains(d));
         assertTrue(shader.contains("uniform float strengthU;"));
         // GLInterface.readProgram replaces a #define line containing " NAME ": no define line may name another define

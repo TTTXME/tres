@@ -79,3 +79,15 @@ raised-cosine band weights, the B&W mix, the 3-way colour grading weights) in `g
 `bb08a697a41b2561a54f1b740245119503b24758`, Copyright (c) 2026 ArtCraft Team and the LightCraft contributors, used under
 the MIT License (LightCraft is MIT OR Apache-2.0); the text is `assets/licenses/LightCraft-MIT.txt`. No LightCraft assets
 are included.
+
+## RawLens (reference only, no code copied)
+
+- Project: RawLens, <https://github.com/matthew777777/RawLens>, release 2.2.45 (commit b93544d)
+- License: GNU General Public License version 3 or later
+- Use in SCAMERA (P624 «Статика»): its LK-Reloaded port (`tools/lkr-pipeline`, `python/lkr/lkr.py`) was read as a reference
+  for ideas and constants of our own static merge (`app/src/main/cpp/scam-static-shaders.h`, `scam-static-gpu.h`,
+  `scam-static-merge.h`): three data steps per HQS iteration, the step `c / (L + mu)` with `c < 2` and a Schur bound (ours is
+  per pixel), a geometric noise schedule from about ten noise levels, clipped samples left out of the data term, the
+  Wronski minimum filter of rejected samples. Its sliding-DCT prior was measured in the Phase 1 prototype and not taken. No
+  file, shader or function of RawLens is copied or translated; the shaders, the solver, the robust test and the backends are
+  SCAMERA's own.

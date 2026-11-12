@@ -37,9 +37,9 @@ HL = (0.8, 1.5, 6.0, 12.0)
 
 
 def shader(rim):
-    return ('#version 430\n#define HL_LOCAL_RIM %d\nuniform sampler2D WhyLow;\nuniform vec4 hlLocalU;\nout vec4 o;\n'
+    return ('#version 430\n#define HL_LOCAL_RIM %d\n#define HL_LOCAL_SMOOTH 0\nuniform sampler2D WhyLow;\nuniform vec4 hlLocalU;\nout vec4 o;\n'
             'const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\n'
-            'void main(){ivec2 xy=ivec2(gl_FragCoord.xy);int f=1;int lbx=0,lby=0;float ae=1.0;\n'
+            'void main(){ivec2 xy=ivec2(gl_FragCoord.xy);int f=1;int lbx=0,lby=0;float lfx=0.0,lfy=0.0;float ae=1.0;\n'
             'float yLow=max(dot(texelFetch(WhyLow,xy,0).rgb,LUMA),0.000001);vec3 post=vec3(0.9,0.0,0.0);\n'
             '    if (hlLocalU.x > 0.0) {\n' % rim + BLOCK + '\n    }\n o=vec4(post.x/0.9,0.0,0.0,1.0);}\n')
 

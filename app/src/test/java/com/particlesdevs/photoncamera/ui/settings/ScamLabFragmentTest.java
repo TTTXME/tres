@@ -117,8 +117,18 @@ public class ScamLabFragmentTest {
             assertTrue(p.getKey(), groups.contains(p.getKey()));
             pages++;
         }
-        assertEquals(11, pages);
+        assertEquals(6, pages);   // P629 / P629b: the denoise / merge and the tone pages are groups of their own under the main switches
         assertTrue(groups.contains("root_colour"));
+        // P629: «Шумоподавление и склейка» (the former «Шумоподавление» and «Склейка») under the processing mode, the lab's first group
+        assertEquals("scam_hybrid_dnmerge_screen", ScamLabFragment.GROUPS[0]);
+        assertTrue(tree.findPreference("scam_hybrid_dnmerge_screen") instanceof androidx.preference.PreferenceScreen);
+        assertEquals(tree, ((Preference) tree.findPreference("scam_hybrid_dnmerge_screen")).getParent());
+        for (String gone : new String[]{"scam_hybrid_photo_screen", "scam_hybrid_merge_screen"}) assertFalse(gone, groups.contains(gone));
+        // P629b: «Настройки тона» under «Why тон», then its three pages (each a group of the lab)
+        assertEquals("tone_settings_screen", ScamLabFragment.GROUPS[1]);
+        assertEquals(tree, ((Preference) tree.findPreference("tone_settings_screen")).getParent());
+        for (String page : new String[]{"scam_hybrid_why_ae_screen", "scam_hybrid_why_curves_screen", "scam_hybrid_why_tone_screen"})
+            assertTrue(page, groups.contains(page) && ((Preference) tree.findPreference(page)).getParent().getKey().equals("tone_settings_screen"));
         final Set<String> offered = offered();
         for (String key : new String[]{
                 // «Кадры светов и теней»
@@ -127,6 +137,9 @@ public class ScamLabFragmentTest {
                 H + "shasta_sharpness", H + "shasta_max_ratio", H + "lut_sigma", H + "bento_factor", H + "shasta_ev",
                 // the denoise engine and the Resolve rows (P443; the SCAM 9.6 tables left the menu)
                 H + "resolve_speckle_strength", H + "why_dn_factor", H + "why_dn_luma_revert", H + "why_dn_motion_revert", H + "why_dn_grain",
+                // P629: «Шумоподавление и склейка» - the pyramid denoise, the merge, «Статика», Quad / Tetra
+                H + "why_hl_soft", H + "why_v2_hr_amount", H + "why_bracket_denoise", H + "why_hr_room", H + "why_delta_chroma",   // P629b
+                H + "why_ms_chroma", H + "zsl_frames", H + "cdm", H + "kernel_texture", H + "static_sr", H + "static_iters", H + "mosaic_path", H + "mochi",
                 // «Движение», the noise model, the photo size
                 H + "mm_boost_value", H + "mm_bento", H + "mm_shutter", H + "noise_photon", "pref_noise_model_profile_key",
                 H + "downsampler", H + "auto2x", H + "output", "pref_crop_upscale",
@@ -197,7 +210,10 @@ public class ScamLabFragmentTest {
     }
 
     @Test public void aMotionShotComparesTheModesOwnValues() {
-        final Map<String, Object> motion = Collections.singletonMap("pref_motion_mode", true);
+        // P629: a shot of «Качество» (the rejection's rows are its merge's: other modes' shots say so, MergeRouteSettingsTest)
+        final Map<String, Object> motion = new HashMap<>();
+        motion.put("pref_motion_mode", true);
+        motion.put(H + "processing", "quality");
         assertTrue(ScamLabFragment.motionShot(motion));
         assertFalse(ScamLabFragment.motionShot(Collections.emptyMap()));
         assertEquals(H + "mm_boost_value", ScamLabFragment.effectiveKey(H + "boost_value", true, tree));
@@ -227,6 +243,7 @@ public class ScamLabFragmentTest {
     @Test public void theVarianceThresholdComparesUnderTheBoostInEffect() {
         final Map<String, Object> off = new HashMap<>();
         off.put(H + "motion_boost", false);
+        off.put(H + "processing", "quality");   // P629: a shot of «Качество» (its merge reads the rejection rows)
         assertEquals(Collections.singletonMap(H + "motion_boost", true), ScamLabFragment.forced(H + "boost_threshold", off, tree));
         assertNotNull(ScamLabFragment.inert(context, H + "boost_threshold", H + "boost_threshold", off, new HashMap<>()));
         final Map<String, Object> motion = new HashMap<>(off);
@@ -406,7 +423,7 @@ public class ScamLabFragmentTest {
         assertTrue(ScamLabFragment.hiddenFor(H + "why_ccm_sat", none, false));
         assertFalse(ScamLabFragment.hiddenFor(H + "why_ccm_sat", none, true));
         assertFalse(ScamLabFragment.hiddenFor(H + "why_vibrance", none, false));
-        final PreferenceGroup photo = (PreferenceGroup) tree.findPreference("scam_hybrid_photo_screen");
+        final PreferenceGroup photo = (PreferenceGroup) tree.findPreference("scam_hybrid_dnmerge_screen");   // P629
         assertTrue(ScamLabFragment.hasRows(photo, none, false));
         final PreferenceScreen screen = new androidx.preference.PreferenceManager(context).createPreferenceScreen(context);
         final androidx.preference.PreferenceCategory empty = new androidx.preference.PreferenceCategory(context);

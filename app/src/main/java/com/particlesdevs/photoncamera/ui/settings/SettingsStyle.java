@@ -496,6 +496,7 @@ public final class SettingsStyle {
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.LensFilterPreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.PhotoStylePreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ShadeTransparencyPreference
+                || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.WatermarkPreviewPreference // P628
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.ProfilesPreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.FormatPickerPreference
                 || p instanceof com.particlesdevs.photoncamera.ui.settings.custompreferences.SizePickerPreference;
@@ -625,9 +626,26 @@ public final class SettingsStyle {
         return valueWidth > share;
     }
 
+    /** P614: the extra of a group greyed as a whole (SettingsAvailability.groupReason). */
+    static final String EXTRA_GROUP_OFF = "settings_group_off";
+
+    /**
+     * P614: marks the group {@code p} greyed as a whole ({@code reason}, its note under the title) or not (null). Returns whether
+     * the group is or was such a group: only those have their enabled state set (the other categories keep theirs).
+     */
+    static boolean groupOff(Preference p, @androidx.annotation.Nullable String reason) {
+        final boolean was = p.peekExtras() != null && p.peekExtras().getBoolean(EXTRA_GROUP_OFF);
+        if (reason == null && !was) return false;
+        p.getExtras().putBoolean(EXTRA_GROUP_OFF, reason != null);
+        SettingHelp.state(p, reason);
+        return true;
+    }
+
     /** P384: the alpha a bound row rests at (a disabled one, a dimmed module row), for SettingsCardDecoration's fades. */
     public static float restingAlpha(@androidx.annotation.Nullable Preference p) {
-        if (p == null || p instanceof PreferenceCategory) return 1f;
+        if (p instanceof PreferenceCategory)   // P614: a group greyed as a whole
+            return p.peekExtras() != null && p.peekExtras().getBoolean(EXTRA_GROUP_OFF) ? DIMMED : 1f;
+        if (p == null) return 1f;
         if (p instanceof ModuleRowPreference && ((ModuleRowPreference) p).dimmed()) return .55f;
         return p.isEnabled() ? 1f : DIMMED;
     }
@@ -645,11 +663,13 @@ public final class SettingsStyle {
         int accent = accent(c);
         String key = p.getKey();
         // P384: the preference this view shows (SettingsCardDecoration reads it, also while the row fades out of the list)
+        final Object before = row.getTag(R.id.settings_bound_preference);
         row.setTag(R.id.settings_bound_preference, p);
-        row.setAlpha(restingAlpha(p));
+        // P614: a row bound again turning on or off (the «Why тон» switch) fades to its new alpha; a new row takes it at once
+        SettingsMotion.rest(row, restingAlpha(p), before == p);
         if (p instanceof PreferenceCategory) {
-            // a category is never "enabled" (PreferenceCategory.isEnabled is false): its label is not a dimmed row
-            row.setAlpha(1f);
+            // a category is never "enabled" (PreferenceCategory.isEnabled is false): its label is not a dimmed row (restingAlpha:
+            // 1, P614: dimmed as a group of the other tone version)
             TextView title = (TextView) holder.findViewById(android.R.id.title);
             // P574: a group's title in white at 55 %; P384: a module's sensor caption stays quiet (its layout's colour)
             if (title != null && p.getLayoutResource() != R.layout.preference_subcategory_layout) {

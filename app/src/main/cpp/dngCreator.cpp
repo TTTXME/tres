@@ -172,7 +172,9 @@ public:
         dng_image0->SetPlanarConfig(tinydngwriter::PLANARCONFIG_CONTIG);
         //dng_image0->SetCompression(tinydngwriter::COMPRESSION_NEW_JPEG);
         dng_image0->SetDNGVersion(1, 3, 0, 0);
-        dng_image0->SetExifVersion("0220");
+        // P618: ExifVersion belongs to the Exif IFD (it sat in IFD 0 as "0220"); 2.31, the version of the photo's EXIF and
+        // the one with OffsetTime*
+        dng_image0->SetTag(1, tinydngwriter::EXIFTAG_EXIFVERSION, tinydngwriter::TIFF_UNDEFINED, 4, "0231");
         metadata.bps = 16;
     }
 
@@ -428,6 +430,25 @@ public:
         dng_image0->SetNoiseProfile(numPlanes, noiseProfile);
     }
 
+    /**
+     * P618: one more tag of IFD 0 (ifd 0) or the Exif IFD (ifd 1), host-order values (DNGImage::SetTag). False (logged) for a
+     * tag the writer refuses.
+     */
+    bool setTag(int ifd, unsigned short tag, unsigned short type, unsigned int count, const void* data) {
+        const bool ok = dng_image0->SetTag(ifd, tag, type, count, data);
+        if (!ok) LOGE("DNG tag %u (IFD %d, type %u, count %u) not written: %s", tag, ifd, type, count, dng_image0->Error().c_str());
+        return ok;
+    }
+
+    /** P618: the stored image's default crop (DefaultCropOrigin / Size), in its own pixels; a zero size clears it. */
+    void setDefaultCrop(int x, int y, int w, int h) {
+        const bool ok = x >= 0 && y >= 0 && w > 0 && h > 0;
+        metadata.default_crop[0] = ok ? static_cast<unsigned int>(x) : 0;
+        metadata.default_crop[1] = ok ? static_cast<unsigned int>(y) : 0;
+        metadata.default_crop[2] = ok ? static_cast<unsigned int>(w) : 0;
+        metadata.default_crop[3] = ok ? static_cast<unsigned int>(h) : 0;
+    }
+
     void setFrameRate(double frameRate) {
         metadata.frame_rate = frameRate;
         metadata.has_frame_rate = true;
@@ -676,7 +697,7 @@ public:
         dng_image0->SetImageLength(static_cast<unsigned int>(actualHeight));
         dng_image0->SetRowsPerStrip(actualHeight);
         dng_image0->SetActiveArea(new unsigned int[4]{0, 0, static_cast<unsigned int>(actualHeight), static_cast<unsigned int>(actualWidth)});
-        dng_image0->SetResolutionUnit(tinydngwriter::RESUNIT_CENTIMETER);
+        dng_image0->SetResolutionUnit(tinydngwriter::RESUNIT_INCH); // 72 dpi: the value 2 it always wrote (the constant was misnamed)
         dng_image0->SetXResolution(72.f);
         dng_image0->SetYResolution(72.f);
 
@@ -762,6 +783,24 @@ public:
         // Set illuminants (the second only with its matrix)
         if (cm1) dng_image0->SetCalibrationIlluminant1(metadata.calibration_illuminant1);
         if (cm2) dng_image0->SetCalibrationIlluminant2(metadata.calibration_illuminant2);
+
+        // P618: the default crop (the photo's 4:3 crop of an ISZ frame), in the stored image's pixels (halved by the binning);
+        // only one inside the image
+        if (metadata.default_crop[2] > 0 && metadata.default_crop[3] > 0) {
+            const unsigned int d = metadata.binning ? 2u : 1u;
+            const unsigned int origin[2] = {metadata.default_crop[0] / d, metadata.default_crop[1] / d};
+            const unsigned int cropSize[2] = {metadata.default_crop[2] / d, metadata.default_crop[3] / d};
+            if (cropSize[0] > 0 && cropSize[1] > 0 && origin[0] + cropSize[0] <= static_cast<unsigned int>(actualWidth)
+                    && origin[1] + cropSize[1] <= static_cast<unsigned int>(actualHeight)) {
+                setTag(0, tinydngwriter::TIFFTAG_DEFAULT_CROP_ORIGIN, tinydngwriter::TIFF_LONG, 2, origin);
+                setTag(0, tinydngwriter::TIFFTAG_DEFAULT_CROP_SIZE, tinydngwriter::TIFF_LONG, 2, cropSize);
+            } else {
+                LOGE("DNG default crop %u,%u %ux%u outside %dx%d: not written", origin[0], origin[1], cropSize[0], cropSize[1],
+                     actualWidth, actualHeight);
+            }
+        }
+        // P618: the Exif IFD (time, lens, exposure) in the data ahead of the image
+        if (!dng_image0->WriteExifIFD()) LOGE("DNG Exif IFD not written: %s", dng_image0->Error().c_str());
 
         // P24: lossless JPEG (LJ92, DNG compression 7): the Bayer rows in pairs, one component 2W x H/2 (tinydng's layout,
         // LibRaw reads it bit-exact; a 12.6 MP 16-bit frame 25.2 -> 14.7 MB in ~240 ms on the OPPO). Encoded first, so a
@@ -1223,6 +1262,71 @@ public:
         if (creator) {
             creator->setBinning(binning);
         }
+    }
+
+    // P618: the generic tag setters (DngExif: the time, lens and exposure tags of IFD 0 and the Exif IFD)
+    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagAscii(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jstring value) {
+        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
+        if (!creator || !value) return;
+        const char* s = env->GetStringUTFChars(value, nullptr);
+        if (!s) return;
+        const std::string text(s);
+        env->ReleaseStringUTFChars(value, s);
+        if (!text.empty()) creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_ASCII,
+                                           static_cast<unsigned int>(text.size() + 1), text.c_str());
+    }
+
+    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagShorts(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jintArray values) {
+        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
+        if (!creator || !values) return;
+        const jsize n = env->GetArrayLength(values);
+        std::vector<jint> v(static_cast<size_t>(n));
+        if (n > 0) env->GetIntArrayRegion(values, 0, n, v.data());
+        std::vector<unsigned short> out;
+        for (jint x : v) {
+            if (x < 0 || x > 65535) { LOGE("DNG tag %d: SHORT %d out of range, not written", tag, x); return; }
+            out.push_back(static_cast<unsigned short>(x));
+        }
+        if (!out.empty()) creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_SHORT,
+                                          static_cast<unsigned int>(out.size()), out.data());
+    }
+
+    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagLongs(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jlongArray values) {
+        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
+        if (!creator || !values) return;
+        const jsize n = env->GetArrayLength(values);
+        std::vector<jlong> v(static_cast<size_t>(n));
+        if (n > 0) env->GetLongArrayRegion(values, 0, n, v.data());
+        std::vector<unsigned int> out;
+        for (jlong x : v) {
+            if (x < 0 || x > 0xFFFFFFFFLL) { LOGE("DNG tag %d: LONG out of range, not written", tag); return; }
+            out.push_back(static_cast<unsigned int>(x));
+        }
+        if (!out.empty()) creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_LONG,
+                                          static_cast<unsigned int>(out.size()), out.data());
+    }
+
+    /** Unsigned rationals: {numerator, denominator} pairs, each 0 .. 2^32 - 1, the denominators above 0. */
+    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagRationals(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jlongArray pairs) {
+        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
+        if (!creator || !pairs) return;
+        const jsize n = env->GetArrayLength(pairs);
+        if (n < 2 || n % 2) { LOGE("DNG tag %d: %d rational words, not written", tag, n); return; }
+        std::vector<jlong> v(static_cast<size_t>(n));
+        env->GetLongArrayRegion(pairs, 0, n, v.data());
+        std::vector<unsigned int> out;
+        for (jsize i = 0; i < n; i++) {
+            const jlong x = v[static_cast<size_t>(i)];
+            if (x < 0 || x > 0xFFFFFFFFLL || (i % 2 == 1 && x == 0)) { LOGE("DNG tag %d: rational out of range, not written", tag); return; }
+            out.push_back(static_cast<unsigned int>(x));
+        }
+        creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_RATIONAL,
+                        static_cast<unsigned int>(out.size() / 2), out.data());
+    }
+
+    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setDefaultCrop(JNIEnv *env, jobject obj, jlong creatorPtr, jint x, jint y, jint w, jint h) {
+        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
+        if (creator) creator->setDefaultCrop(x, y, w, h);
     }
 
 JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setBitsPerSample(JNIEnv *env, jobject obj, jlong creatorPtr, jint bps) {

@@ -22,9 +22,11 @@ import org.robolectric.annotation.Config;
 import java.util.List;
 
 /**
- * The app claims only intents it can answer: no PICK / GET_CONTENT (no pick mode returns a photo), no video VIEW / REVIEW (no
- * video playback), no IMAGE_CAPTURE / STILL_IMAGE_CAMERA_SECURE (no capture-for-result or lock-screen mode); the caller got
- * RESULT_CANCELED or a still frame. Photos and the camera itself are still claimed.
+ * The app claims only intents it can answer. P621 (owner, 2026-11-11: «сделай чтобы нашу галерею можно было выбирать в системе
+ * как по умолчанию»): with the library's pick mode (a tap returns the item) and the gallery's video player (P499), PICK /
+ * GET_CONTENT of photos and videos and video VIEW / REVIEW are claimed now, as are MediaStore's REVIEW / REVIEW_SECURE and the
+ * launcher's «gallery» category; still no ACTION_PICK_IMAGES (the system photo picker's contract), no GET_CONTENT of other files,
+ * no IMAGE_CAPTURE / STILL_IMAGE_CAMERA_SECURE (no capture-for-result or lock-screen camera).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
@@ -52,18 +54,33 @@ public class GalleryManifestTest {
     }
 
     @Test
-    public void noPickWithoutAResult() {
-        assertFalse(offers(new Intent(Intent.ACTION_PICK).setType("image/*"), GalleryActivity.class));
-        assertFalse(offers(new Intent(Intent.ACTION_PICK).setType("video/*"), GalleryActivity.class));
-        assertFalse(offers(new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), GalleryActivity.class));
-        assertFalse(offers(new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("video/*"), GalleryActivity.class));
+    public void picksReturnAnItem() {
+        assertTrue(offers(new Intent(Intent.ACTION_PICK).setType("image/*"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_PICK).setType("video/*"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_PICK).setType("vnd.android.cursor.dir/image"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("video/*"), GalleryActivity.class));
+        assertFalse("other files", offersAny(new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/pdf")));
+        assertFalse("the system photo picker's", offersAny(new Intent("android.provider.action.PICK_IMAGES").setType("image/*")));
     }
 
     @Test
-    public void noVideoViewer() {
+    public void videosPlay() {
         Uri video = Uri.parse("content://media/external/video/media/1");
-        assertFalse(offers(new Intent(Intent.ACTION_VIEW).setDataAndType(video, "video/mp4"), GalleryActivity.class));
-        assertFalse(offers(new Intent("com.android.camera.action.REVIEW").setDataAndType(video, "video/mp4"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_VIEW).setDataAndType(video, "video/mp4"), GalleryActivity.class));
+        assertTrue(offers(new Intent("com.android.camera.action.REVIEW").setDataAndType(video, "video/mp4"), GalleryActivity.class));
+    }
+
+    @Test
+    public void theDefaultGalleryIntents() {
+        Uri photo = Uri.parse("content://media/external/images/media/1");
+        Uri foreign = Uri.parse("content://com.example.fileprovider/shared/IMG_1.heic");
+        assertTrue(offers(new Intent("android.provider.action.REVIEW").setDataAndType(photo, "image/jpeg"), GalleryActivity.class));
+        assertTrue(offers(new Intent("android.provider.action.REVIEW_SECURE").setDataAndType(photo, "image/jpeg"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_VIEW).setDataAndType(foreign, "image/heic"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_VIEW).setDataAndType(foreign, "image/x-adobe-dng"), GalleryActivity.class));
+        assertTrue(offers(new Intent(Intent.ACTION_VIEW).setDataAndType(foreign, "image/avif"), GalleryActivity.class));
+        assertTrue("the launcher's gallery category", offersAny(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_GALLERY)));
     }
 
     @Test

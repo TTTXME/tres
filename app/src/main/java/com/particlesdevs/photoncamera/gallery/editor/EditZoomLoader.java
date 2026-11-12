@@ -309,6 +309,7 @@ final class EditZoomLoader {
             int[] rect = EditZoom.cacheRegion(need, level, EditZoom.cap(q.viewW, q.viewH), in.sw, in.sh, in.even);
             if (same && Arrays.equals(last.asked, rect) && last.askedLevel == level) return; // that region is what there is
             long t0 = SystemClock.elapsedRealtime();
+            rd.restoreWatermark(q.source.cleanFor(q.state)); // P633: the copy's pixels, the photo's own watermark taken off or not
             g = rd.decode(rect[0], rect[1], rect[2], rect[3], level);
             long ms = SystemClock.elapsedRealtime() - t0;
             int[] got = {g.x, g.y, g.w, g.h};

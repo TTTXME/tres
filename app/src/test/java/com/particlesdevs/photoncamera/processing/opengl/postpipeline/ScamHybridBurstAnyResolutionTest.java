@@ -273,6 +273,18 @@ public class ScamHybridBurstAnyResolutionTest {
     }
 
     /**
+     * P627c: «Статика» waits by its own alarm (840 s per 12 MP, x4 on its CPU transcription, at most 3540) + 60 s, never below the
+     * other routes' wait; the other modes as before.
+     */
+    @Test public void theStaticMergeWaitsByItsOwnAlarm() {
+        assertEquals(900, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, false, false));
+        assertEquals(934, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, false));      // 12.5 MP: alarm 874 + 60
+        assertEquals(3556, ScamHybridBurst.workerTimeoutSeconds(4080, 3060, true, true));      // the CPU: x4, 3496 + 60
+        assertEquals(3556, ScamHybridBurst.workerTimeoutSeconds(8160, 6120, true, false));     // 50 MP: 3496 + 60 (other modes 2810)
+        assertEquals(3600, ScamHybridBurst.workerTimeoutSeconds(16320, 12240, true, false));   // 200 MP: the 3540 cap + 60
+    }
+
+    /**
      * P190 (owner, 2026-10-17: a tele 50 MP shot took 20 frames, the memory budget merged 2): a FULLRES series keeps every frame
      * whatever the merge's estimate says and tells the worker (seriesFrames); a default shot (no series) is cut as before and
      * a FULLRES one says so.

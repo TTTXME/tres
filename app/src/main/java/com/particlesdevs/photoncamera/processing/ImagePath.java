@@ -17,9 +17,14 @@ public class ImagePath {
 
     /** P119: the name (no extension) of a new photo from «Название фото» (FileNamePattern; SCA_yyyyMMdd_HHmmss by default). */
     public static String newBaseName() {
+        return newBaseName(System.currentTimeMillis());
+    }
+
+    /** P618: the name of a photo taken at {@code ms} (the same instant its EXIF and DNG record). */
+    public static String newBaseName(long ms) {
         String pattern;
         try { pattern = PreferenceKeys.getFileNamePattern(); } catch (RuntimeException e) { pattern = FileNamePattern.DEFAULT; }
-        return FileNamePattern.format(pattern, System.currentTimeMillis());
+        return FileNamePattern.format(pattern, ms);
     }
 
     /** The photo {@code name} (no extension yet) in the camera folder. */

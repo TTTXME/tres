@@ -244,13 +244,40 @@ public class ScamHybridBurstCrashTest {
                 + "SCAM RGB: mean=0.000000 max=0.000000" + nl));
         assertFalse(ScamHybridBurst.fastRouteMerged("PREVIOUS ATTEMPT:" + nl + "(fast merge)" + nl + "RETRY:" + nl + "HYBRID STAGES ms: merge=1" + nl));
     }
-    /** P500: vivo X200 Pro (Mali-G925, Android 17): the compiler died on a fast-route program - only the fast route goes. */
-    @Test public void fastRouteCompileCrashLeavesTheClassicMerge() {
+    /**
+     * P500: vivo X200 Pro (Mali-G925, Android 17): the compiler died on a fast-route program - the step is learned for the build.
+     * P627 (owner, 2026-11-11: every mode stays the mode the user chose): it no longer sends «Быстрый» shots to the SCAM merge
+     * (no «fastMerge 0» line anywhere: the worker's tuning, the pre-go lines, the lab's re-merges); merge() saves such a shot as
+     * the base frame alone with its «HYBRID ROUTE» line.
+     */
+    @Test public void fastRouteCompileCrashNeverWritesTheClassicMerge() {
         String report = "HYBRID FAST MERGE FrameSelector: base idx=0" + (char) 10
                 + "WORKER CRASH: signal 11 SIGSEGV code=1 addr=0x8 tid=1 thread=libscamera_work stage=GPU compile fast: layout(local_size_x = 16) in; last=hybrid merge" + (char) 10
                 + "WORKER EXIT: signal 11 SIGSEGV, no completion line" + (char) 10;
         assertEquals(ScamHybridBurst.STEP_FAST, ScamHybridBurst.stepOf(ScamHybridBurst.crashStage(report)));
         assertFalse(ScamHybridBurst.gpuInitDeath(12_000_000L, report));
         assertTrue(ScamHybridBurst.KEPT_STEPS.contains(ScamHybridBurst.STEP_FAST));
+        ScamHybridBurst.avoidedSteps.clear();
+        try {
+            ScamHybridBurst.avoidedSteps.add(ScamHybridBurst.STEP_FAST);
+            assertFalse(ScamHybridBurst.avoidedTuning().contains("fastMerge"));
+            assertFalse(ScamHybridBurst.sameResultTuning().contains("fastMerge"));
+            assertFalse(ScamHybridBurst.preGoBurstTuning().contains("fastMerge"));
+        } finally {
+            ScamHybridBurst.avoidedSteps.clear();
+        }
+    }
+
+    /** P627: «Статика»'s retries stay on «Статика» - GLES, then the CPU transcription in a worker that opens no GPU. */
+    @Test public void staticRetriesStayStatic() {
+        assertEquals("", ScamHybridBurst.staticBackendTuning(Integer.MIN_VALUE));
+        assertEquals("staticVulkan 0\n", ScamHybridBurst.staticBackendTuning(0));
+        final String cpu = ScamHybridBurst.staticBackendTuning(-2);
+        assertTrue(cpu, cpu.startsWith("staticVulkan -2\n"));
+        assertTrue(cpu, cpu.contains("gpuAlign 0\n") && cpu.contains("laGpu 0\n") && cpu.contains("chromaGpu 0\n"));
+        assertFalse(cpu, cpu.contains("fastMerge") || cpu.contains("staticMerge 0"));
+        assertEquals("«Статика»", ScamHybridBurst.modeName("static"));
+        assertEquals("«Качество»", ScamHybridBurst.modeName("quality"));
+        assertEquals("«Быстрый»", ScamHybridBurst.modeName("fast"));
     }
 }

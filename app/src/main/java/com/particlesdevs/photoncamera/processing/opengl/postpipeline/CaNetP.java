@@ -32,14 +32,18 @@ import static android.opengl.GLES20.GL_TEXTURE0;
  * through render() (WhyMsDenoise's camera -> render chain, the base frames' white = 1), its output goes back to camera RGB.
  * Passes: MODE 4 (full: P399's weight w, the gate g; 48 taps at REACH 12) -> MODE 0 (half: 4 features) -> MODE 5 (half: the mean of w)
  * -> c1 .. c5 (MODE 1, one draw per 4 output channels) -> c6 (MODE 2: the half-res chroma correction) -> MODE 3 (full: the gated
- * correction at the pixel's own luminance, the no-flip guard, P399's boost). Weights: assets/canet/canetp_v3.bin (sha256 checked once;
+ * correction at the pixel's own luminance, the no-flip guard, P399's boost). Weights: assets/canet/canetp_v4.bin (sha256 checked once;
  * a wrong or missing file, a program the GPU cannot build, or a frame above {@link #MAX_PIXELS}: P399 in scamrgb, never neither).
  */
 public final class CaNetP {
     static final String SHADER = "canet/canet_p";
-    static final String WEIGHTS = "canet/canetp_v3.bin";
-    /** handoff-canet README_CANETP.md v3 (weights_v3/weights.bin). */
-    static final String WEIGHTS_SHA256 = "720e2a8d482cbcc8f8dcf8e0c764407b12bfcbeb260f74fcd18e56f1d48c666f";
+    /**
+     * P615 (owner, 2026-11-11: «Доучить порог»): v4 = v3 fine-tuned on the reference app's bursts (real fringe pairs: the merge -> its
+     * CA-free estimate) for the gate's lower light floor ({@link Settings#ybLo} 0.05), the hue kept from turning where the target is
+     * unsure; the layer table is v3's.
+     */
+    static final String WEIGHTS = "canet/canetp_v4.bin";
+    static final String WEIGHTS_SHA256 = "8b9be75e5bac76408353fcf60954786d452d380b048ea7a5b07f1176d7e60386";
     /** c1 .. c6: {cin, cout, k, dilation} (weights_v3/weights.json; c1: the 4 features, P399's mean weight and 3 zero inputs). */
     static final int[][] LAYERS = {{8, 16, 3, 1}, {16, 16, 3, 1}, {16, 16, 3, 2}, {16, 16, 3, 4}, {32, 16, 1, 1}, {16, 2, 3, 1}};
     /** P493: above this the net's half-res textures (~24 B a pixel at the peak, c5) stay off the GPU: P399 instead (50 MP takes it). */
@@ -85,13 +89,13 @@ public final class CaNetP {
         return NEURAL.equals(PreferenceKeys.hybridString("fringe_method", DEFAULT_METHOD)) ? NEURAL : CLASSIC;
     }
 
-    /** The net's settings («Настройки нейросети»); every default is the trained v3 value (README_CANETP.md). */
+    /** The net's settings («Настройки нейросети»); every default is the trained value (v3's README_CANETP.md; YB_LO P615's). */
     static final class Settings {
         float strength = 1f;     // strengthU: the share of the net's correction
         int reach = 12;          // REACH: the brighter light looked for up to 6 or 12 px away
         float hueLo = 205f;      // HUE_LO: the lowest fringe hue
         float nearLo = 1.5f;     // NEAR_LO: how many times brighter the light next to it must be
-        float ybLo = 0.12f;      // YB_LO: how bright that light must be (share of white)
+        float ybLo = 0.05f;      // YB_LO: how bright that light must be (share of white; P615: 0.12 -> 0.05, the weights v4)
         boolean green = true;    // GREEN: the axial green fringe too
         boolean glow = true;     // SRC_RULES: a coloured light's own glow is kept
         boolean boost = true;    // BOOST: P399's own reduction where the net corrects, if it removes more
@@ -104,7 +108,7 @@ public final class CaNetP {
             s.reach = PreferenceKeys.hybridValue("fringe_net_reach", 12f) >= 9f ? 12 : 6;
             s.hueLo = clamp(PreferenceKeys.hybridValue("fringe_net_hue", 205f), 180f, 260f);
             s.nearLo = clamp(PreferenceKeys.hybridValue("fringe_net_near", 1.5f), 1.1f, 4f);
-            s.ybLo = clamp(PreferenceKeys.hybridValue("fringe_net_light", 0.12f), 0.02f, 0.6f);
+            s.ybLo = clamp(PreferenceKeys.hybridValue("fringe_net_light", 0.05f), 0.02f, 0.6f);
             s.green = PreferenceKeys.hybridSwitch("fringe_net_green", true);
             s.glow = PreferenceKeys.hybridSwitch("fringe_net_glow", true);
             s.boost = PreferenceKeys.hybridSwitch("fringe_net_boost", true);
@@ -161,7 +165,7 @@ public final class CaNetP {
     private static volatile float[] weights;
     private static volatile String weightsError;
 
-    /** The v3 weights (asset, sha256 and size checked once), or null (the reason in {@link #weightsError}). */
+    /** The v4 weights (asset, sha256 and size checked once), or null (the reason in {@link #weightsError}). */
     static float[] weights() {
         float[] w = weights;
         if (w != null) return w;
@@ -368,7 +372,7 @@ public final class CaNetP {
         } finally {
             for (GLTexture t : owned) t.close();
         }
-        com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE", "fringe net (P493) CaNetP v3 " + full.x + "x" + full.y + " reach " + s.reach
+        com.particlesdevs.photoncamera.util.Log.i("SCAM_PIPELINE", "fringe net (P493) CaNetP v4 " + full.x + "x" + full.y + " reach " + s.reach
                 + " strength " + strength + " white " + String.format(Locale.ROOT, "%.3f", 1f / invWhite)
                 + " submit ms=" + (System.nanoTime() - t0) / 1000000);
     }

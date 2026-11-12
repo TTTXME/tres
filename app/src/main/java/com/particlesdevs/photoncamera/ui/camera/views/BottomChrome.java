@@ -157,19 +157,29 @@ public final class BottomChrome {
 
     /**
      * P574: the Sport | Photo switch from the settings (MotionMode): the chosen mode a lighter disc with its glyph in the accent,
-     * the other a white glyph on nothing; {@code animate}: the discs cross-fade (Animators). Read out as two radio buttons.
+     * the other a white glyph on nothing; {@code animate}: the discs cross-fade (Animators). Read out as radio buttons. P630: a third,
+     * «Oldstyle» (OldstyleMode).
      */
     public static void bindModes(View bar, boolean animate) {
         android.widget.ImageView sport = bar.findViewById(R.id.mode_sport), photo = bar.findViewById(R.id.mode_photo);
+        android.widget.ImageView old = bar.findViewById(R.id.mode_oldstyle);
         if (sport == null || photo == null) return;
         Context c = bar.getContext();
-        boolean on = com.particlesdevs.photoncamera.settings.MotionMode.on();
+        // P630: three modes - «Спорт», «Фото», «Oldstyle» (settings/OldstyleMode)
+        final com.particlesdevs.photoncamera.settings.OldstyleMode.Mode mode = com.particlesdevs.photoncamera.settings.OldstyleMode.current();
+        final boolean on = mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.SPORT;
+        final boolean chosenPhoto = mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.PHOTO;
         int accent = com.particlesdevs.photoncamera.ui.camera.views.settingsbar.ShadeStyle.accent(c);
         // P583: the concept's glyphs at the switch's 1.9 stroke; the chosen photo glyph filled (its lens a hole)
         sport.setImageResource(R.drawable.cv_run_m);
-        photo.setImageResource(on ? R.drawable.cv_photo_m : R.drawable.cv_photo_m_fill);
+        photo.setImageResource(chosenPhoto ? R.drawable.cv_photo_m_fill : R.drawable.cv_photo_m);
         modeDisc(sport, on, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Спорт", "Sport"));
-        modeDisc(photo, !on, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Фото", "Photo"));
+        modeDisc(photo, chosenPhoto, accent, animate, com.particlesdevs.photoncamera.util.Lang.t(c, "Фото", "Photo"));
+        if (old != null) {
+            final boolean chosenOld = mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.OLDSTYLE;
+            old.setImageResource(chosenOld ? R.drawable.cv_os_cassette_fill : R.drawable.cv_os_cassette);
+            modeDisc(old, chosenOld, accent, animate, "Oldstyle");
+        }
     }
 
     private static void modeDisc(android.widget.ImageView b, boolean chosen, int accent, boolean animate, String name) {

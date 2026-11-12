@@ -451,6 +451,7 @@ public class ScamProcessor extends ProcessorBase {
         // P162 «Обрезка кадра»: the RAW's zero padding (vivo X200 Pro / Pro Mini: 4000x3000 of image in 4096x3072) and the
         // manual margins are cut off every frame before anything reads them
         final RawCrop.Shot rawCrop = cropFrames();
+        com.particlesdevs.photoncamera.processing.ShotTimeline.mark("crop_done"); // P625: HYBRID JAVA PREP's crop=
         // P27 any resolution: the Hybrid merges any RAW stream at its own resolution. Only a stream beyond the hard limits (the
         // sensor-grid RGB float result above 2 GB, i.e. above ~178 MP, or a side above the GPU's texture / render-target limit) is
         // binned 2x2 (same colours averaged) as the last resort instead of failing.
@@ -490,6 +491,10 @@ public class ScamProcessor extends ProcessorBase {
         processingParameters.scamHdrMode = PreferenceKeys.isScamHdrEnabled();
         processingParameters.cameraIdAtPress = cameraIdAtPress;
         processingParameters.FillConstParameters(characteristics, new Point(width, height));
+        com.particlesdevs.photoncamera.processing.ShotTimeline.mark("const_done"); // P625: const=
+        // P618: the shot's time (its files' name) and its 4:3 photo crop, for the DNG's tags
+        processingParameters.captureTimeMs = exifData != null ? exifData.captureTimeMs : 0;
+        processingParameters.photoAspect4x3 = iszAspect4x3;
         logShotCamera(processingParameters, width, height);
         // Every shot is merged by the SCAM Hybrid or SCAM HDR (the legacy merge routes are gone).
         if (!scamCapture) throw new IllegalStateException("no merge route: Hybrid or SCAM HDR needs the ZSL RAW stream");
@@ -633,6 +638,7 @@ public class ScamProcessor extends ProcessorBase {
         // (FillDynamicParameters, ParseExif.syncWithParameters) before anything read them (FillFrameLevelsTest).
         processingParameters.FillFrameLevels(captureResult);
         refineBlackFromDarkestFrame(processingParameters, images);
+        com.particlesdevs.photoncamera.processing.ShotTimeline.mark("levels_done"); // P625: levels=
         processingParameters.cameraRotation = cameraRotation;
         processingStage = "frame selection";
 
@@ -665,9 +671,13 @@ public class ScamProcessor extends ProcessorBase {
                 captureRequest = referenceMetadata.getRequest();
                 processingParameters.FillDynamicParameters(referenceMetadata, captureRequest,
                         scamReference.measuredIso);
+                com.particlesdevs.photoncamera.processing.ShotTimeline.mark("dyn_done"); // P625: dyn=
                 refineBlackFromDarkestFrame(processingParameters, images);
                 if (dcgShot) dcgLinearity(processingParameters, images, scamReference);
+                com.particlesdevs.photoncamera.processing.ShotTimeline.mark("dcg_done"); // P625: dcg=
                 applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, characteristics, iszAspect4x3);
+                com.particlesdevs.photoncamera.processing.ShotTimeline.mark("neutral_done"); // P625: neutral=
+                fieldOfView(processingParameters, iszAspect4x3, zoomResidual);
                 ParseExif.syncWithParameters(exifData, processingParameters);
                 Log.i("SCAM_HDR", "Reference calibration timestamp=" + scamReference.timestamp
                         + " ISO=" + processingParameters.iso
@@ -689,6 +699,10 @@ public class ScamProcessor extends ProcessorBase {
                         sabrePlan = SabreCrop.cut(images, processingParameters, zoomResidual,
                                 !(saveRAW == 2 && alignAlgorithm != 2), gpuMaxSide);
                         if (sabrePlan != null) { width = processingParameters.rawSize.x; height = processingParameters.rawSize.y; }
+                        // P618: the DNG holds the window only
+                        if (sabrePlan != null && processingParameters.dngFieldZoom > 0f)
+                            processingParameters.dngFieldZoom = windowZoom(sabrePlan.frameWidth, sabrePlan.frameHeight,
+                                    sabrePlan.area.width, sabrePlan.area.height);
                         processingStage = "Hybrid merge";
                     }
                     try {
@@ -752,6 +766,8 @@ public class ScamProcessor extends ProcessorBase {
         ByteBuffer scamMergedDng=com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng;
         com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng=null;
         Log.d(TAG, "Alignment elapsed:" + (System.currentTimeMillis() - startTime) + " ms");
+        // P620: the DNG that gets the developed photo as its preview once the photo is saved (null: none)
+        Path dngPreviewTarget = null;
         if (mosaicDngOnly || ((saveRAW >= 1) && alignAlgorithm != 2)) {
             boolean imageSaved = false;
             // P243: the DNG carries the JPEG's white balance and colour matrix (DngColour); scam_dev dng_colour_jpeg 0: the camera's
@@ -806,6 +822,7 @@ public class ScamProcessor extends ProcessorBase {
                     if (single != null) processingParameters.dngNoiseProfile = com.particlesdevs.photoncamera.processing.DngMetadata.noiseProfile(
                             single, noiseFactor, headroom, framesKnown ? mergeFrames : 1, 1);
                     processingParameters.dngMosaicBlock = mergedDngBlock;
+                    processingParameters.dngMerged = true; // P618: its ImageDescription
                     imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters, true)
                             : ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters);
                     Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "DNG: merged burst RAW (N, bracketed and ultrashort frames), "
@@ -821,6 +838,7 @@ public class ScamProcessor extends ProcessorBase {
                     processingParameters.dngBaselineExposure = 0f;
                     processingParameters.dngNoiseProfile = null;
                     processingParameters.dngMosaicBlock = 1;
+                    processingParameters.dngMerged = false;
                     Allocator.free(scamMergedDng);
                 }
             } else {
@@ -854,6 +872,8 @@ public class ScamProcessor extends ProcessorBase {
                 processingParameters.dngColour = null; // P243: only these DNG writes
             }
             reportDng(processingEventsListener, imageSaved, saveRAW, mosaicDngOnly, dngFile);
+            // P620: a DNG with a photo (not the mosaic DNG alone, not RAW only); the front camera's photo is mirrored, its DNG not
+            if (imageSaved && !mosaicDngOnly && saveRAW != 2 && !processingParameters.mirror) dngPreviewTarget = dngFile;
             if (mosaicDngOnly) {
                 try {
                     processingEventsListener.onProcessingChanged(Lang.t("«Наш ремозаик» выключен: сохранён только DNG склеенной мозаики",
@@ -964,10 +984,15 @@ public class ScamProcessor extends ProcessorBase {
         final boolean jpegStream = jpegStreamRoute(PreferenceKeys.scamDevSwitch("jpeg_stream", true), postAb, pipeline.tenBitOutput,
                 pipeline.p3Output, PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film),
                 ScameraApp.getSettings().hdrOutput, PreferenceKeys.getPhotoFormat(), PreferenceKeys.getJpegFastEncoder(),
-                pipeline.record != null, com.particlesdevs.photoncamera.processing.MergeStamp.on(), zoomCrop,
+                // P628: the watermark is drawn into the photo's bitmap (PhotoWatermark), which the streamed JPEG has none of
+                pipeline.record != null, com.particlesdevs.photoncamera.processing.MergeStamp.on()
+                        || com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.on(), zoomCrop,
                 hybridResizeNeeded(streamHybridFinal, processingParameters.hybridFinalSize, processingParameters.rawSize),
                 pipeline.debugData.isEmpty(), com.particlesdevs.photoncamera.processing.JpegliEncoder.available());
         final boolean[] exifInStream = {false};
+        // P620: the streamed JPEG's thumbnails come from its final readback (no bitmap of the photo exists)
+        final Bitmap[] streamDngPreview = {null};
+        final boolean dngPreviewWanted = dngPreviewTarget != null;
         if (jpegStream) {
             final boolean isz = iszAspect4x3;
             final com.particlesdevs.photoncamera.api.ParseExif.ExifData streamExif = exifData;
@@ -976,9 +1001,20 @@ public class ScamProcessor extends ProcessorBase {
                     return isz ? com.particlesdevs.photoncamera.processing.IszAspectCrop.bounds(width, height) : null;
                 }
                 @Override public java.io.OutputStream wrap(java.io.OutputStream out, int width, int height) {
-                    // ImageSaver.saveBitmapAsJPG's stream: the EXIF APP1 of the photo's size after SOI (no ICC: sRGB only here)
+                    return wrap(out, width, height, null, 0);
+                }
+                @Override public java.io.OutputStream wrap(java.io.OutputStream out, int width, int height,
+                                                           @androidx.annotation.Nullable java.nio.ByteBuffer pixels, int strideBytes) {
+                    // ImageSaver.saveBitmapAsJPG's stream: the EXIF APP1 of the photo's size after SOI (no ICC: sRGB only here);
+                    // P620: its IFD1 thumbnail (and the DNG's preview) downscaled from the pixels being encoded
                     streamExif.COMPRESSION = com.particlesdevs.photoncamera.api.ParseExif.COMPRESSION_JPEG;
-                    final byte[] app1 = com.particlesdevs.photoncamera.processing.ExifBlock.app1Segment(streamExif, width, height);
+                    final Bitmap thumb = com.particlesdevs.photoncamera.processing.PhotoThumbnail.scaledRgba(pixels, width, height,
+                            strideBytes, com.particlesdevs.photoncamera.processing.PhotoThumbnail.EXIF_LONG_SIDE);
+                    byte[] app1 = com.particlesdevs.photoncamera.processing.ExifBlock.app1Segment(streamExif, width, height);
+                    app1 = com.particlesdevs.photoncamera.processing.PhotoThumbnail.withThumbnail(app1, thumb);
+                    if (thumb != null) thumb.recycle();
+                    if (dngPreviewWanted) streamDngPreview[0] = com.particlesdevs.photoncamera.processing.PhotoThumbnail.scaledRgba(
+                            pixels, width, height, strideBytes, com.particlesdevs.photoncamera.processing.PhotoThumbnail.DNG_LONG_SIDE);
                     exifInStream[0] = app1 != null;
                     return app1 == null ? out : com.particlesdevs.photoncamera.processing.color.IccEmbed.jpegInserting(out, app1, null);
                 }
@@ -1140,6 +1176,17 @@ public class ScamProcessor extends ProcessorBase {
             final Bitmap stamped = com.particlesdevs.photoncamera.processing.MergeStamp.draw(img, stamp);
             if (stamped != img) { img.recycle(); img = stamped; }
         }
+        // P628: the watermark on the finished photo as it is viewed (upright, after every crop and resize), before its thumbnails
+        // P633: with the original pixels under it kept (WatermarkPatch), appended to the shot's files, so the gallery's editor can
+        // take it off or change it
+        com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch.Pending watermarkPatch = null;
+        if (img != null) {
+            processingStage = "watermark";
+            final com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.Drawn drawn =
+                    com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.applyRecorded(img, exifData);
+            img = drawn.photo;
+            watermarkPatch = drawn.record;
+        }
         // The EGL context and the rest of the GL state are not needed for the encoding: release them before it, unless the
         // teardown waits for the end of the encode (W1.3, 16 MP or less).
         if (deferredPipeline == null) try {
@@ -1176,12 +1223,18 @@ public class ScamProcessor extends ProcessorBase {
         // P46: the gain map makes the JPEG an Ultra HDR JPEG only with Ultra HDR in effect, and the HEIC / AVIF HDR only with
         // «HDR в HEIC / AVIF» in effect; without either option this is the call as before (sRGB, the map for the JPEG).
         final boolean hdrOutput = ScameraApp.getSettings().hdrOutput;
+        // P620: the DNG's preview from the photo as it is saved (before the encoders, which may release the bitmap)
+        Bitmap dngPreview = dngPreviewTarget == null ? null : img != null
+                ? com.particlesdevs.photoncamera.processing.PhotoThumbnail.scaled(img, com.particlesdevs.photoncamera.processing.PhotoThumbnail.DNG_LONG_SIDE)
+                : streamDngPreview[0];
+        if (dngPreview != streamDngPreview[0] && streamDngPreview[0] != null) streamDngPreview[0].recycle(); // the stream fell back
         final com.particlesdevs.photoncamera.processing.PhotoOutput.Result saved = streamedJpeg != null
                 ? com.particlesdevs.photoncamera.processing.PhotoOutput.saveStreamedJpeg(imageFile, streamedJpeg, exifData, exifInStream[0])
                 : hdrOutput || pipeline.p3Output
                 ? com.particlesdevs.photoncamera.processing.PhotoOutput.save(imageFile, img, exifData,
-                        ScameraApp.getSettings().ultraHdr ? gain : null, hdrOutput ? gain : null, colourSpace)
-                : com.particlesdevs.photoncamera.processing.PhotoOutput.save(imageFile, img, exifData, gain);
+                        ScameraApp.getSettings().ultraHdr ? gain : null, hdrOutput ? gain : null, colourSpace, watermarkPatch)
+                : com.particlesdevs.photoncamera.processing.PhotoOutput.save(imageFile, img, exifData, gain, null,
+                        com.particlesdevs.photoncamera.processing.color.OutputColour.Space.SRGB, watermarkPatch);
         if (gain != null) gain.gainMap.recycle();
         stage(0.97f); // P158: saved
         final java.util.List<Path> savedFiles = saved.notifyOrder();
@@ -1195,6 +1248,15 @@ public class ScamProcessor extends ProcessorBase {
             }
         }
         com.particlesdevs.photoncamera.processing.ShotTimeline.mark("saved");
+        if (dngPreview != null) {
+            try {
+                appendDngPreview(dngPreviewTarget, dngPreview, processingParameters.cameraRotation, pipeline.p3Output);
+            } catch (RuntimeException | OutOfMemoryError e) {
+                Log.e(TAG, "DNG preview failed (the DNG stays without one): " + e);
+            } finally {
+                dngPreview.recycle();
+            }
+        }
         finishDeferredTeardown();
 
         Allocator.getMemoryCount();
@@ -1237,6 +1299,46 @@ public class ScamProcessor extends ProcessorBase {
      * runs no 3A (no route; MosaicNeutralResolver.ispIdle) the teacher's neutral - the camera's own grid, else a same-sensor
      * camera's - blended with the locus when it has learned enough (MosaicTeacher.use, MosaicNeutral.taught).
      */
+    /**
+     * P620: the saved photo {@code photoSmall} ({@link com.particlesdevs.photoncamera.processing.PhotoThumbnail#DNG_LONG_SIDE}
+     * px, upright) as the preview of the shot's DNG, written before the photo existed (DngPreview); the media scanner is told
+     * the file changed. Logged with its cost.
+     */
+    static void appendDngPreview(Path dng, Bitmap photoSmall, int cameraRotation, boolean p3) {
+        final long started = System.nanoTime();
+        final Bitmap sensor = com.particlesdevs.photoncamera.processing.PhotoThumbnail.dngSource(photoSmall, cameraRotation);
+        final byte[] jpeg = com.particlesdevs.photoncamera.processing.PhotoThumbnail.jpeg(sensor, 90);
+        final boolean ok = jpeg != null && com.particlesdevs.photoncamera.processing.DngPreview.append(dng, jpeg, sensor.getWidth(),
+                sensor.getHeight(), p3 ? com.particlesdevs.photoncamera.processing.DngPreview.COLOUR_UNKNOWN
+                        : com.particlesdevs.photoncamera.processing.DngPreview.COLOUR_SRGB,
+                com.particlesdevs.photoncamera.processing.DngMetadata.software());
+        final String size = sensor == null ? "" : sensor.getWidth() + "x" + sensor.getHeight();
+        if (sensor != null) sensor.recycle();
+        Log.i(TAG, "DNG preview " + (ok ? size + " " + jpeg.length / 1024 + " KB" : "not written")
+                + " in " + (System.nanoTime() - started) / 1000000 + " ms");
+        if (!ok) return;
+        try {
+            android.media.MediaScannerConnection.scanFile(ScameraApp.getAppContext(), new String[]{dng.toString()}, null, null);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "DNG preview scan: " + e);
+        }
+    }
+
+    /**
+     * P618: the field of view of the shot's DNG and photo as a zoom of the lens's whole field, for FocalLengthIn35mmFilm. A frame
+     * of the whole sensor: the DNG 1, the photo its digital zoom's crop (above 1.005, the film frame's rule). An ISZ / native
+     * mosaic frame ({@code aspect4x3Frame}, ImageSaver.iszAspect4x3): unknown (0) - the sensor's crop is not in its metadata.
+     */
+    static void fieldOfView(Parameters p, boolean aspect4x3Frame, float zoomResidual) {
+        p.dngFieldZoom = aspect4x3Frame ? 0f : 1f;
+        p.photoFieldZoom = aspect4x3Frame ? 0f : zoomResidual > 1.005f ? zoomResidual : 1f;
+    }
+
+    /** P618: the zoom of a {@code w} x {@code h} window of a {@code fw} x {@code fh} frame (diagonals); 0 for a bad size. */
+    static float windowZoom(int fw, int fh, int w, int h) {
+        return w > 0 && h > 0 && fw > 0 && fh > 0 ? (float) (Math.hypot(fw, fh) / Math.hypot(w, h)) : 0f;
+    }
+
     private static void applyMosaicNeutral(Parameters p, ImageFrame ref, CaptureResult meta, java.util.List<ImageFrame> frames,
                                            CameraCharacteristics characteristics, boolean aspect4x3) {
         if (!PreferenceKeys.scamDevSwitch("mosaic_awb", true) || !PreferenceKeys.mosaicWbCorrections() // P223

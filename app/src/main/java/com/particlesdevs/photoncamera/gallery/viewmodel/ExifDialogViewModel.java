@@ -276,7 +276,10 @@ public class ExifDialogViewModel extends AndroidViewModel {
         histoHandler.post(histoRunnable = () ->
                 Glide.with(getApplication())
                         .asBitmap()
-                        .load(imageFile.getFileUri())
+                        // P620: a DNG / RAW through the thumbnail decoder (read in place, a sparse render: a 200 MP DNG was copied
+                        // whole, 400 MB, to read 800 px of it)
+                        .load(com.particlesdevs.photoncamera.gallery.raw.RawFormats.isRawName(imageFile.getDisplayName())
+                                ? com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.of(imageFile) : imageFile.getFileUri())
                         .apply(new RequestOptions()
                                 .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                                 .signature(GalleryKeys.of(imageFile, "hist"))

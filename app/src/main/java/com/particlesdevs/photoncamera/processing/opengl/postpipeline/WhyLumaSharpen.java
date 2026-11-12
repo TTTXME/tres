@@ -379,8 +379,12 @@ public final class WhyLumaSharpen extends Node {
             gainMap = fallback;
         }
         GLTexture ya = plane(size, GLFormat.DataType.FLOAT_16, 1);
+        // P614 «Why тон» V2: the guide is the reference's luma_extract of V2's clean RGB (unclamped), as its tone sharpens it
+        final GLTexture v2Clean = pipeline.whyV2 != null ? pipeline.whyV2.clean : null;
+        if (v2Clean != null) glProg.setDefine("REF_LUMA", 1);
         glProg.useAssetProgram("why/sharp_in", false);
         glProg.setTexture("InputBuffer", input);
+        if (v2Clean != null) glProg.setTexture("CleanBuffer", v2Clean);
         WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
         glProg.setVar("mulU", mul);
         glProg.drawBlocks(ya);

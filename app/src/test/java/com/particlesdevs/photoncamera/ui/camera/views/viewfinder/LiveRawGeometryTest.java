@@ -10,6 +10,7 @@ import java.util.Set;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -126,5 +127,27 @@ public class LiveRawGeometryTest {
         assertEquals("cell means: one colour per 2 x 2 of them, as the mosaic", 0, LiveRawRenderer.cfaMode(f));
         assertEquals(0, LiveRawRenderer.cfaMode(frame(4096, 3072, 2, new float[]{0, 0, 1, 1})));
         assertEquals(0, LiveRawRenderer.cfaMode(frame(4080, 3072, 4, new float[]{0, 0, 1, 1})));
+    }
+
+    /**
+     * P616: a 1x Bayer frame halved while a shot is processed (LiveRawFrame.viewCap: 4096 x 3072 -> 2048 x 1536) is toned at the
+     * same busy size as the whole frame (750 x 1000, RawPreviewBudget); a zoomed crop is not halved (halfFits false).
+     */
+    @Test
+    public void aFrameHalvedWhileBusyKeepsTheBusyToneSize() {
+        int[] crop = LiveRawRenderer.visibleCrop(frame(4096, 3072, 1, new float[]{0, 0, 1, 1}), 1440, 1920, false);
+        final int[] whole = LiveRawRenderer.toneSize(1440, 1920, crop[2], crop[3], 1, false);
+        assertTrue(LiveRawRenderer.halfFits(crop, 4096, 3072));
+        crop = LiveRawRenderer.visibleCrop(frame(2048, 1536, 1, new float[]{0, 0, 1, 1}), 1440, 1920, false);
+        final int[] half = LiveRawRenderer.toneSize(1440, 1920, crop[2], crop[3], 1, false);
+        assertArrayEquals(new int[]{750, 1000}, RawPreviewBudget.size(whole[0], whole[1], true));
+        assertArrayEquals(RawPreviewBudget.size(whole[0], whole[1], true), RawPreviewBudget.size(half[0], half[1], true));
+        assertTrue("still unzoomed after the halving", LiveRawRenderer.halfFits(crop, 2048, 1536));
+        // a 16:9 screen: the frame's long axis spans the screen, the short one is fitted
+        crop = LiveRawRenderer.visibleCrop(frame(4096, 3072, 1, new float[]{0, 0, 1, 1}), 1440, 2560, false);
+        assertTrue(LiveRawRenderer.halfFits(crop, 4096, 3072));
+        // 2x digital zoom: half the frame each way - not halved (its tone would have a quarter of the colours)
+        crop = LiveRawRenderer.visibleCrop(frame(4096, 3072, 1, new float[]{0.25f, 0.25f, 0.5f, 0.5f}), 1440, 1920, false);
+        assertFalse(LiveRawRenderer.halfFits(crop, 4096, 3072));
     }
 }

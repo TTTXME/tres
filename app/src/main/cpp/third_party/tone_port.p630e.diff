@@ -1,0 +1,38 @@
+--- tone_port/include/tone_port.h
++++ tone_port/include/tone_port.h
+@@ -64,6 +64,12 @@
+ std::vector<uint8_t> tone_rgb8_hdr_luts(Version version, ColorInput color, const Image& frame,
+                                         const std::array<Curve10, 3>& bright,
+                                         const std::array<Curve10, 3>& dark);
++// SCAMERA P630e (the only change to this module): the same with a hook called on the bright (long) virtual RGB8 exposure
++// (width x height, dense) between make_exposures and tone_pair - the supplement's point of the low-frequency colour transfer.
++using BrightHook = void (*)(uint8_t* bright, size_t width, size_t height, void* user);
++std::vector<uint8_t> tone_rgb8_hdr_luts(Version version, ColorInput color, const Image& frame,
++                                        const std::array<Curve10, 3>& bright,
++                                        const std::array<Curve10, 3>& dark, BrightHook hook, void* user);
+ std::vector<uint8_t> tone_rgb8_hdr_matrices(Version version, ColorInput color, const Image& frame,
+                                             const Curve10& forward, const Curve10& inverse,
+                                             const Matrix& bright, unsigned bright_shift,
+--- tone_port/src/processing.cpp
++++ tone_port/src/processing.cpp
+@@ -190,12 +190,19 @@
+ std::vector<uint8_t> tone_rgb8_hdr_luts(Version version, ColorInput color, const Image& src,
+                                         const std::array<Curve10, 3>& bright,
+                                         const std::array<Curve10, 3>& dark) {
+-    const auto pair = make_exposures(color, src, [&](const Pixel& p, uint8_t* a, uint8_t* b) {
++    return tone_rgb8_hdr_luts(version, color, src, bright, dark, nullptr, nullptr);
++}
++
++std::vector<uint8_t> tone_rgb8_hdr_luts(Version version, ColorInput color, const Image& src,
++                                        const std::array<Curve10, 3>& bright,
++                                        const std::array<Curve10, 3>& dark, BrightHook hook, void* user) {
++    auto pair = make_exposures(color, src, [&](const Pixel& p, uint8_t* a, uint8_t* b) {
+         for (size_t c = 0; c < 3; ++c) {
+             a[c] = from_lut(bright[c][p[c]]);
+             b[c] = from_lut(dark[c][p[c]]);
+         }
+     });
++    if (hook) hook(pair.bright.data(), src.width, src.height, user);
+     return tone_pair(version, src, pair);
+ }
+ 

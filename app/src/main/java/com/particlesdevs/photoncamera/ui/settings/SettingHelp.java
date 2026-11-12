@@ -140,8 +140,7 @@ public final class SettingHelp {
         EXACT.put("photo_size_choice", R.string.help_photo_size);
         EXACT.put("pref_scam_hybrid_resize_mp", R.string.help_resize_mp);
         EXACT.put("pref_scam_hybrid_resize_px", R.string.help_resize_px);
-        EXACT.put("pref_watermark_line1", R.string.help_watermark_line);
-        EXACT.put("pref_watermark_line2", R.string.help_watermark_line);
+        EXACT.put("pref_watermark_text", R.string.help_watermark_text); // P628: the one custom text (the two lines before)
         EXACT.put("pref_shade_transparency", R.string.help_shade_transparency);
         EXACT.put("photo_style", R.string.help_photo_style);
         EXACT.put("film_lut_changes", R.string.help_film_lut_changes);

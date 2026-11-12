@@ -7,7 +7,7 @@ float(h & 0xFFFFu) + 0.5) / 65536.0 was mediump, 65536.0 is +inf in fp16, the Bo
 film photo with grain came out pure white on the vivo X300 Pro (Mali-G1-Ultra). Host replays never see it.
 
 Every asset shader is compiled as GLProg hands it to the driver (#version 310 es, #import from shaders/utils, the LAYOUT define
-of a compute shader; the viewfinder's main_fs with the live lens filter spliced in and rawdevelop_fs) by the NDK's
+of a compute shader; the viewfinder's main_fs with the live lens filter and the «Oldstyle» adjustments spliced in and rawdevelop_fs) by the NDK's
 glslc and disassembled; glslang marks every mediump operation RelaxedPrecision. A relaxed float operation fails the check when
 one of its constants is above 65504 (+inf in fp16), non-zero below 2^-14 (an fp16 denormal, flushed to zero on many GPUs), or
 when it divides by a constant above 16384 (its reciprocal is a denormal). Fix: `precision highp int;` (P305, P317) or highp
@@ -32,6 +32,8 @@ FP16_MAX = 65504.0
 FP16_MIN_NORMAL = 2.0 ** -14
 LAYOUT = 'layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;'
 LIVE_MARKER = '//#lensfilter_live'          # LiveLensFilter.MARKER
+OLDSTYLE_MARKER = '//#oldstyle_adjust'      # MainRenderer.OLDSTYLE_MARKER (P630)
+OLDSTYLE_TONE_MARKER = '//#oldstyle_tone'   # MainRenderer.OLDSTYLE_TONE_MARKER (P630e)
 OES = '#extension GL_OES_EGL_image_external_essl3 : require'
 
 
@@ -86,7 +88,9 @@ def units() -> list[tuple[str, str, str]]:
         out.append((rel, 'comp' if compute else 'frag', text))
     # the viewfinder in its 2D form (LiveLensFilter.to2d): glslang has no texture() of a samplerExternalOES, the arithmetic
     # of the ISP form is the same
-    main = read(SH / 'preview/main_fs.glsl').replace(LIVE_MARKER, read(SH / 'preview/lensfilter_live.glsl'))
+    main = read(SH / 'preview/main_fs.glsl').replace(LIVE_MARKER, read(SH / 'preview/lensfilter_live.glsl')).replace(
+        OLDSTYLE_MARKER, read(SH / 'utils/import_oldstyle_adjust.glsl')).replace(
+        OLDSTYLE_TONE_MARKER, read(SH / 'utils/import_oldstyle_tone_live.glsl'))
     prep = read(SH / 'preview/lensfilter_prep.glsl')
     for label, text in (('preview/main_fs.glsl (2D)', main), ('preview/lensfilter_prep.glsl (2D)', prep)):
         out.append((label, 'frag', '#version 310 es\n#line 1\n' + text.replace(OES, '').replace('samplerExternalOES', 'sampler2D')))

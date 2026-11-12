@@ -248,7 +248,8 @@ public class VendorTagUtils {
         // P276: the module's picked SensorModeTable row on the session parameters and every request
         com.particlesdevs.photoncamera.capture.SensorModePick.apply(builder);
         com.particlesdevs.photoncamera.capture.VivoPd2454NativeRaw.apply(builder, physicalId);
-        // P598: the nubia remosaic probe's setting of the maximum-resolution FULLRES session (none outside it)
-        com.particlesdevs.photoncamera.capture.NubiaRemosaicProbe.apply(builder);
+        // P598: the nubia remosaic probe's setting of the maximum-resolution FULLRES session (none outside it); P626: a still
+        // (burst) takes the way's snapshot keys too
+        com.particlesdevs.photoncamera.capture.NubiaRemosaicProbe.apply(builder, burst);
     }
 }

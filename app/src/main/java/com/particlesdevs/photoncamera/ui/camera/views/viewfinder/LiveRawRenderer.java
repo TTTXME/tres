@@ -210,6 +210,14 @@ final class LiveRawRenderer {
     static int cfaMode(LiveRawFrame.Frame f) {
         return f.cfaBlock==1 && !f.cellMean?1:0;
     }
+    /**
+     * P616: whether the visible crop {left, top, width, height} spans (90 % or more of) the frame along one axis - no zoom, the
+     * other axis only fitted to the screen's aspect: a frame halved while a shot is processed (LiveRawFrame.viewCap) still has about
+     * as many colours as the busy tone draws (1x 4096 x 3072: 768 x 1024 colours for a 750 x 1000 tone).
+     */
+    static boolean halfFits(int[] crop,int frameW,int frameH) {
+        return crop[2]>=0.9*frameW || crop[3]>=0.9*frameH;
+    }
     /** P314: steps of the tone size (a share of the viewport): a zoom does not make the targets anew on every frame. */
     static final int TONE_STEPS=16;
     /**
@@ -335,6 +343,7 @@ final class LiveRawRenderer {
         } else GLES30.glTexSubImage2D(GLES20.GL_TEXTURE_2D,0,0,0,f.width,f.height,GLES30.GL_RED_INTEGER,GLES20.GL_UNSIGNED_SHORT,f.buffer);
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ROW_LENGTH,0);GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT,4);
         com.particlesdevs.photoncamera.processing.VfStages.note(com.particlesdevs.photoncamera.processing.VfStages.Stage.UPLOAD,System.nanoTime()-uploadStart);
+        VfDrawMeter.upload(System.nanoTime()-uploadStart); // P616: a slow draw's upload share
         texVersion[slot]=f.version;
         if(!twin || !sameShading(shadingShown,shadingShownW,shadingShownH,f.shading,f.shadingWidth,f.shadingHeight)) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE3);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,shadingTex);

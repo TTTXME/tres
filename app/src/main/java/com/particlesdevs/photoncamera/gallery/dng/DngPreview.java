@@ -91,7 +91,17 @@ public final class DngPreview {
      * that is large enough, else a raw render of about the request's size, else the largest embedded preview.
      */
     public static Result read(ByteBuffer buffer, int reqW, int reqH) throws IOException {
+        return read(buffer, reqW, reqH, false);
+    }
+
+    /**
+     * P620: {@link #read} for a grid thumbnail ({@code thumbnail}): an uncompressed raw render reads only {@link #SPARSE_ROWS}
+     * CFA rows of each output block (every column of them), not the whole mosaic - the rows skipped are never touched in the
+     * mapped file (a 50 MP 16-bit DNG: about 18 MB of its 100 MB read instead of all of it).
+     */
+    public static Result read(ByteBuffer buffer, int reqW, int reqH, boolean thumbnail) throws IOException {
         DngPreview p = new DngPreview(buffer);
+        p.sparse = thumbnail;
         int need = Math.max(reqW, reqH);
         if (need <= 0) need = 2048;
         need = Math.min(need, 4096);
@@ -345,6 +355,32 @@ public final class DngPreview {
         }
     }
 
+    /** P620: a thumbnail's render: only some CFA rows of each output block (uncompressed raw data, blocks of 4+ repeat rows). */
+    private boolean sparse;
+    /** P620: the repeat-tile rows of a block a sparse render reads ({@link #sparseRow}); 0: every row. */
+    private int sparseK;
+    /** P620: CFA repeat rows per output block a sparse render reads. */
+    static final int SPARSE_ROWS = 2;
+
+    /** P620: whether a sparse render reads raw row {@code y}: tile rows k/4 and 3k/4 of each block of k tile rows. */
+    static boolean sparseRow(int y, int rr, int k) {
+        if (k < 4) return true;
+        final int t = (y / rr) % k;
+        return t == k / 4 || t == (3 * k) / 4;
+    }
+
+    /**
+     * P620 (owner, 2026-11-11: «200мп в галерее тоже ускорь»): the block size of a viewer-sized request (1024 px or more): one
+     * more repeat tile a block while the output's long side would pass 1.5 x the request - a 200 MP DNG for the viewer's 4096 px
+     * was rendered at 8160 x 6144 (k = 1: about 1.4 GB of sums, counts and pixels on the heap), now 4080 x 3072 like a 50 MP one.
+     * Smaller requests (thumbnails) keep the block that covers them. {@code tilesW x tilesH}: the raw in repeat tiles.
+     */
+    static int viewerBlock(int k, int tilesW, int tilesH, int reqW, int reqH) {
+        if (Math.max(reqW, reqH) < 1024) return k;
+        while (Math.max((double) tilesW / k / Math.max(1, reqW), (double) tilesH / k / Math.max(1, reqH)) > 1.5) k++;
+        return k;
+    }
+
     private void render(Ifd f, int reqW, int reqH, Result r) throws IOException {
         if (f.spp != 1 || f.planar != 1) throw new IOException("DNG: raw with " + f.spp + " samples per pixel");
         final int bits = f.bps.length > 0 ? f.bps[0] : 16;
@@ -373,7 +409,9 @@ public final class DngPreview {
         // output: one pixel per block of k x k repeat tiles, about the request (at least the request when the raw allows)
         int k = (int) Math.max(1, Math.floor(Math.min((double) W / rc / Math.max(1, reqW), (double) H / rr / Math.max(1, reqH))));
         if (Math.max(reqW, reqH) <= 0) k = 1;
+        else k = viewerBlock(k, W / rc, H / rr, reqW, reqH);
         blockX = rc * k; blockY = rr * k;
+        sparseK = sparse && f.compression == 1 && k >= 4 ? k : 0;
         outW = Math.max(1, W / blockX); outH = Math.max(1, H / blockY);
         sum = new float[outW * outH * 3];
         cnt = new int[outW * outH * 3];
@@ -417,38 +455,93 @@ public final class DngPreview {
             for (int t = 0; t < f.tileOffsets.length; ++t) {
                 int x0 = (t % tilesAcross) * f.tileW, y0 = (t / tilesAcross) * f.tileH;
                 for (int y = 0; y < f.tileH && y0 + y < H; ++y)
-                    readRow(f.tileOffsets[t] + (long) y * tRowBytes, bits, Math.min(f.tileW, W - x0), x0, y0 + y);
+                    if (sparseK == 0 || sparseRow(y0 + y, rr, sparseK)) readRow(f.tileOffsets[t] + (long) y * tRowBytes, bits, Math.min(f.tileW, W - x0), x0, y0 + y);
             }
             return;
         }
         if (f.stripOffsets == null) throw new IOException("DNG: raw without strips");
         final int rps = Math.min(f.rowsPerStrip, H);
         for (int y = 0; y < H; ++y) {
+            if (sparseK > 0 && !sparseRow(y, rr, sparseK)) continue;
             int s = y / rps;
             if (s >= f.stripOffsets.length) break;
             readRow(f.stripOffsets[s] + (long) (y - s * rps) * rowBytes, bits, W, 0, y);
         }
     }
 
+    /** P620: the samples of the row being read ({@link #readRow}). */
+    private int[] rowBuf = new int[0];
+    private short[] rowShorts = new short[0];
+    private byte[] rowBytes = new byte[0];
+
     private void readRow(long off, int bits, int n, int x0, int y) {
-        int o = (int) off;
+        final int o = (int) off;
+        if (rowBuf.length < n) rowBuf = new int[n];
+        final int[] v = rowBuf;
+        int m = 0;
         if (bits == 16) {
             if (o + 2L * n > b.limit()) return;
-            for (int x = 0; x < n; ++x) add(x0 + x, y, b.getShort(o + 2 * x) & 0xFFFF);
+            // P620: the row in one bulk read (a ByteBuffer read per sample before)
+            if (rowShorts.length < n) rowShorts = new short[n];
+            final ByteBuffer d = b.duplicate();
+            d.order(b.order());
+            d.position(o);
+            d.asShortBuffer().get(rowShorts, 0, n);
+            for (; m < n; ++m) v[m] = rowShorts[m] & 0xFFFF;
         } else if (bits == 8) {
             if (o + n > b.limit()) return;
-            for (int x = 0; x < n; ++x) add(x0 + x, y, b.get(o + x) & 0xFF);
+            if (rowBytes.length < n) rowBytes = new byte[n];
+            final ByteBuffer d = b.duplicate();
+            d.position(o);
+            d.get(rowBytes, 0, n);
+            for (; m < n; ++m) v[m] = rowBytes[m] & 0xFF;
         } else { // packed MSB first, rows byte-aligned
-            long bitPos = 0;
-            for (int x = 0; x < n; ++x) {
-                int v = 0;
-                for (int k = 0; k < bits; ++k, ++bitPos) {
-                    int at = o + (int) (bitPos >> 3);
-                    if (at >= b.limit()) return;
-                    v = (v << 1) | ((b.get(at) >> (7 - (int) (bitPos & 7))) & 1);
+            // P620: a byte at a time into a bit accumulator (was a ByteBuffer read per bit: 10 reads a 10-bit sample)
+            final int limit = b.limit(), mask = (1 << bits) - 1;
+            long acc = 0;
+            int have = 0, at = o;
+            samples:
+            for (; m < n; ++m) {
+                while (have < bits) {
+                    if (at >= limit) break samples;
+                    acc = (acc << 8) | (b.get(at++) & 0xFF);
+                    have += 8;
                 }
-                add(x0 + x, y, v);
+                have -= bits;
+                v[m] = (int) (acc >>> have) & mask;
             }
+        }
+        addRow(x0, y, v, m);
+    }
+
+    /**
+     * P620: {@link #add} of the first {@code m} samples of raw row {@code y} from column {@code x0}: the same sums in the same
+     * order, the block, CFA and black-level positions stepped along the row instead of divided out for each sample.
+     */
+    private void addRow(int x0, int y, int[] v, int m) {
+        if (shading != null) {
+            for (int i = 0; i < m; ++i) add(x0 + i, y, v[i]);
+            return;
+        }
+        final int oy = y / blockY;
+        if (oy >= outH) return;
+        final int cfaRow = (y % rr) * rc, blackRow = (y % bRows) * bCols, rowBase = oy * outW * 3;
+        int ox = x0 / blockX, inBlock = x0 - ox * blockX, cx = x0 % rc, bx = x0 % bCols;
+        for (int i = 0; i < m && ox < outW; ++i) {
+            final int raw = v[i];
+            final int value = lin != null ? lin[Math.min(raw, lin.length - 1)] : raw;
+            final int c = cfa[cfaRow + cx];
+            if (c >= 0 && c <= 2) {
+                final int k = rowBase + ox * 3 + c;
+                sum[k] += (float) (value - black[blackRow + bx]);
+                cnt[k]++;
+            }
+            if (++inBlock == blockX) {
+                inBlock = 0;
+                ox++;
+            }
+            if (++cx == rc) cx = 0;
+            if (++bx == bCols) bx = 0;
         }
     }
 
@@ -481,7 +574,8 @@ public final class DngPreview {
         double[] n = asShotNeutral != null && asShotNeutral.length >= 3 ? asShotNeutral : new double[]{1, 1, 1};
         double[] m = previewMatrix(n);
         double gain = Math.pow(2, baselineExposure);
-        float[] rgb = new float[outW * outH * 3];
+        // P620: the linear RGB written over the sums (each pixel's three read first): one array of 3 floats a pixel less
+        final float[] rgb = sum;
         float[] luma = new float[outW * outH];
         for (int i = 0; i < outW * outH; ++i) {
             double[] cam = new double[3];
@@ -495,10 +589,12 @@ public final class DngPreview {
             }
             luma[i] = 0.2126f * rgb[i * 3] + 0.7152f * rgb[i * 3 + 1] + 0.0722f * rgb[i * 3 + 2];
         }
+        cnt = null;
+        sum = null;
         // automatic lift: raw data of a phone is often exposed for the highlights (the camera's tone curve lifts it later)
-        float[] sorted = luma.clone();
-        java.util.Arrays.sort(sorted);
-        double median = sorted[sorted.length / 2], high = sorted[(int) (sorted.length * 0.99)];
+        // P620: the two order statistics by selection (the same values as a full sort: 1 s of a 12 MP viewer render)
+        float[] sorted = luma; // luma is not needed after its quantiles
+        double median = select(sorted, sorted.length / 2), high = select(sorted, (int) (sorted.length * 0.99));
         double lift = median > 1e-6 ? Math.max(1, Math.min(8, 0.18 / median)) : 1;
         if (high * lift > 3) lift = Math.max(1, 3 / Math.max(high, 1e-6));
         int[] out = new int[outW * outH];
@@ -507,7 +603,7 @@ public final class DngPreview {
             for (int c = 0; c < 3; ++c) {
                 double v = Math.max(0, rgb[i * 3 + c] * lift);
                 v = v * (1 + v / 9.0) / (1 + v); // soft shoulder, white at 3
-                argb |= srgb8(Math.min(1, v)) << (16 - 8 * c);
+                argb |= srgb8Fast(Math.min(1, v)) << (16 - 8 * c);
             }
             out[i] = argb;
         }
@@ -556,6 +652,68 @@ public final class DngPreview {
             for (int c = 0; c < 3; ++c) m[r * 3 + c] *= s;
         }
         return m;
+    }
+
+    /**
+     * P620: {@link #srgb8} without a pow per channel: SRGB8_STEP[k - 1] is the smallest double whose srgb8 is at least k (found
+     * by bisection on the function itself, srgb8 rises with v), so the count of steps at or below v is srgb8(v) exactly.
+     */
+    private static final double[] SRGB8_STEP = new double[255];
+
+    static {
+        for (int k = 1; k <= 255; k++) {
+            double lo = 0, hi = 1; // srgb8(lo) < k <= srgb8(hi)
+            while (true) {
+                final double mid = lo + (hi - lo) / 2;
+                if (mid <= lo || mid >= hi) break;
+                if (srgb8(mid) >= k) hi = mid;
+                else lo = mid;
+            }
+            SRGB8_STEP[k - 1] = hi;
+        }
+    }
+
+    /** P620: srgb8 at the start of each of SRGB8_BUCKETS equal steps of [0, 1] (the walk in srgb8Fast starts there). */
+    private static final int SRGB8_BUCKETS = 4096;
+    private static final byte[] SRGB8_AT = new byte[SRGB8_BUCKETS + 1];
+
+    static {
+        for (int i = 0; i <= SRGB8_BUCKETS; i++) SRGB8_AT[i] = (byte) srgb8((double) i / SRGB8_BUCKETS);
+    }
+
+    static int srgb8Fast(double v) {
+        if (!(v > 0) || v >= 1) return srgb8(v);
+        int k = SRGB8_AT[(int) (v * SRGB8_BUCKETS)] & 0xFF; // srgb8 rises with v: at most a few steps up from the bucket's start
+        while (k < 255 && SRGB8_STEP[k] <= v) k++;
+        return k;
+    }
+
+    /** P620: the k-th smallest of {@code a} (a reordered in place; quickselect, NaN-free data). */
+    static float select(float[] a, int k) {
+        int lo = 0, hi = a.length - 1;
+        while (hi > lo) {
+            final float pivot = median3(a[lo], a[(lo + hi) >>> 1], a[hi]);
+            int i = lo, j = hi;
+            while (i <= j) {
+                while (a[i] < pivot) i++;
+                while (a[j] > pivot) j--;
+                if (i <= j) {
+                    final float t = a[i];
+                    a[i] = a[j];
+                    a[j] = t;
+                    i++;
+                    j--;
+                }
+            }
+            if (k <= j) hi = j;
+            else if (k >= i) lo = i;
+            else return a[k];
+        }
+        return a[k];
+    }
+
+    private static float median3(float a, float b, float c) {
+        return Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
     }
 
     static int srgb8(double v) {

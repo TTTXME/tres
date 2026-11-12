@@ -42,7 +42,33 @@ public class ImageAdapter extends PagerAdapter {
     private static final int BASE_ID = View.generateViewId();
     /** Gallery decode problems in the app's log file (log-DATE.txt). */
     private static final String GALLERY_TAG = "GALLERY_DECODE";
+    /**
+     * P620 (owner, 2026-11-11: «200мп в галерее тоже ускорь»): CENTER_INSIDE, but a picture of twice the request or more (50 /
+     * 200 MP for 4096) is sampled by the decoder to about the request (MEMORY rounding: 1/2, 1/4) instead of decoded at the
+     * nearest smaller sample and scaled (a 50 MP HEIC was decoded whole, a 200 MP one at 8160 x 6144, then scaled to 4096).
+     */
+    static final DownsampleStrategy SAMPLED_INSIDE = new DownsampleStrategy() {
+        @Override
+        public float getScaleFactor(int sourceWidth, int sourceHeight, int requestedWidth, int requestedHeight) {
+            return DownsampleStrategy.CENTER_INSIDE.getScaleFactor(sourceWidth, sourceHeight, requestedWidth, requestedHeight);
+        }
+
+        @Override
+        public SampleSizeRounding getSampleSizeRounding(int sourceWidth, int sourceHeight, int requestedWidth, int requestedHeight) {
+            return getScaleFactor(sourceWidth, sourceHeight, requestedWidth, requestedHeight) <= 0.505f ? SampleSizeRounding.MEMORY
+                    : DownsampleStrategy.CENTER_INSIDE.getSampleSizeRounding(sourceWidth, sourceHeight, requestedWidth, requestedHeight);
+        }
+    };
+
+    /** P620: the long side of an Ultra HDR page's bitmap at most (one bitmap, no tiles: 8192 keeps a 50 MP photo whole). */
+    static final int HDR_MAX_SIDE = 8192;
     private static final ExecutorService HDR_EXECUTOR = Executors.newSingleThreadExecutor();
+    /** P620: the JPEG pages' first pictures (the grid's cached thumbnail and the header): two pages at a time. */
+    private static final ExecutorService PREVIEW_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "GalleryPreview");
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        return t;
+    });
     private final List<GalleryItem> galleryItemList;
     private final boolean[] hdrRequested;
     private final boolean[] hdrActive;
@@ -104,6 +130,8 @@ public class ImageAdapter extends PagerAdapter {
 
         CustomSSIV scaleImageView = new CustomSSIV(container.getContext());
         scaleImageView.setId(getSsivId(position));
+        // P620: tiles from the file descriptor (no copy of the file into native memory), a few decoders in parallel
+        scaleImageView.setRegionDecoderClass(FdRegionDecoder.class);
         if (imageViewClickListener != null) {
             scaleImageView.setOnClickListener(v -> imageViewClickListener.onImageViewClicked(v));
         }
@@ -128,7 +156,7 @@ public class ImageAdapter extends PagerAdapter {
         if (GalleryDecodeRetry.shouldUseTiledDecode(fileName)) {
             // JPEG: BitmapRegionDecoder tiles smoothly and safely on Android; falls back to Glide if tiling fails.
             scaleImageView.setOnImageEventListener(new BitmapFallback(imageEventListener, scaleImageView, galleryItem));
-            scaleImageView.setImage(ImageSource.uri(galleryItem.getFile().getFileUri()));
+            tilesWithPreview(scaleImageView, galleryItem);
         } else {
             // HEIC, WebP, AVIF, DNG: platform BitmapRegionDecoder causes native SIGSEGV crashes on HEIC
             // (libheif concurrency, 10-bit Main10) and dropped tiles / black screens on WebP.
@@ -136,6 +164,36 @@ public class ImageAdapter extends PagerAdapter {
             scaleImageView.setOnImageEventListener(imageEventListener);
             loadGlideBitmap(scaleImageView, galleryItem, 0, imageEventListener);
         }
+    }
+
+    /**
+     * P620: the tiled page with the grid's cached thumbnail as its preview (shown at once; the base layer of a 50 MP JPEG takes a
+     * few hundred ms), else the tiles alone as before. The cache lookup and the header run off the main thread (at most
+     * ViewerPreview.TIMEOUT_MS).
+     */
+    private void tilesWithPreview(CustomSSIV page, GalleryItem item) {
+        final android.net.Uri uri = item.getFile().getFileUri();
+        final Context app = page.getContext().getApplicationContext();
+        PREVIEW_EXECUTOR.execute(() -> {
+            final ViewerPreview.Result p = released ? null : ViewerPreview.load(app, item.getFile());
+            page.post(() -> {
+                if (released || page.getParent() == null || page.hasImage()) { // gone, or an Ultra HDR / fallback picture already
+                    if (p != null) p.bitmap.recycle();
+                    return;
+                }
+                if (p != null) {
+                    page.setOrientation(p.rotation); // the preview's and the tiles' turn, from the same header
+                    page.setImage(ImageSource.uri(uri).dimensions(p.width, p.height), ImageSource.bitmap(p.bitmap));
+                } else page.setImage(ImageSource.uri(uri));
+            });
+        });
+    }
+
+    /** P620: a decoded bitmap (Glide's, already turned) on a page whose orientation a JPEG preview may have fixed. */
+    private static void showBitmap(SubsamplingScaleImageView page, Bitmap bitmap) {
+        if (page.getOrientation() != SubsamplingScaleImageView.ORIENTATION_USE_EXIF)
+            page.setOrientation(SubsamplingScaleImageView.ORIENTATION_USE_EXIF);
+        page.setImage(ImageSource.cachedBitmap(bitmap));
     }
 
     /**
@@ -150,13 +208,24 @@ public class ImageAdapter extends PagerAdapter {
             return;
         }
         final String name = item.getFile().getDisplayName();
-        Glide.with(page.getContext().getApplicationContext())
+        final Context app = page.getContext().getApplicationContext();
+        // P620: a DNG / camera RAW read in place by the thumbnail decoder (DngGlideDecoder copied the whole file from a stream
+        // first); every page shows the grid's cached thumbnail until its picture is decoded
+        final boolean raw = com.particlesdevs.photoncamera.gallery.raw.RawFormats.isRawName(name);
+        Glide.with(app)
                 .asBitmap()
-                .load(item.getFile().getFileUri())
+                .load(raw ? com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.fit(item.getFile()) : item.getFile().getFileUri())
+                .thumbnail(com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.cached(Glide.with(app), app, item.getFile()))
+                // P621: another app's DNG whose descriptor cannot be mapped (a pipe): its stream through Glide's decoders, as before
+                .error(raw ? Glide.with(app).asBitmap().load(item.getFile().getFileUri())
+                        .apply(RequestOptions.signatureOf(GalleryKeys.of(item.getFile())))
+                        .override(GalleryDecodeRetry.FALLBACK_MAX_SIDE, GalleryDecodeRetry.FALLBACK_MAX_SIDE)
+                        .downsample(SAMPLED_INSIDE).disallowHardwareConfig() : null)
                 .apply(RequestOptions.signatureOf(GalleryKeys.of(item.getFile())))
-                // Zoomable but bounded: at most 4096 px on the long side (~50 MB), never upscaled.
+                // Zoomable but bounded: at most 4096 px on the long side (~50 MB), never upscaled. P620: a 50 / 200 MP picture
+                // sampled to about 4096 by the decoder itself (CENTER_INSIDE decoded 50 MP whole, 200 MB, before scaling it)
                 .override(GalleryDecodeRetry.FALLBACK_MAX_SIDE, GalleryDecodeRetry.FALLBACK_MAX_SIDE)
-                .downsample(DownsampleStrategy.CENTER_INSIDE)
+                .downsample(SAMPLED_INSIDE)
                 // P117: a software bitmap: the compare screenshot draws the panes into a software canvas, which throws on a
                 // hardware bitmap
                 .disallowHardwareConfig()
@@ -164,7 +233,7 @@ public class ImageAdapter extends PagerAdapter {
                     @Override
                     public void onResourceReady(@NonNull Bitmap bitmap, @Nullable Transition<? super Bitmap> transition) {
                         if (!released && page.getParent() != null) {
-                            page.setImage(ImageSource.cachedBitmap(bitmap));
+                            showBitmap(page, bitmap);
                         }
                     }
 
@@ -419,7 +488,7 @@ public class ImageAdapter extends PagerAdapter {
 
     private void decodeHdrBitmap(CustomSSIV scaleImageView, int position) {
         GalleryItem galleryItem = galleryItemList.get(position);
-        CustomTarget<Bitmap> target = new CustomTarget<Bitmap>(Target.SIZE_ORIGINAL, Target.SIZE_ORIGINAL) {
+        CustomTarget<Bitmap> target = new CustomTarget<Bitmap>(HDR_MAX_SIDE, HDR_MAX_SIDE) {
             @Override
             public void onResourceReady(@NonNull Bitmap bitmap, @Nullable Transition<? super Bitmap> transition) {
                 if (released || !hdrRequested[position] || !inBounds(position)) {
@@ -436,7 +505,7 @@ public class ImageAdapter extends PagerAdapter {
                 }
                 hdrActive[position] = true;
                 hdrBitmaps[position] = bitmap;
-                scaleImageView.setImage(ImageSource.cachedBitmap(bitmap));
+                showBitmap(scaleImageView, bitmap);
                 if (hdrStateListener != null) {
                     hdrStateListener.onHdrStateChanged(position, true);
                 }
@@ -457,12 +526,17 @@ public class ImageAdapter extends PagerAdapter {
         };
         hdrTargets[position] = target;
         hdrRequested[position] = true;
+        // P620: at most HDR_MAX_SIDE (a power-of-two sample: a 200 MP Ultra HDR JPEG at 1/2, 8160 x 6144 with its gain map, not
+        // 800 MB at full size; 50 MP stays whole); not in the disk cache (DATA copied the whole JPEG there, 25-100 MB a page,
+        // pushing out hundreds of grid thumbnails)
         Glide.with(scaleImageView.getContext())
                 .asBitmap()
                 .load(galleryItem.getFile().getFileUri())
                 .apply(new RequestOptions()
-                        .diskCacheStrategy(DiskCacheStrategy.DATA)
-                        .skipMemoryCache(true))
+                        .diskCacheStrategy(DiskCacheStrategy.NONE)
+                        .skipMemoryCache(true)
+                        .override(HDR_MAX_SIDE, HDR_MAX_SIDE)
+                        .downsample(DownsampleStrategy.AT_MOST))
                 .into(target);
     }
 

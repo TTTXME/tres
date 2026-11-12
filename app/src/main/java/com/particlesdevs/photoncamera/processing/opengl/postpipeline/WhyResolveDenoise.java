@@ -178,6 +178,7 @@ public final class WhyResolveDenoise {
         for (int row = 0; row < height; row += 256) {
             android.opengl.GLES30.glViewport(0, y + row, target.mSize.x, Math.min(256, height - row));
             prog.draw();
+            com.particlesdevs.photoncamera.processing.opengl.GpuPace.block(); // P616: a submission per block while paced
         }
         android.opengl.GLES30.glFlush();
     }

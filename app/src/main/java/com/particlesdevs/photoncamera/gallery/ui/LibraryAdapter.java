@@ -20,8 +20,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.particlesdevs.photoncamera.gallery.glide.GalleryKeys;
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.gallery.helper.UltraHdrGalleryUtil;
 import com.particlesdevs.photoncamera.gallery.model.GalleryItem;
@@ -109,10 +107,34 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         setHasStableIds(true);
     }
 
+    // ---------------------------------------------------------------- P622: the list and timeline views (RowStyle)
+
+    /** P622: the rows and holders of another view (null: this grid, unchanged). */
+    @androidx.annotation.Nullable private RowStyle style;
+
+    /** P622: another view's rows and holders (null: the grid); the list is laid out again at once (no diff across views). */
+    public void setStyle(@androidx.annotation.Nullable RowStyle s) {
+        style = s;
+        rows.clear();
+        rows.addAll(s != null ? s.rows(items, now) : rowsOf(items, now));
+        notifyDataSetChanged();
+    }
+
+    @androidx.annotation.Nullable
+    public RowStyle style() { return style; }
+
+    Host host() { return host; }
+
+    Set<String> rawBases() { return rawBases; }
+
+    /** P622: the row at an adapter position (null outside). */
+    @androidx.annotation.Nullable
+    Row rowAt(int position) { return position >= 0 && position < rows.size() ? rows.get(position) : null; }
+
     public void setItems(List<GalleryItem> list) {
         final List<GalleryItem> next = list != null ? list : new ArrayList<>();
         final long t = System.currentTimeMillis();
-        final List<Row> nextRows = rowsOf(next, t);
+        final List<Row> nextRows = style != null ? style.rows(next, t) : rowsOf(next, t); // P622: the view's own rows
         // P498: a delete, an undo or a filter moves the cells on (DiffUtil + the grid's item animator) instead of a jump cut; the
         // first fill and big changes stay one refresh
         final boolean diff = !rows.isEmpty() && !nextRows.isEmpty() && Math.abs(rows.size() - nextRows.size()) < 400 && rows.size() < 4000;
@@ -154,7 +176,12 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
     private int thumbPx = 240;
 
     public void setThumbPx(int px) {
-        thumbPx = Math.max(120, Math.min(720, px));
+        // P620: rounded up to 32 px steps (a slightly different width keeps the cached thumbnails)
+        thumbPx = Math.max(120, Math.min(720, (px + 31) / 32 * 32));
+    }
+
+    public int thumbPx() {
+        return thumbPx;
     }
 
     /** P498: the day of the row at an adapter position (the fast scroller's bubble). */
@@ -209,13 +236,14 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         return new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
+                if (style != null) return position < rows.size() ? style.span(rows.get(position), columns) : 1; // P622
                 return position < rows.size() && rows.get(position).type == HEADER ? columns : 1;
             }
         };
     }
 
     @Override
-    public int getItemViewType(int position) { return rows.get(position).type; }
+    public int getItemViewType(int position) { return style != null ? style.viewType(rows.get(position)) : rows.get(position).type; }
 
     @Override
     public long getItemId(int position) {
@@ -232,6 +260,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         Context c = parent.getContext();
+        if (style != null && viewType > PHOTO) return style.create(parent, viewType, this); // P622: the view's own holders
         return viewType == HEADER ? new HeaderHolder(c) : new CellHolder(c);
     }
 
@@ -248,7 +277,8 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
                 if (host.selecting()) host.onDayClicked(r.item, r.count);
             });
         }
-        else ((CellHolder) holder).bind(items.get(r.item), r.item);
+        else if (holder instanceof CellHolder) ((CellHolder) holder).bind(items.get(r.item), r.item);
+        else if (style != null) style.bind(holder, r, this); // P622
     }
 
     /** Refreshes the selection state of the bound cells without reloading their pictures (animated). */
@@ -257,6 +287,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             RecyclerView.ViewHolder h = rv.getChildViewHolder(rv.getChildAt(i));
             if (h instanceof CellHolder) ((CellHolder) h).applySelection(true);
             else if (h instanceof HeaderHolder) ((HeaderHolder) h).applySelecting(host.selecting());
+            else if (style != null) style.refreshSelection(h, this); // P622
         }
     }
 
@@ -414,14 +445,11 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
                 Glide.with(image).clear(image);
                 return;
             }
-            com.bumptech.glide.RequestBuilder<android.graphics.Bitmap> request = Glide.with(image)
-                    .asBitmap()
-                    .load(uri)
-                    .apply(new RequestOptions()
-                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                            .signature(GalleryKeys.of(it.getFile()))
-                            .override(thumbPx, thumbPx)
-                            .centerCrop());
+            // P620: the cheapest large-enough source (GalleryThumb / ThumbDecoder), not cropped (the view crops), shared with
+            // the viewer's film strip and its first picture; visible cells before the preloads
+            com.bumptech.glide.RequestBuilder<android.graphics.Bitmap> request = com.particlesdevs.photoncamera.gallery.glide.GalleryThumb
+                    .request(Glide.with(image), com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.of(it.getFile()), thumbPx)
+                    .priority(com.bumptech.glide.Priority.HIGH);
             if (GalleryOpenTrace.countingThumbs()) request = request.listener(THUMB_TRACE); // P617: the first screen's timing
             request.into(image);
         }

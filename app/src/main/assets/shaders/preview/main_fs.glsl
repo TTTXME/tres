@@ -1,5 +1,8 @@
 #extension GL_OES_EGL_image_external_essl3 : require
 precision highp float;   // P228: the live lens filter's tap offsets need the uv precision
+// P630c: the frame's taps at full precision where the sampler is a 2D one (the developed-RAW pass; the camera's external
+// texture keeps its driver's default precision: an 8-bit picture)
+precision highp sampler2D;
 uniform samplerExternalOES sTexture;
 uniform vec2 resolution;
 uniform bool enablePeak;
@@ -18,6 +21,16 @@ uniform vec3 uLutMin;
 uniform vec3 uLutScale;
 #define LF_SAMPLE(p) texture(sTexture, p).rgb
 //#lensfilter_live
+// P630 / P630c «Oldstyle»: the mode's style live, the photo's function (MainRenderer splices utils/import_oldstyle_adjust.glsl
+// here); uOsOn 0 outside the mode or with every parameter at 0. Its taps: the frame at whole screen pixels (px, py: a screen pixel
+// in uv), moved by what the gain / filter / LUT did to this pixel (the photo's taps are of its finished picture)
+uniform int uOsOn;
+vec2 osUv, osPx, osPy;
+vec3 osShift;
+#define OS_TAP(off) (LF_SAMPLE(osUv + (off).x * osPx + (off).y * osPy) + osShift)
+//#oldstyle_adjust
+// P630e: the Oldstyle version's tone under the style (MainRenderer splices utils/import_oldstyle_tone_live.glsl; uOtOn 0 off)
+//#oldstyle_tone
 void main() {
     vec2 uv = texCoord.xy;
     if(mirror)
@@ -27,10 +40,18 @@ void main() {
     vec4 frame = texture(sTexture, uv);
     vec4 color = frame;
     if (uGain != 1.0) color.rgb = pow(clamp(pow(max(color.rgb, 0.0), vec3(2.2)) * uGain, 0.0, 1.0), vec3(1.0 / 2.2));
+    if (uOtOn > 0) color.rgb = oldstyleToneLive(uv, color.rgb, px, py, resolution);
     color.rgb = lensFilter(uv, color.rgb, px, -py, resolution);
     if (uLutOn == 1) {
         vec3 lc = (clamp((clamp(color.rgb, 0.0, 1.0) - uLutMin) * uLutScale, 0.0, 1.0) * (uLutSize - 1.0) + 0.5) / uLutSize;
         color.rgb = mix(color.rgb, texture(uLut, lc).rgb, uLutStrength);
+    }
+    if (uOsOn == 1) {
+        osUv = uv;
+        osPx = px;
+        osPy = py;
+        osShift = color.rgb - frame.rgb;
+        color.rgb = oldstyleStyle(clamp(color.rgb, 0.0, 1.0), floor(gl_FragCoord.xy), resolution);
     }
     vec2 size = resolution;
     // focus peaking (on the camera's frame itself: the filter and the LUT are no edges)

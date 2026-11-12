@@ -1,15 +1,11 @@
 package com.particlesdevs.photoncamera.processing;
 
-import android.media.Image;
 import android.os.Build;
 
 import com.particlesdevs.photoncamera.processing.render.Parameters;
 
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
 
 // P214b / P214c: the Software tag comes from the app's BuildConfig through DngMetadata (circleimageview's BuildConfig,
 // imported here before, wrote "SCAMERA  (-1)")
@@ -62,6 +58,12 @@ public class DngCreator {
     private native void setCompression(long nativePtr, boolean useCompression);
     private native void setBitsPerSample(long nativePtr, int bps);
     private native void setBinning(long nativePtr, boolean binning);
+    /** P618: one more tag of IFD 0 (ifd 0) or the Exif IFD (ifd 1); a value the writer refuses is logged, not written. */
+    private native void setTagAscii(long nativePtr, int ifd, int tag, String value);
+    private native void setTagShorts(long nativePtr, int ifd, int tag, int[] values);
+    private native void setTagLongs(long nativePtr, int ifd, int tag, long[] values);
+    private native void setTagRationals(long nativePtr, int ifd, int tag, long[] numeratorDenominatorPairs);
+    private native void setDefaultCrop(long nativePtr, int x, int y, int width, int height);
     private native void destroy(long nativePtr);
     private native void writeFile(long nativePtr, ByteBuffer dngBuffer, ByteBuffer raw, String path, int offset);
     private native void openArchive(long nativePtr, String path);
@@ -408,6 +410,19 @@ public class DngCreator {
      * Set the CFA (Color Filter Array) pattern
      * @param pattern CFA pattern type (use CFA_PATTERN_* constants)
      */
+    /** P618: a ShotExif tag (IFD 0 or the Exif IFD). */
+    public void setTag(ShotExif.Tag t) {
+        if (t.ascii != null) setTagAscii(nativePtr, t.ifd, t.tag, t.ascii);
+        else if (t.shorts != null) setTagShorts(nativePtr, t.ifd, t.tag, t.shorts);
+        else if (t.longs != null) setTagLongs(nativePtr, t.ifd, t.tag, t.longs);
+        else if (t.rationals != null) setTagRationals(nativePtr, t.ifd, t.tag, t.rationals);
+    }
+
+    /** P618: DefaultCropOrigin / DefaultCropSize in the stored image's pixels (a raw converter's frame); a zero size: none. */
+    public void setDefaultCrop(int x, int y, int width, int height) {
+        setDefaultCrop(nativePtr, x, y, width, height);
+    }
+
     public void setCFAPattern(int pattern) {
         if (pattern < CFA_PATTERN_RGGB || pattern > CFA_PATTERN_BGGR) {
             throw new IllegalArgumentException("Invalid CFA pattern. Use CFA_PATTERN_* constants.");
@@ -508,13 +523,22 @@ public class DngCreator {
         for (int i = 0; i < 4; i++) {
             blackLevel[i] = (short) parameters.blackLevel[i];
         }
-        setDescription(parameters.toString());
+        // P618: what the file holds, without PhotonCamera's settings list (Parameters.description)
+        setDescription(ShotExif.dngDescription(parameters));
         // P214c: version, versionCode and commit of this APK (DngMetadata.software)
         setSoftware(DngMetadata.software());
 
-        // Set current date and time
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US);
-        setDateTime(dateFormat.format(new Date()));
+        // P618: the shot's time (when it was named, as the photo's EXIF) with its milliseconds and zone in the Exif IFD, the
+        // lens it was taken with and its exposure (ShotExif); the time this file was written stood here, without a zone
+        final ShotExif.Facts facts = ShotExif.of(parameters, parameters.dngFieldZoom,
+                com.particlesdevs.photoncamera.util.DeviceName.make(), com.particlesdevs.photoncamera.util.DeviceName.model());
+        setDateTime(facts.dateTime());
+        for (ShotExif.Tag t : ShotExif.dngTags(facts)) setTag(t);
+        // P618: the photo's 4:3 crop of an ISZ / native-mosaic frame is the raw converter's frame too
+        if (parameters.photoAspect4x3 && parameters.rawSize != null) {
+            final int[] crop = ShotExif.aspectCrop(parameters.rawSize.x, parameters.rawSize.y);
+            if (crop != null) setDefaultCrop(crop[0], crop[1], crop[2], crop[3]);
+        }
 
         // P214c: the profile of what this DNG holds when its writer worked it out (the merged DNG: over its headroom, averaged
         // over the frames merged; the reference RAW: one frame), see DngMetadata.noiseProfile
@@ -537,15 +561,16 @@ public class DngCreator {
             setNoiseProfile(noiseProfile);
         }
         
-        // P196: the same Make / Model as the JPEG / HEIC / WebP / AVIF of the shot (DeviceName); UniqueCameraModel (the colour
-        // profile identity) stays on Build.MODEL
-        setMake(com.particlesdevs.photoncamera.util.DeviceName.make());
+        // P196: the same Make / Model as the JPEG / HEIC / WebP / AVIF of the shot (DeviceName). P618: UniqueCameraModel (the
+        // colour profile identity) is the phone's build model and the physical camera (ShotExif.uniqueCameraModel), not
+        // PhotonCamera's "MODEL-BRAND-MANUFACTURER"
+        setMake(facts.make);
         setModel(com.particlesdevs.photoncamera.util.DeviceName.model());
-        setUniqueCameraModel(Build.MODEL + "-" + Build.BRAND + "-" + Build.MANUFACTURER);
-        setIso((short) parameters.iso);
-        setExposureTime(parameters.exposureTime);
-        setFocalLength(parameters.focalLength);
-        setAperture(parameters.aperture);
+        setUniqueCameraModel(ShotExif.uniqueCameraModel(facts.make, Build.MODEL, parameters.physicalID));
+        // P618: ExposureTime, FNumber, ISO and FocalLength are in the Exif IFD only (ShotExif.dngTags; exiftool -validate: "Wrong
+        // IFD ... should be ExifIFD not IFD0"; Android's ExifInterface read none of them in IFD 0). ISO there as a SHORT, 65535
+        // above it with ISOSpeed the value (the short cast here wrapped ISO 102400 to 36864); the lens only when the camera
+        // said it (no 4.75 mm / f/1.8 placeholder).
         setBlackLevel(blackLevel);
         setWhiteLevel(parameters.whiteLevel);
         if (parameters.dngBaselineExposure != 0f) setBaselineExposure(parameters.dngBaselineExposure);

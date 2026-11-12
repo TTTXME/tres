@@ -39,3 +39,32 @@ Copied without changes; left out: samples, bin, doc, RawSpeed / RawSpeed3, GoPro
 compile to nothing without USE_RAWSPEED / USE_DNGSDK), the `*_ph.cpp` placeholders (not built) and `src/Makefile`. Built as
 `scameraLibRaw` (static, thread-safe: no LIBRAW_NOTHREADS; USE_ZLIB for deflate DNG; no JPEG, Jasper, OpenMP) and linked
 into `scameraRaw` (`../scamera-raw.cpp`, the JNI wrapper the gallery calls through `gallery/raw/LibRawBridge`).
+
+## tone-port (P630b)
+
+| Directory | Source | Licence |
+|---|---|---|
+| `tone_port` | tone-port by the SCAMERA owner (`tone-port-27-31.zip`, 2026-11-11: «Используй как основу для Oldstyle») | the project's licence (the owner's own code) |
+
+The owner's C++17 tonemapping module of the 2.7 and 3.1 looks, copied whole (sources, numeric tables `src/*.inc`,
+`include/tone_port.h`, its CMake, README and regression tests), unchanged but for one hook (P630e, `tone_port.p630e.diff`
+beside it: an overload of `tone_rgb8_hdr_luts` that calls a function on the bright virtual exposure between `make_exposures`
+and `tone_pair` - the supplement's insertion point of the low-frequency colour; the original overload calls it with none, so
+every result of the module is as before: its regression and the specification's numbers hold). Built by its own CMakeLists (`tone_port`,
+static, `-ffp-contract=off`, FP32) and linked into `scameraTone` (`../oldstyle-tone-jni.cpp`): the «Oldstyle» camera
+mode's tone (postpipeline/OldstyleTone). `tools/check_tone_port.py` builds it on the host and runs its regression
+(both profiles, `--full-frame`) and the app's JNI path against it.
+
+## tone-port supplement (P630e)
+
+| Directory | Source | Licence |
+|---|---|---|
+| `tone_supplement` | the SCAMERA owner's supplement to tone-port (`hdr-ae-color-27-31.md`, 2026-11-12: «Я тебе скинул то, чего тебе не хватало, доделай») | the project's licence (the owner's own code) |
+
+`tone_supplement.cpp` is the document's C++17 block copied unchanged (the HDR plans of 2.7 and 3.1, the TET cap, the fusion
+gains, WB / CCM, the YUV conversions and output saturation, dehaze / tint, the low-frequency colour); the document itself is kept
+beside it. Compiled into `scameraTone` through `../oldstyle-tone-jni.cpp` (-ffp-contract=off, FP32). `tools/check_tone_port.py`
+checks its plans against the document's 45 tables and its YUV conversions against its hashes. The app uses its rules through
+`processing/oldstyle/OldstyleAe` (a Java port in FP32, held to the same tables and to the C++ by the host check) and its
+YUV-route stages on our RAW route in the JNI (dehaze / tint and output saturation on the module's RGB8, the low-frequency colour
+inside the 2.7 HDR, our merge as its colour reference).

@@ -69,6 +69,8 @@ typedef enum {
   TIFFTAG_FNUMBER = 33437,
   TIFFTAG_CAMERA_ISO = 34855,
   TIFFTAG_FOCAL_LENGTH = 37386,
+  // SCAMERA P618: the pointer of IFD 0 to its Exif IFD
+  TIFFTAG_EXIF_IFD = 34665,
 
   // EXIF tags
   EXIFTAG_EXIFVERSION = 36864,
@@ -99,6 +101,9 @@ typedef enum {
   TIFFTAG_PROFILE_NAME = 50936,
   TIFFTAG_DEFAULT_BLACK_RENDER = 51110,
   TIFFTAG_ACTIVE_AREA = 50829,
+  TIFFTAG_DEFAULT_CROP_ORIGIN = 50719,
+  TIFFTAG_DEFAULT_CROP_SIZE = 50720,
+  TIFFTAG_LENS_INFO = 50736,
   TIFFTAG_FORWARD_MATRIX1 = 50964,
   TIFFTAG_FORWARD_MATRIX2 = 50965,
 
@@ -139,7 +144,7 @@ static const int ORIENTATION_LEFTBOT = 8;
 // RESOLUTIONUNIT
 static const int RESUNIT_NONE = 1;
 static const int RESUNIT_INCH = 2;
-static const int RESUNIT_CENTIMETER = 2;
+static const int RESUNIT_CENTIMETER = 3;  // SCAMERA P618: TIFF 6.0 (it said 2, the inch)
 
 // PHOTOMETRIC
 // TODO(syoyo): more photometric types.
@@ -363,6 +368,22 @@ class DNGImage {
   /// Set image data.
   bool SetImageDataJpeg(const unsigned short *data, unsigned int width, unsigned int height, unsigned int bpp);
 
+  ///
+  /// SCAMERA P618: one more tag of IFD 0 (`ifd` 0) or of the Exif IFD (`ifd` 1): `count` values of `type` at `data` in
+  /// host order (ASCII / BYTE / UNDEFINED: bytes, SHORT: unsigned short, LONG: unsigned int, RATIONAL / SRATIONAL: two
+  /// 32-bit words each). A tag of IFD 0 set twice keeps its last value (WriteIFDToStream); so does an Exif tag.
+  ///
+  bool SetTag(int ifd, unsigned short tag, unsigned short type, unsigned int count, const void *data);
+
+  ///
+  /// SCAMERA P618: lays the Exif IFD out in this image's data (its values, then the IFD) and points IFD 0 at it (tag
+  /// 34665). Call once, after the last Exif SetTag and before SetImageData. The offsets count this image's data from the
+  /// start of the file's data, so a DNGWriter refuses a second image with an Exif IFD. No Exif tags: nothing is written.
+  ///
+  bool WriteExifIFD();
+
+  bool HasExifIFD() const { return exif_ifd_written_; }
+
   /// Set custom field.
   bool SetCustomFieldLong(const unsigned short tag, const int value);
   bool SetCustomFieldULong(const unsigned short tag, const unsigned int value);
@@ -408,6 +429,15 @@ class DNGImage {
   mutable std::string err_;  // Error message
 
   std::vector<IFDTag> ifd_tags_;
+
+  // SCAMERA P618: the Exif IFD's tags (file-order bytes), laid out by WriteExifIFD
+  struct ExifEntry {
+    unsigned short tag, type;
+    unsigned int count;
+    std::vector<unsigned char> bytes;
+  };
+  std::vector<ExifEntry> exif_entries_;
+  bool exif_ifd_written_ = false;
 };
 
 class DNGWriter {
@@ -2784,6 +2814,104 @@ bool DNGImage::SetImageDataJpeg(const unsigned short *data, unsigned int width,
   return sid_res;
 }
 
+static size_t TagElementSize(unsigned short type) {
+  switch (type) {
+    case TIFF_BYTE: case TIFF_ASCII: case TIFF_SBYTE: case TIFF_UNDEFINED: return 1;
+    case TIFF_SHORT: case TIFF_SSHORT: return 2;
+    case TIFF_LONG: case TIFF_SLONG: case TIFF_FLOAT: case TIFF_IFD: return 4;
+    case TIFF_RATIONAL: case TIFF_SRATIONAL: return 8;
+    case TIFF_DOUBLE: return 8;
+    default: return 0;
+  }
+}
+
+bool DNGImage::SetTag(int ifd, unsigned short tag, unsigned short type, unsigned int count, const void *data) {
+  const size_t element = TagElementSize(type);
+  if (element == 0 || count == 0 || data == NULL || (ifd != 0 && ifd != 1)) {
+    err_ += "SetTag: bad tag " + std::to_string(tag) + ".\n";
+    return false;
+  }
+  const size_t len = element * count;
+  if (ifd == 0) {
+    // WriteTIFFTag keeps a value of 1, 2 or 4 bytes in the entry (host order), a longer one in the data
+    if (len == 3) {
+      err_ += "SetTag: a 3-byte value of IFD 0 (tag " + std::to_string(tag) + ").\n";
+      return false;
+    }
+    if (!WriteTIFFTag(tag, type, count, reinterpret_cast<const unsigned char *>(data), &ifd_tags_, &data_os_)) return false;
+    num_fields_++;
+    return true;
+  }
+  if (exif_ifd_written_) {
+    err_ += "SetTag: the Exif IFD is already written.\n";
+    return false;
+  }
+  ExifEntry e;
+  e.tag = tag;
+  e.type = type;
+  e.count = count;
+  const unsigned char *p = reinterpret_cast<const unsigned char *>(data);
+  e.bytes.assign(p, p + len);
+  // file order: the multi-byte words of each value swapped when the file's endian is not the host's
+  const size_t word = element == 8 && type != TIFF_DOUBLE ? 4 : element;
+  if (swap_endian_ && word > 1) {
+    for (size_t at = 0; at + word <= len; at += word) std::reverse(e.bytes.begin() + at, e.bytes.begin() + at + word);
+  }
+  for (size_t i = 0; i < exif_entries_.size(); i++) {
+    if (exif_entries_[i].tag == tag) {
+      exif_entries_[i] = e;
+      return true;
+    }
+  }
+  exif_entries_.push_back(e);
+  return true;
+}
+
+bool DNGImage::WriteExifIFD() {
+  if (exif_entries_.empty()) return true;
+  if (exif_ifd_written_) {
+    err_ += "WriteExifIFD: written already.\n";
+    return false;
+  }
+  std::vector<ExifEntry> entries = exif_entries_;
+  std::stable_sort(entries.begin(), entries.end(),
+                   [](const ExifEntry &a, const ExifEntry &b) { return a.tag < b.tag; });
+  // the values longer than 4 bytes first, each word-aligned (TIFF 6.0)
+  std::vector<unsigned int> offsets(entries.size(), 0);
+  for (size_t i = 0; i < entries.size(); i++) {
+    if (entries[i].bytes.size() <= 4) continue;
+    if (static_cast<size_t>(data_os_.tellp()) % 2) data_os_.put(0);
+    offsets[i] = static_cast<unsigned int>(data_os_.tellp()) + kHeaderSize;
+    data_os_.write(reinterpret_cast<const char *>(entries[i].bytes.data()),
+                   static_cast<std::streamsize>(entries[i].bytes.size()));
+  }
+  if (static_cast<size_t>(data_os_.tellp()) % 2) data_os_.put(0);
+  const unsigned int ifd_offset = static_cast<unsigned int>(data_os_.tellp()) + kHeaderSize;
+  Write2(static_cast<unsigned short>(entries.size()), &data_os_, swap_endian_);
+  for (size_t i = 0; i < entries.size(); i++) {
+    const ExifEntry &e = entries[i];
+    Write2(e.tag, &data_os_, swap_endian_);
+    Write2(e.type, &data_os_, swap_endian_);
+    Write4(e.count, &data_os_, swap_endian_);
+    if (e.bytes.size() > 4) {
+      Write4(offsets[i], &data_os_, swap_endian_);
+    } else {
+      // the value itself, in file order, left-justified in the 4 bytes
+      unsigned char value[4] = {0, 0, 0, 0};
+      std::memcpy(value, e.bytes.data(), e.bytes.size());
+      data_os_.write(reinterpret_cast<const char *>(value), 4);
+    }
+  }
+  Write4(0, &data_os_, swap_endian_);  // no next IFD
+  exif_ifd_written_ = true;
+  if (!WriteTIFFTag(static_cast<unsigned short>(TIFFTAG_EXIF_IFD), TIFF_LONG, 1,
+                    reinterpret_cast<const unsigned char *>(&ifd_offset), &ifd_tags_, &data_os_)) {
+    return false;
+  }
+  num_fields_++;
+  return true;
+}
+
 bool DNGImage::SetCustomFieldLong(const unsigned short tag, const int value) {
   unsigned int count = 1;
 
@@ -2970,8 +3098,18 @@ bool DNGImage::WriteIFDToStream(const unsigned int data_base_offset,
     tags.push_back(ifd);
   }
 
-  // TIFF expects IFD tags are sorted.
-  std::sort(tags.begin(), tags.end(), IFDComparator);
+  // TIFF expects IFD tags are sorted. SCAMERA P618: and each tag once - a tag set again (ImageDescription and
+  // UniqueCameraModel of a caller that overrides setParameters' values) keeps its last value; the stable sort keeps the
+  // order they were set in.
+  std::stable_sort(tags.begin(), tags.end(), IFDComparator);
+  {
+    std::vector<IFDTag> unique;
+    for (size_t i = 0; i < tags.size(); i++) {
+      if (!unique.empty() && unique.back().tag == tags[i].tag) unique.back() = tags[i];
+      else unique.push_back(tags[i]);
+    }
+    tags.swap(unique);
+  }
 
   std::ostringstream ifd_os;
 
@@ -3074,6 +3212,11 @@ bool DNGWriter::WriteToFile(const char *filename, std::string *err) const {
   std::vector<size_t> data_offset_table;
   std::vector<size_t> strip_offset_table;
   for (size_t i = 0; i < images_.size(); i++) {
+    // SCAMERA P618: an Exif IFD's offsets count from the start of the file's data (DNGImage::WriteExifIFD)
+    if (data_len != 0 && images_[i]->HasExifIFD()) {
+      if (err) (*err) = "Only the first image may have an Exif IFD.\n";
+      return false;
+    }
     strip_offset = data_len + images_[i]->GetStripOffset();
     data_offset_table.push_back(data_len);
     strip_offset_table.push_back(strip_offset);
@@ -3171,6 +3314,11 @@ void* DNGWriter::WriteToMemory(size_t *size, std::string *err, size_t* strip_off
   std::vector<size_t> data_offset_table;
   std::vector<size_t> strip_offset_table;
   for (size_t i = 0; i < images_.size(); i++) {
+    // SCAMERA P618: an Exif IFD's offsets count from the start of the file's data (DNGImage::WriteExifIFD)
+    if (data_len != 0 && images_[i]->HasExifIFD()) {
+      if (err) (*err) = "Only the first image may have an Exif IFD.\n";
+      return nullptr;
+    }
     strip_offset = data_len + images_[i]->GetStripOffset();
     if(strip_offset_out)
         *strip_offset_out = images_[i]->GetStripOffset();

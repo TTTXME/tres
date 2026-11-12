@@ -49,17 +49,36 @@ public final class ProcessingKeepAlive extends Service {
     public static volatile BooleanSupplier busy = () -> false;
 
     /**
-     * P617: {@link #busy} of an {@code owner} without keeping it: {@code ownerBusy} while the owner lives, {@code always} in any
-     * case. CaptureController's own lambda (its instance flags) kept the controller, and with it the camera activity and its views,
-     * for the rest of the process after the activity was destroyed (a static field holds the supplier until the next controller).
+     * The camera's controller while it has a shot to finish (owner, 2026-11-11: «Закрытая камера должна оставаться в памяти
+     * если у нас идёт обработка фото»): pinned at the shutter ({@link #hold(Context, Object)}) and while {@link #weakly}'s owner
+     * reports work, released at the first check that finds no work left.
+     */
+    static volatile Object pinned;
+
+    /**
+     * P617: {@link #busy} of an {@code owner} without keeping it when idle: {@code ownerBusy} while the owner lives, {@code always}
+     * in any case. CaptureController's own lambda (its instance flags) kept the controller, and with it the camera activity and its
+     * views, for the rest of the process after the activity was destroyed. While the owner (or the statics) report work, the owner is
+     * held strongly ({@link #pinned}): a closed camera stays in memory until its shots are processed.
      */
     public static <T> BooleanSupplier weakly(T owner, java.util.function.Predicate<T> ownerBusy, BooleanSupplier always) {
         final java.lang.ref.WeakReference<T> ref = new java.lang.ref.WeakReference<>(owner);
         return () -> {
-            if (always.getAsBoolean()) return true;
-            T o = ref.get();
-            return o != null && ownerBusy.test(o);
+            final T o = ref.get();
+            final boolean work = (o != null && ownerBusy.test(o)) || always.getAsBoolean();
+            if (work) {
+                if (o != null) pinned = o;
+            } else if (pinned == o || o == null) {
+                pinned = null;
+            }
+            return work;
         };
+    }
+
+    /** At the shutter: {@link #hold(Context)}, and the camera's controller stays in memory until the shot is processed. */
+    public static void hold(Context context, Object owner) {
+        if (owner != null) pinned = owner;
+        hold(context);
     }
 
     private final Handler handler = new Handler(Looper.getMainLooper());

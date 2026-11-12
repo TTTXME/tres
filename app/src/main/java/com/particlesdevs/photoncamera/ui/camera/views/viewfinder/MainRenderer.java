@@ -95,7 +95,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
             return;
         final long t0 = System.nanoTime();
         drawFrame();
-        VfDrawMeter.frame(System.nanoTime() - t0); // P57
+        VfDrawMeter.frame(System.nanoTime() - t0, mLastRawActive != null && mLastRawActive); // P57; P616: RAW or ISP drawn
     }
 
     /** P111: sensor time of the camera frame the viewfinder showed last (the «Движение» shot's moment at the touch). */
@@ -371,6 +371,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glUniform1i(mirror, mMirrorPreview ? 1 : 0);
 
         GLES20.glUniform1f(uGain, mFrameGain);
+        oldstyleUniforms(uOsOn, uOsAdjust);
+        oldstyleTone(uOtTone);
         mLensFilter.apply();
 
         GLES20.glVertexAttribPointer(vPosition, 2, GLES20.GL_FLOAT, false, 4 * 2, pVertex);
@@ -436,8 +438,10 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         mSTexture.setOnFrameAvailableListener(this, frameHandler());
 
         String vss_default = ScameraApp.getAssetLoader().getString("shaders/preview/main_vs.glsl");
-        String fss_default = LiveLensFilter.splice(ScameraApp.getAssetLoader().getString("shaders/preview/main_fs.glsl"),
-                ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_live.glsl"));
+        String fss_default = oldstyleSplice(LiveLensFilter.splice(ScameraApp.getAssetLoader().getString("shaders/preview/main_fs.glsl"),
+                ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_live.glsl")),
+                ScameraApp.getAssetLoader().getString("shaders/utils/import_oldstyle_adjust.glsl"),
+                ScameraApp.getAssetLoader().getString("shaders/utils/import_oldstyle_tone_live.glsl"));
         int hProgram = loadShader(vss_default, fss_default);
         hProgramHandle = hProgram;
         GLES20.glUseProgram(hProgram);
@@ -448,6 +452,9 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         enablePeak = GLES20.glGetUniformLocation(hProgram, "enablePeak");
         uGain = GLES20.glGetUniformLocation(hProgram, "uGain");
         mirror = GLES20.glGetUniformLocation(hProgram, "mirror");
+        uOsOn = GLES20.glGetUniformLocation(hProgram, "uOsOn");
+        uOsAdjust = locateOldstyle(hProgram);
+        uOtTone = locateTone(hProgram);
         mLensFilter.locate(hProgram);
         mLensFilter.locatePrep(loadShader(vss_default, ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_prep.glsl")));
         // P300: the same filter for the developed-RAW frame drawn off screen (a 2D texture, the screen's layout)
@@ -459,6 +466,9 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
             uGain2d = GLES20.glGetUniformLocation(hProgram2d, "uGain");
             mirror2d = GLES20.glGetUniformLocation(hProgram2d, "mirror");
             resolution2d = GLES20.glGetUniformLocation(hProgram2d, "resolution");
+            uOsOn2d = GLES20.glGetUniformLocation(hProgram2d, "uOsOn");
+            uOsAdjust2d = locateOldstyle(hProgram2d);
+            uOtTone2d = locateTone(hProgram2d);
             mRawLensFilter.locate(hProgram2d);
             mRawLensFilter.locatePrep(loadShader(VS_2D, LiveLensFilter.to2d(ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_prep.glsl"))));
         }
@@ -550,6 +560,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         // the two could flip each other every frame (review: 139 of ~84k viewport / frame / zoom cases in a 2-cycle)
         final boolean quarterTurn = Math.abs(mTexRotateMatrix[1]) > Math.abs(mTexRotateMatrix[0]);
         final int[] crop = LiveRawRenderer.visibleCrop(v.frame, mViewport[2], mViewport[3], quarterTurn);
+        // P616: a zoomed view keeps the whole frame while a shot is processed (LiveRawFrame.viewCap halves only an unzoomed one)
+        com.particlesdevs.photoncamera.processing.LiveRawFrame.setBusyHalfFits(LiveRawRenderer.halfFits(crop, v.frame.width, v.frame.height));
         final int[] size = LiveRawRenderer.toneSize(mViewport[2], mViewport[3], crop[2], crop[3], v.frame.cfaBlock, quarterTurn);
         return RawPreviewBudget.size(size[0], size[1], busy);
     }
@@ -610,6 +622,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glUniform1i(mirror2d, 0);
         GLES20.glUniform1f(uGain2d, 1f);
         GLES20.glUniform2f(resolution2d, rawW, rawH);
+        oldstyleUniforms(uOsOn2d, uOsAdjust2d);
+        oldstyleTone(uOtTone2d);
         mRawLensFilter.apply();
         pVertex.position(0);
         GLES20.glEnableVertexAttribArray(vPosition2d);
@@ -649,12 +663,137 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         return sFrameHandler;
     }
 
+    /**
+     * P630 / P630c «Oldstyle»: the mode's style on the viewfinder (OldstyleStyle.uniforms, 16 floats; null: off - another mode, or
+     * everything at 0). The UI sets it (OldstyleControls); the same function as the photo's (utils/import_oldstyle_adjust.glsl).
+     */
+    private static volatile float[] sOldstyle;
+    private int uOsOn = -1, uOsOn2d = -1;
+    private int[] uOsAdjust = {-1, -1, -1, -1}, uOsAdjust2d = {-1, -1, -1, -1};
+    static final String OLDSTYLE_MARKER = "//#oldstyle_adjust";
+
+    public static void setOldstyleAdjust(float[] uniform) {
+        sOldstyle = uniform == null ? null : uniform.clone();
+    }
+
+    public static float[] oldstyleAdjust() {
+        final float[] a = sOldstyle;
+        return a == null ? null : a.clone();
+    }
+
+    static String oldstyleSplice(String main, String adjust) {
+        return main.replace(OLDSTYLE_MARKER, adjust);
+    }
+
+    /** P630e: the style and the version's live tone (utils/import_oldstyle_tone_live.glsl) in their places. */
+    static String oldstyleSplice(String main, String adjust, String tone) {
+        return oldstyleSplice(main, adjust).replace(OLDSTYLE_TONE_MARKER, tone);
+    }
+
+    static final String OLDSTYLE_TONE_MARKER = "//#oldstyle_tone";
+
+    /**
+     * P630e «Oldstyle»: the viewfinder's base under the style - the version's tone (1 V1, 2 V2, 0 off) at the plan's two gains
+     * (CaptureController.oldstyleViewfinder: the shot's plan metered on the ring's newest frame). The style's «Экспозиция» acts
+     * here, before the tone, as on the photo (both gains times 2^EV; the style's own exposure then 0: oldstyleUniforms).
+     */
+    private static volatile float[] sOldstyleTone;
+    private int[] uOtTone = {-1, -1, -1}, uOtTone2d = {-1, -1, -1};
+    private int mOtLutTex, mOtLutVersion;
+    /** The texture unit of the tone's LUT (units of their own: uLut 10, the lens filter's 11 / 12). */
+    static final int OT_LUT_UNIT = 13;
+
+    public static void setOldstyleTone(int version, float gainShort, float gainLong, boolean hdr) {
+        sOldstyleTone = version <= 0 ? null : new float[]{version, gainShort, gainLong, hdr ? 1f : 0f};
+    }
+
+    /** The live tone now: {version, gain short, gain long, hdr} or null (off). */
+    public static float[] oldstyleTone() {
+        final float[] t = sOldstyleTone;
+        return t == null ? null : t.clone();
+    }
+
+    /** The live tone's gains with the style's exposure (its uniform u[2], ±1 = ±1.5 EV): {short, long}. */
+    static float[] toneGains(float[] tone, float[] style) {
+        final float k = style != null && style.length > 2 ? (float) Math.pow(2.0, 1.5 * style[2]) : 1f;
+        return new float[]{tone[1] * k, tone[2] * k};
+    }
+
+    private static int[] locateTone(int program) {
+        return new int[]{GLES20.glGetUniformLocation(program, "uOtOn"), GLES20.glGetUniformLocation(program, "uOt"),
+                GLES20.glGetUniformLocation(program, "uOtLut")};
+    }
+
+    private void oldstyleTone(int[] l) {
+        float[] t = sOldstyleTone;
+        if (t != null && !toneLut((int) t[0])) t = null;
+        if (l[0] >= 0) GLES20.glUniform1i(l[0], t == null ? 0 : (int) t[0]);
+        if (t == null) return;
+        final float[] g = toneGains(t, sOldstyle);
+        if (l[1] >= 0) GLES20.glUniform3f(l[1], g[0], g[1], t[3]);
+        if (l[2] >= 0) GLES20.glUniform1i(l[2], OT_LUT_UNIT);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + OT_LUT_UNIT);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mOtLutTex);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+    }
+
+    /** The version's LUT texture (OldstyleNative.previewLut, made once per version on this GL thread); false: no library. */
+    private boolean toneLut(int version) {
+        if (mOtLutTex != 0 && mOtLutVersion == version) return true;
+        if (!com.particlesdevs.photoncamera.processing.oldstyle.OldstyleNative.load()) return false;
+        final byte[] lut = new byte[4096];
+        try {
+            com.particlesdevs.photoncamera.processing.oldstyle.OldstyleNative.previewLut(version, lut);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (mOtLutTex == 0) {
+            final int[] t = new int[1];
+            GLES20.glGenTextures(1, t, 0);
+            mOtLutTex = t[0];
+        }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + OT_LUT_UNIT);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mOtLutTex);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 1024, 1, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE,
+                java.nio.ByteBuffer.wrap(lut));
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        mOtLutVersion = version;
+        return true;
+    }
+
+    /** P630c: the style's four vec4 (uOs0..uOs3, OldstyleStyle.uniforms). */
+    private static int[] locateOldstyle(int program) {
+        final int[] l = new int[4];
+        for (int i = 0; i < 4; i++) l[i] = GLES20.glGetUniformLocation(program, "uOs" + i);
+        return l;
+    }
+
+    private static void oldstyleUniforms(int on, int[] adjust) {
+        final float[] a = styleAfterTone(sOldstyle, sOldstyleTone != null);
+        if (on >= 0) GLES20.glUniform1i(on, a != null ? 1 : 0);
+        if (a == null || a.length < 16) return;
+        for (int i = 0; i < 4; i++) if (adjust[i] >= 0) GLES20.glUniform4f(adjust[i], a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]);
+    }
+
+    /** P630e: the style's uniforms on the screen - its exposure at 0 while the tone is live (the tone's gains took it). */
+    static float[] styleAfterTone(float[] style, boolean toneLive) {
+        if (style == null || !toneLive || style.length < 3) return style;
+        final float[] u = style.clone();
+        u[2] = 0f;
+        return u;
+    }
+
     /** P90: the gain of the frame on the texture (a series frame scaled to the viewfinder's exposure), and its uniform. */
     private float mFrameGain = 1f;
     private int uGain = -1;
 
     public synchronized void onFrameAvailable(SurfaceTexture st) {
         mUpdateST = true;
+        VfDrawMeter.arrived(false); // P616: a gap without a new frame is the camera's
         // P353: while the developed RAW frame is on screen (drawn less than RAW_SHOWN_NS ago) an ISP frame is only latched (its
         // buffer goes back to the camera) - each such wake-up drew the same RAW frame again, ~25 of the ~55 draws a second on the
         // OPPO, on the GPU the merge needs. The RAW frames ask for their own draws; without one for RAW_SHOWN_NS the ISP frames

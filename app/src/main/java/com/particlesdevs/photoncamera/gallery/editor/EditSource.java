@@ -79,6 +79,17 @@ public final class EditSource implements Closeable {
     /** A line for the UI (a RAW's limits), null for none. */
     @Nullable String note;
     @Nullable private File copy;
+    /**
+     * P633: the photo's watermark record (WatermarkPatch: the pixels the camera had under its watermark and the watermark's spec),
+     * read from the end of the file and checked (its size the photo's, every piece's CRC); null for none - an older photo, another
+     * app's, a re-encoded one: «Убрать» is not offered.
+     */
+    @Nullable public com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch watermark;
+    /** P633: the watermark's facts of this photo from its own EXIF (an unknown one stays unknown). */
+    public com.particlesdevs.photoncamera.processing.watermark.WatermarkText.Info watermarkInfo =
+            new com.particlesdevs.photoncamera.processing.watermark.WatermarkText.Info();
+    /** P633: the preview with the record's pixels back (the watermark taken off), null without a record. */
+    @Nullable Bitmap previewClean;
 
     private EditSource(Uri uri, String name) {
         this.uri = uri;
@@ -87,6 +98,17 @@ public final class EditSource implements Closeable {
 
     public boolean isRaw() {
         return route == Route.DNG || route == Route.LIBRAW;
+    }
+
+    /** P633: the preview to show: the watermark taken off ({@code clean}, with a record) or the photo as it is. */
+    @Nullable
+    Bitmap previewFor(boolean clean) {
+        return clean && previewClean != null ? previewClean : preview;
+    }
+
+    /** P633: whether the copy and the picture take the photo's own watermark off for {@code s}. */
+    boolean cleanFor(EditState s) {
+        return s.wmRemove && watermark != null;
     }
 
     /** The oriented size of the original (what the gallery shows), in the route's pixels. */
@@ -111,6 +133,12 @@ public final class EditSource implements Closeable {
 
     /** Decodes the preview (a worker thread). */
     public static EditSource open(Context context, Uri uri, String name, @Nullable String mime) throws IOException {
+        EditSource s = openRoute(context, uri, name, mime);
+        s.readWatermark(context);
+        return s;
+    }
+
+    private static EditSource openRoute(Context context, Uri uri, String name, @Nullable String mime) throws IOException {
         EditSource s = new EditSource(uri, name);
         String ext = RawFormats.extensionOf(name);
         byte[] head = head(context, uri);
@@ -146,6 +174,49 @@ public final class EditSource implements Closeable {
             throw e;
         }
         return s;
+    }
+
+    /**
+     * P633: the watermark's facts from the photo's EXIF, and for a picture (not a RAW) the record at the end of its file: kept when
+     * it is this photo's (its size, the stored orientation upright as our photos are) and every piece reads back, then the preview
+     * with the pixels back. Anything wrong: no record (the photo still opens).
+     */
+    void readWatermark(Context c) {
+        try (InputStream in = c.getContentResolver().openInputStream(uri)) {
+            if (in != null) watermarkInfo = com.particlesdevs.photoncamera.processing.watermark.WatermarkExif.info(
+                    new androidx.exifinterface.media.ExifInterface(in));
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "EXIF for the watermark: " + e);
+        }
+        if (isRaw()) return;
+        long t0 = System.nanoTime();
+        com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch p =
+                com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.read(c, uri);
+        if (p == null) return;
+        if (!recordFits(p, fullW, fullH, orientation) || !p.verify()) {
+            Log.w(TAG, "watermark record of " + name + " does not fit the photo (" + p + " on " + fullW + "x" + fullH + ", orientation "
+                    + orientation + "): not offered");
+            return;
+        }
+        try {
+            if (preview != null) {
+                Bitmap clean = preview.copy(preview.getConfig(), true);
+                p.paint(clean, new Rect(0, 0, fullW, fullH));
+                previewClean = clean;
+            }
+            watermark = p;
+            Log.i(TAG, "watermark record of " + name + ": " + p + ", read in " + (System.nanoTime() - t0) / 1_000_000 + " ms");
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            Log.w(TAG, "watermark record of " + name + ": " + e);
+            if (previewClean != null) previewClean.recycle();
+            previewClean = null;
+            watermark = null;
+        }
+    }
+
+    /** P633: a record is this photo's: the photo's stored size, stored upright (no EXIF turn: the camera's photos never have one). */
+    static boolean recordFits(com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch p, int fullW, int fullH, int orientation) {
+        return p.width == fullW && p.height == fullH && orientation == 1;
     }
 
     static boolean isJpeg(byte[] h) {
@@ -493,6 +564,9 @@ public final class EditSource implements Closeable {
         /** Why the export is smaller than the original, null when it is not. */
         @Nullable String shrinkNote();
 
+        /** P633: the pixels this reader gives from now on have the photo's own watermark taken off (with a record; RAW: none). */
+        default void restoreWatermark(boolean on) {}
+
         /**
          * P367: the region {@code x, y, w, h} (reader px) decoded on the calling thread - the zoom's worker, never the GL or UI
          * thread - into a CPU picture of about {@code level} reader px a texel (1: full resolution), its own copy (closing the
@@ -510,6 +584,8 @@ public final class EditSource implements Closeable {
         final int x, y, w, h, texW, texH;
         final double level;
         final EditMath.SourceColour colour;
+        /** P633: decoded with the photo's own watermark taken off (the reader's {@link Reader#restoreWatermark}). */
+        boolean clean;
         @Nullable private Bitmap bitmap;
         @Nullable private DngRaw.Image raw;
 
@@ -540,6 +616,12 @@ public final class EditSource implements Closeable {
             return raw != null;
         }
 
+        /** The CPU picture (null for a RAW's, or once freed). */
+        @Nullable
+        Bitmap picture() {
+            return bitmap;
+        }
+
         /** The CPU picture's bytes. */
         long bytes() {
             if (raw != null && raw.data != null) return raw.data.capacity() * 2L;
@@ -552,6 +634,22 @@ public final class EditSource implements Closeable {
             bitmap = null;
             raw = null;
         }
+    }
+
+    /**
+     * P633: {@code b} (a picture of the stored photo's region {@code src}, any size) with the record's pixels back when {@code on};
+     * mutable as needed (a new bitmap, the old one recycled). Without a record or {@code on}: {@code b}.
+     */
+    Bitmap restored(Bitmap b, Rect src, boolean on) throws IOException {
+        if (!on || watermark == null) return b;
+        Bitmap m = b;
+        if (!b.isMutable()) {
+            m = b.copy(b.getConfig(), true);
+            if (m == null) throw new IOException("no mutable copy for the watermark's pixels");
+            b.recycle();
+        }
+        watermark.paint(m, src);
+        return m;
     }
 
     /** Free memory for the export's buffers (bytes; a bit under what the system says is available). */
@@ -585,18 +683,131 @@ public final class EditSource implements Closeable {
         return s;
     }
 
+    /** A region decoder and what it was opened from (closed together when the export / the zoom's reader ends). */
+    static final class Opened<D> {
+        final D decoder;
+        final Closeable source;
+        /** Opened from a seekable file descriptor (no copy of the file), not from a stream. */
+        final boolean descriptor;
+
+        Opened(D decoder, Closeable source, boolean descriptor) {
+            this.decoder = decoder;
+            this.source = source;
+            this.descriptor = descriptor;
+        }
+    }
+
+    /** Where a region decoder can be opened from (the content resolver and BitmapRegionDecoder; the tests' fakes). */
+    interface RegionOpener<D> {
+        /** The file's descriptor, or null when the provider gives none. */
+        @Nullable android.os.ParcelFileDescriptor descriptor() throws IOException;
+
+        /** Whether the descriptor can seek (a file, not a pipe). */
+        boolean seekable(android.os.ParcelFileDescriptor pfd);
+
+        @Nullable D fromDescriptor(java.io.FileDescriptor fd) throws IOException;
+
+        @Nullable InputStream stream() throws IOException;
+
+        @Nullable D fromStream(InputStream in) throws IOException;
+    }
+
+    /**
+     * P619 follow-up (the gallery-speed review): the JPEG's region decoder from a seekable file descriptor - BitmapRegionDecoder reads
+     * it in place, where newInstance(InputStream) copied the whole file into native memory (~95 MB for a 200 MP JPEG) for as long as
+     * the reader lived. The stream only when there is no seekable descriptor (a pipe, a provider without one) or the descriptor fails.
+     */
+    static <D> Opened<D> openRegion(RegionOpener<D> o) throws IOException {
+        android.os.ParcelFileDescriptor pfd = null;
+        try {
+            pfd = o.descriptor();
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "region decoder: no file descriptor (" + e + "), the stream instead");
+        }
+        if (pfd != null) {
+            try {
+                if (o.seekable(pfd)) {
+                    D d = o.fromDescriptor(pfd.getFileDescriptor());
+                    if (d != null) return new Opened<>(d, pfd, true);
+                }
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "region decoder from the descriptor: " + e + ", the stream instead");
+            }
+            closeQuietly(pfd);
+        }
+        InputStream in = o.stream();
+        if (in == null) throw new IOException("cannot read the photo");
+        try {
+            D d = o.fromStream(in);
+            if (d == null) throw new IOException("no region decoder");
+            return new Opened<>(d, in, false);
+        } catch (IOException | RuntimeException e) {
+            closeQuietly(in);
+            throw e;
+        }
+    }
+
+    private static void closeQuietly(@Nullable Closeable c) {
+        if (c == null) return;
+        try {
+            c.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    /** The real opener of {@code uri}: the resolver's descriptor ("r") and stream, BitmapRegionDecoder over either. */
+    static RegionOpener<BitmapRegionDecoder> regionOpener(Context c, Uri uri) {
+        return new RegionOpener<BitmapRegionDecoder>() {
+            @Nullable
+            @Override
+            public android.os.ParcelFileDescriptor descriptor() throws IOException {
+                return c.getContentResolver().openFileDescriptor(uri, "r");
+            }
+
+            @Override
+            public boolean seekable(android.os.ParcelFileDescriptor pfd) {
+                try {
+                    android.system.Os.lseek(pfd.getFileDescriptor(), 0, android.system.OsConstants.SEEK_CUR);
+                    return true;
+                } catch (android.system.ErrnoException e) {
+                    return false; // ESPIPE: a pipe
+                }
+            }
+
+            @SuppressWarnings("deprecation")
+            @Nullable
+            @Override
+            public BitmapRegionDecoder fromDescriptor(java.io.FileDescriptor fd) throws IOException {
+                return BitmapRegionDecoder.newInstance(fd, false);
+            }
+
+            @Nullable
+            @Override
+            public InputStream stream() throws IOException {
+                return c.getContentResolver().openInputStream(uri);
+            }
+
+            @SuppressWarnings("deprecation")
+            @Nullable
+            @Override
+            public BitmapRegionDecoder fromStream(InputStream in) throws IOException {
+                return BitmapRegionDecoder.newInstance(in, false);
+            }
+        };
+    }
+
     /** JPEG tiles from BitmapRegionDecoder with a power-of-two sample (a 200 MP crop over the budget at 1/2 ...). */
     private final class RegionReader implements Reader {
         final BitmapRegionDecoder decoder;
-        final InputStream stream;
+        /** The descriptor or stream the decoder reads (closed with it). */
+        final Closeable source;
         final int sample;
+        volatile boolean clean;
 
-        @SuppressWarnings("deprecation")
         RegionReader(Context c, double cropFraction, long outMax) throws IOException {
-            stream = c.getContentResolver().openInputStream(uri);
-            if (stream == null) throw new IOException("cannot read " + uri);
-            decoder = BitmapRegionDecoder.newInstance(stream, false);
-            if (decoder == null) throw new IOException("no region decoder");
+            Opened<BitmapRegionDecoder> o = openRegion(regionOpener(c, uri));
+            decoder = o.decoder;
+            source = o.source;
             sample = regionSample(fullW, fullH, cropFraction, outMax);
         }
 
@@ -620,6 +831,7 @@ public final class EditSource implements Closeable {
                 if (s != b) b.recycle();
                 b = s;
             }
+            b = restored(b, rect, clean);
             colour[0] = colourOf(b);
             int t = EditRenderer.bitmapSource(b);
             b.recycle();
@@ -644,7 +856,16 @@ public final class EditSource implements Closeable {
                 if (s != b) b.recycle();
                 b = s;
             }
-            return new Region(x, y, w, h, b.getWidth(), b.getHeight(), colourOf(b), b, null);
+            final boolean on = clean;
+            b = restored(b, rect, on);
+            Region g = new Region(x, y, w, h, b.getWidth(), b.getHeight(), colourOf(b), b, null);
+            g.clean = on;
+            return g;
+        }
+
+        @Override
+        public void restoreWatermark(boolean on) {
+            clean = on;
         }
 
         @Nullable
@@ -657,7 +878,7 @@ public final class EditSource implements Closeable {
         @Override
         public void close() throws IOException {
             decoder.recycle();
-            stream.close();
+            source.close();
         }
     }
 
@@ -665,6 +886,18 @@ public final class EditSource implements Closeable {
     private final class BitmapReader implements Reader {
         final Bitmap full;
         final boolean shrunk;
+        volatile boolean clean;
+
+        /** P633: the stored photo's region a reader rect covers (the reader holds the photo at {@code full}'s size). */
+        Rect original(int x, int y, int w, int h) {
+            double kx = fullW / (double) full.getWidth(), ky = fullH / (double) full.getHeight();
+            return new Rect((int) Math.round(x * kx), (int) Math.round(y * ky), (int) Math.round((x + w) * kx), (int) Math.round((y + h) * ky));
+        }
+
+        @Override
+        public void restoreWatermark(boolean on) {
+            clean = on;
+        }
 
         BitmapReader(Context c, boolean decoder, long outMax) throws IOException {
             double k = Math.min(1.0, Math.sqrt(outMax / ((double) fullW * fullH)));
@@ -692,8 +925,12 @@ public final class EditSource implements Closeable {
         @Override public int height() { return full.getHeight(); }
 
         @Override
-        public int upload(EditRenderer r, int x, int y, int w, int h, EditMath.SourceColour[] colour) {
+        public int upload(EditRenderer r, int x, int y, int w, int h, EditMath.SourceColour[] colour) throws IOException {
             Bitmap part = Bitmap.createBitmap(full, x, y, w, h);
+            if (clean && watermark != null) {
+                if (part == full) part = full.copy(full.getConfig(), true);
+                part = restored(part, original(x, y, w, h), true);
+            }
             colour[0] = colourOf(full);
             int t = EditRenderer.bitmapSource(part);
             if (part != full) part.recycle();
@@ -702,7 +939,7 @@ public final class EditSource implements Closeable {
 
         /** P367: the region cut from the decoded picture (a copy), resized with filtering when {@code level} > 1. */
         @Override
-        public Region decode(int x, int y, int w, int h, double level) {
+        public Region decode(int x, int y, int w, int h, double level) throws IOException {
             int tw = Math.max(1, (int) Math.round(w / level)), th = Math.max(1, (int) Math.round(h / level));
             Bitmap part;
             if (tw == w && th == h) part = Bitmap.createBitmap(full, x, y, w, h);
@@ -718,7 +955,11 @@ public final class EditSource implements Closeable {
                 if (s != part) part.recycle();
                 part = s;
             }
-            return new Region(x, y, w, h, part.getWidth(), part.getHeight(), colourOf(full), part, null);
+            final boolean on = clean;
+            part = restored(part, original(x, y, w, h), on);
+            Region g = new Region(x, y, w, h, part.getWidth(), part.getHeight(), colourOf(full), part, null);
+            g.clean = on;
+            return g;
         }
 
         @Nullable

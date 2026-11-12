@@ -101,7 +101,7 @@ public final class SettingsAvailability {
         if (!key.startsWith(WHY)) return false;
         final String k = key.substring(WHY.length());
         if (k.startsWith("agx_") || k.startsWith("aces_") || k.startsWith("uchi_") || k.startsWith("curve_")
-                || k.startsWith("sharp_")) return true;
+                || k.startsWith("sharp_") || k.startsWith("v2_")) return true;   // P614: V2's own tone rows
         switch (k) {
             case "macro_contrast": case "gamma": case "film_toe": case "contrast_boost": case "hl_soft": case "hl_white": case "ccm_sat":
             case "vibrance": case "vibrance_sky": case "vibrance_green":
@@ -149,10 +149,153 @@ public final class SettingsAvailability {
         }
     }
 
+    /** P614: «Why тон» V2 is chosen (pref_scam_hybrid_tone_version; V1 by default). */
+    private boolean toneV2() {
+        return text("pref_scam_hybrid_tone_version", "v1").trim().equals("v2");
+    }
+
+    /**
+     * P614 (owner, 2026-11-11: «когда выбирается например V1, то недоступные для него настройки были не активными и наоборот»): the
+     * rows and groups of «Настройки изображения» only V1 reads - its statistics, fusion and combine (WhyStats / WhyFusion /
+     * WhyCombine: the metering, the AE power, its looks, layouts and the detail delta, the portrait, the colour look's skin, mono,
+     * mixer and grading, the highlight softness). V2 (WhyV2Stats.settings) reads the merged rows (WhyV2Stats.MERGED) and its own
+     * pref_scam_hybrid_why_v2_*; every other row of the page (the merge, the denoise, the sharpening, the white balance, the film)
+     * comes before or after the tone and serves both.
+     */
+    static final java.util.Set<String> V1_ONLY = new java.util.HashSet<>(java.util.Arrays.asList(
+            WHY + "sharp_gain", WHY + "metering", WHY + "night_dim", WHY + "agx_look", COLOUR + "hue_lock", WHY + "curve_boost",
+            WHY + "fusion_layout", WHY + "weight_hl", WHY + "weight_dark2", WHY + "weight_mid", WHY + "weight_bright",
+            WHY + "weight_center", WHY + "ef_coarse", WHY + "clarity", WHY + "sharp_domain", WHY + "ccm_sat", COLOUR + "gamut",
+            COLOUR + "mono", COLOUR + "skin_hue", WHY + "skin_hue_center", COLOUR + "skin_even",
+            WHY + "portrait_ae", WHY + "portrait_awb", WHY + "portrait_curve_on", WHY + "portrait_curve_points",
+            WHY + "hl_soft", WHY + "hl_white", WHY + "delta_chroma", WHY + "flat_protect",
+            // the groups and pages whose rows are all V1's
+            "scam_hybrid_why_weights_category", "scam_hybrid_why_artifacts_category", "portrait_face_category",
+            "portrait_curve_category", "portrait_mask_screen", "colour_mixer_screen", "colour_grading_screen"));
+
+    /** P614: {@code key} is read by «Why тон» V1 only ({@link #V1_ONLY}, the portrait curve, the face mask, the mixer, the grading). */
+    static boolean v1Only(String key) {
+        return V1_ONLY.contains(key) || key.startsWith(WHY + "portrait_curve_") || key.startsWith(WHY + "face_")
+                || key.startsWith(COLOUR + "mix_") || key.startsWith(COLOUR + "grade_");
+    }
+
+    /** P614: {@code key} is one of V2's own rows (WhyV2Stats.OWN). */
+    static boolean v2Only(String key) {
+        return key.startsWith(WHY + "v2_");
+    }
+
+    /** P630: «Oldstyle V2» (3.1) is the mode's tone (pref_scam_hybrid_oldstyle_version; V1, 2.7, by default). */
+    private boolean oldstyleV2() {
+        return text("pref_scam_hybrid_oldstyle_version", "v1").trim().equals("v2");
+    }
+
+    /** P630: the rows of «Oldstyle Тон» only V1 (2.7) reads (OldstyleMode.params: its skip / max ratios). */
+    static boolean oldstyleV1Only(String key) {
+        return key.startsWith("pref_scam_hybrid_oldstyle_v1_");
+    }
+
+    /** P630: the rows only V2 (3.1) reads (maxHdrRatio, its forgiveness, maxDigitalGain, the pyramid's 8 / 10 levels). */
+    static boolean oldstyleV2Only(String key) {
+        return key.startsWith("pref_scam_hybrid_oldstyle_v2_");
+    }
+
+    /** P630: why a row of the other «Oldstyle» tone version is inactive, null when it acts with the chosen one. */
+    String oldstyleVersionReason(String key) {
+        if (oldstyleV2() ? oldstyleV1Only(key) : oldstyleV2Only(key))
+            return oldstyleV2() ? Lang.t("Только для Oldstyle V1: выбран V2.", "Oldstyle V1 only: V2 is chosen.")
+                    : Lang.t("Только для Oldstyle V2: выбран V1.", "Oldstyle V2 only: V1 is chosen.");
+        return null;
+    }
+
+    /** P614: why a row or group of the other «Why тон» version is inactive, null when it acts with the chosen one. */
+    String toneVersionReason(String key) {
+        final String old = oldstyleVersionReason(key);
+        if (old != null) return old;
+        if (toneV2() ? v1Only(key) : v2Only(key))
+            return toneV2() ? Lang.t("Только для Why тона V1: выбран V2 (снимки 200 Мп по-прежнему идут через V1).",
+                    "Why tone V1 only: V2 is chosen (200 MP shots still take V1).")
+                    : Lang.t("Только для Why тона V2 (Настройки › Why тон).", "Why tone V2 only (Settings › Why tone).");
+        return null;
+    }
+
+    /** P629: the merge routes of «Режим обработки» (pref_scam_hybrid_processing), as bits of {@link #routes}. */
+    static final int FAST = 1, QUALITY = 2, STATIC = 4, ALL = FAST | QUALITY | STATIC;
+    private static final String HYB = "pref_scam_hybrid_";
+
+    /**
+     * P629 (owner, 2026-11-11: «Группу шумоподавление и склейка перемести под выбор склейки Быстро/Качество/Статика как мы сделали с
+     * настройками тонмапинга»): the rows of «Шумоподавление и склейка» that only the SCAM merge reads - «Качество» (worker
+     * hybridReconstruct after its two route branches: HybridTuning cdm, filterVariance, dilate*, boost*, varianceThreshold,
+     * motionThreshold, chromaDiff*, dezipper, hot*, cellClip, kernelScale, snrScale, rawNoise, widenBelow, weightCap, fwe,
+     * sabre61, s61*, localAlign, laGpu, mochi; the CRE source: the alignment only that merge takes). The fast route
+     * (scam-fast-merge.h) and the static route (scam-static-merge.h) read none of them. The Quad / Tetra rows are not here: the fast
+     * and static routes read the mosaic merge's tuning themselves (P627: every mode merges its own Quad / Tetra), so they act in all three.
+     */
+    static final java.util.Set<String> QUALITY_ONLY = new java.util.HashSet<>(java.util.Arrays.asList(
+            HYB + "cre_source", HYB + "local_align", HYB + "la_engine",
+            HYB + "cdm", HYB + "filter_variance", HYB + "dilate", HYB + "dilate_floor", HYB + "motion_boost", HYB + "boost_value",
+            HYB + "boost_threshold", HYB + "motion_threshold", HYB + "chroma_diff", HYB + "chroma_diff_clamp", HYB + "dezipper",
+            HYB + "hot_sigma", HYB + "hot_base_sigma", HYB + "hot_max_key", HYB + "cell_clip",
+            HYB + "sabre61", HYB + "s61_max_key", HYB + "s61_min_motion", HYB + "kernel", HYB + "snr_scale", HYB + "tensor_noise",
+            HYB + "widen_below", HYB + "weight_cap", HYB + "fwe", HYB + "mochi",
+            // «Спорт»'s own values of the rejection (MotionMode.DEFAULTS, the same tuning lines; the fast route's Sport rejection is
+            // its fixed fastMergeSport set)
+            HYB + "mm_motion_boost", HYB + "mm_boost_value", HYB + "mm_motion_threshold",
+            // the groups whose rows are all «Качество»'s
+            "scam_hybrid_merge_align_category", "scam_hybrid_merge_reject_category", "scam_hybrid_merge_final_category"));
+    /** P629: the kernel's texture / bokeh / transition footprints: the fast route reads them too (hybridKernelFootprint). */
+    static final java.util.Set<String> FAST_AND_QUALITY = new java.util.HashSet<>(java.util.Arrays.asList(
+            HYB + "kernel_texture", HYB + "kernel_bokeh", HYB + "kernel_transition"));
+
+    /**
+     * P629: the routes {@code key} acts on ({@link #FAST} | {@link #QUALITY} | {@link #STATIC}): «Статика»'s own rows and group
+     * (pref_scam_hybrid_static_*: PreferenceKeys.staticTuning / staticOutputMode; a row added to the group later takes its prefix),
+     * {@link #QUALITY_ONLY}, {@link #FAST_AND_QUALITY}; every other row (the denoise after the merge, the burst's frames, «Спорт»'s
+     * capture, Quad / Tetra) acts on all three.
+     */
+    static int routes(String key) {
+        if (key.startsWith(HYB + "static_") || key.equals("scam_hybrid_static_category")) return STATIC;
+        if (QUALITY_ONLY.contains(key)) return QUALITY;
+        if (FAST_AND_QUALITY.contains(key)) return FAST | QUALITY;
+        return ALL;
+    }
+
+    /** P629: the chosen «Режим обработки» as a route bit (PreferenceKeys.processingMode: any other value is «Быстрый»). */
+    private int route() {
+        final String mode = text(HYB + "processing", "fast").trim();
+        return mode.equals("quality") ? QUALITY : mode.equals("static") ? STATIC : FAST;
+    }
+
+    /** P629: why a row or group of «Шумоподавление и склейка» does not act with the chosen processing mode, null when it does. */
+    String routeReason(String key) {
+        final int routes = routes(key), route = route();
+        if ((routes & route) != 0) return null;
+        if (routes == STATIC)
+            return Lang.t("Только для режима «Статика» (Режим обработки).", "“Static” processing mode only (Processing mode).");
+        // P627: no mode hands its shots to another mode's merge, so a «Качество» row does nothing in «Быстрый» / «Статика»
+        if (routes == QUALITY)
+            return Lang.t("Только для режима «Качество» (Режим обработки).", "“Quality” processing mode only (Processing mode).");
+        return Lang.t("Только для режимов «Быстрый» и «Качество» (Режим обработки).",
+                "“Fast” and “Quality” processing modes only (Processing mode).");
+    }
+
+    /** P614: why a whole group (a category of the page) is inactive: the tone version, P629: the processing mode. */
+    public String groupReason(String key) {
+        if (key == null) return null;
+        final String version = toneVersionReason(key);
+        return version != null ? version : routeReason(key);
+    }
+
     public String reason(String key) {
         if (key.equals("pref_live_viewfinder_raw_key") && !rawViewfinder)
             return Lang.t("Отключён для процессоров уровня Snapdragon 8 Gen 3 и ниже. Используется обычное превью камеры.",
                     "Disabled on Snapdragon 8 Gen 3 tier and slower processors. Uses the standard camera preview.");
+        // P614: a row of the other «Why тон» version first (whatever else holds, it does not act on this one)
+        final String version = toneVersionReason(key);
+        if (version != null) return version;
+        // P629: a row of «Шумоподавление и склейка» another processing mode's merge reads (whatever else holds, it does not act here)
+        final String route = routeReason(key);
+        if (route != null) return route;
         // P369: the film gates of the shot (PostPipeline.gainMapWanted, wantsLocalContrast: off with any film) and the rows the
         // film's print replaces at 100 % (below it they act on the share without the film, so they stay open)
         if (film(false)) {
@@ -172,8 +315,8 @@ public final class SettingsAvailability {
         if ((key.startsWith("pref_scam_hybrid_dn_") || key.startsWith("pref_scam_hybrid_why_dn_")
                 || key.startsWith("pref_scam_hybrid_why_ms_") || key.startsWith("pref_scam_hybrid_resolve_speckle_")
                 || any(key, "pref_scam_hybrid_why_bracket_denoise", "pref_scam_hybrid_why_chroma_denoise"))
-                && !on("pref_scam_hybrid_denoise", true)) return Lang.t("Включите «Все шумодавы» (Для опытных › SHDR › Шумоподавление: подробно).",
-                "Turn on “All denoisers” (For experts › SHDR › Noise reduction: details).");
+                && !on("pref_scam_hybrid_denoise", true)) return Lang.t("Включите «Все шумодавы» (Шумоподавление и склейка).",
+                "Turn on “All denoisers” (Noise reduction and merge).");
         // Output size (pref_scam_hybrid_output, P501): the Sabre scales 1.0x / 1.5x / 2x; the merge returns that size itself, so the
         // downsampler only brings a cropped shot to its photo size.
         final String stored = text("pref_scam_hybrid_output", "sensor").trim();
@@ -204,8 +347,8 @@ public final class SettingsAvailability {
         // ...and while it is on, the merge reads the mode's value of a merge row it replaces (MotionMode.DEFAULTS, read by
         // PreferenceKeys.hybridValue / hybridSwitch); it has no row for the base widening: always 0 there (P111)
         if (motion && any(key, "pref_scam_hybrid_motion_boost", "pref_scam_hybrid_boost_value", "pref_scam_hybrid_motion_threshold"))
-            return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Для опытных › Другие тонкие настройки › Кадры склейки).",
-                    "In “Sport” mode its own value applies (the “Sport” page: For experts › More fine settings › Merge frames).");
+            return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Шумоподавление и склейка › Кадры серии).",
+                    "In “Sport” mode its own value applies (the “Sport” page: Noise reduction and merge › Burst frames).");
         if (motion && key.equals("pref_scam_hybrid_why_dn_motion_revert")) // P471 (MotionMode.DEFAULTS)
             return Lang.t("В режиме «Спорт» действует 0.5: половина резкости движущихся участков, без лишнего зерна.",
                     "In “Sport” mode 0.5 applies: moving areas keep half their luma detail, without extra grain.");
@@ -214,15 +357,15 @@ public final class SettingsAvailability {
         // «Порог дисперсии для усиления» is not replaced by the mode: it acts with the boost switch in effect (the mode's own in the mode) and F6
         if (key.equals("pref_scam_hybrid_boost_threshold")
                 && !(motion ? on("pref_scam_hybrid_mm_motion_boost", true) : on("pref_scam_hybrid_motion_boost", true)))
-            return motion ? Lang.t("Включите «Против двоения» на странице «Спорт» (Для опытных › Другие тонкие настройки › Кадры склейки).",
-                    "Turn on “Anti-ghosting” on the “Sport” page (For experts › More fine settings › Merge frames).")
+            return motion ? Lang.t("Включите «Против двоения» на странице «Спорт» (Шумоподавление и склейка › Кадры серии).",
+                    "Turn on “Anti-ghosting” on the “Sport” page (Noise reduction and merge › Burst frames).")
                     : Lang.t("Включите «Против двоения».", "Turn on “Anti-ghosting”.");
         // Settings audit 2026-10-21 («Кадры светов и теней»): the mode replaces the photo rows of the ring's frame count and of the
         // highlight / shadow switches too (MotionMode.DEFAULTS), and the frames' rows act through the switch the shot reads - the
         // mode's own while it is on (the plan and the merge read it: PreferenceKeys.hybridValue / hybridSwitch)
         if (motion && any(key, "pref_scam_hybrid_zsl_frames", "pref_scam_hybrid_bento", "pref_scam_hybrid_shasta"))
-            return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Для опытных › Другие тонкие настройки › Кадры склейки).",
-                    "In “Sport” mode its own value applies (the “Sport” page: For experts › More fine settings › Merge frames).");
+            return Lang.t("В режиме «Спорт» действует его значение (страница «Спорт»: Шумоподавление и склейка › Кадры серии).",
+                    "In “Sport” mode its own value applies (the “Sport” page: Noise reduction and merge › Burst frames).");
         // P320: a DCG shot takes no shadow frames (its high-gain read holds the shadows; HybridPlan, the worker's DCG tuning)
         if (dcg && !motion && any(key, "pref_scam_hybrid_shasta", "pref_scam_hybrid_shasta_mode", "pref_scam_hybrid_shasta_motion_max",
                 "pref_scam_hybrid_shasta_frames", "pref_scam_hybrid_shasta_ev", "pref_scam_hybrid_shasta_sharpness",
@@ -298,9 +441,10 @@ public final class SettingsAvailability {
                         "Only with “New merge kernel” (“Always” or “Auto”): the previous kernel does not use this value.");
         }
         // P134 «Цвет»: the AgX looks but «Custom» set their own saturation (WhyAe.LOOKS); a grading zone's hue needs its strength
-        if (key.equals("pref_scam_hybrid_why_agx_sat") && !text("pref_scam_hybrid_why_agx_look", "4").equals("4"))
-            return Lang.t("Только при «Стиль AgX» = «Свой» (Для опытных › SHDR › Тон Why › Кривая AgX и ACES): другие стили задают насыщенность сами.",
-                    "Only with “AgX look” = “Custom” (For experts › SHDR › Why tone › AgX and ACES curves): the other looks set their own saturation.");
+        // P614: V2's AgX reads its own rows whatever the look (its look only warms Golden)
+        if (key.equals("pref_scam_hybrid_why_agx_sat") && !toneV2() && !text("pref_scam_hybrid_why_agx_look", "4").equals("4"))
+            return Lang.t("Только при «Стиль AgX» = «Свой» (Настройки тона › Глобальный тонмап): другие стили задают насыщенность сами.",
+                    "Only with “AgX look” = “Custom” (Tone settings › Global tone mapping): the other looks set their own saturation.");
         for (String zone : new String[]{"shadows", "mids", "highlights"})
             if (key.equals("pref_scam_hybrid_colour_grade_" + zone + "_hue") && PreferenceNumber.read(values.get("pref_scam_hybrid_colour_grade_" + zone + "_str"), 0) <= 0)
                 return Lang.t("Сначала задайте силу этой зоны.", "Set this zone's strength first.");
@@ -323,17 +467,18 @@ public final class SettingsAvailability {
             return Lang.t("Нужно «Цвет базы по цветоразности» больше 0.", "Needs “Base colour from colour difference” above 0.");
         // P144: AgX and its look give way to the tone operator switched on in «Кривая AgX и ACES»; so does the OPPO matrix's
         // saturation, a factor of AgX's (WhyCombine agxAU.w: read by the AgX branch of why/combine only)
-        if (key.startsWith("pref_scam_hybrid_why_agx_") || key.equals("pref_scam_hybrid_why_ccm_sat")) {
+        if (key.startsWith("pref_scam_hybrid_why_agx_") || key.equals("pref_scam_hybrid_why_ccm_sat")
+                || key.equals("pref_scam_hybrid_why_v2_agx_look")) {   // P614: V2's look acts on its AgX only
             String other = on("pref_scam_hybrid_why_curve_on", false) ? Lang.t("своя кривая", "the own curve")
                     : on("pref_scam_hybrid_why_uchi_on", false) ? "Uchimura" : on("pref_scam_hybrid_why_aces_on", false) ? "ACES" : null;
             if (other != null)
-                return Lang.t("Сейчас вместо AgX работает " + other + " (Для опытных › SHDR › Тон Why › Кривая AgX и ACES).",
-                        "Now " + other + " works instead of AgX (For experts › SHDR › Why tone › AgX and ACES curves).");
+                return Lang.t("Сейчас вместо AgX работает " + other + " (Настройки тона › Глобальный тонмап).",
+                        "Now " + other + " works instead of AgX (Tone settings › Global tone mapping).");
         }
-        if (key.startsWith("pref_scam_hybrid_why_agx_") && !key.equals("pref_scam_hybrid_why_agx_look")
+        if (key.startsWith("pref_scam_hybrid_why_agx_") && !key.equals("pref_scam_hybrid_why_agx_look") && !toneV2()
                 && !text("pref_scam_hybrid_why_agx_look", "4").equals("4"))
-            return Lang.t("Только в стиле AgX «Свой» (Для опытных › SHDR › Тон Why › Кривая AgX и ACES): другие стили задают эти значения сами.",
-                    "AgX look “Custom” only (For experts › SHDR › Why tone › AgX and ACES curves): the other looks set these values themselves.");
+            return Lang.t("Только в стиле AgX «Свой» (Настройки тона › Глобальный тонмап): другие стили задают эти значения сами.",
+                    "AgX look “Custom” only (Tone settings › Global tone mapping): the other looks set these values themselves.");
         // ScamRgb: the colour prior, the defringe and the clip band act only inside the per-channel recovery (perChannel needs a
         // strength above 0; the merge sends the band's clip flags only then)
         if (any(key, "pref_scam_hybrid_highlight_chroma", "pref_scam_hybrid_highlight_defringe", "pref_scam_hybrid_highlight_band",
@@ -346,6 +491,11 @@ public final class SettingsAvailability {
             return Lang.t("Не действует при «Резкость» = 0 (группа «Снимок»): работает только с деталью Why.",
                     "No effect with “Sharpness” = 0 (the “Picture” group): acts on the Why detail only.");
         if (key.startsWith("pref_watermark_") && !on("pref_show_watermark_key", true)) return Lang.t("Включите водяной знак.", "Turn on the watermark.");
+        // P628: the custom text and the date format only act with their fields on
+        if (key.equals("pref_watermark_text") && !on("pref_watermark_show_text", true))
+            return Lang.t("Включите «Свой текст».", "Turn on “Own text”.");
+        if (key.equals("pref_watermark_date_format") && !on("pref_watermark_show_time", false))
+            return Lang.t("Включите «Дата и время».", "Turn on “Date and time”.");
         // «Формат фото»: Ultra HDR and the JPEG quality act on a JPEG, which a HEIC / WebP / AVIF shot writes only with «Также сохранять JPEG».
         if (!writesJpeg()) {
             if (key.equals("pref_jpeg_quality") || key.equals("pref_jpeg_fast_encoder"))

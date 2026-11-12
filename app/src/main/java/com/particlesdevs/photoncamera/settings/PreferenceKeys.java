@@ -240,21 +240,6 @@ public class PreferenceKeys {
         return preferenceKeys.settingsManager.getBoolean("default_scope", Key.KEY_SHOW_WATERMARK);
     }
 
-    /** Signature text lines (default "SHOT ON" / "SCAMERA"); an empty line is left out. */
-    public static String getWatermarkLine1() {
-        return preferenceKeys.settingsManager.getString("default_scope", "pref_watermark_line1", "SHOT ON");
-    }
-    public static String getWatermarkLine2() {
-        return preferenceKeys.settingsManager.getString("default_scope", "pref_watermark_line2", "SCAMERA");
-    }
-    public static boolean isWatermarkLogoOn() {
-        return preferenceKeys.settingsManager.getBoolean("default_scope", "pref_watermark_logo", true);
-    }
-    /** Height of the signature in percent of the frame height (stock: 6.7). */
-    public static float getWatermarkHeightPercent() {
-        return (float) SettingsNumericRules.value("pref_watermark_size",
-                preferenceKeys.settingsManager.getString("default_scope", "pref_watermark_size", "7"), 7);
-    }
     /**
      * P80 «Быстрый JPEG»: Android's encoder (libjpeg-turbo, 4:2:0) instead of jpegli (4:4:4) for the saved JPEGs: ~2x faster to
      * encode, colour detail at half resolution and a slightly larger file. Off by default (jpegli).
@@ -349,10 +334,6 @@ public class PreferenceKeys {
     /** Ultra HDR is computed only when it ends up in a file: the setting is on and the shot writes a JPEG. */
     public static boolean isUltraHdrActive() {
         return com.particlesdevs.photoncamera.processing.PhotoFormat.ultraHdrApplies(isUltraHdrOn(), getPhotoFormat(), isAlsoSaveJpeg());
-    }
-    public static float getWatermarkOpacity() {
-        return (float) SettingsNumericRules.value("pref_watermark_opacity",
-                preferenceKeys.settingsManager.getString("default_scope", "pref_watermark_opacity", "100"), 100) / 100f;
     }
 
     public static boolean isPerLensSettingsOn() {
@@ -668,6 +649,7 @@ public class PreferenceKeys {
     public static String hybridOutputMode() {
         Float dev = scamDevValue("hybrid_output");
         if (dev != null) { final float v = dev; return v == 2f ? "2x" : v == 1.5f || v == 16f || v == 20f ? "1.5x" : "sensor"; }
+        if (staticProcessing()) return staticOutputMode(); // P624: «Статика» has its own super-resolution setting
         return outputMode(hybridString("output", "sensor"));
     }
     /** P501: a stored output value as the current modes (the old 12 MP is the sensor size, 16 / 20 MP the 1.5x grid). */
@@ -965,8 +947,10 @@ public class PreferenceKeys {
         if (hybridValue("fast_mosaic_chroma", 1f) == 0f) out.append("fastMosaicChroma 0\n");
         // P566: the fast route's Quad site response in the unpack (worker fastSiteGain, default 1); "hybrid_fast_site_gain 0" = the QPC alone
         if (hybridValue("fast_site_gain", 1f) == 0f) out.append("fastSiteGain 0\n");
-        // P571: the fast route's Quad lattice off the luma after its merge (worker fastQuadLattice, default 1)
-        if (hybridValue("fast_quad_lattice", 1f) == 0f) out.append("fastQuadLattice 0\n");
+        // P571: the fast route's Quad lattice off the luma after its merge (worker fastQuadLattice, default 2); P632: 2 = the
+        // lattice relative to the luma (no grid on dark branches against a bright sky), 1 = in luma units (P591, before), 0 = off
+        final float quadLattice = hybridValue("fast_quad_lattice", 2f);
+        if (quadLattice != 2f) out.append("fastQuadLattice ").append(Math.round(Math.max(0f, Math.min(2f, quadLattice)))).append('\n');
         // P596: Quad detail - the fast route's de-grid «flat» from the merged noise and its line notch only where few frames merged,
         // its few-donor cone along the edge, the native merge's green-site structure tensor where it sees more and its base demosaic's 1.8-site cone on
         // structure (worker fastQuadFlatNoise 1.5, fastQuadLineFrames 8, fastQuadCone 1.2, mosaicQuadFine 64, mosaicQuadTexture 0.5 (the Quad texture kernel x0.5), baseDemosaicQuadRadius
@@ -1158,6 +1142,7 @@ public class PreferenceKeys {
         if (shiftMax > 0f) out.append("donorShiftMax ").append(shiftMax).append('\n');
         if (fastSport > 0 && fastProcessing()) out.append("fastMergeSport ").append(fastSport & 3).append('\n');
         if (fastProcessing()) out.append(FAST_TUNING); // P474: last, over the lines above
+        if (staticProcessing()) out.append(staticTuning()); // P624 / P627: «Статика» (no FAST_TUNING: the route handles every burst itself)
         // P600: «Все шумодавы» off - the worker's own denoise stages off too ("denoise 0", applied after every line); on: no line
         out.append(com.particlesdevs.photoncamera.processing.opengl.postpipeline.DenoiseStages.workerTuning());
         return out.toString();
@@ -1173,9 +1158,48 @@ public class PreferenceKeys {
     public static final String FAST_TUNING = "rejPool 0\nrejVarExact 0\nrejMatchBlur 0\nrejPerChannel 0\nrejRelFloor 0\nrejMeanDiff 0\n"
             + "rejMeanFloor 0\nrejKneeLo 0\nrejKneeHi 0\nlaStride 16\nlaIters 0\nfastMerge 1\n";
 
-    /** P474: «Режим обработки» (pref_scam_hybrid_processing): "fast" (default) or "quality" (the full merge). */
+    /**
+     * P614 (owner, 2026-11-11): «Why тон» (pref_scam_hybrid_tone_version) on the main settings page - "v1" (default, our tone as it
+     * was) or "v2" (the reference tone ported one to one: WhyV2Stats / WhyV2Fusion / WhyV2Tone).
+     */
+    public static boolean whyToneV2() {
+        return "v2".equals(hybridString("tone_version", "v1"));
+    }
+    /**
+     * P474 / P624: «Режим обработки» (pref_scam_hybrid_processing): "fast" (default), "quality" (the full merge) or "static"
+     * («Статика»: the static merge, scam-static-merge.h). P627 (owner, 2026-11-11): every mode stays the mode chosen - no route hands
+     * a shot to another (moving frames, Quad / Tetra / DCG, GPU failures and limits are handled inside each). Any other stored value
+     * reads as "fast".
+     */
+    public static String processingMode() {
+        final String v = hybridString("processing", "fast");
+        return "quality".equals(v) || "static".equals(v) ? v : "fast";
+    }
+    /** P474: «Быстрый». */
     public static boolean fastProcessing() {
-        return !"quality".equals(hybridString("processing", "fast"));
+        return "fast".equals(processingMode());
+    }
+    /** P624: «Статика». */
+    public static boolean staticProcessing() {
+        return "static".equals(processingMode());
+    }
+    /**
+     * P624: the static merge's lines (staticMerge 1, the iterations of pref_scam_hybrid_static_iters, 4..16, default 8) and the
+     * GPU backend of scam_dev "static_vulkan" (0 GLES, 1 Vulkan first, -1 or absent = auto: the worker's self-test picks; P627: -2
+     * the CPU transcription only).
+     */
+    public static String staticTuning() {
+        final int iters = Math.max(4, Math.min(16, Math.round(hybridValue("static_iters", 8f))));
+        final Float vk = scamDevValue("static_vulkan");
+        final int backend = vk == null ? -1 : vk >= 0.5f ? 1 : vk <= -1.5f ? -2 : vk <= -0.5f ? -1 : 0;
+        return "staticMerge 1\nstaticIters " + iters + "\nstaticVulkan " + backend + "\n";
+    }
+    /**
+     * P624: the static merge's output (pref_scam_hybrid_static_sr): "sensor" (1x, default), "1.5x", "2x" - its super-resolution, in
+     * place of pref_scam_hybrid_output while «Статика» is on (the same sizes and caps: ScamHybridBurst.sabreSize / sabre2xFits).
+     */
+    public static String staticOutputMode() {
+        return outputMode(hybridString("static_sr", "sensor"));
     }
     /**
      * P195 (owner, 2026-10-17: «добавь так же возможность отключать наш 2х2 и 4х4 ремозаик чтобы получать фото без него»):
@@ -1467,6 +1491,8 @@ public class PreferenceKeys {
         HYBRID_DEV_LISTS.put("dn_strength_map", new String[]{"auto", "frames", "uniform"});
         // P493: «Подавление аберраций» for an A/B: scam_dev.txt "hybrid_fringe_method 0" = the fringe net, "1" = P399
         HYBRID_DEV_LISTS.put("fringe_method", new String[]{"neural", "classic"});
+        // P614: «Why тон» for an A/B: scam_dev.txt "hybrid_tone_version 0" = V1, "1" = V2
+        HYBRID_DEV_LISTS.put("tone_version", new String[]{"v1", "v2"});
     }
     /** SCAM Hybrid text value pref_scam_hybrid_&lt;key&gt; (a ListPreference entry value), {@code fallback} when unset. */
     public static String hybridString(String key, String fallback) {

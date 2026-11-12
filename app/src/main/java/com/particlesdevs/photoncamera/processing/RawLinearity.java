@@ -67,6 +67,44 @@ public final class RawLinearity {
 
     /** Histogram of the four CFA phases (phase = (y & 1) * 2 + (x & 1)) of an unpacked 16-bit RAW. */
     public static int[][] histogram(ByteBuffer raw, int width, int height, int rowStrideBytes) {
+        if (raw == null || width < 2 || height < 2) return new int[4][65536];
+        // P625 (owner, 2026-11-11: «ускорь подготовку снимка»; a OnePlus 15 DCG shot: 175 ms before its merge, one thread): bands
+        // of rows at once, each its own counts, summed - the same integer counts in any split ({@link #histogramSequential})
+        final int bands = Math.max(1, Math.min(com.particlesdevs.photoncamera.util.ParallelWork.threads(), height / 64));
+        if (bands == 1) return histogramSequential(raw, width, height, rowStrideBytes);
+        final ShortBuffer s = shorts(raw);
+        final int stride = rowStrideBytes > 0 ? rowStrideBytes / 2 : width;
+        final int[][][] part = new int[bands][][];
+        com.particlesdevs.photoncamera.util.ParallelWork.forEach(bands, k -> {
+            final int[][] h = new int[4][65536];
+            final ShortBuffer view = s.duplicate();
+            final short[] line = new short[width];
+            for (int y = (int) ((long) height * k / bands), end = (int) ((long) height * (k + 1) / bands); y < end; y++) {
+                final int row = y * stride;
+                if (row + width > view.limit()) break; // as the sequential loop: no row past the buffer's end counts
+                view.position(row);
+                view.get(line, 0, width);
+                final int[] even = h[(y & 1) * 2], odd = h[(y & 1) * 2 + 1];
+                int x = 0;
+                for (; x + 1 < width; x += 2) {
+                    even[line[x] & 0xFFFF]++;
+                    odd[line[x + 1] & 0xFFFF]++;
+                }
+                if (x < width) even[line[x] & 0xFFFF]++;
+            }
+            part[k] = h;
+        });
+        final int[][] h = part[0];
+        for (int k = 1; k < bands; k++)
+            for (int c = 0; c < 4; c++) {
+                final int[] to = h[c], from = part[k][c];
+                for (int v = 0; v < 65536; v++) to[v] += from[v];
+            }
+        return h;
+    }
+
+    /** The one-thread histogram (as before P625; {@link #histogram}'s reference in the tests). */
+    static int[][] histogramSequential(ByteBuffer raw, int width, int height, int rowStrideBytes) {
         int[][] h = new int[4][65536];
         if (raw == null || width < 2 || height < 2) return h;
         ShortBuffer s = shorts(raw);

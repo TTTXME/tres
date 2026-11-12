@@ -201,6 +201,17 @@ public final class PhotoOutput {
      */
     public static Result save(Path base, Bitmap img, ParseExif.ExifData exif, GainMapComputer.Result jpegGain,
                               GainMapComputer.Result hdrGain, OutputColour.Space space) {
+        return save(base, img, exif, jpegGain, hdrGain, space, null);
+    }
+
+    /**
+     * P633: as above; {@code watermark} (null: none) - the original pixels under the photo's watermark and its spec - is appended
+     * to every file written (WatermarkStore), in the precision that file was encoded from: the 10-bit record for a HEIC / AVIF
+     * coded from the 10-bit image, its 8-bit version for the JPEG, the WebP and an 8-bit HEIC / AVIF.
+     */
+    public static Result save(Path base, Bitmap img, ParseExif.ExifData exif, GainMapComputer.Result jpegGain,
+                              GainMapComputer.Result hdrGain, OutputColour.Space space,
+                              @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch.Pending watermark) {
         final GainMapComputer.Result gain = jpegGain;
         final boolean p3 = space == OutputColour.Space.DISPLAY_P3;
         // EXIF ColorSpace of a P3 photo: 0xFFFF "Uncalibrated" (as cameras writing Display P3 do), the ICC profile names the space.
@@ -254,6 +265,7 @@ public final class PhotoOutput {
                         }
                         break;
                 }
+                    if (ok && watermark != null) appendWatermark(file, watermark, tenBitFile(f, pixels.tenBit, how));
                 } finally {
                     SavingFiles.end(file);
                 }
@@ -270,6 +282,32 @@ public final class PhotoOutput {
             pixels.recycle();
         }
         return result;
+    }
+
+    /** P633: whether file {@code f} was coded from the 10-bit image (its save line says so), so it takes the 10-bit record. */
+    static boolean tenBitFile(PhotoFormat f, boolean tenBitImage, CharSequence how) {
+        if (!tenBitImage) return false;
+        String h = how.toString();
+        switch (f) {
+            case HEIC: return h.contains(" 10-bit");
+            case AVIF: return h.contains("from 10-bit");
+            default: return false;
+        }
+    }
+
+    /** P633: the watermark's record at the end of {@code file}; a failure costs the record (the photo keeps its watermark). */
+    static void appendWatermark(Path file, com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch.Pending watermark, boolean tenBit) {
+        final long t0 = System.nanoTime();
+        try {
+            com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch all = watermark.get(); // coded beside the encoding
+            com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch p = tenBit ? all : all.eightBit();
+            byte[] record = p.toBytes();
+            boolean ok = com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.append(file.toFile(), record);
+            Log.i(TAG, "watermark record " + (ok ? record.length + " bytes appended" : "not appended (unknown container)") + " to "
+                    + file.getFileName() + " (" + p + ") in " + (System.nanoTime() - t0) / 1_000_000 + " ms");
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            Log.e(TAG, "watermark record not written to " + file.getFileName() + ": " + e);
+        }
     }
 
     /**
@@ -333,7 +371,7 @@ public final class PhotoOutput {
             byte[] exifBlock = null;
             if (exif != null) {
                 exif.COMPRESSION = null;
-                exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height));
+                exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
             }
             final long start = System.nanoTime();
             final StringBuilder detail = new StringBuilder();
@@ -373,7 +411,7 @@ public final class PhotoOutput {
         byte[] exifBlock = null;
         if (exif != null) {
             exif.COMPRESSION = null;
-            exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height));
+            exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
         }
         if (hdrGain != null && tenBitRoute) {
             if (writeGainMapHeic(file, pixels, hdrGain, quality, exifBlock, OutputColour.Signal.of(space))) {
@@ -555,7 +593,7 @@ public final class PhotoOutput {
         byte[] exifBlock = null;
         if (exif != null) {
             exif.COMPRESSION = null;
-            exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height));
+            exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
         }
         androidx.heifwriter.HeifWriter writer = null;
         boolean ok = false;
@@ -688,7 +726,7 @@ public final class PhotoOutput {
         byte[] exifBlock = null;
         if (exif != null) {
             exif.COMPRESSION = null; // Compression 6 (JPEG) describes JPEG data only
-            exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height));
+            exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
         }
         try {
             AvifEncoder.Result r = avifWriter.write(img, file, options, exifBlock);

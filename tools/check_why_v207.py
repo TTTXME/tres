@@ -37,6 +37,45 @@ def chroma(disp):
     return np.hypot(lab[..., 1], lab[..., 2])
 
 
+def kernel_acescg(v, toe):
+    """import why_fusion acescg (pre-gain 1.5, a 2.51, d 0.59, the toe's b and e)."""
+    x = max(v, 0.0) * 1.5
+    b, e = max(toe * 0.75, 0.005), max(0.14 - (toe - 0.04) * 0.8, 0.03)
+    return (x * (2.51 * x + b)) / (x * (2.43 * x + 0.59) + e)
+
+
+def widened(r, cols, rows):
+    """P614 (owner, 2026-11-11): the rows V1 shares with V2 widened to the reference's ranges - gamma 1-3, ACES toe to 0.3, macro
+    contrast 0.5-2, AgX min EV -15..-2, AgX EV +-3: V1's tone at every combination of the ends (the fused luma of a flat area as the
+    fusion makes it with that gamma / toe) finite and in 0..1, the exposure sweeps of grey, skin, sky, yellow and green never falling.
+    The saturated red light dips a little where the macro contrast lifts its dark OKLab L out of the gamut (0.008 at the former ends,
+    0.03 at the new; the reference's V2 0.05 at macro 0.8): no V1 clamp for it."""
+    import itertools
+    fine = 0.18 * 2.0 ** np.arange(-9.0, 7.01, 0.05)
+    modes = {'AgX': ({}, {}), 'AgX macro toe': ({'MACRO_TOE': '1'}, {}),
+             'AgX base + headroom': ({'WHY_BASE': '1', 'HEADROOM_WIDE': '1', 'MACRO_TOE': '1'}, {'hrU': 20.0, 'hrKneeU': 0.5, 'hrRoomU': 0.4}),
+             'ACES': ({'TONE_OP': '1', 'MACRO_TOE': '1'}, {'toneOpU': 1}), 'Uchimura': ({'TONE_OP': '1', 'MACRO_TOE': '1'}, {'toneOpU': 2})}
+    keep = [i for i, k in enumerate(cols) if k != 'red LED']
+    old = clc.cwh.fused_for
+    try:
+        for name, (defines, extra) in modes.items():
+            agx = name.startswith('AgX')
+            bad, worst, n = [], 0.0, 0
+            for gamma, toe, macro, minev, ev in itertools.product((1.0, 3.0), (0.005, 0.3), (0.5, 2.0), (-15.0, -2.0) if agx else (-8.5,),
+                                                                  (-3.0, 3.0) if agx else (0.0,)):
+                clc.cwh.fused_for = lambda m, g=gamma, t=toe: float(kernel_acescg(m, t) ** (1.0 / g))
+                out = r.render(rows, fine, defines, dict(extra, gammaInvU=1.0 / gamma, toeU=toe, macroU=macro, agxBU=(minev, 3.5, ev, 4.0),
+                                                         acesU=(1.0, 2.61, 0.59, toe)))
+                d = np.diff(out[keep] @ clc.LUMA, axis=1).min()
+                worst = min(worst, float(d))
+                n += 1
+                if not (np.isfinite(out).all() and out.min() >= 0 and out.max() <= 1 and d >= -5e-4):
+                    bad.append((gamma, toe, macro, minev, ev))
+            check(not bad, '%s at the widened ends (%d sets): finite, 0..1, sweeps never falling (min step %.1e) %s' % (name, n, worst, bad[:4]))
+    finally:
+        clc.cwh.fused_for = old
+
+
 def main():
     r = clc.Renderer()
     scales = 0.18 * 2.0 ** np.arange(-3.0, 4.01, 0.5)
@@ -91,6 +130,7 @@ def main():
         check(np.all(d >= -2e-4), '%s: WHY_BASE exposure sweep monotonic (min step %.1e)' % (k, d.min()))
         sb = y(r.render([rows[i]], fine, wide, hr)[0])
         check(np.abs(d).max() <= np.abs(np.diff(sb)).max() + 0.01, '%s: no step (%.3f against %.3f)' % (k, np.abs(d).max(), np.abs(np.diff(sb)).max()))
+    widened(r, cols, rows)
     print('why reference tone check %s' % ('FAIL' if FAIL else 'PASS'))
     return 1 if FAIL else 0
 

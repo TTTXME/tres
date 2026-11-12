@@ -56,10 +56,18 @@ import com.particlesdevs.photoncamera.util.Lang;
  * copy will have them; a pill gives the zoom (and «детали…» while they load). The view only: the copy, undo and the crop do
  * not change; «Кадр», a geometry change, saving and the first back return to the fit. A second finger ends the long-press
  * «before». Test hook: ExternalEdit.ARG_ZOOM.
+ * P619 (owner, 2026-11-11: «Добавь возможность в нашем редакторе в галерее применять луты из камеры и симуляции плёнок»): the «LUT»
+ * tab after «Стили» - the camera's LUTs and film stocks on the finished colour (EditPanels.look, EditLook); their tables load off the
+ * main thread (EditorViewModel.lookLoader) and go to the picture, the zoom and the copy.
+ * P633 (owner, 2026-11-11: «По поводу вотермарок, дай возможность их редактировать у нас в галерее, добавлять, убирать на наших фото»):
+ * the «Знак» tab (EditWatermarkPanel) - the photo's own watermark taken off from the pixels its file kept (EditSource.watermark), a
+ * watermark added or changed with the camera's settings; the picture shows it live (WatermarkOverlayView), the copy draws it with
+ * the camera's code (EditExporter).
  */
 public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     private static final String KEY_STATE = "edit_state", KEY_TAB = "edit_tab";
-    static final int TAB_CROP = 0, TAB_STYLES = 1, TAB_LIGHT = 2, TAB_COLOUR = 3, TAB_EFFECTS = 4, TAB_DETAIL = 5;
+    static final int TAB_CROP = 0, TAB_STYLES = 1, TAB_LOOK = 2, TAB_LIGHT = 3, TAB_COLOUR = 4, TAB_EFFECTS = 5, TAB_DETAIL = 6,
+            TAB_WATERMARK = 7;
     private static final String PREFS = "scam_editor", PREF_CLIPBOARD = "clipboard";
     /** Copied settings («Копировать настройки»), kept for the app's lifetime and in prefs. */
     @Nullable private static EditState clipboard;
@@ -96,6 +104,10 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     private View cover;
     private View undo, redo, save;
     private EditPanels panels;
+    /** P633: the watermark's live preview over the picture, the copy's pixel limit it lays out for, «Авто»'s picture's key. */
+    @Nullable private WatermarkOverlayView watermarkView;
+    private long watermarkOutMax = EditSource.OUT_MAX;
+    @Nullable private String watermarkInkKey;
     private boolean before;
     @Nullable private float[] straightenAnchor;
     private boolean applyingStyle;
@@ -209,6 +221,9 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         cover.setBackgroundColor(0xFF000000);
         cover.setClickable(false);
         imageArea.addView(cover, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        watermarkView = new WatermarkOverlayView(c);
+        watermarkView.setVisibility(View.GONE);
+        imageArea.addView(watermarkView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         overlay = new CropOverlayView(c);
         overlay.setListener(this::onCrop);
         imageArea.addView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -365,6 +380,11 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             public void note(String text) {
                 showNote(text);
             }
+
+            @Override
+            public void picture(RectF rect, boolean cropMode) {
+                if (watermarkView != null) watermarkView.setPicture(rect);
+            }
         });
         updateHistoryButtons();
         return root;
@@ -389,10 +409,10 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
 
     private void buildTabs(Context c) {
         tabBar.removeAllViews();
-        int[] icons = {R.drawable.ui_ic_crop, R.drawable.ui_ic_styles, R.drawable.ui_ic_sun, R.drawable.ui_ic_palette,
-                R.drawable.ui_ic_effects, R.drawable.ui_ic_detail};
-        String[] names = {Lang.t("Кадр", "Crop"), Lang.t("Стили", "Styles"), Lang.t("Свет", "Light"), Lang.t("Цвет", "Colour"),
-                Lang.t("Эффекты", "Effects"), Lang.t("Детали", "Detail")};
+        int[] icons = {R.drawable.ui_ic_crop, R.drawable.ui_ic_styles, R.drawable.ui_ic_film, R.drawable.ui_ic_sun, R.drawable.ui_ic_palette,
+                R.drawable.ui_ic_effects, R.drawable.ui_ic_detail, R.drawable.ui_ic_tag};
+        String[] names = {Lang.t("Кадр", "Crop"), Lang.t("Стили", "Styles"), "LUT", Lang.t("Свет", "Light"), Lang.t("Цвет", "Colour"),
+                Lang.t("Эффекты", "Effects"), Lang.t("Детали", "Detail"), Lang.t("Знак", "Mark")};
         tabButtons = new LinearLayout[icons.length];
         tabIcons = new ImageView[icons.length];
         tabNames = new TextView[icons.length];
@@ -414,7 +434,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             b.setClickable(true);
             b.setFocusable(true);
             b.setSelected(on);
-            b.setContentDescription(names[i]);
+            b.setContentDescription(i == TAB_WATERMARK ? Lang.t("Водяной знак", "Watermark") : names[i]);
             b.setOnClickListener(v -> selectTab(k));
             tabIcons[i] = GalleryUi.icon(c, icons[i], colour, 22);
             b.addView(tabIcons[i]);
@@ -518,7 +538,11 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             }
         }
         if (s.note != null) showNote(s.note);
+        // P633: the copy's pixel limit for this photo (a binder call: once a source), the size the watermark's preview lays out for
+        watermarkOutMax = EditExporter.outMax(EditSource.memoryBudget(requireContext()));
+        watermarkInkKey = null;
         gl.setSource(s);
+        gl.setLookTables(vm.lookTables); // P619: a recreated editor keeps the loaded tables
         showPanel();
         if (!entered) {
             // P360: the editor's arrival, once
@@ -534,6 +558,8 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     private void render() {
         if (gl == null) return;
         gl.setState(vm.state, tab == TAB_CROP, before);
+        requestLook();
+        updateWatermark();
         EditMotion.show(histogram, tab != TAB_CROP, 0f);
         updateZoomPill();
     }
@@ -564,6 +590,66 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
             zoomPillOn = show;
             EditMotion.show(zoomPill, show, -GalleryUi.dp(zoomPill.getContext(), 6));
         }
+    }
+
+    /**
+     * P633: the watermark's preview - the state's watermark laid out for the copy's size, over the picture (not in «Кадр», not while
+     * the long press shows the original); «Авто» from a small picture of the edited crop, asked again when the picture changed.
+     */
+    private void updateWatermark() {
+        if (watermarkView == null) return;
+        EditSource s = vm.source.getValue();
+        com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec spec = vm.state.watermark();
+        boolean show = s != null && spec != null && tab != TAB_CROP && !before;
+        if (show) {
+            double[] o = EditorView.orientedFull(s);
+            double[] crop = CropMath.cropPixels(vm.state, o[0], o[1]);
+            int[] size = EditExporter.outputSize(crop[0], crop[1], watermarkOutMax);
+            watermarkView.bind(spec, s.watermarkInfo, size[0], size[1]);
+            if (spec.colour == com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec.Colour.AUTO) {
+                EditState picture = vm.state.copy();
+                picture.wm = "";
+                String key = picture.toJson();
+                if (!key.equals(watermarkInkKey)) {
+                    watermarkInkKey = key;
+                    gl.thumbnail(EditLookThumbs.SIDE_PX, (px, w, h) -> {
+                        if (watermarkView != null) watermarkView.setInkPicture(px, w, h);
+                    });
+                }
+            }
+            RectF r = gl.pictureRect();
+            if (r != null) watermarkView.setPicture(r);
+        } else {
+            watermarkView.bind(null, s != null ? s.watermarkInfo : new com.particlesdevs.photoncamera.processing.watermark.WatermarkText.Info(), 0, 0);
+        }
+        if (show != (watermarkView.getVisibility() == View.VISIBLE)) {
+            if (show) {
+                watermarkView.setAlpha(0f);
+                watermarkView.setVisibility(View.VISIBLE);
+                watermarkView.animate().alpha(1f).setDuration(EditMotion.MEDIUM).setInterpolator(EditMotion.ENTER).start();
+            } else {
+                watermarkView.animate().cancel();
+                watermarkView.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    /** P619: the tables of the state's LUT / film (loaded off the main thread; the picture shows them when they are there). */
+    private void requestLook() {
+        if (getContext() == null) return;
+        if (!EditLook.on(vm.state)) {
+            vm.lookLoader.forget();
+            return;
+        }
+        vm.lookLoader.request(requireContext(), vm.state, t -> {
+            vm.lookTables = t;
+            if (gl != null) gl.setLookTables(t);
+        });
+    }
+
+    @Override
+    public void lookThumbnail(EditPanels.ThumbSink sink) {
+        if (gl != null) gl.thumbnail(EditLookThumbs.SIDE_PX, sink);
     }
 
     @Override
@@ -844,6 +930,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         if (notePill != null) notePill.removeCallbacks(hideNote);
         gl = null;
         overlay = null;
+        watermarkView = null;
         histogram = null;
         zoomPill = null;
         zoomPillOn = false;

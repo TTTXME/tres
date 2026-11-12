@@ -96,6 +96,8 @@ public class GLBasePipeline implements AutoCloseable {
 
     /** P497: the post node finished last (any pipeline; VfDrawMeter names it beside a slow viewfinder draw). */
     public static volatile String lastNode = "";
+    /** P616: the post node running now ("" between runs): a slow draw ends inside it, after {@link #lastNode}. */
+    public static volatile String runningNode = "";
 
     public void startTimeMeasure() {
         PostGlMode.lapStart();
@@ -257,11 +259,14 @@ public class GLBasePipeline implements AutoCloseable {
     /** Runs every node; the last one stays bound for the readback. */
     private void runNodes() {
         final long wallStart = System.currentTimeMillis();
+        GpuPace.begin(); // P616: the post's GPU queue kept a few blocks deep (the viewfinder's draws are not stuck behind it)
         try {
             runNodesTimed();
         } finally {
             nodesWallMs = System.currentTimeMillis() - wallStart;
             GLProg.compileNode(null);
+            runningNode = "";
+            GpuPace.end();
         }
     }
 
@@ -278,6 +283,7 @@ public class GLBasePipeline implements AutoCloseable {
                 continue;
             }
             GLProg.compileNode(node.Name); // P602: the programs this node compiles are named with it
+            runningNode = node.Name; // P616: the node a stalled viewfinder draw fell into (VfDrawMeter)
             try {
                 prepareNode(node,i);
             } catch (RuntimeException error) {

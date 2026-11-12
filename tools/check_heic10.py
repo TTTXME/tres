@@ -384,7 +384,7 @@ def guard_8bit_path():
                  'androidx.heifwriter.HeifWriter.INPUT_MODE_BITMAP)', '.setQuality(Math.max(1, Math.min(100, quality)))',
                  '.setGridEnabled(true)', '.setMaxImages(1)', '.setPrimaryIndex(0)', '.setRotation(0)',
                  'writer.addBitmap(img);', 'if (exifBlock != null) writer.addExifData(0, exifBlock, 0, exifBlock.length);',
-                 'exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height));'):
+                 'exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img));'):
         need(line in heif, 'PhotoOutput.saveHeic (8-bit HEIC) changed: %r missing' % line)
     pp = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/PostPipeline.java').read_text(encoding='utf-8')
     need('GLFormat format = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);' in pp, 'PostPipeline output format changed')

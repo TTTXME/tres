@@ -1111,6 +1111,49 @@ struct HybridTuning {
     // that route (its normal frames; ultrashort / bracketed frames stay out in stage 1); anything it cannot take, or any GPU
     // failure of it, merges the same input with the SCAM merge. 0 = the SCAM merge (replays unchanged).
     int fastMerge=0;
+    // P624 «Статика» (owner, 2026-11-11: a third merge route for still scenes, everything of «Lucas-Kanade Reloaded» but the neural
+    // denoiser): staticMerge 1 = the static merge (scam-static-merge.h). P627 (owner, 2026-11-11: every mode stays the mode the
+    // user chose): every burst - Bayer, Quad, Tetra, DCG, moving frames left out down to the base alone - and every failure is
+    // handled inside the route (Vulkan -> GLES -> CPU); it never hands the shot to the SCAM merge («Качество»).
+    // staticIters / staticZSteps: HQS iterations and data steps per iteration; staticScale: the HR grid of the solve (2; the 1x
+    // photo is its 2 x 2 box); staticChroma / staticLuma / staticHuber: the regularisers (x the frame noise variance); staticRobust:
+    // the outlier test (sigmas, 0 = off); staticMotionMax: the moving-block fraction of a frame above which it counts as moving;
+    // staticFrames: the frames it takes at most; staticTile: the field's tile (RAW px); staticVulkan: -1 auto (Vulkan, else GLES),
+    // 0 GLES, 1 Vulkan first, -2 the CPU transcription only (P627: the app's retry after a worker died at GPU init); staticStripMB:
+    // the GPU memory of a strip; staticProfile 1: per-pass GPU times. P627: staticMosaicChroma 1 - a Quad / Tetra result takes the
+    // native merge's chroma median (P627b: always; 0 never), staticQuadLattice 1 - the lattice pass of the colour period off the
+    // luma (Quad: the fast route's GPU pass, Tetra / no GPU: its CPU twin stLatticeCpu; 0 = off)
+    int staticMerge=0,staticIters=8,staticZSteps=3,staticScale=2,staticFrames=16,staticTile=64,staticVulkan=-1,staticStripMB=512,staticProfile=1; // P627c: 512 (was 192: strips of 16 - 36 rows at 12 MP)
+    int staticMosaicChroma=1,staticQuadLattice=1;
+    float staticChromaFloor=2.f; // P627b: the colour prior's noise factor floor on Quad / Tetra (x the ISO 400 variance)
+    float staticLumaFloor=1.f;   // P627b: the luma prior's (tetra_tc: the grain of an ISO 50 solve; 0 = as P624)
+    // P627b: the native merge's along-edge smoothing on a Quad / Tetra static result (its strength). P627d (owner: «Верни
+    // детальность, но без клетки»): 0 - with the floors only where the estimate is flat (staticFlatK) the stairs it took are not
+    // there, and it cost the texture (bm 0.187 -> 0.200, tc 0.0203 -> 0.0213 without it)
+    // P627e (owner, 2026-11-11, out_static5 tetra_tc / car / t3: «полосы и зубцы на краях объектов, которых нет на Быстром и
+    // Качестве»): the along-edge pass back (1; Tetra twice, staticTetraAlongEdgePasses), the floors on steep edges too (the gather's
+    // flat weight held at g^2 / (g^2 + staticEdgeK x the noise variance) or above; 0 = flat only, P627d) and the priors as of at least
+    // staticPriorFrames (Quad) / staticTetraPriorFrames frames (StJob::priorFrames; 0 = the frames taken): the stairs at period b
+    // and the stripes beside edges at or under the Sabre routes' on all six crops (research/handoff/PLAN.md P627e)
+    float staticAlongEdge=1.f;
+    float staticEdgeK=64.f;
+    int staticTetraAlongEdgePasses=2;
+    // P627f (owner, 2026-11-11: «Деталь должна быть лучше у статики»): staticLanczos 1 - the 1x photo of the 2x solve through a
+    // Lanczos-2 low-pass (StJob::lanczos; 0 = its 2 x 2 box, a second pixel aperture); staticDetail / staticBayerDetail - the gain of
+    // the mid band (G0.7 - G staticDetailSigma) of the result's luma above staticDetailCore x its own noise, a Quad / Tetra result's
+    // fine band shrunk below staticDetailShrink x the noise (stDetail; 0 / 0 = off). Quad / Tetra 0.25: the stripes beside edges
+    // at or under the Sabre routes' on the six crops (0.3: tetra_tc 1 % over); Bayer 0.2, no shrink: check_static_merge's Bayer burst (truth = the pixel's box,
+    // no lens) at 35.75 dB, 0.3 or the shrink took it under «Качество» + 0.5 dB (research/handoff/PLAN.md P627f)
+    int staticLanczos=1;
+    float staticDetail=0.25f,staticBayerDetail=0.2f,staticDetailShrink=1.5f,staticDetailCore=6.f,staticDetailSigma=3.f;
+    float staticPriorFrames=16.f,staticTetraPriorFrames=32.f;
+    // P627c (Bayer): its own prior floors, its plain chroma median's share and along-edge strength (0 = off). P627d: staticFlatK -
+    // the floors act where the HR estimate is flat (its luma gradient^2 under staticFlatK x the noise variance), fading on edges
+    // and texture (0 = everywhere, P627b)
+    // (P627c, Ark's church / school crops: floors 2 / 1 where flat (flatK 2) and the plain chroma median - the sky's noise at
+    // Quality's, the 2 px checker / zipper under it, the twigs' line detail as before; along-edge did nothing there)
+    float staticBayerChromaFloor=2.f,staticBayerLumaFloor=1.f,staticBayerChroma=1.f,staticBayerAlongEdge=0.f,staticFlatK=2.f;
+    float staticChroma=0.3f,staticLuma=1.f,staticHuber=2.f,staticRobust=3.f,staticMotionMax=0.03f;
     // P555: the fast native merge reads its normalised blocks through the texture cache (an RGBA32UI image); 0 = the storage buffers
     int mosaicNatTex=0; // P563: 0 by default - on the Adreno 750 (nubia, 50 MP Quad, 11 frames) the image made the merge 62 s against 26 s
     // P563 (owner, 2026-11-08: «на быстрой склейке у Нубии есть сетка, на качестве её нет»): the fast route's Quad / Tetra result gets
@@ -1124,8 +1167,9 @@ struct HybridTuning {
     // P568: the Quad native merge with its colour blocks in shared memory (NAT_TILE; the same sums): 0 off, 1 always, 2 the faster
     // of the two measured on two strips of the first shot on a GPU and driver (kept in the program cache: hybridNatTileChoice)
     int mosaicNatTile=2;
-    // P571: the fast route's Quad lattice off the luma after its merge (ChromaMedianGpu::quadLattice): 0 off
-    int fastQuadLattice=1;
+    // P571: the fast route's Quad lattice off the luma after its merge (ChromaMedianGpu::quadLattice): 0 off; 1 in luma units (P591);
+    // 2 (P632) relative to the luma's 4 x 4 box - the lattice of a bright sky no longer printed 5 - 10x larger on dark branches
+    int fastQuadLattice=2;
     // P596 (owner, 2026-11-10: «с quad режимом улучшить детализацию/резкость картинки, шарпинг трогать запрещаю»): the fast
     // route's Quad de-grid (kFastOutput deGrid) takes «flat ground» from the merged noise: from this many times its level (to
     // 2.5 x), never above the old fixed 0.04 .. 0.10 (0 = the fixed thresholds alone, as before)
@@ -1159,9 +1203,13 @@ struct HybridTuning {
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
-    // P489: 4x4 colour-block (Tetra) streams on the fast route (the reference's sh103); 0 = they stay on the SCAM merge (12 MP Tetra
-    // replays: no faster, softer, 4x more fine colour grain and a faint 4x4 grid than the SCAM merge)
-    int fastMergeTetra=0;
+    // P489: 4x4 colour-block (Tetra) streams on the fast route (the reference's sh103) - 12 MP Tetra replays: no faster, softer,
+    // 4x more fine colour grain and a faint 4x4 grid than the SCAM merge. P627 (owner, 2026-11-11: every mode stays the mode the
+    // user chose): «Быстрый» takes Tetra on the fast route (1, the default); 0 is no longer a way to the SCAM merge (reported, ignored)
+    int fastMergeTetra=1;
+    // P627: the fast route's column bands (a frame wider than the GPU's limits): the whole frame's frame pick, base first (internal,
+    // not a tuning file key); empty = the route's own selector
+    std::vector<int> fastPick;
     // P484 fast-merge speed keys (output within one level of the final 8-bit image; 0 = the previous behaviour):
     // fmFilterGather 1: the rejection filter (sh089) reads its 7x7 window by textureGather (output identical).
     // fmMergeBatch N (1..8, default 1 = off): the merges of N consecutive frames are drawn back to back after their front ends (the
@@ -1513,6 +1561,12 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("fastLightFill",&t.fastLightFill) // P607
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax) // P488
+            ||set("staticMerge",nullptr,&t.staticMerge)||set("staticIters",nullptr,&t.staticIters)||set("staticZSteps",nullptr,&t.staticZSteps) // P624
+            ||set("staticScale",nullptr,&t.staticScale)||set("staticFrames",nullptr,&t.staticFrames)||set("staticTile",nullptr,&t.staticTile)
+            ||set("staticVulkan",nullptr,&t.staticVulkan)||set("staticStripMB",nullptr,&t.staticStripMB)||set("staticProfile",nullptr,&t.staticProfile)
+            ||set("staticChroma",&t.staticChroma)||set("staticLuma",&t.staticLuma)||set("staticHuber",&t.staticHuber)
+            ||set("staticRobust",&t.staticRobust)||set("staticMotionMax",&t.staticMotionMax)
+            ||set("staticMosaicChroma",nullptr,&t.staticMosaicChroma)||set("staticQuadLattice",nullptr,&t.staticQuadLattice)||set("staticChromaFloor",&t.staticChromaFloor)||set("staticLumaFloor",&t.staticLumaFloor)||set("staticFlatK",&t.staticFlatK)||set("staticEdgeK",&t.staticEdgeK)||set("staticPriorFrames",&t.staticPriorFrames)||set("staticTetraPriorFrames",&t.staticTetraPriorFrames)||set("staticTetraAlongEdgePasses",nullptr,&t.staticTetraAlongEdgePasses)||set("staticLanczos",nullptr,&t.staticLanczos)||set("staticDetail",&t.staticDetail)||set("staticBayerDetail",&t.staticBayerDetail)||set("staticDetailShrink",&t.staticDetailShrink)||set("staticDetailCore",&t.staticDetailCore)||set("staticDetailSigma",&t.staticDetailSigma)||set("staticBayerChromaFloor",&t.staticBayerChromaFloor)||set("staticBayerLumaFloor",&t.staticBayerLumaFloor)||set("staticBayerChroma",&t.staticBayerChroma)||set("staticBayerAlongEdge",&t.staticBayerAlongEdge)||set("staticAlongEdge",&t.staticAlongEdge) // P627
             ||set("denoise",nullptr,&t.denoise); // P600
         }
         if(report&&!applied.empty())report("HYBRID TUNING FILE "+path+":"+applied);
@@ -12544,7 +12598,9 @@ inline float hybridDarkReadK(const HybridNoiseCheck& c,double pS,double pO,doubl
     const double ko=std::clamp((c.darkRatio*(pS*c.darkLevel+pO)-ks*pS*c.darkLevel)/pO,ks,16.0*ks);
     return float(ko/ks-1.0);
 }
-inline HybridNoiseCheck hybridMeasureNoise(const HybridInput& in){
+// P627: blk > 1 (the static merge on a Quad / Tetra burst) - one site of a green colour block per 2 blk x 2 blk period (blocks of
+// 32 x 32 such sites, 64 blk px); blk = 1 the green phase as before
+inline HybridNoiseCheck hybridMeasureNoise(const HybridInput& in,int blk=1){
     HybridNoiseCheck res;
     const int n=int(in.frames.size());
     for(int f=1;f<n;++f)if(in.frames[f].role==kRoleNormal&&(res.frame<0||std::abs(in.frames[f].orderMs)<std::abs(in.frames[res.frame].orderMs)))res.frame=f;
@@ -12553,16 +12609,16 @@ inline HybridNoiseCheck hybridMeasureNoise(const HybridInput& in){
     const int phase=in.cfa^1,px=phase&1,py=phase>>1; // a green phase (red = cfa, blue = cfa ^ 3)
     const float black=in.black[phase],range=std::max(in.white-black,1.f);
     const double slope=0.5*(double(a.slope)+b.slope),offset=0.5*(double(a.offset)+b.offset);
-    const int bw=in.w/64,bh=in.h/64; // 32x32 sites of the phase
+    const int bw=in.w/(64*blk),bh=in.h/(64*blk); // 32x32 sites of the phase
     std::vector<float> ratio(size_t(bw)*bh,-1.f),darkM(size_t(bw)*bh,-1.f),darkR(size_t(bw)*bh,-1.f);
     std::vector<std::array<float,2>> dcgAt(in.dcg?size_t(bw)*bh:0); // P320: the flat blocks' (mean, noise), DCG only
     mergeRowBands(bh,[&](int y0,int y1){
         for(int by=y0;by<y1;++by)for(int bx=0;bx<bw;++bx){
             double s0=0,s00=0,sd=0,sdd=0;bool bad=false;
             for(int j=0;j<32&&!bad;++j){
-                const size_t row=size_t(64*by+2*j+py)*in.w;
+                const size_t row=size_t(blk*(64*by+2*j+py))*in.w;
                 for(int i=0;i<32;++i){
-                    const size_t at=row+64*bx+2*i+px;
+                    const size_t at=row+size_t(blk*(64*bx+2*i+px));
                     const double v0=(double(a.raw[at])-black)/range,v1=(double(b.raw[at])-black)/range;
                     if(v0>=0.9||v1>=0.9){bad=true;break;}
                     s0+=v0;s00+=v0*v0;const double d=v0-v1;sd+=d;sdd+=d*d;
@@ -13381,6 +13437,12 @@ inline bool chromaGpuPossible(int64_t resultPixels); // P353: the plain merge pr
 inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,std::string& why);
 inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
                                          std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags);
+inline std::vector<float> hybridFastRoute(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
+                                         std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags);
+// P624 the static merge route (tune staticMerge, scam-static-merge.h, included at the end of this file); P627: it takes every
+// burst and handles its own failures (a burst it cannot take at all throws «HYBRID ROUTE: ...»: no other route)
+inline std::vector<float> hybridStaticMerge(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
+                                           std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags);
 inline std::vector<float> hybridReconstruct(const HybridInput& input,const HybridTuning& tune,
                                             const ScamAlignment& alignment,
                                             const std::function<void(const std::string&)>& report,
@@ -13397,15 +13459,15 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     // P320 / owner (never one noise curve over a DCG frame): a DCG burst takes the noise check below first (its zones measured, the
     // lines the app's denoise reads), then comes back here with noiseMeasured -1 and the measured frames
     const bool dcgCheckFirst=input.dcg&&tune.noiseMeasured>0&&input.mosaic==1&&input.subFrames<=1;
-    if(tune.fastMerge>0&&!preset&&!native&&!dcgCheckFirst){
-        std::string why;
-        if(hybridFastEligible(input,tune,report,why)){
-            try{return hybridFastMerge(input,tune,report,mergedDng,effMap,statsOut,clipFlags);}
-            catch(const std::exception& error){report(std::string("HYBRID FAST MERGE: failed (")+error.what()+"); the SCAM merge with the same input");}
-        } else report("HYBRID FAST MERGE: not taken ("+why+"); the SCAM merge");
-        HybridTuning t0=tune;t0.fastMerge=0;
-        return hybridReconstruct(input,t0,alignment,report,mergedDng,effMap,statsOut,clipFlags,preset,native);
-    }
+    // P624 «Статика»: the static merge. P627 (owner, 2026-11-11: «Every processing mode must ALWAYS stay on the mode the user
+    // selected»): every burst and every failure stays inside it (scam-static-merge.h: Quad / Tetra / DCG, moving frames left out,
+    // Vulkan -> GLES -> CPU); what it cannot do at all fails the job (the app saves the base frame alone) - never the SCAM merge
+    if(tune.staticMerge>0&&!preset&&!native&&!dcgCheckFirst)
+        return hybridStaticMerge(input,tune,report,mergedDng,effMap,statsOut,clipFlags);
+    // P627: «Быстрый» stays «Быстрый» - its failures and the GPU's limits handled inside the route (hybridFastRoute: a new context,
+    // column bands); what it cannot do at all fails the job (the app saves the base frame alone) - never the SCAM merge
+    if(tune.fastMerge>0&&!preset&&!native&&!dcgCheckFirst)
+        return hybridFastRoute(input,tune,report,mergedDng,effMap,statsOut,clipFlags);
     if(tune.noiseMeasured>0&&input.mosaic==1&&input.subFrames<=1&&!native&&!preset){
         // P71: plain Bayer only (one green phase = every other site; a Quad / Tetra stream mixes colours there), decided once.
         // Above x6 the model is kept: no HAL profile seen was that far off, a mismatch that large is a different header model
@@ -18451,3 +18513,4 @@ inline HybridInput hybridFromScamBurst(const Burst& b) {
 }
 } // namespace scam
 #include "scam-fast-merge.h" // the fast merge route (tune fastMerge)
+#include "scam-static-merge.h" // P624 the static merge route (tune staticMerge)

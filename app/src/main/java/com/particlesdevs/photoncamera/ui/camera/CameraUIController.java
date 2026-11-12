@@ -76,16 +76,21 @@ final class CameraUIController implements CameraUIEventsListener,
                 break;
             case R.id.mode_sport:
             case R.id.mode_photo:
-                // P574: the bottom row's Sport | Photo switch: a tap on the chosen mode does nothing
-                if ((view.getId() == R.id.mode_sport) == com.particlesdevs.photoncamera.settings.MotionMode.on()) break;
-            {
-                // the other mode (the old top bar's Motion button)
-                // P86: the «Движение» mode; its AE frame rate is a session parameter, so the session starts again
-                final boolean on = !com.particlesdevs.photoncamera.settings.MotionMode.on();
-                com.particlesdevs.photoncamera.settings.MotionMode.set(on);
+            case R.id.mode_oldstyle: {
+                // P574: the bottom row's Sport | Photo switch, P630 with «Oldstyle»: a tap on the chosen mode does nothing
+                final com.particlesdevs.photoncamera.settings.OldstyleMode.Mode mode = view.getId() == R.id.mode_sport
+                        ? com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.SPORT : view.getId() == R.id.mode_photo
+                        ? com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.PHOTO : com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.OLDSTYLE;
+                // P86: the «Движение» mode's AE frame rate is a session parameter, P630: Oldstyle's manual values are read when the
+                // camera opens - the session starts again
+                if (!com.particlesdevs.photoncamera.settings.OldstyleMode.select(mode,
+                        android.preference.PreferenceManager.getDefaultSharedPreferences(view.getContext().getApplicationContext()))) break;
                 cameraFragment.refreshTopBar();
-                cameraFragment.showSnackBar(Lang.t(view.getContext(), on ? "Спорт: вкл." : "Спорт: выкл.", on ? "Sport: on" : "Sport: off"));
-                Log.i(TAG, "motion mode " + (on ? "on" : "off"));
+                cameraFragment.onCameraModeChanged();
+                cameraFragment.showSnackBar(mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.SPORT ? Lang.t(view.getContext(), "Спорт", "Sport")
+                        : mode == com.particlesdevs.photoncamera.settings.OldstyleMode.Mode.PHOTO ? Lang.t(view.getContext(), "Фото", "Photo")
+                        : "Oldstyle " + (com.particlesdevs.photoncamera.settings.OldstyleMode.v2() ? "V2" : "V1"));
+                Log.i(TAG, "camera mode " + mode);
                 this.restartCamera();
                 break;
             }

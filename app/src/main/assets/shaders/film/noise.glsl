@@ -6,6 +6,8 @@ precision highp int;
 // P289 (FilmGrain): three independent unit Gaussians per pixel (Box-Muller from hashes), the grain's white noise before its
 // blur (film/blur.glsl) and its application (film/grain_sf.glsl).
 uniform float seed;
+// P619: the picture's pixel position of this texture's corner (the gallery editor's export tiles and zoom regions; 0 in the camera)
+uniform ivec2 originU;
 out vec4 Output;
 
 uint hash(uvec3 v) {
@@ -17,7 +19,7 @@ uint hash(uvec3 v) {
 }
 
 void main() {
-    ivec2 p = ivec2(gl_FragCoord.xy);
+    ivec2 p = ivec2(gl_FragCoord.xy) + originU;
     uint h1 = hash(uvec3(uvec2(p + 32768), uint(seed)));
     uint h2 = hash(uvec3(h1, 0x9E3779B9u, uint(seed) + 7u));
     uint h3 = hash(uvec3(h2, h1, 0x85EBCA6Bu));

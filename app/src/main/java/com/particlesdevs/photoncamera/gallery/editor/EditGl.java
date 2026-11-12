@@ -43,8 +43,28 @@ final class EditGl {
     }
 
     static int program(AssetManager am, String fragment) throws IOException {
+        return link(am, fragmentSource(am, fragment), fragment);
+    }
+
+    /** P619: the camera's film shaders (assets/shaders/film, FilmGrain's) as they are, behind "#version 300 es" alone. */
+    static final String FILM_DIR = "shaders/film/";
+
+    static String filmSource(AssetManager am, String name) throws IOException {
+        try (InputStream in = am.open(FILM_DIR + name)) {
+            ByteArrayOutputStream o = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            for (int r; (r = in.read(buf)) > 0; ) o.write(buf, 0, r);
+            return "#version 300 es\n" + o.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    static int filmProgram(AssetManager am, String name) throws IOException {
+        return link(am, filmSource(am, name), "film/" + name);
+    }
+
+    private static int link(AssetManager am, String fragmentSource, String fragment) throws IOException {
         int vs = shader(GLES30.GL_VERTEX_SHADER, "#version 300 es\n" + asset(am, "quad.vert"), "quad.vert");
-        int fs = shader(GLES30.GL_FRAGMENT_SHADER, fragmentSource(am, fragment), fragment);
+        int fs = shader(GLES30.GL_FRAGMENT_SHADER, fragmentSource, fragment);
         int p = GLES30.glCreateProgram();
         GLES30.glAttachShader(p, vs);
         GLES30.glAttachShader(p, fs);

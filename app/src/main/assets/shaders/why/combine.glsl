@@ -81,6 +81,17 @@ precision highp int;
 #define HL_LANDING 0
 // P216: real Bento headroom above WhyAe's capped clip (WhyCombine sets 1 when WhyAe's hr > 0; 0 = the shader before P216)
 #define HEADROOM_WIDE 0
+// P623 HL_MEASURED 1 (owner, 2026-11-11, the sun on «Быстрый»: «на сцене с солнцем у нас есть обводка на солнце, а у V2 нет»): the
+// fast merge's valid short frames measured the light above white (the sun and its glow up to their clip, 4 - 20 x white) but no
+// Bento ran, so WhyAe has no real headroom (hr 0) and the kernel's two shoulders below (everything above 1 into <= 1.35, then the
+// roll-off from 0.5) put 1.5 .. 8 x white on one grey - a flat grey glow, and the landing's white disc standing in it with a
+// contour. With 1, a pixel's light above white (the shoulders' measure, hlMeasU.x .. y x white) goes over to HEADROOM_WIDE's
+// shoulder (WhyCam 1.58 on the tonemapper top, hlMeasShoulderU), so the glow keeps its gradient from the white core outwards;
+// every pixel at or below white keeps the kernel's tone bit for bit (the roll-off from 0.5 included), and so does a saturated light
+// under MEAS_HIGH (MEAS_SAT: a sign, an LED, a lamp keep their colour as before). WhyCombine sets it only
+// without Bento headroom, with the fast merge's short frames merged and data above the clip, faded at night (hlMeasU.z);
+// 0 = the shader before, token for token.
+#define HL_MEASURED 0
 // P508 HL_LOCAL 1 (owner, 2026-11-05: «больше информации в светах, но так чтобы в остальных сценариях это ничего не испортило»; sun
 // scenes full of detail without artefacts, the sky not darker): the merge holds the short frames' light up to 20 x white in a
 // window or a sunlit wall, the tone takes it all to white. Where a pixel AND its neighbourhood are above white, its log contrast
@@ -99,6 +110,16 @@ precision highp int;
 // against a light (a leaf before a lit sign) is darkened a little less (<= 15 levels on Ark hc) (WhyCombine sets 1; 0 = HL_LOCAL
 // as before)
 #define HL_LOCAL_RIM 0
+// P623 round 2 HL_LOCAL_SMOOTH 1 (owner, 2026-11-11, 140421's car on «Быстрый»: ragged white edges along a fog lamp's and the grille
+// slots' rims, a scratch on a white body broken into dark specks): HL_LOCAL took its 5 x 5 taps round one whyLow texel (the
+// B-spline base, lbx / lby) for every f x f output pixel, so its darkening stepped by blocks where the edge-aware mean jumps (a dark
+// rim against a body 7 x white): 2 px teeth of undarkened white. With 1 the mean (and its light guard) is the bilinear mix of the
+// four texels round the pixel - 4 x the taps on light above white only (WhyCombine sets it with HL_LOCAL; 0 = HL_LOCAL as before)
+#define HL_LOCAL_SMOOTH 0
+// P623 round 6 RIM_FAR_SIDE 1 (owner, 2026-11-11, 140521: a rear-window sticker «1941-1945» smeared into the white car body below it):
+// P349's rim stop (rimTo, the bounded detail's «bright» rule) is lifted where its far side is brighter than the pixel's own reference
+// - a dark strip between two bright sides (WhyCombine sets it; 0 = as before)
+#define RIM_FAR_SIDE 0
 // P314 POINT_FUSED 1 (the RAW viewfinder, LiveWhyTone; never the photo): with fU 1 the fused luma is the pixel's own guide
 // through the fusion's curve (FusedCurve: why/gf.glsl fusedAt with its P291 monotonic envelope, tabulated on the CPU after each
 // viewfinder AE run - the guided filter's value on a flat area) instead of WhyFused, and WhyColour is the viewfinder's linear
@@ -236,6 +257,7 @@ uniform int sharpU;                 // 1: the delta's luminance is WhyLumaS; uns
 uniform int fullInputU;             // P349: 1 = InputBuffer is the full-size image (not given back above 100 MP); 0 / unset: it may not be
 #if EDGE_HOLD == 1
 uniform float edgeHoldU;            // P394: the sharpened luma held within the full-size merge's 3 x 3 range at a strong edge (0 / unset = off)
+uniform float edgeHoldLightU;       // P623 round 7: the average along the edge only where its bright side reaches the bound (0 = at every strong edge)
 #endif
 uniform float sharpToneU;           // sharpU 1: ae / m (WhyLumaS domain -> ae domain); <= 0 -> 1
 uniform float deltaChromaU;         // 0..1: a darkening delta scales a, b with L (hue and relative chroma kept); 0 = kernel
@@ -254,6 +276,37 @@ uniform float hrKneeU;              // shoulder knee x the tonemapper top; <= 0 
 uniform float hrRoomU;              // shoulder headroom x the top; <= 0 -> 0.4 (hdr_shoulder_headroom: 0.35)
 uniform float hrEaseU;              // P402: 1 - the shoulder's strength (hdr_shoulder_strength; 0 / unset = full, as before)
 uniform float hrDetailU;            // highlight detail: share of the full-size log contrast kept in OKLab L (0 = off)
+#endif
+#if HL_MEASURED == 1
+uniform vec4 hlMeasU;               // P623: x .. y the light's level (x white) over which it goes to the measured shoulder, z strength,
+                                    // w the neutral measured light's landing on white (round 2; 0 = P163's ring colour as before)
+uniform float hlMeasDetailU;        // P623 round 4: the measured light's full-size detail (HEADROOM_WIDE's hrDetailU; 0 = round 3)
+uniform float hlMeasCeilU;          // P623 round 3: the measured ceiling the landing follows (0 = the capped clip, as round 2)
+uniform float hlMeasSceneU;         // P623 round 5: 1 = the light's own measured level (measScene) also blends the shoulder in (0 = round 4)
+uniform float hlMeasGlareU;         // P623 round 6: how far a light beside a measured glare streak fades to the streak's white (0 = round 5)
+uniform vec4 hlMeasShoulderU;       // P623: knee, room (x the tonemapper top; <= 0 -> 0.5, 0.4), ease (1 - the shoulder's strength),
+                                    // w round 3: 1 = the light's brightest channel decides and is shouldered, no saturation gate; 0 = round 2
+// P623: the light's saturation (satLight) over which it stays on the kernel's ceiling: a saturated light (a lime sign's frame lifted
+// above white by the fusion, an LED, an orange lamp: P310 / P311 / P506 tuned there) keeps its colour; the pale glow goes over.
+// Round 2 (140421's headlamp: a pale salmon line between the orange lens and the white glare over it): from MEAS_HIGH (x white,
+// the shoulders' measure) a saturated light goes over too, so the mixed pixels between a coloured light and a measured glare
+// 3 - 6 x white are not left on the kernel's grey between two whites. Round 3 (hlMeasShoulderU.w 1; owner: «внутри фары оранжевое
+// пятно вместо фары»): the level that blends in is the light's brightest channel, the saturated light's gate opens on it from
+// MEAS_HIGH_MAX, and the measured shoulder acts on it - an amber lens 5 - 10 x white (its luminance ~3 x: under MEAS_HIGH) left the
+// kernel's flat orange for the shoulder's gradation and its lens shape, while a lime sign's frame the fusion lifted above white
+// (its brightest channel under 2 x) keeps the kernel's colour
+const vec2 MEAS_SAT = vec2(0.25, 0.5);
+const vec2 MEAS_HIGH = vec2(3.0, 6.0);
+const vec2 MEAS_HIGH_MAX = vec2(2.0, 4.0);
+// P623 round 6 (owner, 2026-11-11, 140421's headlamp: «Пятый заход принимаю, пятно смягчи» - the hard white patch at the top of the
+// amber lens): the lens's specular streak (9 - 19 x white) lands on white, the amber beside it (2 - 5 x) keeps its colour (owner,
+// round 4) - one pixel from 60 codes of R - B to 0, where V2 / Ark fade over a few px. Near such a streak (its full-size taps on
+// rings 1 .. 4 px round the pixel: the brightest channel at the exposure MEAS_GLARE x white, a pale tap - a saturated light under
+// MEAS_GLARE_SAT is no streak), the light above white goes towards its own brightest display channel by hlMeasGlareU x the nearness
+// (1 at 1 px, about 0.1 at 4 px): a fade a few px wide; the rest of the lens keeps its colour and its ridges.
+const vec2 MEAS_GLARE = vec2(3.0, 7.0);
+const vec2 MEAS_GLARE_SAT = vec2(0.65, 0.85);
+const float MEAS_GLARE_R = 4.0;
 #endif
 #if HL_LOCAL == 1
 uniform vec4 hlLocalU;              // P508: amount, range sigma (EV), tap step (whyLow px), light guard (x the pixel; 0 -> 4)
@@ -593,6 +646,13 @@ float rimTo(float delta, float y, float yRef, int bx, int by, float fx, float fy
     float rim = smoothstep(0.3, 0.7, side) * smoothstep(0.0, 2.0, mass);
     // P349: beside light above white the pixel's own luma dips below the far side too (the merge's 1 px ring at a hard edge,
     // sharpened): there the darkening goes down to the far side's level and no further - a sharp edge, no trench
+    // P623 round 6 (owner, 2026-11-11, 140521: a rear-window sticker «1941-1945» smeared into the white car body below it): a dark
+    // strip between light above white and a far side brighter than the pixel's own reference (the sticker above the strip, the body
+    // below it) is a dark line, not a light's edge - the far side is no dark side to stop at; there (far / reference from 1 to 1.3)
+    // the darkening keeps its plain delta (RIM_FAR_SIDE; 0 = as before)
+#if RIM_FAR_SIDE == 1
+    if (bright) rim *= 1.0 - smoothstep(1.0, 1.3, yFar / max(yRef, 0.000001));
+#endif
     if (bright) return mix(delta, max(delta, cbrtp(max(yFar, 0.000001)) - cbrtp(max(yRef, 0.000001))), rim);
     return mix(delta, max(delta, min(cbrtp(max(y, 0.000001)) - cbrtp(max(yFar, 0.000001)), 0.0)), rim);
 }
@@ -672,6 +732,13 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
             hi = max(hi, v);
         }
     float w = edgeHoldU * smoothstep(0.10, 0.25, cbrtp(hi) - cbrtp(lo));
+    // P623 round 7 (owner, 2026-11-11, 140521: the rear-window sticker «1941-1945» still mushy - strokes merging, the digits' holes
+    // filled): the average along the tangent ran over every strong edge, and on small text (2 px strokes, a 1 - 2 px hole in a 9) the
+    // «tangent» of a 3 x 3 gradient crosses the next stroke - the strokes and holes smeared into each other. P394's steps are a lamp's
+    // rim or a window frame against a light or a white sky: the average now needs the edge's bright side at the bound (min(m Y, 1)
+    // from 0.6, full at 0.9); a mid-tone edge (text on a sticker, 0.4 of the bound; sunlit wires against trees) keeps its sharpened
+    // luma, still held within the 3 x 3 range (no dark outline from the sharpening). edgeHoldLightU 0 = as before
+    float wAlong = edgeHoldLightU > 0.0 ? mix(1.0, smoothstep(0.6, 0.9, hi), min(edgeHoldLightU, 1.0)) : 1.0;
     if (w <= 0.0) return yD;
     // along the edge (its tangent from the merge's gradient) the sharpened luma averaged over +-3 px: the pixel steps of a
     // slanted edge (the merge's sharp kernel, then the sharpening) smooth out, the edge stays as sharp across
@@ -694,7 +761,7 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
                        + max(texelFetch(WhyLumaS, clamp(xy - o, ivec2(0), last), 0).r, 0.0));
             sw += 2.0 * wk;
         }
-        ys = sum / sw;
+        ys = mix(yD, sum / sw, wAlong);
     }
     float r = 0.05 * (hi - lo);
     return mix(yD, clamp(ys, lo - r, hi + r), w);
@@ -1052,6 +1119,17 @@ vec3 landingColour(ivec2 xy, int fc, float clipCeiling, vec3 own) {
 }
 #endif
 
+#if HL_MEASURED == 1
+// P623: HEADROOM_WIDE's shoulder as a factor on the shoulders' measure ml (1 below the knee)
+float measuredShoulder(float ml, float top) {
+    float knee = top * (hlMeasShoulderU.x > 0.0 ? hlMeasShoulderU.x : 0.5), room = top * (hlMeasShoulderU.y > 0.0 ? hlMeasShoulderU.y : 0.4);
+    if (ml <= knee) return 1.0;
+    float ex = ml - knee;
+    float k = (knee + ex * room / (ex + room)) / ml;
+    return hlMeasShoulderU.z > 0.0 ? mix(k, 1.0, min(hlMeasShoulderU.z, 1.0)) : k;
+}
+#endif
+
 #if MACRO_TOE == 1
 // Crushed room (window burst 2026-10-28): the line about L 0.40 took 0.04 L off every shadow (-1.1 EV at L 0.12, black below L 0.036;
 // the AgX black point rose 1.45 EV); below the pivot the same contrast as a power about it (slope m at 0.40 on both sides, 0 stays 0)
@@ -1310,9 +1388,43 @@ void main() {
     // Saturation of the light (0 neutral .. 1 one channel): the shoulders below act on the max channel for low-saturation
     // colours (as the kernel) and on the luminance for saturated ones, so a saturated light keeps its tonal separation
     // instead of being pinned at its max channel (P11: the LED wall band of the X9 Ultra collapsed to one flat colour).
+#if HL_MEASURED == 1
+    // P623 round 6: the nearness of a measured glare streak (MEAS_GLARE above; the full-size image only)
+    float measGlareW = 0.0;
+    if (hlMeasGlareU > 0.0 && fullInputU == 1) {
+        float ownW = smoothstep(hlMeasU.x, hlMeasU.y, max3(max(orig, vec3(0.0))) * ae);
+        if (ownW > 0.0) {
+            float nearW = 0.0;
+            for (int ring = 1; ring <= 4; ring++) {
+                float fall = 1.0 - smoothstep(0.0, MEAS_GLARE_R + 0.5, float(ring) - 0.5);
+                for (int k = 0; k < 8; k++) {
+                    float an = float(k) * 0.7853982;
+                    ivec2 q = clamp(xy + ivec2(round(vec2(cos(an), sin(an)) * float(ring))), ivec2(0), size - 1);
+                    vec3 cT = max(sceneLinear(q, size), vec3(0.0));
+                    float mT = max3(cT);
+                    float satT = 1.0 - min(cT.r, min(cT.g, cT.b)) / max(mT, 0.000001);
+                    nearW = max(nearW, smoothstep(MEAS_GLARE.x, MEAS_GLARE.y, mT * ae)
+                                       * (1.0 - smoothstep(MEAS_GLARE_SAT.x, MEAS_GLARE_SAT.y, satT)) * fall);
+                }
+            }
+            measGlareW = clamp(hlMeasGlareU * hlMeasU.z * ownW * nearW, 0.0, 1.0);
+        }
+    }
+#endif
     float satLight = (max3(lin) - min(lin.r, min(lin.g, lin.b))) / max(max3(lin), 0.000001);
     float satW = smoothstep(0.50, 0.85, satLight);
     bool headroom = clipCeiling > 1.05 && headroomU != 0;
+#if HL_MEASURED == 1
+    // P623: the light's share on the measured shoulder (from its level before the ceilings; 0 at and below white)
+    float measW = 0.0;
+    // round 4: the light's own measured level - its brightest channel at the exposure, before the fusion's gain (a sign the fusion
+    // lifts above white is no measured light, a lamp's amber lens 5 - 10 x white is, saturated or not). Round 5 (hlMeasSceneU 1;
+    // 140421's headlamp: its glare 2 - 3 x white rendered 220 - 235 under the kernel's roll-off - a grey lobe round a small core where
+    // V2 and Ark give 245 - 250): the shoulder blends in by the larger of the light's level after the fusion and this measured level,
+    // so a glare the fusion took under white leaves the kernel's roll-off as well; the saturation gate is unchanged (a lens keeps its
+    // colour)
+    float measScene = max3(max(orig, vec3(0.0))) * ae;
+#endif
 #if HEADROOM_WIDE == 1
     // P216: WhyCam 1.58's shoulder (before the AgX below) in place of the kernel's ceiling and roll-off
     bool wide = hrU > clipCeiling;
@@ -1326,9 +1438,16 @@ void main() {
     if (skyTop) {
         headroom = false;
         float mfS = mix(max3(lin), dot(lin, LUMA), satW);
+#if HL_MEASURED == 1
+        measW = hlMeasU.z * smoothstep(hlMeasU.x, hlMeasU.y, max(mix(mfS, max3(lin), min(hlMeasShoulderU.w, 1.0)), hlMeasSceneU * measScene))
+                * (1.0 - smoothstep(MEAS_SAT.x, MEAS_SAT.y, satLight) * (1.0 - mix(smoothstep(MEAS_HIGH.x, MEAS_HIGH.y, mfS), smoothstep(MEAS_HIGH_MAX.x, MEAS_HIGH_MAX.y, max3(lin)), min(hlMeasShoulderU.w, 1.0))));
+#endif
         if (mfS > 1.0) {
             float exS = mfS - 1.0, capS = 0.35 * skyRoom;
             float kS = (1.0 + exS * capS / (exS + capS)) / mfS;
+#if HL_MEASURED == 1
+            kS = mix(kS, 1.0, measW);
+#endif
             lin *= kS;
             linScale *= kS;
         }
@@ -1338,11 +1457,22 @@ void main() {
     // or Bento), not for the WB headroom of unclipped saturated colour.
     if (headroom) {
         float mf = mix(max3(lin), dot(lin, LUMA), satW);
+#if HL_MEASURED == 1
+        measW = hlMeasU.z * smoothstep(hlMeasU.x, hlMeasU.y, max(mix(mf, max3(lin), min(hlMeasShoulderU.w, 1.0)), hlMeasSceneU * measScene))
+                * (1.0 - smoothstep(MEAS_SAT.x, MEAS_SAT.y, satLight) * (1.0 - mix(smoothstep(MEAS_HIGH.x, MEAS_HIGH.y, mf), smoothstep(MEAS_HIGH_MAX.x, MEAS_HIGH_MAX.y, max3(lin)), min(hlMeasShoulderU.w, 1.0))));
+        if (mf > 1.0) {
+            float ex = mf - 1.0;
+            float kc = mix((1.0 + ex * 0.35 / (ex + 0.35)) / mf, 1.0, measW);
+            lin *= kc;
+            linScale *= kc;
+        }
+#else
         if (mf > 1.0) {
             float ex = mf - 1.0;
             lin *= (1.0 + ex * 0.35 / (ex + 0.35)) / mf;
             linScale *= (1.0 + ex * 0.35 / (ex + 0.35)) / mf;
         }
+#endif
     }
 
     // === 3. detail of the full-size merge (delta), applied after the tone ===
@@ -1744,6 +1874,13 @@ void main() {
         }
     }
 #endif
+#if HL_MEASURED == 1
+#if TONE_OP == 1
+    float measTop = 4.0;
+#else
+    float measTop = 0.18 * exp2(agxB.y + max(agxB.z, 0.0));
+#endif
+#endif
 #if SKY == 1
     // P378 (L3): the sky's roll-off with skyU.w x the room
     if (skyTop) {
@@ -1751,7 +1888,13 @@ void main() {
         if (mlS > 0.5) {
             float exS = mlS - 0.5;
             float roomS = max((clipCeiling - 0.5) * 0.35, 1.5) * skyRoom;
+#if HL_MEASURED == 1
+            float kS = (0.5 + exS / (1.0 + exS / roomS)) / mlS;
+            if (measW > 0.0) kS = mix(kS, measuredShoulder(mix(mlS, max3(scene), min(hlMeasShoulderU.w, 1.0)), measTop), measW);
+            scene *= kS;
+#else
             scene *= (0.5 + exS / (1.0 + exS / roomS)) / mlS;
+#endif
         }
     }
 #endif
@@ -1761,7 +1904,13 @@ void main() {
         if (ml > 0.5) {
             float ex = ml - 0.5;
             float room = max((clipCeiling - 0.5) * 0.35, 1.5);
+#if HL_MEASURED == 1
+            float kr = (0.5 + ex / (1.0 + ex / room)) / ml;
+            if (measW > 0.0) kr = mix(kr, measuredShoulder(mix(ml, max3(scene), min(hlMeasShoulderU.w, 1.0)), measTop), measW);
+            scene *= kr;
+#else
             scene *= (0.5 + ex / (1.0 + ex / room)) / ml;
+#endif
         }
     }
     // Path to white: saturated light whose max channel enters the AgX shoulder fades towards its luminance, as a bright
@@ -2043,6 +2192,28 @@ void main() {
         }
     }
 #endif
+#if HL_MEASURED == 1
+    // P623 round 4 (owner, 2026-11-11, 140421's headlamp: «Насыщенность у стекла не надо убирать, а вот чтобы ребра были видны сделай»):
+    // the bounded detail reference (min(ae Y, 1)) gives no detail above white, so the measured light kept none of its own: an amber
+    // lens's ridges 5 - 10 x white and a reflector's streaks went flat under the kernel's ceiling or the shoulder. HEADROOM_WIDE's
+    // highlight detail (the log contrast of the full-size merge against the 2 x 2 grid, -0.03 .. +0.12 L, its rim and core guards) on
+    // the measured light, by its own measured level (measScene: the lens keeps its colour and gains its ridges)
+    if (hlMeasDetailU > 0.0) {
+        float wM = hlMeasU.z * smoothstep(hlMeasU.x, hlMeasU.y, measScene);
+        float yF = dot(sceneLinear(xy, size), LUMA) * ae;
+        float yL = yLow * ae;
+        float gateM = wM * smoothstep(0.8, 1.6, min(yF, yL));
+        if (gateM > 0.0) {
+            float ratioM = max(yF, 0.000001) / max(yL, 0.000001);
+            float dlM = hlMeasDetailU / 3.0 * log(ratioM);
+            if (dlM < 0.0) dlM *= smoothstep(0.55, 0.85, ratioM);
+            float dM = gateM * clamp(dlM, -0.03, 0.12);
+            if (dM > 0.0) dM *= 1.0 - smoothstep(0.85, 1.0, post.x);
+            else dM *= 1.0 - smoothstep(1.5, 2.5, brightMax / max(yF, 0.000001));
+            post.x = clamp(post.x + dM * post.x, 0.0001, 1.0);
+        }
+    }
+#endif
     // The kernel keeps a, b while the delta moves L. At a strong edge the colour is the B-spline mix of both sides, and
     // on the dark side the delta pulls L far down: the same a, b at a low L read as a saturated purple/green line. Scaling
     // a, b with L there (a uniform linear scale of the colour) keeps the hue and the relative chroma instead.
@@ -2051,9 +2222,20 @@ void main() {
         float yP = yLow * ae;   // the low grid's (B-spline) luminance: not the full-size noise
         if (yP > 0.9) {
             ivec2 lastL = textureSize(WhyLow, 0) - ivec2(1);
-            ivec2 lc = f == 1 ? xy : ivec2(lbx, lby);
+            ivec2 lcB = f == 1 ? xy : ivec2(lbx, lby);
             int st = max(int(hlLocalU.z + 0.5), 1);
             float lp = log2(yP), inv = 1.0 / max(2.0 * hlLocalU.y * hlLocalU.y, 0.01);
+            // P623 round 2 (HL_LOCAL_SMOOTH 1): the edge-aware mean at the four whyLow texels round the pixel, bilinearly (lfx, lfy);
+            // 0 / f 1: the one texel lcB as before (one pass of the loop, the same sums bit for bit)
+#if HL_LOCAL_SMOOTH == 1
+            int corners = f == 1 ? 1 : 4;
+#else
+            int corners = 1;
+#endif
+            float lmB = 0.0, yMaxB = 0.0;
+            for (int q = 0; q < corners; q++) {
+            ivec2 lc = lcB + ivec2(q - (q / 2) * 2, q / 2);
+            float wq = corners == 1 ? 1.0 : (q - (q / 2) * 2 == 0 ? 1.0 - lfx : lfx) * (q / 2 == 0 ? 1.0 - lfy : lfy);
             float sw = 0.0, sl = 0.0, yMax = 0.0;
 #if HL_LOCAL_RIM == 1
             // P607: the centre, then the 12 lines of opposite taps (the taps before the centre in the 5 x 5 grid, each with its mirror)
@@ -2089,7 +2271,10 @@ void main() {
                     sw += w; sl += w * lt; yMax = max(yMax, yt);
                 }
 #endif
-            float lm = sl / sw, guard = hlLocalU.w > 0.0 ? hlLocalU.w : 4.0;
+            lmB += wq * (sl / sw);
+            yMaxB += wq * yMax;
+            }
+            float lm = lmB, yMax = yMaxB, guard = hlLocalU.w > 0.0 ? hlLocalU.w : 4.0;
             float gate = smoothstep(0.9, 1.6, yP) * smoothstep(0.9, 1.6, exp2(lm)) * (1.0 - smoothstep(guard, 2.0 * guard, yMax / yP));
             // a soft threshold of 0.15 EV: the noise's own contrast (a grey cloud, a frosted pane) stays as it was
             post.x = clamp(post.x * exp2(hlLocalU.x * clamp(lp - lm + 0.15, -2.0, 0.0) * gate / 3.0), 0.0001, 1.0);
@@ -2180,6 +2365,13 @@ void main() {
 #if HEADROOM_WIDE == 1
     if (wide) clipCeiling = hrU;   // P216: blown light lands on the real ceiling (a window at 4 - 8 x white is not blown)
 #endif
+#if HL_MEASURED == 1
+    // P623 round 3 (owner, 2026-11-11, 140421's headlamp: «внутри фары оранжевое пятно вместо фары»): as P216's real ceiling, the
+    // light the short frames measured lands on the measured ceiling (hlMeasCeilU, WhyAe's whyLow maximum, at most 16 x the clip),
+    // not on the capped clip: a lamp's amber lens and its rim 1 - 10 x white are measured light, not blown, and stay out of the
+    // landing's full-brightness colour (0 / under the clip: the capped clip as before)
+    if (hlMeasCeilU > clipCeiling) clipCeiling = hlMeasCeilU;
+#endif
 #if HL_LANDING == 1
     if (headroomU != 0 && hlSoftU > 0.0) {
         float rBlur = texture(WhyHl, (vec2(xy) + 0.5) / vec2(size)).r;
@@ -2235,6 +2427,18 @@ void main() {
             vec2 opp = textureLod(OppShare, (vec2(xy) + 0.5) / vec2(size) * oppGridU, 0.0).rg;
             float nearOpp = smoothstep(0.05, 0.35, opp.r);
             top = mix(top, vec3(1.0), nearOpp * max(opp.g, 1.0 - smoothstep(0.02, 0.08, satOwn)));
+#endif
+#if HL_MEASURED == 1
+            // P623 round 2 (owner, 2026-11-11, 140421's headlamp on «Быстрый»: salmon blotches round the orange lens): a light the
+            // short frames measured neutral (its own colour source under 0.02 .. 0.08, a glow over the lens 9 x white) took the ring's
+            // tint (P163: the orange lens beside it, at the ceiling too) and landed salmon. Measured light whose own colour is neutral
+            // lands on white, as HL_OPPOSED's neutral core; an LED's dot (its B-spline mixed with the light's tint) and every
+            // coloured light keep P163's colour (hlMeasU.w: 0 = the landing as before)
+            {
+                vec3 ownM = max(orig, vec3(0.0));
+                float satOwnM = 1.0 - min(ownM.r, min(ownM.g, ownM.b)) / max(max3(ownM), 0.000001);
+                top = mix(top, vec3(1.0), hlMeasU.z * hlMeasU.w * (1.0 - smoothstep(0.08, 0.30, satOwnM)));
+            }
 #endif
             outRgb = mix(outRgb, top, landing);
         }
@@ -2308,6 +2512,10 @@ void main() {
 #endif
     }
 #endif
+#endif
+#if HL_MEASURED == 1
+    // P623 round 6: the light beside a measured glare streak fades towards white with the streak's nearness
+    if (measGlareW > 0.0) outRgb = mix(outRgb, vec3(max3(outRgb)), measGlareW);
 #endif
 #if FILM_LUT == 1
     {

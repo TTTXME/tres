@@ -18,6 +18,8 @@ public class DefaultSaver extends SaverImplementation {
     final ScamProcessor scamProcessor;
     ArrayList<ImageFrame> ownedFrames;
     Path ownedDngFile, ownedImageFile;
+    /** P618: the queued shot's wall clock (when its files were named), 0 = not queued. */
+    long ownedShotTimeMs;
     java.util.List<com.particlesdevs.photoncamera.processing.parameters.IsoExpoSelector.ExpoPair> ownedPairs;
     /** P27: the merge route the shot was captured for (null: read the setting when processing starts). */
     Boolean ownedHybridRoute;
@@ -81,8 +83,10 @@ public class DefaultSaver extends SaverImplementation {
             ownedMosaicWb = null;
             scamProcessor.configure(ScameraApp.getSettings().alignAlgorithm,
                     ScameraApp.getSettings().rawSaver, ScameraApp.getSettings().selectedMode);
+            final long shotTime = ownedShotTimeMs > 0 ? ownedShotTimeMs : System.currentTimeMillis();
+            ownedShotTimeMs = 0;
             scamProcessor.start(ownedDngFile, ownedImageFile,
-                    ParseExif.parse(captureResult, captureRequest), burstShakiness, frames, exposures,
+                    ParseExif.parse(captureResult, captureRequest, shotTime), burstShakiness, frames, exposures,
                     imageFormat, cameraRotation, characteristics, captureResult, captureRequest,
                     processingCallback);
             return;
@@ -104,7 +108,8 @@ public class DefaultSaver extends SaverImplementation {
             bufferLock = false;
             return;
         }*/
-        final String name = ImagePath.newBaseName(); // one name for both (P119)
+        final long shotTime = System.currentTimeMillis(); // P618: the name's instant is the shot's EXIF / DNG time
+        final String name = ImagePath.newBaseName(shotTime); // one name for both (P119)
         Path dngFile = ImagePath.dngFile(name);
         Path imageFile = ImagePath.imageFile(name);
         //Remove broken images
@@ -147,7 +152,7 @@ public class DefaultSaver extends SaverImplementation {
         scamProcessor.start(
                 dngFile,
                 imageFile,
-                ParseExif.parse(captureResult, captureRequest),
+                ParseExif.parse(captureResult, captureRequest, shotTime),
                 burstShakiness,
                 slicedBuffer,
                 exposures,

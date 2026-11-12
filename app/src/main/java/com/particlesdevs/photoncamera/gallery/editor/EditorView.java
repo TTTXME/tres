@@ -2,6 +2,7 @@ package com.particlesdevs.photoncamera.gallery.editor;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.RectF;
 import android.opengl.EGL14;
 import android.opengl.GLES30;
@@ -44,6 +45,8 @@ import javax.microedition.khronos.opengles.GL10;
  * outside it) the preview is shown magnified, with the copy's grain too. Tone edits re-render from the region's texture; the
  * histogram stays the whole crop's (the preview's), computed only when the tone, geometry or source changed. Back at the fit
  * the region and its renderer's textures are freed.
+ * P619: the «LUT» tab's look (EditLook) on the picture, the zoom's region and the histogram, from the tables the fragment hands
+ * over ({@link #setLookTables}); {@link #thumbnail} reads the picture without it back for the tab's cards.
  */
 public final class EditorView extends GLSurfaceView {
     private static final String TAG = "EditorView";
@@ -67,6 +70,9 @@ public final class EditorView extends GLSurfaceView {
 
         /** P367 (UI thread): a line for the note pill (full resolution unavailable or reduced for this photo). */
         void note(String text);
+
+        /** P633 (UI thread): where the displayed crop is in the view (px; zoomed: its zoomed place), for the watermark's preview. */
+        default void picture(RectF rect, boolean cropMode) {}
     }
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -94,6 +100,10 @@ public final class EditorView extends GLSurfaceView {
     private volatile boolean released;
     private final Runnable settle = this::requestRegion;
     private final Runnable histRetry = this::requestRender;
+    /** P619: the look's tables (UI thread sets, GL thread reads) and a thumbnail asked for (its long side and where it goes). */
+    @Nullable private volatile EditLook.Tables lookTables;
+    /** P633: every sink asked for since the last frame (the «LUT» cards and the watermark's «Авто» may ask together). */
+    private final java.util.concurrent.ConcurrentLinkedQueue<Object[]> thumbWanted = new java.util.concurrent.ConcurrentLinkedQueue<>();
 
     public EditorView(Context c) {
         super(c);
@@ -127,6 +137,21 @@ public final class EditorView extends GLSurfaceView {
                 });
             }
         });
+    }
+
+    /** P619: the LUT / film tables of the state (null: none loaded); the picture shows the look once its state's key matches. */
+    public void setLookTables(@Nullable EditLook.Tables t) {
+        lookTables = t;
+        requestRender();
+    }
+
+    /**
+     * P619: a picture of the whole crop without the look, {@code longSide} px on its long side, read back on the next frame and handed
+     * to {@code sink} on the UI thread (the «LUT» tab's cards).
+     */
+    public void thumbnail(int longSide, EditPanels.ThumbSink sink) {
+        thumbWanted.add(new Object[]{longSide, sink});
+        requestRender();
     }
 
     public void setCallbacks(@Nullable Callbacks c) {
@@ -331,6 +356,21 @@ public final class EditorView extends GLSurfaceView {
     private void notifyZoom() {
         Callbacks cb = callbacks;
         if (cb != null) cb.zoom((int) Math.round(zoom.percent()), zoomView != null, zoomView != null ? detail : DETAIL_NONE);
+        if (cb != null) {
+            RectF r = pictureRect();
+            if (r != null) cb.picture(r, cropMode);
+        }
+    }
+
+    /** P633: the view rect the displayed crop takes now (what the GL thread draws it into), null before a source and a layout. */
+    @Nullable
+    RectF pictureRect() {
+        EditSource s = source;
+        if (s == null || getWidth() <= 0 || getHeight() <= 0) return null;
+        ZoomView z = zoomView;
+        if (z != null && !cropMode) return z.rect();
+        double[] o = oriented(s);
+        return canvas(getWidth(), getHeight(), margin(getContext(), cropMode), state, o[0], o[1], cropMode);
     }
 
     /** The settled view past the preview's resolution: its full-resolution region from the loader's worker. */
@@ -400,6 +440,8 @@ public final class EditorView extends GLSurfaceView {
     }
 
     private volatile boolean uploaded;
+    /** P633: the uploaded preview has the photo's own watermark taken off. */
+    private volatile boolean uploadedClean;
 
     private final class Gl implements Renderer {
         private final Context context;
@@ -431,6 +473,7 @@ public final class EditorView extends GLSurfaceView {
             r = new EditRenderer();
             uploaded = false;
             broken = false;
+            thumbTarget.tex = thumbTarget.fbo = 0; // P619: the old context took it
             // P367: a new context: the old region's textures went with the old one; ask again when zoomed
             forgetZoom();
             main.post(EditorView.this::scheduleRegion);
@@ -458,19 +501,27 @@ public final class EditorView extends GLSurfaceView {
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
             EditSource s = source;
             if (s == null || broken) return;
+            // P633: the photo's own watermark taken off or not: the other preview (the regions decoded the other way go too)
+            final boolean clean = s.cleanFor(state);
+            if (uploaded && clean != uploadedClean) {
+                uploaded = false;
+                main.post(EditorView.this::scheduleRegion);
+            }
             if (!uploaded) {
                 dropZoom(false);
                 if (ownTex) EditGl.deleteTexture(srcTex);
+                Bitmap pv = s.previewFor(clean);
                 if (s.previewRaw != null) {
                     srcTex = r.rawSource(s.previewRaw, 0, 0, s.previewRaw.width, s.previewRaw.height);
                     ownTex = false;
-                } else if (s.preview != null) {
-                    srcTex = EditRenderer.bitmapSource(s.preview);
+                } else if (pv != null) {
+                    srcTex = EditRenderer.bitmapSource(pv);
                     ownTex = true;
                 } else return;
                 r.invalidate();
                 r.setProxySource(srcTex, s.previewWidth(), s.previewHeight());
                 uploaded = true;
+                uploadedClean = clean;
                 toneKey = null;
             }
             // P367: the UI's drop (the export starting) and a decoded region: GL work here, where the context is current
@@ -487,6 +538,12 @@ public final class EditorView extends GLSurfaceView {
             int pw = s.previewWidth(), ph = s.previewHeight();
             double[] o = oriented(s);
             boolean crop = cropMode;
+            // P619: the look of what is shown («before»: none)
+            EditLook.Applied look = EditLook.applied(tone, lookTables);
+            r.setLook(look);
+            java.util.List<Object[]> thumbs = new java.util.ArrayList<>();
+            for (Object[] t; (t = thumbWanted.poll()) != null; ) thumbs.add(t);
+            Object[] thumb = thumbs.isEmpty() ? null : thumbs.get(0);
             // P367: the zoom (null at the fit, in the crop tab, or for a geometry the UI is just resetting)
             ZoomView z = crop ? null : zoomView;
             if (z != null && !z.geometry.equals(EditZoom.geometryKey(st))) z = null;
@@ -498,7 +555,7 @@ public final class EditorView extends GLSurfaceView {
             long now = SystemClock.uptimeMillis();
             Callbacks cb = callbacks;
             // P367: the histogram (always the whole crop) only when what it shows changed, at most every HIST_MS
-            String hk = crop ? null : key + "|" + EditZoom.geometryKey(st);
+            String hk = crop ? null : key + "|" + EditZoom.geometryKey(st) + "|" + (look != null ? look.key : "");
             boolean histWanted = cb != null && hk != null && (!hk.equals(histKey) || s != histSource);
             boolean histDue = histWanted && now - lastHist >= HIST_MS;
             if (histWanted && !histDue) {
@@ -506,7 +563,7 @@ public final class EditorView extends GLSurfaceView {
                 main.removeCallbacks(histRetry);
                 main.postDelayed(histRetry, HIST_MS - (now - lastHist) + 1);
             }
-            if (h == null || histDue) {
+            if (h == null || histDue || thumb != null) {
                 // the preview's chain: the picture (when no region serves) and the histogram
                 r.updateProxy(uniforms);
                 r.renderSource(srcTex, pw, ph, Math.max(pw, ph), CropMath.Affine.IDENTITY, uniforms, true);
@@ -525,7 +582,8 @@ public final class EditorView extends GLSurfaceView {
                 f.h = vh;
                 f.flipY = true;
                 r.finish(f, st, uniforms);
-            } else drawRegion(h, s, st, tone, z, pw, ph);
+            } else drawRegion(h, s, st, tone, z, pw, ph, look);
+            for (Object[] t : thumbs) thumbnail(st, o, (Integer) t[0], (EditPanels.ThumbSink) t[1]);
             if (histDue) {
                 lastHist = now;
                 histKey = hk;
@@ -586,6 +644,7 @@ public final class EditorView extends GLSurfaceView {
             heldFine = false;
             Held h = held;
             if (h == null || zr == null || h.info.source != s || !h.geometry.equals(z.geometry)) return null;
+            if (h.region.clean != s.cleanFor(st)) return null; // P633: decoded with / without the photo's own watermark
             double[] need = h.info.need(st, vw, vh, z.left, z.top, z.dw, z.dh);
             if (need == null || !EditZoom.covers(h.rect, need, h.info.sw, h.info.sh, h.info.slack(h.region.level))) return null;
             boolean fine = h.info.fine(h.region.level, z.scale, need, vw, vh);
@@ -601,7 +660,9 @@ public final class EditorView extends GLSurfaceView {
         private void install(EditZoomLoader.Result res) {
             EditSource.Region g = res.region;
             ZoomView z = cropMode ? null : zoomView;
-            if (broken || r == null || !uploaded || res.request.source != source || z == null || !res.request.geometry.equals(z.geometry)) {
+            EditSource src = source;
+            if (broken || r == null || !uploaded || res.request.source != src || z == null || !res.request.geometry.equals(z.geometry)
+                    || src == null || g.clean != src.cleanFor(state)) {
                 // not for what is shown any more: the view asks again when it is zoomed
                 g.free();
                 loader.forget();
@@ -645,7 +706,8 @@ public final class EditorView extends GLSurfaceView {
          * finish with view px -> crop uv of the zoom (EditZoom.placement), the reader's oriented size, the copy's grain size and
          * lattice aspect (EditExporter.Plan).
          */
-        private void drawRegion(Held h, EditSource s, EditState st, EditState tone, ZoomView z, int pw, int ph) {
+        private void drawRegion(Held h, EditSource s, EditState st, EditState tone, ZoomView z, int pw, int ph,
+                                @Nullable EditLook.Applied look) {
             EditSource.Region g = h.region;
             EditZoomLoader.Info in = h.info;
             long t0 = h.logged ? 0 : System.nanoTime();
@@ -659,6 +721,7 @@ public final class EditorView extends GLSurfaceView {
                 zProxy = true;
             }
             zr.updateProxy(uniforms);
+            zr.setLook(look);
             CropMath.Affine texToSrcUv = CropMath.Affine.scale(g.w, g.h).then(CropMath.Affine.translate(g.x, g.y))
                     .then(CropMath.Affine.scale(1.0 / in.sw, 1.0 / in.sh));
             zr.renderSource(h.tex, g.texW, g.texH, (float) (Math.max(in.sw, in.sh) / g.level), texToSrcUv, zUniforms, true);
@@ -728,6 +791,31 @@ public final class EditorView extends GLSurfaceView {
             loader.forget();
         }
 
+        /** P619: the preview's picture without the look, fitted to {@code side} px, as ARGB rows from the top. */
+        private void thumbnail(EditState st, double[] o, int side, EditPanels.ThumbSink sink) {
+            double[] px = CropMath.cropPixels(st, o[0], o[1]);
+            double k = side / Math.max(px[0], px[1]);
+            int w = Math.max(8, (int) Math.round(px[0] * k)), h = Math.max(8, (int) Math.round(px[1] * k));
+            thumbTarget.ensure(w, h, GLES30.GL_RGBA8, false, 1);
+            EditRenderer.Finish f = finishFor(st, new RectF(0, 0, w, h), false, o);
+            f.fbo = thumbTarget.fbo;
+            f.w = w;
+            f.h = h;
+            f.flipY = false;
+            f.swap = true;
+            f.preLook = true;
+            r.finish(f, st, uniforms);
+            ByteBuffer b = ByteBuffer.allocateDirect(w * h * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            GLES30.glReadPixels(0, 0, w, h, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, b);
+            int[] argb = new int[w * h];
+            b.asIntBuffer().get(argb);
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
+            final int fw = w, fh = h;
+            main.post(() -> sink.base(argb, fw, fh));
+        }
+
+        private final EditRenderer.Target thumbTarget = new EditRenderer.Target();
+
         private void histogram(EditState st, double[] o, Callbacks cb) {
             double[] px = CropMath.cropPixels(st, o[0], o[1]);
             double k = 160.0 / Math.max(px[0], px[1]);
@@ -760,6 +848,7 @@ public final class EditorView extends GLSurfaceView {
     static String toneKey(EditState s) {
         EditState t = s.copy();
         t.resetGeometry();
+        t.resetLook(); // P619: the look is applied after the main pass (its own key)
         return t.toJson();
     }
 
@@ -794,8 +883,10 @@ public final class EditorView extends GLSurfaceView {
         loader.shutdown();
         freePending();
         queueEvent(() -> {
-            if (hasContext()) gl.dropZoom(true);
-            else gl.forgetZoom();
+            if (hasContext()) {
+                gl.dropZoom(true);
+                gl.thumbTarget.release();
+            } else gl.forgetZoom();
             uploaded = false;
         });
     }

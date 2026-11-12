@@ -1341,15 +1341,30 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             slide(getParentFragmentManager().beginTransaction()).replace(R.id.settings_container,
                     SettingsLayoutFragment.of(layout, screen == null ? null : screen.getTitle())).addToBackStack("settings_layout").commit();
         }
-        @SuppressWarnings({"unchecked", "rawtypes"})
         private void applyAvailability(PreferenceGroup group, com.particlesdevs.photoncamera.settings.SettingsAvailability state) {
+            applyAvailability(group, state, null);
+        }
+
+        /**
+         * {@code groupReason}: why the group holding these rows is inactive as a whole (P614: a group of the other «Why тон»
+         * version), null when it is not - its rows go grey with it, the note shown once under the group's title.
+         */
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        private void applyAvailability(PreferenceGroup group, com.particlesdevs.photoncamera.settings.SettingsAvailability state,
+                                       @Nullable String groupReason) {
             if (group == null) return;
             for (int i = 0; i < group.getPreferenceCount(); i++) {
                 Preference p = group.getPreference(i);
                 if (p instanceof PreferenceGroup) {
                     if (p instanceof PreferenceScreen) p.setEnabled(true);
-                    applyAvailability((PreferenceGroup) p, state);
-                    if (!(p instanceof PreferenceScreen)) continue;
+                    if (!(p instanceof PreferenceScreen)) {
+                        // P614: a category of one tone version: greyed as a group, its note under its title
+                        final String off = state.groupReason(p.getKey());
+                        if (SettingsStyle.groupOff(p, off)) p.setEnabled(off == null);   // its rows follow (parent dependency)
+                        applyAvailability((PreferenceGroup) p, state, off);
+                        continue;
+                    }
+                    applyAvailability((PreferenceGroup) p, state, null);
                 }
                 String key = p.getKey();
                 if (key == null) continue;
@@ -1360,25 +1375,29 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                         || SettingsStyle.emptyNote(p);   // P592: a note that was only a description
                 if (p.isVisible() == hidden) p.setVisible(!hidden);
                 String reason = state.reason(key);
+                // P614: the group's own note is not repeated on each of its rows
+                String note = reason != null && reason.equals(groupReason) ? null : reason;
                 if (p.getClass() != Preference.class) p.setEnabled(reason == null);
-                if (reason != null) {
+                if (note != null) {
                     if (!originalSummaries.containsKey(key)) {
                         originalSummaries.put(key, p.getSummary());
                         originalProviders.put(key, p.getSummaryProvider());
                     }
                     p.setEnabled(false);
                     Preference.SummaryProvider provider = originalProviders.get(key);
-                    SettingHelp.state(p, reason);   // P592: why the row is off stays under its title (its description does not)
+                    SettingHelp.state(p, note);   // P592: why the row is off stays under its title (its description does not)
                     p.setSummaryProvider(pref -> {
                         CharSequence base = provider == null ? originalSummaries.get(key) : provider.provideSummary(pref);
-                        return base == null || base.length() == 0 ? reason : base + "\n" + reason;
+                        return base == null || base.length() == 0 ? note : base + "\n" + note;
                     });
                 } else if (originalSummaries.containsKey(key)) {
-                    p.setEnabled(true);
+                    p.setEnabled(reason == null);
                     SettingHelp.state(p, null);
                     p.setSummaryProvider(originalProviders.remove(key));
                     CharSequence summary = originalSummaries.remove(key);
                     if (p.getSummaryProvider() == null) p.setSummary(summary);
+                } else if (reason != null) {
+                    p.setEnabled(false);
                 }
             }
         }

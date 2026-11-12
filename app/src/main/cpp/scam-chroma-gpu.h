@@ -334,6 +334,11 @@ void main(){
 // the estimate), averaged per phase (x mod 4, y mod 4) over 8 x 8 samples of its phase (a 32 x 32 window; P591: the median of 8 along x,
 // then of 8 along y); that pattern less its own 4 x 4 mean is taken off the luma as a gain on R, G and B (P591). Window ends as scipy's uniform_filter with mode 'nearest' (each phase plane clamped
 // to its own samples). One pass per MODE; the strip's rows: image rows strip.x + row, the image strip.y rows high.
+// P632 (owner, 2026-11-11, burst 142159 on «Быстрый»: a grid on the branches against the sky): relU 1 takes the lattice in
+// relative units - r = Y / box4(Y) - 1 (0 where the box is below 1e-4), the same clip and medians, off as the gain 1 - l. In
+// absolute units (relU 0, P591) a 32 x 32 window of bright sky set the pattern and the gain (Y - l) / Y put it 5 - 10x larger on
+// the dark branches and the dark side of an edge (with P571's mean, 2.5x quality's lattice on the branches; with P591's
+// median, dotted rows under an edge). A Quad lattice is a site response / interpolation residue: relative to its pixel's level.
 static const char* kQuadLatticeGlsl = R"(
 layout(local_size_x=8,local_size_y=8) in;
 layout(std430,binding=0) readonly buffer Src{float src[];};
@@ -341,6 +346,7 @@ layout(std430,binding=1) writeonly buffer Dst{float dst[];};
 layout(std430,binding=2) buffer Aux{float aux[];};
 uniform ivec2 strip;  // x: the image row of the strip's row 0, y: the image's height
 uniform float clipK;
+uniform int relU;     // P632: 1 the lattice relative to the 4 x 4 box of the luma, 0 in luma units (P591)
 int rowOf(int gy){gy=clamp(gy,0,strip.y-1);return clamp(gy-strip.x,0,size.y-1);}
 int phaseX(int x,int d){int p=x&3,n=(size.x-p+3)>>2;return p+4*clamp((x>>2)+d,0,n-1);}
 int phaseY(int gy,int d){int p=gy&3,n=(strip.y-p+3)>>2;return rowOf(p+4*clamp((gy>>2)+d,0,n-1));}
@@ -356,7 +362,7 @@ void main(){
 #elif MODE==2
     float m=0.0;
     for(int dy=-2;dy<=1;dy++){int yy=rowOf(gy+dy);for(int dx=-2;dx<=1;dx++)m+=src[yy*size.x+clamp(x+dx,0,size.x-1)];}
-    float r=src[i]-m*0.0625;
+    float b=m*0.0625,r=relU!=0?(b>1.0e-4?src[i]/b-1.0:0.0):src[i]-b;
     dst[i]=r;aux[i]=abs(r);
 #elif MODE==3
     float m=0.0;
@@ -383,7 +389,8 @@ void main(){
     float Y=0.25*c.x+0.5*c.y+0.25*c.z;
     // P591: the luma's lattice off as a gain (the colour kept: an equal subtraction from R, G and B before the white balance
     // tinted the corrected rows magenta / green), a dark pixel by subtraction
-    if(Y>1.0e-4)c*=clamp((Y-l)/Y,0.25,1.75);else c-=vec3(l);
+    if(relU!=0)c*=clamp(1.0-l,0.25,1.75); // P632: the relative lattice off as a gain
+    else if(Y>1.0e-4)c*=clamp((Y-l)/Y,0.25,1.75);else c-=vec3(l);
     dst[3*i]=c.x;dst[3*i+1]=c.y;dst[3*i+2]=c.z;
 #endif
 }
@@ -577,7 +584,8 @@ public:
     // originals of the rows above a strip are kept before its rows are written back). Returns the passes' times.
     static constexpr int kQlHalo = 40;
     int qlStrip = 1024; // (the checks run more strips)
-    std::string quadLattice(std::vector<float>& rgb, int W, int H, float clipK = 2.5f) {
+    // P632: relative = the lattice relative to the luma's 4 x 4 box (kQuadLatticeGlsl relU 1); false = in luma units (P591)
+    std::string quadLattice(std::vector<float>& rgb, int W, int H, float clipK = 2.5f, bool relative = true) {
         if (W < 16 || H < 16 || rgb.size() < size_t(W) * H * 3) throw std::runtime_error("QUAD LATTICE GPU: sizes");
         auto t0 = Clock::now();
         ensureQuadLattice();
@@ -598,6 +606,7 @@ public:
             bind(0, s); bind(1, d); bind(2, a);
             glUniform2i(glGetUniformLocation(pQl[m], "strip"), stripRow0, H);
             glUniform1f(glGetUniformLocation(pQl[m], "clipK"), clipK);
+            glUniform1i(glGetUniformLocation(pQl[m], "relU"), relative ? 1 : 0);
             run(pQl[m]);
         };
         for (int y0 = 0; y0 < H; y0 += strip, ++strips) {

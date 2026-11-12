@@ -423,10 +423,31 @@ public final class GallerySheets {
      * kind of media, which file type, the order and the grid's columns. {@code changed} runs after every pick (the grid applies it).
      */
     public static LinearLayout viewOptions(Context c, Runnable changed) {
+        return viewOptions(c, changed, null);
+    }
+
+    /**
+     * P622 (owner, 2026-11-11: «Добавь в настройки галереи возможность выбора такого вида просмотра»): the sheet with «Вид» first -
+     * «Сетка», «Список» or «Лента» ({@code view} hears the pick; the page changes behind the sheet, animated). Tagged «gallery_mode».
+     */
+    public static LinearLayout viewOptions(Context c, Runnable changed,
+                                           @androidx.annotation.Nullable java.util.function.Consumer<com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode> view) {
         LinearLayout s = frame(c);
         s.addView(title(c, Lang.t("Вид галереи", "Gallery view")));
         s.addView(sub(c, Lang.t("Что показывать и в каком порядке. Колонки меняются и щипком по сетке.",
                 "What to show and in which order. Pinch the grid to change the columns too.")));
+        if (view != null) {
+            com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode[] modes = com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.values();
+            String[] names = new String[modes.length];
+            for (int i = 0; i < modes.length; i++) names[i] = modes[i].label();
+            s.addView(caption(c, Lang.t("Вид", "View")));
+            View seg = segmented(c, names, com.particlesdevs.photoncamera.gallery.model.GalleryLayout.mode(c).ordinal(), i -> view.accept(modes[i]));
+            seg.setTag("gallery_mode");
+            s.addView(seg);
+            TextView hint = sub(c, Lang.t("Сетка - карточки по дням. Список - строки с именем, размером и метками. Лента - плитки во всю ширину по месяцам; щипок и переключатель внизу - годы, месяцы, все фото.",
+                    "Grid: cards by day. List: rows with the name, size and tags. Timeline: edge-to-edge tiles by month; pinch or the control below for years, months, all photos."));
+            s.addView(hint);
+        }
         GalleryView.Media media = GalleryView.media(c);
         s.addView(caption(c, Lang.t("Показывать", "Show")));
         s.addView(segmented(c, new String[]{Lang.t("Фото и видео", "Photos and videos"), Lang.t("Только фото", "Photos only"),

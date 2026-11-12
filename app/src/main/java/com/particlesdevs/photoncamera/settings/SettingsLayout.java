@@ -151,6 +151,42 @@ public final class SettingsLayout {
         return text(all);
     }
 
+    /**
+     * P629: the stored text with the lines of {@code pages} (pages joined into one) replaced by one line of {@code into}: their
+     * items in the order of {@code pages}, each page's in its stored order (unchanged when none of them has a line, or {@code into}
+     * has one already).
+     */
+    public static String joinPages(@Nullable String stored, String into, String... pages) {
+        final LinkedHashMap<String, List<String>> all = parse(stored);
+        if (all.containsKey(into)) return stored == null ? "" : stored;
+        final List<String> items = new ArrayList<>();
+        boolean any = false;
+        for (String page : pages) {
+            final List<String> own = all.remove(page);
+            if (own == null) continue;
+            any = true;
+            for (String item : own) if (!items.contains(item)) items.add(item);
+        }
+        if (!any) return stored == null ? "" : stored;
+        all.put(into, items);
+        return text(all);
+    }
+
+    /**
+     * P629b: the stored text with a line of {@code into} made of the items of {@code from}'s line that are among {@code moved}, in
+     * that line's order (unchanged when {@code into} has a line already or none of them is stored).
+     */
+    public static String carry(@Nullable String stored, String into, String from, List<String> moved) {
+        final LinkedHashMap<String, List<String>> all = parse(stored);
+        final List<String> own = all.get(from);
+        if (all.containsKey(into) || own == null) return stored == null ? "" : stored;
+        final List<String> items = new ArrayList<>();
+        for (String item : own) if (moved.contains(item)) items.add(item);
+        if (items.isEmpty()) return stored == null ? "" : stored;
+        all.put(into, items);
+        return text(all);
+    }
+
     /** The stored text without {@code page}'s lines (the page in the app's order again). */
     public static String reset(@Nullable String stored, Page page) {
         return store(stored, page, Collections.emptyMap());

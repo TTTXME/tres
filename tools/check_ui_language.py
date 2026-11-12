@@ -95,6 +95,14 @@ ALLOW = {
     'com/particlesdevs/photoncamera/processing/render/Parameters.java': [(ANNOTATION, SENSOR_CONFIG_PARAMETERS + TUNABLE)],
     'com/particlesdevs/photoncamera/settings/ModuleSensorSettings.java': [(LOOKUP, SENSOR_CONFIG + SENSOR_CONFIG_PARAMETERS)],
     'com/particlesdevs/photoncamera/settings/TunablePreferenceGenerator.java': [(LOOKUP, TUNABLE)],
+    'com/particlesdevs/photoncamera/capture/HybridPlan.java': [
+        ('P627b log text: the capture plan\'s description (SCAM_CAPTURE log, the shot\'s plan note) names «Статика» as the '
+         'owner\'s logs do', ['«Статика»: the ring\'s N frames only, no ultrashort / bracketed frames',
+                              ' «Статика»: no ultrashort', ' «Статика»: no bracketed frames']),
+    ],
+    'com/particlesdevs/photoncamera/processing/opengl/postpipeline/ScamHybridBurst.java': [
+        ('P627 log text: modeName() names the processing mode in the HYBRID ROUTE log line', ['«Статика»', '«Качество»', '«Быстрый»']),
+    ],
     'com/particlesdevs/photoncamera/processing/color/DcpProfiles.java': [
         ('stored format of imported DCP profile names (user data), shown through DcpProfiles.label()',
          ['Профиль DCP', ' · только матрицы']),

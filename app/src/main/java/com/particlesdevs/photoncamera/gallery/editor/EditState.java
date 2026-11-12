@@ -59,7 +59,12 @@ public final class EditState {
         GRADE_BLEND("gBlend", 0, 100, 50), GRADE_BALANCE("gBalance"),
         // Ч/Б: monochrome (0 / 1) and its 8-band mix
         MONO("mono", 0, 1, 0),
-        BW_0("bw0"), BW_1("bw1"), BW_2("bw2"), BW_3("bw3"), BW_4("bw4"), BW_5("bw5"), BW_6("bw6"), BW_7("bw7");
+        BW_0("bw0"), BW_1("bw1"), BW_2("bw2"), BW_3("bw3"), BW_4("bw4"), BW_5("bw5"), BW_6("bw6"), BW_7("bw7"),
+        // P619 «LUT»: the camera's LUT and film simulation on the finished picture (EditLook): the LUT's and the film's strength in %,
+        // and the film's own controls as the camera's tray has them (LutTray.filmParams: the same ranges and steps)
+        LUT_AMOUNT("lutAmt", 0, 100, 100), FILM_AMOUNT("filmAmt", 0, 100, 100), FILM_GRAIN("filmGrain", 0, 200, 0),
+        FILM_EXPOSURE("filmEv", -2, 2, 0), FILM_CONTRAST("filmTone", -100, 100, 0), FILM_DIR("filmDir", 0, 100, 0),
+        FILM_PRINT_EV("filmPrintEv", -1, 1, 0);
 
         public final String key;
         public final float min, max, def;
@@ -76,9 +81,9 @@ public final class EditState {
             this(key, -100, 100, 0);
         }
 
-        /** The slider step: 0.01 EV, 0.1 for the sharpening radius, whole units otherwise. */
+        /** The slider step: 0.01 EV, 0.1 for the sharpening radius and the film's exposure, 0.05 EV for its print, whole units otherwise. */
         public float step() {
-            return this == EXPOSURE ? 0.01f : this == SHARPEN_RADIUS ? 0.1f : 1f;
+            return this == EXPOSURE ? 0.01f : this == SHARPEN_RADIUS || this == FILM_EXPOSURE ? 0.1f : this == FILM_PRINT_EV ? 0.05f : 1f;
         }
 
         public boolean bipolar() {
@@ -128,6 +133,21 @@ public final class EditState {
     public float straighten;
     public float cropL = 0f, cropT = 0f, cropR = 1f, cropB = 1f;
     public float aspect = ASPECT_FREE;
+    /**
+     * P619 «LUT»: the camera's LUT (a stored LUT value as the camera's tray keeps it: "" none, one of FilmLooks, a .cube of
+     * Download/SCAMERA/LUT), the film stock (FilmSim.Stock id, "" none), its print ("" the stock's own) and its format (FilmSim.Format
+     * id). Tone settings: undo, reset, styles, copy / paste and the «before» view treat them as the sliders.
+     */
+    public String lut = "", film = "", filmPrint = "", filmFormat = DEFAULT_FILM_FORMAT;
+    /**
+     * P633 «Водяной знак»: {@code wmRemove} - the photo's own watermark taken off (its record, WatermarkPatch, restores the pixels the
+     * camera had under it; only offered with a record); {@code wm} - the watermark drawn on the copy (WatermarkSpec.toJson), "" for
+     * none. «Изменить» is both. Not tone: the «before» view shows the photo as it is; paste takes the watermark, not the removal.
+     */
+    public boolean wmRemove;
+    public String wm = "";
+    /** FilmSim.DEFAULT_FORMAT (35 mm; EditLookTest holds them equal). */
+    public static final String DEFAULT_FILM_FORMAT = "135";
 
     public EditState() {
         for (Param p : Param.values()) values[p.ordinal()] = p.def;
@@ -145,7 +165,10 @@ public final class EditState {
         EditState s = new EditState();
         System.arraycopy(values, 0, s.values, 0, values.length);
         for (int i = 0; i < 4; i++) s.curves[i] = curves[i] != null ? curves[i].clone() : null;
+        s.copyLook(this);
         s.copyGeometry(this);
+        s.wmRemove = wmRemove;
+        s.wm = wm;
         return s;
     }
 
@@ -171,12 +194,42 @@ public final class EditState {
     public void resetTone() {
         for (Param p : Param.values()) values[p.ordinal()] = p.def;
         for (int i = 0; i < 4; i++) curves[i] = null;
+        resetLook();
     }
 
     /** Takes every setting but the geometry from {@code o} (paste settings, presets). */
     public void copyTone(EditState o) {
         System.arraycopy(o.values, 0, values, 0, values.length);
         for (int i = 0; i < 4; i++) curves[i] = o.curves[i] != null ? o.curves[i].clone() : null;
+        copyLook(o);
+        wm = o.wm; // P633: the watermark goes with the settings; taking this photo's own off stays this photo's
+    }
+
+    /** P619: the LUT / film choice of {@code o} (the strings; their sliders are values). */
+    void copyLook(EditState o) {
+        lut = o.lut;
+        film = o.film;
+        filmPrint = o.filmPrint;
+        filmFormat = o.filmFormat;
+    }
+
+    /** P619: no LUT and no film, every slider of the «LUT» tab at its default. */
+    public void resetLook() {
+        lut = "";
+        film = "";
+        filmPrint = "";
+        filmFormat = DEFAULT_FILM_FORMAT;
+        for (Param p : LOOK_PARAMS) values[p.ordinal()] = p.def;
+    }
+
+    /** P619: the «LUT» tab's sliders (EditLook reads them; the main pass does not). */
+    public static final Param[] LOOK_PARAMS = {Param.LUT_AMOUNT, Param.FILM_AMOUNT, Param.FILM_GRAIN, Param.FILM_EXPOSURE,
+            Param.FILM_CONTRAST, Param.FILM_DIR, Param.FILM_PRINT_EV};
+
+    /** P619: the choice and sliders of the «LUT» tab at their defaults. */
+    public boolean isDefaultLook() {
+        for (Param p : LOOK_PARAMS) if (values[p.ordinal()] != p.def) return false;
+        return lut.isEmpty() && film.isEmpty() && filmPrint.isEmpty() && DEFAULT_FILM_FORMAT.equals(filmFormat);
     }
 
     public boolean anyCurve() {
@@ -204,7 +257,7 @@ public final class EditState {
 
     public boolean isDefaultTone() {
         for (Param p : Param.values()) if (values[p.ordinal()] != p.def) return false;
-        return !anyCurve();
+        return !anyCurve() && isDefaultLook();
     }
 
     public boolean isDefaultGeometry() {
@@ -212,7 +265,18 @@ public final class EditState {
     }
 
     public boolean isDefault() {
-        return isDefaultTone() && isDefaultGeometry();
+        return isDefaultTone() && isDefaultGeometry() && isDefaultWatermark();
+    }
+
+    /** P633: the photo's watermark as it is, none added. */
+    public boolean isDefaultWatermark() {
+        return !wmRemove && wm.isEmpty();
+    }
+
+    /** P633: the watermark the copy gets, null for none. */
+    @Nullable
+    public com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec watermark() {
+        return com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec.fromJson(wm);
     }
 
     public boolean anyHsl() {
@@ -242,6 +306,22 @@ public final class EditState {
                     cs.put(a);
                 }
                 o.put("k", cs);
+            }
+            if (!lut.isEmpty() || !film.isEmpty() || !filmPrint.isEmpty() || !DEFAULT_FILM_FORMAT.equals(filmFormat)) {
+                // P619: {"l": LUT, "f": film stock, "p": print, "m": format}, defaults left out
+                JSONObject l = new JSONObject();
+                if (!lut.isEmpty()) l.put("l", lut);
+                if (!film.isEmpty()) l.put("f", film);
+                if (!filmPrint.isEmpty()) l.put("p", filmPrint);
+                if (!DEFAULT_FILM_FORMAT.equals(filmFormat)) l.put("m", filmFormat);
+                o.put("lk", l);
+            }
+            if (!isDefaultWatermark()) {
+                // P633: {"rm": take the photo's own off, "s": the watermark drawn (WatermarkSpec.toJson)}, defaults left out
+                JSONObject w = new JSONObject();
+                if (wmRemove) w.put("rm", true);
+                if (!wm.isEmpty()) w.put("s", new JSONObject(wm));
+                o.put("wm", w);
             }
             if (!isDefaultGeometry() || aspect != ASPECT_FREE) {
                 JSONObject g = new JSONObject();
@@ -286,6 +366,22 @@ public final class EditState {
                 for (int j = 0; j < c.length; j++) c[j] = clamp((float) a.getDouble(j), 0f, 1f);
                 s.curves[i] = c;
             }
+            JSONObject lk = o.optJSONObject("lk");
+            if (lk != null) {
+                s.lut = name(lk.optString("l", ""));
+                s.film = name(lk.optString("f", ""));
+                s.filmPrint = name(lk.optString("p", ""));
+                String m = name(lk.optString("m", ""));
+                s.filmFormat = m.isEmpty() ? DEFAULT_FILM_FORMAT : m;
+            }
+            JSONObject w = o.optJSONObject("wm");
+            if (w != null) {
+                s.wmRemove = w.optBoolean("rm", false);
+                JSONObject spec = w.optJSONObject("s");
+                com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec ws = spec == null ? null
+                        : com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec.fromJson(spec.toString());
+                s.wm = ws == null ? "" : ws.toJson();
+            }
             JSONObject g = o.optJSONObject("g");
             if (g != null) {
                 s.quarterTurns = ((g.optInt("q", 0) % 4) + 4) % 4;
@@ -311,6 +407,12 @@ public final class EditState {
         }
     }
 
+    /** P619: a stored name as kept (a file name or an id; no path separators, at most 255 characters), else "". */
+    static String name(@Nullable String v) {
+        if (v == null || v.length() > 255 || v.indexOf('/') >= 0 || v.indexOf('\\') >= 0 || v.indexOf('\0') >= 0) return "";
+        return v;
+    }
+
     static float clamp(float v, float lo, float hi) {
         return Float.isNaN(v) ? lo : Math.max(lo, Math.min(hi, v));
     }
@@ -320,19 +422,23 @@ public final class EditState {
         if (this == other) return true;
         if (!(other instanceof EditState)) return false;
         EditState o = (EditState) other;
-        return Arrays.equals(values, o.values) && Arrays.deepEquals(curves, o.curves) && quarterTurns == o.quarterTurns && flipH == o.flipH && straighten == o.straighten
-                && cropL == o.cropL && cropT == o.cropT && cropR == o.cropR && cropB == o.cropB && aspect == o.aspect;
+        return Arrays.equals(values, o.values) && Arrays.deepEquals(curves, o.curves) && lut.equals(o.lut) && film.equals(o.film)
+                && filmPrint.equals(o.filmPrint) && filmFormat.equals(o.filmFormat) && quarterTurns == o.quarterTurns && flipH == o.flipH && straighten == o.straighten
+                && cropL == o.cropL && cropT == o.cropT && cropR == o.cropR && cropB == o.cropB && aspect == o.aspect
+                && wmRemove == o.wmRemove && wm.equals(o.wm);
     }
 
     @Override
     public int hashCode() {
         int h = Arrays.hashCode(values) * 31 + Arrays.deepHashCode(curves);
+        h = 31 * h + (lut + "|" + film + "|" + filmPrint + "|" + filmFormat).hashCode();
         h = 31 * h + quarterTurns;
         h = 31 * h + (flipH ? 1 : 0);
         h = 31 * h + Float.floatToIntBits(straighten);
         h = 31 * h + Float.floatToIntBits(cropL) + 7 * Float.floatToIntBits(cropT) + 11 * Float.floatToIntBits(cropR)
                 + 13 * Float.floatToIntBits(cropB);
-        return 31 * h + Float.floatToIntBits(aspect);
+        h = 31 * h + Float.floatToIntBits(aspect);
+        return 31 * h + (wmRemove ? 1 : 0) + 3 * wm.hashCode();
     }
 
     @NonNull

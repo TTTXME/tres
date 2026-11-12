@@ -25,6 +25,51 @@ public final class ShotLook {
     public final ColourLook colour;
     public final boolean portraitEnabled, portraitSkinWarmth;
     public final boolean portraitSensorWindowUnknown;
+    /** P614: «Why тон» V2 chosen at the press (PreferenceKeys.whyToneV2). */
+    public final boolean toneV2;
+    /**
+     * P630: the «Oldstyle» mode at the press - its tone version, settings and style (null: another mode, the
+     * «Why тон» of {@link #toneV2}).
+     */
+    @Nullable
+    public final Oldstyle oldstyle;
+
+    /** P630: what an «Oldstyle» shot takes of the mode at its press. */
+    public static final class Oldstyle {
+        public final boolean v2, postview;
+        public final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params;
+        public final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle style;
+        /**
+         * P630e: the shot's exposure plan (CaptureController: the viewfinder's frame metered before the shot, the burst exposed at S
+         * or the SDR TET); null - the lab's renders, a manual exposure, no meterable frame - plans on the merge itself.
+         */
+        @Nullable
+        public volatile com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture capture;
+
+        public Oldstyle(boolean v2, boolean postview, com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Params params,
+                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleStyle style) {
+            this.v2 = v2;
+            this.postview = postview;
+            this.params = params;
+            this.style = style;
+            // P630e: the style's exposure is the tone's (before it, both TETs), the rest of the style after it
+            params.exposureEv = style.exposureEv();
+        }
+
+        /** The mode's state now, null outside the mode. */
+        @Nullable
+        public static Oldstyle now() {
+            if (!com.particlesdevs.photoncamera.settings.OldstyleMode.on()) return null;
+            final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
+            return new Oldstyle(v2, com.particlesdevs.photoncamera.settings.OldstyleMode.v2Postview(),
+                    com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2),
+                    com.particlesdevs.photoncamera.settings.OldstyleMode.style());
+        }
+
+        @Override public String toString() {
+            return "Oldstyle " + (v2 ? "V2" : "V1") + " " + style + (capture != null ? " capture " + capture : "");
+        }
+    }
 
     ShotLook(@Nullable FilmSim.Settings film, String lut, float lutStrength, ColourLook colour) {
         this.film = film;
@@ -33,6 +78,8 @@ public final class ShotLook {
         this.colour = colour;
         portraitEnabled = PreferenceKeys.isPortraitEnabled();
         portraitSkinWarmth = PreferenceKeys.isPortraitSkinWarmthEnabled();
+        toneV2 = PreferenceKeys.whyToneV2();
+        oldstyle = Oldstyle.now();
         portraitSensorWindowUnknown = portraitEnabled && (
                 com.particlesdevs.photoncamera.capture.IszCapturePolicy.mosaicModule(com.particlesdevs.photoncamera.settings.ModuleRegistry.active())
                         || com.particlesdevs.photoncamera.capture.SensorModePick.session() != null
@@ -48,6 +95,7 @@ public final class ShotLook {
     @Override
     public String toString() {
         // P380: the whole recipe (a diffusion or the couplers changed meanwhile shows too)
-        return "film " + (film == null ? "none" : film.recipe()) + ", LUT " + (lut.isEmpty() ? "none" : lut + " " + lutStrength);
+        return "film " + (film == null ? "none" : film.recipe()) + ", LUT " + (lut.isEmpty() ? "none" : lut + " " + lutStrength)
+                + (oldstyle != null ? ", " + oldstyle : "");
     }
 }

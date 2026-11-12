@@ -65,7 +65,10 @@ public class SettingsMovesKeepValuesTest {
             "pref_scam_hybrid_dn_luma_t4_outlier", "pref_scam_hybrid_dn_luma_t4_revert", "pref_scam_hybrid_dn_luma_t4_snr", "pref_scam_hybrid_dn_luma_t4_strength",
             "pref_scam_hybrid_dn_luma_t5_outlier", "pref_scam_hybrid_dn_luma_t5_revert", "pref_scam_hybrid_dn_luma_t5_snr", "pref_scam_hybrid_dn_luma_t5_strength",
             "pref_scam_hybrid_dn_model_read", "pref_scam_hybrid_dn_model_shot", "pref_scam_hybrid_dn_revert_max", "pref_scam_hybrid_dn_revert_mult",
-            "pref_scam_hybrid_dn_sabre_luma_mult", "pref_scam_hybrid_dn_snr_scale", "pref_scam_hybrid_why_chroma_denoise");
+            "pref_scam_hybrid_dn_sabre_luma_mult", "pref_scam_hybrid_dn_snr_scale", "pref_scam_hybrid_why_chroma_denoise",
+            // P628 (owner, 2026-11-11: «убери по дефолту надпись "Shot on"»): the two caption lines are the one custom text
+            // (pref_watermark_text, default «SCAMERA»); SettingsMigration.migrateWatermark carries a typed line over once
+            "pref_watermark_line1", "pref_watermark_line2");
 
     private static File src(String path) {
         File f = new File(path);

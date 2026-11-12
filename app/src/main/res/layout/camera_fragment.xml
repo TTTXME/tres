@@ -103,6 +103,31 @@
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent" />
 
+            <!--    P630c «Oldstyle»: the style panel's HUD line («База: Natural · Тон: 81 · Цвет: -100»), placed by OldstyleControls
+                    near the preview's top while the palette is open. -->
+            <TextView
+                    android:id="@+id/oldstyle_hud"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent" />
+
+            <!--    P630 «Oldstyle»: the mode's round style button and (P630c) its panel (OldstyleControls), right above the manual row,
+                    which the mode keeps open (the panel takes its place while open); gone in the other modes. -->
+            <FrameLayout
+                    android:id="@+id/oldstyle_controls"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone"
+                    app:layout_constraintBottom_toTopOf="@+id/manual_mode"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent" />
+
             <!--    Block 1.5-->
             <!--    scrim of the FULL settings sheet over the viewfinder (shade_scrim_top covers the top bar);
                     above the viewfinder controls, below the sheet. Its top margin follows the top bar

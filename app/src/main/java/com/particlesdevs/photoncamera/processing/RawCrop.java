@@ -146,10 +146,13 @@ public final class RawCrop {
      * merge reads its frames without a copy), each frame's old buffer freed right after (a ZSL ring slot is given back), else
      * into plain buffers. Frames of another size are left alone (the burst drops them).
      */
-    public static void apply(List<ImageFrame> frames, int w, int h, Area area) throws IOException {
-        if (area == null || frames.isEmpty()) return;
+    public static boolean apply(List<ImageFrame> frames, int w, int h, Area area) throws IOException {
+        if (area == null || frames.isEmpty()) return false;
         final long bytes = (long) area.width * area.height * 2;
         if (bytes > Integer.MAX_VALUE) throw new IOException("RAW crop: " + area + " too large");
+        // P625: in place where every frame is the only view of its arena slot (the ZSL ring's memfd: no new pages, no copy into
+        // a new arena, and the worker started at the shutter for that memfd is still the burst's)
+        if (cropInPlace(frames, w, h, area)) return true;
         final ShotArena arena = ShotArena.create(frames.size(), bytes);
         try {
             for (ImageFrame f : frames) {
@@ -170,6 +173,95 @@ public final class RawCrop {
             }
         } finally {
             if (arena != null) arena.release();
+        }
+        return false;
+    }
+
+    /**
+     * P625 (owner, 2026-11-11: «ускорь подготовку снимка»; the X200 Pro's crop of 35 frames took 515 - 563 ms: a new 840 MB arena
+     * whose every page was a first-touch fault, ~70 % of the time on the host, and the merge worker started at the shutter for the
+     * ring's memfd was not used: «another arena»): the kept rows moved to the start of each frame's own slot, the frame given a
+     * view of the kept size there. Only when every frame of the shot's size is a writable view at the start of an arena slot that
+     * no other view holds (Allocator.arenaSlotRefs 1: a ZSL frame the shot drained from the ring, a post-shutter still in the
+     * shot's reserved slots) - another holder (the ring itself, the viewfinder's upload, a later shot) would see the moved rows.
+     * Checked and the new views made before any row moves; false with nothing changed otherwise (the copy above). The same
+     * samples in the same frame order; only the frames' pages in the memfd differ (the worker reads each at its own page).
+     */
+    static boolean cropInPlace(List<ImageFrame> frames, int w, int h, Area area) {
+        if (!inPlaceOn()) return false;
+        final int bytes = area.width * area.height * 2;
+        if (area.x < 0 || area.y < 0 || area.width <= 0 || area.height <= 0 || area.x + area.width > w || area.y + area.height > h)
+            return false;
+        final List<ImageFrame> cut = new java.util.ArrayList<>();
+        final List<ByteBuffer> olds = new java.util.ArrayList<>(), views = new java.util.ArrayList<>();
+        boolean ok = false;
+        try {
+            for (ImageFrame f : frames) {
+                if (f == null || f.buffer == null || f.width != w || f.height != h || f.buffer.capacity() < (long) w * h * 2) continue;
+                final ByteBuffer b = f.buffer;
+                if (b.isReadOnly() || !b.isDirect()) return false;
+                final long[] at = Allocator.arenaOf(b);
+                if (at == null || at.length < 2 || Allocator.arenaSlotRefs((int) at[0], at[1]) != 1) return false;
+                final ByteBuffer view = Allocator.arenaView((int) at[0], at[1], bytes);
+                if (view == null) return false;
+                views.add(view);
+                if (view.isReadOnly()) return false;
+                cut.add(f);
+                olds.add(b);
+            }
+            ok = !cut.isEmpty();
+        } catch (RuntimeException | LinkageError e) {
+            ok = false;
+        } finally {
+            if (!ok) for (ByteBuffer v : views) Allocator.free(v);
+        }
+        if (!ok) return false;
+        final byte[] bounce = new byte[area.width * 2];
+        for (int i = 0; i < cut.size(); i++) {
+            final ImageFrame f = cut.get(i);
+            final ByteBuffer view = views.get(i), old = olds.get(i);
+            synchronized (f) { // RingArenaMove copies a frame under its lock (awaited at series_done, before the processing)
+                if (f.buffer != old) { Allocator.free(view); continue; } // moved meanwhile: left whole (another size: dropped)
+                compactRows(old, w, area, bounce);
+                view.order(old.order());
+                view.position(0);
+                f.buffer = view;
+                f.width = area.width;
+                f.height = area.height;
+                Allocator.free(old);
+            }
+        }
+        return true;
+    }
+
+    /** P625: scam_dev raw_crop_in_place 0: the copy into a new arena, as before. */
+    static boolean inPlaceOn() {
+        try {
+            return com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("raw_crop_in_place", true);
+        } catch (RuntimeException | LinkageError e) {
+            return true;
+        }
+    }
+
+    /**
+     * P625: the rows of {@code area} of a frame of rows of {@code w} samples moved to the start of the same buffer (rows of
+     * area.width samples), first row first. A row's source never starts before its destination ((y + r) * w + x &gt;= r * width),
+     * so no row is overwritten before it is read; a row whose source overlaps its own destination goes through {@code bounce}.
+     */
+    static void compactRows(ByteBuffer buffer, int w, Area area, byte[] bounce) {
+        final ByteBuffer src = buffer.duplicate(), dst = buffer.duplicate();
+        final int rowBytes = area.width * 2;
+        for (int r = 0; r < area.height; r++) {
+            final int from = ((area.y + r) * w + area.x) * 2, to = r * rowBytes;
+            if (from == to) continue;
+            src.limit(from + rowBytes).position(from);
+            dst.limit(to + rowBytes).position(to);
+            if (from - to < rowBytes) {
+                src.get(bounce, 0, rowBytes);
+                dst.put(bounce, 0, rowBytes);
+            } else {
+                dst.put(src);
+            }
         }
     }
 
@@ -300,8 +392,8 @@ public final class RawCrop {
         final int[] mode = modeSensor != null && modeSensor.length == 4 ? modeSensor : new int[4];
         final Area area = keep(w, h, larger(larger(padding, manual), mode));
         if (area != null) {
-            apply(frames, w, h, area);
-            Log.i("SCAM_HDR", "RAW crop " + w + "x" + h + " -> " + area + ": zero padding L/T/R/B " + padding[0] + "/" + padding[1]
+            final boolean inPlace = apply(frames, w, h, area);
+            Log.i("SCAM_HDR", "RAW crop " + w + "x" + h + " -> " + area + (inPlace ? " in place (P625)" : " into a new arena") + ": zero padding L/T/R/B " + padding[0] + "/" + padding[1]
                     + "/" + padding[2] + "/" + padding[3] + ", manual " + manual[0] + "/" + manual[1] + "/" + manual[2] + "/" + manual[3]
                     + ", sensor mode " + mode[0] + "/" + mode[1] + "/" + mode[2] + "/" + mode[3]
                     + " (sensor sides, orientation " + orientation + ") in " + (System.nanoTime() - started) / 1_000_000 + " ms");

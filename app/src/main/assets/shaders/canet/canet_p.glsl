@@ -41,8 +41,8 @@ precision highp int;
 #define BOOST_MIN 0.3
 // MODE 4: the gate opens from a NEAR_LO x brighter light (full at 2 x NEAR_LO)
 #define NEAR_LO 1.5
-// MODE 4: ... of at least YB_LO of white (full at YB_LO + 0.4)
-#define YB_LO 0.12
+// MODE 4: ... of at least YB_LO of white (full at YB_LO + 0.4; P615: 0.12 -> 0.05 with the v4 weights)
+#define YB_LO 0.05
 // MODE 4: the brighter neighbour looked for at 1, 2, 4, 6 px (6) or also 9, 12 px (12: fringe bands up to ~12 px)
 #define REACH 12
 // MODE 3: never the opposite hue (P493: 0 lets the net's correction pass through neutral)

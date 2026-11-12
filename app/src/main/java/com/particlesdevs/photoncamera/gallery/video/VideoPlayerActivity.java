@@ -117,6 +117,26 @@ public final class VideoPlayerActivity extends AppCompatActivity implements Vide
         c.startActivity(i);
     }
 
+    /**
+     * P621: another app's video (VIEW / REVIEW of a video at the gallery): played alone, the read grant passed on (the gallery
+     * activity that got it closes).
+     */
+    public static void openExternal(Context c, Uri uri, @Nullable String name) {
+        ArrayList<Uri> one = new ArrayList<>();
+        one.add(uri);
+        ArrayList<String> names = new ArrayList<>(), paths = new ArrayList<>();
+        names.add(name != null ? name : "");
+        paths.add("");
+        Intent i = new Intent(c, VideoPlayerActivity.class)
+                .putParcelableArrayListExtra(EXTRA_URIS, one)
+                .putStringArrayListExtra(EXTRA_NAMES, names)
+                .putStringArrayListExtra(EXTRA_PATHS, paths)
+                .putExtra(EXTRA_INDEX, 0)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        i.setClipData(android.content.ClipData.newRawUri("", uri));
+        c.startActivity(i);
+    }
+
     enum Repeat { OFF, ALL, ONE }
 
     enum Rotate { VIDEO, SENSOR, LANDSCAPE, PORTRAIT }

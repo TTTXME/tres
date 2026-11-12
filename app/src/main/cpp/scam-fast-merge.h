@@ -21,7 +21,8 @@
 // rejected) and the normalisation rgb = accum / weights (sh076's division). the reference's resolve / defringe / LSC / CCM do not run:
 // the result is the merged linear camera RGB at the sensor grid in the worker's units ((DN - black) / (white - black) of the
 // base frame, no white balance), as hybridReconstruct hands it back; the app's post pipeline (with the reference resolve denoise) follows.
-// Any GL failure throws: the caller merges the same input with the SCAM merge.
+// Any GL failure throws. P627 (owner, 2026-11-11: every mode stays the mode the user chose): the caller (hybridFastRoute) runs the
+// fast route again on a new context, a frame past the GPU's size limits in column bands of the same route; never the SCAM merge.
 //
 // Decisions where the spec is [NOT RECOVERED] / [UNCERTAIN] (each repeated at its use; NOTES.md lists them):
 //  - noise LUT per bin (§4.2): var = S I + O at the bin's linear level I = (bin / 63)^2 for both rows (the base model, the per-shot
@@ -93,8 +94,8 @@ inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune
     // cfa_sensor_type 2); any other block stays on the SCAM merge
     if(input.mosaic!=0&&input.mosaic!=1&&input.mosaic!=2&&input.mosaic!=4){why="colour-block mosaic "+std::to_string(input.mosaic);return false;}
     if(input.mosaic==0){const int block=hybridMosaicBlock(input,tune,report);if(block!=1&&block!=2&&block!=4){why="measured colour block "+std::to_string(block);return false;}
-        if(block==4&&tune.fastMergeTetra==0){why="4x4 colour block (fastMergeTetra 0)";return false;}}
-    if(input.mosaic==4&&tune.fastMergeTetra==0){why="4x4 colour block (fastMergeTetra 0)";return false;} // P489: Tetra stays on SCAM by default
+        if(block==4&&tune.fastMergeTetra==0)report("HYBRID FAST MERGE: fastMergeTetra 0 ignored (P627: «Быстрый» stays «Быстрый»: Tetra on the fast route)");}
+    if(input.mosaic==4&&tune.fastMergeTetra==0)report("HYBRID FAST MERGE: fastMergeTetra 0 ignored (P627: «Быстрый» stays «Быстрый»: Tetra on the fast route)");
     { // P501: sabre_scale 1, 1.5 (the app's OUT) or 2
         const int rg=hybridRequestedGrid(input,tune);
         if(rg!=1&&rg!=2){why="output grid "+std::to_string(rg);return false;}
@@ -192,6 +193,67 @@ inline float fastThumbShift(const FastThumb& ref,const FastThumb& cur){
     return std::sqrt(float(fx*fx+fy*fy));
 }
 
+// P627: a frame past one of the GPU's limits for the fast route (texture / viewport size, the storage block of a strip's ring):
+// maxW - the widest frame (RAW px) the limit takes at this height (0: the height itself is past it)
+struct FastMergeLimit : std::runtime_error { int maxW=0; FastMergeLimit(const std::string& m,int w):std::runtime_error(m),maxW(w){} };
+
+// The frame selector (§1.3, photo) of hybridFastMerge: base = the first normal frame in buffer order with sharpness >= 0.7 x the
+// sharpest; donors kept with translation <= 35 thumbnail px and sharpness >= 0.6 x the base's; thumbs of the frames it read (and of
+// the long frames). P627: also the column bands' one pick for the whole frame (tune.fastPick).
+inline void fastSelectFrames(const HybridInput& input,const HybridTuning& tune,const std::vector<int>& normals,const std::vector<int>& longs,
+                             std::vector<FastThumb>& thumbs,int& baseIdx,std::vector<int>& donors,int& dropped,std::string& selectLine){
+    if(!tune.fastPick.empty()){ // P627: the column bands' pick of the whole frame (base first, then the donors it kept)
+        baseIdx=tune.fastPick[0];donors.assign(tune.fastPick.begin()+1,tune.fastPick.end());
+        for(int f:longs)thumbs[size_t(f)]=fastThumb(input,input.frames[size_t(f)].raw,1.f/input.frames[size_t(f)].exposure);
+        thumbs[size_t(baseIdx)]=fastThumb(input,input.frames[size_t(baseIdx)].raw,1.f/input.frames[size_t(baseIdx)].exposure);
+        selectLine="FrameSelector: base idx="+std::to_string(baseIdx)+", "+std::to_string(donors.size())+" donors (the whole frame's pick: column bands)";
+        return;
+    }
+    {
+        const bool select=tune.fastMergeSelect!=0&&normals.size()>1;
+        std::vector<int> want;
+        if(select)want=normals; else if(!longs.empty())want.push_back(0);
+        for(int f:longs)want.push_back(f);
+        {
+            std::vector<std::future<void>> jobs;
+            for(int f:want)jobs.push_back(std::async(std::launch::async,[&,f]{
+                const HybridFrame& fr=input.frames[size_t(f)];thumbs[size_t(f)]=fastThumb(input,fr.raw,1.f/fr.exposure);}));
+            for(auto& j:jobs)j.get();
+        }
+        // "buffer order" [UNCERTAIN]: the order the app sends (frames[0] = its base, next to the shutter), as the reference's log
+        // shows its base at idx 0 on both test phones
+        const std::vector<int>& order=normals;
+        // P488 fastMergeSport bit 2: the reference Sport's donor gate (15 px, 0.75 x the base); its base (the sharpest frame) is not
+        // taken: frames[0] is the app's press moment (its own +-1 frame sharpness check ran there)
+        const bool sportSel=(tune.fastMergeSport&2)!=0;
+        if(select&&!sportSel){
+            float best=0.f;for(int f:normals)best=std::max(best,thumbs[size_t(f)].sharp);
+            for(int f:order)if(thumbs[size_t(f)].sharp>=0.7f*best){baseIdx=f;break;}
+        }
+        const float shiftMax=sportSel?15.f:35.f,sharpMin=sportSel?0.75f:0.6f;
+        char line[200];
+        std::snprintf(line,sizeof(line),"FrameSelector: base idx=%d (sharpness %.4f%s)",baseIdx,select?thumbs[size_t(baseIdx)].sharp:0.f,select?(sportSel?", sport: moment base, gate 15 px / 0.75":""):", selector off");
+        selectLine=line;
+        std::vector<std::pair<int,float>> shifts;
+        if(select){
+            std::vector<std::future<std::pair<int,float>>> jobs;
+            for(int f:order)if(f!=baseIdx)jobs.push_back(std::async(std::launch::async,[&,f]{return std::make_pair(f,fastThumbShift(thumbs[size_t(baseIdx)],thumbs[size_t(f)]));}));
+            for(auto& j:jobs)shifts.push_back(j.get());
+        }
+        size_t si=0;
+        for(int f:order){
+            if(f==baseIdx)continue;
+            if(select){
+                const float sh=thumbs[size_t(f)].sharp,tr=shifts[si++].second;
+                if(tr>shiftMax||sh<sharpMin*thumbs[size_t(baseIdx)].sharp){
+                    ++dropped;std::snprintf(line,sizeof(line),"; dropped %d (shift %.1f, sharpness %.4f)",f,tr,sh);selectLine+=line;continue;
+                }
+            }
+            donors.push_back(f);
+        }
+    }
+}
+
 inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
                                          std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags){
     using Clock=std::chrono::steady_clock;
@@ -243,50 +305,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     int baseIdx=0;std::vector<int> donors;int dropped=0;std::string selectLine;
     std::vector<FastThumb> thumbs(input.frames.size());
     double thumbsMs=0;
-    {
-        const bool select=tune.fastMergeSelect!=0&&normals.size()>1;
-        std::vector<int> want;
-        if(select)want=normals; else if(!longs.empty())want.push_back(0);
-        for(int f:longs)want.push_back(f);
-        {
-            std::vector<std::future<void>> jobs;
-            for(int f:want)jobs.push_back(std::async(std::launch::async,[&,f]{
-                const HybridFrame& fr=input.frames[size_t(f)];thumbs[size_t(f)]=fastThumb(input,fr.raw,1.f/fr.exposure);}));
-            for(auto& j:jobs)j.get();
-        }
-        thumbsMs=ms(selectStarted,Clock::now());
-        // "buffer order" [UNCERTAIN]: the order the app sends (frames[0] = its base, next to the shutter), as the reference's log
-        // shows its base at idx 0 on both test phones
-        const std::vector<int>& order=normals;
-        // P488 fastMergeSport bit 2: the reference Sport's donor gate (15 px, 0.75 x the base); its base (the sharpest frame) is not
-        // taken: frames[0] is the app's press moment (its own +-1 frame sharpness check ran there)
-        const bool sportSel=(tune.fastMergeSport&2)!=0;
-        if(select&&!sportSel){
-            float best=0.f;for(int f:normals)best=std::max(best,thumbs[size_t(f)].sharp);
-            for(int f:order)if(thumbs[size_t(f)].sharp>=0.7f*best){baseIdx=f;break;}
-        }
-        const float shiftMax=sportSel?15.f:35.f,sharpMin=sportSel?0.75f:0.6f;
-        char line[200];
-        std::snprintf(line,sizeof(line),"FrameSelector: base idx=%d (sharpness %.4f%s)",baseIdx,select?thumbs[size_t(baseIdx)].sharp:0.f,select?(sportSel?", sport: moment base, gate 15 px / 0.75":""):", selector off");
-        selectLine=line;
-        std::vector<std::pair<int,float>> shifts;
-        if(select){
-            std::vector<std::future<std::pair<int,float>>> jobs;
-            for(int f:order)if(f!=baseIdx)jobs.push_back(std::async(std::launch::async,[&,f]{return std::make_pair(f,fastThumbShift(thumbs[size_t(baseIdx)],thumbs[size_t(f)]));}));
-            for(auto& j:jobs)shifts.push_back(j.get());
-        }
-        size_t si=0;
-        for(int f:order){
-            if(f==baseIdx)continue;
-            if(select){
-                const float sh=thumbs[size_t(f)].sharp,tr=shifts[si++].second;
-                if(tr>shiftMax||sh<sharpMin*thumbs[size_t(baseIdx)].sharp){
-                    ++dropped;std::snprintf(line,sizeof(line),"; dropped %d (shift %.1f, sharpness %.4f)",f,tr,sh);selectLine+=line;continue;
-                }
-            }
-            donors.push_back(f);
-        }
-    }
+    fastSelectFrames(input,tune,normals,longs,thumbs,baseIdx,donors,dropped,selectLine);
+    thumbsMs=ms(selectStarted,Clock::now());
     // SCAM_FM_MAX_DONORS (replays: a reference with fewer donors, e.g. 0 = the base frame alone through the same passes)
     if(const char* e=std::getenv("SCAM_FM_MAX_DONORS"))donors.resize(std::min(donors.size(),size_t(std::max(0,std::atoi(e)))));
     const HybridFrame& base=input.frames[size_t(baseIdx)];
@@ -521,8 +541,13 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     if(std::getenv("SCAM_FM_FAIL"))throw std::runtime_error("SCAM_FM_FAIL (replay check of the fallback)");
     g.selectRejFilter(tune.fmFilterGather!=0); // P484
     GLint maxTex=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&maxTex);
-    if(2*W>maxTex||H>maxTex)throw std::runtime_error("RAW byte stream "+std::to_string(2*W)+"x"+std::to_string(H)+" above GL_MAX_TEXTURE_SIZE "+std::to_string(maxTex));
-    if(OW>maxTex||OH>maxTex)throw std::runtime_error("output "+std::to_string(OW)+"x"+std::to_string(OH)+" above GL_MAX_TEXTURE_SIZE "+std::to_string(maxTex));
+    // P627: the byte stream is a texture only with SCAM_FM_DIRECT_UPLOAD (else storage buffers: the widest texture is HALF / OUT)
+    const int widest=std::getenv("SCAM_FM_DIRECT_UPLOAD")?2*W:w2;
+    if(const char* e=std::getenv("SCAM_FM_MAX_TEX"))maxTex=std::min<GLint>(maxTex,std::atoi(e)); // host checks of the column bands
+    if(widest>maxTex||H>maxTex)throw FastMergeLimit("RAW "+std::string(widest==2*W?"byte stream ":"HALF ")+std::to_string(widest)+"x"+std::to_string(H)+" above GL_MAX_TEXTURE_SIZE "+std::to_string(maxTex),
+        H>maxTex?0:int(int64_t(W)*maxTex/widest));
+    if(OW>maxTex||OH>maxTex)throw FastMergeLimit("output "+std::to_string(OW)+"x"+std::to_string(OH)+" above GL_MAX_TEXTURE_SIZE "+std::to_string(maxTex),
+        OH>maxTex?0:int(int64_t(W)*maxTex/OW));
     GLint ssboAlign=256;glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT,&ssboAlign);ssboAlign=std::max(ssboAlign,64);
     const auto gpuReady=Clock::now();
     // tune profile: GPU timestamps (EXT_disjoint_timer_query, no stall) at every stage boundary, summed per stage after the readback
@@ -595,8 +620,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     GLuint acc0=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true),acc1=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true);
     if(stripMode){ // the strips' limits: the viewport moved up by a strip spans the frame, the upload ring holds a whole frame
         GLint vp[2]={0,0},blk=0;glGetIntegerv(GL_MAX_VIEWPORT_DIMS,vp);glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&blk);
-        if(OH>vp[1]||OW>vp[0])throw std::runtime_error("output "+std::to_string(OW)+"x"+std::to_string(OH)+" above GL_MAX_VIEWPORT_DIMS");
-        if(blk>0&&uint64_t(W)*H*2>uint64_t(uint32_t(blk)))throw std::runtime_error("RAW frame above GL_MAX_SHADER_STORAGE_BLOCK_SIZE");
+        if(const char* e=std::getenv("SCAM_FM_MAX_BLOCK_MB"))blk=std::min<GLint>(blk>0?blk:INT32_MAX,std::atoi(e)<<20); // host checks
+        if(OH>vp[1]||OW>vp[0])throw FastMergeLimit("output "+std::to_string(OW)+"x"+std::to_string(OH)+" above GL_MAX_VIEWPORT_DIMS",OH>vp[1]?0:int(int64_t(W)*vp[0]/OW));
+        if(blk>0&&uint64_t(W)*H*2>uint64_t(uint32_t(blk)))throw FastMergeLimit("RAW frame above GL_MAX_SHADER_STORAGE_BLOCK_SIZE ("+std::to_string(blk>>20)+" MB)",
+            int(uint64_t(uint32_t(blk))/(uint64_t(H)*2)));
     }
     GLuint zeroFlow=g.texture(GL_RGBA16F,1,1,false),constRej=g.texture(GL_RG8,1,1,false),gainOne=g.texture(GL_RGBA16F,1,1,false),
            offsetZero=g.texture(GL_RGBA16F,1,1,false),zeroMask=g.texture(GL_R8,1,1,false),oneScope=g.texture(GL_R8,1,1,false);
@@ -1767,8 +1794,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             // the strip's GPU buffers (36 B a pixel with its halo) within a quarter of MemAvailable, as the chroma median's bands
             if(const uint64_t avail=hybridMemAvailable()){const int64_t rows=int64_t(avail/4/(uint64_t(OW)*36))-2*ChromaMedianGpu::kQlHalo;
                 gq->qlStrip=int(std::max<int64_t>(64,std::min<int64_t>(1024,rows)));}
-            const std::string t=gq->quadLattice(out,OW,OH);chromaKeep(std::move(gq));
-            report("HYBRID FAST MERGE MOSAIC: Quad lattice off the luma (P571): "+t+", "+std::to_string(int(ms(q0,Clock::now())))+" ms");}
+            const bool rel=tune.fastQuadLattice>=2; // P632: the lattice relative to the luma (1 = in luma units, P591)
+            const std::string t=gq->quadLattice(out,OW,OH,2.5f,rel);chromaKeep(std::move(gq));
+            report(std::string("HYBRID FAST MERGE MOSAIC: Quad lattice off the luma (P571, ")+(rel?"relative P632":"luma units P591")+"): "+t+", "+std::to_string(int(ms(q0,Clock::now())))+" ms");}
         catch(const std::exception& e){report(std::string("HYBRID FAST MERGE MOSAIC: Quad lattice pass skipped: ")+e.what());}
     }
     if(statsOut)*statsOut=stats;
@@ -1781,6 +1809,128 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         *hlMaskOut=std::move(hlMask);
     }
     return out;
+}
+
+// ---- P627 (owner, 2026-11-11: «Every processing mode must ALWAYS stay on the mode the user selected»): «Быстрый» never hands a
+// shot to the SCAM merge. A frame past the GPU's limits (FastMergeLimit: a 200 MP frame's ring above Mali's 128 MB storage block,
+// an output past the texture size) is merged by the same route in column bands: the whole frame's frame pick once (tune.fastPick),
+// each band (its columns + kFastBandMargin RAW px on each side, copied) a fast merge of its own, the bands blended over
+// kFastBandBlend px at each seam; the merged DNG, the clip flags and the effective map made from the stitched result. Any other
+// failure: the fast route again on a new context; a second failure, or a burst the route cannot take at all, fails the job
+// («HYBRID ROUTE: ...»: the app saves the base frame alone and says so).
+constexpr int kFastBandMargin=256,kFastBandBlend=64;
+inline std::vector<float> hybridFastMergeBands(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
+                                              std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags,int maxW){
+    using Clock=std::chrono::steady_clock;
+    const auto started=Clock::now();
+    const int W=input.w,H=input.h;
+    const std::array<int,2> o=hybridFastOut(input,tune);
+    const int OW=o[0],OH=o[1];
+    const double sx=double(OW)/W;
+    const int bandMax=(std::min(maxW,W)-0)&~15;
+    if(bandMax<2*kFastBandMargin+256)throw std::runtime_error("HYBRID ROUTE: «Быстрый» cannot run: the GPU takes a frame "+std::to_string(maxW)+" px wide at most");
+    const int core=bandMax-2*kFastBandMargin;
+    const int nb=(W+core-1)/core;
+    // the seams (RAW px, multiples of 16), evenly spaced
+    std::vector<int> seam(size_t(nb+1));
+    for(int i=0;i<=nb;++i)seam[size_t(i)]=i==nb?W:int(int64_t(W)*i/nb)&~15;
+    // the whole frame's pick (the bands select nothing of their own: one base, the same donors everywhere)
+    std::vector<int> normals,longs;
+    for(int f=0;f<int(input.frames.size());++f){const HybridFrame& fr=input.frames[size_t(f)];
+        if(!fr.raw||!(fr.exposure>0.f))continue;
+        if(f==0||(fr.role==kRoleNormal&&std::abs(fr.exposure-1.f)<0.02f))normals.push_back(f);
+        else if(fr.role==kRoleBracketed){if(fr.exposure>=1.2f)longs.push_back(f); else normals.push_back(f);}}
+    std::vector<FastThumb> thumbs(input.frames.size());int baseIdx=0,dropped=0;std::vector<int> donors;std::string selectLine;
+    fastSelectFrames(input,tune,normals,longs,thumbs,baseIdx,donors,dropped,selectLine);
+    HybridTuning bt=tune;bt.fastPick.clear();bt.fastPick.push_back(baseIdx);for(int f:donors)bt.fastPick.push_back(f);
+    {char t[300];std::snprintf(t,sizeof(t),"HYBRID FAST MERGE BANDS: %dx%d in %d column bands of <= %d RAW px (+%d px margins, %d px blends): "
+        "the GPU's limit (%d px wide at this height); %s",W,H,nb,core,kFastBandMargin,kFastBandBlend,maxW,selectLine.c_str());report(t);}
+    std::vector<float> out(size_t(OW)*size_t(OH)*3,0.f);
+    std::vector<float> wsum(size_t(OW),0.f);
+    std::vector<uint8_t> eff(effMap?size_t(OW)*size_t(OH):0),clip(clipFlags?size_t(OW)*size_t(OH):0);
+    std::vector<float> best(size_t(OW),-1.f);
+    // the stream of halves and the highlight mask trailer are whole-frame contracts: off for the bands
+    std::function<bool(const uint16_t*,int,int,int,int,const float*)> halves;std::swap(halves,hybridFinalHalvesHook());
+    std::vector<uint16_t>* hl=hybridHighlightMaskOut();hybridHighlightMaskOut()=nullptr;
+    struct Restore{std::function<bool(const uint16_t*,int,int,int,int,const float*)>& h;std::vector<uint16_t>* m;
+        ~Restore(){std::swap(h,hybridFinalHalvesHook());hybridHighlightMaskOut()=m;}} restore{halves,hl};
+    if(hl)hl->clear();
+    HybridStats stats;double mergeMs=0;
+    for(int bi=0;bi<nb;++bi){
+        const int x0=std::max(0,seam[size_t(bi)]-kFastBandMargin)&~15,x1=std::min(W,(seam[size_t(bi)+1]+kFastBandMargin+15)&~15);
+        const int bw=x1-x0;
+        HybridInput bin=input;bin.w=bw;bin.outW=int(std::lround(bw*sx));bin.outH=OH;bin.mergedDng=false;
+        if(bin.outW%4)bin.outW-=bin.outW%4;
+        std::vector<std::vector<uint16_t>> rows(input.frames.size());
+        for(size_t f=0;f<input.frames.size();++f){
+            if(!input.frames[f].raw)continue;
+            rows[f].resize(size_t(bw)*size_t(H));
+            for(int y=0;y<H;++y)std::memcpy(rows[f].data()+size_t(y)*bw,input.frames[f].raw+size_t(y)*W+x0,size_t(bw)*2);
+            bin.frames[f].raw=rows[f].data();
+        }
+        std::vector<uint8_t> be,bc;HybridStats bs;
+        const auto b0=Clock::now();
+        std::vector<float> r=hybridFastMerge(bin,bt,[&](const std::string& l){report("[band "+std::to_string(bi+1)+"/"+std::to_string(nb)+"] "+l);},
+                                             nullptr,effMap?&be:nullptr,&bs,clipFlags?&bc:nullptr);
+        mergeMs+=std::chrono::duration<double,std::milli>(Clock::now()-b0).count();
+        if(bi==0)stats=bs;
+        const int bow=bin.outW;
+        if(r.size()<size_t(bow)*size_t(OH)*3)throw std::runtime_error("HYBRID FAST MERGE BANDS: band "+std::to_string(bi)+" returned "+std::to_string(r.size()/3)+" px");
+        rows.clear();
+        // its weight per output column: 1 inside, ramps of kFastBandBlend RAW px across the seams to its neighbours
+        const double s0=seam[size_t(bi)],s1=seam[size_t(bi)+1],B=kFastBandBlend;
+        for(int X=int(std::floor(x0*sx));X<std::min(OW,int(std::floor(x0*sx))+bow);++X){
+            const double x=(X+0.5)/sx;const int bx=X-int(std::floor(x0*sx));
+            if(bx<0||bx>=bow)continue;
+            const double wl=bi==0?1.0:std::clamp((x-(s0-B/2))/B,0.0,1.0),wr=bi==nb-1?1.0:std::clamp(((s1+B/2)-x)/B,0.0,1.0);
+            const float w=float(wl*wr);
+            if(w<=0.f)continue;
+            for(int y=0;y<OH;++y){const float* src=r.data()+(size_t(y)*bow+bx)*3;float* d=out.data()+(size_t(y)*OW+X)*3;d[0]+=w*src[0];d[1]+=w*src[1];d[2]+=w*src[2];}
+            wsum[size_t(X)]+=w;
+            if(w>best[size_t(X)]){best[size_t(X)]=w;
+                for(int y=0;y<OH;++y){if(!be.empty())eff[size_t(y)*OW+X]=be[size_t(y)*bow+bx];if(!bc.empty())clip[size_t(y)*OW+X]=bc[size_t(y)*bow+bx];}}
+        }
+    }
+    for(int X=0;X<OW;++X){const float w=wsum[size_t(X)];if(w>0.f&&w!=1.f)for(int y=0;y<OH;++y){float* d=out.data()+(size_t(y)*OW+X)*3;d[0]/=w;d[1]/=w;d[2]/=w;}}
+    if(effMap)effMap->swap(eff);
+    if(clipFlags)clipFlags->swap(clip);
+    if(mergedDng&&input.mergedDng){
+        const int block=input.mosaic!=0?input.mosaic:hybridMosaicBlock(input,tune,report);
+        const int dngBlock=(block==2||block==4)&&tune.dngMosaic!=0?block:1;
+        const double kx=double(OW)/W,ky=double(OH)/H;
+        auto at=[&](int x,int y,int c){
+            if(OW==W&&OH==H)return out[(size_t(y)*W+x)*3+size_t(c)];
+            const double xa=x*kx,xb=(x+1)*kx,ya=y*ky,yb=(y+1)*ky;double sum=0,ws=0;
+            for(int oy=int(ya);oy<std::min(OH,int(std::ceil(yb)));++oy){const double wy=std::min(yb,oy+1.0)-std::max(ya,double(oy));if(wy<=0)continue;
+                for(int ox=int(xa);ox<std::min(OW,int(std::ceil(xb)));++ox){const double wx=std::min(xb,ox+1.0)-std::max(xa,double(ox));if(wx<=0)continue;
+                    sum+=wx*wy*out[(size_t(oy)*OW+ox)*3+size_t(c)];ws+=wx*wy;}}
+            return float(sum/std::max(ws,1e-12));
+        };
+        const float headroom=hybridWriteMergedDng(*mergedDng,W,H,input,at,tune.dngDither!=0,dngBlock);
+        report(hybridDngReport(headroom,W,H,hybridDngCeiling(input),tune.dngDither!=0));
+    }
+    stats.mergeMs=std::chrono::duration<double,std::milli>(Clock::now()-started).count();
+    report("HYBRID FAST MERGE BANDS: "+std::to_string(nb)+" bands merged in "+std::to_string(int(mergeMs))+" ms, "+std::to_string(int(stats.mergeMs))+" ms in all");
+    if(statsOut)*statsOut=stats;
+    return out;
+}
+
+inline std::vector<float> hybridFastRoute(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
+                                         std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags){
+    std::string why;
+    if(!hybridFastEligible(input,tune,report,why))throw std::runtime_error("HYBRID ROUTE: «Быстрый» cannot run: "+why);
+    for(int attempt=0;;++attempt){
+        try{return hybridFastMerge(input,tune,report,mergedDng,effMap,statsOut,clipFlags);}
+        catch(const FastMergeLimit& e){
+            report(std::string("HYBRID FAST MERGE: ")+e.what()+": the fast route in column bands");
+            if(e.maxW<=0)throw std::runtime_error(std::string("HYBRID ROUTE: «Быстрый» cannot run: ")+e.what()+" (the frame's height)");
+            return hybridFastMergeBands(input,tune,report,mergedDng,effMap,statsOut,clipFlags,e.maxW);
+        }
+        catch(const std::exception& e){
+            if(attempt>=1)throw std::runtime_error(std::string("HYBRID ROUTE: «Быстрый» could not run (")+e.what()+", twice)");
+            report(std::string("HYBRID FAST MERGE: failed (")+e.what()+"); the fast route again on a new GPU context (P627: never another mode's merge)");
+        }
+    }
 }
 
 } // namespace scam

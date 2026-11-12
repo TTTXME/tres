@@ -20,12 +20,18 @@ public final class IszAspectCrop {
     }
 
     public static Rect bounds(int width, int height) {
+        final int[] b = box(width, height);
+        return new Rect(b[0], b[1], b[0] + b[2], b[1] + b[3]);
+    }
+
+    /** {@link #bounds} as {x, y, width, height} (P618: the DNG's DefaultCrop, without android.graphics). */
+    public static int[] box(int width, int height) {
         int unit = unit(width, height);
         if (unit < 2) throw new IllegalArgumentException("Image too small for even 4:3 crop");
         int w = width >= height ? 4 * unit : 3 * unit;
         int h = width >= height ? 3 * unit : 4 * unit;
         int x = (width - w) / 2, y = (height - h) / 2;
-        return new Rect(x, y, x + w, y + h);
+        return new int[]{x, y, w, h};
     }
 
     /**

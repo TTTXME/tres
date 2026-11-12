@@ -216,8 +216,8 @@ public class SettingsConceptShotsTest {
             activity.getOnBackPressedDispatcher().onBackPressed();
             root = shown(activity);
 
-            // the number editor over «Склейка»
-            open(root, "scam_hybrid_merge_screen");
+            // the number editor over «Шумоподавление и склейка» (P629)
+            open(root, "scam_hybrid_dnmerge_screen");
             SettingsActivity.SettingsFragment merge = shown(activity);
             com.google.android.material.bottomsheet.BottomSheetDialog sheet =
                     PrecisionEditor.show(activity, null, context.getString(R.string.zsl_buffer_count), 1, 100, 50, 50, false, v -> { });

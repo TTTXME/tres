@@ -422,7 +422,7 @@ public class ModuleProfilesPageTest {
             controller.setup();
             SettingsActivity activity = controller.get();
             activity.getSupportFragmentManager().beginTransaction()
-                    .replace(R.id.settings_container, SettingsActivity.SettingsFragment.modulePage("back0", "scam_hybrid_merge_screen"))
+                    .replace(R.id.settings_container, SettingsActivity.SettingsFragment.modulePage("back0", "scam_hybrid_dnmerge_screen"))
                     .addToBackStack("module").commit();
             SettingsActivity.SettingsFragment page = (SettingsActivity.SettingsFragment) top(activity);
             assertTrue(page.isResumed());
@@ -497,8 +497,8 @@ public class ModuleProfilesPageTest {
             back(activity);
             assertEquals("back1@full200", PreferenceKeys.profiles().editing());
             root = (SettingsActivity.SettingsFragment) top(activity);
-            // P406: a processing page of «Настройки изображения»
-            activity.onPreferenceStartScreen(root, root.findPreference("scam_hybrid_merge_screen"));
+            // P406 / P629: a processing page (the group under «Режим обработки»)
+            activity.onPreferenceStartScreen(root, root.findPreference("scam_hybrid_dnmerge_screen"));   // P629: «Шумоподавление и склейка»
             Fragment next = top(activity);
             assertTrue(String.valueOf(next), next instanceof SettingsActivity.SettingsFragment);
             assertEquals("back1@full200", ((SettingsActivity.SettingsFragment) next).moduleProfile());

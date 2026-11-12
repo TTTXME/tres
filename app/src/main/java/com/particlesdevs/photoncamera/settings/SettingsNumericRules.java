@@ -70,6 +70,7 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_dn_chroma_floor": return new double[]{0,5,0};
             case "pref_scam_hybrid_dn_chroma_2x_keep": return new double[]{0,1,0};
             case "pref_scam_hybrid_zsl_frames": return new double[]{4,65,1};
+            case "pref_scam_hybrid_static_iters": return new double[]{4,16,1}; // P624 «Статика»: HQS iterations
             // P190: frames of a FULLRES 50 MP shot (0 = as «Кадров в склейке») and of a 200 MP one (the owner's floor of 3)
             case "pref_scam_hybrid_fullres50_frames": return new double[]{0,65,1};
             case "pref_scam_hybrid_fullres200_frames": return new double[]{3,64,1};
@@ -103,7 +104,7 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_ae_target": return new double[]{0.02,0.5,0};
             case "pref_scam_hybrid_why_ae_max_boost": return new double[]{1,16,0};
             case "pref_scam_hybrid_why_ae_min_limit": return new double[]{0.1,1,0};
-            case "pref_scam_hybrid_why_hl_overflow": return new double[]{0.5,8,0};
+            case "pref_scam_hybrid_why_hl_overflow": return new double[]{0.5,10,0};
             case "pref_scam_hybrid_why_night_thresh": return new double[]{0.01,0.20,0};
             case "pref_scam_hybrid_why_night_dim": return new double[]{0.5,1.5,0};
             case "pref_scam_hybrid_why_metering": return new double[]{0,2,1};
@@ -112,13 +113,13 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_dark_pixel_thresh": return new double[]{1,50,0};
             case "pref_scam_hybrid_why_hl_boost": return new double[]{0,4,0};
             case "pref_scam_hybrid_why_contrast_boost": return new double[]{0,2,0};
-            case "pref_scam_hybrid_why_shadow_str": case "pref_scam_hybrid_why_highlight_str": return new double[]{0,4,0};
+            case "pref_scam_hybrid_why_shadow_str": case "pref_scam_hybrid_why_highlight_str": return new double[]{0,5,0};
             case "pref_scam_hybrid_why_weight_center": return new double[]{0.2,0.9,0};
             case "pref_scam_hybrid_why_blend_smoothness": return new double[]{0.05,1,0};
             case "pref_scam_hybrid_why_weight_hl": case "pref_scam_hybrid_why_weight_mid":
             case "pref_scam_hybrid_why_weight_dark2": case "pref_scam_hybrid_why_weight_bright": return new double[]{0,2,0};
             case "pref_scam_hybrid_why_ef_coarse": return new double[]{8,512,1};
-            case "pref_scam_hybrid_why_aces_toe": return new double[]{0.005,0.2,0};
+            case "pref_scam_hybrid_why_aces_toe": return new double[]{0.005,0.3,0};
             // P144: ACES and Uchimura of «Кривая AgX и ACES» (WhyCam 1.42 ParamRegistry ranges)
             case "pref_scam_hybrid_why_aces_pre_gain": case "pref_scam_hybrid_why_uchi_pre_gain":
             case "pref_scam_hybrid_why_uchi_post_gain": return new double[]{0.2,3,0};
@@ -130,9 +131,9 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_uchi_l": return new double[]{0.1,0.8,0};
             case "pref_scam_hybrid_why_uchi_b": return new double[]{0,0.2,0};
             case "pref_scam_hybrid_why_bracket_denoise": return new double[]{0,1,0};
-            case "pref_scam_hybrid_why_gamma": return new double[]{1.6,2.8,0};
+            case "pref_scam_hybrid_why_gamma": return new double[]{1,3,0};
             case "pref_scam_hybrid_why_film_toe": return new double[]{0,0.5,0};
-            case "pref_scam_hybrid_why_macro_contrast": return new double[]{0.8,1.5,0};
+            case "pref_scam_hybrid_why_macro_contrast": return new double[]{0.5,2,0};
             // P402: the reference app's settings ported (HDR shoulder, highlight protection, inset, matrix saturation, the reference layout's
             // weights, the pyramid denoise, the dezipper)
             case "pref_scam_hybrid_why_hl_blend": case "pref_scam_hybrid_why_hr_strength": case "pref_scam_hybrid_why_classic_weight_center":
@@ -168,6 +169,23 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_face_exposure": return new double[]{-2,2,0};
             case "pref_scam_hybrid_why_face_smooth": case "pref_scam_hybrid_why_face_mask_skin": return new double[]{0,100,1};
             case "pref_scam_hybrid_why_face_mask_size": return new double[]{50,150,1};
+            // P614 «Why тон» V2: its own rows (the reference's ranges); the merged rows keep V1's (frozen: settings_rows_frozen.tsv)
+            // but eight the owner widened to the reference's (2026-11-11): AE highlight protection threshold to 10, highlight /
+            // shadow strength to 5, macro contrast 0.5-2, gamma 1-3, AgX min EV -15..-2, AgX EV +-3, ACES toe to 0.3 (above)
+            case "pref_scam_hybrid_why_v2_clarity": return new double[]{-0.5,1,0};
+            case "pref_scam_hybrid_why_v2_skin_hue_center": return new double[]{25,65,0};
+            case "pref_scam_hybrid_why_v2_hr_amount": return new double[]{0,2,0};
+            // P630 «Oldstyle Тон» (OldstyleMode.params; defaults the specification's behaviour)
+            case "pref_scam_hybrid_oldstyle_max_gain": return new double[]{1,64,0};
+            case "pref_scam_hybrid_oldstyle_v1_lowfreq_threshold": return new double[]{0,64,1};
+            case "pref_scam_hybrid_oldstyle_dehaze_max_dark": return new double[]{0,128,1};
+            case "pref_scam_hybrid_oldstyle_dehaze_percentile": return new double[]{0,5,0};
+            case "pref_scam_hybrid_oldstyle_dehaze_corner": return new double[]{0,1,0};
+            case "pref_scam_hybrid_oldstyle_out_sat": return new double[]{-1,1,0};
+            case "pref_scam_hybrid_oldstyle_out_vibrance": return new double[]{0,2,0};
+            case "pref_scam_hybrid_oldstyle_out_sat_per_stop": return new double[]{-0.5,0.5,0};
+            case "pref_scam_hybrid_oldstyle_out_vibrance_per_stop": return new double[]{-0.5,0.5,0};
+            case "pref_scam_hybrid_oldstyle_v2_saturation": return new double[]{-0.5,0.5,0};
             case "pref_scam_hybrid_why_curve_lift": return new double[]{-100,100,1};
             case "pref_scam_hybrid_why_curve_contrast": return new double[]{-100,100,1};
             case "pref_scam_hybrid_why_curve_shadow_contrast": return new double[]{-100,100,1};
@@ -230,9 +248,9 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_why_agx_look": return new double[]{0,4,1};
             case "pref_scam_hybrid_why_agx_slope": return new double[]{1,5,0};
             case "pref_scam_hybrid_why_agx_sp": case "pref_scam_hybrid_why_agx_tp": return new double[]{0.5,3,0};
-            case "pref_scam_hybrid_why_agx_min_ev": return new double[]{-14,-4,0};
+            case "pref_scam_hybrid_why_agx_min_ev": return new double[]{-15,-2,0};
             case "pref_scam_hybrid_why_agx_max_ev": return new double[]{1,8,0};
-            case "pref_scam_hybrid_why_agx_ev": return new double[]{-2,2,0};
+            case "pref_scam_hybrid_why_agx_ev": return new double[]{-3,3,0};
             case "pref_scam_hybrid_why_agx_sat": return new double[]{0,2,0};
             case "pref_scam_hybrid_why_hl_white": return new double[]{0,1,0};
             case "pref_scam_hybrid_why_hl_soft": return new double[]{0,0.9,0};
@@ -268,6 +286,7 @@ public final class SettingsNumericRules {
             case "pref_scamhdr_post_chroma": case "pref_scamhdr_post_luma": return new double[]{0,2,0};
             case "pref_watermark_size": return new double[]{3,20,0};
             case "pref_watermark_opacity": return new double[]{10,100,1};
+            case "pref_watermark_margin": return new double[]{0,10,1}; // P628: percent of the short side
             case "pref_jpeg_quality": return new double[]{70,100,1};
             case "pref_heic_quality": case "pref_webp_quality": case "pref_avif_quality": return new double[]{1,100,1};
             case "pref_avif_speed": return new double[]{0,10,1};

@@ -751,6 +751,12 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     /** Back: to the grid (the library when the viewer was the start). */
     private void onGalleryButtonClick() {
         if (navController == null) return;
+        // P621: a lock-screen review (REVIEW_SECURE) never shows the library: leaving the photo closes the gallery
+        if (getActivity() instanceof com.particlesdevs.photoncamera.gallery.ui.GalleryActivity
+                && ((com.particlesdevs.photoncamera.gallery.ui.GalleryActivity) getActivity()).secureReview()) {
+            getActivity().finish();
+            return;
+        }
         toGrid(navController);
     }
 

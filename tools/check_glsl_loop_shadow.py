@@ -15,8 +15,9 @@ FUNC = re.compile(r"(?m)^[ \t]*(?:highp\s+|mediump\s+|lowp\s+)?(?:void|" + TYPES
 def sources():
     for p in sorted((ROOT / "app/src/main/cpp").glob("*.h")) + sorted((ROOT / "app/src/main/cpp").glob("*.cpp")):
         text = p.read_text(errors="replace")
-        for m in re.finditer(r'R"\((.*?)\)"', text, re.S):
-            yield f"{p.relative_to(ROOT)}:{text.count(chr(10), 0, m.start()) + 1}", m.group(1)
+        # raw strings with any delimiter (R"( )", P624's R"ST( )ST")
+        for m in re.finditer(r'R"(\w{0,16})\((.*?)\)\1"', text, re.S):
+            yield f"{p.relative_to(ROOT)}:{text.count(chr(10), 0, m.start()) + 1}", m.group(2)
     for p in sorted((ROOT / "app/src/main/assets/shaders").rglob("*.glsl")):
         yield str(p.relative_to(ROOT)), p.read_text(errors="replace")
 

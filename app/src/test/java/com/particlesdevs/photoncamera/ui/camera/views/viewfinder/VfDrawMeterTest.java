@@ -59,4 +59,75 @@ public class VfDrawMeterTest {
         final String s = VfDrawMeter.span(base, base + 89 * 33L);
         assertTrue(s, s.startsWith("30.") && s.endsWith("fps/33ms"));
     }
+
+    /**
+     * P616: the cause of a gap - the 31254 log's: a 298 ms draw blocked in the RAW upload (296 ms of it), the new camera's stream
+     * (no frame for most of the gap), the settings screen (paused), a lens switch (restart), a frame there but drawn late.
+     */
+    @Test
+    public void aGapIsClassifiedByWhereItsTimeWent() {
+        assertEquals(VfDrawMeter.UPLOAD, VfDrawMeter.classify(1000, 1298, 298, 296, 990, false, false));
+        assertEquals("the draw, not its upload", VfDrawMeter.DRAW, VfDrawMeter.classify(1000, 1200, 150, 10, 990, false, false));
+        assertEquals("the frame came 280 ms after the draw before", VfDrawMeter.CAMERA, VfDrawMeter.classify(1000, 1300, 15, 5, 1280, false, false));
+        assertEquals("a frame there, drawn late", VfDrawMeter.WAIT, VfDrawMeter.classify(1000, 1300, 15, 5, 1010, false, false));
+        assertEquals("no frame time known: a wait", VfDrawMeter.WAIT, VfDrawMeter.classify(1000, 1300, 15, 5, -1, false, false));
+        assertEquals(VfDrawMeter.HIDDEN, VfDrawMeter.classify(1000, 3000, 300, 290, 2990, true, false));
+        assertEquals(VfDrawMeter.RESTART, VfDrawMeter.classify(1000, 1800, 20, 0, 1790, false, true));
+        assertEquals("the first draw has no gap", VfDrawMeter.NONE, VfDrawMeter.classify(-1, 1000, 300, 300, 990, false, false));
+        assertEquals("upload", VfDrawMeter.causeName(VfDrawMeter.UPLOAD));
+        assertEquals("edge", VfDrawMeter.causeName(VfDrawMeter.NONE));
+    }
+
+    /** P616: a stage's longest gap named with its cause and node; paused and restarted time left out of the fps and the gap. */
+    @Test
+    public void aStageNamesItsLongestGapAndLeavesThePausedTimeOut() {
+        final int len = 64;
+        long[] t = new long[len];
+        byte[] c = new byte[len];
+        short[] d = new short[len], u = new short[len];
+        String[] node = new String[len];
+        int n = 0;
+        for (int i = 0; i < 15; i++) { t[n] = 1000 + i * 33L; c[n] = VfDrawMeter.WAIT; d[n] = 12; n++; }
+        // the post's stall: one draw of 298 ms, 296 of it the upload, in ScamHdrDenoise
+        t[n] = t[n - 1] + 298; c[n] = VfDrawMeter.UPLOAD; d[n] = 298; u[n] = 296; node[n] = "ScamHdrDenoise"; n++;
+        while (t[n - 1] + 33 <= 2000) { t[n] = t[n - 1] + 33; c[n] = VfDrawMeter.WAIT; d[n] = 12; n++; }
+        String[] r = VfDrawMeter.stageOf(t, c, d, u, node, n, 1000, 2000, -1);
+        assertTrue(r[0], r[0].endsWith("fps/298ms"));
+        assertEquals("298ms:upload(296)@ScamHdrDenoise", r[1]);
+        assertEquals("the same span as P611's", VfDrawMeter.spanOf(t, n, 1000, 2000), r[0]);
+
+        // the settings screen during the post: no draw until the resume's first one (hidden) after the stage
+        t = new long[len]; c = new byte[len]; d = new short[len]; u = new short[len]; node = new String[len]; n = 0;
+        for (int i = 0; i < 10; i++) { t[n] = 4000 + i * 33L; c[n] = VfDrawMeter.WAIT; n++; }
+        t[n] = 6500; c[n] = VfDrawMeter.HIDDEN; n++;
+        r = VfDrawMeter.stageOf(t, c, d, u, node, n, 4000, 5000, -1);
+        assertEquals("the draws over the 0.3 s shown, the paused 0.7 s left out", "33.7fps/33ms", r[0]);
+        assertEquals("hidden=703ms", r[1]);
+        // still paused when the summary is written (no draw after the stage yet)
+        n--;
+        t[n] = 0;
+        c[n] = VfDrawMeter.NONE;
+        r = VfDrawMeter.stageOf(t, c, d, u, node, n, 4000, 5000, 4400);
+        assertEquals("hidden=703ms", r[1]);
+        assertEquals("not paused: the tail is a gap of its own", "703ms:no_draw_yet", VfDrawMeter.stageOf(t, c, d, u, node, n, 4000, 5000, -1)[1]);
+        r = VfDrawMeter.stageOf(t, c, d, u, node, n, 4300, 5000, 4250);
+        assertEquals("nothing shown: unknown", "?", r[0]);
+
+        // a lens switch in the merge, then the new camera's slow first frames
+        t = new long[len]; c = new byte[len]; d = new short[len]; u = new short[len]; node = new String[len]; n = 0;
+        for (int i = 0; i < 6; i++) { t[n] = 8000 + i * 33L; c[n] = VfDrawMeter.WAIT; n++; }
+        t[n] = t[n - 1] + 600; c[n] = VfDrawMeter.RESTART; n++;
+        t[n] = t[n - 1] + 180; c[n] = VfDrawMeter.CAMERA; n++;
+        while (t[n - 1] + 33 <= 9500) { t[n] = t[n - 1] + 33; c[n] = VfDrawMeter.WAIT; n++; }
+        r = VfDrawMeter.stageOf(t, c, d, u, node, n, 8000, 9500, -1);
+        assertTrue(r[0], r[0].endsWith("fps/180ms"));
+        assertEquals("180ms:camera,restart=600ms", r[1]);
+
+        // a smooth stage has no note
+        t = new long[len]; c = new byte[len]; n = 0;
+        for (int i = 0; i < 31; i++) { t[n] = 20000 + i * 33L; c[n] = VfDrawMeter.WAIT; n++; }
+        r = VfDrawMeter.stageOf(t, c, new short[len], new short[len], new String[len], n, 20000, 21000, -1);
+        assertEquals(null, r[1]);
+        assertEquals("-", VfDrawMeter.stageOf(t, c, d, u, node, n, 20000, 20050, -1)[0]);
+    }
 }

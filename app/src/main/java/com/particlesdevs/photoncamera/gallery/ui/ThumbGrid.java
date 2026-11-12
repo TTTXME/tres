@@ -16,8 +16,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
 import com.particlesdevs.photoncamera.R;
 
 import java.util.ArrayList;
@@ -103,8 +101,9 @@ public final class ThumbGrid extends RecyclerView.Adapter<ThumbGrid.Holder> {
     @Override
     public void onBindViewHolder(@NonNull Holder h, int position) {
         Cell cell = cells.get(position);
-        Glide.with(h.image).load(cell.uri).apply(new RequestOptions().diskCacheStrategy(DiskCacheStrategy.RESOURCE).override(px, px).centerCrop())
-                .into(h.image);
+        // P620: the thumbnail decoder (the cheapest large-enough source), uncropped (the view crops)
+        com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.request(Glide.with(h.image),
+                com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.of(cell.uri), px).into(h.image);
         h.badge.setVisibility(cell.badge != null ? View.VISIBLE : View.GONE);
         h.badge.setText(cell.badge);
         h.video.setVisibility(cell.video ? View.VISIBLE : View.GONE);

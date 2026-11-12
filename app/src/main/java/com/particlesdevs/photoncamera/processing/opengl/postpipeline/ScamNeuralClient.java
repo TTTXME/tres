@@ -215,6 +215,9 @@ public final class ScamNeuralClient {
         final Context app=context.getApplicationContext();
         // Called from the camera session setup: everything else (worker check, tuning text, scam_dev.txt) runs on the prewarm
         // thread, and nothing it does can fail the session.
+        // P625: the Java pixel loop of the burst's preparation compiled before the first shot (once a process, ahead of the GPU's)
+        try{PREWARM.execute(()->{final String l=com.particlesdevs.photoncamera.processing.render.PrepWarm.once();if(l!=null)Log.i("SCAM_HDR",l);});}
+        catch(RuntimeException e){Log.w("SCAM_HDR","PREP WARM: "+e);}
         try{PREWARM.execute(()->prewarmRun(app,b));}catch(RuntimeException e){Log.w("SCAM_HDR","HYBRID PREWARM: "+e);}
     }
     /**
@@ -285,7 +288,8 @@ public final class ScamNeuralClient {
         final long header=com.particlesdevs.photoncamera.processing.ShotTimeline.between("ctor_done","spawn");
         final long total=com.particlesdevs.photoncamera.processing.ShotTimeline.between("proc","spawn");
         return "HYBRID JAVA PREP ms: sharp="+sharp+" meta="+(beforeCall>=0&&sharp>=0?beforeCall-sharp:-1)+" mosaic="+mosaic
-                +" ctor="+(ctorAll>=0&&mosaic>=0?ctorAll-mosaic:-1)+" header="+header+" total="+total;
+                +" ctor="+(ctorAll>=0&&mosaic>=0?ctorAll-mosaic:-1)+" header="+header+" total="+total
+                +com.particlesdevs.photoncamera.processing.ShotTimeline.prepParts(); // P625: meta's parts
     }
     private static File cachedAsset(Context context,ZipFile apk,java.util.zip.ZipEntry entry,String prefix,String name) throws IOException {
         File dir=new File(assetCacheDir(context),prefix.replace('/','_'));
@@ -596,7 +600,9 @@ public final class ScamNeuralClient {
             reader.setDaemon(true);reader.start();
             }
             // P27 any resolution: a Hybrid merge above 16 MP gets a wait in proportion to its pixels (900 s up to 16 MP, unchanged).
-            final long timeoutS=hybridMerge?ScamHybridBurst.workerTimeoutSeconds(scamBurst.width(),scamBurst.height()):900;
+            // P627c: «Статика» by its own alarm (the pixels, its backend)
+            final long timeoutS=!hybridMerge?900:scamBurst instanceof ScamHybridBurst?((ScamHybridBurst)scamBurst).workerTimeoutSeconds()
+                    :ScamHybridBurst.workerTimeoutSeconds(scamBurst.width(),scamBurst.height());
             if(timeoutS>900)log.accept("CLIENT: worker timeout "+timeoutS+" s for "+scamBurst.width()+"x"+scamBurst.height());
             final WorkerWatchdog.Worker watched=completion.watched(new WorkerWatchdog.Worker(){
                 @Override public boolean waitFor(long ms) throws InterruptedException{return child.waitFor(ms);}

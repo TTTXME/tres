@@ -80,10 +80,22 @@ public class HybridSettingsTest {
         assertNull(root.findPreference("scam_hybrid_screen"));
         PreferenceGroup hybrid=root.findPreference("root_colour");
         assertNotNull(hybrid);
-        for(String screen:new String[]{"scam_hybrid_photo_screen","scam_hybrid_why_sharp_screen","scam_hybrid_why_tone_screen",
-                "scam_hybrid_hdr_screen","scam_hybrid_merge_screen","scam_hybrid_mosaic_screen","scam_hybrid_why_rl_screen",
-                "photo_processing_screen"})
+        for(String screen:new String[]{"scam_hybrid_why_sharp_screen",
+                "scam_hybrid_hdr_screen","scam_hybrid_why_rl_screen","photo_processing_screen"})
             assertTrue(screen,hybrid.findPreference(screen) instanceof PreferenceScreen);
+        // P629b: the tone's pages in «Настройки тона» under «Why тон»
+        PreferenceGroup tone=root.findPreference("tone_settings_screen");
+        assertTrue(tone instanceof PreferenceScreen);assertEquals(root,tone.getParent());
+        for(String screen:new String[]{"scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen"}){
+            assertTrue(screen,tone.findPreference(screen) instanceof PreferenceScreen);
+            assertNull(screen,hybrid.findPreference(screen));
+        }
+        // P629: the denoise and the merge in one group under «Режим обработки» (the mosaic page and «Спорт» inside it)
+        PreferenceGroup dnMerge=root.findPreference("scam_hybrid_dnmerge_screen");
+        assertTrue(dnMerge instanceof PreferenceScreen);assertEquals(root,dnMerge.getParent());
+        for(String screen:new String[]{"scam_hybrid_mosaic_screen","scam_hybrid_motion_screen"})
+            assertTrue(screen,dnMerge.findPreference(screen) instanceof PreferenceScreen);
+        for(String gone:new String[]{"scam_hybrid_photo_screen","scam_hybrid_merge_screen"})assertNull(gone,root.findPreference(gone));
         // P443: the SCAM 9.6 denoise's tuning pages left the menu (the Resolve engine is the default; scam_dev keys)
         for(String screen:new String[]{"scam_hybrid_nr_snr_screen","scam_hybrid_nr_mult_screen","scam_hybrid_nr_safe_screen",
                 "scam_hybrid_nr_why_luma_screen","scam_hybrid_nr_why_chroma_screen"})
@@ -131,9 +143,11 @@ public class HybridSettingsTest {
     }
 
     @Test public void listSummariesFormatWithTheirEntries() {
-        // P406: the processing pages are rows of «Настройки изображения», as the reference app's categories
-        PreferenceGroup hybrid=inflate().findPreference("root_colour");
-        List<Preference> inside=new ArrayList<>();collect(hybrid,inside);
+        // P406: the processing pages are rows of «Настройки изображения», as the reference app's categories; P629: the denoise and
+        // merge pages are the group «Шумоподавление и склейка» under the processing mode
+        PreferenceScreen tree=inflate();
+        List<Preference> inside=new ArrayList<>();collect(tree.findPreference("root_colour"),inside);collect(tree.findPreference("scam_hybrid_dnmerge_screen"),inside);
+        collect(tree.findPreference("tone_settings_screen"),inside);   // P629b
         int lists=0;
         for(Preference p:inside) if(p instanceof ListPreference&&p.getKey().startsWith(PreferenceKeys.HYBRID_PREFIX)){
             ListPreference l=(ListPreference)p;lists++;
@@ -319,7 +333,7 @@ public class HybridSettingsTest {
         assertTrue(tuning,tuning.contains("hotSigma 0.0\n"));
         assertTrue(tuning,tuning.contains("cellClip 0\n"));assertTrue(tuning,tuning.contains("bentoScam 0\n"));
         // XML default = the app default (setDefaultValues writes it into every user's preferences): «Всегда» = "1".
-        PreferenceScreen settings=inflate();PreferenceGroup hybrid=settings.findPreference("root_colour");
+        PreferenceScreen settings=inflate();PreferenceGroup hybrid=settings.findPreference("scam_hybrid_dnmerge_screen");   // P629
         assertEquals("2",((ListPreference)hybrid.findPreference("pref_scam_hybrid_sabre61")).getEntryValues()[2].toString());
         prefs.edit().clear().commit();
         inflate();
@@ -330,7 +344,8 @@ public class HybridSettingsTest {
 
     /** P118: rows that act only with another setting off its default are greyed with the reason; «Карта силы» has no duplicate. */
     @Test public void conditionalRowsFollowTheirSetting() {
-        Map<String,Object> s=new HashMap<>();
+        // P629: the rows of the SCAM merge, read with «Качество» (the other modes grey them: MergeRouteSettingsTest)
+        Map<String,Object> s=new HashMap<>();s.put("pref_scam_hybrid_processing","quality");
         for(String k:new String[]{"pref_scam_hybrid_s61_min_motion","pref_scam_hybrid_snr_scale","pref_scam_hybrid_shasta_sharpness",
                 "pref_scam_hybrid_shasta_max_ratio","pref_scam_hybrid_bento_trigger"})
             assertNotNull(k,new SettingsAvailability(s).reason(k));
@@ -362,7 +377,8 @@ public class HybridSettingsTest {
     @Test public void mergeRowsThatCannotActAreGreyed() {
         // «Движение» on: the merge reads the mode's own boost values, never widens the base; the variance threshold follows the
         // mode's boost switch (no android:dependency on the photo switch any more)
-        Map<String,Object> m=new HashMap<>();
+        // P629: the rows of the SCAM merge, read with «Качество» (the other modes grey them: MergeRouteSettingsTest)
+        Map<String,Object> m=new HashMap<>();m.put("pref_scam_hybrid_processing","quality");
         for(String k:new String[]{"pref_scam_hybrid_motion_boost","pref_scam_hybrid_boost_value","pref_scam_hybrid_motion_threshold",
                 "pref_scam_hybrid_widen_below","pref_scam_hybrid_boost_threshold"})
             assertNull(k,new SettingsAvailability(m).reason(k));
@@ -381,14 +397,14 @@ public class HybridSettingsTest {
         assertNull(new SettingsAvailability(m).reason("pref_scam_hybrid_boost_threshold"));
         assertNull(inflate().findPreference("pref_scam_hybrid_boost_threshold").getDependency());
         // the colour-difference clamp is a uniform of the pass that runs only with its strength above 0
-        Map<String,Object> c=new HashMap<>();
+        Map<String,Object> c=new HashMap<>();c.put("pref_scam_hybrid_processing","quality");
         assertNull(new SettingsAvailability(c).reason("pref_scam_hybrid_chroma_diff_clamp"));
         c.put("pref_scam_hybrid_chroma_diff","0.4");
         assertNull(new SettingsAvailability(c).reason("pref_scam_hybrid_chroma_diff_clamp"));
         c.put("pref_scam_hybrid_chroma_diff","0");
         assertNotNull(new SettingsAvailability(c).reason("pref_scam_hybrid_chroma_diff_clamp"));
         // the edge and flat-area kernels of the mosaic merges are set inside the new kernel only
-        Map<String,Object> k=new HashMap<>();
+        Map<String,Object> k=new HashMap<>();k.put("pref_scam_hybrid_processing","quality");
         String[] kernelRows={"pref_scam_hybrid_mosaic_native_edge_scale","pref_scam_hybrid_mosaic_native_flat_scale"};
         for(String sabre:new String[]{"1","2"}){
             k.put("pref_scam_hybrid_sabre61",sabre);
@@ -557,17 +573,17 @@ public class HybridSettingsTest {
     @Test public void rawCaIsGone() {
         manager.set("default_scope","pref_scam_hybrid_rawca_mode","2");
         assertFalse(PreferenceKeys.hybridTuningText().contains("rawCa"));
-        PreferenceScreen merge=inflate().findPreference("scam_hybrid_merge_screen");
+        PreferenceScreen merge=inflate().findPreference("scam_hybrid_dnmerge_screen");
         assertNotNull(merge);assertNull(merge.findPreference("scam_hybrid_rawca_screen"));
         assertTrue(SettingsMigration.isObsolete("pref_scam_hybrid_rawca_mode"));
     }
 
     @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void mochiKeysReachTheTuningFileAndDefaultAlways() {
-        mochiKeysReachTheTuningFileAndDefaultAlways("Финальная сборка");
+        mochiKeysReachTheTuningFileAndDefaultAlways("Финальная сборка · Качество");   // P629: its route in the title
     }
 
     @Test public void mochiKeysReachTheTuningFileAndDefaultAlwaysInEnglish() {
-        mochiKeysReachTheTuningFileAndDefaultAlways("Final assembly");
+        mochiKeysReachTheTuningFileAndDefaultAlways("Final assembly · Quality");
     }
 
     private void mochiKeysReachTheTuningFileAndDefaultAlways(String pageTitle) {
@@ -591,8 +607,8 @@ public class HybridSettingsTest {
         tuning=PreferenceKeys.hybridTuningText();
         assertTrue(tuning,tuning.contains("mochi 2.0\n"));
 
-        // the row: «SHDR -> Склейка -> Финальная сборка» (P406, as the reference app), XML default = the app default (always: 2)
-        PreferenceScreen settings=inflate(),merge=settings.findPreference("scam_hybrid_merge_screen");
+        // the row: «Шумоподавление и склейка -> Финальная сборка» (P406, as the reference app; P629), XML default = the app default (always: 2)
+        PreferenceScreen settings=inflate(),merge=settings.findPreference("scam_hybrid_dnmerge_screen");
         PreferenceGroup page=merge.findPreference("scam_hybrid_merge_final_category");
         assertNotNull(page);assertEquals(pageTitle,page.getTitle().toString());
         ListPreference mode=page.findPreference("pref_scam_hybrid_mochi");
@@ -843,6 +859,39 @@ public class HybridSettingsTest {
         assertFalse(SettingsMigration.migrateScamHybrid(prefs,false));
     }
 
+    /**
+     * P614 (owner, 2026-11-11: V1 and V2 on one page): the V2 rows that became V1's leave their keys once - a value set off V2's
+     * default goes to the merged row while that row holds V1's default, a stored default (setDefaultValues) or a V1 row the user set
+     * keeps V1's value; V2's operator becomes V1's switches; V2's own rows stay.
+     */
+    @Test public void v2MergedRowsMoveOntoV1RowsOnce() {
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid")
+                .putString("pref_scam_hybrid_why_v2_ae_target","0.2").putString("pref_scam_hybrid_why_ae_target","0.15")
+                .putString("pref_scam_hybrid_why_v2_bright_thresh","0.90000004").putString("pref_scam_hybrid_why_bright_thresh","1.2")
+                .putString("pref_scam_hybrid_why_v2_shoulder_knee","0.8").putString("pref_scam_hybrid_why_hr_knee","0.7")
+                .putString("pref_scam_hybrid_why_v2_vibrance_hl","0.5")
+                .putString("pref_scam_hybrid_why_v2_curve_points","0:0,0.5:0.6,1:1")
+                .putString("pref_scam_hybrid_why_v2_tone_operator","1")
+                .putString("pref_scam_hybrid_why_v2_hr_amount","0.5").commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        assertEquals("0.2",prefs.getString("pref_scam_hybrid_why_ae_target",""));           // set in V2, V1's at its default
+        assertEquals("1.2",prefs.getString("pref_scam_hybrid_why_bright_thresh",""));      // V2's default stored: V1's stays
+        assertEquals("0.7",prefs.getString("pref_scam_hybrid_why_hr_knee",""));            // V1's own value stays
+        assertEquals("0.5",prefs.getString("pref_scam_hybrid_why_vibrance_hl_str",""));
+        assertEquals("0:0,0.5:0.6,1:1",prefs.getString("pref_scam_hybrid_why_curve_points",""));
+        assertTrue(prefs.getBoolean("pref_scam_hybrid_why_aces_on",false));
+        assertFalse(prefs.getBoolean("pref_scam_hybrid_why_curve_on",true));
+        assertFalse(prefs.getBoolean("pref_scam_hybrid_why_uchi_on",true));
+        for(String k:new String[]{"ae_target","bright_thresh","shoulder_knee","vibrance_hl","curve_points","tone_operator"})
+            assertFalse(k,prefs.contains("pref_scam_hybrid_why_v2_"+k));
+        assertEquals("0.5",prefs.getString("pref_scam_hybrid_why_v2_hr_amount",""));      // V2's own row
+        assertFalse(SettingsMigration.migrateScamHybrid(prefs,false));
+        // once: a V2 key written afterwards is not moved again (nothing reads it any more)
+        prefs.edit().putString("pref_scam_hybrid_why_v2_ae_target","0.3").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("0.2",prefs.getString("pref_scam_hybrid_why_ae_target",""));
+    }
+
     @Test public void p497ThreeUltrashortFramesMoveToTwoOnce() {
         // the stored former default 3 moves once to 2; a 1 chosen by the user stays; a 3 chosen after the move stays
         prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putString("pref_scam_hybrid_bento_frames","3").commit();
@@ -934,7 +983,7 @@ public class HybridSettingsTest {
         // the page: Hybrid -> Merge -> Mosaic without remosaic; XML defaults = worker defaults (P34: the native merge for Quad with
         // window 3 full, kernel scale 0.7, edge scale 0.6, flat-area kernel x2.4, eigenvalue clamp, ks 1 / 0.85, no fill; P35: Tetra
         // native, T1)
-        PreferenceScreen settings=inflate(),merge=settings.findPreference("scam_hybrid_merge_screen");
+        PreferenceScreen settings=inflate(),merge=settings.findPreference("scam_hybrid_dnmerge_screen");
         PreferenceScreen page=merge.findPreference("scam_hybrid_mosaic_screen");
         assertNotNull(page);
         ListPreference path=page.findPreference("pref_scam_hybrid_mosaic_path");
@@ -1288,6 +1337,96 @@ public class HybridSettingsTest {
         assertTrue(prefs.getBoolean("pref_scam_hybrid_cell_clip",false));
     }
 
+    @Test public void fringeNetLightFormerDefaultMovesOnce() {
+        // P615: a stored former «Яркость этого света» default (0.12, written by setDefaultValues) moves once to 0.05 (the v4 weights'
+        // gate); set again by hand after the move it stays, and a value chosen by hand before it stays too
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
+                .putString("pref_scam_hybrid_fringe_net_light","0.12").commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        assertEquals(0.05,PreferenceNumber.read(prefs.getAll().get("pref_scam_hybrid_fringe_net_light"),9),1e-6);
+        assertEquals(1,prefs.getInt(SettingsMigration.FRINGE_LIGHT_REV,0));
+        prefs.edit().putString("pref_scam_hybrid_fringe_net_light","0.12").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("once: a later value stays","0.12",prefs.getString("pref_scam_hybrid_fringe_net_light",""));
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
+                .putString("pref_scam_hybrid_fringe_net_light","0.3").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("a hand-set value stays","0.3",prefs.getString("pref_scam_hybrid_fringe_net_light",""));
+        assertEquals(1,prefs.getInt(SettingsMigration.FRINGE_LIGHT_REV,0));
+    }
+
+    @Test public void denoiseAndMergeLayoutJoinsOnce() {
+        // P629: «Шумоподавление» and «Склейка» are one group; a stored order of their groups («Расположение») becomes the group's line
+        // once - the denoise groups first -, the other pages' lines and every value as they were
+        final String layout="prefscreen=root_colour,root_lenses;scam_hybrid_merge_screen=scam_hybrid_merge_kernel_category,"
+                +"scam_hybrid_merge_frames_category;scam_hybrid_photo_screen=scam_hybrid_ms_chroma_category,scam_hybrid_nr_merge_category;"
+                +"scam_hybrid_merge_reject_category=pref_scam_hybrid_hot_sigma,pref_scam_hybrid_cdm";
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
+                .putString(SettingsLayout.KEY,layout).putString("pref_scam_hybrid_cdm","0.11").putString("pref_scam_hybrid_processing","static").commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        final java.util.Map<String,java.util.List<String>> joined=SettingsLayout.parse(prefs.getString(SettingsLayout.KEY,""));
+        assertEquals(Arrays.asList("scam_hybrid_ms_chroma_category","scam_hybrid_nr_merge_category","scam_hybrid_merge_kernel_category",
+                "scam_hybrid_merge_frames_category"),joined.get(SettingsMigration.DNMERGE_PAGE));
+        assertFalse(joined.containsKey("scam_hybrid_merge_screen"));assertFalse(joined.containsKey("scam_hybrid_photo_screen"));
+        assertEquals(Arrays.asList("root_colour","root_lenses"),joined.get("prefscreen"));
+        assertEquals(Arrays.asList("pref_scam_hybrid_hot_sigma","pref_scam_hybrid_cdm"),joined.get("scam_hybrid_merge_reject_category"));
+        assertEquals("0.11",prefs.getString("pref_scam_hybrid_cdm",""));assertEquals("static",prefs.getString("pref_scam_hybrid_processing",""));
+        assertEquals(1,prefs.getInt(SettingsMigration.DNMERGE_REV,0));
+        // once: an order set on the group afterwards stays
+        final String later=SettingsLayout.KEY;
+        prefs.edit().putString(later,"scam_hybrid_merge_screen=scam_hybrid_merge_frames_category").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("scam_hybrid_merge_screen=scam_hybrid_merge_frames_category",prefs.getString(later,""));
+        // nothing stored for the two pages: the text as it was
+        assertEquals("prefscreen=root_lenses",SettingsLayout.joinPages("prefscreen=root_lenses",SettingsMigration.DNMERGE_PAGE,
+                SettingsMigration.DNMERGE_OLD_PAGES));
+        assertEquals("",SettingsLayout.joinPages(null,SettingsMigration.DNMERGE_PAGE,SettingsMigration.DNMERGE_OLD_PAGES));
+        // the stored order applies to the group as built: an unplaced group keeps its place after the one before it
+        final SettingsLayout.Page page=new SettingsLayout.Page(SettingsMigration.DNMERGE_PAGE).add(SettingsMigration.DNMERGE_PAGE,
+                Arrays.asList("scam_hybrid_nr_merge_category","scam_hybrid_ms_chroma_category","scam_hybrid_merge_frames_category",
+                        "scam_hybrid_static_category","scam_hybrid_merge_kernel_category"));
+        assertEquals(Arrays.asList("scam_hybrid_ms_chroma_category","scam_hybrid_nr_merge_category","scam_hybrid_merge_kernel_category",
+                "scam_hybrid_merge_frames_category","scam_hybrid_static_category"),SettingsLayout.apply(page,joined).get(SettingsMigration.DNMERGE_PAGE));
+    }
+
+    @Test public void toneLayoutCarriesOnce() {
+        // P629b: the tone's three pages left «Настройки изображения» for «Настройки тона»: their stored order there (root_colour's
+        // «Расположение» line) becomes the group's line once; the other items and lines as they were
+        final String layout="root_colour=portrait_screen,scam_hybrid_why_tone_screen,pref_scam_hybrid_why_ae_target,scam_hybrid_why_ae_screen;"
+                +"scam_hybrid_why_curves_category=pref_scam_hybrid_why_gamma,pref_scam_hybrid_why_film_toe";
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
+                .putString(SettingsLayout.KEY,layout).putString("pref_scam_hybrid_tone_version","v2").commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        final java.util.Map<String,java.util.List<String>> carried=SettingsLayout.parse(prefs.getString(SettingsLayout.KEY,""));
+        // P629c: the everyday brightness slider moved with them
+        assertEquals(Arrays.asList("scam_hybrid_why_tone_screen","pref_scam_hybrid_why_ae_target","scam_hybrid_why_ae_screen"),
+                carried.get(SettingsMigration.TONE_GROUP_PAGE));
+        assertEquals(Arrays.asList("portrait_screen","scam_hybrid_why_tone_screen","pref_scam_hybrid_why_ae_target","scam_hybrid_why_ae_screen"),
+                carried.get("root_colour"));
+        assertEquals(Arrays.asList("pref_scam_hybrid_why_gamma","pref_scam_hybrid_why_film_toe"),carried.get("scam_hybrid_why_curves_category"));
+        assertEquals("v2",prefs.getString("pref_scam_hybrid_tone_version",""));
+        assertEquals(1,prefs.getInt(SettingsMigration.TONE_GROUP_REV,0));
+        // once: an order set afterwards stays
+        prefs.edit().putString(SettingsLayout.KEY,"root_colour=scam_hybrid_why_ae_screen").commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertEquals("root_colour=scam_hybrid_why_ae_screen",prefs.getString(SettingsLayout.KEY,""));
+        // none of the pages stored: as it was
+        assertEquals("root_colour=portrait_screen",SettingsLayout.carry("root_colour=portrait_screen",SettingsMigration.TONE_GROUP_PAGE,
+                "root_colour",SettingsMigration.TONE_GROUP_PAGES));
+        // applied to the group as built: the stored two in their order, the curves page after the AE page, nothing lost
+        final List<String> built=Arrays.asList("scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen",
+                "scam_hybrid_hdr_shoulder_category");
+        final SettingsLayout.Page page=new SettingsLayout.Page(SettingsMigration.TONE_GROUP_PAGE).add(SettingsMigration.TONE_GROUP_PAGE,built);
+        final List<String> applied=SettingsLayout.apply(page,carried).get(SettingsMigration.TONE_GROUP_PAGE);
+        assertEquals(4,applied.size());assertTrue(applied.containsAll(built));
+        assertTrue(applied.toString(),applied.indexOf("scam_hybrid_why_tone_screen")<applied.indexOf("scam_hybrid_why_ae_screen"));
+        assertEquals(applied.toString(),applied.indexOf("scam_hybrid_why_ae_screen")+1,applied.indexOf("scam_hybrid_why_curves_screen"));
+    }
+
     @Test public void detailDefaultsMoveOnce() {
         // P330: a stored former rho_r default (6) moves once to 2; the Sabre 6.1 kernel stays as stored («Всегда» is the default)
         prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
@@ -1491,7 +1630,7 @@ public class HybridSettingsTest {
         String tuning=PreferenceKeys.hybridTuningText();
         assertFalse(tuning,tuning.contains("mosaicRemosaic"));
         assertTrue(PreferenceKeys.isHybridMosaicRemosaic());
-        PreferenceScreen settings=inflate(),merge=settings.findPreference("scam_hybrid_merge_screen");
+        PreferenceScreen settings=inflate(),merge=settings.findPreference("scam_hybrid_dnmerge_screen");
         PreferenceScreen page=merge.findPreference("scam_hybrid_mosaic_screen");
         assertEquals("pref_scam_hybrid_mosaic_remosaic",page.getPreference(0).getKey());
         SwitchPreferenceCompat row=(SwitchPreferenceCompat)page.getPreference(0);

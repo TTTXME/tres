@@ -361,7 +361,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             // P293 (owner, 2026-10-20: «одновременно открытые шторка и меню фильтров налазят друг на друга»): the tray closes Pro
             // and the quick sheet; the sheet, at any level reached in any way (finger, «Ещё», a swipe, the model), closes the tray
             lutTray.setOnOpen(() -> {
-                if (panel.isExpanded()) panel.setExpanded(false, true);
+                // P630: the «Oldstyle» mode keeps its manual row; the tray closes the adjustment card instead
+                if (oldstyleControls != null && oldstyleControls.on()) oldstyleControls.setOpen(false, true);
+                else if (panel.isExpanded()) panel.setExpanded(false, true);
                 if (cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN)
                     cameraFragmentViewModel.setSheetLevel(CameraFragmentModel.SHEET_HIDDEN);
             });
@@ -370,6 +372,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                 @Override public void onPropertyChanged(androidx.databinding.Observable sender, int id) {
                     if (id != com.particlesdevs.photoncamera.BR.sheetLevel) return;
                     if (lutTray != null && cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN) lutTray.setOpen(false);
+                    if (oldstyleControls != null)
+                        oldstyleControls.setShadeShown(cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN);
                     showLutPill(panel);
                 }
             };
@@ -381,12 +385,18 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             });
             // P495 (owner, 2026-11-03): «Про» with the shade up lowers the shade and opens the Pro panel
             bar.findViewById(R.id.pro_button).setOnClickListener(v -> {
+                // P630: «Oldstyle» holds the row open («Про» steps aside there)
+                if (com.particlesdevs.photoncamera.settings.OldstyleMode.on()) return;
                 if (cameraFragmentViewModel.getSheetLevel() != CameraFragmentModel.SHEET_HIDDEN) {
                     cameraFragmentViewModel.setSheetLevel(CameraFragmentModel.SHEET_HIDDEN);
                     panel.setExpanded(true, true);
                 } else panel.setExpanded(!panel.isExpanded(), true);
             });
             com.particlesdevs.photoncamera.ui.camera.views.BottomChrome.setSideOn(bar, R.id.pro_button, panel.isExpanded());
+            // P630: the «Oldstyle» mode's controls (the manual row held open, the adjustments button and card)
+            oldstyleControls = new OldstyleControls(cameraFragmentBinding.oldstyleControls, cameraFragmentBinding.oldstyleHud,
+                    cameraFragmentBinding.layoutViewfinder.texture, text -> showSnackBar(text.toString()));
+            oldstyleControls.apply(com.particlesdevs.photoncamera.settings.OldstyleMode.on(), panel, bar.findViewById(R.id.pro_button), false);
         }
         // P495 (owner, 2026-11-03): «Ещё» again lowers the shade; P574: «Ещё» is the bottom grabber now (a tap as a swipe up)
         final View more = bar.findViewById(R.id.more_button);
@@ -1849,6 +1859,20 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
 
     /** P214f: the button notices (FULLRES, DCG, motion mode...) were short snackbars; now the same card as the rest. */
     /** SIMPLE_UI §1: the top bar again from the settings (after a top-bar control changed one). */
+    /** P630: the «Oldstyle» mode's controls (null before the bottom chrome is built). */
+    @androidx.annotation.Nullable
+    OldstyleControls oldstyleControls;
+
+    /** P630: a mode of the bottom switch was chosen: the «Oldstyle» controls in or out. */
+    public void onCameraModeChanged() {
+        if (oldstyleControls == null || cameraFragmentBinding == null) return;
+        final View panelView = cameraFragmentBinding.manualMode;
+        oldstyleControls.apply(com.particlesdevs.photoncamera.settings.OldstyleMode.on(),
+                panelView instanceof com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel
+                        ? (com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel) panelView : null,
+                cameraFragmentBinding.layoutBottombar.getRoot().findViewById(R.id.pro_button), true);
+    }
+
     public void refreshTopBar() {
         if (mCameraUIView != null) mCameraUIView.updateBadges();
     }

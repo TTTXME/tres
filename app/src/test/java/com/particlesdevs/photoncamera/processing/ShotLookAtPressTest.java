@@ -64,6 +64,8 @@ public class ShotLookAtPressTest {
         processors = mockConstruction(ScamProcessor.class);
         paths = mockStatic(ImagePath.class);
         paths.when(ImagePath::newBaseName).thenReturn("look-test");
+        // P618: the queued shot is named at the instant its EXIF / DNG record
+        paths.when(() -> ImagePath.newBaseName(org.mockito.ArgumentMatchers.anyLong())).thenReturn("look-test");
         paths.when(() -> ImagePath.dngFile(anyString())).thenReturn(Paths.get("look-test.dng"));
         paths.when(() -> ImagePath.imageFile(anyString())).thenReturn(Paths.get("look-test.jpg"));
         exif = mockStatic(ParseExif.class);

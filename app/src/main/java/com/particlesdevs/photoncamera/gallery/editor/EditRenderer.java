@@ -23,6 +23,8 @@ import java.nio.FloatBuffer;
  *       channel), two Gaussian + guided-filter rounds (mid scale 1 % of the side, large scale 4 % on a 4x4-reduced level);</li>
  *   <li>nr (when on), develop (linear light + log2 Y), gauss2 x2 (sharpening + texture blurs, when on), main (tone, colour,
  *       local tools), mipmaps;</li>
+ *   <li>P619 look (when a LUT or a film is chosen, EditLook): the camera's display table (look.glsl), then the film's grain
+ *       (the camera's film/noise, film/blur, film/grain_sf or film/grain), mipmaps;</li>
  *   <li>finish: geometry, vignette, grain, to the screen or an export tile.</li>
  * </ol>
  * Stages are cached by their inputs: a crop drag runs only finish, a colour slider only main + finish.
@@ -56,6 +58,16 @@ final class EditRenderer {
 
     private int pDemosaic, pNr, pDevelop, pArea, pProxy, pDown4, pGauss4, pGauss2, pGuided, pMain, pFinish;
     private int vao, lutTex, pointsTex;
+    // P619: the look's programs (compiled on first use), its targets, its uploaded tables and what its output was made of
+    private AssetManager assets;
+    private int pLook, pNoise, pBlur, pGrainSf, pGrainBw;
+    private int lookLutTex, grainLutTex;
+    @androidx.annotation.Nullable private com.particlesdevs.photoncamera.processing.color.FilmLut lookLutUp, grainLutUp;
+    private final Target lookTmp = new Target(), look = new Target(), noiseA = new Target(), noiseB = new Target();
+    @androidx.annotation.Nullable private EditLook.Applied lookApplied;
+    private String kLook;
+    /** The picture finish reads: the main pass's, or the look's. */
+    private int outTex;
     private int momentFormat;
     private final Target raw = new Target(), proxySrc = new Target();
     private final Target pm = new Target(), pmTmp = new Target(), pmBlur = new Target(), ab = new Target(), abTmp = new Target(),
@@ -71,6 +83,7 @@ final class EditRenderer {
     private float[] cachedLut, cachedPoints;
 
     void init(AssetManager am) throws IOException {
+        assets = am;
         pDemosaic = EditGl.program(am, "demosaic.glsl");
         pNr = EditGl.program(am, "nr.glsl");
         pDevelop = EditGl.program(am, "develop.glsl");
@@ -107,6 +120,8 @@ final class EditRenderer {
     void invalidate() {
         cachedSrc = 0;
         kNr = kDev = kBlur = kMain = kProxy = null;
+        kLook = null;
+        lookLutUp = grainLutUp = null;
         cachedLut = null;
         cachedPoints = null;
     }
@@ -291,8 +306,15 @@ final class EditRenderer {
         }
         kBlur = k3;
         String k4 = k3 + "|" + mainKey(u) + "|" + texToProxy.a + "," + texToProxy.c + "," + texToProxy.e + "," + texToProxy.f + "|" + kProxy;
-        if (k4.equals(kMain)) return;
-        kMain = k4;
+        if (!k4.equals(kMain)) {
+            kMain = k4;
+            kLook = null;
+            renderMain(w, h, texToProxy, u);
+        }
+        renderLook(w, h, longSide, texToProxy);
+    }
+
+    private void renderMain(int w, int h, CropMath.Affine texToProxy, EditMath.Uniforms u) {
         if (u.lut != cachedLut) {
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, lutTex);
             FloatBuffer fb = ByteBuffer.allocateDirect(4 * EditMath.LUT_SIZE).order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -347,8 +369,137 @@ final class EditRenderer {
         GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D);
     }
 
+    /** The picture finish shows (the look's when one is applied). */
     int mainTexture() {
-        return main.tex;
+        return outTex != 0 ? outTex : main.tex;
+    }
+
+    // ---------------------------------------------------------------- P619: the look
+
+    /** The LUT / film to apply in the next {@link #renderSource} (null: none). */
+    void setLook(@androidx.annotation.Nullable EditLook.Applied a) {
+        lookApplied = a;
+    }
+
+    /**
+     * The look on the main pass's picture: the camera's display table (look.glsl), then the film's grain with the camera's
+     * FilmGrain shaders - the noise hashed on the photo's pixel position (this texture's corner from {@code texToProxy}: the source
+     * uv of its (0, 0) times the whole photo's size in its pixels), its blur and the grain sized for {@code longSide}, the whole
+     * photo's long side in this texture's pixels.
+     */
+    private void renderLook(int w, int h, float longSide, CropMath.Affine texToProxy) {
+        final EditLook.Applied a = lookApplied;
+        if (a == null) {
+            outTex = main.tex;
+            kLook = null;
+            return;
+        }
+        final int ox = (int) Math.round(texToProxy.c * w / texToProxy.a), oy = (int) Math.round(texToProxy.f * h / texToProxy.e);
+        final EditLook.Grain g = EditLook.grain(a.film, longSide);
+        final boolean grainOn = g != null && (!g.reference || a.grainLut != null);
+        final String k = kMain + "|" + a.key + "|" + ox + "," + oy + "|" + longSide + "|" + System.identityHashCode(a.lut) + ","
+                + System.identityHashCode(a.grainLut) + grainOn;
+        if (k.equals(kLook) && look.tex != 0 && look.w == w && look.h == h) {
+            outTex = look.tex;
+            return;
+        }
+        try {
+            lookPrograms(grainOn && g.reference, grainOn && !g.reference);
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "look programs: " + e);
+            outTex = main.tex;
+            kLook = null;
+            lookApplied = null;
+            return;
+        }
+        kLook = k;
+        if (a.lut != lookLutUp) {
+            EditGl.deleteTexture(lookLutTex);
+            lookLutTex = a.lut.upload();
+            lookLutUp = a.lut;
+        }
+        final int levels = EditGl.levelsFor(w, h);
+        look.ensure(w, h, GLES30.GL_RGBA8, true, levels);
+        final Target colour = grainOn ? lookTmp : look;
+        if (grainOn) lookTmp.ensure(w, h, GLES30.GL_RGBA8, false, 1);
+        bind(colour.fbo, w, h);
+        GLES30.glUseProgram(pLook);
+        texU(pLook, "uImg", 0, main.tex);
+        tex3d(pLook, "uLut", 1, lookLutTex);
+        GLES30.glUniform1f(loc(pLook, "uLutStrength"), a.strength);
+        GLES30.glUniform1f(loc(pLook, "uLutSize"), a.lut.size);
+        GLES30.glUniform3f(loc(pLook, "uLutMin"), a.lut.domainMin[0], a.lut.domainMin[1], a.lut.domainMin[2]);
+        GLES30.glUniform3f(loc(pLook, "uLutScale"), 1f / (a.lut.domainMax[0] - a.lut.domainMin[0]),
+                1f / (a.lut.domainMax[1] - a.lut.domainMin[1]), 1f / (a.lut.domainMax[2] - a.lut.domainMin[2]));
+        draw();
+        if (grainOn) {
+            if (g.reference) {
+                // FilmGrain.runReference: white noise, blurred by the film's 11.8 um x (format / 35)^0.62, through the print and scan
+                if (a.grainLut != grainLutUp) {
+                    EditGl.deleteTexture(grainLutTex);
+                    grainLutTex = a.grainLut.upload();
+                    grainLutUp = a.grainLut;
+                }
+                noiseA.ensure(w, h, GLES30.GL_RGBA16F, false, 1);
+                noiseB.ensure(w, h, GLES30.GL_RGBA16F, false, 1);
+                bind(noiseA.fbo, w, h);
+                GLES30.glUseProgram(pNoise);
+                GLES30.glUniform1f(loc(pNoise, "seed"), g.seed);
+                GLES30.glUniform2i(loc(pNoise, "originU"), ox, oy);
+                draw();
+                blur(noiseA, noiseB, 1f, 0f, g.blurPx);
+                blur(noiseB, noiseA, 0f, 1f, g.blurPx);
+                bind(look.fbo, w, h);
+                GLES30.glUseProgram(pGrainSf);
+                texU(pGrainSf, "InputBuffer", 0, lookTmp.tex);
+                texU(pGrainSf, "Noise", 1, noiseA.tex);
+                tex3d(pGrainSf, "GrainLut", 2, grainLutTex);
+                GLES30.glUniform1f(loc(pGrainSf, "scale"), g.scale);
+                GLES30.glUniform1f(loc(pGrainSf, "lutSize"), (float) a.grainLut.size);
+                draw();
+            } else {
+                // FilmGrain.Run for our black-and-white model: film/grain.glsl's clumps on the photo's pixel lattice
+                bind(look.fbo, w, h);
+                GLES30.glUseProgram(pGrainBw);
+                texU(pGrainBw, "InputBuffer", 0, lookTmp.tex);
+                GLES30.glUniform3f(loc(pGrainBw, "sigma"), g.sigma, g.sigma, g.sigma * 1.25f);
+                GLES30.glUniform3f(loc(pGrainBw, "cell"), g.cell, g.cell, g.cell * 1.4f);
+                GLES30.glUniform1f(loc(pGrainBw, "sharedPart"), g.sharedPart);
+                GLES30.glUniform1i(loc(pGrainBw, "slide"), g.slide ? 1 : 0);
+                GLES30.glUniform1i(loc(pGrainBw, "mono"), g.mono ? 1 : 0);
+                GLES30.glUniform1f(loc(pGrainBw, "seed"), g.seed);
+                GLES30.glUniform2f(loc(pGrainBw, "originU"), ox, oy);
+                draw();
+            }
+        }
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, look.tex);
+        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D);
+        outTex = look.tex;
+    }
+
+    private void blur(Target in, Target out, float dx, float dy, float sigma) {
+        bind(out.fbo, out.w, out.h);
+        GLES30.glUseProgram(pBlur);
+        texU(pBlur, "InputBuffer", 0, in.tex);
+        GLES30.glUniform2f(loc(pBlur, "dir"), dx, dy);
+        GLES30.glUniform1f(loc(pBlur, "sigma"), sigma);
+        draw();
+    }
+
+    private void lookPrograms(boolean reference, boolean classic) throws IOException {
+        if (pLook == 0) pLook = EditGl.program(assets, "look.glsl");
+        if (reference && pGrainSf == 0) {
+            pNoise = EditGl.filmProgram(assets, "noise.glsl");
+            pBlur = EditGl.filmProgram(assets, "blur.glsl");
+            pGrainSf = EditGl.filmProgram(assets, "grain_sf.glsl");
+        }
+        if (classic && pGrainBw == 0) pGrainBw = EditGl.filmProgram(assets, "grain.glsl");
+    }
+
+    private static void tex3d(int p, String name, int unit, int tex) {
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + unit);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, tex);
+        GLES30.glUniform1i(loc(p, name), unit);
     }
 
     private void gauss2(Target in, Target out, float dx, float dy, float[] selA, float[] selB, float sA, float sB) {
@@ -373,6 +524,8 @@ final class EditRenderer {
         float originX, originY;     // the tile's corner in output pixels
         boolean flipY, swap;
         int mode;                   // 0 normal, 1 the crop tab
+        /** P619: the main pass's picture without the look (the «LUT» tab's thumbnails). */
+        boolean preLook;
         CropMath.Affine outToBase, baseToImg, imgToTex;
         float[] bg = {0f, 0f, 0f};
         /** Output pixels on the long side of the crop (grain size and its preview fade). */
@@ -382,7 +535,7 @@ final class EditRenderer {
     void finish(Finish f, EditState s, EditMath.Uniforms u) {
         bind(f.fbo, f.w, f.h);
         GLES30.glUseProgram(pFinish);
-        texU(pFinish, "uImg", 0, main.tex);
+        texU(pFinish, "uImg", 0, f.preLook ? main.tex : mainTexture());
         GLES30.glUniformMatrix3fv(loc(pFinish, "uOutToBase"), 1, false, f.outToBase.mat3(), 0);
         GLES30.glUniformMatrix3fv(loc(pFinish, "uBaseToImg"), 1, false, f.baseToImg.mat3(), 0);
         GLES30.glUniformMatrix3fv(loc(pFinish, "uImgToTex"), 1, false, f.imgToTex.mat3(), 0);
@@ -473,15 +626,21 @@ final class EditRenderer {
      */
     void releaseTargets() {
         for (Target t : new Target[]{raw, proxySrc, pm, pmTmp, pmBlur, ab, abTmp, abMid, lm, lmTmp, lmBlur, lab, labTmp, abLarge, nr,
-                dev, blurTmp, blur, main, hist})
+                dev, blurTmp, blur, main, hist, lookTmp, look, noiseA, noiseB})
             t.release();
+        outTex = 0;
         invalidate();
     }
 
     void release() {
         releaseTargets();
-        for (int p : new int[]{pDemosaic, pNr, pDevelop, pArea, pProxy, pDown4, pGauss4, pGauss2, pGuided, pMain, pFinish})
+        for (int p : new int[]{pDemosaic, pNr, pDevelop, pArea, pProxy, pDown4, pGauss4, pGauss2, pGuided, pMain, pFinish, pLook, pNoise,
+                pBlur, pGrainSf, pGrainBw})
             if (p != 0) GLES30.glDeleteProgram(p);
+        pLook = pNoise = pBlur = pGrainSf = pGrainBw = 0;
+        EditGl.deleteTexture(lookLutTex);
+        EditGl.deleteTexture(grainLutTex);
+        lookLutTex = grainLutTex = 0;
         if (vao != 0) GLES30.glDeleteVertexArrays(1, new int[]{vao}, 0);
         EditGl.deleteTexture(lutTex);
         EditGl.deleteTexture(pointsTex);

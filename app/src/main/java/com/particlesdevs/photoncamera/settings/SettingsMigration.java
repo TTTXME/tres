@@ -406,6 +406,45 @@ public final class SettingsMigration {
         return true;
     }
 
+    /** P628: set once the watermark's text is the P628 model (pref_watermark_text); the former two lines are gone. */
+    static final String WATERMARK_REV = "pref_watermark_text_rev";
+    /** The former caption lines and their defaults («SHOT ON» / «SCAMERA», drawn in capitals). */
+    static final String WATERMARK_LINE1 = "pref_watermark_line1", WATERMARK_LINE2 = "pref_watermark_line2";
+    static final String OLD_WATERMARK_LINE1 = "SHOT ON", OLD_WATERMARK_LINE2 = "SCAMERA";
+
+    /**
+     * P628 (owner, 2026-11-11: «убери по дефолту надпись "Shot on"»): the two caption lines become the one custom text
+     * (pref_watermark_text, default «SCAMERA»). A line left at its former default is the default: the first («SHOT ON», in any
+     * case and spacing as the old drawing showed it) is dropped, the second («SCAMERA») is the new default; a line the user typed
+     * stays as typed, the two joined by a space; both emptied stay empty (no text). A custom text already stored is kept. The
+     * former keys go, so a run after it (or a restored backup without them) changes nothing; a backup restored with them is
+     * converted the same way. Returns whether a stored value changed.
+     */
+    public static boolean migrateWatermark(SharedPreferences prefs) {
+        if (prefs == null) return false;
+        final boolean legacy = prefs.contains(WATERMARK_LINE1) || prefs.contains(WATERMARK_LINE2);
+        if (!legacy) {
+            if (!prefs.contains(WATERMARK_REV)) prefs.edit().putInt(WATERMARK_REV, 1).apply();
+            return false;
+        }
+        final Map<String, ?> values = prefs.getAll();
+        String first = line(values.get(WATERMARK_LINE1), OLD_WATERMARK_LINE1), second = line(values.get(WATERMARK_LINE2), OLD_WATERMARK_LINE2);
+        if (first.replaceAll("\\s+", " ").equalsIgnoreCase(OLD_WATERMARK_LINE1)) first = "";
+        final String text = first.isEmpty() ? second : second.isEmpty() ? first : first + " " + second;
+        SharedPreferences.Editor e = prefs.edit().remove(WATERMARK_LINE1).remove(WATERMARK_LINE2).putInt(WATERMARK_REV, 1);
+        if (!values.containsKey(TEXT_KEY) && !text.equals(com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec.DEFAULT_TEXT))
+            e.putString(TEXT_KEY, text);
+        e.commit();
+        return true;
+    }
+
+    private static final String TEXT_KEY = "pref_watermark_text";
+
+    /** A former caption line as stored (absent: its default), trimmed. */
+    private static String line(Object stored, String fallback) {
+        return (stored == null ? fallback : String.valueOf(stored)).trim();
+    }
+
     /** P266: «HDR в HEIC / AVIF» is the one «HDR-фото» now (pref_ultrahdr_key): on, it turns that on; the old key goes. */
     public static boolean migrateHdrPhoto(SharedPreferences prefs) {
         if (prefs == null || !prefs.contains("pref_photo_hdr")) return false;
@@ -927,6 +966,46 @@ public final class SettingsMigration {
             e.putInt(CCT_SAT_REV, 1);
             markOnly = true;
         }
+        // P614 (owner, 2026-11-11: V1 and V2 on one page «Настройки изображения»): V2's rows that became V1's (WhyV2Stats.MERGED)
+        // leave their pref_scam_hybrid_why_v2_* keys once; a value set off V2's default (setDefaultValues stored the defaults too)
+        // goes to the merged row where that row still holds V1's default; V2's tone operator becomes V1's three switches
+        if (!values.containsKey(V2_MERGE_REV)) {
+            final String pre = ScamHybridKeys.PREFIX;
+            for (Object[] m : V2_MERGED) {
+                final String from = pre + "why_v2_" + m[0], to = pre + "why_" + m[1];
+                if (!values.containsKey(from)) continue;
+                final Object v = values.get(from);
+                if (v != null && !isNumber(v, (Float) m[2]) && (!values.containsKey(to) || isNumber(values.get(to), (Float) m[3])))
+                    ModuleProfiles.put(e, to, v);
+                e.remove(from);
+                changed = true;
+            }
+            final String points = pre + "why_v2_curve_points";
+            if (values.containsKey(points)) {
+                final Object v = values.get(points);
+                final String own = com.particlesdevs.photoncamera.processing.color.ToneCurve.SETTING_POINTS;
+                if (v != null && !own.equals(v.toString().trim()) && (!values.containsKey(pre + "why_curve_points")
+                        || own.equals(String.valueOf(values.get(pre + "why_curve_points")).trim())))
+                    ModuleProfiles.put(e, pre + "why_curve_points", v.toString().trim());
+                e.remove(points);
+                changed = true;
+            }
+            final String operator = pre + "why_v2_tone_operator";
+            if (values.containsKey(operator)) {
+                final int op = (int) Math.round(PreferenceNumber.read(values.get(operator), 3));
+                final boolean switchesAtDefault = PreferenceNumber.bool(values.get(pre + "why_curve_on"), true)
+                        && !PreferenceNumber.bool(values.get(pre + "why_uchi_on"), false) && !PreferenceNumber.bool(values.get(pre + "why_aces_on"), false);
+                if (op >= 0 && op < 3 && switchesAtDefault) {
+                    e.putBoolean(pre + "why_curve_on", false);
+                    e.putBoolean(pre + "why_uchi_on", op == 2);
+                    e.putBoolean(pre + "why_aces_on", op == 1);
+                }
+                e.remove(operator);
+                changed = true;
+            }
+            e.putInt(V2_MERGE_REV, 1);
+            markOnly = true;
+        }
         // P419: «Цвет»'s shadow / light vibrance and its skin protection went into the reference app's vibrance rows: a set value
         // adds to «Сочность в тенях» / «Сочность в светах» (from its default 0.25) once; the old rows' values are dropped
         if (!values.containsKey(VIBRANCE_REV)) {
@@ -947,6 +1026,49 @@ public final class SettingsMigration {
             for (String k : new String[]{"colour_vib_shadows", "colour_vib_highlights", "colour_skin_protect"})
                 if (values.containsKey(pre + k)) { e.remove(pre + k); changed = true; }
             e.putInt(VIBRANCE_REV, 1);
+            markOnly = true;
+        }
+        // P615: the fringe net's light floor 0.12 -> 0.05 (the v4 weights are trained for it): a stored former XML default moves
+        // once, a value chosen by hand stays. Own marker.
+        if (!values.containsKey(FRINGE_LIGHT_REV)) {
+            final String key = ScamHybridKeys.PREFIX + "fringe_net_light";
+            final Object v = values.get(key);
+            if (v != null && isNumber(v, 0.12f)) {
+                ModuleProfiles.put(e, key, v instanceof String ? PreferenceNumber.format(0.05f, true) : (Object) 0.05f);
+                changed = true;
+            }
+            e.putInt(FRINGE_LIGHT_REV, 1);
+            markOnly = true;
+        }
+        // P629 (owner, 2026-11-11: «Группу шумоподавление и склейка перемести под выбор склейки»): the pages «Шумоподавление» and
+        // «Склейка» are one group «Шумоподавление и склейка» (scam_hybrid_dnmerge_screen) - no setting changed its key; a stored
+        // order of the two pages' groups (settings_layout, «Расположение») becomes the group's line once, the denoise groups first
+        if (!values.containsKey(DNMERGE_REV)) {
+            final Object layout = values.get(SettingsLayout.KEY);
+            if (layout instanceof String) {
+                final String joined = SettingsLayout.joinPages((String) layout, DNMERGE_PAGE, DNMERGE_OLD_PAGES);
+                if (!joined.equals(layout)) {
+                    e.putString(SettingsLayout.KEY, joined);
+                    changed = true;
+                }
+            }
+            e.putInt(DNMERGE_REV, 1);
+            markOnly = true;
+        }
+        // P629b (owner, 2026-11-11: «У нас под V1/V2 должна находиться группа настроек для тонмапинга»): the tone's three pages left
+        // «Настройки изображения» for the group «Настройки тона» (tone_settings_screen) - no setting changed its key; their stored
+        // order in that group («Расположение», root_colour's line) becomes the new group's line once; P629c (owner, the same day:
+        // «Ползунки перенеси в настройки тона»): the three everyday tone sliders with them
+        if (!values.containsKey(TONE_GROUP_REV)) {
+            final Object layout = values.get(SettingsLayout.KEY);
+            if (layout instanceof String) {
+                final String carried = SettingsLayout.carry((String) layout, TONE_GROUP_PAGE, "root_colour", TONE_GROUP_PAGES);
+                if (!carried.equals(layout)) {
+                    e.putString(SettingsLayout.KEY, carried);
+                    changed = true;
+                }
+            }
+            e.putInt(TONE_GROUP_REV, 1);
             markOnly = true;
         }
         // P421: the hybrid's NLM engine (its choice and two strengths), the manual SNR and «Карта силы» left the menu (the
@@ -997,6 +1119,50 @@ public final class SettingsMigration {
     /** P394: marker of the one-time move of a stored «Клип ячейки 2×2 целиком» (on, the former default) to off. */
     static final String CELL_CLIP_REV = "pref_scam_hybrid_cell_clip_rev";
 
+    /** P629: marker of the one-time join of the stored order of «Шумоподавление» and «Склейка» into their group's. */
+    static final String DNMERGE_REV = "pref_scam_hybrid_dnmerge_rev";
+    /** P629: «Шумоподавление и склейка» (preferences.xml) and the two pages it replaced, in its order. */
+    static final String DNMERGE_PAGE = "scam_hybrid_dnmerge_screen";
+    static final String[] DNMERGE_OLD_PAGES = {"scam_hybrid_photo_screen", "scam_hybrid_merge_screen"};
+
+    /** P629b: marker of the one-time carry of the tone pages' stored order into «Настройки тона». */
+    static final String TONE_GROUP_REV = "pref_scam_hybrid_tone_group_rev";
+    /**
+     * P629b / P629c: «Настройки тона» (preferences.xml) and what moved into it from «Настройки изображения», in its order: the three
+     * everyday tone sliders, then the three tone pages.
+     */
+    static final String TONE_GROUP_PAGE = "tone_settings_screen";
+    static final java.util.List<String> TONE_GROUP_PAGES = java.util.Collections.unmodifiableList(java.util.Arrays.asList(
+            "pref_scam_hybrid_why_ae_target", "pref_scam_hybrid_why_macro_contrast", "pref_scam_hybrid_why_agx_sat",
+            "scam_hybrid_why_ae_screen", "scam_hybrid_why_curves_screen", "scam_hybrid_why_tone_screen"));
+
+    /** P614: marker of the one-time move of V2's merged rows onto V1's (WhyV2Stats.MERGED). */
+    static final String V2_MERGE_REV = "pref_scam_hybrid_v2_merge_rev";
+    /** P614: {V2's setting after pref_scam_hybrid_why_v2_, V1's row after pref_scam_hybrid_why_, V2's default, V1's default}. */
+    static final Object[][] V2_MERGED = {
+            {"ae_target", "ae_target", 0.14999999f, 0.15f}, {"max_boost", "ae_max_boost", 5.0f, 5f}, {"min_limit", "ae_min_limit", 0.5f, 0.5f},
+            {"bright_thresh", "bright_thresh", 0.90000004f, 0.9f}, {"hl_boost", "hl_boost", 1.1f, 1.1f}, {"hl_overflow", "hl_overflow", 2.0f, 2f},
+            {"hl_blend", "hl_blend", 0.5f, 0.5f}, {"dark_thresh", "dark_thresh", 12.5f, 12.5f}, {"dark_pixel_thresh", "dark_pixel_thresh", 22.0f, 22f},
+            {"contrast_boost", "contrast_boost", 0.3f, 0.3f}, {"night_dim", "night_thresh", 0.049999997f, 0.05f}, {"highlight_str", "highlight_str", 2.1000001f, 2.1f},
+            {"shadow_str", "shadow_str", 2.0f, 2f}, {"weight_ext_hl", "classic_weight_ext_hl", 0.7f, 0.7f}, {"weight_hl", "classic_weight_hl", 1.0f, 1f},
+            {"weight_mid", "classic_weight_mid", 2.0f, 2f}, {"weight_shadow", "classic_weight_shadow", 1.0f, 1f}, {"weight_center", "classic_weight_center", 1.0f, 1f},
+            {"blend_smoothness", "blend_smoothness", 0.45000002f, 0.45f}, {"macro_contrast", "macro_contrast", 1.1f, 1.1f}, {"gamma_type", "gamma_type", 0f, 0f},
+            {"gamma", "gamma", 2.2f, 2.2f}, {"film_toe", "film_toe", 0.0f, 0f}, {"agx_slope", "agx_slope", 2.45f, 2.45f},
+            {"agx_sp", "agx_sp", 1.35f, 1.35f}, {"agx_tp", "agx_tp", 2.0f, 2.0f}, {"agx_min_ev", "agx_min_ev", -8.5f, -8.5f},
+            {"agx_max_ev", "agx_max_ev", 3.5f, 3.5f}, {"agx_sat", "agx_sat", 1.0f, 1f}, {"agx_ev", "agx_ev", 0f, 0f},
+            {"agx_inset", "agx_inset", 50f, 50f}, {"aces_toe", "aces_toe", 0.05f, 0.05f}, {"aces_pre_gain", "aces_pre_gain", 1.0f, 1.0f},
+            {"aces_a", "aces_a", 2.61f, 2.61f}, {"aces_d", "aces_d", 0.59f, 0.59f}, {"uchi_pre_gain", "uchi_pre_gain", 1.0f, 1.0f},
+            {"uchi_post_gain", "uchi_post_gain", 1.0f, 1.0f}, {"uchi_p", "uchi_p", 1.0f, 1.0f}, {"uchi_a", "uchi_a", 1.0f, 1.0f},
+            {"uchi_m", "uchi_m", 0.22f, 0.22f}, {"uchi_l", "uchi_l", 0.4f, 0.4f}, {"uchi_c", "uchi_c", 1.33f, 1.33f},
+            {"uchi_b", "uchi_b", 0.0f, 0.0f}, {"curve_lift", "curve_lift", 0f, 0f}, {"curve_contrast", "curve_contrast", 0f, 0f},
+            {"curve_shadow_contrast", "curve_shadow_contrast", 0f, 0f}, {"curve_highlight_contrast", "curve_highlight_contrast", 0f, 0f}, {"curve_deep_shadows", "curve_deep_shadows", 0f, 0f},
+            {"curve_extreme_highlights", "curve_extreme_highlights", 0f, 0f}, {"curve_offset", "curve_offset", 0f, 0f}, {"vibrance", "vibrance", 0f, 0f},
+            {"vibrance_saturated", "vibrance_saturated", 0f, 0f}, {"vibrance_sky", "vibrance_sky", 0.25f, 0.25f}, {"vibrance_green", "vibrance_green", 0.05f, 0.05f},
+            {"vibrance_hl", "vibrance_hl_str", 0.25f, 0.25f}, {"vibrance_mid", "vibrance_mid", 0f, 0f}, {"vibrance_shadow", "vibrance_shadows", 0f, 0f},
+            {"skin_protect", "skin_protect", 1.0f, 1f}, {"skin_hue_shift", "skin_hue_shift", 0f, 0f}, {"skin_sat_shift", "skin_sat_shift", 0f, 0f},
+            {"skin_luma_min", "skin_luma_min", 0.16f, 0.16f}, {"shoulder_strength", "hr_strength", 0.6f, 0.6f}, {"shoulder_knee", "hr_knee", 0.6f, 0.6f},
+            {"shoulder_headroom", "hr_room", 0.35f, 0.35f}, {"bracket_denoise", "bracket_denoise", 0.0f, 0f}};
+
     /** P419: marker of the one-time move of the «Цвет» shadow / light vibrance into the reference app's vibrance rows. */
     static final String VIBRANCE_REV = "pref_scam_hybrid_vibrance_rev";
     /** P513: marker of the one-time move of the former defaults to the owner's config init35burial_v3_3 (2026-11-05). */
@@ -1011,6 +1177,9 @@ public final class SettingsMigration {
 
     /** P516: marker of the owner's stable config (2026-11-05): «Сочность в светах» 0.25 again after P513's 0. */
     static final String CONFIG_STABLE_REV = "pref_scam_hybrid_config_stable_rev";
+
+    /** P615: marker of the one-time move of the fringe net's light floor 0.12 to 0.05. */
+    static final String FRINGE_LIGHT_REV = "pref_scam_hybrid_fringe_light_rev";
 
     /** P407: marker of the one-time move of the matrix saturation 1.25 to 1.1. */
     static final String CCT_SAT_REV = "pref_scam_hybrid_cct_sat_rev";

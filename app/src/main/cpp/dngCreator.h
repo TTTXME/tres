@@ -64,6 +64,8 @@ struct DngMetadata {
     bool binning_uses_average = false;
     int original_width = 0;
     int original_height = 0;
+    /** P618: DefaultCropOrigin / DefaultCropSize (x, y, w, h) of the stored image, w = 0: none (the whole image). */
+    unsigned int default_crop[4] = {0, 0, 0, 0};
 };
 
 #ifdef __cplusplus

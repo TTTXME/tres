@@ -17,6 +17,8 @@ uniform float sharedPart;      // 0..1 the common part of the three layers
 uniform int slide;          // 1: projected film (grain most in the shadows)
 uniform int mono;           // 1: one silver layer
 uniform float seed;
+// P619: the picture's pixel position of this texture's corner (the gallery editor's export tiles and zoom regions; 0 in the camera)
+uniform vec2 originU;
 out vec4 Output;
 
 uint hash(uvec3 v) {
@@ -63,7 +65,7 @@ vec3 encode(vec3 y) {
 
 void main() {
     ivec2 ixy = ivec2(gl_FragCoord.xy);
-    vec2 xy = vec2(ixy) + 0.5;
+    vec2 xy = vec2(ixy) + 0.5 + originU;
     vec4 v = texelFetch(InputBuffer, ixy, 0);
     vec3 y = decode(clamp(v.rgb, 0.0, 1.0));
     float lum = max(dot(y, vec3(0.2126, 0.7152, 0.0722)), 1e-4);

@@ -55,6 +55,8 @@ public class PostPipeline extends GLBasePipeline {
     public boolean signedRgb;
     /** WHY tone of the SCAM Hybrid: state handed from WhyStats to WhyCombine; null outside that route. */
     public WhyTone.State why;
+    /** P614 «Why тон» V2: state handed from WhyV2Stats to WhyV2Fusion and WhyV2Tone; null outside that route. */
+    public WhyV2Stats.State whyV2;
     /**
      * P349: the glow share of the fully clipped cores (ScamRgb.sunBloom, WhyCombine's sun bloom), the image size it covers and its
      * block, px (P277: the whole frame's on a lab fragment).
@@ -361,6 +363,12 @@ public class PostPipeline extends GLBasePipeline {
     public interface JpegPlan {
         @androidx.annotation.Nullable android.graphics.Rect crop(int width, int height);
         java.io.OutputStream wrap(java.io.OutputStream out, int width, int height) throws java.io.IOException;
+
+        /** P620: {@link #wrap} given the pixels about to be encoded (RGBA_8888, rows {@code strideBytes} apart; read only). */
+        default java.io.OutputStream wrap(java.io.OutputStream out, int width, int height,
+                                          @androidx.annotation.Nullable java.nio.ByteBuffer pixels, int strideBytes) throws java.io.IOException {
+            return wrap(out, width, height);
+        }
     }
 
     /** P483: {@link #streamJpeg(int)} with the caller's crop and stream wrapper ({@code plan} null: the whole frame, plain JPEG). */
@@ -399,6 +407,7 @@ public class PostPipeline extends GLBasePipeline {
         referenceFilmEffects.clear();
         referenceFilmTone.clear();
         linearDisplayGain = 1.0f;
+        whyV2 = null;
         scamNoiseSigma = 0f;
         signedRgb = false;
         sunBloom = null;
@@ -460,7 +469,7 @@ public class PostPipeline extends GLBasePipeline {
                     cw = crop.width();
                     ch = crop.height();
                 }
-                final java.io.OutputStream into = jpegPlan != null ? jpegPlan.wrap(jpeg, cw, ch) : jpeg;
+                final java.io.OutputStream into = jpegPlan != null ? jpegPlan.wrap(jpeg, cw, ch, from, 4 * w) : jpeg;
                 com.particlesdevs.photoncamera.processing.JpegliEncoder.compress(from, cw, ch, 4 * w, jpegQuality, into);
                 if (into != jpeg) into.close();
                 streamedJpeg = jpeg.toByteArray();
@@ -1087,6 +1096,43 @@ public class PostPipeline extends GLBasePipeline {
         // The WhyCam 1.23 photo tone (tone_port.md 7.1): its own AE, fusion and AgX. LinearExposure only keeps the
         // Ultra HDR linear snapshot.
         if (captureDemosaic) add(new LinearExposure());
+        // P630 «Oldstyle»: the mode's tone (V1 2.7 / V2 3.1) in place of «Why тон», then its style; the merge and
+        // the light nodes above stay ours. A film simulation keeps the Why tone (the film's print and mix are built on it)
+        final ShotLook.Oldstyle oldstyle = look != null ? look.oldstyle : ShotLook.Oldstyle.now();
+        if (oldstyle != null && film != null) Log.i("SCAM_PIPELINE", "Oldstyle mode with a film simulation: the Why tone used");
+        if (oldstyle != null && film == null) {
+            add(new OldstyleTone(oldstyle.v2, oldstyle.params, oldstyle.postview, oldstyle.capture));
+            if (!oldstyle.style.neutralAfterTone()) add(new OldstyleStyleNode(oldstyle.style));
+            Log.i("SCAM_PIPELINE", "tone Oldstyle " + (oldstyle.v2 ? "V2" : "V1") + " style " + oldstyle.style);
+            tail(null, false);
+            return;
+        }
+        // P614 «Why тон» V2 (pref_scam_hybrid_tone_version "v2", of the press): the reference tone instead of V1's WhyStats /
+        // WhyFusion / WhyCombine, with our sharpening between them; a film of the old route (not the reference film engine) keeps V1
+        final Point grid = mParameters.rawSize;
+        final boolean v2 = whyToneV2(look, film, referenceFilm, grid == null ? 0L : (long) grid.x * grid.y);
+        if (!v2 && (look != null ? look.toneV2 : PreferenceKeys.whyToneV2()))
+            Log.i("SCAM_PIPELINE", "WHY tone V2 chosen, V1 used (" + (film != null && !referenceFilm ? "film of the old route" : "above 100 MP") + ")");
+        if (v2) {
+            final WhyV2Stats v2Stats = new WhyV2Stats();
+            add(v2Stats);
+            final WhyLumaSharpen v2Sharpen = new WhyLumaSharpen();
+            add(v2Sharpen);
+            final WhyV2Highlights v2Highlights = new WhyV2Highlights();
+            add(v2Highlights);
+            final WhyV2Fusion v2Fusion = new WhyV2Fusion();
+            add(v2Fusion);
+            final WhyV2Tone v2Tone = new WhyV2Tone();
+            add(v2Tone);
+            Log.i("SCAM_PIPELINE", "WHY tone V2 (WhyV2Stats/WhyLumaSharpen/WhyV2Highlights/WhyV2Fusion/WhyV2Tone)");
+            if (referenceFilm) {
+                referenceFilmTone.add(v2Stats); referenceFilmTone.add(v2Sharpen); referenceFilmTone.add(v2Highlights);
+                referenceFilmTone.add(v2Fusion); referenceFilmTone.add(v2Tone);
+                add(new ReferenceFilmMix());
+            }
+            tail(film, referenceFilm);
+            return;
+        }
         final WhyStats whyStats = new WhyStats();
         add(whyStats);
         final WhyFusion whyFusion = new WhyFusion();
@@ -1105,6 +1151,28 @@ public class PostPipeline extends GLBasePipeline {
             referenceFilmTone.add(whyLumaSharpen); referenceFilmTone.add(whyCombine);
             add(new ReferenceFilmMix());
         }
+        tail(film, referenceFilm);
+    }
+
+    /**
+     * P614: whether this shot takes «Why тон» V2 - the press's choice ({@code look}, ShotLook.toneV2; the settings now without
+     * one), never with a film of the old route ({@code film} set and not {@code referenceFilm}: its scene feed is V1's) nor on a
+     * grid above {@link #V2_MAX_PIXELS} ({@code pixels}; 0 unknown): V2 keeps the clean RGB at full size beside the image (8 B a
+     * pixel, 1.6 GB at 200 MP), which V1's 200 MP budget (P187) has no room for.
+     */
+    static boolean whyToneV2(@androidx.annotation.Nullable ShotLook look,
+                             @androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film,
+                             boolean referenceFilm, long pixels) {
+        final boolean v2 = look != null ? look.toneV2 : PreferenceKeys.whyToneV2();
+        return v2 && (film == null || referenceFilm) && pixels <= V2_MAX_PIXELS;
+    }
+
+    /** P614: the largest grid V2 runs on (the 200 MP grids keep V1). */
+    static final long V2_MAX_PIXELS = 100_000_000L;
+
+    /** The nodes after the tone: texture, the final size, the film's grain, the rotation. */
+    private void tail(@androidx.annotation.Nullable com.particlesdevs.photoncamera.processing.color.FilmSim.Settings film,
+                      boolean referenceFilm) {
         // Texture only on request (WhyCam has no mid-frequency boost).
         final boolean texture = PreferenceKeys.hybridSwitch("why_texture", false);
         Log.i("SCAM_PIPELINE", "WHY tail: sharpen=why (WhyLumaSharpen) texture=" + texture

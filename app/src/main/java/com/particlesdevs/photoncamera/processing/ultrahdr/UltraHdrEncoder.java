@@ -49,7 +49,7 @@ public final class UltraHdrEncoder {
      */
     public static byte[] encode(Bitmap sdr, GainMapComputer.Result gm, ParseExif.ExifData exif) {
         final byte[] gainMapJpeg = compressGainMap(gm, DEFAULT_QUALITY);
-        final byte[] exifApp1 = exif != null ? exifSegment(exif, sdr.getWidth(), sdr.getHeight()) : null;
+        final byte[] exifApp1 = exif != null ? exifSegment(exif, sdr) : null;
         // q95 camera JPEGs are typically 0.3-0.8 bytes/pixel: at most one growth step in the common case.
         final long estimate = Math.min(Integer.MAX_VALUE - 64L, (long) sdr.getWidth() * sdr.getHeight() / 2 + gainMapJpeg.length + 65536L);
         final PatchableOutputStream out = new PatchableOutputStream((int) estimate);
@@ -88,7 +88,7 @@ public final class UltraHdrEncoder {
     public static void encodeToFile(Path file, Bitmap sdr, GainMapComputer.Result gm, ParseExif.ExifData exif, int quality,
                                     byte[] icc) throws IOException {
         final byte[] gainMapJpeg = compressGainMap(gm, quality);
-        final byte[] exifApp1 = exif != null ? exifSegment(exif, sdr.getWidth(), sdr.getHeight()) : null;
+        final byte[] exifApp1 = exif != null ? exifSegment(exif, sdr) : null;
         boolean done = false;
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING)) {
@@ -148,8 +148,9 @@ public final class UltraHdrEncoder {
     }
 
     /** EXIF APP1 of the primary (the tags of the plain JPEG path, the real size); null without EXIF. */
-    private static byte[] exifSegment(ParseExif.ExifData exif, int width, int height) {
-        return com.particlesdevs.photoncamera.processing.ExifBlock.app1Segment(exif, width, height);
+    private static byte[] exifSegment(ParseExif.ExifData exif, Bitmap sdr) {
+        // P620: with the photo's IFD1 thumbnail
+        return com.particlesdevs.photoncamera.processing.ExifBlock.app1Segment(exif, sdr.getWidth(), sdr.getHeight(), sdr);
     }
 
     /** In-memory output whose already written bytes can be patched (the MPF directory). */

@@ -86,7 +86,7 @@ import java.util.stream.Collectors;
  * «Поиск» (SearchPage). Deletes go to Android 11's trash (TrashPage puts them back). The folder chips are gone: the albums replace
  * them.
  */
-public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Host {
+public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Host, com.particlesdevs.photoncamera.gallery.ui.GalleryViews.Host {
     private static final String PREFS = "gallery_ui";
     /** P498: the tapped cell's window rect for the viewer's zoom (int[4]: left, top, right, bottom). */
     public static final String CELL_KEY = "galleryCell";
@@ -124,6 +124,8 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
     private List<AlbumsPage.Album> albumList = new ArrayList<>(), frequentAlbums = new ArrayList<>(), typeAlbums = new ArrayList<>();
     private List<GalleryItem> everything = new ArrayList<>();
     private int trashCount = -1;
+    /** P622: the «Фото» page in the chosen view (grid / list / timeline) and its motion. */
+    @Nullable private com.particlesdevs.photoncamera.gallery.ui.GalleryViews views;
 
     @Nullable
     @Override
@@ -197,6 +199,8 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         empty.setPadding(GalleryUi.dp(c, 20), GalleryUi.dp(c, 60), GalleryUi.dp(c, 20), GalleryUi.dp(c, 60));
         empty.setVisibility(View.GONE);
         body.addView(empty, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
+        views = new com.particlesdevs.photoncamera.gallery.ui.GalleryViews(c, grid, layout, adapter, body, rangeRow, photosHeader, this); // P622
+        grid.addOnScrollListener(new com.particlesdevs.photoncamera.gallery.ui.ThumbPreloader(com.bumptech.glide.Glide.with(this), adapter)); // P620
         grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
@@ -222,6 +226,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         albumsColumn.addView(albums.view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         albumsPage = albumsColumn;
         root.addView(albumsColumn, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        albums.setMode(views.mode()); // P622
 
         // ---- «Поиск»
         LinearLayout searchColumn = new LinearLayout(c);
@@ -307,6 +312,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             }
         };
         requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), back);
+        views.applyStored(); // P622: the stored view's rows, spans and thumbnail size
         applyPages(false);
         if (trashOpen) {
             trash.view.setVisibility(View.VISIBLE);
@@ -481,6 +487,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         clearSelection();
         albumTitle = title;
         albumFolder = folder;
+        com.particlesdevs.photoncamera.gallery.model.GalleryLayout.markSeen(requireContext(), title, folder.getFiles()); // P622: its badge
         tab = GalleryTabBar.ALBUMS;
         viewModel.setCurrentFolderImages(folder);
         applyPages(true);
@@ -679,10 +686,23 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         Context c = requireContext();
         List<GalleryMenu.Item> items = new ArrayList<>();
         items.add(new GalleryMenu.Item(R.drawable.ui_ic_filter, Lang.t("Фильтр", "Filter"), true, this::openFilter));
-        items.add(new GalleryMenu.Item(R.drawable.ui_ic_zoom_in, Lang.t("Крупнее", "Larger"),
-                GalleryView.columns(c) > GalleryView.MIN_COLUMNS, () -> setColumns(GalleryView.columns(c) - 1)));
-        items.add(new GalleryMenu.Item(R.drawable.ui_ic_zoom_out, Lang.t("Мельче", "Smaller"),
-                GalleryView.columns(c) < GalleryView.MAX_COLUMNS, () -> setColumns(GalleryView.columns(c) + 1)));
+        items.add(viewItem()); // P622
+        com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode m = views != null ? views.mode()
+                : com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID;
+        if (m == com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.TIMELINE) {
+            // P622: the timeline's zoom steps (columns, then months and years) as its pinch
+            items.add(new GalleryMenu.Item(R.drawable.ui_ic_zoom_in, Lang.t("Крупнее", "Larger"),
+                    views.level() != com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Level.ALL
+                            || com.particlesdevs.photoncamera.gallery.model.GalleryLayout.timelineColumns(c) > com.particlesdevs.photoncamera.gallery.model.GalleryLayout.TL_MIN_COLUMNS,
+                    () -> views.pinch(true)));
+            items.add(new GalleryMenu.Item(R.drawable.ui_ic_zoom_out, Lang.t("Мельче", "Smaller"),
+                    views.level() != com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Level.YEARS, () -> views.pinch(false)));
+        } else if (m == com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID) {
+            items.add(new GalleryMenu.Item(R.drawable.ui_ic_zoom_in, Lang.t("Крупнее", "Larger"),
+                    GalleryView.columns(c) > GalleryView.MIN_COLUMNS, () -> setColumns(GalleryView.columns(c) - 1)));
+            items.add(new GalleryMenu.Item(R.drawable.ui_ic_zoom_out, Lang.t("Мельче", "Smaller"),
+                    GalleryView.columns(c) < GalleryView.MAX_COLUMNS, () -> setColumns(GalleryView.columns(c) + 1)));
+        }
         boolean oldest = GalleryView.oldestFirst(c);
         items.add(new GalleryMenu.Item(R.drawable.ui_ic_sort, oldest ? Lang.t("Сначала новые", "Newest first") : Lang.t("Сначала старые", "Oldest first"),
                 true, () -> {
@@ -697,6 +717,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
 
     private void albumsMenu(View anchor) {
         List<GalleryMenu.Item> items = new ArrayList<>();
+        items.add(viewItem()); // P622
         items.add(new GalleryMenu.Item(R.drawable.ui_ic_folders, Lang.t("Папки во вкладке «Фото»", "Folders in «Photos»"), true, this::openFolders));
         if (com.particlesdevs.photoncamera.gallery.files.GalleryTrash.supported())
             items.add(new GalleryMenu.Item(R.drawable.ui_ic_trash, Lang.t("Недавно удаленные", "Recently deleted"), true, this::openTrash));
@@ -733,10 +754,10 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             public boolean onScale(@NonNull ScaleGestureDetector d) {
                 acc *= d.getScaleFactor();
                 if (acc > 1.25f) {
-                    setColumns(GalleryView.columns(c) - 1);
+                    if (views == null || !views.pinch(true)) setColumns(GalleryView.columns(c) - 1); // P622: the view's own zoom first
                     acc = 1f;
                 } else if (acc < .8f) {
-                    setColumns(GalleryView.columns(c) + 1);
+                    if (views == null || !views.pinch(false)) setColumns(GalleryView.columns(c) + 1);
                     acc = 1f;
                 }
                 return true;
@@ -765,6 +786,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         if (layout == null || grid == null || adapter == null) return;
         n = GalleryView.clampColumns(n);
         GalleryView.setColumns(requireContext(), n);
+        if (views != null && views.mode() != com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID) return; // P622: the grid's setting, kept
         n *= GalleryUi.widthFactor(requireContext());
         if (n == layout.getSpanCount()) return;
         if (Motion.enabled(grid)) {
@@ -781,8 +803,13 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
 
     private void updateThumbSize(int columns) {
         if (adapter == null) return;
+        if (views != null && views.mode() != com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID) {
+            views.updateThumbSize(); // P622: the list's and the timeline's sizes
+            return;
+        }
         int width = getResources().getDisplayMetrics().widthPixels;
         adapter.setThumbPx(width / Math.max(1, columns));
+        com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.setGridPx(getContext(), adapter.thumbPx()); // P620: the viewer's first picture
     }
 
     private void openView() {
@@ -792,7 +819,63 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             setColumns(GalleryView.columns(c));
             viewModel.applyView();
             refreshFilterChip();
+        }, this::switchView));
+    }
+
+    // ---------------------------------------------------------------- P622: the views (grid / list / timeline)
+
+    /** The «⋮» menus' «Вид: Сетка»: the gallery's view sheet (the view, what to show, the order, the grid's columns). */
+    private GalleryMenu.Item viewItem() {
+        com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode m = views != null ? views.mode()
+                : com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID;
+        return new GalleryMenu.Item(R.drawable.ui_ic_grid, Lang.t("Вид: ", "View: ") + m.label(), true, this::openView);
+    }
+
+    /** The view chosen in the sheet: the photos and the albums change to it, animated. */
+    private void switchView(com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode m) {
+        if (views == null) return;
+        clearSelection();
+        views.switchTo(m);
+        if (albums != null) albums.setMode(m);
+    }
+
+    @Override
+    public boolean selectingNow() {
+        return selecting() || selectMode;
+    }
+
+    @Override
+    public String lastOpened() {
+        return views != null ? views.lastOpened() : "";
+    }
+
+    /** A list row's «⋮»: the long press's actions for that one photo (open, share, favourite, select, delete). */
+    @Override
+    public void onItemMenu(int itemIndex, View anchor) {
+        if (adapter == null || itemIndex < 0 || itemIndex >= adapter.items().size()) return;
+        final GalleryItem g = adapter.items().get(itemIndex);
+        boolean fav = isFavourite(g);
+        List<GalleryMenu.Item> items = new ArrayList<>();
+        items.add(new GalleryMenu.Item(R.drawable.ui_ic_open, Lang.t("Открыть", "Open"), true, () -> onPhotoClicked(itemIndex, anchor)));
+        items.add(new GalleryMenu.Item(R.drawable.ui_ic_share, Lang.t("Поделиться", "Share"), true, () -> only(g, this::shareSelected)));
+        items.add(new GalleryMenu.Item(fav ? R.drawable.ui_ic_heart_on : R.drawable.ui_ic_heart,
+                fav ? Lang.t("Убрать из избранного", "Remove from favourites") : Lang.t("В избранное", "Add to favourites"), true,
+                () -> only(g, this::favouriteSelected)));
+        items.add(new GalleryMenu.Item(R.drawable.ui_ic_select_all, Lang.t("Выбрать", "Select"), true, () -> {
+            if (!selection.getSelectedItems().contains(g)) selection.selectItem(g);
+            dragBase = new LinkedHashSet<>(selection.getSelectedItems());
+            onSelectionChanged();
         }));
+        items.add(new GalleryMenu.Item(R.drawable.ui_ic_trash, Lang.t("Удалить", "Delete"), true, () -> only(g, this::deleteSelected)));
+        GalleryMenu.show(anchor, items);
+    }
+
+    /** {@code action} of the selection run on {@code g} alone (the selection is empty again after it). */
+    private void only(GalleryItem g, Runnable action) {
+        selection.deselectAll();
+        selection.selectItem(g);
+        action.run();
+        if (!selection.getSelectedItems().isEmpty()) clearSelection();
     }
 
     // ---------------------------------------------------------------- selection
@@ -831,6 +914,17 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             onSelectionChanged();
             return;
         }
+        // P621: another app's PICK / GET_CONTENT: the tapped item goes back to it
+        if (getActivity() instanceof com.particlesdevs.photoncamera.gallery.ui.GalleryActivity
+                && ((com.particlesdevs.photoncamera.gallery.ui.GalleryActivity) getActivity()).picking()) {
+            GalleryItem picked = itemIndex >= 0 && itemIndex < adapter.items().size() ? adapter.items().get(itemIndex) : null;
+            if (!((com.particlesdevs.photoncamera.gallery.ui.GalleryActivity) getActivity()).pick(picked))
+                com.particlesdevs.photoncamera.gallery.ui.GalleryToast.show(requireContext(), Lang.t("Этот файл сюда не подходит: выберите другой",
+                        "This file does not fit here: pick another one"));
+            return;
+        }
+        if (views != null && itemIndex >= 0 && itemIndex < adapter.items().size())
+            views.opened(GalleryView.key(adapter.items().get(itemIndex).getFile())); // P622: the list highlights it
         Bundle b = new Bundle();
         b.putInt(Constants.IMAGE_POSITION_KEY, itemIndex);
         int[] at = new int[2];
@@ -876,6 +970,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         if (n == 0 && selection.isSelectionStarted()) selection.deselectAll();
         boolean on = selecting() || selectMode;
         adapter.refreshSelection(grid);
+        if (views != null) views.selecting(on); // P622: the timeline's control steps aside
         GalleryMotion.rise(selectionBar, on);
         if (tabBar != null && !trashOpen) tabBar.shown(!on);
         bar.bind(n);
@@ -1009,6 +1104,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
 
     @Override
     public void onDestroyView() {
+        views = null;
         grid = null;
         adapter = null;
         layout = null;

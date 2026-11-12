@@ -64,8 +64,18 @@ public class JpegStreamSaveTest {
         // the plan's wrap (ScamProcessor): COMPRESSION 6, the APP1 of the photo's size, inserted after SOI
         final ParseExif.ExifData e = exif();
         e.COMPRESSION = ParseExif.COMPRESSION_JPEG;
-        final byte[] app1 = ExifBlock.app1Segment(e, w, h);
+        // P620: and its IFD1 thumbnail from the readback's pixels (PhotoThumbnail.scaledRgba: the samples of the bitmap path)
+        final java.nio.ByteBuffer rgba = java.nio.ByteBuffer.allocateDirect(4 * w * h); // the GL readback's R, G, B, A bytes
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                final int c = image.getPixel(x, y);
+                rgba.put((byte) Color.red(c)).put((byte) Color.green(c)).put((byte) Color.blue(c)).put((byte) 255);
+            }
+        rgba.rewind();
+        final Bitmap thumb = PhotoThumbnail.scaledRgba(rgba, w, h, 4 * w, PhotoThumbnail.EXIF_LONG_SIDE);
+        final byte[] app1 = PhotoThumbnail.withThumbnail(ExifBlock.app1Segment(e, w, h), thumb);
         assertTrue("the EXIF block", app1 != null);
+        assertTrue("with its thumbnail", app1.length > ExifBlock.app1Segment(e, w, h).length);
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         final OutputStream tagged = IccEmbed.jpegInserting(bytes, app1, null);
         // the encoder's output arrives in pieces (jpegli: 1 MB chunks; odd sizes here to cross the insertion's head buffer)

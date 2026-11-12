@@ -148,6 +148,37 @@ public class NoiseModeler {
      * scale {@code scale}; idempotent (it always starts from the reported ISO). The stacking multiplier carries over and
      * computeModel is the one-frame stack again (ScamProcessor rescales it for the merge before the post).
      */
+    /**
+     * P614 «Why тон» V2: the noise the reference tone's AE clamps with - its capture code's mean of the frame's SENSOR_NOISE_PROFILE
+     * pairs (every channel entry, double, then float; one frame, no stacking, no chosen profile), S 0.00015 / O 1e-5 where the
+     * mean is not above 0 (its fallback). {S, O}.
+     */
+    public float[] reportedMean() {
+        return reportedMean(reportedModel);
+    }
+
+    /** {@link #reportedMean()} of a profile (null / empty: the fallback). */
+    public static float[] reportedMean(Pair<Double,Double>[] profile) {
+        double s = 0.0, o = 0.0;
+        int n = 0;
+        if (profile != null) {
+            for (Pair<Double,Double> c : profile) {
+                if (c == null || c.first == null || c.second == null) continue;
+                s += c.first;
+                o += c.second;
+                n++;
+            }
+        }
+        float fs = 0f, fo = 0f;
+        if (n > 0) {
+            fs = (float) (s / n);
+            fo = (float) (o / n);
+        }
+        if (!(fs > 0f)) fs = 0.00015f;
+        if (!(fo > 0f)) fo = 1e-5f;
+        return new float[]{fs, fo};
+    }
+
     public NoiseModeler withIsoScale(float scale) {
         final NoiseModeler n = new NoiseModeler(reportedModel, AnalogueISO, SensivityISO, bayer, scale);
         if (adaptiveMpy != 1.0) {

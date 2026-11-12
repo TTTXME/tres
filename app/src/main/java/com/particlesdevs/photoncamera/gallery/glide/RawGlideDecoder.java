@@ -59,6 +59,31 @@ public final class RawGlideDecoder implements ResourceDecoder<InputStream, Bitma
         return RawFormats.looksCameraRaw(h, h.length);
     }
 
+    /**
+     * P620: the picture of the camera RAW {@code file} for a {@code width x height} request (the thumbnail decoder reads the
+     * file in place when it has a readable path): the embedded thumbnail when large enough, else LibRaw's render; {@code how[0]}
+     * says which.
+     */
+    static Bitmap fromFile(File file, int width, int height, String[] how) throws IOException {
+        try (LibRawBridge.RawFile raw = LibRawBridge.open(file)) {
+            int need = Math.min(Math.max(width, height) > 0 ? Math.max(width, height) : 2048, 4096);
+            int[] ts = raw.thumbnailSize();
+            Bitmap thumb = Math.max(ts[0], ts[1]) >= 0.9 * Math.min(need, 1024) ? raw.thumbnail(need) : null;
+            if (thumb != null) {
+                how[0] = "thumbnail " + thumb.getWidth() + "x" + thumb.getHeight();
+                return DngGlideDecoder.orient(thumb, raw.orientation());
+            }
+            Bitmap bitmap = raw.render(); // LibRaw turns it itself
+            if (bitmap == null) {
+                Bitmap small = raw.thumbnail(need);
+                if (small == null) throw new IOException("RAW: no picture");
+                bitmap = DngGlideDecoder.orient(small, raw.orientation());
+            }
+            how[0] = "LibRaw render " + bitmap.getWidth() + "x" + bitmap.getHeight();
+            return bitmap;
+        }
+    }
+
     @Nullable
     @Override
     public Resource<Bitmap> decode(@NonNull InputStream source, int width, int height, @NonNull Options options) throws IOException {
@@ -69,26 +94,9 @@ public final class RawGlideDecoder implements ResourceDecoder<InputStream, Bitma
                 byte[] buf = new byte[1 << 16];
                 for (int r; (r = source.read(buf)) > 0; ) out.write(buf, 0, r);
             }
-            Bitmap bitmap;
-            String how;
-            try (LibRawBridge.RawFile raw = LibRawBridge.open(tmp)) {
-                int need = Math.min(Math.max(width, height) > 0 ? Math.max(width, height) : 2048, 4096);
-                int[] ts = raw.thumbnailSize();
-                Bitmap thumb = Math.max(ts[0], ts[1]) >= 0.9 * Math.min(need, 1024) ? raw.thumbnail(need) : null;
-                if (thumb != null) {
-                    bitmap = DngGlideDecoder.orient(thumb, raw.orientation());
-                    how = "thumbnail " + thumb.getWidth() + "x" + thumb.getHeight();
-                } else {
-                    bitmap = raw.render(); // LibRaw turns it itself
-                    if (bitmap == null) {
-                        Bitmap small = raw.thumbnail(need);
-                        if (small == null) throw new IOException("RAW: no picture");
-                        bitmap = DngGlideDecoder.orient(small, raw.orientation());
-                    }
-                    how = "LibRaw render " + bitmap.getWidth() + "x" + bitmap.getHeight();
-                }
-            }
-            Log.d(TAG, how + " in " + (System.nanoTime() - t0) / 1000000 + " ms (request " + width + "x" + height + ")");
+            String[] how = new String[1];
+            Bitmap bitmap = fromFile(tmp, width, height, how);
+            Log.d(TAG, how[0] + " in " + (System.nanoTime() - t0) / 1000000 + " ms (request " + width + "x" + height + ")");
             return BitmapResource.obtain(bitmap, pool);
         } finally {
             //noinspection ResultOfMethodCallIgnored

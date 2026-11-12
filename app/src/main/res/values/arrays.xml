@@ -139,10 +139,22 @@
     <string-array name="scam_hybrid_processing_entries">
         <item>Fast</item>
         <item>Quality</item>
+        <item>Static</item>
     </string-array>
     <string-array name="scam_hybrid_processing_values" translatable="false">
         <item>fast</item>
         <item>quality</item>
+        <item>static</item>
+    </string-array>
+    <string-array name="scam_hybrid_static_sr_entries">
+        <item>1.0× (sensor size, default)</item>
+        <item>1.5×</item>
+        <item>2.0×</item>
+    </string-array>
+    <string-array name="scam_hybrid_static_sr_values" translatable="false">
+        <item>sensor</item>
+        <item>1.5x</item>
+        <item>2x</item>
     </string-array>
     <string-array name="scam_hybrid_fringe_method_entries">
         <item>Neural</item>
@@ -151,6 +163,14 @@
     <string-array name="scam_hybrid_fringe_method_values" translatable="false">
         <item>neural</item>
         <item>classic</item>
+    </string-array>
+    <string-array name="scam_hybrid_tone_version_entries">
+        <item>V1</item>
+        <item>V2</item>
+    </string-array>
+    <string-array name="scam_hybrid_tone_version_values" translatable="false">
+        <item>v1</item>
+        <item>v2</item>
     </string-array>
     <string-array name="scam_hybrid_fringe_net_reach_entries">
         <item>Narrow</item>
@@ -693,5 +713,85 @@
     <string-array name="scam_hybrid_mosaic_wb_mode_entries">
         <item>By the viewfinder</item>
         <item>Own SCAMERA estimate</item>
+    </string-array>
+    <string-array name="watermark_layout_entries">
+        <item>Caption</item>
+        <item>Badge</item>
+        <item>Bar</item>
+        <item>Frame</item>
+    </string-array>
+    <string-array name="watermark_layout_values" translatable="false">
+        <item>text</item>
+        <item>badge</item>
+        <item>bar</item>
+        <item>frame</item>
+    </string-array>
+    <string-array name="watermark_position_entries">
+        <item>Bottom left</item>
+        <item>Bottom centre</item>
+        <item>Bottom right</item>
+        <item>Top left</item>
+        <item>Top centre</item>
+        <item>Top right</item>
+    </string-array>
+    <string-array name="watermark_position_values" translatable="false">
+        <item>bl</item>
+        <item>bc</item>
+        <item>br</item>
+        <item>tl</item>
+        <item>tc</item>
+        <item>tr</item>
+    </string-array>
+    <string-array name="watermark_color_entries">
+        <item>Auto</item>
+        <item>White</item>
+        <item>Black</item>
+    </string-array>
+    <string-array name="watermark_color_values" translatable="false">
+        <item>auto</item>
+        <item>white</item>
+        <item>black</item>
+    </string-array>
+    <string-array name="watermark_font_entries">
+        <item>SCAM</item>
+        <item>Narrow</item>
+        <item>Serif</item>
+        <item>Mono</item>
+    </string-array>
+    <string-array name="watermark_font_values" translatable="false">
+        <item>scam</item>
+        <item>condensed</item>
+        <item>serif</item>
+        <item>mono</item>
+    </string-array>
+    <string-array name="watermark_date_format_entries">
+        <item>11.11.2026  14:05</item>
+        <item>11.11.2026</item>
+        <item>14:05</item>
+        <item>2026-11-11 14:05</item>
+        <item>11 November 2026, 14:05</item>
+    </string-array>
+    <string-array name="watermark_date_format_values" translatable="false">
+        <item>datetime</item>
+        <item>date</item>
+        <item>time</item>
+        <item>iso</item>
+        <item>text</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_version_entries">
+        <item>Oldstyle V1</item>
+        <item>Oldstyle V2</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_v2_levels_entries">
+        <item>10 (full frame)</item>
+        <item>8 (postview)</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_version_values" translatable="false">
+        <item>v1</item>
+        <item>v2</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_v2_levels_values" translatable="false">
+        <item>10</item>
+        <item>8</item>
     </string-array>
 </resources>

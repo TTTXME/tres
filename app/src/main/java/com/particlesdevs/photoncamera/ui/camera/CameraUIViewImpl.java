@@ -120,7 +120,7 @@ public class CameraUIViewImpl implements CameraUIView {
         com.particlesdevs.photoncamera.ui.Motion.press(bottombuttons.flipCameraButton);
         View bar = cameraFragment.cameraFragmentBinding.layoutBottombar.getRoot();
         // P574: the bottom row (the gear, the two modes, «Про») gives under the finger too
-        for (int id : new int[]{R.id.pro_button, R.id.settings_button, R.id.mode_sport, R.id.mode_photo}) {
+        for (int id : new int[]{R.id.pro_button, R.id.settings_button, R.id.mode_sport, R.id.mode_photo, R.id.mode_oldstyle}) {
             View side = bar.findViewById(id);
             if (side != null) com.particlesdevs.photoncamera.ui.Motion.press(side);
         }

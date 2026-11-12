@@ -227,8 +227,11 @@ public class SettingsAuditFixTest {
         String[] global={PreferenceKeys.ROUTE_KEY,"pref_camera_sounds_key","pref_timer_sound_key","pref_show_grid_key","pref_photo_format",
                 "pref_jpeg_quality","pref_heic_quality","pref_heic_10bit","pref_webp_quality","pref_webp_lossless","pref_photo_also_jpeg",
                 "pref_photo_color_space",
-                "pref_avif_quality","pref_save_raw_key","pref_ultrahdr_key","pref_show_watermark_key","pref_watermark_line1",
-                "pref_watermark_line2","pref_watermark_logo","pref_watermark_size","pref_watermark_opacity","pref_root_enabled",
+                "pref_avif_quality","pref_save_raw_key","pref_ultrahdr_key","pref_show_watermark_key","pref_watermark_text",
+                "pref_watermark_show_text","pref_watermark_show_device","pref_watermark_show_lens","pref_watermark_show_aperture",
+                "pref_watermark_show_shutter","pref_watermark_show_iso","pref_watermark_show_time","pref_watermark_date_format",
+                "pref_watermark_layout","pref_watermark_position","pref_watermark_color","pref_watermark_font","pref_watermark_margin",
+                "pref_watermark_logo","pref_watermark_size","pref_watermark_opacity","pref_root_enabled",
                 "pref_camera_package_spoof_enabled","pref_oplus_spoof_package_key","pref_generic_spoof_package_key",
                 "pref_binder_spoof_package_key","pref_face_detect_mode","pref_tracking_af_mode","pref_hide_gallery_icon_key",
                 "pref_theme_key","pref_antibanding_hz_key"};
@@ -247,10 +250,10 @@ public class SettingsAuditFixTest {
         SharedPreferences[] module=profiles();
         prefs.edit().putString(PreferenceKeys.ROUTE_KEY,"scamhdr").putBoolean("pref_camera_sounds_key",false).commit();
         for(SharedPreferences p:module)p.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putBoolean("pref_camera_sounds_key",true)
-                .putString("pref_watermark_line1","OLD").putString("pref_scam_hybrid_cdm","0.5").commit();
+                .putString("pref_watermark_text","OLD").putString("pref_scam_hybrid_cdm","0.5").commit();
         SettingsMigration.removeObsolete(context,prefs);
         for(SharedPreferences p:module){
-            assertFalse(p.contains(PreferenceKeys.ROUTE_KEY));assertFalse(p.contains("pref_camera_sounds_key"));assertFalse(p.contains("pref_watermark_line1"));
+            assertFalse(p.contains(PreferenceKeys.ROUTE_KEY));assertFalse(p.contains("pref_camera_sounds_key"));assertFalse(p.contains("pref_watermark_text"));
             assertEquals("per-module tuning stays","0.5",p.getString("pref_scam_hybrid_cdm",""));
         }
         assertEquals("scamhdr",prefs.getString(PreferenceKeys.ROUTE_KEY,""));assertFalse(prefs.getBoolean("pref_camera_sounds_key",true));
@@ -261,16 +264,16 @@ public class SettingsAuditFixTest {
         for(int i=0;i<2;i++)prefs.edit().putString("module_auto_back"+i,""+(3+i)).putString("module_label_back"+i,new String[]{"1×","0.6×"}[i])
                 .putBoolean("module_visible_back"+i,true).commit();
         prefs.edit().putString("module_active","back0").putString(PreferenceKeys.ROUTE_KEY,"hybrid").putString("pref_scam_hybrid_cdm","0.5")
-                .putString("pref_watermark_line1","ONE").commit();
+                .putString("pref_watermark_text","ONE").commit();
         String perLens=PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue;
         prefs.edit().putBoolean(perLens,true).commit();PreferenceKeys.profiles().changed(perLens);
         PreferenceKeys.profiles().activate("back1");
-        prefs.edit().putString(PreferenceKeys.ROUTE_KEY,"scamhdr").putString("pref_scam_hybrid_cdm","0.9").putString("pref_watermark_line1","TWO").commit();
+        prefs.edit().putString(PreferenceKeys.ROUTE_KEY,"scamhdr").putString("pref_scam_hybrid_cdm","0.9").putString("pref_watermark_text","TWO").commit();
         PreferenceKeys.profiles().changed("pref_scam_hybrid_cdm");PreferenceKeys.profiles().changed(PreferenceKeys.ROUTE_KEY);
         PreferenceKeys.profiles().activate("back0");
         assertEquals("0.5",prefs.getString("pref_scam_hybrid_cdm",""));
         assertEquals("scamhdr",prefs.getString(PreferenceKeys.ROUTE_KEY,""));
-        assertEquals("TWO",prefs.getString("pref_watermark_line1",""));
+        assertEquals("TWO",prefs.getString("pref_watermark_text",""));
         assertFalse(PreferenceKeys.profiles().snapshot("back1").containsKey(PreferenceKeys.ROUTE_KEY));
         assertEquals("0.9",String.valueOf(PreferenceKeys.profiles().snapshot("back1").get("pref_scam_hybrid_cdm")));
     }

@@ -77,6 +77,20 @@ public class GalleryActivity extends BaseActivity {
         List<GalleryItem> shown = viewModel.getCurrentFolderImages().getValue();
         boolean refill = fresh || shown == null || shown.isEmpty();
         Bundle editArgs = null;
+        // P621: what the intent asks for (routeOf); a video VIEW / REVIEW plays in the gallery's player
+        Route route = routeOf(intent, intent.getData() != null ? nameOf(intent.getData()) : null);
+        if (route == Route.VIDEO) {
+            com.particlesdevs.photoncamera.gallery.video.VideoPlayerActivity.openExternal(this, intent.getData(), nameOf(intent.getData()));
+            finish();
+            return;
+        }
+        picking = route == Route.PICK;
+        secureReview = route == Route.SECURE_REVIEW;
+        if (secureReview && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) setShowWhenLocked(true);
+        if (picking) {
+            externalUsage = true;
+            pickKind = pickKindOf(intent);
+        }
         // Check if this is a VIEW or REVIEW intent from another app (like HedgeCam2)
         if (isViewIntent(intent)) {
             if (refill) handleExternalViewIntent(intent.getData(), fresh);
@@ -93,9 +107,121 @@ public class GalleryActivity extends BaseActivity {
         if (host != null) startNavigation(host.getNavController(), intent, fresh, editArgs);
     }
 
+    /** P621: MediaStore.ACTION_REVIEW / ACTION_REVIEW_SECURE (Android 10+), what a camera sends to show the photo it took. */
+    static final String ACTION_REVIEW_Q = "android.provider.action.REVIEW", ACTION_REVIEW_SECURE = "android.provider.action.REVIEW_SECURE";
+    /** P621: the launcher's «gallery» category (Intent.CATEGORY_APP_GALLERY; a main-selector intent of the system or a launcher). */
+    static final String CATEGORY_APP_GALLERY = "android.intent.category.APP_GALLERY";
+
+    /**
+     * P621 (owner, 2026-11-11: «сделай чтобы нашу галерею можно было выбирать в системе как по умолчанию»): the screen an intent
+     * opens - VIEWER: a photo (its folder's neighbours when MediaStore knows it, else just that item); SECURE_REVIEW: the photo
+     * alone over the lock screen; VIDEO: the gallery's player; EDIT: the editor; PICK: the library, a tap returns the item;
+     * LIBRARY: the launcher icon, the «gallery» category; CAMERA: the camera's own thumbnail (the newest photo).
+     */
+    enum Route { VIEWER, SECURE_REVIEW, VIDEO, EDIT, PICK, LIBRARY, CAMERA }
+
+    static Route routeOf(Intent intent, @Nullable String name) {
+        if (isViewIntent(intent)) {
+            if (isVideo(intent.getType(), intent.getData(), name)) return Route.VIDEO;
+            return ACTION_REVIEW_SECURE.equals(intent.getAction()) ? Route.SECURE_REVIEW : Route.VIEWER;
+        }
+        if (isEditIntent(intent)) return Route.EDIT;
+        if (isPickIntent(intent)) return Route.PICK;
+        if (Intent.ACTION_MAIN.equals(intent.getAction())
+                && (intent.hasCategory(Intent.CATEGORY_LAUNCHER) || intent.hasCategory(CATEGORY_APP_GALLERY))) return Route.LIBRARY;
+        return Route.CAMERA;
+    }
+
     static boolean isViewIntent(Intent intent) {
         String action = intent.getAction();
-        return (Intent.ACTION_VIEW.equals(action) || Constants.ACTION_REVIEW.equals(action)) && intent.getData() != null;
+        return (Intent.ACTION_VIEW.equals(action) || Constants.ACTION_REVIEW.equals(action) || ACTION_REVIEW_Q.equals(action)
+                || ACTION_REVIEW_SECURE.equals(action)) && intent.getData() != null;
+    }
+
+    /** P621: a video by its type, MediaStore's video collection, or its name (file managers send no type or octet-stream). */
+    static boolean isVideo(@Nullable String type, @Nullable Uri uri, @Nullable String name) {
+        if (type != null && (type.startsWith("video/") || type.equals("vnd.android.cursor.item/video"))) return true;
+        if (type != null && type.startsWith("image/")) return false;
+        if (uri != null && "media".equals(uri.getAuthority()) && uri.getPath() != null && uri.getPath().contains("/video/")) return true;
+        return com.particlesdevs.photoncamera.gallery.files.GalleryVideo.isVideoName(name);
+    }
+
+    /**
+     * P621: PICK / GET_CONTENT of photos or videos, a single item back; any type ("*" + "/" + "*") too (the system matches it to
+     * every filter with a type: a photo or a video is an answer to it).
+     */
+    static boolean isPickIntent(Intent intent) {
+        String a = intent.getAction();
+        if (!Intent.ACTION_PICK.equals(a) && !Intent.ACTION_GET_CONTENT.equals(a)) return false;
+        String type = intent.getType();
+        if (type == null) return Intent.ACTION_PICK.equals(a) && intent.getData() != null && "media".equals(intent.getData().getAuthority());
+        return type.equals("*/*") || type.startsWith("image/") || type.startsWith("video/") || type.equals("vnd.android.cursor.dir/image")
+                || type.equals("vnd.android.cursor.dir/video");
+    }
+
+    /** P621: what a pick may return: «image», «video» or «any» (a MediaStore collection URI of a type-less PICK). */
+    static String pickKindOf(Intent intent) {
+        String type = intent.getType();
+        if (type == null && intent.getData() != null && intent.getData().getPath() != null)
+            type = intent.getData().getPath().contains("/video/") ? "video/*" : intent.getData().getPath().contains("/images/") ? "image/*" : null;
+        if (type == null) return "any";
+        if (type.startsWith("image/") || type.equals("vnd.android.cursor.dir/image")) return "image";
+        if (type.startsWith("video/") || type.equals("vnd.android.cursor.dir/video")) return "video";
+        return "any";
+    }
+
+    /** P621: whether a VIEW of {@code uri} shows its neighbours: a MediaStore item, or a file path (matched in the library). */
+    static boolean withNeighbours(@Nullable Uri uri) {
+        if (uri == null) return false;
+        return "file".equals(uri.getScheme()) || ("content".equals(uri.getScheme()) && "media".equals(uri.getAuthority()));
+    }
+
+    /** P621: whether a picked item fits the pick's kind. */
+    static boolean pickable(String kind, @Nullable com.particlesdevs.photoncamera.gallery.files.MediaFile f) {
+        if (f == null || f.getFileUri() == null) return false;
+        boolean video = com.particlesdevs.photoncamera.gallery.files.GalleryVideo.isVideo(f);
+        return "any".equals(kind) || ("video".equals(kind) == video);
+    }
+
+    /** P621: the result of a pick: the item's URI, readable by the caller (a grant and ClipData for GET_CONTENT callers). */
+    static Intent pickResult(Uri uri) {
+        Intent r = new Intent().setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        r.setClipData(android.content.ClipData.newRawUri("", uri));
+        return r;
+    }
+
+    private boolean picking, secureReview;
+    private String pickKind = "any";
+
+    /** P621: the library returns a tapped item instead of opening it. */
+    public boolean picking() {
+        return picking;
+    }
+
+    /** P621: a lock-screen review: the photo alone, leaving it closes the gallery (no library over the lock screen). */
+    public boolean secureReview() {
+        return secureReview;
+    }
+
+    /** P621: a tapped item while picking: returned when it is of the kind asked for, else false (the caller says so). */
+    public boolean pick(@Nullable GalleryItem item) {
+        if (item == null || !pickable(pickKind, item.getFile())) return false;
+        setResult(RESULT_OK, pickResult(item.getFile().getFileUri()));
+        finish();
+        return true;
+    }
+
+    /** The display name of a URI (OpenableColumns), else its last path segment; null when neither. */
+    @Nullable
+    private String nameOf(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME) >= 0) {
+                String n = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+                if (n != null) return n;
+            }
+        } catch (Exception ignored) {
+        }
+        return uri.getLastPathSegment();
     }
 
     static boolean isEditIntent(Intent intent) {
@@ -112,9 +238,9 @@ public class GalleryActivity extends BaseActivity {
      */
     static void startNavigation(NavController nav, Intent intent, boolean fresh, @Nullable Bundle editArgs) {
         int start;
-        if (isEditIntent(intent)) start = R.id.photoEditorFragment;
-        else if (!isViewIntent(intent) && Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_LAUNCHER))
-            start = R.id.imageLibraryFragment;
+        Route route = routeOf(intent, null);
+        if (route == Route.EDIT) start = R.id.photoEditorFragment;
+        else if (route == Route.LIBRARY || route == Route.PICK) start = R.id.imageLibraryFragment; // P621: the «gallery» category, a pick
         else return;
         if (!fresh) {
             // the XML graph again (start: the viewer) under the restored back stack: navigateUp at the root library (or editor)
@@ -152,6 +278,15 @@ public class GalleryActivity extends BaseActivity {
      * viewer's saved position applies)
      */
     private void handleExternalViewIntent(Uri uri, boolean select) {
+        GalleryOpenTrace.opened(secureReview ? "secure review" : "view");
+        if (secureReview || !withNeighbours(uri)) {
+            // P621: another app's file (a FileProvider, Downloads, a document) or a lock-screen review: that item alone, without
+            // reading the library (it was put in front of the whole library before)
+            List<GalleryItem> single = new ArrayList<>();
+            single.add(new GalleryItem(createImageFileFromUri(uri)));
+            viewModel.getCurrentFolderImages().setValue(single);
+            return;
+        }
         try {
             // Load all media from the gallery first
             viewModel.fetchAllMedia();

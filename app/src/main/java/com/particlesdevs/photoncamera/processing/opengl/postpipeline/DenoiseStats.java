@@ -199,6 +199,7 @@ final class DenoiseStats {
         while (divider.nextBlock(row)) {
             android.opengl.GLES30.glViewport(x, y + row[0], w, row[1]);
             glProg.draw();
+            com.particlesdevs.photoncamera.processing.opengl.GpuPace.block(); // P616: a submission per block while paced
         }
         android.opengl.GLES30.glFlush();
     }

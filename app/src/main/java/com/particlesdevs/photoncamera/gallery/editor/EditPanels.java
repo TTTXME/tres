@@ -49,6 +49,14 @@ final class EditPanels {
 
         /** A style picked (-1: none) / its strength changed. */
         void style(int index, float amount, boolean commit);
+
+        /** P619: the photo's picture for the «LUT» tab's cards (the main pass's, without the look), delivered on the UI thread. */
+        void lookThumbnail(ThumbSink sink);
+    }
+
+    /** P619: a picture of the photo, ARGB w x h. */
+    interface ThumbSink {
+        void base(int[] argb, int w, int h);
     }
 
     private final Context c;
@@ -57,14 +65,23 @@ final class EditPanels {
     int hslBand = 0, gradeWheel = 0, curveChannel = EditState.CURVE_MASTER;
     int styleIndex = -1;
     float styleAmount = 1f;
+    /** P619: the «LUT» tab's section (0 LUT, 1 film) and its cards' pictures. */
+    int lookSection = 0;
+    final EditLookThumbs thumbs = new EditLookThumbs();
 
     EditPanels(Context c, Host host) {
         this.c = c;
         this.host = host;
     }
 
+    /** P633: a refresher of a panel built elsewhere (EditWatermarkPanel), for this tab's life. */
+    void refresher(Runnable r) {
+        refreshers.add(r);
+    }
+
     void refresh() {
-        for (Runnable r : refreshers) r.run();
+        // P619: a refresher may build controls (the film's, for another stock) and add theirs
+        for (Runnable r : new ArrayList<>(refreshers)) r.run();
     }
 
     // ---------------------------------------------------------------- pieces
@@ -101,6 +118,13 @@ final class EditPanels {
             case CURVE_SPLIT_3: return Lang.t("Граница светов", "Highlights split");
             case GRADE_BLEND: return Lang.t("Смешивание", "Blending");
             case GRADE_BALANCE: return Lang.t("Баланс", "Balance");
+            // P619: the camera tray's names (LutTray.filmParams)
+            case LUT_AMOUNT: case FILM_AMOUNT: return Lang.t("Сила", "Strength");
+            case FILM_GRAIN: return Lang.t("Зерно", "Grain");
+            case FILM_EXPOSURE: return Lang.t("Экспозиция", "Exposure");
+            case FILM_CONTRAST: return Lang.t("Контраст", "Contrast");
+            case FILM_DIR: return Lang.t("Цветоразделение (DIR)", "Colour separation (DIR)");
+            case FILM_PRINT_EV: return Lang.t("Экспозиция печати", "Print exposure");
             default: return p.key;
         }
     }
@@ -138,6 +162,9 @@ final class EditPanels {
             }
         });
         if (p == Param.EXPOSURE) s.format(v -> (v > 0 ? "+" : "") + GalleryUi.decimal(v, 2) + " EV");
+        if (p == Param.FILM_EXPOSURE || p == Param.FILM_PRINT_EV)
+            s.format(v -> (v > 0 ? "+" : "") + GalleryUi.decimal(v, p == Param.FILM_EXPOSURE ? 1 : 2) + " EV");
+        if (p == Param.LUT_AMOUNT || p == Param.FILM_AMOUNT || p == Param.FILM_GRAIN || p == Param.FILM_DIR) s.format(v -> Math.round(v) + " %");
         if (p == Param.TEMPERATURE || p == Param.TINT) s.format(v -> wbText(p, v));
         if (p == Param.GRADE_SH_HUE || p == Param.GRADE_MID_HUE || p == Param.GRADE_HI_HUE || p == Param.GRADE_ALL_HUE) {
             s.gradient(HUE_GRADIENT);
@@ -478,16 +505,300 @@ final class EditPanels {
         return String.format(Locale.ROOT, "%d %%", Math.round(v * 100));
     }
 
+    // ---------------------------------------------------------------- P619: «LUT»
+
+    /** P619: a LUT's name as the camera's tray gives it (LutTray.name): «Нет», our look's, the file's without «.cube». */
+    static String lutName(Context c, String value) {
+        if (value == null || value.isEmpty()) return Lang.t(c, "Нет", "None");
+        String look = com.particlesdevs.photoncamera.processing.color.FilmLooks.label(c, value);
+        if (look != null) return look;
+        return value.toLowerCase(Locale.ROOT).endsWith(".cube") ? value.substring(0, value.length() - 5) : value;
+    }
+
+    /** The cards of the shown section: their pictures, bound again when the photo's picture arrives. */
+    private final List<Object[]> lookCards = new ArrayList<>();
+
+    /**
+     * P619 (owner, 2026-11-11: «Добавь возможность в нашем редакторе в галерее применять луты из камеры и симуляции плёнок»): the
+     * «LUT» tab - the camera's LUTs (the tray's list: «Нет», our five looks, every .cube of Download/SCAMERA/LUT, in the user's order)
+     * and its film stocks, as cards with the photo through each, under the shared segmented control; the strength, and for a film
+     * its print, format, grain, exposure, contrast, couplers and print exposure (the tray's controls, the same ranges). Applied on
+     * the finished colour (EditLook), so the hint says how a film differs from one shot with it.
+     */
+    View look() {
+        LinearLayout l = column(c);
+        LinearLayout body = column(c);
+        l.addView(segments(new String[]{"LUT", Lang.t("Плёнка", "Film")}, lookSection, k -> {
+            lookSection = k;
+            buildLook(body);
+        }));
+        l.addView(body);
+        buildLook(body);
+        host.lookThumbnail((px, w, h) -> {
+            thumbs.setBase(px, w, h);
+            bindLookCards();
+        });
+        return l;
+    }
+
+    private void buildLook(LinearLayout body) {
+        body.removeAllViews();
+        lookCards.clear();
+        if (lookSection == 0) lutPage(body);
+        else filmPage(body);
+    }
+
+    private void bindLookCards() {
+        for (Object[] card : lookCards) {
+            android.widget.ImageView img = (android.widget.ImageView) card[0];
+            if ((Boolean) card[1]) thumbs.film(img, (String) card[2]);
+            else thumbs.lut(img, (String) card[2]);
+        }
+    }
+
+    private void lutPage(LinearLayout body) {
+        final List<String> values = com.particlesdevs.photoncamera.settings.ItemOrder.luts(c);
+        final LinearLayout row = cardRow(body);
+        for (String v : values) {
+            LinearLayout card = lookCard(lutName(c, v), v.equals(host.state().lut));
+            card.setContentDescription(lutName(c, v));
+            card.setOnClickListener(x -> {
+                EditState st = host.state();
+                st.lut = v;
+                if (!v.isEmpty() && st.get(Param.LUT_AMOUNT) <= 0f) st.set(Param.LUT_AMOUNT, 100f);
+                host.changed(true);
+                selectCards(row, values.indexOf(v));
+            });
+            android.widget.ImageView img = thumb(card);
+            lookCards.add(new Object[]{img, false, v});
+            thumbs.lut(img, v);
+            row.addView(card, cardParams(row));
+        }
+        refreshers.add(() -> selectCards(row, values.indexOf(host.state().lut)));
+        centreCard(row, values.indexOf(host.state().lut));
+        body.addView(slider(Param.LUT_AMOUNT, label(Param.LUT_AMOUNT)));
+        body.addView(hint(Lang.t("Те же LUT, что в камере: свои и файлы .cube из Download/SCAMERA/LUT. Ложатся на готовый цвет снимка, после ваших настроек",
+                "The camera's LUTs: ours and the .cube files of Download/SCAMERA/LUT. They go on the photo's finished colour, after your settings")));
+    }
+
+    private void filmPage(LinearLayout body) {
+        final List<String> ids = new ArrayList<>();
+        ids.add("");
+        for (com.particlesdevs.photoncamera.processing.color.FilmSim.Stock st : com.particlesdevs.photoncamera.processing.color.FilmSim.STOCKS)
+            ids.add(st.id);
+        final LinearLayout row = cardRow(body);
+        final LinearLayout params = column(c);
+        for (String id : ids) {
+            com.particlesdevs.photoncamera.processing.color.FilmSim.Stock st = id.isEmpty() ? null
+                    : com.particlesdevs.photoncamera.processing.color.FilmSim.stock(id);
+            String name = st == null ? Lang.t("Без плёнки", "No film") : st.name;
+            LinearLayout card = lookCard(name, id.equals(host.state().film));
+            card.setContentDescription(st == null ? name : st.brand + " " + st.name);
+            card.setOnClickListener(x -> {
+                EditState s2 = host.state();
+                s2.film = id;
+                if (!id.isEmpty() && s2.get(Param.FILM_AMOUNT) <= 0f) s2.set(Param.FILM_AMOUNT, 100f);
+                host.changed(true); // the refresher below shows the stock's controls
+            });
+            android.widget.ImageView img = thumb(card);
+            lookCards.add(new Object[]{img, true, id});
+            thumbs.film(img, id);
+            row.addView(card, cardParams(row));
+        }
+        centreCard(row, ids.indexOf(host.state().film));
+        body.addView(params);
+        refreshers.add(() -> {
+            selectCards(row, ids.indexOf(host.state().film));
+            if (!host.state().film.equals(filmBuilt)) filmParams(params);
+        });
+        filmParams(params);
+        body.addView(hint(Lang.t("Цвет плёнки — как в видоискателе камеры: от готового цвета снимка, а не от света сцены, как при съёмке с плёнкой. Ореол, мягкость и диффузия есть только при съёмке",
+                "The film's colour as the camera's viewfinder shows it: from the photo's finished colour, not the scene light a shot with the film gets. Halation, softness and diffusion only when shooting")));
+    }
+
+    /** The chosen stock's controls (none without a film): only what acts on it, as the tray (LutTray.filmParams). */
+    /** The stock whose controls are shown. */
+    @Nullable private String filmBuilt;
+
+    private void filmParams(LinearLayout params) {
+        params.removeAllViews();
+        filmBuilt = host.state().film;
+        final com.particlesdevs.photoncamera.processing.color.FilmSim.Stock st = host.state().film.isEmpty() ? null
+                : com.particlesdevs.photoncamera.processing.color.FilmSim.stock(host.state().film);
+        if (st == null) return;
+        params.addView(slider(Param.FILM_AMOUNT, label(Param.FILM_AMOUNT)));
+        if (!st.reversal()) {
+            params.addView(section(Lang.t("Печать", "Print")));
+            LinearLayout prints = column(c);
+            params.addView(prints);
+            buildPrints(prints, st);
+            refreshers.add(() -> buildPrints(prints, st));
+        }
+        params.addView(section(Lang.t("Формат", "Format")));
+        LinearLayout formats = column(c);
+        params.addView(formats);
+        buildFormats(formats);
+        refreshers.add(() -> buildFormats(formats));
+        params.addView(slider(Param.FILM_GRAIN, label(Param.FILM_GRAIN)));
+        params.addView(slider(Param.FILM_EXPOSURE, label(Param.FILM_EXPOSURE)));
+        if (st.spectral != null) {
+            params.addView(slider(Param.FILM_CONTRAST, label(Param.FILM_CONTRAST)));
+            params.addView(slider(Param.FILM_DIR, label(Param.FILM_DIR)));
+        }
+        if (st.type != com.particlesdevs.photoncamera.processing.color.FilmSim.SLIDE
+                && st.type != com.particlesdevs.photoncamera.processing.color.FilmSim.BW_REVERSAL)
+            params.addView(slider(Param.FILM_PRINT_EV, label(Param.FILM_PRINT_EV)));
+    }
+
+    private void buildPrints(LinearLayout box, com.particlesdevs.photoncamera.processing.color.FilmSim.Stock st) {
+        final com.particlesdevs.photoncamera.processing.color.FilmSim.Print[] prints = com.particlesdevs.photoncamera.processing.color.FilmSim.PRINTS;
+        final String on = com.particlesdevs.photoncamera.processing.color.FilmSim.print(host.state().filmPrint, st).id;
+        int chosen = -1;
+        for (int i = 0; i < prints.length; i++) if (prints[i].id.equals(on)) chosen = i;
+        if (repaint(box, chosen)) return;
+        List<TextView> chips = new ArrayList<>();
+        for (com.particlesdevs.photoncamera.processing.color.FilmSim.Print p : prints) {
+            TextView t = chip(p.name, p.id.equals(on), v -> {
+                host.state().filmPrint = p.id;
+                host.changed(true); // its refresher paints the chips
+            });
+            t.setContentDescription(p.brand + " " + p.name + ", " + (p.film ? Lang.t("кинопечать", "print film") : Lang.t("бумага", "paper")));
+            chips.add(t);
+        }
+        HorizontalScrollView row = chipRow(chips);
+        box.addView(row);
+        centreCard((LinearLayout) row.getChildAt(0), chosen);
+    }
+
+    private void buildFormats(LinearLayout box) {
+        final com.particlesdevs.photoncamera.processing.color.FilmSim.Format on = com.particlesdevs.photoncamera.processing.color.FilmSim.format(host.state().filmFormat);
+        int chosen = java.util.Arrays.asList(com.particlesdevs.photoncamera.processing.color.FilmSim.FORMATS).indexOf(on);
+        if (repaint(box, chosen)) return;
+        List<TextView> chips = new ArrayList<>();
+        for (com.particlesdevs.photoncamera.processing.color.FilmSim.Format f : com.particlesdevs.photoncamera.processing.color.FilmSim.FORMATS) {
+            TextView t = chip(com.particlesdevs.photoncamera.processing.color.FilmSim.formatName(c, f), f == on, v -> {
+                host.state().filmFormat = f.id;
+                host.changed(true);
+            });
+            t.setContentDescription(com.particlesdevs.photoncamera.processing.color.FilmSim.formatName(c, f) + ", "
+                    + com.particlesdevs.photoncamera.processing.color.FilmSim.formatHint(c, f));
+            chips.add(t);
+        }
+        HorizontalScrollView row = chipRow(chips);
+        box.addView(row);
+        centreCard((LinearLayout) row.getChildAt(0), chosen);
+    }
+
+    /** A built chip row in {@code box}: its chips painted for {@code chosen} (true), or none built yet (false). */
+    private static boolean repaint(LinearLayout box, int chosen) {
+        if (box.getChildCount() == 0 || !(box.getChildAt(0) instanceof HorizontalScrollView)) return false;
+        LinearLayout row = (LinearLayout) ((HorizontalScrollView) box.getChildAt(0)).getChildAt(0);
+        for (int i = 0; i < row.getChildCount(); i++) {
+            TextView t = (TextView) row.getChildAt(i);
+            if (t.isSelected() != (i == chosen)) GalleryUi.paintChip(t, i == chosen);
+        }
+        return true;
+    }
+
+    private TextView hint(String text) {
+        TextView t = GalleryUi.text(c, text, 12, GalleryUi.MUTED);
+        t.setPadding(GalleryUi.dp(c, 18), GalleryUi.dp(c, 4), GalleryUi.dp(c, 18), GalleryUi.dp(c, 8));
+        return t;
+    }
+
+    /** The cards' side (dp) and corners: the camera tray's (LutTray.THUMB_DP, THUMB_CORNER_DP, CARD_CORNER_DP). */
+    static final int CARD_THUMB_DP = 53, CARD_THUMB_CORNER_DP = 14, CARD_CORNER_DP = 18;
+    /** The chosen card's plate (the tray's row plate, P583). */
+    static final int CARD_PLATE = 0xFF3A3A3C;
+
+    private LinearLayout cardRow(LinearLayout body) {
+        HorizontalScrollView sv = new HorizontalScrollView(c);
+        sv.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(GalleryUi.dp(c, 14), GalleryUi.dp(c, 8), GalleryUi.dp(c, 14), GalleryUi.dp(c, 6));
+        sv.addView(row);
+        body.addView(sv);
+        return row;
+    }
+
+    private LinearLayout.LayoutParams cardParams(LinearLayout row) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (row.getChildCount() > 0) lp.setMarginStart(GalleryUi.dp(c, 6));
+        return lp;
+    }
+
+    /** A card: the picture (53dp, 14dp corners) and the name under it; chosen, on the plate with its name in the accent. */
+    LinearLayout lookCard(String label, boolean on) {
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        int pad = GalleryUi.dp(c, 4), side = GalleryUi.dp(c, CARD_THUMB_DP);
+        card.setPadding(pad, pad, pad, GalleryUi.dp(c, 6));
+        android.widget.ImageView img = new android.widget.ImageView(c);
+        img.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        img.setBackground(GalleryUi.round(c, 0x17FFFFFF, 0, CARD_THUMB_CORNER_DP));
+        img.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        img.setClipToOutline(true);
+        img.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        card.addView(img, new LinearLayout.LayoutParams(side, side));
+        TextView t = GalleryUi.text(c, label, 11, GalleryUi.TEXT);
+        t.setGravity(Gravity.CENTER);
+        t.setMaxLines(1);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        t.setIncludeFontPadding(false);
+        t.setTypeface(com.particlesdevs.photoncamera.ui.style.Fonts.of(c, 600));
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(side, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.topMargin = GalleryUi.dp(c, 5);
+        card.addView(t, tp);
+        card.setClickable(true);
+        card.setFocusable(true);
+        paintCard(card, on);
+        com.particlesdevs.photoncamera.ui.Motion.press(card);
+        return card;
+    }
+
+    static android.widget.ImageView thumb(View card) {
+        return (android.widget.ImageView) ((ViewGroup) card).getChildAt(0);
+    }
+
+    private void paintCard(LinearLayout card, boolean on) {
+        card.setSelected(on);
+        card.setActivated(on);
+        card.setBackground(GalleryUi.pressable(GalleryUi.round(c, on ? CARD_PLATE : 0x00000000, 0, CARD_CORNER_DP)));
+        ((TextView) card.getChildAt(1)).setTextColor(on ? GalleryUi.accent(c) : GalleryUi.TEXT);
+    }
+
+    private void selectCards(LinearLayout row, int chosen) {
+        for (int i = 0; i < row.getChildCount(); i++) {
+            LinearLayout card = (LinearLayout) row.getChildAt(i);
+            boolean on = i == chosen;
+            if (card.isSelected() != on) paintCard(card, on);
+        }
+    }
+
+    private static void centreCard(LinearLayout row, int index) {
+        if (index < 0) return;
+        row.post(() -> {
+            View target = row.getChildAt(index);
+            View scroll = (View) row.getParent();
+            if (target != null && scroll instanceof HorizontalScrollView)
+                ((HorizontalScrollView) scroll).scrollTo(Math.max(0, target.getLeft() + target.getWidth() / 2 - scroll.getWidth() / 2), 0);
+        });
+    }
+
     @Nullable
     View forTab(int tab) {
         refreshers.clear();
         switch (tab) {
             case 0: return crop();
             case 1: return styles();
-            case 2: return light();
-            case 3: return colour();
-            case 4: return effects();
-            case 5: return detail();
+            case 2: return look();
+            case 3: return light();
+            case 4: return colour();
+            case 5: return effects();
+            case 6: return detail();
+            case 7: return new EditWatermarkPanel(c, host, this).build(); // P633: «Знак»
             default: return null;
         }
     }

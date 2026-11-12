@@ -331,6 +331,38 @@ public final class LiveRawFrame {
         maxLongSide = px;
     }
 
+    /**
+     * P616 (owner, 2026-11-11: «Ты не исправил тормоза видоискателя во время обработки»; vivo X200 Ultra, 31254): while a shot is
+     * processed the newer tier's RAW viewfinder tones at most 750 k px (RawPreviewBudget), yet a plain Bayer frame still went to
+     * the GPU whole - 24 MB a frame at 4096 x 3072 - and every post pipeline of the log with such frames had one 240 - 339 ms
+     * draw blocked in that upload (VF_RAW «upload .../296.0»), the one shot whose frames were 2048 x 1536 cell means (6 MB) none.
+     * So with the module's size on auto (0) and a shot in processing (ThermalPolicy.reducedRawViewfinder), a plain Bayer frame is
+     * halved to a longest side of at most this (P266's halving, on the hand-off thread: one 2 x 2 quad of each 4 x 4, 6 MB), still
+     * 4x the tone's pixels; back to the whole frame when the processing ends. The photo is unchanged. scam_dev vf_busy_half 0: off.
+     */
+    static final int BUSY_LONG_SIDE = 2048;
+
+    /** P616: the longest side for the viewfinder's frame: the module's setting, or {@link #BUSY_LONG_SIDE} on auto while busy. */
+    static int viewCap(int moduleCap, boolean busy, boolean on) {
+        return moduleCap == 0 && busy && on ? BUSY_LONG_SIDE : moduleCap;
+    }
+
+    private static int viewCap() {
+        final int cap = maxLongSide;
+        return cap != 0 ? cap : viewCap(0, busyHalfFits && com.particlesdevs.photoncamera.util.ThermalPolicy.reducedRawViewfinder(),
+                com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_busy_half", true));
+    }
+
+    /**
+     * P616: the viewfinder shows (about) the whole frame, so the halved frame's colours still cover the busy tone (a zoomed crop
+     * would be toned from fewer colours than it is drawn at): the GL thread says so for the frame it drew last (MainRenderer).
+     */
+    private static volatile boolean busyHalfFits = true;
+
+    public static void setBusyHalfFits(boolean fits) {
+        busyHalfFits = fits;
+    }
+
     /** Tests: the size cap's halving buffers (halfA / halfB / unpacked) are held. */
     static synchronized boolean halvingBuffersHeld() {
         return halfA != null || halfB != null || unpacked != null;
@@ -700,7 +732,7 @@ public final class LiveRawFrame {
     public static void publishRef(ByteBuffer view, Meta m, Runnable published) {
         if (view == null) return;
         final long startNs = System.nanoTime();
-        if (m == null || !handsOff(m.width, m.height, m.block, maxLongSide, m.format, m.rowStride,
+        if (m == null || !handsOff(m.width, m.height, m.block, viewCap(), m.format, m.rowStride,
                 com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_tetra_ring", false),
                 com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_bin_async", true))) {
             try {
@@ -774,7 +806,7 @@ public final class LiveRawFrame {
         // plain Bayer frame as large (the hardware-remosaic FULLRES) one 2x2 quad of each 4x4, the same (w/2) x (h/2)
         // P314: and a smaller Quad / Tetra frame by its cell means (binsCellMeans); the large frames' bins stay as they were
         final int bin = block == 2 || block == 4 ? block : 1, cell = bin == 1 ? 2 : bin;
-        final int cap = maxLongSide;
+        final int cap = viewCap(); // P616: halved while a shot is processed (module size on auto)
         final boolean cellMeans = !means && binsCellMeans(w, h, bin, cap) && !drawsMosaicInPlace(bin, pin, format, w, stride,
                 com.particlesdevs.photoncamera.settings.PreferenceKeys.scamDevSwitch("vf_tetra_ring", false));
         if (!means && (cellMeans || binsLarge(w, h, bin, cap))) {
@@ -804,6 +836,7 @@ public final class LiveRawFrame {
         // cell means (P314: one Bayer site a cell, halved as any Bayer frame) - the steps used to change only 16-bit plain Bayer
         final boolean packedIn = com.particlesdevs.photoncamera.util.RawUnpack.isPacked(format);
         final int sourceStride = stride, sourceFormat = format; // P597: for VF_RAW "stages"
+        String halvedSource = null; // P616
         if (cap > 0 && bin == 1 && (packedIn
                 ? (long) (h - 1) * stride + com.particlesdevs.photoncamera.util.RawUnpack.packedRowBytes(format, w) <= plane.remaining()
                         && (long) w * h * 2 <= Integer.MAX_VALUE
@@ -838,6 +871,9 @@ public final class LiveRawFrame {
                         st = sw0 * 2;
                     }
                 }
+                // P616: VF_RAW «stages» names the halving (the module's size, or a shot in processing: viewCap)
+                halvedSource = w + "x" + h + " stride " + stride + " fmt " + format + " block 1 -> halved " + sw0 + "x" + sh0
+                        + (maxLongSide == 0 ? " (busy)" : "");
                 plane = src;
                 w = sw0;
                 h = sh0;
@@ -915,6 +951,7 @@ public final class LiveRawFrame {
         synchronized (LOCK) {
             if (!enabled || session != generation) return false;
             publishedNanos = System.nanoTime();
+            com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeter.arrived(true); // P616
             // P365: a ring view waiting as the ready frame was never the GL thread's: freed below, never refilled
             replaced = readyPinned;
             if (replaced != null) ready = null;
@@ -962,7 +999,7 @@ public final class LiveRawFrame {
         noteVfCopy(took);
         // P597: the hand-off's time on its thread (the camera's, or SCAMERA-vf-handoff) and what the frame was made of
         VfStages.note(VfStages.Stage.HANDOFF, took);
-        final String made = pendingSource;
+        final String made = pendingSource != null ? pendingSource : halvedSource;
         pendingSource = null;
         VfStages.source(made != null ? made : w + "x" + h + " stride " + sourceStride + " fmt " + sourceFormat + " block " + block
                 + (pin ? " -> in place (ring slot)" : " -> copied"));

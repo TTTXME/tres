@@ -258,6 +258,11 @@ public class ShadeCatalogTest {
     @Test
     public void availabilityUsesTheEffectiveRouteDependenciesAndTheFlash() {
         ShadeCatalog.Entry cdm = catalog.entry("pref_scam_hybrid_cdm");
+        // P629: the rejection's rows are «Качество»'s merge's: dimmed with «Быстрый» (the default) and «Статика», with the reason
+        assertNotNull(catalog.unavailable(cdm));
+        prefs.edit().putString("pref_scam_hybrid_processing", "static").commit();
+        assertNotNull(catalog.unavailable(cdm));
+        prefs.edit().putString("pref_scam_hybrid_processing", "quality").commit();
         assertNull(catalog.unavailable(cdm));
         // P129: SHDR is the only merge: a stored SCAM HDR route dims nothing
         manager.set("default_scope", PreferenceKeys.ROUTE_KEY, "scamhdr");

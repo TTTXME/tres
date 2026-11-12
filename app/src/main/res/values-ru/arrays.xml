@@ -3,10 +3,20 @@
     <string-array name="scam_hybrid_processing_entries">
         <item>Быстрый</item>
         <item>Качество</item>
+        <item>Статика</item>
+    </string-array>
+    <string-array name="scam_hybrid_static_sr_entries">
+        <item>1.0× (размер сенсора, по умолчанию)</item>
+        <item>1.5×</item>
+        <item>2.0×</item>
     </string-array>
     <string-array name="scam_hybrid_fringe_method_entries">
         <item>Нейросеть</item>
         <item>Классическое</item>
+    </string-array>
+    <string-array name="scam_hybrid_tone_version_entries">
+        <item>V1</item>
+        <item>V2</item>
     </string-array>
     <string-array name="scam_hybrid_fringe_net_reach_entries">
         <item>Узкая</item>
@@ -325,5 +335,45 @@
     <string-array name="scam_hybrid_mosaic_wb_mode_entries">
         <item>По видоискателю</item>
         <item>Своя оценка SCAMERA</item>
+    </string-array>
+    <string-array name="watermark_layout_entries">
+        <item>Подпись</item>
+        <item>Плашка</item>
+        <item>Полоса</item>
+        <item>Рамка</item>
+    </string-array>
+    <string-array name="watermark_position_entries">
+        <item>Снизу слева</item>
+        <item>Снизу по центру</item>
+        <item>Снизу справа</item>
+        <item>Сверху слева</item>
+        <item>Сверху по центру</item>
+        <item>Сверху справа</item>
+    </string-array>
+    <string-array name="watermark_color_entries">
+        <item>Авто</item>
+        <item>Белый</item>
+        <item>Чёрный</item>
+    </string-array>
+    <string-array name="watermark_font_entries">
+        <item>SCAM</item>
+        <item>Узкий</item>
+        <item>Засечки</item>
+        <item>Моно</item>
+    </string-array>
+    <string-array name="watermark_date_format_entries">
+        <item>11.11.2026  14:05</item>
+        <item>11.11.2026</item>
+        <item>14:05</item>
+        <item>2026-11-11 14:05</item>
+        <item>11 ноября 2026, 14:05</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_version_entries">
+        <item>Oldstyle V1</item>
+        <item>Oldstyle V2</item>
+    </string-array>
+    <string-array name="scam_hybrid_oldstyle_v2_levels_entries">
+        <item>10 (полный кадр)</item>
+        <item>8 (превью)</item>
     </string-array>
 </resources>

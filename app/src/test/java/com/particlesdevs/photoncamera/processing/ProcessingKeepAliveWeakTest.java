@@ -1,38 +1,81 @@
 package com.particlesdevs.photoncamera.processing;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.junit.After;
 import org.junit.Test;
 
 import java.lang.ref.WeakReference;
 import java.util.function.BooleanSupplier;
 
-/** P617: the keep-alive's busy check does not keep the camera's controller (and its activity) alive. */
+/**
+ * P617: the keep-alive's busy check does not keep an idle camera controller (and its activity) alive; a controller with a shot
+ * to finish stays in memory until the shot is processed (owner, 2026-11-11).
+ */
 public class ProcessingKeepAliveWeakTest {
     static final class Owner {
-        boolean busy;
+        volatile boolean busy;
         final byte[] weight = new byte[1 << 20];
     }
 
-    @Test
-    public void ownerFlagsWhileItLivesThenOnlyTheStatics() throws InterruptedException {
-        Owner o = new Owner();
-        final boolean[] statics = {false};
-        BooleanSupplier busy = ProcessingKeepAlive.weakly(o, x -> x.busy, () -> statics[0]);
-        assertFalse(busy.getAsBoolean());
-        o.busy = true;
-        assertTrue(busy.getAsBoolean());
-        WeakReference<Owner> ref = new WeakReference<>(o);
-        o = null;
+    @After
+    public void clear() {
+        ProcessingKeepAlive.pinned = null;
+    }
+
+    private static boolean collected(WeakReference<?> ref) throws InterruptedException {
         for (int i = 0; i < 50 && ref.get() != null; i++) {
             System.gc();
             Thread.sleep(10);
         }
-        assertNull("the supplier did not keep its owner", ref.get());
+        return ref.get() == null;
+    }
+
+    @Test
+    public void anIdleOwnerIsNotKept() throws InterruptedException {
+        Owner o = new Owner();
+        final boolean[] statics = {false};
+        BooleanSupplier busy = ProcessingKeepAlive.weakly(o, x -> x.busy, () -> statics[0]);
+        assertFalse(busy.getAsBoolean());
+        WeakReference<Owner> ref = new WeakReference<>(o);
+        o = null;
+        assertTrue("an idle owner is not kept", collected(ref));
         assertFalse(busy.getAsBoolean());
         statics[0] = true;
         assertTrue(busy.getAsBoolean());
+    }
+
+    @Test
+    public void aBusyOwnerStaysUntilItsWorkIsDone() throws InterruptedException {
+        Owner o = new Owner();
+        BooleanSupplier busy = ProcessingKeepAlive.weakly(o, x -> x.busy, () -> false);
+        o.busy = true;
+        assertTrue(busy.getAsBoolean());
+        WeakReference<Owner> ref = new WeakReference<>(o);
+        o = null;
+        assertFalse("a closed camera with a shot to finish stays in memory", collected(ref));
+        assertTrue(busy.getAsBoolean());
+        ref.get().busy = false;
+        assertFalse(busy.getAsBoolean());
+        assertTrue("released once the work is done", collected(ref));
+    }
+
+    @Test
+    public void theShutterPinsTheOwnerUntilACheckFindsNoWork() throws InterruptedException {
+        Owner o = new Owner();
+        BooleanSupplier busy = ProcessingKeepAlive.weakly(o, x -> x.busy, () -> false);
+        o.busy = true;
+        ProcessingKeepAlive.hold(null, o);
+        assertNotNull(ProcessingKeepAlive.pinned);
+        WeakReference<Owner> ref = new WeakReference<>(o);
+        o = null;
+        assertFalse(collected(ref));
+        ref.get().busy = false;
+        assertFalse(busy.getAsBoolean());
+        assertNull(ProcessingKeepAlive.pinned);
+        assertTrue(collected(ref));
     }
 }

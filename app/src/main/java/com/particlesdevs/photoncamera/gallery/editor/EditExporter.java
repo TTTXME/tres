@@ -46,6 +46,9 @@ import java.nio.IntBuffer;
  * highlights, dehaze) come from the 512 px proxy of the preview's decode, the same textures the preview used. JPEG quality 95
  * (jpegli 4:4:4, Bitmap.compress as the fallback), EXIF copied from the original with the orientation reset and the new size.
  * Ultra HDR gain maps and HDR renditions are not carried over: the copy is SDR (sRGB).
+ * P619: the «LUT» tab's look (EditLook) on every tile, from the tables the preview ended at (EditLook.blocking); the overlap
+ * also covers the film grain's blur; the copy's Software is this build (DngMetadata.software, as our DNGs) and its description
+ * gains a line naming the look.
  */
 public final class EditExporter {
     private static final String TAG = "EditExporter";
@@ -67,8 +70,14 @@ public final class EditExporter {
 
     private EditExporter() {}
 
-    /** The whole export; throws with a message for the user. */
+    /** The whole export without a look (see the next). */
     public static Result export(Context context, EditSource source, EditState state, Progress progress) throws IOException {
+        return export(context, source, state, null, progress);
+    }
+
+    /** The whole export with the look's tables {@code look} (null: none); throws with a message for the user. */
+    public static Result export(Context context, EditSource source, EditState state, @Nullable EditLook.Tables look, Progress progress)
+            throws IOException {
         Context c = context.getApplicationContext();
         long budget = EditSource.memoryBudget(c);
         long outMax = outMax(budget);
@@ -86,13 +95,14 @@ public final class EditExporter {
             boolean ownPreviewTex = source.previewRaw == null;
             if (source.previewRaw != null)
                 previewTex = r.rawSource(source.previewRaw, 0, 0, source.previewRaw.width, source.previewRaw.height);
-            else previewTex = EditRenderer.bitmapSource(source.preview);
+            else previewTex = EditRenderer.bitmapSource(source.previewFor(source.cleanFor(state)));
             r.setProxySource(previewTex, source.previewWidth(), source.previewHeight());
             if (ownPreviewTex) EditGl.deleteTexture(previewTex);
             r.updateProxy(EditMath.Uniforms.of(state, source.colour));
             progress.progress(0.02f);
 
             reader = source.openReader(c, cropFraction, outMax);
+            reader.restoreWatermark(source.cleanFor(state)); // P633: «Убрать» / «Изменить»: the pixels under the old one back
             final int sw = reader.width(), sh = reader.height();
             final Plan plan = plan(state, sw, sh, source.orientation, outMax);
             double[] crop = CropMath.cropPixels(state, plan.ow, plan.oh);
@@ -111,7 +121,8 @@ public final class EditExporter {
             // output px -> crop uv -> base uv -> oriented uv -> source uv -> source px
             final CropMath.Affine outToBase = plan.outToBase, baseToImg = plan.baseToImg, imgToSrcUv = plan.imgToSrcUv;
             final CropMath.Affine outToSrcPx = plan.outToSrcPx;
-            int overlap = EditMath.overlapPx(Math.max(sw, sh)) + 2;
+            int overlap = EditLook.overlap(state, Math.max(sw, sh)) + 2;
+            r.setLook(EditLook.applied(state, look));
             EditRenderer.Target tile = new EditRenderer.Target();
             ByteBuffer pixels = ByteBuffer.allocateDirect(TILE * TILE * 4).order(ByteOrder.LITTLE_ENDIAN);
             int[] argb = new int[TILE * TILE];
@@ -164,8 +175,11 @@ public final class EditExporter {
             r.release();
             egl.release();
         }
+        // P633: the watermark of the «Водяной знак» tab on the finished copy as the camera draws it (upright, the chosen corner, on the
+        // short side), its record kept so this copy's watermark can come off again
+        com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch record = drawWatermark(c, source, state, out);
         try {
-            Result res = save(c, source, out, progress);
+            Result res = save(c, source, out, lookLine(state, look), record, progress);
             res.note = shrink;
             return res;
         } finally {
@@ -273,19 +287,39 @@ public final class EditExporter {
         return null;
     }
 
+    /**
+     * P619: the description's line for the copy's look, null without one: "Edit look: LUT <name> <n> %" and / or "film <recipe>"
+     * (FilmSim.Settings.recipe, as a shot with the film carries it).
+     */
+    @Nullable
+    static String lookLine(EditState state, @Nullable EditLook.Tables look) {
+        if (EditLook.applied(state, look) == null) return null;
+        StringBuilder b = new StringBuilder("Edit look:");
+        String lut = EditLook.lut(state);
+        if (!lut.isEmpty()) b.append(" LUT ").append(lut).append(' ').append(Math.round(state.get(EditState.Param.LUT_AMOUNT))).append(" %");
+        com.particlesdevs.photoncamera.processing.color.FilmSim.Settings f = EditLook.film(state);
+        if (f != null) b.append(lut.isEmpty() ? "" : ";").append(" film ").append(f.recipe()).append("; on the finished colour");
+        return b.toString();
+    }
+
     static Result save(Context c, EditSource source, Bitmap out, Progress progress) throws IOException {
+        return save(c, source, out, null, null, progress);
+    }
+
+    static Result save(Context c, EditSource source, Bitmap out, @Nullable String lookLine, Progress progress) throws IOException {
+        return save(c, source, out, lookLine, null, progress);
+    }
+
+    /**
+     * The copy as a JPEG with the original's EXIF; P633: {@code watermark} (the record of the watermark the copy got, null for none)
+     * at its end (WatermarkStore), after the EXIF is written - so a copy with a watermark can have it taken off or changed again,
+     * and a copy without one carries no record.
+     */
+    static Result save(Context c, EditSource source, Bitmap out, @Nullable String lookLine,
+                       @Nullable com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch watermark, Progress progress) throws IOException {
         File tmp = File.createTempFile("edit", ".jpg", c.getCacheDir());
         try {
-            try (OutputStream o = new FileOutputStream(tmp)) {
-                JpegliEncoder.compress(out, QUALITY, o);
-            } catch (IOException e) {
-                Log.w(TAG, "jpegli failed, Bitmap.compress: " + e);
-                try (OutputStream o = new FileOutputStream(tmp)) {
-                    JpegliEncoder.compressFallback(out, QUALITY, o);
-                }
-            }
-            progress.progress(0.92f);
-            copyExif(c, source.uri, tmp, out.getWidth(), out.getHeight());
+            writeCopy(c, source, out, lookLine, watermark, tmp, progress);
             Result r = insert(c, source, tmp);
             r.width = out.getWidth();
             r.height = out.getHeight();
@@ -295,6 +329,48 @@ public final class EditExporter {
             //noinspection ResultOfMethodCallIgnored
             tmp.delete();
         }
+    }
+
+    /**
+     * The copy's file: the JPEG (jpegli q95, Bitmap.compress if it fails), the original's EXIF, then P633's watermark record (null:
+     * none) at its end - after the EXIF, which rewrites the file's head.
+     */
+    static void writeCopy(Context c, EditSource source, Bitmap out, @Nullable String lookLine,
+                          @Nullable com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch watermark, File tmp, Progress progress)
+            throws IOException {
+        try (OutputStream o = new FileOutputStream(tmp)) {
+            JpegliEncoder.compress(out, QUALITY, o);
+        } catch (IOException e) {
+            Log.w(TAG, "jpegli failed, Bitmap.compress: " + e);
+            try (OutputStream o = new FileOutputStream(tmp)) {
+                JpegliEncoder.compressFallback(out, QUALITY, o);
+            }
+        }
+        progress.progress(0.92f);
+        copyExif(c, source.uri, tmp, out.getWidth(), out.getHeight(), lookLine);
+        if (watermark != null) {
+            try {
+                if (!com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.append(tmp, watermark.toBytes()))
+                    Log.w(TAG, "watermark record: not a JPEG?");
+                else Log.i(TAG, "watermark record appended: " + watermark);
+            } catch (IOException | RuntimeException | OutOfMemoryError e) {
+                Log.w(TAG, "watermark record not written (the copy keeps its watermark): " + e);
+            }
+        }
+    }
+
+    /**
+     * P633: the «Знак» tab's watermark drawn into the finished copy {@code out} (mutable) as the camera draws it, with this photo's
+     * EXIF facts; its record (null: no watermark asked, or nothing drawn).
+     */
+    @Nullable
+    static com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch drawWatermark(Context c, EditSource source, EditState state, Bitmap out) {
+        com.particlesdevs.photoncamera.processing.watermark.WatermarkSpec spec = state.watermark();
+        if (spec == null) return null;
+        com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.Drawn d =
+                com.particlesdevs.photoncamera.processing.watermark.PhotoWatermark.draw(out, spec, source.watermarkInfo,
+                        new com.particlesdevs.photoncamera.processing.watermark.WatermarkFonts(c), true);
+        return d.patch();
     }
 
     /** EXIF tags carried from the original to the copy (date, camera, exposure, lens, GPS, description). */
@@ -318,6 +394,11 @@ public final class EditExporter {
     };
 
     static void copyExif(Context c, Uri from, File to, int w, int h) {
+        copyExif(c, from, to, w, h, null);
+    }
+
+    /** The original's tags, then the copy's size; P619: Software this build, the description with {@code lookLine} (null: as it was). */
+    static void copyExif(Context c, Uri from, File to, int w, int h, @Nullable String lookLine) {
         try {
             ExifInterface dst = new ExifInterface(to.getAbsolutePath());
             try (InputStream in = c.getContentResolver().openInputStream(from)) {
@@ -336,10 +417,26 @@ public final class EditExporter {
             dst.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, String.valueOf(h));
             dst.setAttribute(ExifInterface.TAG_IMAGE_WIDTH, String.valueOf(w));
             dst.setAttribute(ExifInterface.TAG_IMAGE_LENGTH, String.valueOf(h));
+            dst.setAttribute(ExifInterface.TAG_SOFTWARE, software());
+            if (lookLine != null) dst.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, describe(dst.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION), lookLine));
             dst.saveAttributes();
         } catch (IOException | RuntimeException e) {
             Log.w(TAG, "EXIF of the copy: " + e);
         }
+    }
+
+    /** P619: the copy's Software tag - this build, as our DNGs write it (DngMetadata.software); "SCAMERA" if the build is unknown. */
+    static String software() {
+        try {
+            return com.particlesdevs.photoncamera.processing.DngMetadata.software();
+        } catch (RuntimeException | LinkageError e) {
+            return "SCAMERA";
+        }
+    }
+
+    /** P619: the original's description with the look's line after it (the line alone without one). */
+    static String describe(@Nullable String original, String lookLine) {
+        return original == null || original.trim().isEmpty() ? lookLine : original + "\n " + lookLine;
     }
 
     /**

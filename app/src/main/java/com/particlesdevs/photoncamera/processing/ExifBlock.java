@@ -32,6 +32,21 @@ public final class ExifBlock {
      * explicitly. No Orientation tag: every format stores the pixels already rotated (PostPipeline RotateWatermark).
      * Returns null (photo without EXIF, as before) when anything fails.
      */
+    /**
+     * P620: {@link #app1Segment(ParseExif.ExifData, int, int)} with a 512 px JPEG thumbnail of {@code photo} (the rendered photo,
+     * as stored: upright) in IFD1 (PhotoThumbnail); without one when it cannot be made. {@code photo} is kept.
+     */
+    public static byte[] app1Segment(ParseExif.ExifData exif, int width, int height, Bitmap photo) {
+        final byte[] app1 = app1Segment(exif, width, height);
+        if (app1 == null || photo == null) return app1;
+        final Bitmap small = PhotoThumbnail.exifSource(photo);
+        try {
+            return PhotoThumbnail.withThumbnail(app1, small);
+        } finally {
+            if (small != null) small.recycle();
+        }
+    }
+
     public static byte[] app1Segment(ParseExif.ExifData exif, int width, int height) {
         if (exif == null) return null;
         File tmp = null;

@@ -418,6 +418,17 @@ public final class WhyTone {
     }
 
     /**
+     * P623 round 7 (owner, 2026-11-11, 140521: a rear-window sticker «1941-1945» mushy, its digits' holes filled): P394's average
+     * along the edge acts only where the edge's bright side reaches the bound (a lamp's rim, a window frame against a light or a white
+     * sky), not on small mid-tone text, whose strokes the average along a 3 x 3 tangent smeared together; the hold within the 3 x 3
+     * range stays at every strong edge (why/combine edgeHoldLightU).
+     * scam_dev hybrid_why_edge_hold_light (0 = every strong edge, as before).
+     */
+    static float edgeHoldLight() {
+        return Math.max(0f, Math.min(1f, value("edge_hold_light", 1f)));
+    }
+
+    /**
      * P595 (owner, 2026-11-10: white dots on dark objects' edges against a bright sky, «ограничитель выбросов можно поправить»):
      * why/sharp_rl edgeGuardU - the Richardson-Lucy stages' halo clamp relative at a dark / bright edge (the window 2 px round the
      * pixel 1 .. 2 stops from its darkest to its brightest): the result stays within that window's range +-1 %. The clamp's own
@@ -522,6 +533,89 @@ public final class WhyTone {
      * with WhyAe's night weight by this share; P508's daylight windows and sun scenes (night 0) are as before. scam_dev
      * hybrid_why_hl_local_night (0 = no fade, as before).
      */
+    /**
+     * P623 (owner, 2026-11-11, the sun on «Быстрый»: «на сцене с солнцем у нас есть обводка на солнце, а у V2 нет»): the light above
+     * white that the fast merge's valid short frames measured goes over to the real-headroom shoulder (why/combine HL_MEASURED) instead
+     * of the kernel's no-headroom ceiling, which put the sun's glow on one grey round a white disc. scam_dev hybrid_why_hl_measured
+     * (0 = as before).
+     */
+    static boolean hlMeasured() {
+        return value("hl_measured", 1f) > 0f;
+    }
+
+    /**
+     * P623 round 2 (owner, 2026-11-11, 140421 / 140250 on «Быстрый»: ragged white teeth along a fog lamp's rim, a dashed line along a
+     * sunlit hood's bright edge): why/combine HL_LOCAL_SMOOTH - HL_LOCAL's edge-aware mean bilinear over the four whyLow texels round
+     * the pixel instead of one texel per f x f block. scam_dev hybrid_why_hl_local_smooth (0 = as before).
+     */
+    static boolean hlLocalSmooth() {
+        return value("hl_local_smooth", 1f) > 0f;
+    }
+
+    /**
+     * P623 round 2: the neutral light the short frames measured lands on white (why/combine hlMeasU.w), not on a coloured
+     * neighbour's tint (P163's ring: salmon round an orange lens). scam_dev hybrid_why_hl_measured_landing (0 = as before).
+     */
+    /**
+     * P623 round 3 (owner, 2026-11-11, 140421's headlamp: «внутри фары оранжевое пятно вместо фары как на V2 и арк»): the measured
+     * shoulder decides and acts on the light's brightest channel, its saturation gate's MEAS_HIGH read there too (a lamp's amber lens 5 - 10 x white keeps its
+     * ridges and its own shape instead of the kernel's flat orange beside a white glare), and the measured light lands on the measured
+     * ceiling (WhyCombine.measuredCeiling). scam_dev hybrid_why_hl_measured_max (0 = round 2).
+     */
+    /**
+     * P623 round 5 (140421's headlamp: a grey lobe round a small glare core): the measured shoulder blends in by the light's own measured
+     * level too (its brightest channel at the exposure), so glare 2 - 3 x white the fusion took under white leaves the kernel's
+     * roll-off. scam_dev hybrid_why_hl_measured_scene (0 = round 4).
+     */
+    /**
+     * P623 round 6 (owner, 2026-11-11, 140521: a rear-window sticker «1941-1945» smeared into the white body below it): why/combine's
+     * P349 rim stop (beside light above white the darkening goes down to the far side's level, no further) is lifted where that far
+     * side is brighter than the pixel's own reference (a dark strip between a light and another bright area: the sticker's glass
+     * strip, a chrome trim's dark line). scam_dev hybrid_why_rim_far (0 = as before).
+     */
+    static boolean rimFar() {
+        return value("rim_far", 1f) > 0f;
+    }
+
+    /**
+     * P623 round 6 (owner, 2026-11-11, 140421's headlamp: «Пятый заход принимаю, пятно смягчи»): the share by which the light above
+     * white beside a measured glare streak (its full-size neighbours 1 .. 4 px away 3 .. 7 x white, pale) fades towards white, so the
+     * amber lens meets the streak's white over a few px instead of one (why/combine hlMeasGlareU). scam_dev
+     * hybrid_why_hl_measured_glare (0 = round 5).
+     */
+    static final float MEASURED_GLARE = 0.7f;
+
+    static float hlMeasuredGlare() {
+        return Math.max(0f, Math.min(1f, value("hl_measured_glare", MEASURED_GLARE)));
+    }
+
+    static boolean hlMeasuredScene() {
+        return value("hl_measured_scene", 1f) > 0f;
+    }
+
+    static float hlMeasuredDetail() {
+        return Math.max(0f, Math.min(1f, value("hl_measured_detail", MEASURED_DETAIL)));
+    }
+
+    /**
+     * P623 round 4 (owner, 2026-11-11, 140421's headlamp: «Насыщенность у стекла не надо убирать, а вот чтобы ребра были видны сделай»):
+     * the share of the full-size log contrast the measured light keeps above white (why/combine hlMeasDetailU, HEADROOM_WIDE's highlight
+     * detail with its guards; the hr detail's own 0.35 left an amber lens's ridges faint). scam_dev hybrid_why_hl_measured_detail (0 =
+     * round 3).
+     */
+    static final float MEASURED_DETAIL = 0.5f;
+
+    static boolean hlMeasuredMax() {
+        return value("hl_measured_max", 1f) > 0f;
+    }
+
+    static float hlMeasuredLanding() {
+        return Math.max(0f, Math.min(1f, value("hl_measured_landing", 1f)));
+    }
+
+    /** P623: the light's level (x white, the shoulders' measure) from which it goes over to the measured shoulder, and fully at. */
+    static final float HL_MEASURED_LO = 1f, HL_MEASURED_HI = 2f;
+
     static float hlLocalNight() {
         return Math.max(0f, Math.min(1f, value("hl_local_night", 1f)));
     }

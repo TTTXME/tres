@@ -809,7 +809,7 @@ public class GLProg implements AutoCloseable {
                 z/glComputeLayout.z + z0);
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
         glMemoryBarrier(GL_ALL_SHADER_BITS);
-        glFinish();
+        GpuPace.finish(); // P616: a polled fence on the paced post thread (glFinish elsewhere)
     }
     /** P479: {@link #computeManual} without its glFinish (the same barriers), for a pass whose result is read back later. */
     public void computeManualAsync(int x, int y, int z) {
@@ -829,7 +829,7 @@ public class GLProg implements AutoCloseable {
         glDispatchCompute(x, y, z);
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
         glMemoryBarrier(GL_ALL_SHADER_BITS);
-        glFinish();
+        GpuPace.finish(); // P616: a polled fence on the paced post thread (glFinish elsewhere)
     }
 
 
@@ -869,7 +869,10 @@ public class GLProg implements AutoCloseable {
             // P497 (owner, 2026-11-04: «видоискатель тормозит ... на всех смартфонах»): a submission per block - the GPU lets the
             // viewfinder's context in between submissions only, and one pass as one submission held it for the whole pass (Xiaomi
             // 12X: single viewfinder draws of 274 - 771 ms during WhyCombine's ~0.8 s; Nubia Z17 up to 1034 ms)
-            if (!PostGlMode.legacy()) glFlush();
+            if (!PostGlMode.legacy()) {
+                glFlush();
+                GpuPace.submitted(); // P616: at most a few blocks of the post queued on the GPU
+            }
         }
     }
 
@@ -904,6 +907,7 @@ public class GLProg implements AutoCloseable {
 
             // Force flush.
             glFlush();
+            GpuPace.submitted(); // P616
             if (flushType != -1) {
                 glReadPixels(0, row[0], 1, 1, flushFormat, flushType, mFlushBuffer);
                 int glError = glGetError();

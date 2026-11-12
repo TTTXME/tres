@@ -64,6 +64,8 @@ public class LensFilterAtPressTest {
         processors = mockConstruction(ScamProcessor.class);
         paths = mockStatic(ImagePath.class);
         paths.when(ImagePath::newBaseName).thenReturn("filter-test");
+        // P618: the queued shot is named at the instant its EXIF / DNG record
+        paths.when(() -> ImagePath.newBaseName(org.mockito.ArgumentMatchers.anyLong())).thenReturn("filter-test");
         paths.when(() -> ImagePath.dngFile(anyString())).thenReturn(Paths.get("filter-test.dng"));
         paths.when(() -> ImagePath.imageFile(anyString())).thenReturn(Paths.get("filter-test.jpg"));
         exif = mockStatic(ParseExif.class);

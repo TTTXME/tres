@@ -126,6 +126,44 @@ public final class WhyCombine extends Node {
         return ref;
     }
 
+    /**
+     * P623: the strength of the measured shoulder (why/combine HL_MEASURED) for this shot, 0 = off (the shader without it): the fast
+     * merge took valid short frames ({@code report}: «HYBRID FAST MERGE HIGHLIGHT: accumulated validity of N valid short frame(s)»,
+     * N > 0 - lastBentoApplied does not see them), so the data above the capped clip (whyLow's maximum {@code r.gmax} over
+     * {@code r.clip}) is measured light, yet WhyAe has no real headroom (no Bento: hr 0, HEADROOM_WIDE handles that) and the kernel's
+     * ceiling runs ({@code realClip}: the combine's headroomU). Faded by WhyAe's night weight: 1 by day, 0 at night (the P607 night
+     * lights keep their tone, bit for bit).
+     */
+    static float measuredShoulder(WhyAe.Result r, boolean realClip, @androidx.annotation.Nullable String report, boolean on) {
+        if (!on || r == null || !realClip || r.hr > 0f || !(r.clip > 1.05f) || !(r.gmax > r.clip) || fastShortFrames(report) <= 0) return 0f;
+        return 1f - Math.max(0f, Math.min(1f, r.nightW));
+    }
+
+    /**
+     * P623 round 3: the ceiling the measured light lands on (why/combine hlMeasCeilU, WhyHl's share): as P216's real ceiling, WhyAe's
+     * whyLow maximum, at most 16 x the clip, blended in by the measured shoulder's strength (dusk); 0 when the shoulder is off or
+     * round 3 is ({@code on} false: the capped clip as round 2).
+     */
+    static float measuredCeiling(WhyAe.Result r, float measured, boolean on) {
+        if (!on || !(measured > 0f) || r == null || !(r.gmax > r.clip) || !Float.isFinite(r.gmax)) return 0f;
+        final float ceil = (float) Math.min(r.gmax, r.clip * 16.0);
+        return r.clip + (ceil - r.clip) * Math.min(1f, measured);
+    }
+
+    private static final java.util.regex.Pattern FAST_SHORTS =
+            java.util.regex.Pattern.compile("HYBRID FAST MERGE HIGHLIGHT: accumulated validity of (\\d+) valid short frame");
+
+    /** P623: the valid short frames the fast merge took (its highlight line in the worker's report), 0 when none or no report. */
+    static int fastShortFrames(@androidx.annotation.Nullable String report) {
+        if (report == null) return 0;
+        final java.util.regex.Matcher m = FAST_SHORTS.matcher(report);
+        int n = 0;
+        while (m.find()) {
+            try { n = Math.max(n, Integer.parseInt(m.group(1))); } catch (NumberFormatException ignored) { }
+        }
+        return n;
+    }
+
     @Override
     public void Run() {
         PostPipeline pipeline = (PostPipeline) basePipeline;
@@ -181,6 +219,7 @@ public final class WhyCombine extends Node {
         int[] rimBindings = null;
         GLTexture sceneY = null;
         boolean sunBloomOn = false, oppOn = false;
+        float measured = 0f;   // P623
         String skyLog = "";
         try {
             GLTexture colour = st.lowDn != null ? st.lowDn : st.low;
@@ -204,6 +243,9 @@ public final class WhyCombine extends Node {
             // P154: the highlight landing and the upward path to white (HL_LANDING 0 = the shader before P154)
             final float hlSoft = hlSoft();
             final boolean realClip = ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f;
+            // P623: the fast merge's measured light above white (why/combine HL_MEASURED); round 3: its landing on the measured ceiling
+            measured = measuredShoulder(r, realClip, ScamHybridBurst.lastReport, WhyTone.hlMeasured());
+            final float measCeil = measuredCeiling(r, measured, WhyTone.hlMeasuredMax());
             if (hlSoft > 0f && realClip && !filmOnly) {
                 // the blurred share of the ceiling on the whyLow grid (why/hlmask.glsl): max channel / ceiling, then a gaussian of
                 // 1.2 % of the width along x and y
@@ -215,7 +257,7 @@ public final class WhyCombine extends Node {
                 glProg.useAssetProgram("why/hlmask", false);
                 glProg.setTexture("InputBuffer", st.low);
                 // P216: the share of the REAL ceiling (Bento data above the capped clip): a window at 4-8 x white is not blown
-                glProg.setVar("invClipU", 1f / Math.max(Math.max(r.clip, r.hr), 1e-6f));
+                glProg.setVar("invClipU", 1f / Math.max(Math.max(Math.max(r.clip, r.hr), measCeil), 1e-6f));   // P623 round 3
                 glProg.setVar("dirU", 0, 0);
                 glProg.drawBlocks(hlB);
                 // P479b (speed): the blur's weights once here (float exp, the shader's formula) and paired taps; scam_dev.txt
@@ -312,6 +354,8 @@ public final class WhyCombine extends Node {
             if (scene != null) glProg.setDefine("FILM_SIM", 1);
             // P216: real Bento headroom above the capped clip (without it the shader is the one before P216, token for token)
             if (r.hr > 0f) glProg.setDefine("HEADROOM_WIDE", 1);
+            // P623: the fast merge's measured light above white on the real-headroom shoulder (no grey glow round the sun)
+            if (measured > 0f) glProg.setDefine("HL_MEASURED", 1);
             // P349: the sun bloom round fully clipped cores (ScamRgb.sunBloom), on the image those flags covered
             sunBloom = pipeline.sunBloom;
             pipeline.sunBloom = null;
@@ -337,6 +381,10 @@ public final class WhyCombine extends Node {
             if (hlLocal[0] > 0f) glProg.setDefine("HL_LOCAL", 1);   // P508: the photo only (the viewfinder has no whyLow grid)
             // P607: a line of taps that leaves the light (a glow's falloff) does not darken the pixel (no grey band along a sign's glow)
             if (hlLocal[0] > 0f && WhyTone.hlLocalRim()) glProg.setDefine("HL_LOCAL_RIM", 1);
+            // P623 round 2: HL_LOCAL's mean bilinear over the whyLow texels round the pixel (no 2 px teeth along a light's rim)
+            if (hlLocal[0] > 0f && WhyTone.hlLocalSmooth()) glProg.setDefine("HL_LOCAL_SMOOTH", 1);
+            // P623 round 6: P349's rim stop lifted where its far side is the brighter (a dark strip between two bright sides)
+            if (WhyTone.rimFar()) glProg.setDefine("RIM_FAR_SIDE", 1);
             // P607 round 3: at night HL_LOCAL and the hr detail fade with WhyAe's night weight (no faint marks in lit signs' cores)
             final float nightFade = 1f - Math.max(0f, Math.min(1f, r.nightW)) * WhyTone.hlLocalNight();
             if (WhyTone.whyLayout()) glProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
@@ -446,7 +494,10 @@ public final class WhyCombine extends Node {
             }
             glProg.setVar("sharpU", sharp ? 1 : 0);
             glProg.setVar("fullInputU", st.inputReleased ? 0 : 1);   // P349: the bright rim reads the full-size merge
-            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setVar("edgeHoldU", WhyTone.edgeHold());   // P394: smooth edges (photo only)
+            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) {
+                glProg.setVar("edgeHoldU", WhyTone.edgeHold());   // P394: smooth edges (photo only)
+                glProg.setVar("edgeHoldLightU", WhyTone.edgeHoldLight());   // P623 round 7: only edges against light
+            }
             glProg.setVar("sharpToneU", sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
             glProg.setVar("fU", st.factor);
             glProg.setVar("colourFU", colourFactor);
@@ -473,6 +524,17 @@ public final class WhyCombine extends Node {
                 glProg.setVar("hrRoomU", hrTone[1]);
                 glProg.setVar("hrEaseU", 1f - WhyTone.shoulderStrength());   // P402
                 glProg.setVar("hrDetailU", st.inputReleased ? 0f : hrTone[2] * nightFade);   // P607: faded at night
+            }
+            if (measured > 0f) {   // P623: HEADROOM_WIDE's shoulder for the measured light above white
+                final float[] hrTone = WhyTone.headroomTone();
+                glProg.setVar("hlMeasU", WhyTone.HL_MEASURED_LO, WhyTone.HL_MEASURED_HI, measured, WhyTone.hlMeasuredLanding());
+                glProg.setVar("hlMeasShoulderU", hrTone[0], hrTone[1], 1f - WhyTone.shoulderStrength(), WhyTone.hlMeasuredMax() ? 1f : 0f);
+                glProg.setVar("hlMeasCeilU", measCeil);   // P623 round 3
+                glProg.setVar("hlMeasSceneU", WhyTone.hlMeasuredScene() ? 1f : 0f);   // P623 round 5
+                // P623 round 4: the measured light's own detail (not when the full-size image is gone: InputBuffer is the sharpened luma)
+                glProg.setVar("hlMeasDetailU", st.inputReleased ? 0f : WhyTone.hlMeasuredDetail());
+                // P623 round 6: the fade beside a measured glare streak (its taps are the full-size image's)
+                glProg.setVar("hlMeasGlareU", st.inputReleased ? 0f : WhyTone.hlMeasuredGlare());
             }
             // P11: the Bento ceiling / roll-off only with real headroom; saturated light fades towards white in the shoulder.
             glProg.setVar("headroomU", ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f ? 1 : 0);
@@ -541,6 +603,7 @@ public final class WhyCombine extends Node {
             if (rimTiles != null) Log.i("SCAM_PIPELINE", "WHY rim support tiles=" + rimTiles.size);
             if (skyWith != null) {
                 try {
+                    skyMeasured = measured > 0f;   // P623 round 4
                     skyHdrRatio(pipeline, st, r, skyWith, skyWithout, lightChroma > 0f);
                     skyLog += pipeline.skyHdrRatio != null ? " hdrSkyRatio=" + pipeline.skyHdrRatioSize.x + "x" + pipeline.skyHdrRatioSize.y : "";
                 } catch (RuntimeException e) {
@@ -570,7 +633,7 @@ public final class WhyCombine extends Node {
             if (sunBloom != null) sunBloom.close();
             if (oppShare != null) oppShare.close();
         }
-        Log.i("SCAM_PIPELINE", "WHY combine ae=" + r.ae + " clip=" + r.clip + (r.hr > 0f ? " hr=" + r.hr : "") + " headroom=" + (ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f)
+        Log.i("SCAM_PIPELINE", "WHY combine ae=" + r.ae + " clip=" + r.clip + (r.hr > 0f ? " hr=" + r.hr : "") + (measured > 0f ? " measured=" + measured + " gmax=" + r.gmax : "") + " headroom=" + (ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f)
                 + " hlWhite=" + WhyTone.value("hl_white", 0.15f) + " hlSoft=" + WhyTone.value("hl_soft", 0.7f)
                 + (lightChroma > 0f ? " lightChroma=" + lightChroma : "") + " grid=" + input.mSize.x + "x" + input.mSize.y
                 + " lowFactor=" + st.factor + (st.factor > 2 ? " colour=whyMid" : " colour=whyLow") + " detail=" + detail
@@ -583,6 +646,9 @@ public final class WhyCombine extends Node {
                 : film != null ? " filmSim=" + film.lutKey() + " film data unreadable: no film" : "")
                 + " ms=" + (System.currentTimeMillis() - started));
     }
+
+    /** P623 round 4: this shot's combine has HL_MEASURED (skyHdrRatio's whyLow draws drop its full-size detail). */
+    private boolean skyMeasured;
 
     /** P378 review: the sky ratio grid's longer side at most (why/skyratio, PostPipeline.skyHdrRatio: ~0.8 MB of floats at 512 x 384). */
     static final int SKY_RATIO_SIDE = 512;
@@ -662,6 +728,10 @@ public final class WhyCombine extends Node {
         glProg.setVar("detailGainU", 0f);
         glProg.setVar("ditherU", 0);
         if (r.hr > 0f) glProg.setVar("hrDetailU", 0f);
+        if (skyMeasured) {   // P623 rounds 4 and 6: InputBuffer is whyLow here
+            glProg.setVar("hlMeasDetailU", 0f);
+            glProg.setVar("hlMeasGlareU", 0f);
+        }
         glProg.drawBlocks(with);
         glProg.setVar("skyU", 0f, 0f, 1f, 1f);
         glProg.setVar("skyMU", 0f, 0f, 0f, 1f);

@@ -462,6 +462,12 @@ public final class NubiaFullRes {
         final int expected;
         /** P608: the maximum-resolution session's watch (its full row asked; the failure says the HAL stays binned). */
         final boolean maxRes;
+        /**
+         * P626: a per-shot way's watch - only the results of MAXIMUM_RESOLUTION requests count (its DEFAULT viewfinder runs the
+         * binned mode by design), and the proof burst's {@link NubiaMaxResPlan#PROOF_FRAMES} of them are its patience.
+         */
+        final boolean maxResOnly;
+        final int patience;
         private int mismatches, last = -1;
         private boolean logged, settled, runs;
 
@@ -474,10 +480,21 @@ public final class NubiaFullRes {
         }
 
         ModeWatch(String who, String camera, int expected, boolean maxRes) {
+            this(who, camera, expected, maxRes, false);
+        }
+
+        ModeWatch(String who, String camera, int expected, boolean maxRes, boolean maxResOnly) {
             this.who = who;
             this.camera = camera;
             this.expected = expected;
             this.maxRes = maxRes;
+            this.maxResOnly = maxResOnly;
+            this.patience = maxResOnly ? NubiaMaxResPlan.PROOF_FRAMES : PATIENCE;
+        }
+
+        /** P626: a result of a request of {@code pixelMode} (null: not set, DEFAULT) counts for this watch. */
+        boolean counts(@Nullable Integer pixelMode) {
+            return !maxResOnly || pixelMode != null && pixelMode == android.hardware.camera2.CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION;
         }
 
         /** P608: 1 the asked row was reported, -1 another one so far (waiting or failed), 0 nothing reported (or no row asked). */
@@ -489,6 +506,18 @@ public final class NubiaFullRes {
         /** One result's reported mode (null: none): the log line to write (or null) and, through {@link #failure}, the verdict. */
         @Nullable
         String observe(@Nullable Integer reported) {
+            return observe(reported, "");
+        }
+
+        /** {@link #observe(Integer)}; P626: {@code detail} closes the line (the result's own pixel mode and binning flag). */
+        @Nullable
+        String observe(@Nullable Integer reported, String detail) {
+            final String line = observeLine(reported);
+            return line == null || detail == null || detail.isEmpty() ? line : line + detail;
+        }
+
+        @Nullable
+        private String observeLine(@Nullable Integer reported) {
             if (settled || reported == null) return null;
             last = reported;
             if (expected < 0) {
@@ -513,11 +542,11 @@ public final class NubiaFullRes {
         /** The failure reason once the asked row never showed in {@link #PATIENCE} reports; null otherwise. */
         @Nullable
         String failure() {
-            if (settled || expected < 0 || mismatches < PATIENCE) return null;
+            if (settled || expected < 0 || mismatches < patience) return null;
             settled = true;
             if (maxRes) // P608: its own code - the frames of such a session are the binned one in the full-size buffer
-                return "nubia: the results report sensor mode " + last + ", not the full row " + expected + " in " + PATIENCE
-                        + " results: the HAL stays in its binned sensor mode " + BINNED_TAG;
+                return "nubia: the results report sensor mode " + last + ", not the full row " + expected + " in " + patience
+                        + (maxResOnly ? " MAXIMUM_RESOLUTION" : "") + " results: the HAL stays in its binned sensor mode " + BINNED_TAG;
             return "the sensor mode is not active (the results report another mode than row " + expected + ")";
         }
     }
@@ -534,7 +563,15 @@ public final class NubiaFullRes {
      * row it asks ({@link #maxResRow}; none learned: it only logs, as a normal session).
      */
     public static void watchMaxRes(@Nullable String camera) {
-        watch = camera == null || !device() ? null : new ModeWatch("nubia", camera, maxResRow(camera), true);
+        watchMaxRes(camera, false);
+    }
+
+    /**
+     * P626: {@code perShot} - a per-shot way's session: only the results of its MAXIMUM_RESOLUTION requests (the proof burst)
+     * count, the viewfinder's DEFAULT ones say nothing of the full mode.
+     */
+    public static void watchMaxRes(@Nullable String camera, boolean perShot) {
+        watch = camera == null || !device() ? null : new ModeWatch("nubia", camera, maxResRow(camera), true, perShot);
     }
 
     /** P608: what the running maximum-resolution session's results said of its mode (ModeWatch.state), 0 without one. */
@@ -549,13 +586,77 @@ public final class NubiaFullRes {
         final ModeWatch w = watch;
         if (w == null || result == null || camera == null || !camera.equals(w.camera)) return null;
         Integer reported = null;
+        String detail = "";
         try {
+            if (w.maxRes && android.os.Build.VERSION.SDK_INT >= 31) { // P626: what was asked and what the HAL says of it
+                final Integer asked = result.getRequest().get(android.hardware.camera2.CaptureRequest.SENSOR_PIXEL_MODE);
+                if (!w.counts(asked)) return null;
+                detail = resultDetail(asked, result.get(CaptureResult.SENSOR_PIXEL_MODE), result.get(CaptureResult.SENSOR_RAW_BINNING_FACTOR_USED));
+            }
             reported = SensorModeBand.modeIndex(result);
         } catch (RuntimeException ignored) {
         }
-        final String line = w.observe(reported);
+        final String line = w.observe(reported, detail);
         if (line != null) Log.i("SCAM_CAPTURE", line);
         return w.failure();
+    }
+
+    /** P626: the log's tail of a maximum-resolution session's result: the request's pixel mode, the result's own and its binning flag. */
+    static String resultDetail(@Nullable Integer asked, @Nullable Integer resultMode, @Nullable Boolean binningUsed) {
+        return " [request " + NubiaMaxResPlan.mode(asked == null ? 0 : asked) + ", result pixel mode "
+                + (resultMode == null ? "none" : NubiaMaxResPlan.mode(resultMode)) + ", rawBinningFactorUsed "
+                + (binningUsed == null ? "none" : binningUsed) + "]";
+    }
+
+    // ---------------------------------------------------------------- P626: how much of the full-size buffer the frame fills
+
+    /**
+     * P626: the rows of a maximum-resolution frame that hold a picture: from the bottom up (every {@link #FILL_STEP_ROWS}th row,
+     * every {@link #STEP}th sample) the rows that are one value below the black level are the HAL's empty rest; the first row
+     * above them that is not ends the picture. The whole height for a full frame, a quarter for the binned one written at its own
+     * pitch (P608), 0 for an empty or unreadable buffer.
+     */
+    static int pictureRows(@Nullable java.nio.ByteBuffer buffer, int width, int height, int stride, float black) {
+        if (buffer == null || width < 64 || height < 64 || stride < width * 2) return 0;
+        final int base = buffer.position();
+        if ((long) base + (long) (height - 1) * stride + width * 2L > buffer.limit()) return 0;
+        final int floor = Math.max(1, (int) Math.ceil(black));
+        int empty = -1;
+        for (int y = height - 1; y >= 0; y -= FILL_STEP_ROWS) {
+            final int v = emptyValue(buffer, base + y * stride, width, floor);
+            if (v < 0 || empty >= 0 && v != empty) {
+                // the picture ends between this row and the empty one sampled below it
+                for (int z = Math.min(height - 1, y + FILL_STEP_ROWS - 1); z > y; z--) {
+                    final int u = emptyValue(buffer, base + z * stride, width, floor);
+                    if (u < 0 || u != empty) return z + 1;
+                }
+                return y + 1;
+            }
+            empty = v;
+        }
+        return 0;
+    }
+
+    /** The row's one value when it is flat below {@code floor} (an empty row), -1 otherwise. */
+    private static int emptyValue(java.nio.ByteBuffer buffer, int at, int width, int floor) {
+        int first = -1;
+        for (int x = 0; x < width; x += STEP) {
+            final int v = sample(buffer, at + x * 2);
+            if (first < 0) first = v;
+            else if (v != first) return -1;
+        }
+        return first >= floor ? -1 : first;
+    }
+
+    static final int FILL_STEP_ROWS = 16;
+
+    /** P626: the log line of the session's first maximum-resolution frame: its size, pitch and the rows its picture fills. */
+    static String fillLine(String camera, @Nullable String way, int width, int height, int stride, int rows) {
+        final int pct = height <= 0 ? 0 : Math.round(100f * rows / height);
+        return "nubia FULLRES camera " + camera + (way == null ? "" : " " + way) + ": first full-size frame " + width + "x" + height
+                + " stride " + stride + " B, picture rows 0.." + Math.max(0, rows - 1) + " of " + height + " (" + pct + " %)"
+                + (pct >= 95 ? ": the full field" : pct <= 30 && pct > 0 ? ": a quarter-size frame in the buffer (the binned mode)"
+                : pct == 0 ? ": no picture" : ": part of the buffer");
     }
 
     // ---------------------------------------------------------------- the «2×» ISZ module

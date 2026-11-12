@@ -75,6 +75,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * snapshot-only one); a failed one goes on to the next in the next session, all failed: the size is off on this firmware with
  * one notice. Nothing marks the route verified before its frames are proven («frames» needs the frame check and the mode; a
  * shot only promotes «frames»).
+ * <p>
+ * P626 (owner's log of 31256: all three ways «binned» on camera 2 - each session was the one MAXIMUM_RESOLUTION RAW stream, the
+ * HAL reported mode 1 at once): the cameras list no ULTRA_HIGH_RESOLUTION_SENSOR capability, so this HAL is not bound to run a
+ * repeating maximum-resolution stream in the full mode; the stock camera switches per request (preview DEFAULT, the snapshot
+ * MAXIMUM_RESOLUTION in its QCFA mode). Two per-shot ways run first ({@link Candidate#perShot}, NubiaMaxResPlan): «qcfa_snapshot»
+ * (the stock QCFA session) and «maxres_raw_only» (the platform's plain model); each proves itself by a short MAXIMUM_RESOLUTION
+ * burst on the RAW alone ({@link #proofWanted}). A stored «fail:» is final only when every way has a verdict, so a firmware
+ * whose P608 ways failed runs the new ones without a reset.
  */
 public final class NubiaRemosaicProbe {
     private NubiaRemosaicProbe() { }
@@ -97,22 +105,32 @@ public final class NubiaRemosaicProbe {
     /** The reason code of a setting whose sessions never gave a verdict. */
     static final String NO_VERDICT = "noverdict";
 
-    /** One vendor key of a setting: on the session (a key the camera lists) or on every request only. */
+    /**
+     * One vendor key of a setting: on the session (a key the camera lists) and every request, on every request only, or (P626)
+     * on the stills only (the stock camera's snapshot keys).
+     */
     static final class Key {
         final String name;
         final Class<?> type;
         final Object value;
         final boolean session;
+        /** P626: on the stills (a shot's frames, the per-shot proof) only, never on the repeating request or the session. */
+        final boolean still;
 
         Key(String name, Class<?> type, Object value, boolean session) {
+            this(name, type, value, session, false);
+        }
+
+        Key(String name, Class<?> type, Object value, boolean session, boolean still) {
             this.name = name;
             this.type = type;
             this.value = value;
-            this.session = session;
+            this.session = session && !still;
+            this.still = still;
         }
 
         @Override public String toString() {
-            return name + "=" + value + (session ? "" : " (request)");
+            return name + "=" + value + (session ? "" : still ? " (stills)" : " (request)");
         }
     }
 
@@ -122,10 +140,20 @@ public final class NubiaRemosaicProbe {
         final int operationMode;
         final String source;
         final List<Key> keys;
+        /**
+         * P626: the per-shot layout (NubiaMaxResPlan): the viewfinder in DEFAULT repeats, the RAW of the maximum-resolution map
+         * in MAXIMUM_RESOLUTION is only the stills' target; no full-size row key (the stock camera never sends one).
+         */
+        final boolean perShot;
 
         Candidate(String id, int operationMode, String source, Key... keys) {
+            this(id, operationMode, false, source, keys);
+        }
+
+        Candidate(String id, int operationMode, boolean perShot, String source, Key... keys) {
             this.id = id;
             this.operationMode = operationMode;
+            this.perShot = perShot;
             this.source = source;
             this.keys = Collections.unmodifiableList(Arrays.asList(keys));
         }
@@ -143,7 +171,8 @@ public final class NubiaRemosaicProbe {
 
         String describe() {
             final StringBuilder sb = new StringBuilder();
-            if (operationMode != 0) sb.append("session mode 0x").append(Integer.toHexString(operationMode));
+            if (perShot) sb.append("per shot: viewfinder DEFAULT, RAW MAXIMUM_RESOLUTION on the stills only");
+            if (operationMode != 0) sb.append(sb.length() == 0 ? "" : ", ").append("session mode 0x").append(Integer.toHexString(operationMode));
             for (Key k : keys) sb.append(sb.length() == 0 ? "" : ", ").append(k);
             return (sb.length() == 0 ? "no vendor key" : sb.toString()) + "; " + source;
         }
@@ -155,6 +184,11 @@ public final class NubiaRemosaicProbe {
 
     private static Key request(String name, Class<?> type, Object value) {
         return new Key(name, type, value, false);
+    }
+
+    /** P626: a key of the stills only (the stock camera's snapshot request). */
+    private static Key still(String name, Class<?> type, Object value) {
+        return new Key(name, type, value, false, true);
     }
 
     /** The settings in the order they are tried (ids are stored: a new one in a later build is tried after these). */
@@ -246,6 +280,8 @@ public final class NubiaRemosaicProbe {
         boolean route;
         /** P608: a frame verdict {block, width, height} that waits for the results to report the full row ({@link #defer}). */
         int[] pending;
+        /** P626: the per-shot way's proof burst was sent in this session; the first full-size frame was described in the log. */
+        boolean proofSent, fillLogged;
 
         Choice(String camera, Candidate candidate, int index, int total, int start, boolean forced, boolean known) {
             this.camera = camera;
@@ -338,6 +374,7 @@ public final class NubiaRemosaicProbe {
         if (why != null && why.contains(NubiaFullRes.BINNED_TAG)) return BINNED; // P608
         if (why != null && why.contains(NubiaFullRes.CROP_TAG)) return CROP;
         if (why != null && why.contains("(wrong size)")) return WRONG_SIZE; // P605
+        if (why != null && why.contains(NO_PROOF_TAG)) return NO_PROOF; // P626
         return FullResTrials.code(why);
     }
 
@@ -346,6 +383,9 @@ public final class NubiaRemosaicProbe {
 
     /** P605: the reason code of maximum-resolution frames of another size. */
     static final String WRONG_SIZE = "size";
+
+    /** P626: the reason code (and its tag in the log's reason) of a per-shot way whose proof burst gave no verdict in time. */
+    static final String NO_PROOF = "noproof", NO_PROOF_TAG = "(noproof)";
 
     /** The one notice once every setting failed. */
     static String unavailable() {
@@ -419,6 +459,7 @@ public final class NubiaRemosaicProbe {
         if (FullResTrials.HW_REMOSAIC.equals(code)) return Lang.t("ремозаик HAL (обычный Байер)", "the HAL's remosaic (plain Bayer)");
         if (WRONG_SIZE.equals(code)) return Lang.t("кадры не полного размера", "the frames are not the full size");
         if (NO_VERDICT.equals(code)) return Lang.t("кадры не дали ответа за " + STARTS + " сессии", "the frames gave no verdict in " + STARTS + " sessions");
+        if (NO_PROOF.equals(code)) return Lang.t("пробные кадры полного размера не пришли", "the full-size test frames did not arrive");
         return FullResTrials.phrase(code, false);
     }
 
@@ -466,6 +507,8 @@ public final class NubiaRemosaicProbe {
 
     /** P608: the listed session keys of the in-sensor zoom (the NX721J's cameras 0, 2, 3 list both, int32). */
     static final String INSENSOR_ZOOM = "org.codeaurora.qcamera3.sessionParameters.EnableInsensorZoom";
+    /** P626: the per-shot ways' ids (stored). */
+    static final String QCFA_SNAPSHOT = "qcfa_snapshot", MAXRES_RAW_ONLY = "maxres_raw_only";
     static final String SNAPSHOT_INSENSOR_ZOOM = "org.codeaurora.qcamera3.sessionParameters.EnableSnapshotOnlyInsensorZoom";
 
     /**
@@ -474,11 +517,41 @@ public final class NubiaRemosaicProbe {
      * the camera service drops it from the session parameters (not a listed key), the requests carry it to the HAL.
      */
     static final List<Candidate> ATTEMPTS = Collections.unmodifiableList(Arrays.asList(
+            // P626: the per-shot layout first (the HAL never left its binned mode for a repeating MAXIMUM_RESOLUTION request, the
+            // owner's log of 31256): the stock camera's QCFA snapshot (its session mode, feature bit and app mode, CustomRemosiac on
+            // the snapshot, MAXIMUM_RESOLUTION on the snapshot only), then the platform's plain per-request model
+            new Candidate(QCFA_SNAPSHOT, STOCK_QCFA_MODE, true, "the stock camera's QCFA snapshot (MAXIMUM_RESOLUTION on the stills only)",
+                    session(ZTE_FEATURE, Integer.class, ZTE_FEATURE_QCFA), request(NUBIA_APP_MODE, Integer.class, 1),
+                    still(ZTE_CUSTOM_REMOSAIC, Byte.class, (byte) 1)),
+            new Candidate(MAXRES_RAW_ONLY, 0, true, "the platform's per-request model: MAXIMUM_RESOLUTION on the stills only, the RAW alone"),
             new Candidate("fullmode", 0, "the full-size sensor mode asked on every request"),
             new Candidate("fullmode_isz", 0, "the full-size mode with the camera's in-sensor zoom on",
                     session(INSENSOR_ZOOM, Integer.class, 1)),
             new Candidate("fullmode_isz_snap", 0, "the full-size mode with the snapshot-only in-sensor zoom on",
                     session(SNAPSHOT_INSENSOR_ZOOM, Integer.class, 1))));
+
+    /**
+     * P626: a way's name for the owner (the notices, the dimmed size's explanation): what it does, in his words; null for an id
+     * of no way.
+     */
+    @Nullable
+    static String wayName(@Nullable String id) {
+        if (QCFA_SNAPSHOT.equals(id)) return Lang.t("как стоковая камера: режим QCFA, полный размер только на снимок",
+                "as the stock camera: QCFA mode, the full size on the shot only");
+        if (MAXRES_RAW_ONLY.equals(id)) return Lang.t("полный размер только на снимок, видоискатель в обычном режиме",
+                "the full size on the shot only, the viewfinder in the normal mode");
+        if ("fullmode".equals(id)) return Lang.t("все потоки в полном размере", "every stream at the full size");
+        if ("fullmode_isz".equals(id)) return Lang.t("все потоки в полном размере, зум в сенсоре", "every stream at the full size, in-sensor zoom");
+        if ("fullmode_isz_snap".equals(id)) return Lang.t("все потоки в полном размере, зум в сенсоре на снимок",
+                "every stream at the full size, in-sensor zoom on the shot");
+        return null;
+    }
+
+    /** «1 из 5 («…»)»: a way's number and name for a notice. */
+    static String wayLabel(Choice choice) {
+        final String name = wayName(choice.candidate.id);
+        return choice.index + Lang.t(" из ", " of ") + choice.total + (name == null ? "" : " («" + name + "»)");
+    }
 
     /** The route's ways a camera listing {@code listed} can run (null: the first, which needs no session key). */
     static List<Candidate> attempts(@Nullable Collection<String> listed) {
@@ -509,6 +582,14 @@ public final class NubiaRemosaicProbe {
         return state != null && state.startsWith(FAIL_PREFIX);
     }
 
+    /**
+     * P626: the route is off on this firmware - failed, and every way the camera can run has a verdict (a way of a later build
+     * without one reopens it, {@link #routeChoose}).
+     */
+    static boolean routeExhausted(SharedPreferences p, String camera, @Nullable Collection<String> listed, String stamp) {
+        return routeFailed(routeState(p, camera, stamp)) && untried(attempts(listed), failsOf(p, camera, ATTEMPT_FAIL, stamp)) == null;
+    }
+
     @Nullable
     static Choice routeChoose(SharedPreferences p, String camera, String stamp) {
         return routeChoose(p, camera, null, stamp);
@@ -522,10 +603,18 @@ public final class NubiaRemosaicProbe {
     @Nullable
     static Choice routeChoose(SharedPreferences p, String camera, @Nullable Collection<String> listed, String stamp) {
         String state = routeState(p, camera, stamp);
-        if (routeFailed(state)) return null;
         final List<Candidate> list = attempts(listed);
         final Map<String, String> fails = failsOf(p, camera, ATTEMPT_FAIL, stamp);
         final String base = NubiaFullRes.base(camera);
+        if (routeFailed(state)) {
+            // P626: ids are stored - a way of a later build without a verdict on this firmware runs after the failed ones (the
+            // owner's camera 2 failed P608's three ways; the per-shot ways have never run there)
+            if (untried(list, fails) == null) return null;
+            Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " full-size route: off by " + state + ", but «" + untried(list, fails).id
+                    + "» has not run on this firmware: tried");
+            FullResTrials.edit(p, base, stamp).remove(base + ROUTE).apply();
+            state = null;
+        }
         while (true) {
             Candidate way = null;
             for (Candidate c : list) if (!fails.containsKey(c.id)) { way = c; break; }
@@ -561,6 +650,13 @@ public final class NubiaRemosaicProbe {
         }
     }
 
+    /** P626: the first of {@code list} without a stored verdict, null when every way has one. */
+    @Nullable
+    private static Candidate untried(List<Candidate> list, Map<String, String> fails) {
+        for (Candidate c : list) if (!fails.containsKey(c.id)) return c;
+        return null;
+    }
+
     /** The route's one notice when it fails ({@code code}: why). */
     static String routeUnavailable(@Nullable String code) {
         return routeUnavailable(code, null);
@@ -594,9 +690,8 @@ public final class NubiaRemosaicProbe {
         if (left > 0) {
             e.remove(base + ROUTE).apply();
             final String size = NubiaFullRes.sizeOr50(camera);
-            return new Outcome(true, Lang.t(size + ": способ " + choice.index + " из " + choice.total + " — " + phrase(code, camera)
-                            + ", пробую следующий",
-                    size + ": way " + choice.index + " of " + choice.total + " — " + phrase(code, camera) + ", trying the next"));
+            return new Outcome(true, Lang.t(size + ": способ " + wayLabel(choice) + " — " + phrase(code, camera) + ", пробую следующий",
+                    size + ": way " + wayLabel(choice) + " — " + phrase(code, camera) + ", trying the next"));
         }
         e.putString(base + ROUTE, FAIL_PREFIX + code).apply();
         return new Outcome(false, routeUnavailable(code, camera));
@@ -604,11 +699,20 @@ public final class NubiaRemosaicProbe {
 
     /** A camera error in a shot of the route: the route is off on this firmware at once (no other way), the one notice. */
     static Outcome routeOff(SharedPreferences p, String stamp, Choice choice, String why) {
+        return routeOff(p, null, stamp, choice, why);
+    }
+
+    /**
+     * A camera error in a shot of the route: off on this firmware at once, the one notice. P626: every way left takes the same
+     * code (the stored «fail:» is final only when every way has a verdict, {@link #routeChoose}).
+     */
+    static Outcome routeOff(SharedPreferences p, @Nullable Collection<String> listed, String stamp, Choice choice, String why) {
         final String code = code(why);
         final String camera = choice.camera, base = NubiaFullRes.base(camera);
         final Map<String, String> fails = failsOf(p, camera, ATTEMPT_FAIL, stamp);
         fails.remove(choice.candidate.id);
         fails.put(choice.candidate.id, code);
+        for (Candidate c : attempts(listed)) if (!fails.containsKey(c.id)) fails.put(c.id, code);
         FullResTrials.edit(p, base, stamp).putString(base + ATTEMPT_FAIL, join(fails)).putString(base + ROUTE, FAIL_PREFIX + code).apply();
         return new Outcome(false, routeUnavailable(code, camera));
     }
@@ -643,13 +747,16 @@ public final class NubiaRemosaicProbe {
     @Nullable
     static String routeStatus(SharedPreferences p, String camera, String stamp) {
         final String state = routeState(p, camera, stamp);
-        if (!routeFailed(state)) return null;
+        if (!routeExhausted(p, camera, LISTED.get(camera), stamp)) return null; // P626: a way left - not off
         final String off = routeUnavailable(state.substring(FAIL_PREFIX.length()), camera) + ".";
         final Map<String, String> fails = failsOf(p, camera, ATTEMPT_FAIL, stamp);
         if (fails.size() < 2) return off;
         final StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, String> e : fails.entrySet())
-            sb.append(sb.length() == 0 ? "" : "; ").append("«").append(e.getKey()).append("» — ").append(phrase(e.getValue(), camera));
+        for (Map.Entry<String, String> e : fails.entrySet()) {
+            final String name = wayName(e.getKey());
+            sb.append(sb.length() == 0 ? "" : "; ").append("«").append(name == null ? e.getKey() : name).append("» — ")
+                    .append(phrase(e.getValue(), camera));
+        }
         return off + " " + Lang.t("Проверено способов: ", "Ways tried: ") + fails.size() + " (" + sb + ").";
     }
 
@@ -720,7 +827,7 @@ public final class NubiaRemosaicProbe {
         final SharedPreferences p = prefs();
         if (p == null || camera == null) return false;
         try {
-            if (!probeOn()) return routeFailed(routeState(p, camera, NubiaFullRes.stamp()));
+            if (!probeOn()) return routeExhausted(p, camera, LISTED.get(camera), NubiaFullRes.stamp());
             if (numbered(forced()) != null) return false;
             return exhausted(p, camera, LISTED.get(camera), NubiaFullRes.stamp());
         } catch (RuntimeException e) {
@@ -818,14 +925,65 @@ public final class NubiaRemosaicProbe {
      */
     public static boolean wantsSession(@Nullable String camera) {
         final Choice c = current;
-        return running(camera) && (c.candidate.hasSessionKeys() || NubiaFullRes.maxResRow(camera) >= 0);
+        return running(camera) && (c.candidate.hasSessionKeys() || !c.candidate.perShot && NubiaFullRes.maxResRow(camera) >= 0);
+    }
+
+    /**
+     * P626: the running way of {@code camera} is a per-shot one (NubiaMaxResPlan: viewfinder DEFAULT and repeating, the RAW
+     * MAXIMUM_RESOLUTION and the stills' only target).
+     */
+    public static boolean perShot(@Nullable String camera) {
+        final Choice c = current;
+        return running(camera) && c.candidate.perShot;
+    }
+
+    /**
+     * P626, CaptureController (a preview result of the session): the per-shot way's proof burst is wanted now - once a session,
+     * only while the way is unproven on this firmware (a proven way's shots need no test frames).
+     */
+    public static synchronized boolean proofWanted(@Nullable String camera) {
+        final Choice c = current;
+        if (c == null || !c.route || !c.candidate.perShot || !running(camera) || c.proofSent) return false;
+        final SharedPreferences p = prefs();
+        try {
+            if (p != null && routeVerified(routeState(p, c.camera, NubiaFullRes.stamp()))) return false;
+        } catch (RuntimeException ignored) {
+        }
+        c.proofSent = true;
+        return true;
+    }
+
+    /** P626: the proof burst of the running per-shot way was sent and its verdict is not in yet (a camera error now is the way's). */
+    public static boolean proofPending(@Nullable String camera) {
+        final Choice c = current;
+        if (c == null || !c.proofSent || !running(camera)) return false;
+        final SharedPreferences p = prefs();
+        try {
+            return p == null || !routeVerified(routeState(p, c.camera, NubiaFullRes.stamp()));
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** P626: the reason of a proof burst whose verdict did not come within {@code ms} (NO_PROOF). */
+    static String noProofWhy(long ms) {
+        return "nubia: the " + NubiaMaxResPlan.PROOF_FRAMES + " MAXIMUM_RESOLUTION test frames gave no verdict in " + ms + " ms "
+                + NO_PROOF_TAG;
+    }
+
+    /** P626: the first frame of the session's maximum-resolution stream is to be described in the log (once a session). */
+    public static synchronized boolean fillOnce(@Nullable String camera) {
+        final Choice c = current;
+        if (c == null || !running(camera) || c.fillLogged) return false;
+        c.fillLogged = true;
+        return true;
     }
 
     /** The running setting for the log of the session parameters. */
     public static String describe() {
         final Choice c = current;
         if (c == null) return "none";
-        final int row = NubiaFullRes.maxResRow(c.camera);
+        final int row = c.candidate.perShot ? -1 : NubiaFullRes.maxResRow(c.camera);
         return "«" + c.candidate.id + "» " + c.candidate.describe() + (row >= 0 ? "; " + SensorModePick.QCOM_KEY + "=" + row : "");
     }
 
@@ -839,24 +997,39 @@ public final class NubiaRemosaicProbe {
      * VendorTagUtils.builderSessionApply: the running setting's keys on the session parameters and on every request (a session
      * key a request lacks would be dropped by the camera service; a request-only key never reaches the session's filtered keys).
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     public static void apply(@Nullable CaptureRequest.Builder builder) {
+        apply(builder, false);
+    }
+
+    /**
+     * {@link #apply(CaptureRequest.Builder)}; P626: {@code still} - a shot's or the proof's request takes the way's still keys too
+     * (the stock camera's CustomRemosiac on its snapshot); a per-shot way asks for no full-size row (the stock camera never does).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static void apply(@Nullable CaptureRequest.Builder builder, boolean still) {
         final Choice c = current;
         if (builder == null || c == null) return;
         // P608: the camera's full-size row (the maximum-resolution size's row of its SensorModeTable), on every request
-        final int row = NubiaFullRes.maxResRow(c.camera);
+        final int row = c.candidate.perShot ? -1 : NubiaFullRes.maxResRow(c.camera);
         if (row >= 0) try {
             builder.set(new CaptureRequest.Key(SensorModePick.QCOM_KEY, Integer.class), row);
         } catch (RuntimeException e) {
             Log.w(TAG, SensorModePick.QCOM_KEY + " not set: " + e);
         }
-        for (Key k : c.candidate.keys) {
+        for (Key k : requestKeys(c.candidate, still)) {
             try {
                 builder.set(new CaptureRequest.Key(k.name, k.type), k.value);
             } catch (RuntimeException e) {
                 Log.w(TAG, k.name + " not set: " + e);
             }
         }
+    }
+
+    /** P626: the keys of {@code c} a request carries ({@code still}: a shot's or the proof's, which take the still keys too). */
+    static List<Key> requestKeys(Candidate c, boolean still) {
+        final List<Key> out = new ArrayList<>();
+        for (Key k : c.keys) if (still || !k.still) out.add(k);
+        return out;
     }
 
     /**
@@ -917,7 +1090,7 @@ public final class NubiaRemosaicProbe {
         }
         if (reason == null || !reason.startsWith("camera error")) return null;
         current = null;
-        final Outcome o = routeOff(p, NubiaFullRes.stamp(), c, reason);
+        final Outcome o = routeOff(p, LISTED.get(camera), NubiaFullRes.stamp(), c, reason);
         Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + camera + " full-size route: its shot failed (" + reason + "): off on this firmware");
         return o.message;
     }

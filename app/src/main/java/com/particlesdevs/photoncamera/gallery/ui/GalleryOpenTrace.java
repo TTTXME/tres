@@ -28,6 +28,7 @@ public final class GalleryOpenTrace {
         GalleryOpenTrace.route = route;
         listed = grid = viewer = thumbsDone = false;
         thumbs = fromMemory = fromDisk = 0;
+        com.particlesdevs.photoncamera.gallery.glide.ThumbTrace.reset(); // P620: the decodes' formats and sources from this open
         Log.i(TAG, "open: " + route);
     }
 
@@ -60,7 +61,9 @@ public final class GalleryOpenTrace {
         thumbs++;
         if (memory) fromMemory++;
         else if (disk) fromDisk++;
-        if (thumbs == 1 || thumbs == FIRST_THUMBS) Log.i(TAG, summary(thumbs, fromMemory, fromDisk, since()));
+        // P620: and what the decoded ones were decoded from («jpeg/decoded 8, dng/dng-raw 2»)
+        if (thumbs == 1 || thumbs == FIRST_THUMBS)
+            Log.i(TAG, summary(thumbs, fromMemory, fromDisk, since()) + com.particlesdevs.photoncamera.gallery.glide.ThumbTrace.sources());
         if (thumbs >= FIRST_THUMBS) thumbsDone = true;
     }
 

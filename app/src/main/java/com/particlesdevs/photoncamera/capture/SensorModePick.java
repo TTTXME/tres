@@ -104,6 +104,8 @@ public final class SensorModePick {
         public final int block;
         /** P586: the OPPO-family route of the row - {@link #ISZ} (no remosaic: RAW only), {@link #DCG} (DCG / DAG), null for none. */
         @Nullable public final String route;
+        /** P631: the row's session leaves the ISP stream out whatever «Поток ISP» (a Xiaomi row, XiaomiSensorRow). */
+        public final boolean ispOff;
 
         Pick(int mode, int width, int height) {
             this(mode, width, height, false);
@@ -114,6 +116,10 @@ public final class SensorModePick {
         }
 
         Pick(int mode, int width, int height, boolean fullRes, int block, @Nullable String route) {
+            this(mode, width, height, fullRes, block, route, false);
+        }
+
+        Pick(int mode, int width, int height, boolean fullRes, int block, @Nullable String route, boolean ispOff) {
             this.mode = mode;
             this.width = width;
             this.height = height;
@@ -121,6 +127,12 @@ public final class SensorModePick {
             this.fullRes = fullRes;
             this.block = block;
             this.route = route;
+            this.ispOff = ispOff;
+        }
+
+        /** P631: this pick, its session without the ISP stream. */
+        Pick withoutIsp() {
+            return ispOff ? this : new Pick(mode, width, height, fullRes, block, route, true);
         }
 
         /** P586: an ISZ row without the remosaic (the OnePlus 16 main / tele row 11): no ISP stream in its session, whatever «Поток ISP». */
@@ -134,7 +146,8 @@ public final class SensorModePick {
         }
 
         @Override public String toString() {
-            return "mode " + mode + " " + width + "x" + height + (fullRes ? " (FULLRES)" : "") + (route == null ? "" : " (" + route + ")");
+            return "mode " + mode + " " + width + "x" + height + (fullRes ? " (FULLRES)" : "") + (route == null ? "" : " (" + route + ")")
+                    + (ispOff ? " (RAW only)" : "");
         }
     }
 
@@ -146,9 +159,10 @@ public final class SensorModePick {
      * vivo ISZ / module sensor mode; a pick but the DCG / DAG one, which keeps the ISP stream as Xiaomi's DCG does); a nubia row with
      * On too; an OPPO-family ISZ row without the remosaic ({@link Pick#rawOnly}) whatever the setting (owner, 2026-11-09: «При
      * съемке без ремозаика isp превью у него должно отключаться»). Native FULLRES sessions are RAW-only by their own route.
+     * P631: a Xiaomi row marked {@link Pick#ispOff} (XiaomiSensorRow) whatever the setting.
      */
     public static boolean ispStreamOff(int ispSurface, @Nullable Pick pick, boolean otherForcedMode, boolean nubia) {
-        if (pick != null && pick.rawOnly()) return true;
+        if (pick != null && (pick.rawOnly() || pick.ispOff)) return true;
         if (ispSurface == 2) return true;
         final boolean forced = otherForcedMode || pick != null && !pick.dcg();
         if (ispSurface == 0 && forced) return true;
@@ -174,8 +188,10 @@ public final class SensorModePick {
                 if (dcg != null) return dcg;
             }
             // P586: an OPPO-family camera's table, else the PYB110's recorded one; its ISZ row declares its Quad
-            final Pick p = of(row, brand() == Brand.OPLUS ? OppoNativeFullRes.table(physicalId, c) : SensorModeBand.table(c));
-            return p == null ? null : OplusIsz.mark(physicalId, slot, p);
+            final int[] table = brand() == Brand.OPLUS ? OppoNativeFullRes.table(physicalId, c) : SensorModeBand.table(c);
+            final Pick p = of(row, table);
+            // P631: a Xiaomi row whose HAL runs it only without the ISP stream
+            return p == null ? null : XiaomiSensorRow.mark(physicalId, OplusIsz.mark(physicalId, slot, p), table);
         } catch (RuntimeException e) {
             return null;
         }

@@ -20,8 +20,6 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.gallery.model.GalleryItem;
 import com.particlesdevs.photoncamera.ui.Motion;
@@ -81,6 +79,8 @@ public final class AlbumsPage {
     private final SharedPreferences prefs;
     private List<Album> frequent = new ArrayList<>(), others = new ArrayList<>(), types = new ArrayList<>();
     private int trashCount = -1;
+    /** P622: the gallery's view (the list and the timeline draw the albums their own way: AlbumViews). */
+    private com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode mode = com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID;
 
     public AlbumsPage(Context c, Host host) {
         this.host = host;
@@ -103,15 +103,36 @@ public final class AlbumsPage {
         render();
     }
 
+    /** P622: the albums drawn in {@code m} (animated: the page cross-fades and its sections come in one after another). */
+    public void setMode(com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode m) {
+        if (m == null || m == mode) return;
+        mode = m;
+        if (frequent.isEmpty() && others.isEmpty()) return;
+        if (Motion.enabled(column)) {
+            android.transition.TransitionSet t = new android.transition.TransitionSet()
+                    .addTransition(new android.transition.Fade()).addTransition(new android.transition.ChangeBounds());
+            t.setDuration(280);
+            t.setInterpolator(Motion.SHEET);
+            android.transition.TransitionManager.beginDelayedTransition(column, t);
+        }
+        render();
+    }
+
     private void render() {
         Context c = view.getContext();
         column.removeAllViews();
-        if (!frequent.isEmpty()) section(c, "frequent", Lang.t("Часто используемые", "Frequently used"), frequent.size() > 6, open -> {
-            LinearLayout grid = tiles(c, frequent, open ? frequent.size() : Math.min(6, frequent.size()), true);
-            return grid;
+        final boolean grid = mode == com.particlesdevs.photoncamera.gallery.model.GalleryLayout.Mode.GRID;
+        // P622: the list shows more rows before «Ещё» (a row is smaller than a tile)
+        final int firstFrequent = grid ? 6 : frequent.size(), firstOthers = grid ? 9 : 12;
+        final AlbumViews.Open opener = a -> host.openAlbum(a.folder, a.title);
+        if (!frequent.isEmpty()) section(c, "frequent", Lang.t("Часто используемые", "Frequently used"), frequent.size() > firstFrequent, open -> {
+            int n = open ? frequent.size() : Math.min(firstFrequent, frequent.size());
+            return grid ? tiles(c, frequent, n, true) : AlbumViews.body(c, mode, frequent, n, opener);
         });
-        if (!others.isEmpty()) section(c, "others", Lang.t("Другие альбомы", "Other albums"), others.size() > 9, open ->
-                tiles(c, others, open ? others.size() : Math.min(9, others.size()), false));
+        if (!others.isEmpty()) section(c, "others", Lang.t("Другие альбомы", "Other albums"), others.size() > firstOthers, open -> {
+            int n = open ? others.size() : Math.min(firstOthers, others.size());
+            return grid ? tiles(c, others, n, false) : AlbumViews.body(c, mode, others, n, opener);
+        });
         if (!types.isEmpty()) section(c, "types", Lang.t("Тип", "Type"), false, open -> typeRows(c));
         section(c, "other", Lang.t("Другое", "Other"), false, open -> otherRows(c));
     }
@@ -220,8 +241,9 @@ public final class AlbumsPage {
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         cover.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         Uri uri = a.cover();
-        if (uri != null) Glide.with(image).load(uri).apply(new RequestOptions().diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                .override(360, 360).centerCrop()).into(image);
+        // P620: the thumbnail decoder (the cheapest large-enough source), uncropped (the view crops)
+        if (uri != null) com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.request(Glide.with(image),
+                com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.of(uri), 360).into(image);
         else {
             ImageView none = GalleryUi.icon(c, R.drawable.ui_ic_albums, GalleryUi.MUTED, 28);
             cover.addView(none, new FrameLayout.LayoutParams(GalleryUi.dp(c, 28), GalleryUi.dp(c, 28), Gravity.CENTER));

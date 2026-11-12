@@ -36,6 +36,14 @@ public class WhyEdgeHoldTest {
                 why.contains("final boolean filmOnly = scene != null && film.strength >= 1f;"));
         assertTrue(why.contains("glProg.setVar(\"edgeHoldU\", WhyTone.edgeHold());"));
         assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold\", 1f)"));
+        // P623 round 7: the hold only at an edge against light (the bright side at the bound); 0 = every strong edge, as before
+        assertTrue(glsl.contains("#if EDGE_HOLD == 1\nuniform float edgeHoldU;"));
+        assertTrue(glsl.contains("uniform float edgeHoldLightU;"));
+        assertTrue(glsl.contains("float wAlong = edgeHoldLightU > 0.0 ? mix(1.0, smoothstep(0.6, 0.9, hi), min(edgeHoldLightU, 1.0)) : 1.0;"));
+        assertTrue("the hold within the 3 x 3 range stays at every strong edge", glsl.contains("ys = mix(yD, sum / sw, wAlong);"));
+        assertTrue(why.contains("glProg.setVar(\"edgeHoldLightU\", WhyTone.edgeHoldLight());"));
+        assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold_light\", 1f)"));
+        assertTrue(read("src/main/java/com/particlesdevs/photoncamera/settings/DevKeys.java").contains("\"hybrid_why_edge_hold_light\", \"1\""));
         assertTrue("the dev line", read("src/main/java/com/particlesdevs/photoncamera/settings/DevKeys.java").contains("\"hybrid_why_edge_hold\", \"1.0\""));
     }
 }

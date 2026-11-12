@@ -272,6 +272,7 @@ public class BackupRestoreUtil {
         SettingsMigration.migrateAntibanding(prefs);
         SettingsMigration.migrateScamHybrid(prefs, false);
         SettingsMigration.migrateShadeTiles(prefs);
+        SettingsMigration.migrateWatermark(prefs); // P628: a backup with the two caption lines
         SettingsMigration.removeObsolete(prefs);
     }
 

@@ -1,6 +1,5 @@
 package com.particlesdevs.photoncamera.processing.render;
 
-import android.annotation.SuppressLint;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.hardware.camera2.CameraCharacteristics;
@@ -22,7 +21,6 @@ import androidx.annotation.Nullable;
 
 import com.particlesdevs.photoncamera.app.ScameraApp;
 import com.particlesdevs.photoncamera.processing.parameters.ExposureIndex;
-import com.particlesdevs.photoncamera.processing.parameters.FrameNumberSelector;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 import com.particlesdevs.photoncamera.capture.CaptureController;
 import com.particlesdevs.photoncamera.util.Allocator;
@@ -128,6 +126,28 @@ public class Parameters {
      * DNG: the file declares its CFA, black level and GainMap over the blocks (DngCreator.setMosaicBlock).
      */
     public int dngMosaicBlock = 1;
+    /** P618: the DNG being written holds the merged burst (else one frame as the sensor gave it), set by ScamProcessor around it. */
+    public boolean dngMerged;
+    /**
+     * P618: the shot's wall clock (ms since 1970: the moment ImageSaver named its files), the time both its DNG and its photo
+     * record; 0 = unknown (the writer's own clock).
+     */
+    public long captureTimeMs;
+    /** P618: the camera's declared lens (LENS_INFO_AVAILABLE_FOCAL_LENGTHS / _APERTURES, LENS_FACING); null = not declared. */
+    public float[] lensFocalLengths, lensApertures;
+    public Integer lensFacing;
+    /**
+     * P618: {@link #focalLength} / {@link #aperture} are the shot's (its result or request) - not the camera's declared lens nor
+     * the 4.75 mm / f/1.8 placeholders, which stay for the processing that reads them but are never written as the lens.
+     */
+    public boolean focalLengthOfShot, apertureOfShot;
+    /**
+     * P618: the field of view of the DNG and of the photo as a zoom of the lens's whole field (1: all of it, 2: half its width),
+     * for FocalLengthIn35mmFilm; 0 = unknown (an ISZ / native-mosaic frame: the sensor's crop is not in the metadata), no tag.
+     */
+    public float dngFieldZoom, photoFieldZoom;
+    /** P618: the photo is the 4:3 crop of the frame (ImageSaver.iszAspect4x3): the DNG declares it as its DefaultCrop. */
+    public boolean photoAspect4x3;
     public boolean usedDynamic = false;
     public float[] blackLevel = new float[4];
     public float[] whitePoint = new float[3];
@@ -347,6 +367,11 @@ public class Parameters {
             flen = new float[1];
             flen[0] = 4.75f;
         }
+        // P618: the lens as the camera declares it (the EXIF lens tags), apart from the placeholder above
+        lensFocalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+        lensApertures = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES);
+        lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+        focalLengthOfShot = apertureOfShot = false;
         sensorSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
         XPerMm = rawSize.x / sensorSize.getWidth();
         YPerMm = rawSize.y / sensorSize.getHeight();
@@ -553,20 +578,24 @@ public class Parameters {
         frameLevels(result, staticWhite, level, true);
         Float aperture = result.get(CaptureResult.LENS_APERTURE);
         if (aperture == null) {
-            aperture = request.get(CaptureRequest.LENS_APERTURE);
+            aperture = request == null ? null : request.get(CaptureRequest.LENS_APERTURE);
             if (aperture == null) {
                 aperture = 1.8f; // Default to f/1.8 if not available
             }
         }
+        apertureOfShot = result.get(CaptureResult.LENS_APERTURE) != null
+                || request != null && request.get(CaptureRequest.LENS_APERTURE) != null;
         this.aperture = aperture;
 
         Float focalLength = result.get(CaptureResult.LENS_FOCAL_LENGTH);
         if (focalLength == null) {
-            focalLength = request.get(CaptureRequest.LENS_FOCAL_LENGTH);
+            focalLength = request == null ? null : request.get(CaptureRequest.LENS_FOCAL_LENGTH);
             if (focalLength == null) {
                 focalLength = 4.75f; // Default to 4.75mm if not available
             }
         }
+        focalLengthOfShot = result.get(CaptureResult.LENS_FOCAL_LENGTH) != null
+                || request != null && request.get(CaptureRequest.LENS_FOCAL_LENGTH) != null;
         this.focalLength = focalLength;
 
         binnedLevels();
@@ -2126,6 +2155,12 @@ public class Parameters {
         params.sensorToProPhoto = sensorToProPhoto.clone();
         params.hotPixels = hotPixels.clone();
         params.focalLength = focalLength;
+        params.focalLengthOfShot = focalLengthOfShot;
+        params.apertureOfShot = apertureOfShot;
+        params.lensFocalLengths = lensFocalLengths;
+        params.lensApertures = lensApertures;
+        params.lensFacing = lensFacing;
+        params.captureTimeMs = captureTimeMs;
         params.cameraRotation = cameraRotation;
         params.CCT = CCT;
         params.shotCharacteristics = shotCharacteristics;
@@ -2136,25 +2171,36 @@ public class Parameters {
     @NonNull
     @Override
     public String toString() {
-        return "parameters:\n" +
-                "\n hasGainMap=" + hasGainMap +
-                "\n FrameCount=" + (multiFrameCount>0 ? multiFrameCount : FrameNumberSelector.frameCount) +
-                "\n CameraID=" + cameraID +
-                "\n Noise Merging=" + FltFormat(ScameraApp.getSettings().mergeStrength) +
-                "\n Align=" + ScameraApp.getSettings().alignAlgorithm +
-                "\n Color=" + ScameraApp.getSettings().colorMethod +
-                "\n FocalL=" + FltFormat(focalLength) +
-                "\n Version=" + ScameraApp.getVersion() +
-                filmLine(filmRecipe);
+        return description();
+    }
+
+    /**
+     * P618: the ImageDescription of the shot's photo and DNG (ParseExif adds the route, the DNG what it holds). PhotonCamera's
+     * "parameters:" list it replaces named settings SCAMERA no longer has («Noise Merging» always 1.00, «Align»), a frame count
+     * nothing sets (FrameNumberSelector) and a "0.98(30966)" version the Software tag now carries in both files.
+     */
+    public String description() {
+        StringBuilder b = new StringBuilder("SCAMERA");
+        if (multiFrameCount > 0) b.append("\n Frames=").append(multiFrameCount);
+        b.append("\n Camera=").append(cameraID);
+        if (colourSource != null && !colourSource.isEmpty()) b.append("\n Colour=").append(colourSource);
+        return b + filmLine(filmRecipe);
+    }
+
+    /** P618: the shot's focal length for EXIF: the shot's own, else the camera's declared one; NaN when neither is known. */
+    public double exifFocalLength() {
+        if (focalLengthOfShot && focalLength > 0) return focalLength;
+        return lensFocalLengths != null && lensFocalLengths.length > 0 && lensFocalLengths[0] > 0 ? lensFocalLengths[0] : Double.NaN;
+    }
+
+    /** P618: the shot's f-number for EXIF: the shot's own, else the camera's declared one; NaN when neither is known. */
+    public double exifAperture() {
+        if (apertureOfShot && aperture > 0) return aperture;
+        return lensApertures != null && lensApertures.length > 0 && lensApertures[0] > 0 ? lensApertures[0] : Double.NaN;
     }
 
     /** P380: "\n Film=<recipe>" with a film, "" without one. */
     public static String filmLine(@Nullable String recipe) {
         return recipe == null || recipe.isEmpty() ? "" : "\n Film=" + recipe;
-    }
-
-    @SuppressLint("DefaultLocale")
-    private String FltFormat(Object in) {
-        return String.format("%.2f", Float.parseFloat(in.toString()));
     }
 }

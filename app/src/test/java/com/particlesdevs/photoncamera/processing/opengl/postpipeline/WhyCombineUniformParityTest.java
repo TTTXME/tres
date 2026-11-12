@@ -28,7 +28,9 @@ public class WhyCombineUniformParityTest {
     static final Set<String> PHOTO_ONLY = new HashSet<>(Arrays.asList("hrU", "hrKneeU", "hrRoomU", "hrEaseU", "hrDetailU", "hlSoftU", "sunBloomU", "sunGateU", "hlLocalU", "faceAU", "faceBU", "faceAwbU", "FaceMask",
             "sunGridU", "fullInputU", "WhyHl", "SunBloom", "oppGridU", "OppShare",
             // P394: reads the full-size merge (fullInputU), which the viewfinder's frame is not
-            "edgeHoldU"));
+            "edgeHoldU", "edgeHoldLightU",
+            // P623: the fast merge's short frames (the measured light above white), which a viewfinder frame has not
+            "hlMeasU", "hlMeasShoulderU", "hlMeasCeilU", "hlMeasDetailU", "hlMeasSceneU", "hlMeasGlareU"));
 
     private static String read(String path) throws IOException {
         File f = new File(path);

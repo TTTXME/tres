@@ -90,18 +90,20 @@
                 android:icon="@mipmap/ic_gallery_launcher"
                 android:roundIcon="@mipmap/ic_gallery_launcher_round"
                 android:exported="true">
-            <!-- REVIEW intent - Camera apps use this to review captured images -->
+            <!-- REVIEW intent - Camera apps use this to review captured images; P621: and videos (the gallery's player), and
+                 MediaStore.ACTION_REVIEW / ACTION_REVIEW_SECURE (the secure one: that item alone over the lock screen) -->
             <intent-filter>
                 <action android:name="com.android.camera.action.REVIEW" />
+                <action android:name="android.provider.action.REVIEW" />
+                <action android:name="android.provider.action.REVIEW_SECURE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="file" />
                 <data android:scheme="content" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
             </intent-filter>
-            <!-- No video/* (the gallery cannot play a video: it showed one frame) and no PICK / GET_CONTENT (it has no pick mode
-                 and never returns a photo: the calling app got RESULT_CANCELED). Only with such a mode. -->
 
-            <!-- VIEW intent - View specific images from other apps -->
+            <!-- VIEW intent - View specific images from other apps; P621: videos too (played by the gallery's player) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -109,6 +111,26 @@
                 <data android:scheme="file" />
                 <data android:scheme="content" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+
+            <!-- P621: PICK / GET_CONTENT of a photo or a video: the library opens, a tap returns that item (one; the grid's
+                 type and the asked type must agree). Not MediaStore.ACTION_PICK_IMAGES: that is the system photo picker's
+                 contract (several items, its extras), which this single pick does not keep. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PICK" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="vnd.android.cursor.dir/image" />
+                <data android:mimeType="vnd.android.cursor.dir/video" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.GET_CONTENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
             </intent-filter>
 
             <!-- Gallery app intent - Registers as a gallery app -->
@@ -365,6 +387,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- P621: the system's / a launcher's «gallery app» (Intent.CATEGORY_APP_GALLERY): the library -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.APP_GALLERY" />
             </intent-filter>
         </activity-alias>
 

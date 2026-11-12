@@ -325,4 +325,49 @@ public class NubiaFullResTest {
         assertEquals("P608: revision 2 - every verdict of revision 1 came from binned frames", 2, NubiaFullRes.ROW_TRIALS);
         assertEquals(FullResTrials.stamp(2), NubiaFullRes.stamp());
     }
+
+    // ---- P626: the per-shot way's watch, the frame's fill
+
+    @Test public void aPerShotWatchCountsTheMaximumResolutionResultsOnly() {
+        nubia();
+        NubiaFullRes.learn("2", WIDE_STOCK, new android.util.Size(4096, 3072), raw(8192, 6144));
+        NubiaFullRes.watchMaxRes("2", true);
+        final NubiaFullRes.ModeWatch w = new NubiaFullRes.ModeWatch("nubia", "2", 0, true, true);
+        assertFalse("the DEFAULT viewfinder's results say nothing", w.counts(null));
+        assertFalse(w.counts(android.hardware.camera2.CameraMetadata.SENSOR_PIXEL_MODE_DEFAULT));
+        assertTrue(w.counts(android.hardware.camera2.CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION));
+        assertTrue("the all-maximum-resolution watch counts every result", new NubiaFullRes.ModeWatch("nubia", "2", 0, true).counts(null));
+        // the proof burst's results: its frames are the patience
+        String why = null;
+        for (int i = 0; i < NubiaMaxResPlan.PROOF_FRAMES && why == null; i++) why = NubiaFullRes.observeForTest(1);
+        assertNotNull("binned in every MAXIMUM_RESOLUTION result of the proof", why);
+        assertTrue(why, why.contains(NubiaMaxResPlan.PROOF_FRAMES + " MAXIMUM_RESOLUTION results"));
+        assertEquals(NubiaRemosaicProbe.BINNED, NubiaRemosaicProbe.code(why));
+        NubiaFullRes.watchMaxRes("2", true);
+        assertNull(NubiaFullRes.observeForTest(0));
+        assertEquals("the full row runs", 1, NubiaFullRes.maxResModeState("2"));
+        final String line = w.observe(0, NubiaFullRes.resultDetail(1, 0, Boolean.TRUE));
+        assertTrue(line, line.contains("asked 0") && line.contains("request MAXIMUM_RESOLUTION, result pixel mode DEFAULT, rawBinningFactorUsed true"));
+        assertTrue(NubiaFullRes.resultDetail(null, null, null).contains("request DEFAULT, result pixel mode none, rawBinningFactorUsed none"));
+    }
+
+    @Test public void theFillOfTheFrameIsMeasured() {
+        final java.util.Random r = new java.util.Random(626);
+        java.nio.ByteBuffer b = frame(W * 2, 0);
+        for (int i = 0; i < W * H; i++) put(b, i * 2, 64 + r.nextInt(900));
+        assertEquals("a full frame", H, NubiaFullRes.pictureRows(b, W, H, W * 2, 64));
+        // the binned frame at its own pitch: a quarter of the rows
+        b = frame(W * 2, 0);
+        for (int i = 0; i < (W / 2) * (H / 2); i++) put(b, i * 2, 64 + r.nextInt(900));
+        final int rows = NubiaFullRes.pictureRows(b, W, H, W * 2, 64);
+        assertTrue("about a quarter: " + rows, rows >= H / 4 && rows <= H / 4 + NubiaFullRes.FILL_STEP_ROWS);
+        final String quarter = NubiaFullRes.fillLine("2", "«qcfa_snapshot»", 8192, 6144, 16384, 1536);
+        assertTrue(quarter, quarter.contains("picture rows 0..1535 of 6144 (25 %)") && quarter.contains("binned"));
+        final String full = NubiaFullRes.fillLine("2", null, 8192, 6144, 16384, 6144);
+        assertTrue(full, full.contains("(100 %)") && full.contains("the full field"));
+        assertEquals("all empty", 0, NubiaFullRes.pictureRows(frame(W * 2, 0), W, H, W * 2, 64));
+        assertTrue(NubiaFullRes.fillLine("2", null, 8192, 6144, 16384, 0).contains("no picture"));
+        assertEquals(0, NubiaFullRes.pictureRows(null, W, H, W * 2, 64));
+        assertEquals("a buffer shorter than its rows", 0, NubiaFullRes.pictureRows(java.nio.ByteBuffer.allocate(W * 2 * 10), W, H, W * 2, 64));
+    }
 }

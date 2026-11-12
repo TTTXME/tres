@@ -117,8 +117,11 @@ public class ImageSaver {
         SaverImplementation.IMAGE_BUFFER.clear();
         // Named at capture time, like the stock camera, not when processing starts; one name for the DNG and the photo (P119: a
         // template with milliseconds gave each call its own).
-        final String base = ImagePath.newBaseName();
+        // P618: the instant of the name is the shot's time in its EXIF and DNG
+        final long shotTime = System.currentTimeMillis();
+        final String base = ImagePath.newBaseName(shotTime);
         final String name = base + uniqueSuffix(base);
+        saver.ownedShotTimeMs = shotTime;
         saver.ownedDngFile = ImagePath.dngFile(name);
         saver.ownedImageFile = ImagePath.imageFile(name);
         detached.addLast(saver);
@@ -236,7 +239,7 @@ public class ImageSaver {
             // P147: the EXIF goes into the stream as its APP1 (ExifBlock: the same tags), no rewrite of the whole file after
             // the encode; without the block (it failed) the rewrite runs as before
             final long exifStart0 = System.nanoTime();
-            final byte[] exifApp1 = ExifBlock.app1Segment(exifData, img.getWidth(), img.getHeight());
+            final byte[] exifApp1 = ExifBlock.app1Segment(exifData, img.getWidth(), img.getHeight(), img); // P620: with its thumbnail
             final long exifBlockMs = (System.nanoTime() - exifStart0) / 1000000;
             final long encodeStart = System.nanoTime();
             try {
@@ -326,26 +329,6 @@ public class ImageSaver {
         public static boolean saveStackedRaw(Path dngFilePath,
                                              ByteBuffer buffer, Parameters parameters, boolean uncompressed) {
             return saveSingleRaw(dngFilePath, buffer, parameters, uncompressed);
-        }
-
-        public static boolean saveSyntheticMosaicRaw(Path dngFilePath, ByteBuffer buffer,
-                                                     Parameters parameters, int width, int height,
-                                                     String reconstructionLabel) {
-            DngCreator dngCreator = new DngCreator();
-            dngCreator.setParameters(parameters);
-            dngCreator.setCFAPattern(parameters.baseCfaPattern);
-            dngCreator.setDescription("SCAMERA Synthetic Mosaic SR; computational CFA reconstruction; "
-                    + reconstructionLabel + "; not original sensor RAW");
-            dngCreator.setUniqueCameraModel(android.os.Build.MODEL + " SCAMERA Synthetic Mosaic SR");
-            // The sensor lens-shading map no longer has the same sampling grid.
-            // Replace it with a neutral map instead of writing mismatched geometry.
-            dngCreator.setGainMap(new float[]{1f, 1f, 1f, 1f}, 0, 0, width, height, 1, 1);
-            dngCreator.setCompression(false);
-            try {
-                return writeDng(dngFilePath, out -> dngCreator.writeBuffer(out, buffer, width, height), "Synthetic mosaic DNG");
-            } finally {
-                dngCreator.close();
-            }
         }
 
         /** Writes one DNG's bytes (the stream is the caller's file). */

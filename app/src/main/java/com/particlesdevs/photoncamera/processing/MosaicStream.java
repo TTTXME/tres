@@ -42,6 +42,16 @@ public final class MosaicStream {
 
     /** One measurement of this session's stream; returns the block once three agree (0 before). */
     public static synchronized int observe(MosaicBlockDetector.Result r) {
+        final int out = observeOne(r);
+        // P631: the session's measurement ends without three agreeing answers - said once (the Xiaomi 17 Ultra's 50 MP row had no
+        // answer in 12 frames and the viewfinder fell back to a plain Bayer without a word in the log)
+        if (measured == 12 && votes < 3)
+            Log.i("MosaicStream", "RAW stream colour block not settled for " + key + " after 12 frames (last: " + r + "), the session keeps "
+                    + (block == 0 ? "none (the viewfinder: a plain Bayer)" : "block " + block));
+        return out;
+    }
+
+    private static int observeOne(MosaicBlockDetector.Result r) {
         measured++;
         if (r == null || !r.confident) return block;
         // P35: with a stored block every confident frame checks it (three agreeing disagreements in a row replace it).

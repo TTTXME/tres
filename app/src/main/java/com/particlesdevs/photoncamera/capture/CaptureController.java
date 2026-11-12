@@ -657,6 +657,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 watchRawPayload(img);
                 observeRawLevel(img, null);
                 observeMosaic(img);
+                // P626: a nubia per-shot way's RAW outside a shot is its proof frame: measured above, not metered, not in the ring
+                if (nubiaPerShot()) { img.close(); return; }
                 plainMeter(img, null); // P212b: the native AE's start, sampled in the plain session (also while a merge runs)
                 plainTeacher(img, null); // P212f: the mosaic white balance's teacher (log only)
                 // P187: the plain session of a running 200 MP merge takes no shot (captureStillPicture refuses it), so its
@@ -676,6 +678,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         if (old != null) old.close();
                     }
                 }
+                oldstyleViewfinder(); // P630e
                 return;
             }
             if (onUnlimited && !unlimitedStarted) {
@@ -945,6 +948,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                             retryWithoutFullRes(mCaptureSession, nubiaWhy);
                     });
                 }
+                // P626: a per-shot way proves the full mode by a short MAXIMUM_RESOLUTION burst on the RAW alone (once, unproven)
+                if (mFullResSession && NubiaRemosaicProbe.proofWanted(physicalID)) {
+                    final Object nubiaRun = NubiaRemosaicProbe.token();
+                    new Handler(Looper.getMainLooper()).post(() -> sendNubiaMaxResProof(nubiaRun));
+                }
                 // P608: a frame verdict of the maximum-resolution session that waited for the mode, once the full row is reported
                 final int[] nubiaPending = mFullResSession ? NubiaRemosaicProbe.takePending(physicalID) : null;
                 if (nubiaPending != null) {
@@ -1172,8 +1180,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             }
             if (retryWithoutVivoSdkFullRes(null, "camera error " + error)) return;
             // P598: a nubia remosaic-probe session the camera died in before its first frame: that setting failed, the next one
-            if (mFullResSession && mLastPreviewResultMs == 0 && NubiaRemosaicProbe.running(physicalID)
-                    && retryNubiaProbe(null, "camera error " + error)) return;
+            // P626: or while the per-shot way's proof burst was in flight (its MAXIMUM_RESOLUTION requests)
+            if (mFullResSession && (mLastPreviewResultMs == 0 || NubiaRemosaicProbe.proofPending(physicalID))
+                    && NubiaRemosaicProbe.running(physicalID) && retryNubiaProbe(null, "camera error " + error)) return;
             // P315: a picked sensor mode is blamed only when its session never delivered a frame - the X8U's mode 8 had streamed
             // for minutes when its HAL died at a shot, and the module went back to Auto with «Режим сенсора 8 отклонён камерой»;
             // an error after the mode's own frames takes the quiet path below (the same module and mode reopen)
@@ -2722,6 +2731,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         }
         // P41b: a stalled logical session steps down (a regular session, then the tele alone) before the restart
         if (mXiaomiRouted) XiaomiTeleZoom.stepDownRoute("preview stall, no frame for " + noFrame + " ms", mLastPreviewResultMs != 0);
+        // P631: a picked Xiaomi row whose session had the ISP stream: the restart's session leaves it out (the 17 Ultra's full-size
+        // row stopped after six frames with «Поток ISP» On and failed every request with «Фиктивное откл.», log of 31256)
+        final SensorModePick.Pick stalledPick = SensorModePick.session();
+        if (stalledPick != null && !mIspSurfaceOff && XiaomiSensorRow.device())
+            XiaomiSensorRow.noteIspRefused(physicalID, stalledPick.mode, "no preview frame for " + noFrame + " ms, "
+                    + (mLastPreviewResultMs == 0 ? "none since the session started" : "frames stopped"));
         mStallRestarts++;
         mPreviewSessionStartMs = 0;
         handler.removeCallbacks(mStallCheck);
@@ -2734,6 +2749,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     public void restartCamera() {
         Log.d(TAG, "restartCamera() called from \"" + Thread.currentThread().getName() + "\" Thread");
+        com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeter.restart(); // P616: the reopen's gap is no stutter
         // Reuse the normal resume path: it prepares readers/outputs before
         // opening the device on a live handler. The old restart opened first,
         // with a null handler, racing onOpened against reader replacement.
@@ -3370,18 +3386,20 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 fullRes = fr.size;
                 mFullResSession = true;
                 Log.i("SCAM_CAPTURE", "camera " + physicalID + ": full resolution " + fr.size + " format " + fr.format
-                        + " (every stream and request in MAXIMUM_RESOLUTION pixel mode, ZSL ring on, RAW viewfinder binned)");
+                        + (nubiaPerShot() ? " (P626 per shot: the RAW in MAXIMUM_RESOLUTION for the stills only, the viewfinder DEFAULT)"
+                        : " (every stream and request in MAXIMUM_RESOLUTION pixel mode, ZSL ring on, RAW viewfinder binned)"));
             }
         }
         // P276: the module's sensor mode picked from the camera's SensorModeTable (SensorModePick): its RAW size, its mode key
         final SensorModePick.Pick modePick = sdkFullRes || mFullResSession || mIsRecordingVideo || !isRawFormat(mTargetFormat)
                 ? null : SensorModePick.active(physicalID, characteristics);
         SensorModePick.session(physicalID, modePick);
+        XiaomiSensorRow.armFrameLog(physicalID, modePick); // P631: the session's first frame described once
         if (modePick != null) Log.i("SCAM_CAPTURE", "camera " + physicalID + ": the module's sensor mode " + modePick
                 + " (SensorModeTable, P276)");
         // P575: a nubia session watches the mode its results report (the picked row proves itself; a normal one logs its own).
         // P608: a maximum-resolution FULLRES session must report the full row it asks (NubiaFullRes.maxResRow)
-        if (mFullResSession && NubiaRemosaicProbe.running(physicalID)) NubiaFullRes.watchMaxRes(physicalID);
+        if (mFullResSession && NubiaRemosaicProbe.running(physicalID)) NubiaFullRes.watchMaxRes(physicalID, nubiaPerShot()); // P626
         else NubiaFullRes.watchSession(physicalID, modePick);
         // P586: the OnePlus 16's sessions watch their reported mode too (an ISZ / DCG / DAG row, a native FULLRES mode, or the own one)
         OplusIsz.watchSession(physicalID, modePick, sdkFullRes && VivoSdkFullRes.oppo() ? VivoSdkFullRes.profile(mVivoSdkCameraId) : null);
@@ -3399,7 +3417,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     + SensorModePick.declaredBlock(SensorModeBand.table(characteristics), modePick.mode) + " (P575)");
         ArrayList<Size> allTargets = getAllTargets();
         // P108: every request of the full-resolution session in MAXIMUM_RESOLUTION pixel mode (VendorTagUtils.builderSessionApply)
-        if (mFullResSession) useMaximumResolutionKey = true;
+        // P626: set for every session (it stayed true after a FULLRES session: the next normal session's DEFAULT streams got
+        // MAXIMUM_RESOLUTION requests - «Request settings CONTROL_SENSOR_PIXEL_MODE are not consistent with streams configured»,
+        // PREVIEW_STALL, log of 31256); a nubia per-shot way repeats in DEFAULT (NubiaMaxResPlan)
+        useMaximumResolutionKey = NubiaMaxResPlan.repeatingMaxRes(mFullResSession, nubiaPerShot());
 
         Size preview = getCameraOutputSize(map.getOutputSizes(mPreviewTargetFormat));
 
@@ -3494,8 +3515,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             this.target = fullRes;
             // P108: the viewfinder stream too is a size of the max-resolution map (Pixel 10 Pro XL: 1440x1080 for 4:3)
             Size st = sdkFullRes ? new Size(1440, 1080) : PixelPro10.maxResSize(characteristics, -1, fullRes);
-            if (st != null) mBufferSize = new Size(Math.min(st.getWidth(), st.getHeight()), Math.max(st.getWidth(), st.getHeight()));
-            Log.i("SCAM_CAPTURE", "full resolution: viewfinder " + st + ", YUV " + preview + ", readers " + maxjpg);
+            // P626: a nubia per-shot way's viewfinder is the default map's (binned) ISP stream in DEFAULT
+            if (st != null && !nubiaPerShot()) mBufferSize = new Size(Math.min(st.getWidth(), st.getHeight()), Math.max(st.getWidth(), st.getHeight()));
+            Log.i("SCAM_CAPTURE", "full resolution: viewfinder " + (nubiaPerShot() ? mBufferSize + " (per shot, P626)" : st) + ", YUV "
+                    + preview + ", readers " + maxjpg);
         }
         clearZslPreviewFrames();
         mPickPacked = false; // P559: set again by a picked sensor mode's packed reader below
@@ -3780,13 +3803,17 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // «При съемке без ремозаика isp превью у него должно отключаться»): an OPPO-family ISZ row whatever «Поток ISP», while
             // its DCG / DAG row keeps the setting (SensorModePick.ispStreamOff)
             mIspSurfaceOff = photoMode && !isBurstSession && !mIsRecordingVideo && !sdkFullRes && mVivoSdkRawSession == null
+                    && !NubiaMaxResPlan.keepsIspStream(nubiaPerShot()) // P626: the per-shot way's viewfinder
                     && isRawFormat(mTargetFormat) && !mLiveRawRejected
                     && (SensorModePick.ispStreamOff(ispSurface, SensorModePick.session(), forcedMode, NubiaFullRes.device())
                     || mFullResSession && NubiaFullRes.device()); // P588: the nubia's maximum-resolution FULLRES without the ISP stream
             if (mIspSurfaceOff) {
                 mIspPreviewOff = true;
+                final String xiaomiWhy = XiaomiSensorRow.ispOffReason(physicalID, SensorModePick.session()); // P631
                 Log.i("SCAM_CAPTURE", "camera " + physicalID + ": no ISP stream in the session (" + (SensorModePick.session() != null
-                        && SensorModePick.session().rawOnly() ? "an ISZ row without remosaic, P586" : ispSurface == 2 ? "the module's setting"
+                        && SensorModePick.session().rawOnly() ? "an ISZ row without remosaic, P586" : xiaomiWhy != null
+                        ? xiaomiWhy + (ispSurface == 1 ? "; the setting says On" : ispSurface == 3 ? "; the setting says fake off" : "")
+                        : ispSurface == 2 ? "the module's setting"
                         : "a forced sensor mode") + "), ISP stream off (RAW viewfinder) (P266)");
             }
             // P252 A/B (scam_dev.txt "isp_preview_off_always 1"): every photo session repeats the RAW stream only (the ISP preview in
@@ -3794,9 +3821,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (photoMode && PreferenceKeys.scamDevSwitch("isp_preview_off_always", false)) mIspPreviewOff = true;
             final boolean rawDisplaySession = nativeIsz || nativeVivoFullRes() || PreferenceKeys.isLiveViewfinderRawEnabled()
                     || mFullResSession || mIspPreviewOff;
-            mLiveRawSession = photoMode && !isBurstSession && !mIsRecordingVideo && !mLiveRawRejected && (!sdkFullRes || nativeVivoFullRes())
+            mLiveRawSession = NubiaMaxResPlan.liveRaw(nubiaPerShot(), // P626: the per-shot way's RAW is no repeating stream
+                    photoMode && !isBurstSession && !mIsRecordingVideo && !mLiveRawRejected && (!sdkFullRes || nativeVivoFullRes())
                     && isRawFormat(mTargetFormat) && (rawDisplaySession
-                    || com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID));
+                    || com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID)));
             LiveRawFrame.setMaxLongSide(rawViewfinder); // P266
             LiveRawFrame.setEnabled(false); // invalidate the previous session even when RAW remains enabled
             mPortraitVendorWindow = IszCapturePolicy.mosaicModule(com.particlesdevs.photoncamera.settings.ModuleRegistry.active())
@@ -3873,10 +3901,18 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     }
                 }
                 // P108: every stream of the full-resolution session (sizes of the max-resolution map) in MAXIMUM_RESOLUTION mode
+                // P626: a nubia per-shot way - the RAW alone, the viewfinder DEFAULT (NubiaMaxResPlan)
                 if (mFullResSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                    config.addSensorPixelModeUsed(CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION);
+                    for (int pixelMode : NubiaMaxResPlan.pixelModes(true, nubiaPerShot(), surfacei == rawSurface ? NubiaMaxResPlan.Stream.RAW
+                            : surfacei == surface ? NubiaMaxResPlan.Stream.VIEWFINDER : NubiaMaxResPlan.Stream.OTHER))
+                        config.addSensorPixelModeUsed(pixelMode);
                 outputConfigurations.add(config);
             }
+            if (mFullResSession && NubiaRemosaicProbe.running(physicalID)) // P626: which stream and request runs which pixel mode
+                Log.i("SCAM_CAPTURE", NubiaMaxResPlan.describe(physicalID, NubiaRemosaicProbe.describe(), nubiaPerShot(),
+                        mBufferSize == null ? null : new Size(mBufferSize.getHeight(), mBufferSize.getWidth()),
+                        mImageReaderRaw == null ? null : new Size(mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight()),
+                        NubiaRemosaicProbe.operationMode(physicalID)));
             mCroppedRawSession = croppedRaw;
             mLastRawCrop = null;
             mLastRawCropZoom = -1f;
@@ -4306,6 +4342,43 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         return true;
     }
 
+    /** P626: the running nubia maximum-resolution way is a per-shot one (NubiaMaxResPlan). */
+    private boolean nubiaPerShot() {
+        return mFullResSession && NubiaRemosaicProbe.perShot(physicalID);
+    }
+
+    /**
+     * P626: the per-shot way's proof - {@link NubiaMaxResPlan#PROOF_FRAMES} still requests in MAXIMUM_RESOLUTION on the RAW stream
+     * alone (the way's still keys, the HAL's AE), through the viewfinder's callback (the mode watch reads their results); their
+     * frames go the ring's way to observeMosaic (the fill line, the binned-frame check, MosaicStream's verdict) and are closed
+     * there. No verdict within {@link NubiaMaxResPlan#PROOF_TIMEOUT_MS}: the way fails «noproof», the next one runs.
+     */
+    private void sendNubiaMaxResProof(Object run) {
+        final CameraCaptureSession session = mCaptureSession;
+        final CameraDevice device = mCameraDevice;
+        final ImageReader raw = mImageReaderRaw;
+        if (session == null || device == null || raw == null || !nubiaPerShot() || NubiaRemosaicProbe.token() != run) return;
+        try {
+            final CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            b.addTarget(raw.getSurface());
+            VendorTagUtils.builderSessionApply(b, true, false, physicalID);
+            b.set(CaptureRequest.SENSOR_PIXEL_MODE, NubiaMaxResPlan.requestPixelMode(true, true, true));
+            final List<CaptureRequest> burst = new ArrayList<>();
+            for (int i = 0; i < NubiaMaxResPlan.PROOF_FRAMES; i++) burst.add(b.build());
+            session.captureBurst(burst, mCaptureCallback, mBackgroundHandler);
+            Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + physicalID + ": proof burst of " + NubiaMaxResPlan.PROOF_FRAMES
+                    + " MAXIMUM_RESOLUTION requests on the RAW " + raw.getWidth() + "x" + raw.getHeight() + " alone (" + NubiaRemosaicProbe.describe() + ")");
+        } catch (CameraAccessException | IllegalStateException | IllegalArgumentException e) {
+            Log.w("SCAM_CAPTURE", "nubia FULLRES camera " + physicalID + ": proof burst refused: " + e);
+            retryWithoutFullRes(session, "nubia: the MAXIMUM_RESOLUTION test requests were refused (" + e.getMessage() + ")");
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (mFullResSession && NubiaRemosaicProbe.token() == run && NubiaRemosaicProbe.proofPending(physicalID))
+                retryWithoutFullRes(mCaptureSession, NubiaRemosaicProbe.noProofWhy(NubiaMaxResPlan.PROOF_TIMEOUT_MS));
+        }, NubiaMaxResPlan.PROOF_TIMEOUT_MS);
+    }
+
     /**
      * P598: the setting of a nubia maximum-resolution FULLRES session (NubiaRemosaicProbe) failed for {@code why} - a plain Bayer
      * (the HAL's remosaic), another block, a refused session, a camera error, no frame: noted per camera and firmware; the camera
@@ -4463,7 +4536,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 while ((stale = mImageReaderRaw.acquireNextImage()) != null) stale.close();
             } catch (Exception ignored) {}
         }
-        if (isZslMode() || mLiveRawSession) {
+        if ((isZslMode() || mLiveRawSession) && NubiaMaxResPlan.rawInRepeating(nubiaPerShot())) { // P626: per shot the stills only
             // Still-photo modes keep the RAW ring; outside them the RAW stream
             // was never part of the repeating request and the raw viewfinder
             // had nothing to develop. It needs the stream in every mode.
@@ -4543,7 +4616,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     public boolean takePicture() {
         // P92: the shot survives the app going behind the screen (started here, while the app is in front)
-        com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.hold(ScameraApp.getAppContext());
+        com.particlesdevs.photoncamera.processing.ProcessingKeepAlive.hold(ScameraApp.getAppContext(), this);
         synchronized (mPreviewStateLock) {
             Log.i(TAG, "SHUTTER camera=" + physicalID + " state=" + mState
                     + " processing=" + isProcessing + " zsl=" + mZslCapturing
@@ -4566,7 +4639,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P315: so does a press in an OPPO-family picked sensor mode (its shots come from the ring alone)
             if (scamShutterQueues() && !mScamFireWaiting && !motionWaited
                     && (com.particlesdevs.photoncamera.settings.MotionMode.on() || !SensorModePick.seriesAllowed())
-                    && !mZslCapturing && !mShotInProgress && !burst && motionRingFrames() == 0) {
+                    && !mZslCapturing && !mShotInProgress && !burst && motionRingFrames() == 0
+                    && !nubiaPerShot()) { // P626: a nubia per-shot way has no ring: its N come after the shutter
                 Log.i("SCAM_CAPTURE", "motion: shutter waits for a ring frame");
                 mScamFireWaiting = true;
                 fireQueuedScamShot(android.os.SystemClock.elapsedRealtime() + MOTION_RING_WAIT_MS);
@@ -5705,6 +5779,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             com.particlesdevs.photoncamera.processing.VfStages.arrived(stageStart, lag >= 0 && lag < 2_000_000_000L ? lag : Long.MIN_VALUE);
             watchRawPayload(img);
             observeRawLevel(img, result);
+            xiaomiRowFrame(img, result); // P631
             observeMosaic(img);
             plainMeter(img, result); // P212b: a plain session's sample for the native AE's start
             plainTeacher(img, result); // P212f: the mosaic white balance's teacher (log only)
@@ -5765,6 +5840,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     if (old != null) old.close();
                 }
             }
+            if (zslPass || nativeRing) oldstyleViewfinder(); // P630e
             // P365 step 4: handed over outside the ring's lock (the view pins the slot whatever the ring does with its frame meanwhile)
             if (ringView != null) {
                 final java.nio.ByteBuffer view = ringView;
@@ -5920,6 +5996,24 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     }
 
     /** Key of the stream's sensor mode for MosaicStream: the physical sensor, its vendor requests and the RAW size. */
+    /**
+     * P631: the first frame of a picked Xiaomi row's session, described once (XiaomiSensorRow.frameLine): the mode the result
+     * reports, the frame's floor and its 2x2 site statistics - a Quad mosaic, the HAL's remosaic, or a binned frame written twice.
+     */
+    private void xiaomiRowFrame(Image img, TotalCaptureResult result) {
+        final SensorModePick.Pick pick = SensorModePick.session();
+        if (pick == null || img == null || img.getFormat() != ImageFormat.RAW_SENSOR || !XiaomiSensorRow.takeFrameLog(physicalID, pick.mode)) return;
+        try {
+            CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
+            if (c == null) c = mCameraCharacteristics;
+            final float black = com.particlesdevs.photoncamera.processing.RawLevels.current(c, null).meanBlack();
+            Log.i("SCAM_CAPTURE", XiaomiSensorRow.frameLine(String.valueOf(physicalID), pick, SensorModeBand.reportedMode(result),
+                    img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(), black));
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "Xiaomi sensor row frame: " + e);
+        }
+    }
+
     private String mosaicStreamKey() {
         String size = mImageReaderRaw == null ? "" : mImageReaderRaw.getWidth() + "x" + mImageReaderRaw.getHeight();
         return physicalID + "|" + size + "|" + com.particlesdevs.photoncamera.settings.TunableKeyManager.signature(physicalID)
@@ -5997,13 +6091,22 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 }
                 // P608: a binned frame packed into the nubia's maximum-resolution buffer (or an in-sensor-zoom crop) fails the
                 // session from its rows alone - MosaicStream took the quarter of rows that hold it for a «confident plain Bayer»
+                // P626: what the first full-size frame of the session fills (the log tells binned from full at a glance)
+                if (NubiaFullRes.device() && mFullResSession && NubiaRemosaicProbe.fillOnce(physicalID))
+                    Log.i("SCAM_CAPTURE", NubiaFullRes.fillLine(physicalID, NubiaRemosaicProbe.streamKey().replace("|probe-", "way "), img.getWidth(), img.getHeight(),
+                            sampleStride, NubiaFullRes.pictureRows(samples, img.getWidth(), img.getHeight(), sampleStride, black)));
                 if (NubiaFullRes.device() && mFullResSession && NubiaRemosaicProbe.running(physicalID)
                         && NubiaFullRes.partialFrame(samples, img.getWidth(), img.getHeight(), sampleStride, black)
                         && retryWithoutFullRes(mCaptureSession, NubiaFullRes.partialWhy(img.getWidth(), img.getHeight(),
                         NubiaFullRes.maxResModeState(physicalID) == 1))) return;
+                // P631: a picked Xiaomi row's stream came without its black pedestal: measured over the frame's own floor (the
+                // declared black of 64 left every dark tile out - no answer in 12 frames, log of 31256)
+                final float detectorBlack = SensorModePick.session() != null && XiaomiSensorRow.device()
+                        ? XiaomiSensorRow.detectorBlack(black, XiaomiSensorRow.frameFloor(samples, img.getWidth(), img.getHeight(), sampleStride))
+                        : black;
                 final com.particlesdevs.photoncamera.processing.MosaicBlockDetector.Result measured =
                         com.particlesdevs.photoncamera.processing.MosaicBlockDetector.detect(samples, img.getWidth(), img.getHeight(),
-                                sampleStride, black, white, 32);
+                                sampleStride, detectorBlack, white, 32);
                 int block = com.particlesdevs.photoncamera.processing.MosaicStream.observe(measured);
                 // P187: measured - the unpacked frame (2 B a pixel, 401 MB on a packed 200 MP stream) is not kept for the
                 // rest of the session
@@ -7662,6 +7765,89 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     /** P410: the shadow share (within 1/16 of the range above black) of that frame; NaN: unknown. */
     private volatile float mLastZslShadow = Float.NaN;
 
+    /**
+     * P630e «Oldstyle»: the capture plan of the newest plain 16-bit ring frame (its RAW quads, black / white of the stream, the
+     * frame's white balance) through OldstyleAe.meter and the profile's rule (plan27 / plan31), the viewfinder's EV compensation in
+     * the candidates; null when no plain frame is there (a packed stream: the burst then at N, the tone meters the merge).
+     */
+    @androidx.annotation.Nullable
+    private com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture meterOldstyle(long nNs, int nIso) {
+        return meterOldstyle(nNs, nIso, true);
+    }
+
+    @androidx.annotation.Nullable
+    private com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture meterOldstyle(long nNs, int nIso, boolean log) {
+        if (nNs <= 0 || nIso <= 0 || mCameraCharacteristics == null) return null;
+        try {
+            RingFrame newest = null;
+            CaptureResult meta = null;
+            synchronized (mZslBufferLock) {
+                int looked = 0;
+                for (java.util.Iterator<RingFrame> it = mZslRingBuffer.descendingIterator(); it.hasNext() && looked < 4; looked++) {
+                    final RingFrame candidate = it.next();
+                    final CaptureResult r = mHexZslResults.get(candidate.getTimestamp());
+                    if (candidate.getFormat() == ImageFormat.RAW_SENSOR && com.particlesdevs.photoncamera.processing.RawPayloadCheck.check(
+                            candidate, rawPayloadWhite(r)).plain()) { newest = candidate; meta = r; break; }
+                }
+                if (newest == null) return null;
+                final CameraCharacteristics lc = mCameraCharacteristicsMap.get(physicalID);
+                final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
+                        com.particlesdevs.photoncamera.processing.RawLevels.current(lc == null ? mCameraCharacteristics : lc, null);
+                Integer cfa = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+                android.hardware.camera2.params.RggbChannelVector wb = meta == null ? null : meta.get(CaptureResult.COLOR_CORRECTION_GAINS);
+                final float[] gains = wb == null ? new float[]{1f, 1f, 1f}
+                        : new float[]{wb.getRed(), (wb.getGreenEven() + wb.getGreenOdd()) * 0.5f, wb.getBlue()};
+                final int sw = 64, sh = 48;
+                final float[] rgb = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.bayerQuads(
+                        newest.buffer().duplicate().order(java.nio.ByteOrder.nativeOrder()).asShortBuffer(), newest.rowStride() / 2,
+                        newest.getWidth(), newest.getHeight(), cfa == null ? 0 : cfa, levels.black, levels.white, gains, sw, sh);
+                final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
+                final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Meter m =
+                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.meter(rgb, sw, sh, v2, 1f, true);
+                Integer comp = mPreviewRequestBuilder == null ? null : mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION);
+                android.util.Rational step = mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
+                final float ev = comp == null || step == null ? 0f : comp * step.floatValue();
+                final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c =
+                        com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.capture(m, v2, (double) nNs * nIso, ev);
+                if (log) Log.i("SCAM_CAPTURE", String.format(java.util.Locale.ROOT,
+                        "Oldstyle meter (%s): light %.3f%s geo %.4f mean %.4f -> %s (EV %+.2f, N %.3fms*ISO%d)", v2 ? "3.1" : "2.7",
+                        m.high, m.clipped ? " clipped" : "", m.geoMean, m.mean, c, ev, nNs / 1e6, nIso));
+                return c;
+            }
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "Oldstyle meter failed: the burst at N", e);
+            return null;
+        }
+    }
+
+    /** P630e: the viewfinder's Oldstyle tone metered at most this often (the ring's newest frame). */
+    private static final long OLDSTYLE_VIEWFINDER_NS = 300_000_000L;
+    private long mOldstyleMeterNs;
+    private boolean mOldstyleToneLive;
+
+    /**
+     * P630e «Oldstyle»: the viewfinder's base under the style - the version's tone (MainRenderer.setOldstyleTone; the GLSL of
+     * utils/import_oldstyle_tone_live) at the gains of the same plan as the shot's, metered on the ring's newest frame (over its
+     * own TET: the ISP frame on the screen is that exposure); the version as the panel has it now (a V1 / V2 switch shows at once).
+     */
+    private void oldstyleViewfinder() {
+        if (!com.particlesdevs.photoncamera.settings.OldstyleMode.on()) {
+            if (mOldstyleToneLive) com.particlesdevs.photoncamera.ui.camera.views.viewfinder.MainRenderer.setOldstyleTone(0, 1f, 1f, false);
+            mOldstyleToneLive = false;
+            return;
+        }
+        final long now = android.os.SystemClock.elapsedRealtimeNanos();
+        if (mOldstyleToneLive && now - mOldstyleMeterNs < OLDSTYLE_VIEWFINDER_NS) return;
+        mOldstyleMeterNs = now;
+        final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture c = meterOldstyle(1, 1, false);
+        if (c == null) return;
+        final boolean v2 = com.particlesdevs.photoncamera.settings.OldstyleMode.v2();
+        final float[] g = com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.viewfinderGains(c,
+                com.particlesdevs.photoncamera.settings.OldstyleMode.params(v2).maxGain);
+        com.particlesdevs.photoncamera.ui.camera.views.viewfinder.MainRenderer.setOldstyleTone(v2 ? 2 : 1, g[0], g[1], c.hdr);
+        mOldstyleToneLive = true;
+    }
+
     private float zslClipFraction() {
         mLastZslDeepShadow = 0f;
         mLastZslShadow = Float.NaN;
@@ -8804,6 +8990,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 planned=hybridNPlan(manualPsl);
             }
             final ScamStockAe.Plan stockPlan=planned;
+            // P630e «Oldstyle»: one exposure for the whole burst, after the shutter (the ring is at the viewfinder's AE exposure, not
+            // the plan's): the newest ring frame metered first (before the ring is cleared), the burst then exposed at S / the SDR TET.
+            // A manual exposure keeps its own (N), a picked sensor mode that takes no series keeps the ring (SensorModePick).
+            final boolean oldstyleShot = flash == null && scamHybridSelected && com.particlesdevs.photoncamera.settings.OldstyleMode.on()
+                    && !com.particlesdevs.photoncamera.settings.MotionMode.on() && SensorModePick.seriesAllowed() && stockPlan != null;
+            final com.particlesdevs.photoncamera.processing.oldstyle.OldstyleAe.Capture oldstyleCapture =
+                    oldstyleShot && !paramController.manualExposure() ? meterOldstyle(stockPlan.shutter(0), stockPlan.iso(0)) : null;
+            if (oldstyleShot && mShutterLook != null && mShutterLook.oldstyle != null) mShutterLook.oldstyle.capture = oldstyleCapture;
             // The capture route of this shot (P27: a SCAM HDR shot without an S/ES plan is captured and merged by the Hybrid).
             final boolean scamHybridShot=scamHybridSelected;
             final HybridPlan[] hybridPlanHolder={null};
@@ -8816,7 +9010,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             {
                 mLiveRawRouter.clear();
                 mNativeRawPslCapture=true;mZslCapturing=true;
-                if(!hybridZslRequested || manualPsl) synchronized(mZslBufferLock) {
+                if(!hybridZslRequested || manualPsl || oldstyleShot) synchronized(mZslBufferLock) {
                     for(RingFrame image:mZslRingBuffer)image.close();
                     mZslRingBuffer.clear();mHexZslResults.clear();
                 }
@@ -8833,7 +9027,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // and after it). scam_dev series_as_preview 0: the still template alone, as before
                 if (hybridZslRequested && mPreviewRequestBuilder != null && PreferenceKeys.scamDevSwitch("series_as_preview", true)) {
                     try {
-                        Log.i("SCAM_CAPTURE", "series settings from the preview: " + ScamPreview.copySettings(mPreviewRequestBuilder.build(), captureBuilder) + " keys");
+                        final long copyNs = android.os.SystemClock.elapsedRealtimeNanos(); // P625: the copy's share of submit=
+                        final int copied = ScamPreview.copySettings(mPreviewRequestBuilder.build(), captureBuilder);
+                        Log.i("SCAM_CAPTURE", "series settings from the preview: " + copied + " keys in "
+                                + (android.os.SystemClock.elapsedRealtimeNanos() - copyNs) / 1_000_000 + " ms");
+                        com.particlesdevs.photoncamera.processing.ShotTimeline.capture("series_keys");
                     } catch (RuntimeException e) {
                         Log.w("SCAM_CAPTURE", "series settings from the preview failed", e);
                     }
@@ -8852,6 +9050,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // the renderer scales each series frame back to the viewfinder's exposure (ViewfinderGain), so nothing flashes.
             // scam_dev "series_viewfinder 0": RAW only, as before.
             if (surface != null && mRepeatingIsp && !VivoPd2454NativeRaw.active(physicalID) && !mIspSurfaceOff
+                    && NubiaMaxResPlan.viewfinderInStill(nubiaPerShot()) // P626: a MAXIMUM_RESOLUTION still takes the RAW alone
                     && PreferenceKeys.scamDevSwitch("series_viewfinder", true)) {
                 captureBuilder.addTarget(surface);
                 com.particlesdevs.photoncamera.ui.camera.views.viewfinder.ViewfinderGain.setReference(
@@ -8928,8 +9127,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     mLiveRawRouter.clear();
                     mScamRouted = true;
                 }
-            } else if (manualPsl) {
+            } else if (manualPsl || oldstyleShot) {
                 // as an empty ring: every frame after the shutter, the viewfinder keeps running, RAWs routed by their timestamp
+                // (P630e: Oldstyle's one exposure as well)
                 mHybridZslCapture = false;
                 mZslCapturing = true;
                 mPendingZslNormalFrames = new ArrayList<>();
@@ -8937,7 +9137,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     mLiveRawRouter.clear();
                     mScamRouted = true;
                 }
-                Log.i("SCAM_CAPTURE", "manual shutter " + paramController.pslShutterNs() + " ns: PSL, the ZSL ring is not used");
+                Log.i("SCAM_CAPTURE", oldstyleShot ? "Oldstyle: one exposure after the shutter, the ZSL ring is not used"
+                        : "manual shutter " + paramController.pslShutterNs() + " ns: PSL, the ZSL ring is not used");
             } else if (hybridZslRequested) {
                 // Block preview RAWs first. Do not route them into ImageSaver:
                 // queued preview images would consume the bracket frame slots.
@@ -9074,10 +9275,21 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         // P113: «Движение» shoots from the ring alone, as the stock snapshot mode (no frames after the shutter)
                         plan=com.particlesdevs.photoncamera.settings.MotionMode.on() ? HybridPlan.zslOnly(nNs,nIso)
                                 : !SensorModePick.seriesAllowed() ? HybridPlan.zslOnly(nNs,nIso,SensorModePick.SERIES_REASON)
+                                // P627b: «Статика» merges the ring's N frames alone - nothing after the shutter
+                                : HybridPlan.staticMode() ? HybridPlan.zslOnly(nNs,nIso,HybridPlan.STATIC_REASON)
                                 : HybridPlan.build(nNs,nIso,mLastZslClipFraction,mCameraCharacteristics,mExposureLimits);
                     } catch(RuntimeException noPlan) {
                         Log.w("SCAM_CAPTURE","hybrid plan unavailable ("+noPlan.getMessage()+"): one more N frame after the shutter");
                         plan=HybridPlan.single(nNs,nIso);
+                    }
+                } else if(oldstyleShot) {
+                    // P630e: the burst at the plan's one exposure (no Bento, no Shasta), as many frames as the photo mode's ring gives
+                    try {
+                        plan=HybridPlan.oldstyle(stockPlan.shutter(0),stockPlan.iso(0),oldstyleCapture,PreferenceKeys.getHybridZslFrames(),
+                                mCameraCharacteristics,mExposureLimits,manualPsl?0:HalMotion.motionCapNs(mPreviewCaptureResult));
+                    } catch(RuntimeException noPlan) {
+                        Log.w("SCAM_CAPTURE","Oldstyle plan unavailable ("+noPlan.getMessage()+"): one N frame after the shutter");
+                        plan=HybridPlan.single(stockPlan.shutter(0),stockPlan.iso(0));
                     }
                 } else {
                     plan=com.particlesdevs.photoncamera.settings.MotionMode.on()
@@ -9257,7 +9469,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P214i: by the X300 Ultra's list; 0 once the module's frames proved a plain Bayer (the stored 1 merges then)
             // P276: a picked full-size row of the SensorModeTable declares the sensor's own mosaic
             final int iszBlock=VivoQcomIsz.declaredBlockOf(com.particlesdevs.photoncamera.settings.ModuleRegistry.active());
-            final int shotDeclaredBlock=iszBlock>0?iszBlock:SensorModePick.sessionBlock(mCameraCharacteristics);
+            // P631: a picked Xiaomi row whose frames proved a plain Bayer (the HAL's remosaic) merges as the Bayer it is
+            final int shotDeclaredBlock=XiaomiSensorRow.shotBlock(iszBlock>0?iszBlock:SensorModePick.sessionBlock(mCameraCharacteristics),
+                    SensorModePick.session()!=null&&XiaomiSensorRow.device(),
+                    com.particlesdevs.photoncamera.processing.MosaicBlockStore.get().stored(shotMosaicKey));
             final int nativeBaseIndex=denoiseFrameCount/2;
             final TotalCaptureResult[] nativeBaseResult={hybridZsl?mNativeZslBase:null};
             // W1.9: the vendor-key scan of every bracket result (10-15 ms on the camera callback thread) only with diagnostics.

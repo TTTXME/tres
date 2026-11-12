@@ -18,8 +18,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.particlesdevs.photoncamera.gallery.glide.GalleryKeys;
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
 import com.particlesdevs.photoncamera.R;
 import com.particlesdevs.photoncamera.gallery.model.GalleryItem;
 import com.particlesdevs.photoncamera.util.Lang;
@@ -342,11 +340,10 @@ public final class ViewerChrome {
                 if (holder.getAbsoluteAdapterPosition() == position) notifyItemChanged(position);
             })) Glide.with(i).clear(i); // P89: after the camera has finished writing the file
             else if (item.getFile().getFileUri() != null)
-                Glide.with(i).asBitmap().load(item.getFile().getFileUri())
-                        .apply(new RequestOptions().diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                                .signature(GalleryKeys.of(item.getFile()))
-                                .override(132, 132).centerCrop())
-                        .into(i);
+                // P620: the grid's thumbnail (cached by the grid, the view crops it): not a decode of each 50 MP photo at 132 px
+                com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.request(Glide.with(i),
+                        com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.of(item.getFile()),
+                        com.particlesdevs.photoncamera.gallery.glide.GalleryThumb.gridPx(c)).into(i);
         }
 
         @Override

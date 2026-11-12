@@ -9,6 +9,10 @@ python3 tools/check_scam_capture_sequence.py
 python3 tools/check_shader_fp16.py
 # P612: no GLSL loop index over a parameter of its function (Mali-G925 leaks it: «int * float», the blend refused)
 python3 tools/check_glsl_loop_shadow.py
+# P624: the static merge's shaders compile as GLSL ES 3.10 and as Vulkan GLSL (the NDK's glslc), and the committed SPIR-V
+# (scam-static-spirv.h) is of the current sources
+g++ -std=c++17 -O1 -Iapp/src/main/cpp tools/static/gen_static_spirv.cpp -o /tmp/gen-static-spirv
+/tmp/gen-static-spirv "$(ls "$ANDROID_HOME"/ndk/*/shader-tools/*/glslc | head -1)" app/src/main/cpp/scam-static-spirv.h --check
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
@@ -23,6 +27,8 @@ g++ -std=c++17 -O2 tools/check_bayer_tile.cpp -o /tmp/scamera-bayer-tile-check
 python3 tools/check_bayer_tile.py /tmp/scamera-bayer-tile-shaders
 python3 tools/check_bayer_quads.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_film_unpack.py
+# P619: the gallery editor's LUT / film look equals the camera's LUT stage; its film grain tiles without seams
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_editor_look.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_resolve_denoise.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_scam_hdr_gpu.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_highlights.py
@@ -49,6 +55,12 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_purple_fring
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_window.py
 # P402: the reference app's settings ported (the tone's inset / shoulder strength / base, the pyramid denoise, the dezipper)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_v207.py
+# P614: «Why тон» V2 - the reference tone's chain (why/v2_*.glsl, WhyV2Ae through javac) against a numpy model of it
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_v2_tone.py
+# P630: «Oldstyle» - the adjustments (GLSL == Java, the viewfinder's splice), the frame export, the mode's shaders
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_oldstyle_tone.py
+# P630b: the owner's tone-port module (vendored): its regression both profiles --full-frame, the specification's numbers, the JNI path
+python3 tools/check_tone_port.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ms_denoise.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_motion_sharp.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_sports_denoise.py
@@ -69,6 +81,10 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_quad_de
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_light_fill.py
 # P607: why/combine HL_LOCAL does not darken a light's falloff (HL_LOCAL_RIM), window detail as before
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hl_local_rim.py
+# P623: the fast merge's measured light above white on the real-headroom shoulder: the sun's glow without a grey ring
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_sun_glow.py
+# P623 round 2: HL_LOCAL's mean bilinear over the whyLow texels (no 2 px teeth along a light's rim)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hl_local_smooth.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_coloured_light_border.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ssbo_bindings.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_press_handoff.py

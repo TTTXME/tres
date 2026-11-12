@@ -126,6 +126,35 @@ public final class SettingsMotion {
         a.start();
     }
 
+    /**
+     * P614: {@code row} to the alpha it rests at ({@code alpha}): faded over 220 ms from where it is when the row is bound again to
+     * the same preference ({@code same}: its enabled state changed in place - the «Why тон» switch greys or wakes the rows of a
+     * version), else set at once. While it fades SettingsCardDecoration draws the card at full strength ({@link #dimming}).
+     */
+    public static void rest(View row, float alpha, boolean same) {
+        final Object running = row.getTag(R.id.settings_dim);
+        if (running instanceof Animator) ((Animator) running).cancel();
+        if (!same || !enabled(row) || Math.abs(row.getAlpha() - alpha) < 0.01f) {
+            row.setAlpha(alpha);
+            return;
+        }
+        final ObjectAnimator a = ObjectAnimator.ofFloat(row, View.ALPHA, row.getAlpha(), alpha);
+        a.setDuration(220);
+        a.setInterpolator(EASE_OUT);
+        a.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                if (row.getTag(R.id.settings_dim) == animation) row.setTag(R.id.settings_dim, null);
+            }
+        });
+        row.setTag(R.id.settings_dim, a);
+        a.start();
+    }
+
+    /** P614: {@code row} is fading between its enabled and disabled alpha ({@link #rest}). */
+    public static boolean dimming(View row) {
+        return row.getTag(R.id.settings_dim) instanceof Animator;
+    }
+
     /** A chip gives under the finger (scale .97 in 90 ms) and springs back on release; the click stays the view's own. */
     @SuppressLint("ClickableViewAccessibility")
     public static void pressable(View v) {

@@ -231,14 +231,20 @@ public final class ShotTimeline {
      * before them, outside the processing. A stage without its marks has no note.
      */
     void viewfinderSpans() {
-        viewfinderSpan("vf_merge", first("job", "spawn"), first("w_ok", "client_done"));
-        viewfinderSpan("vf_post", "post_start", "post_done");
+        // P616: both stages first, their gaps' notes (vf_gap_merge / vf_gap_post: the longest gap's cause, the paused or restarted
+        // time left out) ahead of vf_merge / vf_post, which keep their "fps/gap" form next to each other
+        final String[] merge = viewfinderStage("vf_merge", first("job", "spawn"), first("w_ok", "client_done"));
+        final String[] post = viewfinderStage("vf_post", "post_start", "post_done");
+        if (merge != null && merge[1] != null) notes.put("vf_gap_merge", merge[1]);
+        if (post != null && post[1] != null) notes.put("vf_gap_post", post[1]);
+        if (merge != null) notes.put("vf_merge", merge[0]);
+        if (post != null) notes.put("vf_post", post[0]);
     }
 
-    private void viewfinderSpan(String note, String a, String b) {
+    private String[] viewfinderStage(String note, String a, String b) {
         final Long ta = a == null ? null : marks.get(a), tb = b == null ? null : marks.get(b);
-        if (ta == null || tb == null || notes.containsKey(note)) return;
-        notes.put(note, com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeter.span(ta / 1_000_000, tb / 1_000_000));
+        if (ta == null || tb == null || notes.containsKey(note)) return null;
+        return com.particlesdevs.photoncamera.ui.camera.views.viewfinder.VfDrawMeter.stage(ta / 1_000_000, tb / 1_000_000);
     }
 
     /**
@@ -261,6 +267,26 @@ public final class ShotTimeline {
     private long span(String a, String b) {
         final Long ta = a == null ? null : marks.get(a), tb = b == null ? null : marks.get(b);
         return ta == null || tb == null ? -1 : (tb - ta) / 1_000_000;
+    }
+
+    /**
+     * P625 (owner, 2026-11-11: «ускорь подготовку снимка»): the parts of HYBRID JAVA PREP's meta= (the processing before the merge
+     * call less the sharpness), from ScamProcessor's marks: crop (RawCrop), const (RawBin, FillConstParameters), roles (the frames'
+     * metadata and roles), levels (the levels and the darkest frame's black), dyn (the reference frame's FillDynamicParameters), dcg
+     * (the second black pass and a DCG frame's linearity), neutral (the mosaic white balance), rest (field of view, EXIF, the logs).
+     * "" without a shot being processed; -1: a mark missing.
+     */
+    public static synchronized String prepParts() {
+        if (processing == null) return "";
+        final String[][] parts = {{"crop", "proc", "crop_done"}, {"const", "crop_done", "const_done"}, {"roles", "const_done", "sharp_start"},
+                {"levels", "sharp_done", "levels_done"}, {"dyn", "levels_done", "dyn_done"}, {"dcg", "dyn_done", "dcg_done"},
+                {"neutral", "dcg_done", "neutral_done"}, {"rest", "neutral_done", "hybrid_call"}};
+        final StringBuilder sb = new StringBuilder(" (");
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) sb.append(' ');
+            sb.append(parts[i][0]).append('=').append(between(parts[i][1], parts[i][2]));
+        }
+        return sb.append(')').toString();
     }
 
     /** The first of {@code names} this timeline has, or null. */

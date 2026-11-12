@@ -201,6 +201,9 @@ public class GLPreview extends GLSurfaceView {
         // resume and releases this one, so the camera must not open against it (resumeCamera waits for the new one instead)
         surfaceReady = false;
         super.onPause();
+        // P616: the GL thread is paused now (no draw after this one): the gap until the next draw is not a stutter (the settings
+        // screen, another app)
+        VfDrawMeter.hidden();
     }
 
     /**
