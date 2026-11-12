@@ -31,14 +31,21 @@ final class YuvMergePlan {
         final float esEv, longEv;
 
         Tuning(int frames, boolean bracket, float esEv, float longEv) {
-            this.frames = Math.max(2, Math.min(12, frames));
+            // P650 (owner, 2026-11-12: «привяжи количество кадров в склейке к общей настройке количества кадров»): the N count is
+            // the general «Кадры ZSL» setting (getHybridZslFrames, 4..65), the same the RAW merge uses - not a YUV-only cap. The
+            // memory budget of packed frames (build) and the camera's limits clamp it from there, as on the RAW path.
+            this.frames = Math.max(2, Math.min(65, frames));
             this.bracket = bracket;
             this.esEv = Math.max(1f, Math.min(4f, esEv));
             this.longEv = Math.max(0.5f, Math.min(3f, longEv));
         }
 
         static Tuning read() {
-            return new Tuning(Math.round(PreferenceKeys.hybridValue("yuv_frames", 6f)), PreferenceKeys.hybridSwitch("yuv_bracket", true)
+            // P650: «Кадры YUV» 0 = the general «Кадры ZSL» count (getHybridZslFrames, the RAW merge's), as getFullRes50Frames' 0;
+            // a non-zero value is an explicit per-lens override. The memory budget and the camera's limits clamp it (build).
+            final int own = Math.round(PreferenceKeys.hybridValue("yuv_frames", 0f));
+            final int frames = own > 0 ? own : PreferenceKeys.getHybridZslFrames();
+            return new Tuning(frames, PreferenceKeys.hybridSwitch("yuv_bracket", true)
                     && !com.particlesdevs.photoncamera.settings.MotionMode.on() && PreferenceKeys.hdrFrames(),
                     PreferenceKeys.hybridValue("yuv_es_ev", 3f), PreferenceKeys.hybridValue("yuv_long_ev", 2f));
         }
@@ -52,9 +59,12 @@ final class YuvMergePlan {
                             long frameBytes, boolean bracketAllowed) {
         final int maxFrames = (int) Math.max(2, Math.min(16, BUDGET_BYTES / Math.max(1, frameBytes)));
         final int normals = Math.min(t.frames, maxFrames);
+        // P650: the general frame count was cut to the packed-frame memory budget (the RAW path logs its own cap the same way)
+        final String memCap = normals < t.frames
+                ? String.format(Locale.ROOT, " N %d->%d (memory: %d frames of %.1f MB)", t.frames, normals, maxFrames, frameBytes / 1048576.0) : "";
         if (nNs <= 0 || nIso <= 0 || times == null || isos == null) {
             final HybridPlan ae = HybridPlan.autoExposure(normals);
-            return HybridPlan.of(ae.requests, 0, 0, "YUV MERGE plan: " + normals + " frames at the camera's AE (no known exposure), no brackets");
+            return HybridPlan.of(ae.requests, 0, 0, "YUV MERGE plan: " + normals + " frames at the camera's AE (no known exposure), no brackets" + memCap);
         }
         final List<HybridPlan.Request> out = new ArrayList<>();
         final double n = (double) nNs * nIso;
@@ -89,7 +99,7 @@ final class YuvMergePlan {
             } else why.append(String.format(Locale.ROOT, " no L (shadows %.3f)", shadow));
         }
         final String description = String.format(Locale.ROOT, "YUV MERGE plan: N=%.3fms*ISO%d clip=%.4f shadows=%.3f requests=%s%s"
-                + " (at most %d frames of %.1f MB)", nNs / 1e6, nIso, clip, shadow, out, why, maxFrames, frameBytes / 1048576.0);
+                + " (at most %d frames of %.1f MB)%s", nNs / 1e6, nIso, clip, shadow, out, why, maxFrames, frameBytes / 1048576.0, memCap);
         return HybridPlan.of(out, nNs, nIso, description);
     }
 }

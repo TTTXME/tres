@@ -668,6 +668,9 @@ public final class DevKeys {
         // P646 «Склейка YUV» (capture/YuvMergeRoute)
         k.add(s(cap, "yuv_merge", true, Lang.t("«Склейка YUV» в настройках объектива: 0 — ни один объектив не склеивает YUV (у камеры без RAW снимок из буфера её кривой)",
                 "“YUV merge” of the lens settings: 0 - no lens merges YUV (a camera without RAW: its ring frames at the camera's curve)")));
+        // P650 «Склейка YUV», серия после затвора (capture/YuvMergeRoute)
+        k.add(s(cap, "yuv_awb_lock", true, Lang.t("«Склейка YUV», серия после затвора: 0 — не фиксировать баланс белого на серию (у каждого кадра свой; цвет на лице может «разъезжаться»)",
+                "“YUV merge”, the series after the shutter: 0 - do not lock the white balance for the series (each frame keeps its own; the colour on the face can split)")));
         k.add(s(cap, "xiaomi_row_raw_only", true, Lang.t("Xiaomi: полноразмерный режим сенсора (17 Ultra, 50 Мп) — сессия только с RAW, без ISP-потока; цветовой блок мозаики меряется от собственного уровня чёрного кадра",
                 "Xiaomi: the sensor's full-size row (17 Ultra, 50 MP) in a RAW-only session, no ISP stream; the mosaic's colour block measured over the frame's own black floor")));
         // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)

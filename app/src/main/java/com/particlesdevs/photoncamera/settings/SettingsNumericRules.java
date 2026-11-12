@@ -71,7 +71,7 @@ public final class SettingsNumericRules {
             case "pref_scam_hybrid_dn_chroma_2x_keep": return new double[]{0,1,0};
             case "pref_scam_hybrid_zsl_frames": return new double[]{4,65,1};
             // P646 «Склейка YUV»
-            case "pref_scam_hybrid_yuv_frames": return new double[]{2,12,1};
+            case "pref_scam_hybrid_yuv_frames": return new double[]{0,12,1};
             case "pref_scam_hybrid_yuv_search": return new double[]{8,128,1};
             case "pref_scam_hybrid_yuv_local": return new double[]{1,12,1};
             case "pref_scam_hybrid_yuv_threshold": return new double[]{0.5,3,0};

@@ -2174,6 +2174,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     }
 
     private void clearZslPreviewFrames() {
+        mOldstyleFrameLogs = 0; // P651: a new session logs its viewfinder frames again
         synchronized (mZslBufferLock) {
             mHexZslResults.clear();
             while (!mZslRingBuffer.isEmpty()) mZslRingBuffer.removeFirst().close();
@@ -8489,8 +8490,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // P646: the YUV route holds the camera's Images (12 MB, P010 24 MB each): its series after the shutter takes no ring frame
         // (the ring only meters), its ZSL capture the route's own frames
         final YuvMergeRoute.Session yuv = YuvMergeRoute.current();
+        // P650: the YUV ring (the «Из буфера ZSL» route) holds the general «Кадры ZSL» count (+2 margin), the same the RAW ring
+        // and the after-shutter YUV plan now use; getZslBufferCountValue stays the hard memory ceiling.
         if (yuv != null) return yuv.afterShutter ? SUSPENDED_RING
-                : Math.max(SUSPENDED_RING, Math.min(PreferenceKeys.getZslBufferCountValue(), Math.round(PreferenceKeys.hybridValue("yuv_frames", 6f)) + 2));
+                : Math.max(SUSPENDED_RING, Math.min(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames() + 2));
         // P578 (owner, 2026-11-09: up to 65 frames in the merge): the ring holds at least the merge's N, so a long merge is not cut
         // to the buffer's 50 (ZslRing.create still keeps it within the memory budget)
         return Math.max(PreferenceKeys.getZslBufferCountValue(), Math.min(100, PreferenceKeys.getHybridZslFrames()));
@@ -8571,17 +8574,30 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 RingFrame newest = null;
                 CaptureResult meta = null;
                 int looked = 0;
-                for (java.util.Iterator<RingFrame> it = mZslRingBuffer.descendingIterator(); it.hasNext() && looked < 4; looked++) {
+                // P651 (owner, 2026-11-13, vivo V2419A: a green viewfinder in ScamMaster): the newest ring frame often comes before
+                // its capture result (MediaTek); without it the thumbnail took no white balance and no colour matrix - the camera's
+                // raw green. A frame is taken only with its result (its gains and matrix), the newest such of the last 8.
+                for (java.util.Iterator<RingFrame> it = mZslRingBuffer.descendingIterator(); it.hasNext() && looked < 8; looked++) {
                     final RingFrame candidate = it.next();
                     final CaptureResult r = mHexZslResults.get(candidate.getTimestamp());
+                    if (r == null || r.get(CaptureResult.COLOR_CORRECTION_GAINS) == null) continue;
                     if (candidate.getFormat() == ImageFormat.RAW_SENSOR && com.particlesdevs.photoncamera.processing.RawPayloadCheck.check(
                             candidate, rawPayloadWhite(r)).plain()) { newest = candidate; meta = r; break; }
                 }
-                if (newest == null) return null;
+                if (newest == null) {
+                    if (!mOldstyleNoResultLogged) {
+                        mOldstyleNoResultLogged = true;
+                        Log.i("SCAM_CAPTURE", "ScamMaster viewfinder: no ring frame with its capture result yet: the last picture stays");
+                    }
+                    return null;
+                }
+                mOldstyleNoResultLogged = false;
                 final CameraCharacteristics lc = mCameraCharacteristicsMap.get(physicalID);
                 final com.particlesdevs.photoncamera.processing.RawLevels.Levels levels =
                         com.particlesdevs.photoncamera.processing.RawLevels.current(lc == null ? mCameraCharacteristics : lc, null);
-                Integer cfa = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+                // P651: the CFA of the physical camera the ring streams (the logical camera's may differ), as its levels above
+                Integer cfa = lc == null ? null : lc.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+                if (cfa == null) cfa = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
                 android.hardware.camera2.params.RggbChannelVector wb = meta == null ? null : meta.get(CaptureResult.COLOR_CORRECTION_GAINS);
                 final float[] gains = wb == null ? new float[]{1f, 1f, 1f}
                         : new float[]{wb.getRed(), (wb.getGreenEven() + wb.getGreenOdd()) * 0.5f, wb.getBlue()};
@@ -8622,6 +8638,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     ccm = new float[9];
                     for (int i = 0; i < 9; i++) ccm[i] = cst.getElement(i % 3, i / 3).floatValue();
                 }
+                if (mOldstyleFrameLogs < 3) { // P651: what the tone preview's picture is made of (the first frames of a session)
+                    mOldstyleFrameLogs++;
+                    Log.i("SCAM_CAPTURE", "ScamMaster viewfinder frame: camera " + physicalID + " " + fw + "x" + fh + " cfa " + cfa
+                            + " gains " + java.util.Arrays.toString(gains) + " matrix " + (ccm == null ? "none" : "camera")
+                            + " shading " + (lsc == null ? "none" : map.getColumnCount() + "x" + map.getRowCount()));
+                }
                 return new float[][]{rgb, ccm};
             }
         } catch (RuntimeException e) {
@@ -8629,6 +8651,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             return null;
         }
     }
+
+    /** P651: the «no frame with its result» line once until a frame with its result is found again. */
+    private boolean mOldstyleNoResultLogged;
+    private int mOldstyleFrameLogs;
 
     /** The tone preview's picture of the module at most this often (the ring's newest frame). */
     private static final long OLDSTYLE_VIEWFINDER_NS = 300_000_000L;

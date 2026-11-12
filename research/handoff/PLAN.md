@@ -1,5 +1,45 @@
 # SCAMERA: settings cleanup, route reduction and portable configs — work plan
 
+### P651 - ScamMaster: green viewfinder on a MediaTek phone (owner, 2026-11-13, vivo V2419A, screenshot + SCAMERA-current-log_9: «Перед тем как собирать апк на гите исправь ScamMaster»): DONE in code, host; not seen on the phone
+- Symptom: the ScamMaster viewfinder olive-green over the whole frame; the photo itself right (log 9: colour ISP_CST, gains R 1.55 B 2.79, scene 4259 K).
+- Cause: CaptureController.oldstyleFrame (P643d's tone preview) took the newest plain RAW_SENSOR ring frame of the last 4 whether or not its capture result had arrived. On this MediaTek camera the ring's newest frame comes before its result, so meta was null: gains (1, 1, 1), no colour matrix, no lens shading map - the bilateral grid was fitted to the camera's raw (green) picture and carried the screen there. The photo reads the same map later, when the result is in.
+- Fix: a frame is taken only with its result and its COLOR_CORRECTION_GAINS (the newest such of the last 8); none yet: no new picture (the last fit stays, or the frame as it is - OldstyleLive.STALE_NS), logged once («ScamMaster viewfinder: no ring frame with its capture result yet»). The CFA is the physical camera's (the ring streams it; its levels were already the physical camera's). The first 3 frames of a session log what the picture is made of: «ScamMaster viewfinder frame: camera, size, cfa, gains, matrix, shading».
+- Test: capture.ScamMasterViewfinderFrameTest (in the workflow's list); Oldstyle* tests unchanged and green.
+- Phone: send the «ScamMaster viewfinder frame» lines (gains must be the camera's, not [1.0, 1.0, 1.0]) and a screenshot.
+### P650 - YUV merge: deliver the after-shutter series and bind its frame count (owner, 2026-11-12: «Исправь работу с YUV. Также привяжи количество кадров в склейке к общей настройке количества кадров»)
+- Bug 1 (after-shutter YUV saved nothing). The default YUV route runs the whole series after the shutter (YuvMergePlan: N + ES + L,
+  P010/HLG10). Its frames reach `mImageSaver.initProcess` via the live-raw router, and `ImageSaverSelector.getImageSaver` only
+  routed JPEG / YUV_420_888 / RAW; YCBCR_P010 (format 54) fell into the default branch - `E/ImageSaverSelector: Cannot save image,
+  unexpected image format:54` - so no frame reached IMAGE_BUFFER and the shot died on `ScamCaptureSequence`'s guard
+  (`SCAM: the camera delivered no RAW frame (#0 NORMAL: RAW missing; ...)`, log6). The ZSL-ring route works because its frames are
+  already `ImageFrame`s added straight to IMAGE_BUFFER (`SaverImplementation.IMAGE_BUFFER.addAll(mPendingZslNormalFrames)`), never
+  through `getImageSaver`. Fix: `ImageSaverSelector` now sends `YuvFrames.P010` (and 8-bit `YUV_420_888`) to the `YUVSaver`, which
+  keeps both as packed planar `ImageFrame`s (`YuvFrames.frame`, timestamp set) exactly like the ring; the after-shutter P010 series
+  then binds in the sequence (`boundCount>0`) and the no-RAW-frame guard no longer fires. RAW routes of other cameras are untouched.
+- Bug 2 (frame count fixed at 12). `YuvMergePlan.Tuning` read `pref_scam_hybrid_yuv_frames` (default 6, capped 2..12). The «Кадры
+  YUV» slider now means 0 = follow the general «Кадры ZSL» count `PreferenceKeys.getHybridZslFrames()` (the RAW merge's), with a
+  non-zero value an explicit per-lens override (as `getFullRes50Frames`' 0=auto); its default is 0, so the merge binds to the general
+  setting out of the box. The count is clamped only by the packed-frame memory budget (`BUDGET_BYTES/frameBytes`, ~12 for an 8 MP
+  P010 frame of 24 MB, ~16 for 8-bit) and the camera's limits; the memory cap is logged (`N 30->16 (memory: ...)`). The YUV ring
+  capacity (`ringCapacityLocked`) was also moved off `yuv_frames` onto `getHybridZslFrames()+2`, so both YUV routes follow one
+  setting; `getZslBufferCountValue` stays the hard memory ceiling. Default (setting untouched) = 20 requested, memory-capped.
+- Colour split / noise (ours.jpg: yellow-green vs magenta on the face, heavy noise vs stock.jpg). ours.jpg is the ZSL-ring result
+  (log7 ~2516). The frames are YUV_ISP - the camera's own white balance is baked into each frame (`colour: YUV_ISP ... identity, no
+  lens shading map`), and the per-frame balance varies across the burst (log7 shows result `gains=RggbChannelVector{...}` differing
+  shot to shot; the deghost/chroma rejection keeps only `mean frames 6.23` of ~30, `disabled tiles 0.133`). Hypothesis: the merge
+  blends a different subset of colour-divergent frames per tile, so each region inherits a different average WB - the split - and the
+  heavy per-tile rejection of those same divergent frames leaves few effective samples - the noise. Fix applied (clearly correct,
+  in scope): the after-shutter series now locks AWB (`CONTROL_AWB_LOCK`, scam_dev `yuv_awb_lock`), so every frame shares one white
+  point; the balance value is the preview's metered one, so the look is unchanged. This only covers the default after-shutter route;
+  the ring route cannot be locked retroactively and would need per-frame chroma normalisation in `YuvMergeNative.merge`, which is NOT
+  done here (no base-frame / tone / sharpening change, per scope) - it is left as to-verify.
+- Unproven on the phone (needs a device run of the fixed build and these exact log lines): (a) that the after-shutter P010 series
+  now saves a photo end to end (expect `YUV MERGE plan: ... requests=[NORMAL x...]`, frames bound, no `image format:54`, no
+  `delivered no RAW frame`); (b) that the frame count follows «Кадры ZSL» (expect the `N <set>-><cap> (memory: ...)` line when memory
+  limits it); (c) whether AWB-lock removes the colour split. To diagnose the split further, ask the owner for the **per-frame**
+  `Parameters: result ... gains=RggbChannelVector{...}` of every frame of one YUV series/ring (not just the one result line), the
+  `YUV MERGE ... mean frames N` / `disabled tiles` line, and both a locked-AWB and an unlocked-AWB shot of the same scene.
+
 ### P462/P465 - full processing and saving redesign (owner, 2026-11-02, supersedes earlier implementation limits)
 - Compact integer RAW quad research passes113 physical semantic points: detail30 worker2537->2145ms, Moving8 neutral; own-map Android final output differs at most2 byte levels from the corrected sampling reference. Bracket/failure/format regressions and production integration remain pending. New signed-guide rejection looks better on fingers to the owner; evaluate actual cloth/small-object crops rather than treating lower high-pass noise as automatically worse detail.
 - Logging replacement VERIFIED LOCALLY: default-OFF single opt-in Documents/SCAMERA/Logs backend, bounded batched writes, current-log clear/size/share and independent Documents/SCAMERA/Dumps ZIP. Legacy files preserved; startup FLUSH-fence race fixed. Prior106-test coverage plus final24-focused regression tests/build pass. Actual OPPO/API36 backend, Java/JNI/relay capture, UID exclusion, scoped Documents, rotation, rapid toggle and share/clear PASS with exact owner-state restoration. No manual settings-tap, real full-capture ZIP, older-device or speed claim. See LOGGING-20261102.md. Screenshot OPPO-unlock item remains excluded.

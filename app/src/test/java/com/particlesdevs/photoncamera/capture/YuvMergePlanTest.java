@@ -2,6 +2,7 @@ package com.particlesdevs.photoncamera.capture;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyFloat;
@@ -120,6 +121,35 @@ public class YuvMergePlanTest {
         for (HybridPlan.Request r : plan.requests) assertTrue(r.autoExposure && r.role == ImageFrame.CaptureRole.NORMAL);
     }
 
+    @Test public void theFrameCountFollowsTheGeneralZslSetting() {
+        // P650 (owner: «привяжи количество кадров в склейке к общей настройке количества кадров»): the N count is the general
+        // «Кадры ZSL» setting (getHybridZslFrames), not the old YUV-only cap of 12
+        prefs.when(PreferenceKeys::getHybridZslFrames).thenReturn(30);
+        final YuvMergePlan.Tuning t = YuvMergePlan.Tuning.read();
+        assertEquals(30, t.frames);
+        // the series then uses that many N, clamped only by the packed-frame memory budget and the camera's limits
+        final int memCap = (int) Math.max(2, Math.min(16, YuvMergePlan.BUDGET_BYTES / FRAME_8BIT));
+        final HybridPlan plan = YuvMergePlan.build(20_000_000L, 820, TIMES, ISOS, 0f, 0.01f, t, FRAME_8BIT, true);
+        assertEquals(memCap, count(plan, ImageFrame.CaptureRole.NORMAL));
+        assertTrue(plan.description, plan.description.contains("N 30->" + memCap));   // the memory cap is logged, as on the RAW path
+    }
+
+    @Test public void aLowGeneralSettingIsHonouredWithoutAMemoryCapNote() {
+        prefs.when(PreferenceKeys::getHybridZslFrames).thenReturn(5);
+        final YuvMergePlan.Tuning t = YuvMergePlan.Tuning.read();
+        assertEquals(5, t.frames);
+        final HybridPlan plan = YuvMergePlan.build(20_000_000L, 820, TIMES, ISOS, 0f, 0.01f, t, FRAME_8BIT, true);
+        assertEquals(5, count(plan, ImageFrame.CaptureRole.NORMAL));
+        assertFalse(plan.description, plan.description.contains("memory:"));   // nothing was cut, so no cap note
+    }
+
+    @Test public void anExplicitYuvFrameCountOverridesTheGeneralSetting() {
+        // «Кадры YUV» non-zero is a per-lens override; 0 (the default) follows «Кадры ZSL»
+        prefs.when(PreferenceKeys::getHybridZslFrames).thenReturn(30);
+        prefs.when(() -> PreferenceKeys.hybridValue("yuv_frames", 0f)).thenReturn(8f);
+        assertEquals(8, YuvMergePlan.Tuning.read().frames);
+    }
+
     @Test public void theCaptureCurveIsMonotoneSrgb() {
         final float[] pairs = YuvMergeRoute.curvePairs(101);
         assertEquals(128, pairs.length);   // 64 points at most
@@ -150,5 +180,28 @@ public class YuvMergePlanTest {
         // a camera without MANUAL_POST_PROCESSING takes no curve
         when(c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)).thenReturn(new int[]{0, 1});
         assertFalse(YuvMergeRoute.curveSupported(c));
+    }
+
+    @Test public void theAfterShutterSeriesLocksAwbForOneWhiteBalance() throws Exception {
+        // P650: the after-shutter series' frames carry the camera's white balance baked in; locking AWB keeps every frame on one
+        // white point so the merge is colour-consistent (no yellow-green / magenta split). The ring route keeps the running AWB.
+        final CameraCharacteristics c = mock(CameraCharacteristics.class);
+        when(c.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE)).thenReturn(Boolean.TRUE);
+        when(c.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES)).thenReturn(new int[]{0});
+        when(c.get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES)).thenReturn(new int[]{0});
+        prefs.when(() -> PreferenceKeys.scamDevSwitch(anyString(), anyBoolean())).thenAnswer(i -> i.getArgument(1));
+        final CaptureRequest.Builder after = newRequestBuilder();
+        final String done = YuvMergeRoute.applyCaptureControls(after, c, new YuvMergeRoute.Session("1", YuvMergeRoute.YUV, false, true, false, ""));
+        assertEquals(Boolean.TRUE, after.get(CaptureRequest.CONTROL_AWB_LOCK));
+        assertTrue(done, done.contains("AWB locked"));
+        // the ZSL ring route (not after the shutter) keeps the camera's running AWB
+        final CaptureRequest.Builder ring = newRequestBuilder();
+        YuvMergeRoute.applyCaptureControls(ring, c, new YuvMergeRoute.Session("1", YuvMergeRoute.YUV, false, false, false, ""));
+        assertNull(ring.get(CaptureRequest.CONTROL_AWB_LOCK));
+        // a camera that cannot lock AWB is left alone
+        when(c.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE)).thenReturn(Boolean.FALSE);
+        final CaptureRequest.Builder noLock = newRequestBuilder();
+        YuvMergeRoute.applyCaptureControls(noLock, c, new YuvMergeRoute.Session("1", YuvMergeRoute.YUV, false, true, false, ""));
+        assertNull(noLock.get(CaptureRequest.CONTROL_AWB_LOCK));
     }
 }

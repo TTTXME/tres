@@ -93,7 +93,7 @@ lint/tmp/
 /app/google-services.json
 .idea/.name
 
-# Signing keys never go into this public repository (key/README.md)
+# Signing keys never go into this repository (key/README.md)
 *.jks
 *.keystore
 

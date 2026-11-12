@@ -89,7 +89,7 @@ def verify_bundle(apk, libraries):
 
 def signing_key():
     """The SCAMERA release key: SCAMERA_KEYSTORE / SCAMERA_KEYSTORE_PASSWORD / SCAMERA_KEY_ALIAS (CI), else
-    SCAMERA-PC/signing/signing.properties next to the repository. The repository is public: the key is never in it."""
+    SCAMERA-PC/signing/signing.properties next to the repository. The key is never in the repository."""
     keystore = os.environ.get('SCAMERA_KEYSTORE')
     if keystore:
         return keystore, os.environ.get('SCAMERA_KEY_ALIAS', 'scamera'), os.environ.get('SCAMERA_KEYSTORE_PASSWORD', '')

@@ -2,6 +2,15 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-13 — ScamMaster
+
+- The ScamMaster viewfinder no longer turns green.
+
+## 2026-11-13 — YUV merge fixes
+
+- YUV merge: the after-shutter shot is saved again; the frame count follows the general frame-count setting.
+- The white balance is locked for the series, to remove the colour split on the face. Waits for a check on the phone.
+
 ## 2026-11-12 — YUV merge
 
 - A new merge for cameras without RAW: a series of YUV frames with brackets, our tone and colour; switched on in the lens settings, on by default on the vivo X200 Pro's front camera. Waits for a check on the phone.

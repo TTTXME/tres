@@ -1,6 +1,7 @@
 package com.particlesdevs.photoncamera.processing;
 
 import android.graphics.ImageFormat;
+import com.particlesdevs.photoncamera.processing.yuv.YuvFrames;
 import com.particlesdevs.photoncamera.util.Log;
 
 public class ImageSaverSelector {
@@ -24,6 +25,10 @@ public class ImageSaverSelector {
                 break;
 
             case ImageFormat.YUV_420_888:
+            // P650: the YUV route's 10-bit frames (YCBCR_P010 = 54, YuvFrames.P010) take the same saver as the 8-bit ones
+            // (YUVSaver keeps both as packed planar copies, YuvFrames). Before P650 the after-shutter P010 series fell into the
+            // default branch ("unexpected image format:54") and never reached the YUV merge: no photo at all.
+            case YuvFrames.P010:
                 saverImplementation = YUVSaver;
                 //saverImplementation = new YUVSaver(saverImplementation.processingEventsListener);
                 break;

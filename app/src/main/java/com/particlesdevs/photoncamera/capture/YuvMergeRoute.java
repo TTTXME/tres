@@ -268,6 +268,16 @@ public final class YuvMergeRoute {
             b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
             done.append(done.length() == 0 ? "" : ", ").append("edge OFF");
         }
+        // P650: the after-shutter series' frames carry the camera's white balance baked in (YUV_ISP, identity colour in the merge).
+        // If the camera's AWB drifts frame to frame, the merge blends a different subset of colours per tile (deghost / chroma
+        // rejection) and the face splits (yellow-green vs magenta). Locking AWB at the shutter's metered balance keeps every frame
+        // on one white point, so the merge is colour-consistent; the balance value is the preview's, so the look is unchanged.
+        // scam_dev "yuv_awb_lock 0" turns it off.
+        final Boolean awbLockable = c.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE);
+        if (s.afterShutter && Boolean.TRUE.equals(awbLockable) && PreferenceKeys.scamDevSwitch("yuv_awb_lock", true)) {
+            b.set(CaptureRequest.CONTROL_AWB_LOCK, Boolean.TRUE);
+            done.append(done.length() == 0 ? "" : ", ").append("AWB locked");
+        }
         return done.toString();
     }
 

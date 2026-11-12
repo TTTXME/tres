@@ -5,7 +5,7 @@
     <string name="prefs_scam_hybrid_yuv_capture_title">YUV: series frames</string>
     <string name="prefs_scam_hybrid_yuv_capture_summary">After the shutter: the camera shoots the series with our own tone curve, its noise reduction at minimum and its sharpening off, so the frames can be brought back to linear light and the exposure brackets work; the photo then gets our tone, colour and sharpening. From the ZSL buffer: no shutter lag, but the frames carry the camera\'s own curve (an estimate is undone) and there are no brackets.</string>
     <string name="prefs_scam_hybrid_yuv_frames_title">YUV: frames in the series</string>
-    <string name="prefs_scam_hybrid_yuv_frames_summary">Frames at the normal exposure that are merged. More: less noise, but longer and more memory (a 10-bit frame of 8 MP takes 24 MB); the count is cut to what fits in memory.</string>
+    <string name="prefs_scam_hybrid_yuv_frames_summary">Frames at the normal exposure that are merged. 0: follow the general frame count. More: less noise, but longer and more memory (a 10-bit frame of 8 MP takes 24 MB); the count is cut to what fits in memory.</string>
     <string name="prefs_scam_hybrid_yuv_10bit_title">YUV: 10 bit (P010, HLG)</string>
     <string name="prefs_scam_hybrid_yuv_10bit_summary">Where the camera gives a 10-bit YUV stream at the photo size beside the normal viewfinder, the series is taken in 10 bits (HLG) and merged in 10 bits: smoother gradients and more highlight room. If the camera refuses the session, 8 bits are used and remembered for this camera.</string>
     <string name="prefs_scam_hybrid_yuv_profile_title">YUV: threshold profile</string>
