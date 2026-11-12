@@ -39,6 +39,8 @@ final class LiveLensFilter {
     /** The values' count ({@link #fill}). */
     static final int VALUES = 20;
     static final int UNIT_HI = 2, UNIT_LIN = 3;
+    /** The film LUT's unit ({@link #applyLut}); P631b: named for MainRenderer.samplerUnit. */
+    static final int UNIT_LUT = 1;
 
     private static final ExecutorService LUT_LOADER = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "vf-lut");
@@ -335,9 +337,9 @@ final class LiveLensFilter {
             lutShown = lut;
         }
         boolean on = lutTex != 0 && lut != null;
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + UNIT_LUT);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, on ? lutTex : dummyTex);
-        GLES20.glUniform1i(uLut, 1);
+        GLES20.glUniform1i(uLut, UNIT_LUT);
         GLES20.glUniform1i(uLutOn, on ? 1 : 0);
         if (on) {
             GLES20.glUniform1f(uLutStrength, lutStrength);

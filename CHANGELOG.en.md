@@ -2,6 +2,10 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-12 — Black viewfinder
+
+- Fixed the black viewfinder of the 11 November build: in every mode but «Oldstyle» the camera screen could stay black on any lens. The picture is there as soon as the camera opens, with the RAW viewfinder and without it.
+
 ## 2026-11-11 — Watermark in the editor
 
 - The gallery editor has a new «Mark» tab: add a watermark to any photo, change it or remove it. The same styles and settings as in the camera, shown on the photo at once; the model, focal length, aperture, shutter speed, ISO and date come from the photo's own EXIF, and what the EXIF lacks stays off the watermark (its row is greyed).

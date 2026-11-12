@@ -253,6 +253,7 @@ final class LiveRawRenderer {
         if(frameSession!=f.session){frameSession=f.session;failed=false;texVersion[0]=texVersion[1]=-1;meteredVersion=-1;meter.reset();}
         if(failed)return false;
         try {
+            dropForeignErrors(); // P631b: before this renderer's own calls and their checks (initialize, upload, draw)
             if(program==0 && !init())return false;
             refreshLook();
             GLES20.glUseProgram(program);
@@ -393,6 +394,7 @@ final class LiveRawRenderer {
         if(frameSession!=f.session){frameSession=f.session;failed=false;texVersion[0]=texVersion[1]=-1;meteredVersion=-1;meter.reset();}
         if(failed)return false;
         try {
+            dropForeignErrors(); // P631b
             refreshLook();
             if(!upload(f,fusedOn()))return false;
             meter(f,true);
@@ -435,6 +437,19 @@ final class LiveRawRenderer {
         GLES20.glVertexAttribPointer(0,2,GLES20.GL_FLOAT,false,8,vertices);
         GLES20.glVertexAttribPointer(1,2,GLES20.GL_FLOAT,false,8,coords);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
+    }
+    /**
+     * P631b: GL errors another pass left behind are not this renderer's: taken off before its own calls (and said in the log)
+     * instead of failing its next check. Build 31257: the ISP viewfinder's draw failed (GL_INVALID_OPERATION, MainRenderer.samplerUnit), the next
+     * RAW frame's upload check found that error and turned the RAW viewfinder off for the session - a black viewfinder.
+     */
+    private int foreignErrors;
+    private void dropForeignErrors() {
+        for(int i=0;i<8;i++){
+            final int error=GLES20.glGetError();
+            if(error==GLES20.GL_NO_ERROR)return;
+            if(foreignErrors++<3)Log.w("LiveRawRenderer","GL error="+error+" left by another pass before the RAW frame's draw (not this renderer's): dropped");
+        }
     }
     private boolean check(String step) {
         int error=GLES20.glGetError();

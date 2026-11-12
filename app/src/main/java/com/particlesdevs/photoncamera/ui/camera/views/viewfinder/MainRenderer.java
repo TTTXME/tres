@@ -455,6 +455,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         uOsOn = GLES20.glGetUniformLocation(hProgram, "uOsOn");
         uOsAdjust = locateOldstyle(hProgram);
         uOtTone = locateTone(hProgram);
+        pinSamplers(hProgram, fss_default); // P631b: every sampler on its own unit from the first draw on
         mLensFilter.locate(hProgram);
         mLensFilter.locatePrep(loadShader(vss_default, ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_prep.glsl")));
         // P300: the same filter for the developed-RAW frame drawn off screen (a 2D texture, the screen's layout)
@@ -469,6 +470,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
             uOsOn2d = GLES20.glGetUniformLocation(hProgram2d, "uOsOn");
             uOsAdjust2d = locateOldstyle(hProgram2d);
             uOtTone2d = locateTone(hProgram2d);
+            GLES20.glUseProgram(hProgram2d);
+            pinSamplers(hProgram2d, LiveLensFilter.to2d(fss_default)); // P631b
             mRawLensFilter.locate(hProgram2d);
             mRawLensFilter.locatePrep(loadShader(VS_2D, LiveLensFilter.to2d(ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_prep.glsl"))));
         }
@@ -700,7 +703,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
     private static volatile float[] sOldstyleTone;
     private int[] uOtTone = {-1, -1, -1}, uOtTone2d = {-1, -1, -1};
     private int mOtLutTex, mOtLutVersion;
-    /** The texture unit of the tone's LUT (units of their own: uLut 10, the lens filter's 11 / 12). */
+    /** The texture unit of the tone's LUT (units of their own: the frame 0, uLut 1, the lens filter's 2 / 3; {@link #samplerUnit}). */
     static final int OT_LUT_UNIT = 13;
 
     public static void setOldstyleTone(int version, float gainShort, float gainLong, boolean hdr) {
@@ -727,14 +730,92 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
     private void oldstyleTone(int[] l) {
         float[] t = sOldstyleTone;
         if (t != null && !toneLut((int) t[0])) t = null;
+        // P631b: the LUT's sampler on its own unit with the tone off too - left at its default 0 it shared the unit of the
+        // camera's external frame (two sampler types on one unit: every draw of this program failed, GL_INVALID_OPERATION)
+        if (l[2] >= 0) GLES20.glUniform1i(l[2], OT_LUT_UNIT);
         if (l[0] >= 0) GLES20.glUniform1i(l[0], t == null ? 0 : (int) t[0]);
         if (t == null) return;
         final float[] g = toneGains(t, sOldstyle);
         if (l[1] >= 0) GLES20.glUniform3f(l[1], g[0], g[1], t[3]);
-        if (l[2] >= 0) GLES20.glUniform1i(l[2], OT_LUT_UNIT);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + OT_LUT_UNIT);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mOtLutTex);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+    }
+
+    // ---------------------------------------------------------------- P631b: the main program's samplers
+
+    /** The camera's frame: the external texture of the ISP viewfinder (a 2D one in the developed-RAW filter pass), unit 0. */
+    static final String FRAME_SAMPLER = "sTexture";
+    /** The first unit given to a sampler {@link #samplerUnit} does not know (above the tone's LUT). */
+    static final int SPARE_UNIT = OT_LUT_UNIT + 1;
+    private static final java.util.regex.Pattern SAMPLER = java.util.regex.Pattern.compile(
+            "(?m)^\\s*uniform\\s+(?:(?:highp|mediump|lowp)\\s+)?(sampler\\w+)\\s+(\\w+)\\s*;");
+
+    /**
+     * P631b (owner, 2026-11-12, build 31257: «Чёрный экран у 17U»): the texture unit of a sampler of the viewfinder's main
+     * program (main_fs with its spliced parts), -1 for one this table does not know. GL ES fails every draw
+     * (GL_INVALID_OPERATION) of a program whose samplers of different types point at one unit, and a sampler nobody sets
+     * points at unit 0 - the external frame's. P630e's uOtLut was set only while the Oldstyle tone was live: outside that mode
+     * the ISP viewfinder drew nothing, and the error it left failed the RAW viewfinder's upload check.
+     */
+    static int samplerUnit(String name) {
+        switch (name) {
+            case FRAME_SAMPLER: return 0;
+            case "uLut": return LiveLensFilter.UNIT_LUT;
+            case "uLfHiTex": return LiveLensFilter.UNIT_HI;
+            case "uLfLinTex": return LiveLensFilter.UNIT_LIN;
+            case "uOtLut": return OT_LUT_UNIT;
+            default: return -1;
+        }
+    }
+
+    /** The sampler uniforms a fragment source declares: {type, name} in their order. */
+    static java.util.List<String[]> samplers(String fragment) {
+        final java.util.List<String[]> out = new java.util.ArrayList<>();
+        final java.util.regex.Matcher m = SAMPLER.matcher(fragment == null ? "" : fragment);
+        while (m.find()) out.add(new String[]{m.group(1), m.group(2)});
+        return out;
+    }
+
+    /**
+     * P631b: {name, unit} of every sampler of {@code fragment}: its unit of {@link #samplerUnit}; one the table does not know
+     * gets a spare unit of its own ({@link #SPARE_UNIT} up), so that a part spliced in later can never share the frame's unit.
+     */
+    static java.util.List<Object[]> samplerPins(String fragment) {
+        final java.util.List<Object[]> out = new java.util.ArrayList<>();
+        int spare = SPARE_UNIT;
+        for (String[] u : samplers(fragment)) {
+            final int unit = samplerUnit(u[1]);
+            out.add(new Object[]{u[1], unit >= 0 ? unit : spare++});
+        }
+        return out;
+    }
+
+    /** P631b: where {@link #pinSamplers} sets the units (the GL program in use; a recorder in the tests). */
+    interface SamplerSink {
+        /** The uniform's location, -1 when the program has none of that name (optimised away). */
+        int location(String name);
+
+        void unit(int location, int unit);
+    }
+
+    /** P631b: the samplers of {@code program} (in use) on their units, once after it is linked or loaded. */
+    static void pinSamplers(final int program, String fragment) {
+        if (program == 0) return;
+        pinSamplers(fragment, new SamplerSink() {
+            @Override public int location(String name) { return GLES20.glGetUniformLocation(program, name); }
+            @Override public void unit(int location, int unit) { GLES20.glUniform1i(location, unit); }
+        });
+    }
+
+    static void pinSamplers(String fragment, SamplerSink gl) {
+        for (Object[] pin : samplerPins(fragment)) {
+            final String name = (String) pin[0];
+            final int unit = (Integer) pin[1], location = gl.location(name);
+            if (samplerUnit(name) < 0)
+                Log.w("MainRenderer", "viewfinder sampler " + name + " has no unit of its own in MainRenderer.samplerUnit: spare unit " + unit);
+            if (location >= 0) gl.unit(location, unit);
+        }
     }
 
     /** The version's LUT texture (OldstyleNative.previewLut, made once per version on this GL thread); false: no library. */
