@@ -251,5 +251,7 @@ public class VendorTagUtils {
         // P598: the nubia remosaic probe's setting of the maximum-resolution FULLRES session (none outside it); P626: a still
         // (burst) takes the way's snapshot keys too
         com.particlesdevs.photoncamera.capture.NubiaRemosaicProbe.apply(builder, burst);
+        // P635: a full-resolution recipe's tags of every request (and of the stills) - none outside its session
+        com.particlesdevs.photoncamera.capture.FullResRecipeSession.applyRequest(builder, burst);
     }
 }

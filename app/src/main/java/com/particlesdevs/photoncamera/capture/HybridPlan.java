@@ -515,6 +515,23 @@ public final class HybridPlan {
         return new HybridPlan(out, nShutterNs, nIso, description + " | FULLRES: " + max + " of " + longs + " long frames");
     }
 
+    /**
+     * P635: this plan cut to {@code total} requests for a full-resolution recipe shot (the profile's frames a shot): its N frames
+     * first, then the others in their order while there is room.
+     */
+    public HybridPlan limitedTo(int total) {
+        if (total <= 0 || requests.size() <= total) return this;
+        final boolean[] keep = new boolean[requests.size()];
+        int kept = 0;
+        for (int i = 0; i < keep.length && kept < total; i++)
+            if (requests.get(i).role == ImageFrame.CaptureRole.NORMAL) { keep[i] = true; kept++; }
+        for (int i = 0; i < keep.length && kept < total; i++)
+            if (!keep[i]) { keep[i] = true; kept++; }
+        final List<Request> out = new ArrayList<>();
+        for (int i = 0; i < keep.length; i++) if (keep[i]) out.add(requests.get(i));
+        return new HybridPlan(out, nShutterNs, nIso, description + " | recipe: " + total + " of " + requests.size() + " frames");
+    }
+
     /** P377: this plan with {@code note} after its description (null: this plan). */
     public HybridPlan withNote(@androidx.annotation.Nullable String note) {
         return note == null || note.isEmpty() ? this : new HybridPlan(requests, nShutterNs, nIso, description + note);

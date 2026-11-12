@@ -31,6 +31,12 @@ public class SaverImplementation {
      * per Tetra cell into an 8160x6144 Quad while it is copied (TetraBin; the arena slot holds the binned frame only).
      */
     public boolean tetraBin;
+    /**
+     * P635: the shot is a full-resolution recipe's (null: not): its first frame is measured (FullResTruth - a frame of the full
+     * size may be the binned frame written twice over), and when it is doubled every still is taken back to the binned frame
+     * while it is copied - the shot is merged as a normal one instead of a 50 MP file without 50 MP of detail.
+     */
+    public com.particlesdevs.photoncamera.capture.FullResRecipeShot recipeShot;
     /** The shot's digital-zoom crop and camera at the press (ImageSaver.zoomResidual / cameraIdAtPress). */
     public float zoomResidual = 1f;
     public String cameraIdAtPress;
@@ -97,6 +103,16 @@ public class SaverImplementation {
         }
         Allocator.binning = ScameraApp.getSettings().binning;
         if (tetraBin) return tetraBinned(image, buffer, format, payload, rowStride, height);
+        final com.particlesdevs.photoncamera.capture.FullResRecipeShot recipe = recipeShot;
+        if (recipe != null && format == ImageFormat.RAW_SENSOR && payload.plain()) {
+            final ByteBuffer rows = buffer.duplicate(); // the frame's rows (from the 16:9 crop's first one)
+            rows.position(Math.min(offset, rows.limit()));
+            final com.particlesdevs.photoncamera.capture.FullResTruth.Result truth = recipe.judge(rows, image.getWidth(), height, rowStride);
+            if (truth.verdict == com.particlesdevs.photoncamera.capture.FullResTruth.Verdict.UPSCALED) {
+                final ImageFrame halved = recipeHalved(image, buffer, offset, rowStride, height, truth.phase);
+                if (halved != null) return halved;
+            }
+        }
         ImageFrame frame = new ImageFrame(buffer, format, width, rowStride, offset, capacity, shotArena);
         frame.rawPayloadError = payload.error;
         frame.sourceFormat = format;
@@ -142,7 +158,36 @@ public class SaverImplementation {
         return frame;
     }
 
-    final ProcessorBase.ProcessingCallback processingCallback = new ProcessorBase.ProcessingCallback() {
+    /**
+     * P635: a doubled still of a recipe shot back to the binned frame it was made of (one site of every 2x2 box, FullResTruth.halve)
+     * in the shot's arena, else a buffer of its own; null when it cannot be made (the frame is kept as it came).
+     */
+    private ImageFrame recipeHalved(Image image, ByteBuffer buffer, int offset, int rowStride, int height, int phase) {
+        final int width = image.getWidth();
+        final int[] half = com.particlesdevs.photoncamera.capture.FullResTruth.halfSize(width, height);
+        final int bytes = half[0] * half[1] * 2;
+        final com.particlesdevs.photoncamera.util.ShotArena arena = shotArena;
+        ByteBuffer out = arena == null ? null : arena.allocate(bytes);
+        if (out == null) {
+            try {
+                out = Allocator.allocate(bytes);
+            } catch (LinkageError noLibrary) {
+                out = ByteBuffer.allocateDirect(bytes);
+            }
+        }
+        if (out == null) return null;
+        out.order(java.nio.ByteOrder.nativeOrder());
+        out.position(0);
+        if (!com.particlesdevs.photoncamera.capture.FullResTruth.halve(out, buffer, offset, width, height, rowStride, phase)) return null;
+        out.position(0);
+        final ImageFrame frame = ImageFrame.wrap(out, half[0], half[1]);
+        frame.sourceFormat = ImageFormat.RAW_SENSOR;
+        frame.timestamp = image.getTimestamp();
+        ShotTimeline.captureNote("recipe_upscaled", "the full-size frame is the binned one doubled: merged as " + half[0] + "x" + half[1]);
+        return frame;
+    }
+
+        final ProcessorBase.ProcessingCallback processingCallback = new ProcessorBase.ProcessingCallback() {
         @Override
         public void onStarted() {
             CaptureController.isProcessing = true;

@@ -2252,10 +2252,12 @@ public class SettingsMenuTest {
         List<String> keys=new ArrayList<>();
         for(int i=0;i<category.getPreferenceCount();i++){String key=category.getPreference(i).getKey();keys.add(key.startsWith("pref_sensorconfig_back1_")?key.substring("pref_sensorconfig_back1_".length()):key);}
         // Sensor rows, the module's live RAW AE controls, vendor keys, then its reset.
+        // P635: the full-resolution recipe's switch after them (off: the one row, no field)
         keys.remove("oismode");
         assertEquals(Arrays.asList("blackleveloverride","whiteleveloverride","sessiontype","ispsurface","rawfps","rawviewfinder",
-                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","fpsprobe","add_tunablekey",
+                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","recipe","fpsprobe","add_tunablekey",
                 "pref_reset_sensor_config_settings_back1"),keys);
+        assertFalse(((androidx.preference.SwitchPreferenceCompat)category.findPreference("pref_sensorconfig_back1_recipe")).isChecked());
         androidx.preference.ListPreference ae=category.findPreference("pref_sensorconfig_back1_ae_engine");
         assertEquals("0",ae.getValue());
         assertFalse(category.findPreference("pref_sensorconfig_back1_ae_min_iso").isEnabled());

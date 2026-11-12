@@ -53,6 +53,8 @@ public final class ModuleSensorSettings {
                 while(key.find())if(!key.group().replace(" ","").contains("\"enabled\":false"))return true;
                 continue;
             }
+            // P635: the full-resolution recipe counts by its switch (its fields alone change nothing)
+            if(field.startsWith("recipe")){if("recipe".equals(field)&&"true".equalsIgnoreCase(value))return true;continue;}
             double number;
             try{number=Double.parseDouble(value);}catch(NumberFormatException notNumber){if(!value.isEmpty())return true;continue;}
             if(ModuleDuplicates.SENSOR_MODE_SUFFIX.equals(field)){if(number>=0)return true;continue;}

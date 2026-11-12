@@ -645,6 +645,8 @@ public final class DevKeys {
         k.add(s(cap, "nubia_probe_reset", false, Lang.t("nubia 50 Мп: при каждом запуске забывать пробы способов против ремозаика HAL (снова с первого)",
                 "nubia 50 MP: forget the trials of the settings against the HAL's remosaic at every app start (from the first again)")));
         // P631: the Xiaomi 17 Ultra's full-size row in a RAW-only session, its colour block measured over the frame's floor (XiaomiSensorRow)
+        k.add(s(cap, "fullres_recipe", true, Lang.t("«Полное разрешение (рецепт)» в настройках объектива: 0 — рецепты не запускаются ни на одном объективе, обычная сессия",
+                "“Full resolution (recipe)” of the lens settings: 0 - no recipe runs on any lens, the normal session")));
         k.add(s(cap, "xiaomi_row_raw_only", true, Lang.t("Xiaomi: полноразмерный режим сенсора (17 Ultra, 50 Мп) — сессия только с RAW, без ISP-потока; цветовой блок мозаики меряется от собственного уровня чёрного кадра",
                 "Xiaomi: the sensor's full-size row (17 Ultra, 50 MP) in a RAW-only session, no ISP stream; the mosaic's colour block measured over the frame's own black floor")));
         // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)

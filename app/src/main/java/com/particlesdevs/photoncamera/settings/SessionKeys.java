@@ -119,6 +119,8 @@ public final class SessionKeys {
     private static boolean sessionField(String field) {
         // P384: the module's row of the camera's sensor mode table (SensorModePick, read when the session is built: its RAW
         // stream size and the mode key) - it had no restart pill, and a camera beside the settings (multi-window) kept its old mode
+        // P635: the module's full-resolution recipe - its switch and every field (read when the session is built)
+        if (field.startsWith("recipe")) return true;
         return VENDOR_FIELD.equals(field) || ModuleDuplicates.SENSOR_MODE_SUFFIX.equals(field)
                 || UnspektraAePreferences.ENGINE.equals(field) || sessionFields().contains(field);
     }

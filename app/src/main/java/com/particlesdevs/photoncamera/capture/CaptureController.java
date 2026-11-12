@@ -658,7 +658,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 observeRawLevel(img, null);
                 observeMosaic(img);
                 // P626: a nubia per-shot way's RAW outside a shot is its proof frame: measured above, not metered, not in the ring
-                if (nubiaPerShot()) { img.close(); return; }
+                if (perShot()) { img.close(); return; } // P635: a recipe's capture RAW outside a shot as well
                 plainMeter(img, null); // P212b: the native AE's start, sampled in the plain session (also while a merge runs)
                 plainTeacher(img, null); // P212f: the mosaic white balance's teacher (log only)
                 // P187: the plain session of a running 200 MP merge takes no shot (captureStillPicture refuses it), so its
@@ -1129,6 +1129,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         @Override
         public void onDisconnected(@NonNull CameraDevice cameraDevice) {
             if (mVivoSdkRawSession != null && mVivoSdkRawDevice == null) mVivoSdkRawDevice = cameraDevice;
+            // P635: a recipe session the camera service dropped before its first frame or under a shot (the documents'
+            // «disconnected» of a wrong field set): the profile is remembered as failed, the reopen below is the normal session
+            if (mRecipe != null && (mLastPreviewResultMs == 0 || mShotInProgress || mZslCapturing)) recipeFailed("camera disconnected");
             rescueInFlightShot("camera disconnected");
             stopStallWatch();
             mCameraOpenCloseLock.release();
@@ -1178,6 +1181,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 }, 300);
                 return;
             }
+            // P635: a camera error in a recipe session fails the profile (the documents' device error 4 of a wrong field set):
+            // the camera reopens with its normal session
+            if (retryWithoutRecipe(null, "camera error " + error)) return;
             if (retryWithoutVivoSdkFullRes(null, "camera error " + error)) return;
             // P598: a nubia remosaic-probe session the camera died in before its first frame: that setting failed, the next one
             // P626: or while the per-shot way's proof burst was in flight (its MAXIMUM_RESOLUTION requests)
@@ -2256,6 +2262,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 ImageReader closingView = mImageReaderRawView;
                 mImageReaderRawView = null;
                 if (closingView != null) closingView.close();
+                ImageReader closingCompanion = mRecipeCompanion; // P635
+                mRecipeCompanion = null;
+                if (closingCompanion != null) closingCompanion.close();
             }
             if (null != mMediaRecorder) {
                 mMediaRecorder.release();
@@ -2671,6 +2680,13 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 + (now - mPreviewSessionStartMs) + " ms) liveRaw=" + mLiveRawSession + " mosaicPreview=" + mMosaicPreview
                 + " block=" + com.particlesdevs.photoncamera.processing.MosaicStream.block() + " scamRouted=" + mScamRouted
                 + " frameMs=" + mPreviewFrameMs + " restartsInARow=" + mStallRestarts);
+        // P635: a recipe session without a viewfinder frame: the profile fails, the normal session opens (never a black viewfinder)
+        if (mRecipe != null && retryWithoutRecipe(mCaptureSession, "no preview frame for " + noFrame + " ms ("
+                + (mLastPreviewResultMs == 0 ? "none since the session started" : "frames stopped") + ")")) {
+            mPreviewSessionStartMs = 0;
+            handler.removeCallbacks(mStallCheck);
+            return;
+        }
         // P186: a native FULLRES session that never gave a frame runs a mode the camera cannot: FULLRES goes off (its mode is
         // noted on the X100 / X300 Ultra) instead of the same session again and again
         if (mLastPreviewResultMs == 0 && mVivoSdkRawSession != null && nativeVivoFullRes()
@@ -3338,6 +3354,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         mFullResSession = false;
         NubiaRemosaicProbe.noSession(); // P598: a maximum-resolution nubia FULLRES below starts its setting again
         Size fullRes = sdkFullRes ? VivoSdkFullRes.profile(mVivoSdkCameraId).size : null;
+        // P635: the lens's full-resolution recipe (its switch on, a profile that can run here and did not fail): the capture RAW
+        // of the profile for the stills beside the viewfinder's own streams; it stands in for every other full-size route
+        recipeSession(sdkFullRes, map, characteristics);
         if (sdkFullRes && VivoSdkFullRes.oppo()) {
             // P192: the own AE of the OPPO native mode meters the native RAW. P212b: it starts from this camera's own history
             // (NativeAeSeed: its last settled native exposure or a fresh plain RAW sample, else its plain HAL exposure), never
@@ -3373,7 +3392,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     + ", own AE from " + ae + " (" + seed.source
                     + (cap == Integer.MAX_VALUE ? "" : ", ISO cap " + cap) + ")");
         }
-        if (!sdkFullRes && isRawFormat(mTargetFormat) && !sFullResRefused.contains(physicalID) && !mIsRecordingVideo) {
+        if (mRecipePlan != null) {
+            mTargetFormat = ImageFormat.RAW_SENSOR;
+            fullRes = new Size(mRecipePlan.recipe.width, mRecipePlan.recipe.height);
+            mFullResSession = true;
+        }
+        if (mRecipePlan == null && !sdkFullRes && isRawFormat(mTargetFormat) && !sFullResRefused.contains(physicalID) && !mIsRecordingVideo) {
             PixelPro10.FullRes fr = PixelPro10.fullRes(characteristics);
             // P588: the nubia's FULLRES without root is the generic maximum-resolution session. P598: each such session runs one
             // setting against the HAL's remosaic (NubiaRemosaicProbe); none left on this firmware: the normal session, 12 Мп
@@ -3420,7 +3444,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         // P626: set for every session (it stayed true after a FULLRES session: the next normal session's DEFAULT streams got
         // MAXIMUM_RESOLUTION requests - «Request settings CONTROL_SENSOR_PIXEL_MODE are not consistent with streams configured»,
         // PREVIEW_STALL, log of 31256); a nubia per-shot way repeats in DEFAULT (NubiaMaxResPlan)
-        useMaximumResolutionKey = NubiaMaxResPlan.repeatingMaxRes(mFullResSession, nubiaPerShot());
+        useMaximumResolutionKey = NubiaMaxResPlan.repeatingMaxRes(mFullResSession, perShot()); // P635: a recipe's requests say their own
 
         Size preview = getCameraOutputSize(map.getOutputSizes(mPreviewTargetFormat));
 
@@ -3478,7 +3502,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
         if (mFullResSession) {
             // P108: a size of the max-resolution map (the stream is a MAXIMUM_RESOLUTION one), the RAW's aspect
-            Size fullPreview = PixelPro10.maxResSize(characteristics, mPreviewTargetFormat, fullRes);
+            Size fullPreview = mRecipePlan != null ? null : PixelPro10.maxResSize(characteristics, mPreviewTargetFormat, fullRes); // P635
             if (fullPreview != null) preview = fullPreview;
             maxjpg = Math.min(maxjpg, 8); // 50 MP frames: a short reader, every frame is copied on arrival (P91)
         }
@@ -3516,8 +3540,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P108: the viewfinder stream too is a size of the max-resolution map (Pixel 10 Pro XL: 1440x1080 for 4:3)
             Size st = sdkFullRes ? new Size(1440, 1080) : PixelPro10.maxResSize(characteristics, -1, fullRes);
             // P626: a nubia per-shot way's viewfinder is the default map's (binned) ISP stream in DEFAULT
-            if (st != null && !nubiaPerShot()) mBufferSize = new Size(Math.min(st.getWidth(), st.getHeight()), Math.max(st.getWidth(), st.getHeight()));
-            Log.i("SCAM_CAPTURE", "full resolution: viewfinder " + (nubiaPerShot() ? mBufferSize + " (per shot, P626)" : st) + ", YUV "
+            if (st != null && !perShot()) mBufferSize = new Size(Math.min(st.getWidth(), st.getHeight()), Math.max(st.getWidth(), st.getHeight()));
+            Log.i("SCAM_CAPTURE", "full resolution: viewfinder " + (perShot() ? mBufferSize + " (per shot, P626)" : st) + ", YUV "
                     + preview + ", readers " + maxjpg);
         }
         clearZslPreviewFrames();
@@ -3525,6 +3549,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         if(mImageReaderRaw != null)
             mImageReaderRaw.close();
         if (mImageReaderRawView != null) { mImageReaderRawView.close(); mImageReaderRawView = null; }
+        if (mRecipeCompanion != null) { mRecipeCompanion.close(); mRecipeCompanion = null; } // P635
         if (mVivoSdkJpeg != null) { mVivoSdkJpeg.close(); mVivoSdkJpeg = null; }
         if (sdkFullRes) {
             mTargetFormat = ImageFormat.RAW_SENSOR;
@@ -3559,6 +3584,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 } catch (IllegalStateException closed) { }
             }, mBackgroundHandler);
             }
+        } else if (mRecipePlan != null) {
+            recipeReaders(mRecipePlan); // P635: the capture RAW (stills), the viewfinder's binned RAW, the companion
         } else if (modePick != null) {
             // P276: the row's size, also one StreamConfigurationMap does not list (usage 0: no CPU usage bits for the HAL's
             // stream validator, the planes still read on the CPU - the native FULLRES readers, WhyCam)
@@ -3804,6 +3831,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // its DCG / DAG row keeps the setting (SensorModePick.ispStreamOff)
             mIspSurfaceOff = photoMode && !isBurstSession && !mIsRecordingVideo && !sdkFullRes && mVivoSdkRawSession == null
                     && !NubiaMaxResPlan.keepsIspStream(nubiaPerShot()) // P626: the per-shot way's viewfinder
+                    && mRecipePlan == null // P635: the profile's viewfinder, below
                     && isRawFormat(mTargetFormat) && !mLiveRawRejected
                     && (SensorModePick.ispStreamOff(ispSurface, SensorModePick.session(), forcedMode, NubiaFullRes.device())
                     || mFullResSession && NubiaFullRes.device()); // P588: the nubia's maximum-resolution FULLRES without the ISP stream
@@ -3819,12 +3847,24 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P252 A/B (scam_dev.txt "isp_preview_off_always 1"): every photo session repeats the RAW stream only (the ISP preview in
             // the session, not in the request) - on the OPPO X7U that picks the HAL's ZSL use case; does its AF focus at night?
             if (photoMode && PreferenceKeys.scamDevSwitch("isp_preview_off_always", false)) mIspPreviewOff = true;
+            if (mRecipePlan != null) { // P635: the viewfinder's streams are the profile's, whatever «Поток ISP» says
+                mIspSurfaceOff = !mRecipePlan.ispStream();
+                mIspPreviewOff = mIspSurfaceOff;
+            }
             final boolean rawDisplaySession = nativeIsz || nativeVivoFullRes() || PreferenceKeys.isLiveViewfinderRawEnabled()
                     || mFullResSession || mIspPreviewOff;
-            mLiveRawSession = NubiaMaxResPlan.liveRaw(nubiaPerShot(), // P626: the per-shot way's RAW is no repeating stream
-                    photoMode && !isBurstSession && !mIsRecordingVideo && !mLiveRawRejected && (!sdkFullRes || nativeVivoFullRes())
+            final boolean liveRawWanted = photoMode && !isBurstSession && !mIsRecordingVideo && !mLiveRawRejected && (!sdkFullRes || nativeVivoFullRes())
                     && isRawFormat(mTargetFormat) && (rawDisplaySession
-                    || com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID)));
+                    || com.particlesdevs.photoncamera.settings.UnspektraAePreferences.selected(physicalID));
+            // P626: the per-shot way's RAW is no repeating stream; P635: a recipe's RAW viewfinder is its binned RAW stream's
+            mLiveRawSession = mRecipePlan != null ? liveRawWanted && mRecipePlan.rawViewfinder() && mImageReaderRawView != null
+                    : NubiaMaxResPlan.liveRaw(nubiaPerShot(), liveRawWanted);
+            if (mRecipePlan != null && !mLiveRawSession && !mRecipePlan.ispStream()) {
+                // P635: the profile's viewfinder is the binned RAW stream alone and the RAW viewfinder cannot run (rejected by this
+                // camera before): no stream would be left to repeat - the normal session instead of a black viewfinder
+                retryWithoutRecipe(null, "the RAW viewfinder cannot run in this session, and the profile has no ISP viewfinder");
+                return;
+            }
             LiveRawFrame.setMaxLongSide(rawViewfinder); // P266
             LiveRawFrame.setEnabled(false); // invalidate the previous session even when RAW remains enabled
             mPortraitVendorWindow = IszCapturePolicy.mosaicModule(com.particlesdevs.photoncamera.settings.ModuleRegistry.active())
@@ -3890,7 +3930,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // P214i: not on an X300 Ultra module that forces a sensor mode (the mode is the sensor crop; the HAL's own ISZ by
                 // the zoom ratio may remosaic or override it): its RAW stream is of the default use case
                 if (surfacei == rawSurface && mTargetFormat == ImageFormat.RAW_SENSOR && Build.VERSION.SDK_INT >= 34
-                        && !xiaomiLogical && !XiaomiTeleZoom.active() && !vivoQcomIsz
+                        && !xiaomiLogical && !XiaomiTeleZoom.active() && !vivoQcomIsz && mRecipePlan == null
                         && !sdkFullRes && VivoQcomIsz.croppedRawAllowed(physicalID)
                         && !sCroppedRawRefused.contains(physicalID) && CroppedRaw.supported(mCameraCharacteristics)) {
                     try {
@@ -3902,7 +3942,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 }
                 // P108: every stream of the full-resolution session (sizes of the max-resolution map) in MAXIMUM_RESOLUTION mode
                 // P626: a nubia per-shot way - the RAW alone, the viewfinder DEFAULT (NubiaMaxResPlan)
-                if (mFullResSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                // P635: a recipe's outputs - the vendor stream use case of the capture RAW alone, pixel modes only when annotated
+                if (mRecipePlan != null) recipeOutput(config, surfacei);
+                else if (mFullResSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     for (int pixelMode : NubiaMaxResPlan.pixelModes(true, nubiaPerShot(), surfacei == rawSurface ? NubiaMaxResPlan.Stream.RAW
                             : surfacei == surface ? NubiaMaxResPlan.Stream.VIEWFINDER : NubiaMaxResPlan.Stream.OTHER))
                         config.addSensorPixelModeUsed(pixelMode);
@@ -3913,6 +3955,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         mBufferSize == null ? null : new Size(mBufferSize.getHeight(), mBufferSize.getWidth()),
                         mImageReaderRaw == null ? null : new Size(mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight()),
                         NubiaRemosaicProbe.operationMode(physicalID)));
+            if (mRecipePlan != null) Log.i("SCAM_CAPTURE", mRecipePlan.describe(String.valueOf(physicalID))); // P635: the whole field set
             mCroppedRawSession = croppedRaw;
             mLastRawCrop = null;
             mLastRawCropZoom = -1f;
@@ -4026,6 +4069,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                                 mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, moduleFps);
                                 Log.i("SCAM_CAPTURE", "camera " + physicalID + ": the module's RAW frame rate " + moduleFps + " (P266)");
                             }
+                            // P635: a recipe's frame rate on the repeating request as on its session and stills (a range that differs
+                            // between them makes the camera service reconfigure where the range is a session key, P84c)
+                            if (mRecipePlan != null && mRecipePlan.recipe.fpsLow > 0)
+                                mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                                        new Range<>(mRecipePlan.recipe.fpsLow, mRecipePlan.recipe.fpsHigh));
                             // P230: the DCG mode on every request and its 60 fps (the shot's frames take the viewfinder's range)
                             if (mDcgRequestKeys) Log.i("SCAM_CAPTURE", "DCG viewfinder requests camera " + physicalID + ": "
                                     + Dcg14Mode.applyRequest(mPreviewRequestBuilder, mCameraCharacteristics));
@@ -4069,6 +4117,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         // (onError 4, vivo X300 2026-10-19) has its camera reopened quietly (mRetryDevice)
                         mRetryDevice = sessionDevice;
                         mFallbackUndo = null;
+                        if (retryWithoutRecipe(cameraCaptureSession, "session configuration failed")) return; // P635
                         if (retryWithoutDcgRoute(cameraCaptureSession, "session configuration failed")) return; // P230
                         if (retryWithoutVendorMode(cameraCaptureSession)) return; // P211
                         if (retryWithoutVivoSdkFullRes(cameraCaptureSession, "session configuration failed")) return;
@@ -4115,7 +4164,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 if (fullResOpMode != 0) Log.i("SCAM_CAPTURE", "OPPO native FULLRES camera " + mVivoSdkCameraId + ": session operation mode 0x"
                         + Integer.toHexString(fullResOpMode) + " (the row's seamless entry, P604)");
                 SessionConfiguration configuration = new SessionConfiguration(
-                        xiaomiLogical ? XiaomiTeleZoom.operationMode(xiaomiOperationModeSetting()) : dcgOperationMode != 0 ? dcgOperationMode
+                        xiaomiLogical ? XiaomiTeleZoom.operationMode(xiaomiOperationModeSetting())
+                                : mRecipePlan != null ? mRecipePlan.recipe.operationMode // P635: the profile's (0: regular)
+                                : dcgOperationMode != 0 ? dcgOperationMode
                                 : probeMode != 0 ? probeMode : fullResOpMode != 0 ? fullResOpMode : vendorMode,
                         outputConfigurations,
                         processExecutor,
@@ -4156,10 +4207,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     configuration.setSessionParameters(sdkSession.build());
                 } else if (scamPreview || mForcedStabEis || xiaomiLogical || vivoEis || moduleKeys || hiddenKeys || dcg14 || vivoQcomIsz || vivoQcomStreams
                         || rawFps > 0 || SensorModePick.session() != null || NubiaRemosaicProbe.wantsSession(physicalID)
+                        || mRecipePlan != null
                         || vsMode != CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF) {
                     try {
-                        CaptureRequest.Builder scamSession = sessionDevice.createCaptureRequest(
-                                CameraDevice.TEMPLATE_PREVIEW);
+                        // P635: a recipe's session parameters from the profile's template
+                        CaptureRequest.Builder scamSession = sessionDevice.createCaptureRequest(mRecipePlan != null
+                                && mRecipePlan.recipe.sessionTemplate > 0 ? mRecipePlan.recipe.sessionTemplate : CameraDevice.TEMPLATE_PREVIEW);
                         VendorTagUtils.builderSessionApply(scamSession, false, useMaximumResolutionKey, physicalID);
                         if (vivoQcomStreams) {
                             int[] roles = new int[surfaces.size()];
@@ -4194,6 +4247,12 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         if (NubiaRemosaicProbe.wantsSession(physicalID)) Log.i("SCAM_CAPTURE", "nubia FULLRES camera " + physicalID
                                 + " maximum-resolution session parameters: " + NubiaRemosaicProbe.describe());
                         if (rawFps > 0) scamSession.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(rawFps, rawFps)); // P266
+                        if (mRecipePlan != null) { // P635: the profile's frame rate and session tags (the request tags came above)
+                            if (mRecipePlan.recipe.fpsLow > 0) scamSession.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                                    new Range<>(mRecipePlan.recipe.fpsLow, mRecipePlan.recipe.fpsHigh));
+                            Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " session parameters: "
+                                    + FullResRecipeTags.apply(scamSession, mRecipePlan.sessionTags()));
+                        }
                         if (VivoQcomIsz.device()) Log.i("SCAM_CAPTURE", "X300 Ultra camera " + physicalID + " sensor mode: "
                                 + VivoQcomIsz.sessionBuilt(scamSession));
                         configuration.setSessionParameters(scamSession.build());
@@ -4208,6 +4267,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             }
         } catch (Exception e) {
             Log.e(TAG, Log.getStackTraceString(e));
+            if (retryWithoutRecipe(null, "session: " + e.getMessage())) return; // P635
             if (retryWithoutDcgRoute(null, "session: " + e.getMessage())) return; // P230
             if (retryWithoutVendorMode(null)) return; // P211
             if (retryWithoutVivoSdkFullRes(null, "session: " + e.getMessage())) return;
@@ -4326,6 +4386,172 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         showError(Lang.t("Режим сенсора отклонён; обычный модуль", "Sensor mode refused; using a plain module"));
         new Handler(Looper.getMainLooper()).post(this::restartCamera);
         return true;
+    }
+
+    // ---------------------------------------------------------------- P635: the full-resolution recipe
+
+    /**
+     * P635: decides this session's recipe (FullResRecipeStore.active: the lens's switch, a profile that can run and did not fail)
+     * and its plan - the viewfinder's streams as the profile has them, the capture RAW, the companion. Photo modes only.
+     */
+    private void recipeSession(boolean sdkFullRes, StreamConfigurationMap map, CameraCharacteristics characteristics) {
+        mRecipe = null;
+        mRecipePlan = null;
+        FullResRecipeSession.session(null);
+        final CameraMode mode = ScameraApp.getSettings().selectedMode;
+        if (sdkFullRes || mIsRecordingVideo || !isRawFormat(mTargetFormat)
+                || (mode != CameraMode.PHOTO && mode != CameraMode.NIGHT && mode != CameraMode.MOTION)) return;
+        final FullResRecipeStore.Active active = FullResRecipeStore.active(physicalID, characteristics);
+        if (active == null) return;
+        Size viewfinder = null;
+        try {
+            viewfinder = getPreviewOutputSize(getSafeDisplay(), characteristics, mode);
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "FULLRES RECIPE: no viewfinder size (" + e + ")");
+        }
+        // the viewfinder's RAW: the camera's own largest listed RAW stream, 16-bit where it lists one
+        Size[] own = rawSizesLargestFirst(map, ImageFormat.RAW_SENSOR);
+        int ownFormat = ImageFormat.RAW_SENSOR;
+        if (own.length == 0) {
+            own = rawSizesLargestFirst(map, mTargetFormat);
+            ownFormat = mTargetFormat;
+        }
+        final List<int[]> yuv = new ArrayList<>();
+        try {
+            StreamConfigurationMap sizes = map;
+            if (active.recipe.pixelMode == FullResRecipe.PixelMode.ANNOTATE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                final StreamConfigurationMap max = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION);
+                if (max != null) sizes = max;
+            }
+            final Size[] listed = sizes.getOutputSizes(ImageFormat.YUV_420_888);
+            if (listed != null) for (Size s : listed) yuv.add(new int[]{s.getWidth(), s.getHeight()});
+        } catch (RuntimeException ignored) {
+        }
+        final FullResRecipePlan plan = FullResRecipePlan.of(active.recipe, new FullResRecipePlan.Env(
+                viewfinder == null ? 0 : Math.max(viewfinder.getWidth(), viewfinder.getHeight()),
+                viewfinder == null ? 0 : Math.min(viewfinder.getWidth(), viewfinder.getHeight()),
+                own.length == 0 ? 0 : own[0].getWidth(), own.length == 0 ? 0 : own[0].getHeight(), ownFormat, yuv));
+        if (plan == null || !plan.consistent(true) || !plan.consistent(false)) {
+            Log.w("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " " + active.recipe + ": no session for it here ("
+                    + (plan == null ? "no viewfinder stream" : "a request's pixel mode does not fit its streams") + "), the normal session (P635)");
+            return;
+        }
+        mRecipe = active;
+        mRecipePlan = plan;
+        FullResRecipeSession.session(plan);
+        Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " on: " + active.recipe + " (module " + active.slot + ", P635)");
+    }
+
+    /** P635: the readers of a recipe session: the capture RAW (the stills'), the viewfinder's binned RAW, the companion. */
+    private void recipeReaders(FullResRecipePlan plan) {
+        final FullResRecipePlan.Output capture = plan.output(FullResRecipePlan.Stream.RAW_CAPTURE);
+        final int images = Math.max(4, Math.min(10, plan.recipe.frames + 2));
+        target = new Size(capture.width, capture.height);
+        mImageReaderRaw = capture.usage != 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                ? ImageReader.newInstance(capture.width, capture.height, capture.format, images, capture.usage)
+                : ImageReader.newInstance(capture.width, capture.height, capture.format, images);
+        final FullResRecipePlan.Output view = plan.output(FullResRecipePlan.Stream.RAW_PREVIEW);
+        if (view != null) {
+            final ImageReader reader = ImageReader.newInstance(view.width, view.height, view.format, 6);
+            reader.setOnImageAvailableListener(r -> {
+                Image image;
+                try { image = r.acquireNextImage(); } catch (IllegalStateException closed) { return; }
+                if (image == null) return;
+                if (!isCameraResumed || r != mImageReaderRawView) { image.close(); return; }
+                // as the main RAW listener: routed by its timestamp while a shot is in flight, else the viewfinder's frame
+                if (mNativeRawPslCapture || mScamRouted) mLiveRawRouter.image(image.getTimestamp(), image);
+                else if (mZslCapturing || !mLiveRawSession) image.close();
+                else mLiveMetadata.image(image.getTimestamp(), image);
+            }, mBackgroundHandler);
+            mImageReaderRawView = reader;
+        }
+        final FullResRecipePlan.Output companion = plan.output(FullResRecipePlan.Stream.COMPANION);
+        if (companion != null) {
+            final ImageReader reader = ImageReader.newInstance(companion.width, companion.height, companion.format, 2);
+            reader.setOnImageAvailableListener(r -> { // its frames are not used: the stream only has to be in the request
+                try {
+                    final Image image = r.acquireLatestImage();
+                    if (image != null) image.close();
+                } catch (IllegalStateException closed) { }
+            }, mBackgroundHandler);
+            mRecipeCompanion = reader;
+        }
+    }
+
+    /** P635: the surfaces of a recipe session, in the plan's order. */
+    private List<Surface> recipeSurfaces() {
+        final List<Surface> out = new ArrayList<>();
+        if (mRecipePlan.ispStream() && surface != null) out.add(surface);
+        if (mImageReaderRawView != null) out.add(mImageReaderRawView.getSurface());
+        out.add(mImageReaderRaw.getSurface());
+        if (mRecipeCompanion != null) out.add(mRecipeCompanion.getSurface());
+        return out;
+    }
+
+    /** P635: one output of a recipe session: the capture RAW's vendor stream use case, the pixel modes of an annotated profile. */
+    private void recipeOutput(OutputConfiguration config, Surface output) {
+        final FullResRecipePlan plan = mRecipePlan;
+        if (plan == null) return;
+        final FullResRecipePlan.Stream stream = output == surface ? FullResRecipePlan.Stream.VIEWFINDER
+                : mImageReaderRawView != null && output == mImageReaderRawView.getSurface() ? FullResRecipePlan.Stream.RAW_PREVIEW
+                : mRecipeCompanion != null && output == mRecipeCompanion.getSurface() ? FullResRecipePlan.Stream.COMPANION
+                : FullResRecipePlan.Stream.RAW_CAPTURE;
+        final FullResRecipePlan.Output o = plan.output(stream);
+        if (o == null) return;
+        if (o.useCase != 0 && Build.VERSION.SDK_INT >= 33) {
+            try {
+                config.setStreamUseCase(o.useCase);
+            } catch (RuntimeException e) {
+                Log.w("SCAM_CAPTURE", "FULLRES RECIPE: stream use case 0x" + Long.toHexString(o.useCase) + " not set: " + e);
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) for (int pixelMode : o.pixelModes) config.addSensorPixelModeUsed(pixelMode);
+    }
+
+    /** P635: the running profile failed for {@code why}: remembered for this lens (until a field changes), said in the log with its field set. */
+    private void recipeFailed(String why) {
+        final FullResRecipeStore.Active active = mRecipe;
+        final FullResRecipePlan plan = mRecipePlan;
+        if (active == null) return;
+        FullResRecipeStore.failActive(active, why);
+        Log.w("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " failed (" + why + "): the normal session opens; the lens keeps this"
+                + " until a field of the profile changes. " + (plan == null ? String.valueOf(active.recipe) : plan.describe(String.valueOf(physicalID))));
+        mRecipe = null;
+        mRecipePlan = null;
+        mRecipeShot = null;
+        FullResRecipeSession.session(null);
+        mFullResSession = false;
+    }
+
+    /**
+     * P635: a recipe session failed (a refused configuration, a camera error, no viewfinder frame, a shot without a still): the
+     * profile is remembered as failed and the camera restarts with its normal session - the viewfinder comes back. False outside a
+     * recipe session.
+     */
+    private boolean retryWithoutRecipe(@Nullable CameraCaptureSession session, String why) {
+        if (mRecipe == null) return false;
+        recipeFailed(why);
+        if (session != null) try { session.close(); } catch (Exception ignored) { }
+        showError(Lang.t("Полное разрешение (рецепт): камера отказала, обычный режим. Причина — в настройках объектива.",
+                "Full resolution (recipe): refused by the camera, normal mode. The reason is in the lens settings."));
+        new Handler(Looper.getMainLooper()).post(this::restartCamera);
+        return true;
+    }
+
+    /**
+     * P635: the verdict of a recipe shot's first frame once the shot is complete - a doubled frame (FullResTruth: the binned
+     * frame written twice over) was merged as the binned one: said on the screen, and the profile is remembered as failed (the
+     * next session of the lens is the normal one).
+     */
+    private void recipeVerdict(FullResRecipeShot shot) {
+        final FullResTruth.Result verdict = shot.verdict();
+        if (verdict == null || verdict.verdict != FullResTruth.Verdict.UPSCALED) return;
+        com.particlesdevs.photoncamera.util.UiMessages.info(Lang.t("Рецепт полного разрешения дал увеличенный кадр, а не настоящий полный: снимок сохранён обычным.",
+                "The full-resolution recipe gave an upscaled frame, not the real full one: the photo is saved as a normal one."));
+        if (mRecipe != null) {
+            recipeFailed("the stills are the binned frame written twice over (" + verdict.line() + ")");
+            new Handler(Looper.getMainLooper()).post(this::restartCamera);
+        }
     }
 
     private boolean retryWithoutFullRes(@Nullable CameraCaptureSession session, String why) {
@@ -4447,6 +4673,16 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private static final java.util.Set<String> sCroppedRawRefused = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** P108: Pixel 10 Pro / Pro XL full-resolution session (RAW at the max-resolution size, MAXIMUM_RESOLUTION pixel mode). */
     private volatile boolean mFullResSession;
+    /** P635: the full-resolution recipe this session runs (null: none), its plan, its companion reader and its shot in flight. */
+    private volatile FullResRecipeStore.Active mRecipe;
+    private volatile FullResRecipePlan mRecipePlan;
+    private volatile ImageReader mRecipeCompanion;
+    private volatile FullResRecipeShot mRecipeShot;
+
+    /** P626 / P635: the session's capture RAW is targeted by the stills only (a nubia per-shot way, a full-resolution recipe). */
+    private boolean perShot() {
+        return nubiaPerShot() || mRecipePlan != null;
+    }
     /** P108: cameras whose full-resolution session was refused (this run): they run binned. */
     private static final java.util.Set<String> sFullResRefused = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile boolean mCroppedRawSession;
@@ -4468,6 +4704,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
     @NotNull
     private List<Surface> configureSurfaces(boolean isBurstSession) {
+        if (mRecipePlan != null) return recipeSurfaces(); // P635
         if (stillOnlyFullRes() && mImageReaderRawView != null)
             return Arrays.asList(mImageReaderRawView.getSurface(), mImageReaderRaw.getSurface());
         // P609: an OPPO-family FULLRES row tried with the viewfinder's ISP stream in its session (fake off / on), as the stock camera
@@ -4503,7 +4740,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
         // P223: without the ISP preview (FULLRES / ISZ, the RAW viewfinder on) the repeating request carries the RAW stream only
         final boolean ispOff = mIspPreviewOff && mLiveRawSession && mVivoSdkRawSession == null && !mIsRecordingVideo;
-        mRepeatingIsp = !nativeVivoFullRes() && !VivoPd2454NativeRaw.active(physicalID) && !ispOff;
+        mRepeatingIsp = !nativeVivoFullRes() && !VivoPd2454NativeRaw.active(physicalID) && !ispOff
+                && (mRecipePlan == null || mRecipePlan.ispStream()); // P635: a recipe's session may have no ISP stream at all
         if (mRepeatingIsp) mPreviewRequestBuilder.addTarget(surface);
         if (ispOff) Log.i("SCAM_CAPTURE", "camera " + physicalID + ": ISP preview off (P223), the repeating request has the RAW stream only");
         if (mVivoSdkRawSession != null) {
@@ -4536,7 +4774,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 while ((stale = mImageReaderRaw.acquireNextImage()) != null) stale.close();
             } catch (Exception ignored) {}
         }
-        if ((isZslMode() || mLiveRawSession) && NubiaMaxResPlan.rawInRepeating(nubiaPerShot())) { // P626: per shot the stills only
+        // P635: a recipe's viewfinder RAW is the camera's own binned stream (the capture RAW is the stills' alone)
+        if (mRecipePlan != null && mLiveRawSession && mImageReaderRawView != null)
+            mPreviewRequestBuilder.addTarget(mImageReaderRawView.getSurface());
+        if ((isZslMode() || mLiveRawSession) && NubiaMaxResPlan.rawInRepeating(perShot())) { // P626: per shot the stills only
             // Still-photo modes keep the RAW ring; outside them the RAW stream
             // was never part of the repeating request and the raw viewfinder
             // had nothing to develop. It needs the stream in every mode.
@@ -4640,7 +4881,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (scamShutterQueues() && !mScamFireWaiting && !motionWaited
                     && (com.particlesdevs.photoncamera.settings.MotionMode.on() || !SensorModePick.seriesAllowed())
                     && !mZslCapturing && !mShotInProgress && !burst && motionRingFrames() == 0
-                    && !nubiaPerShot()) { // P626: a nubia per-shot way has no ring: its N come after the shutter
+                    && !perShot()) { // P626: a nubia per-shot way has no ring: its N come after the shutter; P635: a recipe neither
                 Log.i("SCAM_CAPTURE", "motion: shutter waits for a ring frame");
                 mScamFireWaiting = true;
                 fireQueuedScamShot(android.os.SystemClock.elapsedRealtime() + MOTION_RING_WAIT_MS);
@@ -5752,6 +5993,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 column[col * 3 + row] = transform.getElement(col, row).floatValue();
             int block = stillOnlyFullRes() ? Math.max(1, com.particlesdevs.photoncamera.processing.MosaicStream.block())
                     : nativeVivoFullRes() ? VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
+                    : mRecipePlan != null ? 1 // P635: the viewfinder's frames are the camera's own binned stream
                     : mFullResSession ? NubiaRemosaicProbe.fullResBlock(physicalID) // P605: 1 on the nubia remosaic route
                     : Math.max(PreferenceKeys.mosaicBlock(), com.particlesdevs.photoncamera.processing.MosaicStream.block());
             float[] photo = viewfinderMatrix(c, result, gains, column, block > 1);
@@ -5780,7 +6022,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             watchRawPayload(img);
             observeRawLevel(img, result);
             xiaomiRowFrame(img, result); // P631
-            observeMosaic(img);
+            if (mRecipePlan == null) observeMosaic(img); // P635: the viewfinder's binned stream says nothing of the capture RAW's block
             plainMeter(img, result); // P212b: a plain session's sample for the native AE's start
             plainTeacher(img, result); // P212f: the mosaic white balance's teacher (log only)
             // P212a: the native AE's ISO probe is no viewfinder frame, no AE frame and no ring frame (the plan never sees it)
@@ -5789,7 +6031,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // ring and the stream see every frame)
             final boolean shown = !probe && com.particlesdevs.photoncamera.util.ThermalPolicy.viewfinderFrameDue(img.getTimestamp());
             // the ZSL ring's mode barrier (P41, below), decided before the viewfinder takes the frame (P365)
-            final boolean zslPass = isZslMode() && passModeBarrier(img, result);
+            // P635: a recipe's viewfinder frames (the binned stream) never enter the ring - the shot is the capture RAW's alone
+            final boolean zslPass = isZslMode() && mRecipePlan == null && passModeBarrier(img, result);
             // P365 step 4 (owner, 2026-10-27: «В Why камере тоже есть живой видоискатель, сделай его такимже по требованиям как там»;
             // scam_dev vf_ring_ref): a shown frame the ring copies anyway as plain 16-bit reaches the viewfinder from its slot after
             // the ring copy (ringFrameView) instead of a copy of its own out of the camera's buffer; its parameters are read now,
@@ -6023,7 +6266,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // the block of one was used for the other for ~100 ms after each switch)
                 + (SensorModePick.session() != null ? "|pick-" + SensorModePick.session().mode : "")
                 // P598: each nubia remosaic-probe setting is a stream of its own
-                + (mFullResSession ? NubiaRemosaicProbe.streamKey() : "");
+                + (mFullResSession ? NubiaRemosaicProbe.streamKey() : "")
+                + (mRecipePlan != null ? "|recipe" : ""); // P635: the capture RAW of a recipe is a stream of its own
     }
 
     /** P214i: the frame check of this session's X300 Ultra ISZ module (VivoQcomIsz.check), null for any other session. */
@@ -6066,6 +6310,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private void observeMosaic(Image img) {
         try {
             if (!mMosaicMeasure || !isRawFormat(img.getFormat()) || !isCameraResumed || mPayloadBad) return;
+            if (mRecipePlan != null) return; // P635: a recipe shot's block is measured on its own stills (the truth check, the merge)
             // P35: the measurement is the background check of the stored block: never while a shot takes its frames.
             if (!shotInFlight() && !mShotInProgress && com.particlesdevs.photoncamera.processing.MosaicStream.wantsFrame()) {
                 Image.Plane plane = img.getPlanes()[0];
@@ -7178,13 +7423,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P208: the still-only route's viewfinder is the normal mode's stream
             final int block = stillOnlyFullRes() ? Math.max(1, com.particlesdevs.photoncamera.processing.MosaicStream.block())
                     : nativeVivoFullRes() ? VivoSdkFullRes.profile(mVivoSdkCameraId).nativeBlock
+                    : mRecipePlan != null ? 1 // P635: the viewfinder's frames are the camera's own binned stream
                     : mFullResSession ? NubiaRemosaicProbe.fullResBlock(physicalID) // P605: 1 on the nubia remosaic route
                     : com.particlesdevs.photoncamera.processing.MosaicStream.block() > 1
                     ? com.particlesdevs.photoncamera.processing.MosaicStream.block() : PreferenceKeys.mosaicBlock();
             // P370 (A2): the photo's matrix rules by stream - a colour-block mosaic (an ISZ lease, a picked sensor mode, FULLRES, a
             // native session) or plain Bayer (PhotoMatrix)
             final boolean mosaicStream = block > 1 || mIszLease != null || SensorModePick.session() != null || nativeVivoFullRes()
-                    || mFullResSession && NubiaRemosaicProbe.fullResBlock(physicalID) > 1 || VivoPd2454NativeRaw.active(physicalID);
+                    || mRecipePlan == null && mFullResSession && NubiaRemosaicProbe.fullResBlock(physicalID) > 1 || VivoPd2454NativeRaw.active(physicalID);
             // P370 (B6): a mosaic stream whose ISP runs no 3A shows the photo's own neutral, not the HAL's frozen gains
             if (com.particlesdevs.photoncamera.processing.color.ViewfinderMosaicWb.on()) {
                 final float[] own = viewfinderMosaicNeutral(img, c, colorResult, cfa, white, black, block, mosaicStream);
@@ -8975,6 +9221,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (!PreferenceKeys.isScamEnabled() || !isZslMode())
                 throw new IllegalStateException(Lang.t("Нет маршрута склейки: Hybrid и SCAM HDR снимают из ZSL RAW-потока (режимы Фото и Ночь)", "No merge route: Hybrid and SCAM HDR shoot from the ZSL RAW stream (Photo and Night modes)"));
             final boolean scamCapture = PreferenceKeys.isScamEnabled();
+            // P635: the session's full-resolution recipe (null: none): the stills are its template, targets and tags
+            final FullResRecipePlan recipePlan = mRecipePlan;
             // The SCAM Hybrid takes the SCAM capture route with its own settings (independent of SCAM HDR; wins over it).
             final boolean scamHybridSelected = scamCapture && PreferenceKeys.isScamHybridEnabled();
             final boolean hybridZslRequested = isZslMode() && needsExposureBracket();
@@ -9021,11 +9269,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
                 captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, getSelectedFpsRange());
             } else {
-                captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                // P635: a recipe's stills from the profile's template, left as the template has them (the owner's documents: a
+                // request with the companion built from the preview template failed every frame)
+                captureBuilder = mCameraDevice.createCaptureRequest(recipePlan != null && recipePlan.recipe.stillTemplate > 0
+                        ? recipePlan.recipe.stillTemplate : CameraDevice.TEMPLATE_STILL_CAPTURE);
                 // P497: the series takes the repeating preview's settings (vendor keys included), its own exposure set below - a
                 // series unlike the preview made the HAL switch pipelines each way (vivo X200 Ultra: 0.3 s without a frame before
                 // and after it). scam_dev series_as_preview 0: the still template alone, as before
-                if (hybridZslRequested && mPreviewRequestBuilder != null && PreferenceKeys.scamDevSwitch("series_as_preview", true)) {
+                if (recipePlan == null && hybridZslRequested && mPreviewRequestBuilder != null && PreferenceKeys.scamDevSwitch("series_as_preview", true)) {
                     try {
                         final long copyNs = android.os.SystemClock.elapsedRealtimeNanos(); // P625: the copy's share of submit=
                         final int copied = ScamPreview.copySettings(mPreviewRequestBuilder.build(), captureBuilder);
@@ -9046,11 +9297,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // SCAM keeps the preview running: its L/S/ES must not reach the
             // viewfinder (they flashed dark/bright there), as in the stock camera.
             captureBuilder.addTarget(mImageReaderRaw.getSurface());
+            // P635: the recipe's companion stream in the same request (without it the full-size frame is the binned one doubled)
+            final ImageReader recipeCompanion = mRecipeCompanion;
+            if (recipePlan != null && recipeCompanion != null) captureBuilder.addTarget(recipeCompanion.getSurface());
             // P90 (owner: the viewfinder froze 0.7-0.8 s at every shot): as WhyCam and other stock cameras do, the series also feeds the viewfinder;
             // the renderer scales each series frame back to the viewfinder's exposure (ViewfinderGain), so nothing flashes.
             // scam_dev "series_viewfinder 0": RAW only, as before.
             if (surface != null && mRepeatingIsp && !VivoPd2454NativeRaw.active(physicalID) && !mIspSurfaceOff
-                    && NubiaMaxResPlan.viewfinderInStill(nubiaPerShot()) // P626: a MAXIMUM_RESOLUTION still takes the RAW alone
+                    // P626: a MAXIMUM_RESOLUTION still takes the RAW alone; P635: a recipe's still the viewfinder only as its companion
+                    && (recipePlan != null ? recipePlan.viewfinderCompanion() : NubiaMaxResPlan.viewfinderInStill(nubiaPerShot()))
                     && PreferenceKeys.scamDevSwitch("series_viewfinder", true)) {
                 captureBuilder.addTarget(surface);
                 com.particlesdevs.photoncamera.ui.camera.views.viewfinder.ViewfinderGain.setReference(
@@ -9096,7 +9351,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             VendorTagUtils.builderSessionApply(captureBuilder, true, useMaximumResolutionKey, physicalID);
             if (mDcgRequestKeys) Dcg14Mode.applyRequest(captureBuilder, mCameraCharacteristics); // P230: the DCG mode
             // P108: the full-resolution RAW stream takes MAXIMUM_RESOLUTION requests only
-            if (mFullResSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            if (recipePlan != null) { // P635: only an annotated profile says a pixel mode
+                final Integer pixelMode = recipePlan.pixelMode(true);
+                if (pixelMode != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) captureBuilder.set(CaptureRequest.SENSOR_PIXEL_MODE, pixelMode);
+            } else if (mFullResSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                 captureBuilder.set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION);
             XiaomiTeleZoom.applyLast(captureBuilder, physicalID);
             try {
@@ -9306,6 +9564,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // is the stream's (0 here: «Наш ремозаик» off keeps every frame for the binned merge)
                 if(mFullResSession && !com.particlesdevs.photoncamera.settings.MotionMode.on())
                     plan=plan.withLongFrames(HybridPlan.fullResLongFrames(true,0,PreferenceKeys.isHybridMosaicRemosaic()));
+                if(recipePlan!=null) plan=plan.limitedTo(recipePlan.recipe.frames); // P635: the profile's frames a shot
                 if(flash==null) plan=plan.withNote(ettrNote()); // P377: the shot's ETTR (the stamp's line, the log); P590: none on a flash frame
                 hybridPlanHolder[0]=plan;
                 Log.i("SCAM_CAPTURE",plan.description);
@@ -9322,6 +9581,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                         CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
                         CaptureRequest.CONTROL_CAPTURE_INTENT,CaptureRequest.NOISE_REDUCTION_MODE,CaptureRequest.EDGE_MODE,
                         CaptureRequest.HOT_PIXEL_MODE)) {
+                    // P635: a recipe's still keeps its template's capture intent
+                    if(recipePlan!=null&&key==CaptureRequest.CONTROL_CAPTURE_INTENT) continue;
                     Integer v=mPreviewRequestBuilder.get(key);
                     // P365 step 9: the viewfinder's own noise reduction / edge off (vf_isp_light) stays off the series
                     final Integer[] ispLight=mIspLightModes;
@@ -9336,6 +9597,8 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 // viewfinder's range (manual AE-off frames are timed by their exposure, not by this range).
                 android.util.Range<Integer> fps=mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
                 if(fps!=null) captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,fps);
+                if(recipePlan!=null&&recipePlan.recipe.fpsLow>0) captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                        new android.util.Range<>(recipePlan.recipe.fpsLow,recipePlan.recipe.fpsHigh)); // P635
                 captureBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
                 long[] times=new long[plan.requests.size()];
                 for(int i=0;i<plan.requests.size();i++) {
@@ -9393,6 +9656,14 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             Log.d(TAG, "FrameCount:" + frameCount);
             mImageSaver = new ImageSaver(cameraEventsListener);
             mImageSaver.iszAspect4x3 = mShutterIszAspect4x3;
+            // P635: the recipe shot's truth check on its first frame (a doubled frame is taken back to the binned one)
+            final FullResRecipeShot recipeShot = recipePlan == null ? null : new FullResRecipeShot(String.valueOf(physicalID),
+                    recipePlan.recipe.id.isEmpty() ? "own profile" : recipePlan.recipe.id);
+            mRecipeShot = recipeShot;
+            mImageSaver.recipeShot = recipeShot;
+            if (recipePlan != null) Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " shot: " + captures.size() + " stills template "
+                    + FullResRecipe.templateName(recipePlan.recipe.stillTemplate) + " -> " + recipePlan.targets(true) + ", still tags: "
+                    + recipePlan.requestTags(true) + (recipePlan.pixelMode(true) == null ? ", no sensor pixel mode" : ", MAXIMUM_RESOLUTION") + " (P635)");
             mImageSaver.manualWbAtPress = mShutterManualWb;
             // P554 (owner, 2026-11-08, OPPO Find X8 Ultra: «ISZ все зелёные»): the press's Quad / Tetra white balance route (P408's
             // viewfinder neutral, P315's sensor mode) reached only the FULLRES saver; every ring / Camera2 mosaic shot lost it and
@@ -9465,7 +9736,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             // P590: the flash frame came back without the flash (FLASH_STATE not FIRED): it is left out, the normal shot follows
             final boolean[] flashMissed={false};
             // P35: the stream key of this shot (its stored colour block skips the detector in the processing).
-            final String shotMosaicKey=com.particlesdevs.photoncamera.processing.MosaicStream.key();
+            // P635: a recipe shot's block is measured on its own frames every time (no stored block: a real frame and a doubled one
+            // taken back to the binned frame are different mosaics under one stream key)
+            final String shotMosaicKey=recipePlan!=null?"off":com.particlesdevs.photoncamera.processing.MosaicStream.key();
             // P214i: by the X300 Ultra's list; 0 once the module's frames proved a plain Bayer (the stored 1 merges then)
             // P276: a picked full-size row of the SensorModeTable declares the sensor's own mosaic
             final int iszBlock=VivoQcomIsz.declaredBlockOf(com.particlesdevs.photoncamera.settings.ModuleRegistry.active());
@@ -9657,7 +9930,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     mInFlightRescue = null;
                     // P605: the nubia remosaic 50 MP route proves itself on a shot the camera completes; a camera error in its shot
                     // turns it off on this firmware (one notice)
-                    if (mFullResSession && NubiaFullRes.device()) {
+                    if (mFullResSession && mRecipePlan == null && NubiaFullRes.device()) {
                         final String shotWhy = NubiaRemosaicProbe.shot(physicalID, sequenceId >= 0, sequenceId >= 0 ? null : mInFlightRescueReason);
                         if (shotWhy != null) {
                             PixelPro10.setFullRes(false);
@@ -9756,6 +10029,10 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                                     for (ImageFrame frame : shotSaver.snapshotFrames())
                                         if (frame.getCaptureRole() == ImageFrame.CaptureRole.NORMAL) frame.syntheticLongRatio = normalBackLongRatio[0];
                             }
+                            // P635: a recipe shot without a frame (every still failed) fails the profile: the normal session returns
+                            if(shotSaver.bufferSize() == 0 && recipeShot != null
+                                    && retryWithoutRecipe(session, "no still of the shot arrived (requests lost: " + halLost + ")")) return;
+                            if(recipeShot != null) recipeVerdict(recipeShot);
                             if(shotSaver.bufferSize() == 0){
                                 cameraEventsListener.onProcessingError(Lang.t("Камера не передала RAW-кадры. Повторите снимок.", "The camera delivered no RAW frames. Take the shot again."));
                                 return;

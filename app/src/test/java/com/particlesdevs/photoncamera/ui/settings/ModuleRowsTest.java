@@ -573,6 +573,108 @@ public class ModuleRowsTest {
         }
     }
 
+    /**
+     * P635 (owner, 2026-11-12: «Реализуй как переключатель в настройках линзы»): the lens page's «Полное разрешение (рецепт)» -
+     * off it is one row naming the phone's preset; on, the profile's fields with the preset's values, each editable and checked,
+     * and «Сбросить к пресету»; every row has its long-press help and restarts the camera; the switch says why a profile cannot
+     * run or failed. Renders: build/reports/module-concept/p635-*.png.
+     */
+    @Test public void theFullResolutionRecipeOnTheLensPage() throws Exception {
+        org.robolectric.shadows.ShadowBuild.setManufacturer("Xiaomi");
+        org.robolectric.shadows.ShadowBuild.setBrand("Xiaomi");
+        org.robolectric.shadows.ShadowBuild.setDevice("nezha");
+        org.robolectric.shadows.ShadowBuild.setModel("2512BPNDAG");
+        seed(false); // back2 is camera 2
+        final String slot = "back2";
+        final String on = com.particlesdevs.photoncamera.capture.FullResRecipeStore.key(slot, com.particlesdevs.photoncamera.capture.FullResRecipe.ON);
+        final String sizeKey = com.particlesdevs.photoncamera.capture.FullResRecipeStore.key(slot, com.particlesdevs.photoncamera.capture.FullResRecipe.SIZE);
+        final String resetKey = com.particlesdevs.photoncamera.capture.FullResRecipeStore.key(slot, com.particlesdevs.photoncamera.settings.FullResRecipeRows.RESET);
+        try (ActivityController<SettingsActivity> controller = Robolectric.buildActivity(SettingsActivity.class)) {
+            controller.setup();
+            controller.get().getSupportFragmentManager().beginTransaction()
+                    .replace(R.id.settings_container, SettingsActivity.SettingsFragment.sensorPage(slot)).addToBackStack("lens").commit();
+            SettingsActivity.SettingsFragment lens = shown(controller.get());
+            SwitchPreferenceCompat toggle = lens.findPreference(on);
+            assertNotNull("the switch on the lens page", toggle);
+            assertFalse(toggle.isChecked());
+            assertTrue(toggle.isEnabled());
+            assertEquals("Full resolution (recipe)", String.valueOf(toggle.getTitle()));
+            assertEquals("Preset: Xiaomi 17 Ultra 50 MP", String.valueOf(toggle.getSummary()));
+            assertNull("no field while it is off", lens.findPreference(sizeKey));
+            assertTrue(String.valueOf(SettingHelp.text(context, toggle)).contains("companion stream"));
+            assertTrue("a new session", com.particlesdevs.photoncamera.settings.SessionKeys.needsNewSession(on));
+            assertTrue(com.particlesdevs.photoncamera.settings.SessionKeys.needsNewSession(sizeKey));
+            assertFalse("off: the module has nothing of its own yet", ModuleSensorSettings.customised(prefs.getAll(), slot));
+            shotAt(lens, on, "p635-recipe-off");
+
+            tap(toggle);
+            idleFor(300);
+            lens = shown(controller.get());
+            toggle = lens.findPreference(on);
+            assertTrue(toggle.isChecked());
+            assertTrue(prefs.getBoolean(on, false));
+            assertTrue("on: the module has a sensor value of its own", ModuleSensorSettings.customised(prefs.getAll(), slot));
+            assertEquals("Xiaomi 17 Ultra 50 MP", String.valueOf(toggle.getSummary()));
+            // every field of the profile, with the preset's value and its help
+            final Map<String, String> preset = com.particlesdevs.photoncamera.capture.FullResRecipePresets.preset(
+                    com.particlesdevs.photoncamera.capture.FullResRecipePresets.Device.current(), "2", null).fields();
+            for (String field : com.particlesdevs.photoncamera.capture.FullResRecipe.FIELDS) {
+                Preference row = lens.findPreference(com.particlesdevs.photoncamera.capture.FullResRecipeStore.key(slot, field));
+                assertNotNull(field, row);
+                String shownValue = row instanceof androidx.preference.ListPreference ? ((androidx.preference.ListPreference) row).getValue()
+                        : ((androidx.preference.EditTextPreference) row).getText();
+                assertEquals(field, preset.get(field), shownValue);
+                assertFalse(field, String.valueOf(SettingHelp.text(context, row)).isEmpty());
+                assertFalse("nothing stored until the owner changes it", prefs.contains(row.getKey()));
+            }
+            assertNotNull(lens.findPreference(resetKey));
+            androidx.preference.EditTextPreference size = lens.findPreference(sizeKey);
+            assertEquals("8192x6144", size.getText());
+            assertEquals("Capture RAW size", String.valueOf(size.getTitle()));
+            shotAt(lens, on, "p635-recipe-on");
+            shotWhole(lens, "p635-lens-page");
+
+            // an edit is checked and stored for this lens; a text that is no size is refused
+            assertFalse(size.callChangeListener("big"));
+            assertTrue(size.callChangeListener("8000x6000"));
+            size.setText("8000x6000");
+            idleFor(300);
+            assertEquals("8000x6000", prefs.getString(sizeKey, null));
+            lens = shown(controller.get());
+            assertEquals("8000x6000", ((androidx.preference.EditTextPreference) lens.findPreference(sizeKey)).getText());
+            assertTrue("an edited preset says so", String.valueOf(((SwitchPreferenceCompat) lens.findPreference(on)).getSummary()).contains("(edited)"));
+
+            // «Сбросить к пресету»
+            tap(lens.findPreference(resetKey));
+            idleFor(300);
+            lens = shown(controller.get());
+            assertFalse(prefs.contains(sizeKey));
+            assertEquals("8192x6144", ((androidx.preference.EditTextPreference) lens.findPreference(sizeKey)).getText());
+            assertTrue("the switch stays", prefs.getBoolean(on, false));
+
+            // off again: the fields go
+            tap(lens.findPreference(on));
+            idleFor(300);
+            lens = shown(controller.get());
+            assertNull(lens.findPreference(sizeKey));
+            assertNull(lens.findPreference(resetKey));
+        }
+        // the switch's line: why a profile cannot run or failed
+        final com.particlesdevs.photoncamera.capture.FullResRecipe recipe = com.particlesdevs.photoncamera.capture.FullResRecipePresets.preset(
+                com.particlesdevs.photoncamera.capture.FullResRecipePresets.Device.current(), "2", null);
+        assertEquals("Xiaomi 17 Ultra 50 MP. The stream use case needs Android 13.",
+                com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, true, recipe, recipe, "usecase:33"));
+        assertEquals("Xiaomi 17 Ultra 50 MP. Did not run: camera error 4. Change a field or reset to the preset to try again.",
+                com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, true, recipe, recipe, "failed:camera error 4"));
+        final com.particlesdevs.photoncamera.capture.FullResRecipe empty = new com.particlesdevs.photoncamera.capture.FullResRecipe.Builder().build();
+        assertNull("no preset, off: nothing to say", com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, false, null, empty, "size"));
+        assertEquals("No preset for this lens: set the RAW size and the other fields.",
+                com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, true, null, empty, "size"));
+        assertEquals("Own profile", com.particlesdevs.photoncamera.settings.FullResRecipeRows.state(context, true, null, empty, null));
+        assertTrue(com.particlesdevs.photoncamera.settings.FullResRecipeRows.ours(on, slot));
+        assertFalse(com.particlesdevs.photoncamera.settings.FullResRecipeRows.ours(SensorModePick.prefKey(slot), slot));
+    }
+
     // ───── renders ─────
 
     /** {@code view} measured to {@code w} x {@code h} pixels, drawn, written to build/reports/module-concept/{name}.png. */

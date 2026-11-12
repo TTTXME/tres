@@ -45,6 +45,8 @@ public class ImageSaver {
     public boolean iszAspect4x3;
     /** P609: the stills are binned 2x2 per Tetra cell into the 50 MP Quad as they are copied (SaverImplementation.tetraBin). */
     public boolean tetraBin;
+    /** P635: the shot is a full-resolution recipe's: its first frame is checked, a doubled frame halved (SaverImplementation.recipeShot). */
+    public com.particlesdevs.photoncamera.capture.FullResRecipeShot recipeShot;
     /** P190: frames of a FULLRES series the merge keeps whole (0: not a series) and the frames asked for (0: not FULLRES). */
     public int fullResSeries, fullResRequested;
     /** P320: the shot's frames come from a DCG sensor mode (Dcg14Mode.active at the press). */
@@ -175,6 +177,7 @@ public class ImageSaver {
             implementation.shotArena = shotArena; // the implementation can change with the format (P30)
             implementation.iszAspect4x3 = iszAspect4x3;
             implementation.tetraBin = tetraBin; // P609
+            implementation.recipeShot = recipeShot; // P635
             implementation.frameCount = desiredFrameCount;
             implementation.newBurst = newBurst;
             implementation.addImage(image);

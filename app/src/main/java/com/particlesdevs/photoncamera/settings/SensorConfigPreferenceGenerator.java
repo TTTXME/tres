@@ -259,6 +259,7 @@ public class SensorConfigPreferenceGenerator {
         }
 
         addSensorModePick(context, category, physicalId);
+        addFullResRecipe(context, category, physicalId, refresh); // P635
 
         // P266 «Проверить частоты кадров»: asked here, run by the next session of this module (FpsProbe)
         androidx.preference.Preference probe = new androidx.preference.Preference(context);
@@ -307,6 +308,26 @@ public class SensorConfigPreferenceGenerator {
         }
         if (rows.isEmpty()) return;
         category.addPreference(sensorModeRow(context, slot, rows));
+    }
+
+    /**
+     * P635 «Полное разрешение (рецепт)»: the switch and, while it is on, the profile's fields (FullResRecipeRows), prefilled from
+     * the preset of the module's camera on this phone.
+     */
+    private static void addFullResRecipe(Context context, PreferenceCategory category, String slot, @Nullable Runnable refresh) {
+        com.particlesdevs.photoncamera.capture.FullResRecipe preset = null;
+        try {
+            final String camera = ModuleRegistry.slots().contains(slot) ? ModuleSensorSettings.physical(slot) : toPhysicalId(slot);
+            android.hardware.camera2.CameraCharacteristics c = null;
+            try {
+                c = ((android.hardware.camera2.CameraManager) context.getSystemService(Context.CAMERA_SERVICE)).getCameraCharacteristics(camera);
+            } catch (Exception unavailable) {
+                // no camera service (a preview of the page): the preset by the phone and the camera id alone
+            }
+            preset = com.particlesdevs.photoncamera.capture.FullResRecipeStore.presetFor(camera, c);
+        } catch (RuntimeException ignored) {
+        }
+        FullResRecipeRows.add(context, category, slot, preset, refresh);
     }
 
     /** The «Режим сенсора» row of {@code slot} for the rows of its camera's table (P384: built apart for its bind test). */
@@ -377,7 +398,8 @@ public class SensorConfigPreferenceGenerator {
             // P384: the sensor mode row too - the section adds it again (a second row of one key after each key edit)
             if (p instanceof TunableKeyPreference || ("pref_sensorconfig_" + physicalId + "_add_tunablekey").equals(p.getKey())
                     || ("pref_sensorconfig_" + physicalId + "_fpsprobe").equals(p.getKey())
-                    || com.particlesdevs.photoncamera.capture.SensorModePick.prefKey(physicalId).equals(p.getKey())) {
+                    || com.particlesdevs.photoncamera.capture.SensorModePick.prefKey(physicalId).equals(p.getKey())
+                    || FullResRecipeRows.ours(p.getKey(), physicalId)) { // P635: built again with the section
                 toRemove.add(p);
             }
         }

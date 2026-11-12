@@ -2,9 +2,14 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-12 — Full resolution by recipe
+
+- Lens settings: a «Full resolution (recipe)» switch — 50 MP on the Xiaomi 17 Ultra's main camera with the usual viewfinder; waits for a check on the phone.
+- nubia and OnePlus 16: trial presets of the same switch.
+
 ## 2026-11-12 — Black viewfinder
 
-- Fixed the black viewfinder of the 11 November build: in every mode but «Oldstyle» the camera screen could stay black on any lens. The picture is there as soon as the camera opens, with the RAW viewfinder and without it.
+- Fixed the black viewfinder of the 11 November build (every mode but «Oldstyle»).
 
 ## 2026-11-11 — Watermark in the editor
 

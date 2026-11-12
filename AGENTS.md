@@ -71,3 +71,8 @@ as one commit before the whole plan is done.
 # Processing speed validation (owner, 2026-11-01)
 Owner now authorizes deep merge-core changes, including kHybMergeMain1, provided real-burst quality is retained or improved. This supersedes the earlier protected-kernel restriction for this task. Preserve a reference route and compare identical input/tuning, full outputs, frame decisions and detail/motion crops.
 For every speed candidate, replay identical real bursts with identical tuning and compare the full output, frame decisions and detail/motion crops before deciding whether quality regresses. Synthetic alignment error alone, or a changed output hash alone, does not establish worse image quality. Include the owner's latest detail and motion series. Preserve frame counts and resolution in comparisons.
+
+# Changelog length (owner, 2026-11-12)
+Owner: «Сокращай всегда логи по максимуму». The changelog sections that are posted to Telegram (`CHANGELOG.md`,
+`CHANGELOG.en.md`) must be as short as possible: a title and at most a few one-line bullets per delivery, user-facing only
+(what the user gets; no internals, no parameter lists). The details go to `research/handoff/PLAN.md`.
