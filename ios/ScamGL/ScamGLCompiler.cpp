@@ -4,6 +4,7 @@
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
 #include <spirv_msl.hpp>
+#include <spirv_parser.hpp>
 
 #include <map>
 #include <mutex>
@@ -90,7 +91,22 @@ Compiled compile(const std::string& glsl, Stage stage, bool iosPlatform) {
     std::vector<uint32_t> spirv;
     if (!toSpirv(glsl, stage, spirv, out.log)) return out;
     try {
-        spirv_cross::CompilerMSL msl(std::move(spirv));
+        // GLSL names that are Metal library names (a function `level` is ambiguous with metal::level): user functions get a
+        // prefix, the few names that clash as variables a suffix.
+        spirv_cross::Parser parser(std::move(spirv));
+        parser.parse();
+        spirv_cross::ParsedIR& ir = parser.get_parsed_ir();
+        static const std::set<std::string> clashing = {"level", "bias", "gradient2d", "gradient3d", "gradientcube", "min_lod_clamp",
+                                                       "access", "coord", "address", "filter", "mip_filter", "compare_func"};
+        ir.for_each_typed_id<spirv_cross::SPIRFunction>([&](uint32_t id, spirv_cross::SPIRFunction&) {
+            const std::string name = ir.get_name(id);
+            if (!name.empty() && name != "main") ir.set_name(id, "scam_" + name);
+        });
+        ir.for_each_typed_id<spirv_cross::SPIRVariable>([&](uint32_t id, spirv_cross::SPIRVariable&) {
+            const std::string name = ir.get_name(id);
+            if (clashing.count(name)) ir.set_name(id, name + "_");
+        });
+        spirv_cross::CompilerMSL msl(std::move(ir));
         spirv_cross::CompilerMSL::Options options;
         options.platform = iosPlatform ? spirv_cross::CompilerMSL::Options::iOS : spirv_cross::CompilerMSL::Options::macOS;
         options.set_msl_version(2, 4);
