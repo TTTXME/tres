@@ -936,8 +936,13 @@ private:
     GLuint fs(const char* src){return link({{GL_VERTEX_SHADER,fastmerge::kFastVs},{GL_FRAGMENT_SHADER,fastmerge::fastIndexFree(arrayFree?fastmerge::fastArrayFree(src):src)}});}
 };
 
-// The context with its programs made on the worker's EGL warm-up thread while it waits for the burst (as laGpuPrewarm)
-struct FastGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false,abandoned=false;std::unique_ptr<FastMergeGpu> gpu;std::string error; };
+// The context with its programs made on the worker's EGL warm-up thread while it waits for the burst (as laGpuPrewarm).
+// P668: a context never taken (a kept-ready worker whose shot never came: «STOP: SCAM burst was not delivered by the app») is left
+// to the process exit, never torn down from this static's destructor. The holder is made on the main thread (fastGpuPrewarmBegin)
+// before the warm-up thread loads the driver, so its destructor ran after the driver's own exit handlers: eglMakeCurrent there
+// crashed (Xiaomi 12X, Adreno 650, build 31266: SIGSEGV in libGLESv2_adreno under __cxa_finalize at every such exit; P219's case).
+struct FastGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false,abandoned=false;std::unique_ptr<FastMergeGpu> gpu;std::string error;
+    ~FastGpuPrewarm(){(void)gpu.release();} };
 inline FastGpuPrewarm& fastGpuPrewarm(){static FastGpuPrewarm p;return p;}
 // Marked on the starting thread before the warm-up thread runs (the merge may ask for the context before that thread is scheduled);
 // fastGpuPrewarmCancel when the thread could not be started

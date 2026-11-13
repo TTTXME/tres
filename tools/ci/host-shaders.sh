@@ -20,6 +20,8 @@ python3 tools/check_glsl_loop_shadow.py --dump /tmp/scam-glsl-dump
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
+# P668: every post fragment program drawn in bands of 16 / 48 / 112 rows equals one draw bit for bit (the paced post's band sizing)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_bands.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
 python3 tools/check_gpu_readback.py
 python3 tools/check_film_tiling.py

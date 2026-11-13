@@ -572,6 +572,13 @@ int main(int argc,char** argv) {
         throw std::runtime_error("Worker argument count");
     } catch(const std::exception& e){
         scam_nn::log(std::string("STOP: ")+e.what());
+        // P668: a capture job that stops (a kept-ready worker whose burst never came, a failed merge) leaves as the completed
+        // one does (fastExit): its lines flushed, then _exit - no static destructor runs after the GPU driver's exit handlers
+        // (Xiaomi 12X, Adreno 650: SIGSEGV in eglMakeCurrent under __cxa_finalize, a tombstone at every camera close)
+        if(argc==5&&std::string(argv[1])=="--scam-capture"&&!std::getenv("SCAM_NO_FAST_EXIT")){
+            std::cout.flush();std::fflush(stdout);std::fflush(stderr);
+            _exit(1);
+        }
         return 1;
     }
 }

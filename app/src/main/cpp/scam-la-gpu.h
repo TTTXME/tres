@@ -1140,7 +1140,9 @@ public:
 
 // P364: the GPU F6 / alignment context with its programs, made on the worker's EGL warm-up thread while it waits for the burst
 // (its checks then run beside it); the F6 worker takes it instead of making its own (null: none was started, or it failed)
-struct LaGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false;std::unique_ptr<LaGpu> gpu; };
+// P668: as FastGpuPrewarm - a context never taken goes with the process, not from this static's destructor (no GL at the exit)
+struct LaGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false;std::unique_ptr<LaGpu> gpu;
+    ~LaGpuPrewarm(){(void)gpu.release();} };
 inline LaGpuPrewarm& laGpuPrewarm(){static LaGpuPrewarm p;return p;}
 inline void laGpuPrewarmMake(const std::string& cache){
     LaGpuPrewarm& p=laGpuPrewarm();

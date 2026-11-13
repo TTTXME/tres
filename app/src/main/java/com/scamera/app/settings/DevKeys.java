@@ -52,7 +52,7 @@ public final class DevKeys {
      * matrix of the Parameters, hybrid_clip_flags: a flag of the burst); or only the DNG reads them; or nothing does any more.
      */
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "post_priority", "gpu_low_priority", "post_gpu_pace", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
+            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "worker_keep_ready", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
@@ -460,6 +460,9 @@ public final class DevKeys {
         // P616: GpuPace (the post's GPU queue a few blocks deep, so the viewfinder's draws are not stuck behind it)
         k.add(n(post, "post_gpu_pace", null, Lang.t("Блоков обработки в очереди GPU, не больше (видоискатель не ждёт за ними): пусто — 2 на Adreno, без ограничения на других GPU; 0 — без ограничения",
                 "Processing blocks queued on the GPU at most (the viewfinder does not wait behind them): empty: 2 on Adreno, no limit on other GPUs; 0: no limit")));
+        // P668: the paced post's bands sized to this GPU time (Adreno 650: one 256-row band of the tone's combine ~80 - 140 ms)
+        k.add(n(post, "post_band_ms", null, Lang.t("Время GPU на одну полосу обработки, мс (медленные GPU делят проход на более узкие полосы, видоискатель ждёт меньше): пусто — 10; 0 — полосы по 256 строк, как раньше",
+                "GPU time of one processing band, ms (slow GPUs split a pass into narrower bands, the viewfinder waits less): empty: 10; 0: 256-row bands as before")));
         k.add(s(post, "hybrid_why_rim_support", true, Lang.t("Пропуск пустых областей защиты граней перед тонмапингом", "Skip empty light-rim support before tone mapping")));
         k.add(s(post, "hybrid_why_edge_luma_cache", true, Lang.t("Кэш исходной яркости для защиты резких границ", "Cache scene luminance for sharp-edge protection")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",

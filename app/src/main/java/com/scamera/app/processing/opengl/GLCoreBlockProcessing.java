@@ -421,6 +421,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                     program.draw();
                     timing.rendered();
                     GLES30.glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(), 0);
+                    GpuPace.block(); // P668: a submission per tile on the paced post
                     timing.readBack();
                     timing.tiles++;
                     if (dst == null) {
@@ -532,6 +533,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 timing.rendered();
                 GLES30.glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(),
                         (int) pboOffset(tile[0], outW));
+                GpuPace.block(); // P668: a submission per tile on the paced post (the viewfinder is not behind all of them)
                 timing.readBack();
                 timing.tiles++;
             }

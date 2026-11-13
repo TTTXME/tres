@@ -638,6 +638,8 @@ public class GLProg implements AutoCloseable {
     private int nextUnit;
     /** The program in use (its GL name), whether it is a compute one, and the shader name of a compute program. */
     public int activeProgram;
+    /** P668: the name of the program in use (its asset / util name; null for a bare source): the key of its band timing. */
+    public String activeName;
     public boolean computeBound = false;
     public int computeShader;
     /** The pass is done with the program (its textures may be reused); a new program in use clears it. */
@@ -793,6 +795,7 @@ public class GLProg implements AutoCloseable {
         }
         textureUnits.clear();
         nextUnit = 0;
+        activeName = recipeId;
         GLGpuTimer.mark(recipeId != null ? recipeId : "source"); // P479: post_sync only (profiling)
     }
 
@@ -933,18 +936,22 @@ public class GLProg implements AutoCloseable {
     /**
      * The program over w x h in bands of TILE_ROWS rows. P497 (owner, 2026-11-04: «видоискатель тормозит ... на всех
      * смартфонах»): a submission per band - the GPU lets the viewfinder's context in between submissions only (Xiaomi 12X:
-     * viewfinder draws of 274 - 771 ms while one pass was one submission); P616: at most a few bands queued (GpuPace).
+     * viewfinder draws of 274 - 771 ms while one pass was one submission); P616: at most a few bands queued (GpuPace). P668: on the
+     * paced post a program measured slow on this GPU gets narrower bands (GpuPace.bandRows: about 10 ms each, multiples of 16 rows,
+     * at most TILE_ROWS) - the same draw over the same pixels, bit for bit the same output.
      */
     public void drawBlocks(int w, int h) {
-        final GLBlockDivider bands = new GLBlockDivider(h, GLDrawParams.TILE_ROWS);
-        final int[] band = new int[2];
-        while (bands.nextBlock(band)) {
-            glViewport(0, band[0], w, band[1]);
+        final boolean flush = !PostGlMode.legacy();
+        final String pass = activeName;
+        for (int y = 0; y < h; ) {
+            final int rows = Math.min(h - y, flush ? GpuPace.bandRows(pass, w, GLDrawParams.TILE_ROWS) : GLDrawParams.TILE_ROWS);
+            glViewport(0, y, w, rows);
             draw();
-            if (!PostGlMode.legacy()) {
+            if (flush) {
                 glFlush();
-                GpuPace.submitted();
+                GpuPace.submitted(pass, (long) w * rows);
             }
+            y += rows;
         }
     }
 
