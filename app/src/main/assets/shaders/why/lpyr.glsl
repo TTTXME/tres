@@ -59,6 +59,17 @@ precision highp float; precision highp sampler2D;
 // this pyramid drawn with build 31091's weights and darkest exposure and P291's monotonic envelope (no ring). The room, lamp-lit
 // paper and every scene outside keep the fusion as it is. 0: the shader before P400, token for token.
 #define WINDOW 0
+// P673 JBU (owner, 2026-11-13, the reference's k_fs_ef_pyr_collapse with joint bilateral upsampling: «вместо аппаратного
+// билинейного texture() ... сэмплируются 4 coarse-текселя с весом exp(-(g_coarse - g_fine)^2 / 2 sigma_r^2)»): MODE 4 / 5 read the
+// coarser level from expand's four fetches (its 2 x 2 nodes, the linear weights 0.25 each), each weighted by exp(-(g_coarse -
+// g_fine)^2 / (2 jbuU.x^2)), normalised - the same weights for CoarseL, CoarseF and, with the bands, CoarseGF (the bands and the
+// base stay one reconstruction). JBU 1: g is the lumas L of the four exposures (CoarseL at the node, this pixel's L), the square
+// their squared distance; JBU 2: g is the collapsing image itself - CoarseF at the node against this pixel's fused luma of the
+// plain expand. jbuU.y > 0: g as log2(max(g, jbuU.y)) (sigma_r in EV), else as it is. A node across a contrasty edge drops out,
+// so the coarse level does not leak over the edge into the sky; on flat areas the weights stay linear; one exposure still
+// collapses to its level exactly. The range weights are taken relative to the nearest node's (the same normalised weights, no
+// underflow). With or without the bands. 0: the shader before P673, token for token.
+#define JBU 0
 uniform sampler2D InputBuffer;  // MODE 0, 1, 5: whyLow (after bracket_dn), linear Rec.709; MODE 2: the level to reduce
 uniform sampler2D LevelL;       // MODE 3, 4: lumas L of this level (RGBA)
 uniform sampler2D LevelW;       // MODE 3, 4: weights p of this level (RGBA)
@@ -94,6 +105,9 @@ uniform int levelU;             // MODE 4: this level's index (1 ..)
 uniform float lowCutU;          // MODE 4 (the lowest band), 5 (one level): 1 - f of the fractional depth; 0 / unset: whole levels
 uniform vec3 bandNoiseU;        // MODE 8, 9: k N_l, the noise sigmas of D taken out in quadrature (y, z: S, O of the guide I's
                                 // noise); x <= 0 / unset: none
+#endif
+#if JBU != 0
+uniform vec2 jbuU;              // MODE 4, 5 (P673): x: sigma_r of the range weight; y > 0: the guide as log2(max(g, y)), else as it is
 #endif
 #if WINDOW == 1
 uniform vec4 winU;              // x: Fused31's share, y, z: the window's log light ramp (log2(I + bandEdgeU.z)), w: unused
@@ -222,6 +236,87 @@ float edgeBand(float M, float P, float bG, float g, int lvl, float a) {
 }
 #endif
 
+#if JBU != 0 && (MODE == 4 || MODE == 5)
+// P673: the guide in its domain
+vec4 jbuGuide(vec4 g) {
+    return jbuU.y > 0.0 ? log2(max(g, vec4(jbuU.y))) : g;
+}
+
+// P673: expand with the weights jw of its four fetches (0.25 each: expand itself)
+vec4 expandJ(sampler2D t, ivec2 xy, vec4 jw) {
+    ivec2 last = textureSize(t, 0) - ivec2(1);
+    ivec2 i0 = min(xy >> 1, last);
+    ivec2 i1 = min(i0 + (xy & 1), last);
+    return jw.x * texelFetch(t, i0, 0) + jw.y * texelFetch(t, ivec2(i1.x, i0.y), 0) + jw.z * texelFetch(t, ivec2(i0.x, i1.y), 0)
+         + jw.w * texelFetch(t, i1, 0);
+}
+
+// P673: the normalised joint bilateral weights of expand's four fetches from their guide's squared distances d2 to this pixel's
+// (expand's own 0.25 each cancels; relative to the nearest fetch's: the same weights, no underflow)
+vec4 jbuWeights(vec4 d2) {
+    float m = min(min(d2.x, d2.y), min(d2.z, d2.w));
+    vec4 r = exp(-(d2 - vec4(m)) / max(2.0 * jbuU.x * jbuU.x, 1.0e-12));
+    return r / (r.x + r.y + r.z + r.w);
+}
+
+#if JBU == 1
+// P673 JBU 1: the guide is the lumas - CoarseL's fetches against this pixel's lumas Lf
+vec4 jbuOf(ivec2 xy, vec4 Lf) {
+    ivec2 last = textureSize(CoarseL, 0) - ivec2(1);
+    ivec2 i0 = min(xy >> 1, last);
+    ivec2 i1 = min(i0 + (xy & 1), last);
+    vec4 q = jbuGuide(Lf);
+    vec4 e0 = jbuGuide(texelFetch(CoarseL, i0, 0)) - q, e1 = jbuGuide(texelFetch(CoarseL, ivec2(i1.x, i0.y), 0)) - q;
+    vec4 e2 = jbuGuide(texelFetch(CoarseL, ivec2(i0.x, i1.y), 0)) - q, e3 = jbuGuide(texelFetch(CoarseL, i1, 0)) - q;
+    return jbuWeights(vec4(dot(e0, e0), dot(e1, e1), dot(e2, e2), dot(e3, e3)));
+}
+#else
+// P673 JBU 2: the guide is the collapsing image - CoarseF's fetches against this pixel's fused luma f of the plain expand
+vec4 jbuOf(ivec2 xy, float f) {
+    ivec2 last = textureSize(CoarseF, 0) - ivec2(1);
+    ivec2 i0 = min(xy >> 1, last);
+    ivec2 i1 = min(i0 + (xy & 1), last);
+    vec4 e = jbuGuide(vec4(texelFetch(CoarseF, i0, 0).r, texelFetch(CoarseF, ivec2(i1.x, i0.y), 0).r,
+                           texelFetch(CoarseF, ivec2(i0.x, i1.y), 0).r, texelFetch(CoarseF, i1, 0).r)) - jbuGuide(vec4(f));
+    return jbuWeights(e * e);
+}
+#endif
+
+#if MODE == 4
+// P673: MODE 4's fused luma with expand's weights jw (vec4(0.25): the plain expand)
+float level4(ivec2 xy, vec4 jw) {
+    vec4 w4 = max(texelFetch(LevelW, xy, 0), vec4(0.0));
+    vec4 L4 = texelFetch(LevelL, xy, 0);
+#if EDGE_BANDS == 1
+    float M4 = dot(w4, L4 - expandJ(CoarseL, xy, jw)) / max(w4.x + w4.y + w4.z + w4.w, 0.000001);
+    vec2 gf4 = texelFetch(LevelGF, xy, 0).rg, gc4 = expandJ(CoarseGF, xy, jw).rg;
+    float a4 = texelFetch(LevelA, xy, 0).r * clamp(bandEdgeU.w, 0.0, 1.0);
+    float v4 = expandJ(CoarseF, xy, jw).r + edgeBand(M4, gf4.y - gc4.y, abs(gf4.x - gc4.x), gf4.x, levelU, a4);
+    if (lowCutU > 0.0) v4 = lowCutU >= 1.0 ? baseOf(xy) : mix(v4, baseOf(xy), lowCutU);
+    return v4;
+#else
+    return expandJ(CoarseF, xy, jw).r + dot(w4, L4 - expandJ(CoarseL, xy, jw)) / max(w4.x + w4.y + w4.z + w4.w, 0.000001);
+#endif
+}
+#else
+// P673: MODE 5's fused luma (before its own terms) with expand's weights jw (vec4(0.25): the plain expand)
+float level5(ivec2 xy, float I, vec4 p, vec4 L, vec4 jw) {
+    vec4 w5 = max(p, vec4(0.0));
+    float M5 = dot(w5, L - expandJ(CoarseL, xy, jw)) / max(w5.x + w5.y + w5.z + w5.w, 0.000001);
+#if EDGE_BANDS == 1
+    float g5 = log2(I + bandEdgeU.z);
+    vec2 gc5 = expandJ(CoarseGF, xy, jw).rg;
+    float a5 = smoothstep(bandEdgeU.x, bandEdgeU.y, coneMax(LevelA, xy, bandReachU.x, coneU.x, 0)) * clamp(bandEdgeU.w, 0.0, 1.0);
+    float f5 = expandJ(CoarseF, xy, jw).r + edgeBand(M5, dot(p, L) - gc5.y, abs(g5 - gc5.x), g5, 0, a5);
+    if (lowCutU > 0.0) f5 = lowCutU >= 1.0 ? dot(p, L) : mix(f5, dot(p, L), lowCutU);
+    return f5;
+#else
+    return expandJ(CoarseF, xy, jw).r + M5;
+#endif
+}
+#endif
+#endif
+
 void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
     const float k[5] = float[5](0.0625, 0.25, 0.375, 0.25, 0.0625);
@@ -277,7 +372,11 @@ void main() {
     Output = vec4(dot(w, texelFetch(LevelL, xy, 0)) / max(w.x + w.y + w.z + w.w, 0.000001), 0.0, 0.0, 1.0);
 #endif
 #elif MODE == 4
-#if EDGE_BANDS == 1
+#if JBU == 1
+    Output = vec4(level4(xy, jbuOf(xy, texelFetch(LevelL, xy, 0))), 0.0, 0.0, 1.0);
+#elif JBU == 2
+    Output = vec4(level4(xy, jbuOf(xy, level4(xy, vec4(0.25)))), 0.0, 0.0, 1.0);
+#elif EDGE_BANDS == 1
     {
         vec4 w4 = max(texelFetch(LevelW, xy, 0), vec4(0.0));
         float M4 = dot(w4, texelFetch(LevelL, xy, 0) - expand(CoarseL, xy)) / max(w4.x + w4.y + w4.z + w4.w, 0.000001);
@@ -296,7 +395,11 @@ void main() {
     float I;
     vec4 p, L;
     prepare(rgb, I, p, L);
-#if EDGE_BANDS == 1
+#if JBU == 1
+    float fusedL = level5(xy, I, p, L, jbuOf(xy, L));
+#elif JBU == 2
+    float fusedL = level5(xy, I, p, L, jbuOf(xy, level5(xy, I, p, L, vec4(0.25))));
+#elif EDGE_BANDS == 1
     float fusedL;
     {
         vec4 w5 = max(p, vec4(0.0));

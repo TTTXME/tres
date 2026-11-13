@@ -50,6 +50,8 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid.
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid_edge.py
 # P391: the pyramid's edge-aware bands and continuous depth; the noise-bound deep floor and band cap
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid_bands.py
+# P673: the owner's joint bilateral upsampling in the V1 / V2 pyramids' collapse (off by default; the off path token for token)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_jbu_owner.py
 # P596: the photo's local contrast on the fused luma (why/localcontrast.glsl)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_local_contrast.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_noise.py

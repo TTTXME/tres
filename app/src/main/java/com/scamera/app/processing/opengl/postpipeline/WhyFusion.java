@@ -342,6 +342,9 @@ public final class WhyFusion extends Node {
         // P391: the edge-aware bands (null: off, the pyramid as before)
         final float[] band = WhyTone.bands();
         final boolean bands = band != null;
+        // P673: the owner's joint bilateral collapse (MODE 4 / 5; 0: off, no define)
+        final float jbu = WhyTone.jbuSigma();
+        final int jbuGuide = WhyTone.jbuGuide();
         // a lab fragment takes the whole frame's depth (its own size would give its lowest band weights blurred ~4x less), as far as
         // the fragment halves (fewer levels than the whole frame only for a fragment under ~2 px at that depth)
         final LabFrame frozen = ((PostPipeline) hostPipeline).frozen;
@@ -489,8 +492,10 @@ public final class WhyFusion extends Node {
             for (int l = levels - 1; l >= 1; l--) {
                 if (bands) shaderProg.setDefine("EDGE_BANDS", 1);
                 shaderProg.setDefine("MODE", 4);
+                if (jbu > 0f) shaderProg.setDefine("JBU", WhyTone.jbuDefine(jbuGuide));
                 gammaDefine();
                 shaderProg.useAssetProgram("why/lpyr", false);
+                if (jbu > 0f) shaderProg.setVar("jbuU", jbu, WhyTone.jbuLog(jbuGuide));
                 shaderProg.setTexture("LevelL", L[l]);
                 shaderProg.setTexture("LevelW", W[l]);
                 shaderProg.setTexture("CoarseL", L[l + 1]);
@@ -517,7 +522,9 @@ public final class WhyFusion extends Node {
             if (sky) shaderProg.setDefine("SKY", 1);
             if (bands) shaderProg.setDefine("EDGE_BANDS", 1);
             if (winLevel > 0) shaderProg.setDefine("WINDOW", 1);
+            if (jbu > 0f) shaderProg.setDefine("JBU", WhyTone.jbuDefine(jbuGuide));
             fusionProgram("why/lpyr", 5, st.lowDn, em, lw, ae, center, satLight);
+            if (jbu > 0f) shaderProg.setVar("jbuU", jbu, WhyTone.jbuLog(jbuGuide));
             if (winLevel > 0) {
                 shaderProg.setTexture("WinMean", GF[winLevel]);
                 shaderProg.setTexture("Fused31", fused31);
@@ -565,6 +572,7 @@ public final class WhyFusion extends Node {
                         + (noiseCap ? " noiseCap=" + nz[0] + ".." + nz[1] + "sigma levels=" + (int) nz[2] : " noiseCap=off") : " bands=off")
                 + (noiseI != null ? String.format(java.util.Locale.ROOT, " noise S=%.3g O=%.3g", noiseI[0], noiseI[1]) : " noise=none")
                 + (deepNoise[0] > 0f ? " deepNoise=" + deepNoise[0] : "")
+                + (jbu > 0f ? " jbu=" + jbu + "/" + jbuGuide : "")
                 + (gmixLog[1] > gmixLog[0] ? " guidedShare=" + gmixLog[0] + ".." + gmixLog[1] : "")
                 + (edgeOn ? " edgeShare=" + edge[0] + ".." + edge[1] + "EV floor=" + edge[2] : "")
                 + (winLevel > 0 ? String.format(java.util.Locale.ROOT, " window31091=%.2f@%.2f..%.2f level %d", win[0], win[1], win[2], winLevel) : "")

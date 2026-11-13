@@ -151,6 +151,16 @@ def units() -> list[tuple[str, str, str]]:
                 src = defined(lpyr, {'MODE': mode, 'EDGE_BANDS': bands, 'SKY': sky})
                 out.append(('why/lpyr.glsl (MODE %d, EDGE_BANDS %d%s)' % (mode, bands, ', SKY 1' if sky else ''), 'frag',
                             '#version 310 es\n#line 1\n' + expand_imports(src)))
+    # P673: the owner's joint bilateral collapse (JBU 1: the lumas' guide, 2: the fused luma's) of MODE 4 / 5 with and without the
+    # bands (MODE 5 with the bands also with the window term) and of V2's why/v2_ef_collapse
+    for jbu in (1, 2):
+        for mode, extra in ((4, {'EDGE_BANDS': 0}), (4, {'EDGE_BANDS': 1}), (5, {'EDGE_BANDS': 0}), (5, {'EDGE_BANDS': 1}),
+                            (5, {'EDGE_BANDS': 1, 'WINDOW': 1})):
+            src = defined(lpyr, dict({'MODE': mode, 'JBU': jbu}, **extra))
+            out.append(('why/lpyr.glsl (MODE %d, EDGE_BANDS %d, JBU %d%s)' % (mode, extra['EDGE_BANDS'], jbu, ', WINDOW 1' if 'WINDOW' in extra else ''),
+                        'frag', '#version 310 es\n#line 1\n' + expand_imports(src)))
+        out.append(('why/v2_ef_collapse.glsl (JBU %d)' % jbu, 'frag', '#version 310 es\n#line 1\n'
+                    + expand_imports(defined(read(SH / 'why/v2_ef_collapse.glsl'), {'JBU': jbu}))))
     gf = read(SH / 'why/gf.glsl')
     for mode in (1, 2, 3):
         out.append(('why/gf.glsl (MODE %d)' % mode, 'frag', '#version 310 es\n#line 1\n' + expand_imports(defined(gf, {'MODE': mode}))))
