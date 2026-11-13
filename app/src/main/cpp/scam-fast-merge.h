@@ -144,12 +144,30 @@ inline FastThumb fastThumb(const HybridInput& in,const uint16_t* raw,float gain)
 // translation of `cur` against `ref` (thumbnail pixels): exposure-normalised SAD over the inner area, a 4-px search of +-48 then +-3.
 // The coarse samples sit on multiples of 4 (the margin and the shift are), so it reads 1/4 lattices of the normalised copies
 // contiguously (vectorised; the sums' order changes, the sampled pixels do not)
-inline float fastThumbShift(const FastThumb& ref,const FastThumb& cur){
-    const float kr=1.f/std::max(ref.mean,1e-6f),kc=1.f/std::max(cur.mean,1e-6f);
-    const int w=ref.w,h=ref.h,w4=(w+3)/4,h4=(h+3)/4;
-    std::vector<float> r(ref.v.size()),c(cur.v.size()),r4(size_t(w4)*h4),c4(size_t(w4)*h4);
-    for(size_t i=0;i<r.size();++i){r[i]=ref.v[i]*kr;c[i]=cur.v[i]*kc;}
-    for(int y=0;y<h4;++y)for(int x=0;x<w4;++x){const size_t s=size_t(4*y)*w+4*x;r4[size_t(y)*w4+x]=r[s];c4[size_t(y)*w4+x]=c[s];}
+// P662: the normalised copies of one thumbnail (its 1/4 lattice and the 4 phases of its 1/2 lattice), built once per frame: the base's
+// for every donor (they were built again in each of ~20 calls), the same values (v x 1 / max(mean, 1e-6)) in the same places
+struct FastThumbNorm {
+    int w=0,h=0,w4=0,h4=0,w2=0,h2=0;
+    std::vector<float> r4,r2[4];
+    explicit FastThumbNorm(const FastThumb& t):w(t.w),h(t.h),w4((t.w+3)/4),h4((t.h+3)/4),w2((t.w+1)/2),h2((t.h+1)/2){
+        const float k=1.f/std::max(t.mean,1e-6f);
+        std::vector<float> r(t.v.size());
+        for(size_t i=0;i<r.size();++i)r[i]=t.v[i]*k;
+        r4.resize(size_t(w4)*h4);
+        for(int y=0;y<h4;++y)for(int x=0;x<w4;++x)r4[size_t(y)*w4+x]=r[size_t(4*y)*w+4*x];
+        for(int ph=0;ph<4;++ph){
+            r2[ph].assign(size_t(w2)*h2,0.f);
+            for(int y=ph>>1,j=0;y<h;y+=2,++j)for(int x=ph&1,i=0;x<w;x+=2,++i)r2[ph][size_t(j)*w2+i]=r[size_t(y)*w+x];
+        }
+    }
+};
+// P663: the variable-window search below (kept as the wide search of small frames): its window shrank on every side with
+// max(|sx|, |sy|), so its area-normalised SAD compared a different set of base pixels at every shift - on a texture-poor, noise-led
+// thumbnail (owner's log 2026-11-11 22:54, Xiaomi 17 Ultra 8192x6144 ISO 3188, sharpness 0.0515) the window's own noise level decided,
+// and every donor landed on the search's edge ("dropped 1 (shift 50.0 ...)" x 18: the photo of one frame)
+inline float fastThumbShiftWide(const FastThumbNorm& rn,const FastThumbNorm& cn){
+    const int w=rn.w,h=rn.h,w4=rn.w4;
+    const std::vector<float>& r4=rn.r4;const std::vector<float>& c4=cn.r4;
     auto sad4=[&](int sx,int sy){
         const int m=8+std::max(std::abs(sx),std::abs(sy)),i0=m/4,i1=(w-m+3)/4,j1=(h-m+3)/4;
         if(i1<=i0||j1<=i0)return 1e30;
@@ -165,11 +183,8 @@ inline float fastThumbShift(const FastThumb& ref,const FastThumb& cur){
         return s/double(long(j1-i0)*(i1-i0));
     };
     // the fine search samples every 2nd pixel: the 4 phases of a 1/2 lattice, contiguous the same way
-    const int w2=(w+1)/2,h2=(h+1)/2;std::vector<float> r2[4],c2[4];
-    for(int ph=0;ph<4;++ph){
-        r2[ph].assign(size_t(w2)*h2,0.f);c2[ph].assign(size_t(w2)*h2,0.f);
-        for(int y=ph>>1,j=0;y<h;y+=2,++j)for(int x=ph&1,i=0;x<w;x+=2,++i){r2[ph][size_t(j)*w2+i]=r[size_t(y)*w+x];c2[ph][size_t(j)*w2+i]=c[size_t(y)*w+x];}
-    }
+    const int w2=rn.w2;
+    const std::vector<float>* r2=rn.r2;const std::vector<float>* c2=cn.r2;
     auto sad=[&](int sx,int sy){
         const int m=8+std::max(std::abs(sx),std::abs(sy)),n2=(w-m-m+1)/2,j2=(h-m-m+1)/2;
         if(n2<=0||j2<=0)return 1e30;
@@ -191,6 +206,96 @@ inline float fastThumbShift(const FastThumb& ref,const FastThumb& cur){
     int fx=bx,fy=by;best=1e30;
     for(int sy=by-3;sy<=by+3;++sy)for(int sx=bx-3;sx<=bx+3;++sx){const double v=sad(sx,sy);if(v<best){best=v;fx=sx;fy=sy;}}
     return std::sqrt(float(fx*fx+fy*fy));
+}
+// P663: the search radius (thumbnail px, a multiple of 4) whose fixed window keeps at least half of each side: 48 from 236 thumbnail
+// px up (a 1888 px short side: every phone stream), less on the small replay crops (12 on a 1024x768 RAW's 128x96); 0 below 60 px
+inline int fastThumbRadius(int w,int h){return std::max(0,std::min(48,(std::min(w,h)/4-11)/4*4));}
+// P663: the translation of `cur` against `ref` (thumbnail px) over ONE window of the base for every shift (margin 8 + the reach): a
+// 4-px search of +-R then +-3 (R = fastThumbRadius), the SAD of each shift over the same base pixels. Each component of the best
+// shift is taken only when it beats the shift without it beyond the noise: the paired |difference| sums of the two over the fine
+// window, z = mean / (sd / sqrt n) >= 5 (pure-noise thumbnails reach ~3.3 at their best shift); else that component is not
+// measurable (flat: 0; a donor of a flat thumbnail stays). A small frame (R < 48) whose fine minimum sits on the reach's
+// border or holds a component not measurable is measured by the wide search instead (its translation may lie past the reach).
+struct FastShift { float shift=0.f; bool flat=false,wide=false; };
+inline FastShift fastThumbShiftFixed(const FastThumbNorm& rn,const FastThumbNorm& cn){
+    FastShift out;
+    const int w=rn.w,h=rn.h,w4=rn.w4,R=fastThumbRadius(w,h);
+    if(R<4){out.shift=fastThumbShiftWide(rn,cn);out.wide=true;return out;}
+    const int M=8+R+3,M4=(M+3)/4*4;
+    const std::vector<float>& r4=rn.r4;const std::vector<float>& c4=cn.r4;
+    const int i0=M4/4,i1=(w-M4)/4,j0=M4/4,j1=(h-M4)/4;
+    auto sad4=[&](int sx,int sy){
+        double s=0;
+        for(int j=j0;j<j1;++j){
+            const float* a=r4.data()+size_t(j)*w4;const float* b=c4.data()+size_t(j+sy/4)*w4+sx/4;float rs=0.f;
+            {
+#pragma clang fp reassociate(on)
+                for(int i=i0;i<i1;++i)rs+=std::abs(a[i]-b[i]);
+            }
+            s+=rs;
+        }
+        return s;
+    };
+    const int w2=rn.w2,n2=(w-2*M+1)/2,m2=(h-2*M+1)/2;
+    const std::vector<float>* r2=rn.r2;const std::vector<float>* c2=cn.r2;
+    const float* a0=r2[((M&1)<<1)|(M&1)].data()+size_t(M>>1)*w2+(M>>1);
+    auto donor=[&](int sx,int sy){return c2[(((M+sy)&1)<<1)|((M+sx)&1)].data()+size_t((M+sy)>>1)*w2+((M+sx)>>1);};
+    auto sad=[&](int sx,int sy){
+        const float* b0=donor(sx,sy);
+        double s=0;
+        for(int j=0;j<m2;++j){
+            const float* a=a0+size_t(j)*w2;const float* b=b0+size_t(j)*w2;float rs=0.f;
+            {
+#pragma clang fp reassociate(on)
+                for(int i=0;i<n2;++i)rs+=std::abs(a[i]-b[i]);
+            }
+            s+=rs;
+        }
+        return s;
+    };
+    int bx=0,by=0;double best=1e300;
+    for(int sy=-R;sy<=R;sy+=4)for(int sx=-R;sx<=R;sx+=4){const double v=sad4(sx,sy);if(v<best){best=v;bx=sx;by=sy;}}
+    int fx=bx,fy=by;best=1e300;
+    for(int sy=by-3;sy<=by+3;++sy)for(int sx=bx-3;sx<=bx+3;++sx){const double v=sad(sx,sy);if(v<best){best=v;fx=sx;fy=sy;}}
+    // each component against the same shift without it, sample by sample over the same window: kept only when it beats that
+    // beyond the noise (a scene with structure along one axis alone leaves the other free: its value would be the noise's)
+    auto beats=[&](int ax,int ay,int bx2,int by2){
+        const float* pa=donor(ax,ay);const float* pb=donor(bx2,by2);
+        double sum=0,sq=0;
+        for(int j=0;j<m2;++j){
+            const float* a=a0+size_t(j)*w2;const float* b=pa+size_t(j)*w2;const float* c=pb+size_t(j)*w2;
+            for(int i=0;i<n2;++i){const double d=double(std::abs(a[i]-b[i]))-double(std::abs(a[i]-c[i]));sum+=d;sq+=d*d;}
+        }
+        const double n=double(m2)*n2,mean=sum/n,var=std::max(0.0,sq/n-mean*mean);
+        return mean>0.0&&mean*std::sqrt(n)>=5.0*std::sqrt(var);
+    };
+    if(fx!=0&&!beats(0,fy,fx,fy)){fx=0;out.flat=true;}
+    if(fy!=0&&!beats(fx,0,fx,fy)){fy=0;out.flat=true;}
+    // a small frame (R < 48): a minimum on the reach's border or a component not measurable may be a move past the reach - the
+    // wide search (the selector before P663) measures it, as it did
+    if(R<48&&(out.flat||std::max(std::abs(fx),std::abs(fy))>=R+3)){out.shift=fastThumbShiftWide(rn,cn);out.flat=false;out.wide=true;return out;}
+    out.shift=std::sqrt(float(fx*fx+fy*fy));
+    return out;
+}
+inline FastShift fastThumbShift(const FastThumbNorm& rn,const FastThumbNorm& cn){return fastThumbShiftFixed(rn,cn);}
+inline FastShift fastThumbShift(const FastThumb& ref,const FastThumb& cur){return fastThumbShift(FastThumbNorm(ref),FastThumbNorm(cur));}
+// P662: body(i) for i in [0, n) on min(n, cores, 8) threads (this one among them), one index at a time: the selector's thumbnails
+// and shifts (each index computes alone, so any thread order gives the same values); was a thread per frame (21 on 8 cores)
+inline void fastParallelFor(int n,const std::function<void(int)>& body){
+    if(n<=0)return;
+    const int threads=std::max(1,std::min({n,int(std::thread::hardware_concurrency()),8}));
+    std::atomic<int> next{0};
+    std::exception_ptr error;std::mutex errorLock;
+    auto run=[&]{
+        for(int i=next.fetch_add(1);i<n;i=next.fetch_add(1)){
+            try{body(i);}catch(...){std::lock_guard<std::mutex> l(errorLock);if(!error)error=std::current_exception();}
+        }
+    };
+    std::vector<std::thread> team;
+    for(int t=1;t<threads;++t){try{team.emplace_back(run);}catch(const std::exception&){break;}} // fewer threads: shared indices
+    run();
+    for(auto& t:team)t.join();
+    if(error)std::rethrow_exception(error);
 }
 
 // P627: a frame past one of the GPU's limits for the fast route (texture / viewport size, the storage block of a strip's ring):
@@ -214,12 +319,9 @@ inline void fastSelectFrames(const HybridInput& input,const HybridTuning& tune,c
         std::vector<int> want;
         if(select)want=normals; else if(!longs.empty())want.push_back(0);
         for(int f:longs)want.push_back(f);
-        {
-            std::vector<std::future<void>> jobs;
-            for(int f:want)jobs.push_back(std::async(std::launch::async,[&,f]{
-                const HybridFrame& fr=input.frames[size_t(f)];thumbs[size_t(f)]=fastThumb(input,fr.raw,1.f/fr.exposure);}));
-            for(auto& j:jobs)j.get();
-        }
+        // P662: on a fixed team of threads (fastParallelFor), one frame at a time
+        fastParallelFor(int(want.size()),[&](int i){const int f=want[size_t(i)];
+            const HybridFrame& fr=input.frames[size_t(f)];thumbs[size_t(f)]=fastThumb(input,fr.raw,1.f/fr.exposure);});
         // "buffer order" [UNCERTAIN]: the order the app sends (frames[0] = its base, next to the shutter), as the reference's log
         // shows its base at idx 0 on both test phones
         const std::vector<int>& order=normals;
@@ -231,14 +333,16 @@ inline void fastSelectFrames(const HybridInput& input,const HybridTuning& tune,c
             for(int f:order)if(thumbs[size_t(f)].sharp>=0.7f*best){baseIdx=f;break;}
         }
         const float shiftMax=sportSel?15.f:35.f,sharpMin=sportSel?0.75f:0.6f;
-        char line[200];
+        char line[280];
         std::snprintf(line,sizeof(line),"FrameSelector: base idx=%d (sharpness %.4f%s)",baseIdx,select?thumbs[size_t(baseIdx)].sharp:0.f,select?(sportSel?", sport: moment base, gate 15 px / 0.75":""):", selector off");
         selectLine=line;
-        std::vector<std::pair<int,float>> shifts;
-        if(select){
-            std::vector<std::future<std::pair<int,float>>> jobs;
-            for(int f:order)if(f!=baseIdx)jobs.push_back(std::async(std::launch::async,[&,f]{return std::make_pair(f,fastThumbShift(thumbs[size_t(baseIdx)],thumbs[size_t(f)]));}));
-            for(auto& j:jobs)shifts.push_back(j.get());
+        std::vector<std::pair<int,float>> shifts;int flats=0,wides=0;float keptMax=0.f;
+        if(select){ // P662: the base's normalised copies once, the donors on the fixed team (the same shift per frame)
+            std::vector<int> sf;for(int f:order)if(f!=baseIdx)sf.push_back(f);
+            const FastThumbNorm baseNorm(thumbs[size_t(baseIdx)]);
+            std::vector<FastShift> tr(sf.size());
+            fastParallelFor(int(sf.size()),[&](int i){tr[size_t(i)]=fastThumbShift(baseNorm,FastThumbNorm(thumbs[size_t(sf[size_t(i)])]));});
+            for(size_t i=0;i<sf.size();++i){shifts.emplace_back(sf[i],tr[i].shift);flats+=tr[i].flat;wides+=tr[i].wide;}
         }
         size_t si=0;
         for(int f:order){
@@ -248,8 +352,15 @@ inline void fastSelectFrames(const HybridInput& input,const HybridTuning& tune,c
                 if(tr>shiftMax||sh<sharpMin*thumbs[size_t(baseIdx)].sharp){
                     ++dropped;std::snprintf(line,sizeof(line),"; dropped %d (shift %.1f, sharpness %.4f)",f,tr,sh);selectLine+=line;continue;
                 }
+                keptMax=std::max(keptMax,tr);
             }
             donors.push_back(f);
+        }
+        // P663: what the shifts were (one window for every shift; the phone log shows the kept donors' largest one)
+        if(select&&!shifts.empty()){
+            std::snprintf(line,sizeof(line),"; shift (P663: one window, search +-%d): kept donors' largest %.1f thumbnail px, %d not measurable (flat: 0)%s",
+                fastThumbRadius(thumbs[size_t(baseIdx)].w,thumbs[size_t(baseIdx)].h),keptMax,flats,wides?(", "+std::to_string(wides)+" by the wide search (small frame)").c_str():"");
+            selectLine+=line;
         }
     }
 }
@@ -354,8 +465,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const float covBlurred0=1.f/(tabA*sigma);
     // P587: the texture / bokeh footprints (hybridKernelFootprint: base / texture, blurred / bokeh, the ramp at transition x the
     // gradient; shrink and stretch keep the reference's 2.2 / 0.25 x the base precision before it); 1 = the reference values
-    HybridKernelFootprint footprint=hybridKernelFootprint(tune);
-    if(input.mosaic==2)hybridQuadTexture(footprint,tune); // P596: the Quad stream's texture footprint (the app sends the block)
+    // P647: x the automatic factors of the SNR key (hybridKernelFootprintSnr; the block of the stream: the app's, else measured)
+    const int mosaicBlock=input.mosaic!=0?input.mosaic:hybridMosaicBlock(input,tune,report);
+    std::string snrFootLine;
+    HybridKernelFootprint footprint=hybridKernelFootprintSnr(tune,snr,mosaicBlock,true,&snrFootLine,1+int(donors.size())); // P647b: the frames merged
+    report("HYBRID FAST MERGE: "+snrFootLine);
+    if(input.mosaic==2){ // P596: the Quad stream's texture footprint (the app sends the block); P647: the night ramp
+        hybridQuadTexture(footprint,tune,hybridSnrFootprintKey(snr,2));
+        const float q=hybridQuadTextureFactor(tune,hybridSnrFootprintKey(snr,2));
+        if(tune.kernelSnr&&q!=tune.mosaicQuadTexture)report("HYBRID FAST MERGE: SNR footprints: Quad texture x"+std::to_string(q)+" (by day x"+std::to_string(tune.mosaicQuadTexture)+")");
+    }
     std::array<float,4> fpA{covShrink0,covStretch0,0.001f,covBase0},fpB{covBlurred0,166.67f,0.f,0.f};
     footprint.apply61(fpA,fpB);
     const float covShrink=fpA[0],covStretch=fpA[1],covBase=fpA[3],covBlurred=fpB[0],covClip=fpA[2],covTrans=fpB[1];
@@ -371,7 +490,6 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // a Quad stream (2x2 colour blocks; the header's block, or measured): the reference's cfa_sensor_type 1 programs (sh035 guide,
     // sh046 quad gray, QPC sh039 / sh025, sh093 hot pixels, sh051 merge_quad); u_cfa_pattern = the pattern of the blocks
     // stage 4: a 4x4 colour-block stream (Tetra / Quad-Quad) takes the same programs with cfa_sensor_type 2 and merge_quad_quad (sh103)
-    const int mosaicBlock=input.mosaic!=0?input.mosaic:hybridMosaicBlock(input,tune,report);
     const bool quad=mosaicBlock==2||mosaicBlock==4;
     const int sensorType=mosaicBlock==4?2:1; // (quad only)
     // its white balance: the grey world over whole 4x4 colour periods (hybridBlendWb reads 2x2 Bayer cells)
@@ -501,11 +619,18 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const bool latticeAfter=quad&&sensorType==1&&tune.fastQuadLattice!=0&&tune.chromaGpu>0;
     if(mosaicChroma&&tune.chromaGpu>0)chromaPrewarm(false,latticeAfter);
     const bool streamWanted=hybridFinalHalvesHook()&&!(mergedDng&&input.mergedDng)&&!std::getenv("SCAM_NO_STREAM_OUT")&&!mosaicChroma;
+    // P662: a result the stream prepared for is only reserved (its data pointer names the stream; nothing reads its floats when the
+    // stream takes the halves): no 600 MB of zeroed pages at 50 MP; a stream that refuses (at the preparation, or later) gets the
+    // floats as before (ensureOut)
     std::future<std::vector<float>> outAlloc=std::async(std::launch::async,[n=size_t(OW)*OH*3,streamWanted,OW,OH]{
-        std::vector<float> v(n);
-        if(streamWanted)hybridFinalHalvesHook()(nullptr,OW,OH,0,0,v.data());
+        std::vector<float> v;
+        if(!streamWanted){v.resize(n);return v;}
+        v.reserve(n);
+        if(!hybridFinalHalvesHook()(nullptr,OW,OH,0,0,v.data()))v.resize(n);
         return v;
     });
+    const size_t outFloats=size_t(OW)*OH*3;
+    auto ensureOut=[outFloats](std::vector<float>& v){if(v.size()<outFloats)v.resize(outFloats);}; // (within its reservation: the same data)
     // ---- row strips above 16 MP (owner, 2026-11-03): phase A (every frame's alignment, rejection chain and frame weights at HALF,
     // as below) keeps each frame's flow and rejection map; phase B then merges the output in strips of `stripRows` rows: per strip and
     // frame the frame's RAW rows the strip needs (its flow's vertical range + a margin) are uploaded, unpacked and guided again
@@ -726,7 +851,12 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const std::array<float,4> dso=flowPick?std::array<float,4>{float(w2)/float(pickB*pgx),float(h2)/float(pickB*pgy),0.5f/float(pgx),0.5f/float(pgy)}:std::array<float,4>{fsx,fsy,fox,foy};
     const float fb[4]={1.5f/float(w2),1.5f/float(h2),1.f-1.5f/float(w2),1.f-1.5f/float(h2)};
     const float nsb[4]={63.f/64.f,0.5f,1.f/128.f,0.25f};
-    const float covRangeRg[4]={0.367188f,24.44773f,0.367188f,25.68449f},covRangeB[2]={-6.97557f,14.00209f};
+    // the reference's packing range of the kernel precisions (RGB10_A2): its top (~24.8 = precision 5) caps every narrower kernel -
+    // the shrink across edges (8.8 at day) always, the base beyond x0.81. P647: by day the footprint's lift (hybridSnrFactors: 1 / e^2
+    // of the across-edge factor e; the Bayer stream its own, P647b) lifts the range (10-bit steps that much coarser); lift 1 (kernelSnr
+    // 0, the pivot and below): the reference's range, bit for bit
+    const float rangeLift=std::max(footprint.lift,1.f);
+    const float covRangeRg[4]={0.367188f,24.44773f*rangeLift,0.367188f,25.68449f*rangeLift},covRangeB[2]={-6.97557f*rangeLift,14.00209f*rangeLift};
     const float identity[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
     // hot pixels (§4.1): sabre_hot_pixel_strength 1 below sabre_hot_pixel_max_snr 15; [NOT RECOVERED] the value above it (0 here)
     // and u_threshold_offset (1 % of the range here)
@@ -1423,6 +1553,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         if(streamed)streamed=halvesHook(nullptr,OW,OH,-1,-1,out.data());
         outNote=streamed?"halves streamed into the output":"floats";
         if(!streamed&&halvesHook)outNote+=" (the stream did not take the halves)";
+        if(!streamed)ensureOut(out);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
             const auto t0=Clock::now();
@@ -1622,6 +1753,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             const uint16_t* src=static_cast<const uint16_t*>(m);
             if(streamed){streamed=halvesHook(src,OW,OH,y0,y1,out.data());if(streamed){streamTook=true;return;}}
             if(streamTook)throw std::runtime_error("FAST MERGE: the output stream refused a strip after taking the first ones");
+            ensureOut(out);
             mergeRowBands(rows,[&](int r0,int r1){
                 const size_t a=size_t(r0)*OW*3,e=size_t(r1)*OW*3;
                 float* d=out.data()+size_t(y0)*OW*3;
@@ -1696,11 +1828,23 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         float median=1.f;
         if(!sample.empty()){std::nth_element(sample.begin(),sample.begin()+sample.size()/2,sample.end());median=std::max(sample[sample.size()/2],1.f);}
         const float codeScale=64.f/median;
-        effMap->assign(size_t(OW)*OH,0);
+        // P662: every byte is written below (the map only sized here: no assign of zeros over a map of this size); the HALF column of
+        // each OUT column from a table and each HALF cell's code once per source row (the same lround / clamp of the same float), an
+        // OUT row that reads the row before's HALF row a copy of it: the same codes as one 64-bit division and lround per pixel
+        effMap->resize(size_t(OW)*OH);
+        std::vector<int> colOf(static_cast<size_t>(OW));
+        for(int x=0;x<OW;++x)colOf[size_t(x)]=std::min(int(int64_t(x)*w2/OW),w2-1);
         mergeRowBands(OH,[&](int y0,int y1){ // (P501: the HALF cell of an OUT pixel, x w2 / OW; x / 2 at sabre_scale 1)
+            std::vector<uint8_t> code(static_cast<size_t>(w2));int coded=-1;
             for(int y=y0;y<y1;++y){
-                const float* e=eff.data()+size_t(std::min(int(int64_t(y)*h2/OH),h2-1))*w2;uint8_t* d=effMap->data()+size_t(y)*OW;
-                for(int x=0;x<OW;++x)d[x]=uint8_t(std::clamp(std::lround(e[std::min(int(int64_t(x)*w2/OW),w2-1)]*codeScale),1L,255L));
+                const int sy=std::min(int(int64_t(y)*h2/OH),h2-1);uint8_t* d=effMap->data()+size_t(y)*OW;
+                if(y>y0&&sy==std::min(int(int64_t(y-1)*h2/OH),h2-1)){std::memcpy(d,d-OW,size_t(OW));continue;}
+                if(sy!=coded){
+                    const float* e=eff.data()+size_t(sy)*w2;
+                    for(int i=0;i<w2;++i)code[size_t(i)]=uint8_t(std::clamp(std::lround(e[i]*codeScale),1L,255L));
+                    coded=sy;
+                }
+                for(int x=0;x<OW;++x)d[x]=code[size_t(colOf[size_t(x)])];
             }
         });
         char line[160];std::snprintf(line,sizeof(line),"HYBRID EFFECTIVE MAP: median frames=%.3f (1 + accumulated donor weight) code scale=%.6f",median,codeScale);
@@ -1776,6 +1920,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     hybridSeriesMerged(tune,input,stats.merged,stats.mergedNormals,report);
     report("HYBRID STAGES ms: align=0 localAlign=0 mask=0 merge="+std::to_string(stats.mergeMs)+" total="+std::to_string(ms(started,finished))
         +" merged="+std::to_string(N)+" droppedBracketed="+std::to_string(longsDropped)+" bento=0 (fast merge)");
+    HybridLatticeFuse fuse; // P662
     if(mosaicChroma&&!streamed){
         // P563: the native merge's chroma median (dual 5-point, taps max(1, b / 2) output px; the false-colour suppression on the
         // luma's oscillation): the blocks' colour lattice of the per-frame merge (R / B at 1/4 cycles / px 2-3x the quality route's)
@@ -1783,7 +1928,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         const int b=std::max(1,int(std::lround(double(mosaicBlock)*OW/std::max(W,1))));
         std::string how;
         chromaKeepNext(latticeAfter); // P610: the lattice below takes the median's context (not torn down and made again)
-        mosaicChromaMedian(out,OW,OH,b,nullptr,tune.chromaGpu>0,&how);
+        // P662: in the median's GPU bands (50 MP) the lattice follows there, each band's result on the GPU
+        if(latticeAfter){fuse.relative=tune.fastQuadLattice>=2;fuse.clipK=2.5f;}
+        mosaicChromaMedian(out,OW,OH,b,nullptr,tune.chromaGpu>0,&how,0,nullptr,latticeAfter?&fuse:nullptr);
         chromaKeepNext(false);
         report("HYBRID FAST MERGE MOSAIC: chroma median (dual 5-point, taps "+std::to_string(std::max(1,b/2))+" px of the "+std::to_string(OW)+"x"
             +std::to_string(OH)+" result, "+how+") "+std::to_string(int(ms(c0,Clock::now())))+" ms (P563)");
@@ -1828,16 +1975,20 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // P571 (owner, 2026-11-09: «Сетку сделай такой же как на качестве и даже лучше»): the 2 / 4 px lattice the base's own Quad
         // interpolation leaves where few frames merged, off the luma (ChromaMedianGpu::quadLattice), after the chroma median (which moves R / B: the luma's lattice as the result holds it)
         const auto q0=Clock::now();
-        try{auto gq=chromaTake();
+        if(fuse.done)report(std::string("HYBRID FAST MERGE MOSAIC: Quad lattice off the luma (P571, ")+(fuse.relative?"relative P632":"luma units P591")+"): "+fuse.how
+            +", in the chroma median's GPU bands (P662: its time in the median's line)");
+        else try{auto gq=chromaTake();
             // the strip's GPU buffers (36 B a pixel with its halo) within a quarter of MemAvailable, as the chroma median's bands
             if(const uint64_t avail=hybridMemAvailable()){const int64_t rows=int64_t(avail/4/(uint64_t(OW)*36))-2*ChromaMedianGpu::kQlHalo;
                 gq->qlStrip=int(std::max<int64_t>(64,std::min<int64_t>(1024,rows)));}
             const bool rel=tune.fastQuadLattice>=2; // P632: the lattice relative to the luma (1 = in luma units, P591)
-            const std::string t=gq->quadLattice(out,OW,OH,2.5f,rel);chromaKeep(std::move(gq));
+            const std::string t=gq->quadLattice(out,OW,OH,2.5f,rel,mosaicChroma);chromaKeep(std::move(gq)); // P662: the median's result on the GPU
             report(std::string("HYBRID FAST MERGE MOSAIC: Quad lattice off the luma (P571, ")+(rel?"relative P632":"luma units P591")+"): "+t+", "+std::to_string(int(ms(q0,Clock::now())))+" ms");}
         catch(const std::exception& e){report(std::string("HYBRID FAST MERGE MOSAIC: Quad lattice pass skipped: ")+e.what());}
     }
     if(statsOut)*statsOut=stats;
+    // P662: streamed: the floats stay a reservation (size 0) and the worker learns their count here; else every float is there
+    if(streamed)hybridStreamedFloats()=outFloats; else ensureOut(out);
     if(hlMaskOut&&!hlMask.empty()){ // P480: last, once nothing of the route can fail any more
         double sum=0;size_t on=0,seen=0;
         for(size_t i=8;i<hlMask.size();i+=7){const float v=hybridHalfToFloat(hlMask[i]);sum+=v;on+=v>=0.005f;++seen;} // every 7th cell (the log line)

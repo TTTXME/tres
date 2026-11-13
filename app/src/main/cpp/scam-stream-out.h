@@ -45,10 +45,12 @@ inline void halvesOf(const float* src,uint16_t* dst,size_t n,bool stats,double& 
 // and half fill were most of the output write: 44 ms at 12 MP on the X8U). The same bytes: rows are converted once final, and the
 // memfd is used only for the result whose rows came (the commit event: the same buffer, every row, nothing after it); otherwise it
 // is emptied again and the output written as before. Off: SCAM_NO_STREAM_OUT, a file output (a replay), no half output, the
-// mapped write off, an RGB above 160 MB (the merge sends nothing above 16 MP either).
+// mapped write off, an RGB above 1 GiB (P662: was 160 MB, so a 50 MP fast merge's 288 MB of halves went through its floats and a
+// second pass after the merge; the plain merge sends nothing above 16 MP; above 1 GiB - a 200 MP output - the worker's sparse
+// write of P179 stays: no whole reservation beside the merge's peak).
 class StreamOut {
 public:
-    static constexpr size_t kMaxBytes=size_t(160)<<20;
+    static constexpr size_t kMaxBytes=size_t(1)<<30;
     explicit StreamOut(int output):fd(output){}
     ~StreamOut(){drop();if(fd>=0)close(fd);}
     StreamOut(const StreamOut&)=delete;
@@ -113,9 +115,11 @@ public:
         }catch(...){fail("an exception");return false;}
     }
     // true: the memfd holds result's halves (its first result.size() * 2 bytes, the file that long), sum / max of its floats
-    bool take(const std::vector<float>& result,double& s,float& m){
+    bool take(const std::vector<float>& result,double& s,float& m){return take(result.data(),result.size(),s,m);}
+    // P662: `floats` the result's float count (a streamed fast-merge result is only its reservation: data, no size)
+    bool take(const float* result,size_t floats,double& s,float& m){
         std::lock_guard<std::mutex> guard(lock);
-        if(!committed||failed||!map||data!=result.data()||size_t(w)*h*3!=result.size()){
+        if(!committed||failed||!map||data!=result||size_t(w)*h*3!=floats){
             if(why.empty())why=!committed?"no commit (the result is not the plain sink's)":"another result";
             dropLocked();return false;
         }
@@ -131,7 +135,7 @@ private:
         const size_t want=width>0&&height>0?size_t(width)*size_t(height)*6:0;
         if(want!=bytes)dropLocked();
         w=width;h=height;bytes=want;data=nullptr;done=0;sum=0;maximum=0;committed=false;failed=false;why.clear();
-        if(want==0||want>kMaxBytes)fail(want?"the RGB above 160 MB":"no size");
+        if(want==0||want>kMaxBytes)fail(want?"the RGB above 1 GiB":"no size");
     }
     bool open(bool populate=false){
         struct stat st{};

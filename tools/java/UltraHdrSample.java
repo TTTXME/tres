@@ -1,7 +1,7 @@
 import android.graphics.Bitmap;
 
-import com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer;
-import com.particlesdevs.photoncamera.processing.ultrahdr.UltraHdrContainer;
+import com.scamera.app.processing.ultrahdr.GainMapComputer;
+import com.scamera.app.processing.ultrahdr.UltraHdrContainer;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;

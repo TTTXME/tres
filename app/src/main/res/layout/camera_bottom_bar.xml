@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bottom bar (P574, the approved concept): whatever height the 3:4 frame leaves, filled from the bottom edge up - the grabber,
+     the shutter row with the bottom row (camera_shutter_row), the lens strip centred over them and the zoom ruler's slot over the
+     strip. The quick-settings sheet and its scrim end above this bar, so the strip works at every sheet level and the ruler never
+     covers the tiles. BottomChrome lifts the shutter row (and with it the strip and the slot) by 10 % of the bar through the row's
+     bottom margin (P32), and lays the sheet's HIDDEN handle over the bar's top edge. -->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+    <data>
+        <variable name="uimodel" type="com.scamera.app.ui.camera.model.CameraFragmentModel"/>
+        <variable name="auxmodel" type="com.scamera.app.ui.camera.model.AuxButtonsModel"/>
+    </data>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/bottom_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+        <!-- where the zoom ruler (ZoomDialView, a small card) shows while the zoom changes -->
+        <FrameLayout
+                android:id="@+id/zoom_ruler_slot"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginBottom="6dp"
+                android:clipChildren="false"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toTopOf="@id/lens_strip"/>
+
+        <!-- the grabber at the bottom edge: a tap or a swipe up opens the quick settings -->
+        <FrameLayout
+                android:id="@+id/more_button"
+                android:layout_width="56dp"
+                android:layout_height="18dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/sheet_handle_open"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent">
+
+            <View
+                    android:id="@+id/more_grip"
+                    android:layout_width="36dp"
+                    android:layout_height="4dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"/>
+        </FrameLayout>
+
+        <!-- the lens strip (a capsule of the module buttons), as wide as its buttons and never wider than the bar -->
+        <com.scamera.app.ui.camera.views.AuxButtonsLayout
+                android:id="@+id/lens_strip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/aux_container_background"
+                android:gravity="center"
+                android:orientation="horizontal"
+                app:layout_constrainedWidth="true"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toTopOf="@id/shutter_row"
+                setAuxButtonModel="@{auxmodel}"
+                setActiveId="@{auxmodel.currentCameraId}"
+                bindViewGroupChildrenRotate="@{uimodel}"/>
+
+        <!-- the gallery card, the shutter and the camera switch over the bottom row -->
+        <include
+                android:id="@+id/shutter_row"
+                layout="@layout/camera_shutter_row"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="18dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"/>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</layout>

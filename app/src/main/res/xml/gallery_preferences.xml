@@ -3,7 +3,7 @@
     <PreferenceCategory app:title="@string/options">
 
         <MultiSelectListPreference
-                app:key="@string/pref_folders_list"
+                app:key="pref_folders_list"
                 app:title="@string/gallery_folders"
                 app:useSimpleSummaryProvider="true" />
 

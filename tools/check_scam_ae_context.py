@@ -4,10 +4,10 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = 'com/particlesdevs/photoncamera/capture'
+PACKAGE = 'com/scamera/app/capture'
 # UI language (i18n): the Russian text, as the real Lang gives on a Russian system
-LANG = 'package com.particlesdevs.photoncamera.util; public final class Lang {public static boolean ru(){return true;}public static String t(String ru,String en){return ru;}public static String t(Object context,String ru,String en){return ru;}}'
-CHECK = '''package com.particlesdevs.photoncamera.capture;
+LANG = 'package com.scamera.app.util; public final class Lang {public static boolean ru(){return true;}public static String t(String ru,String en){return ru;}public static String t(Object context,String ru,String en){return ru;}}'
+CHECK = '''package com.scamera.app.capture;
 import java.nio.*;
 import java.io.IOException;
 public class ScamContextCheck {

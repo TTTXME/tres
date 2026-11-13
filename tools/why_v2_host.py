@@ -25,11 +25,11 @@ import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SH = ROOT / 'app/src/main/assets/shaders'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing'
 sys.path.insert(0, str(ROOT / 'tools'))
 from check_colour_output import expand_imports, set_define  # noqa: E402
 
-PKG = 'com.particlesdevs.photoncamera.processing.opengl.postpipeline'
+PKG = 'com.scamera.app.processing.opengl.postpipeline'
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
 
 # WhyV2Fusion.FULL_LIMIT / WhyV2Stats.MAX_CEILING / WhyV2Tone.CURVE_SAMPLES (read from the sources below, checked there)
@@ -113,7 +113,7 @@ def _java_build():
     shutil.copy(JAVA / 'opengl/postpipeline/WhyV2Ae.java', pkg / 'WhyV2Ae.java')
     shutil.copy(JAVA / 'opengl/postpipeline/WhyV2Curve.java', pkg / 'WhyV2Curve.java')
     (pkg / 'WhyV2AeHost.java').write_text(DRIVER, encoding='utf-8')
-    col = src / 'com/particlesdevs/photoncamera/processing/color'
+    col = src / 'com/scamera/app/processing/color'
     col.mkdir(parents=True)
     shutil.copy(JAVA / 'color/ToneCurve.java', col / 'ToneCurve.java')
     ann = src / 'androidx/annotation'

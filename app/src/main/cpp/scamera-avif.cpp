@@ -69,7 +69,7 @@ std::string encode(JNIEnv* env, jobject bitmap, jstring path, const scamera_avif
 // gainWidth x gainHeight map or null, gainMeta its ISO 21496-1 values (Options::gainMeta). stats (long[7] or null) receives:
 // bit depth, 1 when 4:4:4, conversion ms, encode ms, file bytes, 1 when the EXIF block was stored, 1 when the gain map was.
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_processing_avif_AvifEncoder_encode(JNIEnv* env, jclass, jobject bitmap, jstring path,
+Java_com_scamera_app_processing_avif_AvifEncoder_encode(JNIEnv* env, jclass, jobject bitmap, jstring path,
                                                                        jint quality, jboolean lossless, jint depth,
                                                                        jboolean yuv444, jint speed, jint threads,
                                                                        jbyteArray exif, jint primaries, jint transfer,
@@ -130,7 +130,7 @@ Java_com_particlesdevs_photoncamera_processing_avif_AvifEncoder_encode(JNIEnv* e
 // maxSide px on the long side; size (int[4] or null) receives width, height, source width, source height. Returns null on
 // failure (the reason goes to error[0] when error is a String[1]); never throws into Java.
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_particlesdevs_photoncamera_processing_avif_AvifDecoder_decode(JNIEnv* env, jclass, jbyteArray data, jint maxSide,
+Java_com_scamera_app_processing_avif_AvifDecoder_decode(JNIEnv* env, jclass, jbyteArray data, jint maxSide,
                                                                        jint threads, jintArray size, jobjectArray error) {
     std::string reason;
     jbyteArray result = nullptr;

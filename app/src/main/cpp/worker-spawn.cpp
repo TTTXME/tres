@@ -111,21 +111,21 @@ static jintArray spawnWorker(JNIEnv* env,jobjectArray jargv,jobjectArray jenv,ji
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
-Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jobjectArray argv,jobjectArray vars,jintArray fds){
+Java_com_scamera_app_util_WorkerSpawn_spawn(JNIEnv* env,jclass,jobjectArray argv,jobjectArray vars,jintArray fds){
     return spawnWorker(env,argv,vars,fds,false);
 }
 extern "C" JNIEXPORT jintArray JNICALL
-Java_com_particlesdevs_photoncamera_util_WorkerSpawn_spawnNoFork(JNIEnv* env,jclass,jobjectArray argv,jobjectArray vars,jintArray fds){
+Java_com_scamera_app_util_WorkerSpawn_spawnNoFork(JNIEnv* env,jclass,jobjectArray argv,jobjectArray vars,jintArray fds){
     return spawnWorker(env,argv,vars,fds,true);
 }
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_WorkerSpawn_supportsFastSpawn(JNIEnv*,jclass){
+Java_com_scamera_app_util_WorkerSpawn_supportsFastSpawn(JNIEnv*,jclass){
     return scam_spawn::api().available()?JNI_TRUE:JNI_FALSE;
 }
 
 // Exit status (0..255), 128+signal, or -1 while still running after timeoutMs.
 extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_util_WorkerSpawn_waitFor(JNIEnv*,jclass,jint pid,jlong timeoutMs) {
+Java_com_scamera_app_util_WorkerSpawn_waitFor(JNIEnv*,jclass,jint pid,jlong timeoutMs) {
     timespec start{};clock_gettime(CLOCK_MONOTONIC,&start);
     for(;;) {
         int status=0;

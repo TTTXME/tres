@@ -1,0 +1,130 @@
+package com.scamera.app.processing.ultrahdr;
+
+import android.graphics.Bitmap;
+
+import com.scamera.app.api.ParseExif;
+import com.scamera.app.util.Log;
+
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+
+/**
+ * Orchestrates the full Ultra HDR encode:
+ * <ol>
+ *   <li>take the encoded gain map from PostPipeline's scene-anchored pass
+ *       (pre-LTM scene luma, midtone-anchored to the stored base) and
+ *       normalize it via {@link GainMapComputer#compute}</li>
+ *   <li>compress the gain map to a JPEG, then compress the SDR base straight
+ *       into the output with EXIF / XMP / MPF placed while it is written
+ *       ({@link UltraHdrContainer#write})</li>
+ * </ol>
+ *
+ * The primary JPEG of a 50 MP base is ~25 MB; it is never held in memory
+ * ({@link #encodeToFile}); {@link #encode} holds it in one growable buffer plus
+ * the returned copy. EXIF is generated on a
+ * tiny JPEG and spliced in, instead of a temp-file round trip of the whole
+ * image. The caller recycles the bitmaps.
+ */
+public final class UltraHdrEncoder {
+
+    private static final String TAG = "UltraHdrEncoder";
+    private static final int FILE_BUFFER_BYTES = 256 * 1024;
+
+    private UltraHdrEncoder() {}
+
+    /**
+     * Writes the Ultra HDR JPEG straight into {@code file}: the SDR base is
+     * encoded into the file (no in-memory JPEG), the gain map is appended and
+     * the MPF directory patched in place. Peak extra memory is the gain-map JPEG
+     * plus the write buffer. On failure the partial file is deleted and the
+     * bitmap is left untouched, so the caller can still save a plain JPEG. {@code quality}: the JPEG quality of the base
+     * image and the gain map (P24 «Качество JPEG»).
+     */
+    public static void encodeToFile(Path file, Bitmap sdr, GainMapComputer.Result gm, ParseExif.ExifData exif, int quality)
+            throws IOException {
+        encodeToFile(file, sdr, gm, exif, quality, null);
+    }
+
+    /**
+     * As above; {@code icc} (P46, Display P3) is the ICC profile of the base image, an APP2 ICC_PROFILE of the primary JPEG
+     * (the gain map has none: it is applied in the base image's colour space, and a scalar gain is the same in any
+     * primaries). Null: the base image is encoded straight into the container as before.
+     */
+    public static void encodeToFile(Path file, Bitmap sdr, GainMapComputer.Result gm, ParseExif.ExifData exif, int quality,
+                                    byte[] icc) throws IOException {
+        final byte[] gainMapJpeg = compressGainMap(gm, quality);
+        final byte[] exifApp1 = exif != null ? exifSegment(exif, sdr) : null;
+        boolean done = false;
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
+            final OutputStream out = new BufferedOutputStream(Channels.newOutputStream(channel), FILE_BUFFER_BYTES);
+            UltraHdrContainer.write(out, (offset, bytes) -> {
+                final ByteBuffer patch = ByteBuffer.wrap(bytes);
+                long at = offset;
+                while (patch.hasRemaining()) at += channel.write(patch, at);
+            }, icc == null ? o -> compressPrimary(sdr, o, quality) : o -> {
+                final OutputStream tagged = com.scamera.app.processing.color.IccEmbed.jpegInserting(o, icc);
+                compressPrimary(sdr, tagged, quality);
+                tagged.close();
+            }, exifApp1, gainMapJpeg, gm.gainMapMin, gm.gainMapMax, gm.hdrCapacityMax);
+            out.flush();
+            done = true;
+        } finally {
+            if (!done) {
+                try { Files.deleteIfExists(file); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    /**
+     * P24: jpegli 4:4:4 (JpegliEncoder) - not with P80 «Быстрый JPEG», which takes Android's encoder for the HDR photo too (P316
+     * settings audit: the switch acted on plain JPEGs only, ImageSaver).
+     */
+    private static boolean jpegli() {
+        return com.scamera.app.processing.JpegliEncoder.available()
+                && !com.scamera.app.settings.PreferenceKeys.getJpegFastEncoder();
+    }
+
+    // P24: jpegli 4:4:4 (jpegli()). A failed base image fails the container; the caller then saves a plain JPEG.
+    private static void compressPrimary(Bitmap bmp, OutputStream out, int quality) throws IOException {
+        if (jpegli())
+            com.scamera.app.processing.JpegliEncoder.compress(bmp, quality, out);
+        else
+            com.scamera.app.processing.JpegliEncoder.compressFallback(bmp, quality, out);
+    }
+
+    private static byte[] compressGainMap(GainMapComputer.Result gm, int quality) {
+        if (jpegli()) {
+            final ByteArrayOutputStream gainOut = new ByteArrayOutputStream();
+            try {
+                com.scamera.app.processing.JpegliEncoder.compress(gm.gainMap, quality, gainOut);
+                return gainOut.toByteArray();
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "jpegli gain map failed, Android encoder: " + e);
+            }
+        }
+        final ByteArrayOutputStream gainOut = new ByteArrayOutputStream();
+        try {
+            com.scamera.app.processing.JpegliEncoder.compressFallback(gm.gainMap, quality, gainOut);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to compress gain map", e);
+        }
+        return gainOut.toByteArray();
+    }
+
+    /** EXIF APP1 of the primary (the tags of the plain JPEG path, the real size); null without EXIF. */
+    private static byte[] exifSegment(ParseExif.ExifData exif, Bitmap sdr) {
+        // P620: with the photo's IFD1 thumbnail
+        return com.scamera.app.processing.ExifBlock.app1Segment(exif, sdr.getWidth(), sdr.getHeight(), sdr);
+    }
+
+    /** In-memory output whose already written bytes can be patched (the MPF directory). */
+}

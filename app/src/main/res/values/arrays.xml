@@ -19,15 +19,15 @@
         <item>Characteristics</item>
         <item>Capture</item>
     </string-array>
-    <string-array name="focuspeakset_entries">
-        <item>Off</item>
-        <item>On</item>
-        <item>@string/focus_peaking_auto</item>
-    </string-array>
     <string-array name="colorset_entryValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
+    </string-array>
+    <string-array name="focuspeakset_entries">
+        <item>Off</item>
+        <item>On</item>
+        <item>@string/focus_peaking_auto</item>
     </string-array>
     <string-array name="focuspeakset_entryValues" translatable="false">
         <item>0</item>
@@ -68,7 +68,7 @@
         <item>3</item>
         <item>4</item>
     </string-array>
-    <integer-array name="countdowntimer_entryvalues">
+    <integer-array name="self_timer_seconds">
         <item>0</item>
         <item>3</item>
         <item>10</item>

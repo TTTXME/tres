@@ -14,16 +14,18 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-# The worker executable for the su launcher (the app process spawns lib/arm64-v8a/libscamera_worker.so).
-PREFIX = 'assets/scam-neural/arm64-v8a/'
-# Worker without root: executable + QNN/CRE runtime installed into nativeLibraryDir.
+# P662: the worker executable ships once, in the template (app/build.gradle buildScamNeuralWorker), as
+# lib/arm64-v8a/libscamera_worker.so: installed into nativeLibraryDir, run by the app process and by the su launcher.
+# Its former second copy in assets/scam-neural/ must not come back.
+OLD_ASSET_PREFIX = 'assets/scam-neural/'
+# QNN/CRE runtime installed into nativeLibraryDir next to the worker.
 LIB_PREFIX = 'lib/arm64-v8a/'
 LIB_WORKER = 'libscamera_worker.so'
 
 
 def pinned_assets(manifest, expected):
     """expected=None skips the entry-count check (manifests that grew after the private bundle)."""
-    source = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/ScamNeuralWorker.java'
+    source = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/ScamNeuralWorker.java'
     block = re.search(r'\b' + re.escape(manifest) + r'\s*=\s*\{(.*?)\n    \};', source.read_text(), re.S)
     if block is None:
         raise ValueError('Missing bundled asset manifest: ' + manifest)
@@ -56,6 +58,18 @@ def check_worker(data):
             interpreter = data[start:start + length]
     if interpreter != b'/system/bin/linker64\0':
         raise ValueError('Worker is not a standalone Android executable')
+    # P662: linked with -s (no .symtab; .dynsym stays for the crash handler's dladdr)
+    shoff, = struct.unpack_from('<Q', data, 40)
+    shentsize, shnum = struct.unpack_from('<HH', data, 58)
+    for index in range(shnum if shentsize == 64 else 0):
+        if struct.unpack_from('<I', data, shoff + index * shentsize + 4)[0] == 2:  # SHT_SYMTAB
+            raise ValueError('Worker carries its static symbol table (link it with -s)')
+
+
+def no_asset_copy(names):
+    stale = [name for name in names if name.startswith(OLD_ASSET_PREFIX)]
+    if stale:
+        raise ValueError('The worker\'s asset copy is back (it ships only as ' + LIB_PREFIX + LIB_WORKER + '): ' + ', '.join(stale))
 
 
 def native_libraries(*manifests):
@@ -76,9 +90,8 @@ def verify_bundle(apk, libraries):
         names = archive.namelist()
         if len(names) != len(set(names)):
             raise ValueError('Duplicate APK entries')
-        check_worker(archive.read(PREFIX + 'scam-neural-worker'))
-        if archive.read(LIB_PREFIX + LIB_WORKER) != archive.read(PREFIX + 'scam-neural-worker'):
-            raise ValueError('Native-library worker differs from the asset worker')
+        check_worker(archive.read(LIB_PREFIX + LIB_WORKER))
+        no_asset_copy(names)
         for name, sha in libraries.items():
             with archive.open(LIB_PREFIX + name) as stream:
                 if hashlib.file_digest(stream, 'sha256').hexdigest() != sha:
@@ -134,7 +147,10 @@ def main():
         signed = Path(tmp) / 'signed.apk'
         shutil.copyfile(args.template, unsigned)
         with zipfile.ZipFile(unsigned, 'a', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-            check_worker(archive.read(PREFIX + 'scam-neural-worker'))
+            if LIB_PREFIX + LIB_WORKER not in archive.namelist():
+                raise ValueError('Template lacks the worker ' + LIB_PREFIX + LIB_WORKER)
+            check_worker(archive.read(LIB_PREFIX + LIB_WORKER))
+            no_asset_copy(archive.namelist())
             for directory, manifest in sources:
                 for name in manifest:
                     # The QNN / CRE runtime ships only as native libraries (mapped executable in the app sandbox, also
@@ -142,7 +158,6 @@ def main():
                     if LIB_PREFIX + name in archive.namelist():
                         raise ValueError('Template already contains ' + LIB_PREFIX + name)
                     archive.write(directory / name, LIB_PREFIX + name)
-            archive.writestr(LIB_PREFIX + LIB_WORKER, archive.read(PREFIX + 'scam-neural-worker'))
         keystore, alias, password = signing_key()
         # The password reaches apksigner through its environment, never the command line.
         subprocess.run(['java', '-jar', str(args.apksigner), 'sign', '--ks', keystore, '--ks-key-alias', alias,

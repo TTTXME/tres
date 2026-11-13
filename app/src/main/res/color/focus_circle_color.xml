@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The tap-focus brackets (FocusCircleView): red while the focus failed; otherwise the view draws them in the camera accent. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <item android:color="?colorControlActivated" app:focused_locked="true"/>
-    <item android:color="@android:color/holo_red_light" app:unfocused_locked="true"/>
+    <item android:color="@android:color/holo_red_light" app:focus_failed="true"/>
     <item android:color="@android:color/white"/>
-
 </selector>

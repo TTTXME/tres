@@ -6,9 +6,9 @@
      Chips card (.chips): 4dp padding, six equal chips 2dp apart - ISO, Выдержка, Яркость, Фокус, Цвет and «Всё на авто»;
      each an icon (20dp), the value (13sp) and its name (10sp). Text in sp grows with the font size only up to
      UiTokens.FONT_SCALE_CAP (P43). Card colours, radii and the accent are applied by ExpandingManualPanel. -->
-<com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel xmlns:android="http://schemas.android.com/apk/res/android"
+<com.scamera.app.circularbarlib.ui.ExpandingManualPanel xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/manual_mode" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:id="@+id/pro_panel" android:layout_width="match_parent" android:layout_height="wrap_content"
     android:orientation="vertical">
 
     <LinearLayout android:id="@+id/knobViewContainer" android:layout_width="match_parent"
@@ -35,9 +35,7 @@
 
         <FrameLayout android:id="@+id/manual_ruler_body" android:layout_width="match_parent"
             android:layout_height="wrap_content">
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.knobview.KnobView
-                android:id="@+id/knobView" android:layout_width="match_parent" android:layout_height="67.2dp" android:visibility="gone" />
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.scaleview.LinearScaleView
+            <com.scamera.app.circularbarlib.ui.views.scaleview.LinearScaleView
                 android:id="@+id/linearScaleView" android:layout_width="match_parent" android:layout_height="54dp"
                 android:visibility="gone" android:focusable="true" />
         </FrameLayout>
@@ -60,28 +58,28 @@
         <LinearLayout android:id="@+id/buttons_container" android:layout_width="0dp" android:layout_weight="1"
             android:layout_height="wrap_content" android:padding="4dp"
             android:orientation="horizontal">
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.ManualChipView android:id="@+id/iso_option_tv"
+            <com.scamera.app.circularbarlib.ui.views.ManualChipView android:id="@+id/iso_option_tv"
                 android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
                 android:contentDescription="@string/manual_tab_iso" app:manualChipIcon="@drawable/pro_ic_iso"
                 app:manualChipName="@string/manual_name_iso" />
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.ManualChipView android:id="@+id/exposure_option_tv"
+            <com.scamera.app.circularbarlib.ui.views.ManualChipView android:id="@+id/exposure_option_tv"
                 android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="2dp"
                 android:contentDescription="@string/manual_tab_shutter" app:manualChipIcon="@drawable/pro_ic_shutter"
                 app:manualChipName="@string/manual_name_shutter" />
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.ManualChipView android:id="@+id/ev_option_tv"
+            <com.scamera.app.circularbarlib.ui.views.ManualChipView android:id="@+id/ev_option_tv"
                 android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="2dp"
                 android:contentDescription="@string/manual_tab_ev" app:manualChipIcon="@drawable/pro_ic_ev"
                 app:manualChipName="@string/manual_name_ev" />
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.ManualChipView android:id="@+id/focus_option_tv"
+            <com.scamera.app.circularbarlib.ui.views.ManualChipView android:id="@+id/focus_option_tv"
                 android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="2dp"
                 android:contentDescription="@string/manual_tab_focus" app:manualChipIcon="@drawable/pro_ic_focus"
                 app:manualChipName="@string/manual_name_focus" />
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.ManualChipView android:id="@+id/wb_option_tv"
+            <com.scamera.app.circularbarlib.ui.views.ManualChipView android:id="@+id/wb_option_tv"
                 android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="2dp"
                 android:contentDescription="@string/manual_tab_wb" app:manualChipIcon="@drawable/pro_ic_wb"
                 app:manualChipName="@string/manual_name_wb" />
             <!-- «Всё на авто»: every parameter back to auto; dimmed while nothing is manual. -->
-            <com.particlesdevs.photoncamera.circularbarlib.ui.views.ManualChipView android:id="@+id/all_auto_option_tv"
+            <com.scamera.app.circularbarlib.ui.views.ManualChipView android:id="@+id/all_auto_option_tv"
                 android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="2dp"
                 android:contentDescription="@string/manual_all_auto" app:manualChipIcon="@drawable/pro_ic_auto"
                 app:manualChipName="@string/manual_allauto_name" />
@@ -91,4 +89,4 @@
             android:layout_height="wrap_content" android:layout_gravity="center_vertical" android:layout_marginStart="8dp"
             android:visibility="gone" />
     </LinearLayout>
-</com.particlesdevs.photoncamera.circularbarlib.ui.ExpandingManualPanel>
+</com.scamera.app.circularbarlib.ui.ExpandingManualPanel>

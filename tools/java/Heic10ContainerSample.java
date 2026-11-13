@@ -1,6 +1,6 @@
-import com.particlesdevs.photoncamera.processing.heif.HeifContainerWriter;
-import com.particlesdevs.photoncamera.processing.heif.HevcNal;
-import com.particlesdevs.photoncamera.processing.heif.TileGrid;
+import com.scamera.app.processing.heif.HeifContainerWriter;
+import com.scamera.app.processing.heif.HevcNal;
+import com.scamera.app.processing.heif.TileGrid;
 
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -57,8 +57,8 @@ public final class Heic10ContainerSample {
         final Path exif = dir.resolve("exif.bin");
         if (Files.exists(exif)) writer.setExif(Files.readAllBytes(exif));
         final String colour = args.length > 5 ? args[5] : "srgb";
-        if (colour.equals("p3")) writer.setColour(com.particlesdevs.photoncamera.processing.color.OutputColour.Signal.displayP3());
-        else if (colour.equals("hlg")) writer.setColour(com.particlesdevs.photoncamera.processing.color.OutputColour.Signal.HLG);
+        if (colour.equals("p3")) writer.setColour(com.scamera.app.processing.color.OutputColour.Signal.displayP3());
+        else if (colour.equals("hlg")) writer.setColour(com.scamera.app.processing.color.OutputColour.Signal.HLG);
         try (OutputStream out = Files.newOutputStream(Paths.get(args[4]))) {
             writer.writeTo(out);
         }

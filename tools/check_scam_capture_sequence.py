@@ -7,8 +7,8 @@ from check_scam_reference_metadata import STUBS, BASE, ROOT
 CHECK = r'''import java.nio.ByteBuffer;
 import java.util.*;
 import android.hardware.camera2.*;
-import com.particlesdevs.photoncamera.processing.ImageFrame;
-import com.particlesdevs.photoncamera.capture.ScamCaptureSequence;
+import com.scamera.app.processing.ImageFrame;
+import com.scamera.app.capture.ScamCaptureSequence;
 public class Check {
  static int checks;
  static void check(boolean b){checks++;if(!b)throw new AssertionError();}

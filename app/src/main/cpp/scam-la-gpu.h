@@ -758,6 +758,7 @@ class LaGpu {
         const char* sources[]={"#version 310 es\n",defs,kLaGlslCommon,body};
         const std::string file=cacheFile(std::string(sources[0])+sources[1]+sources[2]+sources[3]);
         if(!file.empty())if(GLuint cached=loadBinary(file))return cached;
+        scamGlslDump("la",std::string(sources[0])+sources[1]+sources[2]+sources[3]); // P662
         GLuint shader=glCreateShader(GL_COMPUTE_SHADER);
         glShaderSource(shader,4,sources,nullptr);
         glCompileShader(shader);

@@ -9,7 +9,7 @@ import tempfile
 import struct
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = 'com/particlesdevs/photoncamera/'
+BASE = 'com/scamera/app/'
 STUBS = {
 'android/graphics/ImageFormat.java': 'package android.graphics; public class ImageFormat {}',
 'android/media/Image.java': 'package android.media; public class Image {public static class Plane {public java.nio.ByteBuffer getBuffer(){return null;}} public Plane[] getPlanes(){return new Plane[]{new Plane()};} public void close(){}}',
@@ -51,33 +51,33 @@ public class CaptureResult {
 'android/hardware/camera2/CameraCharacteristics.java': '''package android.hardware.camera2;
 public class CameraCharacteristics {public static class Key<T> {} public static final Key<Integer> SENSOR_INFO_WHITE_LEVEL=new Key<>();
  public <T> T get(Key<T> key){return null;}}''',
-BASE+'capture/CaptureController.java': '''package com.particlesdevs.photoncamera.capture;
+BASE+'capture/CaptureController.java': '''package com.scamera.app.capture;
 public class CaptureController {public static android.hardware.camera2.CameraCharacteristics mCameraCharacteristics;}''',
-BASE+'processing/render/NoiseModeler.java': '''package com.particlesdevs.photoncamera.processing.render;
+BASE+'processing/render/NoiseModeler.java': '''package com.scamera.app.processing.render;
 public class NoiseModeler {public static double halOffset(double offset,int white){
  if(white<=1||!(offset>0.01)||Double.isInfinite(offset))return offset;
  return offset>1.0?offset/((double)white*white):offset/white;}}''',
-BASE+'util/Log.java': '''package com.particlesdevs.photoncamera.util;
+BASE+'util/Log.java': '''package com.scamera.app.util;
 public class Log {public static void d(String a,String b){}}''',
 # UI language (i18n): the Russian text, so the checks' Russian message assertions keep holding
-BASE+'util/Lang.java': 'package com.particlesdevs.photoncamera.util; public final class Lang {public static boolean ru(){return true;}public static String t(String ru,String en){return ru;}public static String t(Object context,String ru,String en){return ru;}}',
-BASE+'control/GyroBurst.java': 'package com.particlesdevs.photoncamera.control; public class GyroBurst {}',
-BASE+'processing/parameters/IsoExpoSelector.java': '''package com.particlesdevs.photoncamera.processing.parameters;
+BASE+'util/Lang.java': 'package com.scamera.app.util; public final class Lang {public static boolean ru(){return true;}public static String t(String ru,String en){return ru;}public static String t(Object context,String ru,String en){return ru;}}',
+BASE+'control/GyroBurst.java': 'package com.scamera.app.control; public class GyroBurst {}',
+BASE+'processing/parameters/IsoExpoSelector.java': '''package com.scamera.app.processing.parameters;
 public class IsoExpoSelector {public static class ExpoPair {}}''',
-BASE+'capture/RawFrameQuality.java': '''package com.particlesdevs.photoncamera.capture;
+BASE+'capture/RawFrameQuality.java': '''package com.scamera.app.capture;
 public class RawFrameQuality {public static double score(java.nio.ByteBuffer b,int... dims){return 0;}}''',
-BASE+'util/ShotArena.java': '''package com.particlesdevs.photoncamera.util; import java.nio.*;
+BASE+'util/ShotArena.java': '''package com.scamera.app.util; import java.nio.*;
 public final class ShotArena {
  public ByteBuffer copy(ByteBuffer b,int o,int n){return null;}
  public ByteBuffer copyUnpacked(ByteBuffer b,int o,int f,int w,int r,int c){return null;}
 }''',
-BASE+'util/RawUnpack.java': '''package com.particlesdevs.photoncamera.util; import java.nio.*;
+BASE+'util/RawUnpack.java': '''package com.scamera.app.util; import java.nio.*;
 public final class RawUnpack {
  public static final int RAW14 = 0x7E04, RAW14_TO_10 = 0x7E14;
  public static boolean isRaw14(int f){return f==RAW14||f==RAW14_TO_10;}
  public static boolean unpack(ByteBuffer s,int f,int w,int h,int r,ByteBuffer d){return true;}
 }''',
-BASE+'util/Allocator.java': '''package com.particlesdevs.photoncamera.util; import java.nio.*;
+BASE+'util/Allocator.java': '''package com.scamera.app.util; import java.nio.*;
 public class Allocator {
  public static boolean binning=false;
  public static ByteBuffer allocateAndCopy(int n,ByteBuffer b,int s){return ByteBuffer.allocate(n);}
@@ -90,7 +90,7 @@ public class Allocator {
  public static void free(ByteBuffer b){}
  public static ByteBuffer arenaView(int id,long offset,int bytes){return null;}
 }''',
-'com/particlesdevs/photoncamera/processing/RingFrame.java': '''package com.particlesdevs.photoncamera.processing;
+'com/scamera/app/processing/RingFrame.java': '''package com.scamera.app.processing;
 import java.nio.ByteBuffer;
 public interface RingFrame {
  long getTimestamp(); int getFormat(); int getWidth(); int getHeight(); int rowStride(); int pixelStride();
@@ -99,8 +99,8 @@ public interface RingFrame {
 }''',
 'Check.java': '''import android.hardware.camera2.CaptureResult;
 import android.util.Pair; import java.nio.ByteBuffer;
-import com.particlesdevs.photoncamera.processing.ImageFrame;
-import com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamScene;
+import com.scamera.app.processing.ImageFrame;
+import com.scamera.app.processing.opengl.postpipeline.ScamScene;
 public class Check {
  static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
  static CaptureResult result(long timestamp,int iso){

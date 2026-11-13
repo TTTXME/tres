@@ -3,7 +3,6 @@ apply plugin: 'kotlin-android'
 apply from: rootProject.file('gradle/verify-apk.gradle')
 // P214b: scameraBuildIdentity (git SHA, dirty, CI/local) for the BuildConfig fields below
 apply from: rootProject.file('gradle/build-identity.gradle')
-//apply plugin: "io.github.wurensen.android-aspectjx"
 Properties versionProps = new Properties()
 // The SCAMERA release key is never in the repository: CI passes it in the environment, a local build
 // reads SCAMERA-PC/signing/signing.properties next to the project (key/README.md). Without either the build is signed
@@ -30,8 +29,14 @@ android {
             }
         }
     }
+    // version.properties: the local build number (VERSION_BUILD), bumped by every assemble; CI's SCAMERA_VERSION_CODE wins
     def versionPropsFile = file('version.properties')
-    def versionBuild
+    def readBuildNumber = {
+        if (!versionPropsFile.canRead()) throw new FileNotFoundException("Could not read version.properties!")
+        versionPropsFile.withInputStream { versionProps.load(it) }
+        versionProps['VERSION_BUILD'].toInteger()
+    }
+    def versionBuild = readBuildNumber()
 
     buildFeatures {
         dataBinding true
@@ -41,10 +46,11 @@ android {
         buildConfig true
     }
 
-    // NCNN weights are memory-mapped at runtime. Keeping them uncompressed also
-    // avoids AGP wrapping the 43 MB binary in a temporary single-entry JAR.
+    // P662: the .bin assets (film/*.bin, canet/canetp_v4.bin) are read as streams (AssetManager.open / getInputStream; nothing
+    // maps them through openFd), so they are compressed (-1.2 MB). NCNN (the reason for 'bin' / 'param') is gone; a .tflite
+    // would be mapped by the ML model binding, so it stays stored.
     androidResources {
-        noCompress += ['bin', 'param', 'tflite']
+        noCompress += ['tflite']
         ignoreAssetsPatterns.add('film-reference')
         // UI languages: English (default values/) and Russian (values-ru/); library translations for others are dropped.
         localeFilters += ['en', 'ru']
@@ -52,28 +58,16 @@ android {
 
     packagingOptions {
         jniLibs {
-            // Extracted to nativeLibraryDir: the SCAM/neural worker and its QNN
-            // runtime (added by tools/package_scam_neural.py) run from there without root.
+            // Extracted to nativeLibraryDir: the SCAM/neural worker (buildScamNeuralWorker) and its QNN
+            // runtime (added by tools/package_scam_neural.py) run from there, with or without root.
             useLegacyPackaging true
         }
     }
 
-    if (versionPropsFile.canRead()) {
-        versionProps.load(new FileInputStream(versionPropsFile))
-        versionBuild = versionProps['VERSION_BUILD'].toInteger()
-    } else {
-        throw new FileNotFoundException("Could not read version.properties!")
-    }
-
     ext.autoIncrementBuildNumber = {
-        if (versionPropsFile.canRead()) {
-            versionProps.load(new FileInputStream(versionPropsFile))
-            versionBuild = versionProps['VERSION_BUILD'].toInteger() + 1
-            versionProps['VERSION_BUILD'] = versionBuild.toString()
-            versionProps.store(versionPropsFile.newWriter(), null)
-        } else {
-            throw new FileNotFoundException("Could not read version.properties!")
-        }
+        versionBuild = readBuildNumber() + 1
+        versionProps['VERSION_BUILD'] = versionBuild.toString()
+        versionPropsFile.withWriter { versionProps.store(it, null) }
     }
 
     // CI supplies SCAMERA_VERSION_CODE = 30000 + commit count; local builds keep
@@ -107,7 +101,6 @@ android {
         buildConfigField 'String', 'GIT_SHA', "\"${scameraBuildIdentity.sha}\""
         buildConfigField 'boolean', 'GIT_DIRTY', "${scameraBuildIdentity.dirty}"
         buildConfigField 'boolean', 'CI_BUILD', "${scameraBuildIdentity.ci}"
-        proguardFiles
         if (System.getenv('SCAMERA_LOCAL_CMAKE_VERSION')) {
             // Only when substituting a newer local CMake (CI uses the SDK's
             // pinned 3.22.1 and never sets this env var): CMake 4 removed
@@ -121,12 +114,8 @@ android {
         }
     }
 
-    gradle.taskGraph.whenReady { taskGraph ->
-        if (taskGraph.hasTask(assembleDebug)) {
-            autoIncrementBuildNumber()
-        } else if (taskGraph.hasTask(assembleRelease)) {
-            autoIncrementBuildNumber()
-        }
+    gradle.taskGraph.whenReady { graph ->
+        if (graph.hasTask(assembleDebug) || graph.hasTask(assembleRelease)) autoIncrementBuildNumber()
     }
 
     buildTypes {
@@ -144,8 +133,10 @@ android {
             // JNI libraries (RAW copy/convert, DNG writer) are built optimised - the
             // Debug CMake type built them at -O0.
             debuggable false
-            minifyEnabled false
-            shrinkResources false
+            // P662: shrunk by R8 without renaming (proguard-rules.pro: -dontobfuscate; the keeps for reflection, JNI, GSON, the su
+            // launcher's main) and with unused resources removed (res/raw/keep.xml); unit tests still run on the javac classes.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             jniDebuggable = false
             zipAlignEnabled = true
@@ -173,7 +164,7 @@ android {
         // The shipped debug variant is not debuggable; skip lintVital on assemble.
         checkReleaseBuilds false
     }
-    namespace 'com.particlesdevs.photoncamera'
+    namespace 'com.scamera.app'
     applicationVariants.all {
         variant -> variant.outputs.all {
             outputFileName = "SCAMERA-${versionName}-${variant.versionCode}-${variant.name}.apk"
@@ -199,34 +190,36 @@ android {
 }
 // This must be an executable launched with exec(), never a JNI shared object:
 // app_process/System.load creates an ART namespace that excludes FastRPC deps.
-def neuralAssets = layout.buildDirectory.dir('generated/scamNeuralAssets')
+// P662: it ships once, as lib/arm64-v8a/libscamera_worker.so (extracted to nativeLibraryDir: the app process and the su
+// launcher both run that file; the copy in assets/scam-neural is gone, -1.7 MB), linked without its static symbol table
+// (-s: 5.5 -> 3.6 MB; .dynsym stays, the crash handler's dladdr and the pc offsets are unchanged, the code is identical).
+def neuralLibs = layout.buildDirectory.dir('generated/scamNeuralLibs')
 def buildScamNeuralWorker = tasks.register('buildScamNeuralWorker', Exec) {
     inputs.files(fileTree('src/main/cpp') { include 'scam-neural-*', 'scam-*' })
     inputs.property('ndkVersion', '27.2.12479018')
-    outputs.file(neuralAssets.map { it.file('scam-neural/arm64-v8a/scam-neural-worker') })
+    outputs.file(neuralLibs.map { it.file('arm64-v8a/libscamera_worker.so') })
     doFirst {
         def host = System.getProperty('os.name').toLowerCase()
         def tag = host.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
         if (host.contains('windows')) throw new GradleException('Native worker build requires Linux or macOS')
         def clang = new File(android.sdkDirectory, "ndk/27.2.12479018/toolchains/llvm/prebuilt/${tag}/bin/aarch64-linux-android26-clang++")
-        def output = neuralAssets.get().file('scam-neural/arm64-v8a/scam-neural-worker').asFile
+        def output = neuralLibs.get().file('arm64-v8a/libscamera_worker.so').asFile
         output.parentFile.mkdirs()
         commandLine clang.absolutePath, '-std=c++17', '-O2', '-Wall', '-Wextra',
-                '-pthread', '-fPIE', '-pie', '-static-libstdc++', '-Wl,-z,max-page-size=16384',
+                '-pthread', '-fPIE', '-pie', '-static-libstdc++', '-Wl,-z,max-page-size=16384', '-s',
                 file('src/main/cpp/scam-neural-worker.cpp').absolutePath, '-ldl', '-lEGL', '-lGLESv3', '-o', output.absolutePath
     }
 }
-android.sourceSets.main.assets.srcDir(neuralAssets)
+android.sourceSets.main.jniLibs.srcDir(neuralLibs)
 
 tasks.configureEach {
-    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(buildScamNeuralWorker)
+    if (name.startsWith('merge') && name.endsWith('JniLibFolders')) dependsOn(buildScamNeuralWorker)
 }
 
 dependencies {
 
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation project(path: ':circularbarlib')
-    implementation 'de.hdodenhof:circleimageview:3.1.0'
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'androidx.preference:preference-ktx:1.2.1'
@@ -250,7 +243,6 @@ dependencies {
     implementation "androidx.core:core-ktx:1.18.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "com.anggrayudi:storage:2.2.0"
-    implementation 'me.zhanghai.android.libarchive:library:1.1.6'
     // P504 (owner, 2026-11-05: «Поиск должен искать текст на фото … копировать текст с фото на любом языке»): Tesseract 5 OCR
     // (Apache-2.0) with the tessdata_fast models in assets/tessdata
     implementation 'com.github.adaptech-cz.Tesseract4Android:tesseract4android-openmp:4.8.0'

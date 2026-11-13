@@ -13,6 +13,10 @@ LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tm
 # P569: the fast route's Quad programs without run-time indices are made and build
 g++ -pthread -std=c++17 -O1 tools/check_fast_index_free.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-index-free
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-index-free
+# P663: the fast route's frame selector: a noise-led burst (the 2026-11-11 22:54 shot) keeps its donors, textured shifts measured,
+# a donor past the gate still dropped (a full frame and a small replay frame)
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_fast_thumb_shift.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-thumb-shift
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-fast-thumb-shift
 # P568: the Quad native merge with shared-memory tiles gives the original's floats bit for bit
 g++ -pthread -std=c++17 -O1 tools/check_nat_tile.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-nat-tile
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-nat-tile
@@ -20,6 +24,10 @@ LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-nat-tile
 # energy of a synthetic Quad scene's dark branches across a bright sky falls (relative units)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_quad_lattice_gpu.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-quad-lattice-gpu
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-quad-lattice-gpu
+# P662: the chroma median and the Quad lattice in the same GPU bands (each band's result on the GPU for its strip) and the lattice
+# from the one-call median's buffer give the two passes' floats bit for bit (other band / strip heights, both units)
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_chroma_lattice_fuse.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-chroma-lattice-fuse
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless ASAN_OPTIONS=detect_leaks=0 /tmp/check-chroma-lattice-fuse
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_still.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-still
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-hybrid-still
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_stages.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-stages

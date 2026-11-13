@@ -1,0 +1,343 @@
+package com.scamera.app.ui.camera.views;
+
+import android.app.Activity;
+import android.app.Application;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Rect;
+import android.util.TypedValue;
+import android.view.ContextThemeWrapper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+
+import com.scamera.app.R;
+import com.scamera.app.app.ScameraApp;
+import com.scamera.app.circularbarlib.ui.ExpandingManualPanel;
+import com.scamera.app.circularbarlib.ui.UiTokens;
+import com.scamera.app.circularbarlib.ui.views.ManualChipView;
+import com.scamera.app.databinding.CameraScreenBinding;
+import com.scamera.app.settings.PreferenceKeys;
+import com.scamera.app.settings.SettingsManager;
+import com.scamera.app.ui.camera.CameraFragment;
+import com.scamera.app.ui.camera.CameraUIViewImpl;
+import com.scamera.app.ui.camera.data.CameraLensData;
+import com.scamera.app.ui.camera.model.AuxButtonsModel;
+import com.scamera.app.ui.camera.model.CameraFragmentModel;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.MockedStatic;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
+import org.robolectric.android.controller.ActivityController;
+import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * P43: the camera screen's controls on the real camera_screen layout at the display sizes and font sizes a phone can be
+ * set to (display size small / default / large = more or fewer dp on the same panel; font scale 0.85 / 1.0 / 1.3). Every
+ * place and size is dp from the edges, the bottom bar and the shade's handle, as in the concept (CSS px = dp):
+ * <ul>
+ * <li>manual block 6dp from the left and right edges (SIMPLE_UI: the concept's .pro), its bottom 12dp above the HIDDEN handle (40dp above the handle's
+ * bottom edge); the ruler card 8dp above the strip;</li>
+ * <li>no toggle card (SIMPLE_UI: «Про» in the bottom bar), the strip one row of five equal chips, its height growing with the
+ * font size only up to {@link UiTokens#FONT_SCALE_CAP} (on the vivo it was about 95dp);</li>
+ * <li>nothing of the manual block over the handle, the lens strip or the shutter row; the top bar at its dp places;
+ * P157: the lens strip and the shutter row (gallery, shutter, flip) at their dp places times the screen's width over
+ * 360dp (BottomChrome.scale), so the shutter is a fifth of the width at every display size.</li>
+ * </ul>
+ */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 35, application = Application.class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+public class ViewfinderScaleLayoutTest {
+    private static final float[] FONT_SCALES = {0.85f, 1f, 1.3f};
+    /** The strip's height may grow with the font size, but never toward the ~95dp seen on the vivo. */
+    private static final float STRIP_MAX_DP = 84f;
+
+    private MockedStatic<ScameraApp> camera;
+    private float density;
+    private View screen;
+
+    @Before
+    public void setUp() {
+        Context context = new ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.Theme_Scamera_SettingsActivity);
+        SettingsManager manager = new SettingsManager(context);
+        camera = mockStatic(ScameraApp.class);
+        camera.when(ScameraApp::getAppContext).thenReturn(context);
+        camera.when(ScameraApp::getResourcesStatic).thenReturn(context.getResources());
+        camera.when(() -> ScameraApp.getStringStatic(anyInt())).thenAnswer(i -> context.getString(i.getArgument(0)));
+        camera.when(ScameraApp::getSettingsManagerStatic).thenReturn(manager);
+        camera.when(ScameraApp::getSettings).thenReturn(mock(com.scamera.app.api.Settings.class));
+        PreferenceKeys.initialise(manager);
+    }
+
+    @After
+    public void tearDown() {
+        camera.close();
+        RuntimeEnvironment.setFontScale(1f);
+    }
+
+    /** Display size «small» on a 1440 px wide phone: more dp. */
+    @Test
+    @Config(qualifiers = "w480dp-h1066dp-xhdpi")
+    public void smallDisplaySize() throws Exception {
+        for (float scale : FONT_SCALES) check(scale, "small");
+    }
+
+    /** The vivo X200 Ultra's default display size. */
+    @Test
+    @Config(qualifiers = "ru-w411dp-h914dp-xxhdpi")
+    public void defaultDisplaySize() throws Exception {
+        for (float scale : FONT_SCALES) check(scale, "default");
+    }
+
+    /** Display size «large»: fewer dp, every dp bigger. */
+    @Test
+    @Config(qualifiers = "ru-w360dp-h800dp-xxxhdpi")
+    public void largeDisplaySize() throws Exception {
+        for (float scale : FONT_SCALES) check(scale, "large");
+    }
+
+    /** An English system at the default size: the longest state line («MAN.» / «OFF» / «AUTO»). */
+    @Test
+    @Config(qualifiers = "w411dp-h914dp-xxhdpi")
+    public void defaultDisplaySizeInEnglish() throws Exception {
+        for (float scale : FONT_SCALES) check(scale, "default-en");
+    }
+
+    /** A capped text size: the value line at 1.3 grows to at most 14sp x the cap, the scale's text too. */
+    @Test
+    @Config(qualifiers = "w411dp-h914dp-xxhdpi")
+    public void textGrowsWithTheFontSizeUpToTheCap() {
+        RuntimeEnvironment.setFontScale(1.3f);
+        Context context = RuntimeEnvironment.getApplication();
+        float d = context.getResources().getDisplayMetrics().density;
+        float system = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, context.getResources().getDisplayMetrics());
+        assertTrue("the font scale applies: " + system / d, system / d > 14f * UiTokens.FONT_SCALE_CAP);
+        assertEquals(14f * UiTokens.FONT_SCALE_CAP * d, UiTokens.spPx(context, 14f), .01f);
+        RuntimeEnvironment.setFontScale(.85f);
+        context = RuntimeEnvironment.getApplication();
+        system = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, context.getResources().getDisplayMetrics());
+        assertEquals("smaller font sizes apply in full", system, UiTokens.spPx(context, 14f), .01f);
+    }
+
+    private int dp(float v) {
+        return Math.round(v * density);
+    }
+
+    private Rect at(View v) {
+        int[] a = new int[2], b = new int[2];
+        v.getLocationInWindow(a);
+        screen.getLocationInWindow(b);
+        int x = a[0] - b[0], y = a[1] - b[1];
+        return new Rect(x, y, x + v.getWidth(), y + v.getHeight());
+    }
+
+    private void check(float fontScale, String name) throws Exception {
+        RuntimeEnvironment.setFontScale(fontScale);
+        try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class)) {
+            controller.setup();
+            Activity activity = controller.get();
+            Context context = new ContextThemeWrapper(activity, R.style.Theme_Scamera_SettingsActivity);
+            assertEquals(fontScale, context.getResources().getConfiguration().fontScale, 1e-4f);
+            density = context.getResources().getDisplayMetrics().density;
+            int w = context.getResources().getDisplayMetrics().widthPixels, h = context.getResources().getDisplayMetrics().heightPixels;
+            String at = name + " " + Math.round(w / density) + "x" + Math.round(h / density) + "dp @" + density + " font "
+                    + fontScale + ": ";
+
+            CameraScreenBinding binding = CameraScreenBinding.inflate(LayoutInflater.from(context));
+            CameraFragmentModel model = new CameraFragmentModel();
+            model.setScreenAspectRatio((float) h / w);
+            model.setDummyAspectRatio("3:4");
+            binding.setUimodel(model);
+            binding.topRow.setUimodel(model);
+            AuxButtonsModel lenses = new AuxButtonsModel();
+            List<CameraLensData> back = new ArrayList<>();
+            float[] zoom = {.4f, 1f, 2.4f, 5f, 10f};
+            for (int i = 0; i < zoom.length; i++) {
+                CameraLensData lens = new CameraLensData(String.valueOf(i));
+                lens.setZoomFactor(zoom[i]);
+                back.add(lens);
+            }
+            lenses.setBackCameras(back);
+            lenses.setFrontCameras(new ArrayList<>());
+            binding.setAuxmodel(lenses);
+            binding.executePendingBindings();
+            CameraUIViewImpl.bindBadges(binding.topRow);
+            AuxButtonsLayout strip = binding.bottomBar.lensStrip;
+            strip.setAuxButtonsModel(lenses);
+            strip.setActiveId("1");
+            // The 3:4 preview as the camera sizes it (px).
+            binding.vfLayer.texture.setAspectRatio(w, w * 4 / 3);
+
+            ExpandingManualPanel panel = (ExpandingManualPanel) binding.proPanel;
+            panel.setExpanded(true, false);
+            int[] chipIds = {R.id.iso_option_tv, R.id.exposure_option_tv, R.id.ev_option_tv, R.id.focus_option_tv, R.id.wb_option_tv,
+                    R.id.all_auto_option_tv};
+            String[] values = {"12800", "1/8000", "+1 1/3", "1,2 м", "10000K"};
+            int[] states = {ManualChipView.MANUAL, ManualChipView.MANUAL, ManualChipView.LOCKED, ManualChipView.AUTO, ManualChipView.MANUAL};
+            for (int i = 0; i < 5; i++) ((ManualChipView) panel.findViewById(chipIds[i])).bind(values[i], states[i]);
+            // The ruler card open over the strip.
+            panel.findViewById(R.id.knobViewContainer).setVisibility(View.VISIBLE);
+            panel.findViewById(R.id.linearScaleView).setVisibility(View.VISIBLE);
+
+            FrameLayout root = new FrameLayout(context);
+            root.addView(binding.getRoot(), new FrameLayout.LayoutParams(w, h));
+            screen = binding.getRoot();
+            activity.setContentView(root);
+            CameraFragment.attachBottomChrome(binding, null);
+            settle(root, w, h);
+
+            View bar = binding.bottomBar.getRoot(), handle = binding.settingsSheetHandleSlot;
+            View toggle = panel.findViewById(R.id.manual_toggle), chips = panel.findViewById(R.id.buttons_container);
+            View ruler = panel.findViewById(R.id.knobViewContainer);
+            View row = binding.bottomBar.shutterRow.getRoot();
+            Rect manual = at(panel), handleBox = at(handle), barBox = at(bar), toggleBox = at(toggle), chipsBox = at(chips),
+                    rulerBox = at(ruler), stripBox = at(strip), rowBox = at(row), topBar = at(binding.topRow.getRoot());
+            String geometry = " manual=" + manual + " handle=" + handleBox + " bar=" + barBox + " toggle=" + toggleBox
+                    + " chips=" + chipsBox + " strip=" + stripBox + " row=" + rowBox;
+
+            // The manual block: 8dp from the sides, 8dp above the handle (36dp above its bottom), the ruler 6dp above.
+            // P583: the concept's Pro panel 8dp from the sides; the handle at the bar's top, or higher where the (concept-sized)
+            // strip needs the room under it (BottomChrome.handleTop: the strip keeps its clearance)
+            assertEquals(at + "left margin" + geometry, dp(8), manual.left);
+            assertEquals(at + "right margin" + geometry, dp(8), w - manual.right);
+            assertEquals(at + "handle at the bar's top" + geometry, Math.min(barBox.top,
+                    stripBox.top - Math.round(BottomChrome.CLEARANCE_DP * density) - handleBox.height()), handleBox.top, 1);
+            // P583: the concept's Pro panel 8dp over the preview's bottom (the handle's top)
+            assertEquals(at + "8dp above the handle" + geometry, handleBox.top - dp(BottomChrome.MANUAL_GAP_DP), manual.bottom, 1);
+            assertEquals(at + "36dp above the handle's bottom" + geometry, handleBox.bottom - dp(28 + BottomChrome.MANUAL_GAP_DP), manual.bottom, 1);
+            assertEquals(at + "ruler card 6dp above the strip (the concept's gap)" + geometry, chipsBox.top - dp(6), rulerBox.bottom);
+            assertTrue(at + "the open ruler stays under the top bar" + geometry, rulerBox.top >= topBar.bottom);
+
+            // SIMPLE_UI §3: no toggle card (the bottom bar's «Про» opens the panel); the chips card spans the panel, 58dp..cap high.
+            assertEquals(at + "no toggle card", View.GONE, toggle.getVisibility());
+            assertEquals(at + "chips card from the left margin" + geometry, manual.left, chipsBox.left);
+            assertTrue(at + "strip at least 58dp: " + chipsBox.height() / density, chipsBox.height() >= dp(58));
+            assertTrue(at + "strip " + chipsBox.height() / density + "dp, at most " + STRIP_MAX_DP,
+                    chipsBox.height() <= dp(STRIP_MAX_DP));
+            // The concept's chips card: 4 + (6 + 20 + 1 + value line + 1 + name line + 5) + 4 dp, lines 1.2 x the text size
+            // (15.6 + 12 = 27.6dp at font scale 1, 68.6dp in all), whatever the font's own metrics.
+            // P583: 4 + (6 + 18 + 1 + value line + 1 + name line + 5) + 4dp with the concept's 18dp glyph and 9.5 name, the chip at
+            // least the concept's 66dp: the card 74dp
+            float lines = 1.2f * (UiTokens.spPx(context, 13f) + UiTokens.spPx(context, 9.5f));
+            assertEquals(at + "strip height", Math.max(dp(74), dp(39) + lines), chipsBox.height(), 2f);
+            if (fontScale == 1f) assertEquals(at + "strip as in the concept", 74f, chipsBox.height() / density, 1f);
+            assertEquals(at + "chips card to the right margin", manual.right, chipsBox.right);
+            Rect first = at(panel.findViewById(chipIds[0]));
+            for (int i = 0; i < chipIds.length; i++) {   // SIMPLE_UI §3: six equal chips, «Всё на авто» the sixth
+                ManualChipView chip = panel.findViewById(chipIds[i]);
+                Rect box = at(chip);
+                assertEquals(at + "chip " + i + " in the row", first.top, box.top);
+                assertEquals(at + "chip " + i + " height", first.height(), box.height());
+                assertEquals(at + "equal chips", first.width(), box.width(), 1);
+                assertTrue(at + "chip " + i + " inside the card", box.left >= chipsBox.left + dp(4) - 1
+                        && box.right <= chipsBox.right - dp(4) + 1 && box.bottom <= chipsBox.bottom - dp(4) + 1);
+                if (i > 0) assertEquals(at + "2dp gap", dp(2), box.left - at(panel.findViewById(chipIds[i - 1])).right, 1);
+                assertTrue(at + "chip " + i + " text cut", chip.textFits());
+                assertEquals(at + "one line", 1, chip.getValueView().getLineCount());
+                float valuePx = chip.getValueView().getTextSize();
+                assertTrue(at + "value " + valuePx / density + "dp over the cap",
+                        valuePx <= 13f * UiTokens.FONT_SCALE_CAP * density + .5f);
+                assertTrue(at + "name line over the cap",
+                        chip.getNameView().getTextSize() <= 10f * UiTokens.FONT_SCALE_CAP * density + .5f);
+            }
+
+            // Nothing of the manual block over the handle, the lens strip or the shutter row.
+            assertTrue(at + "over the handle" + geometry, manual.bottom <= handleBox.top);
+            assertTrue(at + "over the lens strip" + geometry, manual.bottom < stripBox.top);
+            assertTrue(at + "over the shutter row" + geometry, manual.bottom < rowBox.top);
+            assertTrue(at + "handle over the lens strip" + geometry, handleBox.bottom <= stripBox.top);
+
+            // The other controls at their dp places.
+            // P574: the top row's 40dp x k items, centred (the gear went to the bottom row)
+            View badge = binding.topRow.formatButton, lutButton = binding.topRow.lutButton;
+            Rect badgeBox = at(badge), lutBox = at(lutButton);
+            float tk = com.scamera.app.circularbarlib.ui.UiScale.k(binding.getRoot().getContext());
+            View tbRow = binding.topRow.getRoot();
+            assertEquals(at + "LUT 40dp x k", 40 * tk * density, lutBox.width(), 1.5f);
+            assertEquals(at + "LUT round", lutBox.width(), lutBox.height());
+            assertEquals(at + "format badge 40dp x k", 40 * tk * density, badgeBox.height(), 1.5f);
+            assertTrue(at + "format badge before LUT", badgeBox.right <= lutBox.left);
+            assertTrue(at + "inside the row", badgeBox.left >= tbRow.getPaddingLeft() && lutBox.right <= w - tbRow.getPaddingRight());
+            assertEquals(at + "top bar 64dp x k", 64 * tk * density, topBar.height(), 1.5f);
+            assertTrue(at + "preview under the top bar", at(binding.cameraStage).top >= topBar.bottom);
+            View gallery = row.findViewById(R.id.gallery_card), shutter = row.findViewById(R.id.shutter_box),
+                    flip = row.findViewById(R.id.switch_box);
+            Rect galleryBox = at(gallery), shutterBox = at(shutter), flipBox = at(flip);
+            // P157 / SIMPLE_UI step 0: the bottom bar's concept dp sizes times k = width / 390dp (P582; UiScale, BottomChrome.scale)
+            float s = BottomChrome.scale(w / density);
+            assertEquals(at + "scale", Math.max(.85f, Math.min(1.35f, w / density / com.scamera.app.circularbarlib.ui.UiScale.REFERENCE_DP)), s, 1e-4f);
+            // P583: the concept's 58dp gallery and switch, the 86dp shutter (86 of its 390dp width)
+            assertEquals(at + "gallery 58dp x scale", dp(58 * s), galleryBox.width(), 2);
+            assertEquals(at + "flip 58dp x scale", dp(58 * s), flipBox.width(), 2);
+            assertEquals(at + "shutter 86dp x scale", dp(86 * s), shutterBox.width(), 2);
+            assertEquals(at + "shutter 86 / 390 of the width", w * 86f / 390f, shutterBox.width(), w * .02f);
+            // P574 (the approved concept: the gallery and the switch 52px in): the row's 22dp and the items' own 24dp
+            assertEquals(at + "gallery 52dp x scale from the left", dp(52 * s), galleryBox.left, 2);
+            assertEquals(at + "flip 52dp x scale from the right", dp(52 * s), w - flipBox.right, 2);
+            assertEquals(at + "shutter centred", w / 2f, shutterBox.exactCenterX(), 1f);
+            assertEquals(at + "gallery, shutter, flip on one line", shutterBox.centerY(), galleryBox.centerY(), 1);
+            assertEquals(at + "gallery, shutter, flip on one line", shutterBox.centerY(), flipBox.centerY(), 1);
+            assertTrue(at + "shutter row 18dp x scale or more over the bottom" + geometry, rowBox.bottom <= h - dp(18 * s) + 1);
+            assertEquals(at + "lens strip centred", w / 2f, stripBox.exactCenterX(), 1f);
+            assertTrue(at + "lens strip inside the screen" + geometry, stripBox.left >= 0 && stripBox.right <= w);
+            assertEquals(at + "lens strip 16dp x scale over the shutter row" + geometry, dp(16 * s), rowBox.top - stripBox.bottom, 2);
+            for (int i = 0; i < strip.getChildCount(); i++) {
+                View lens = strip.getChildAt(i);
+                if (!(lens instanceof TextView)) continue;
+                // P185 / SIMPLE_UI: every lens 38dp high (times the scale), the active one too; its label 14sp (the active 15sp) at most
+                // the font scale's cap
+                assertEquals(at + "lens size", dp(LensButton.HEIGHT_DP * s), lens.getHeight(), 1);
+                TextView label = (TextView) lens;
+                assertTrue(at + "lens label over the cap", label.getTextSize() <= (lens.isSelected() ? 15f : 14f) * UiTokens.FONT_SCALE_CAP * density * s + .5f);
+                assertTrue(at + "lens label cut", label.getLayout() == null || label.getLayout().getLineCount() == 1);
+            }
+
+            System.out.println(String.format(Locale.US, "%sstrip %.1fdp, manual bottom %.1fdp above the handle, %.1fdp above "
+                            + "the bar's bottom; top bar %.1fdp; bar %.1fdp", at, chipsBox.height() / density,
+                    (handleBox.top - manual.bottom) / density, (handleBox.bottom - manual.bottom) / density,
+                    topBar.height() / density, barBox.height() / density));
+            render(root, w, h, "scale-" + name + "-" + fontScale + ".png");
+        }
+    }
+
+    private static void settle(View root, int w, int h) {
+        for (int i = 0; i < 4; i++) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, w, h);
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofMillis(100));
+        }
+    }
+
+    private static void render(View view, int w, int h, String name) throws Exception {
+        Bitmap image = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        image.eraseColor(0xFF101416);
+        view.draw(new Canvas(image));
+        File dir = new File("build/reports/viewfinder");
+        dir.mkdirs();
+        try (FileOutputStream out = new FileOutputStream(new File(dir, name))) {
+            image.compress(Bitmap.CompressFormat.PNG, 100, out);
+        }
+    }
+}

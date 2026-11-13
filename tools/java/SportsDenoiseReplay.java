@@ -1,4 +1,4 @@
-package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+package com.scamera.app.processing.opengl.postpipeline;
 
 import java.util.Arrays;
 

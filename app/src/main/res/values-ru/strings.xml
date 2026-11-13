@@ -17,17 +17,11 @@
     <string name="cfa">Фильтр Байера</string>
     <string name="app_summary">Камера, которая склеивает несколько RAW-кадров в одно чистое фото (SHDR)</string>
     <string name="version_title">Версия</string>
-    <string name="backup">Сохранить</string>
     <string name="reset_preferences_warning">Это сбросит настройки на стандартные, продолжить?</string>
-    <string name="backup_summary_json">Сохранить все настройки и профили модулей в файл в Download/SCAMERA/XML</string>
     <string name="app_will_restart">Приложение перезапустится</string>
-    <string name="restore">Восстановить</string>
-    <string name="restore_summary_json">Загрузить настройки из XML-файла в Download/SCAMERA/XML или выбрать файл</string>
     <string name="empty_file_name_error">Название не может быть пустым</string>
     <string name="reset">Сбросить всё</string>
     <string name="af_mode">Режим автофокуса</string>
-    <string name="this_device">Ваше устройство - %1$s</string>
-    <string name="on">Вкл.</string>
     <string name="off">Выкл.</string>
     <string name="golden_ratio">Золотое сеч.</string>
     <string name="diag_triangle">Диаг. треуг.</string>
@@ -45,7 +39,6 @@
     <string name="perm_dcim_failed">Без доступа к папке DCIM нельзя сохранить RAW видео и прочитать конфиги устройства. Нажмите «Повторить» и выберите папку DCIM.</string>
     <string name="perm_retry">Повторить</string>
     <string name="session_on_configure_failed">"Системная ошибка конфигурации, попробуйте другой формат превью "</string>
-    <string name="binning">Обрабатывать вчетверо меньшее разрешение</string>
     <string name="gallery_folders">Папки галереи</string>
     <string name="color_method">Источник цвета</string>
     <string name="focus_peaking">Подсветка резкости</string>
@@ -59,7 +52,6 @@
     <!-- Top bar gear that opens SettingsActivity (TalkBack, tooltip) -->
     <string name="sheet_all_settings">Все настройки</string>
     <!-- AE metering -->
-    <string name="ultrahdr_summary">В JPEG добавляется карта яркости: на HDR-экранах света ярче. Обычный экран покажет обычное фото.</string>
     <string name="show_horizon_on_preview">Горизонт</string>
     <string name="options">Параметры</string>
     <string name="perm_open_settings">Открыть настройки</string>
@@ -81,7 +73,6 @@
     <string name="motion_mode_on">Режим «Спорт»: вкл</string>
     <string name="motion_mode_off">Режим «Спорт»: выкл</string>
     <string name="motion_mode_on_toast">Спорт: быстрый буфер, резкие движущиеся объекты</string>
-    <string name="motion_mode_off_toast">Фото</string>
     <string name="prefs_scam_motion_on_title">Режим «Спорт»</string>
     <string name="prefs_scam_motion_on_summary">Короткая выдержка и быстрый буфер кадров для движущихся объектов: детей, животных, спорта. При слабом свете шумоподавление сильнее.</string>
     <string name="prefs_scam_motion_screen_title">Спорт</string>
@@ -101,12 +92,6 @@
     <string name="prefs_low_light_boost_summary">В темноте видоискатель становится ярче, но обновляется реже, а кадры для снимка выходят длиннее. Нужен Android 15; в режиме «Спорт» не работает.</string>
     <string name="dcg14_on">DCG 14 бит: вкл</string>
     <string name="dcg14_off">DCG 14 бит: выкл</string>
-    <string name="dcg14_on_toast">DCG 14 бит вкл: запрошен режим сенсора с двойным усилением, камера перезапускается</string>
-    <string name="dcg14_off_toast">DCG 14 бит выкл</string>
-    <string name="full_res_on">Полное разрешение: вкл</string>
-    <string name="full_res_off">Полное разрешение: выкл</string>
-    <string name="full_res_on_toast">Полное разрешение вкл: RAW 50 Мп, кадры после нажатия, камера перезапускается</string>
-    <string name="full_res_off_toast">Полное разрешение выкл</string>
     <string name="prefs_developer_settings_screen_title">Для разработчика</string>
     <string name="prefs_developer_settings_screen_summary">Скрытые параметры файла scam_dev.txt для опытов и отладки.</string>
     <!-- P240: the overlay while the camera is brought back after an error -->

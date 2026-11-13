@@ -17,9 +17,6 @@
     <string name="accent_name_cyan">Бирюзовый</string>
     <string name="accent_name_white">Белый</string>
     <!-- Ручные настройки в стиле карточек (MANUAL_TASK.md). -->
-    <string name="manual_state_auto">авто</string>
-    <string name="manual_state_manual">ручн.</string>
-    <string name="manual_state_off">выкл.</string>
     <string name="manual_value_auto">Авто</string>
     <string name="manual_all_auto">Всё на авто</string>
     <string name="manual_toast_auto">%1$s: авто</string>

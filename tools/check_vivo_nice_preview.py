@@ -29,7 +29,7 @@ public class CaptureRequest {
  }
 }'''
 CHECK = '''import android.hardware.camera2.CaptureRequest;
-import com.particlesdevs.photoncamera.capture.VivoNicePreview;
+import com.scamera.app.capture.VivoNicePreview;
 import java.util.*;
 public class Check {
  static final String MAGIC="vivo.control.NiceMagicEnable", NICE="vivo.capability.capture.nice";
@@ -69,7 +69,7 @@ with tempfile.TemporaryDirectory(prefix='nice-preview-') as directory:
     stub.parent.mkdir(parents=True)
     stub.write_text(STUB)
     (root/'Check.java').write_text(CHECK)
-    production = ROOT/'app/src/main/java/com/particlesdevs/photoncamera/capture/VivoNicePreview.java'
+    production = ROOT/'app/src/main/java/com/scamera/app/capture/VivoNicePreview.java'
     subprocess.run(['java', '-m', 'jdk.compiler/com.sun.tools.javac.Main', '-d', directory,
                     str(stub), str(root/'Check.java'), str(production)], check=True)
     subprocess.run(['java', '-cp', directory, 'Check'], check=True)

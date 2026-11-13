@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_why_pyramid_bands as cwb  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-TONE = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
-COMB = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyCombine.java').read_text(encoding='utf-8')
+TONE = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
+COMB = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyCombine.java').read_text(encoding='utf-8')
 fails = []
 
 

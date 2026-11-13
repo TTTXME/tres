@@ -1,4 +1,4 @@
-import com.particlesdevs.photoncamera.settings.*;
+import com.scamera.app.settings.*;
 import java.util.*;
 
 public class SettingsModelCheck {

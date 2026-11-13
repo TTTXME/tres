@@ -33,7 +33,7 @@ import moderngl
 
 ROOT = Path(__file__).resolve().parents[1]
 SH = ROOT / 'app/src/main/assets/shaders'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline'
 LUMA = np.array([0.2126, 0.7152, 0.0722])
 W = 256
 CORE, R0, L, SKY = 6.0, 20, 45.0, 0.35

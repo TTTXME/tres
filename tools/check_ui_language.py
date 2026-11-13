@@ -51,13 +51,13 @@ ANNOTATION = ('annotation description (a compile-time constant, so no Lang.t): s
               'lookup of ModuleSensorSettings / TunablePreferenceGenerator')
 LOOKUP = 'matcher: the Russian annotation descriptions, looked up to show them in the UI language'
 ALLOW = {
-    'com/particlesdevs/photoncamera/gallery/ui/fragments/ImageLibraryFragment.java': [
+    'com/scamera/app/gallery/ui/fragments/ImageLibraryFragment.java': [
         ('P502 folder matcher: the Russian name of the screen recordings folder sorts it into «Записи экрана»', None),
     ],
-    'com/particlesdevs/photoncamera/gallery/model/GallerySearch.java': [
+    'com/scamera/app/gallery/model/GallerySearch.java': [
         ('P502 search vocabulary: the Russian and English words of kinds and months find a file whatever the UI language', None),
     ],
-    'com/particlesdevs/photoncamera/settings/ShadeCatalog.java': [
+    'com/scamera/app/settings/ShadeCatalog.java': [
         ('search synonyms (KEYWORDS): the Russian words keep finding a row whatever the UI language', [
             'denoise|шумодав|шумопод|noise|шум|despeckle', 'шум шумоподавление шумодав denoise noise',
             'luma|люма|ярк|bright', 'яркость люма luma brightness',
@@ -88,17 +88,17 @@ ALLOW = {
         ]),
         ('search normalisation: «ё» is searched as «е»', ['ё', 'е']),
     ],
-    'com/particlesdevs/photoncamera/ui/settings/SettingsSearchFragment.java': [
+    'com/scamera/app/ui/settings/SettingsSearchFragment.java': [
         ('search normalisation: «ё» is searched as «е»', ['ё', 'е']),
     ],
-    'com/particlesdevs/photoncamera/capture/CaptureController.java': [(ANNOTATION, SENSOR_CONFIG)],
-    'com/particlesdevs/photoncamera/processing/render/Parameters.java': [(ANNOTATION, SENSOR_CONFIG_PARAMETERS + TUNABLE)],
-    'com/particlesdevs/photoncamera/settings/ModuleSensorSettings.java': [(LOOKUP, SENSOR_CONFIG + SENSOR_CONFIG_PARAMETERS)],
-    'com/particlesdevs/photoncamera/settings/TunablePreferenceGenerator.java': [(LOOKUP, TUNABLE)],
-    'com/particlesdevs/photoncamera/processing/opengl/postpipeline/ScamHybridBurst.java': [
+    'com/scamera/app/capture/CaptureController.java': [(ANNOTATION, SENSOR_CONFIG)],
+    'com/scamera/app/processing/render/Parameters.java': [(ANNOTATION, SENSOR_CONFIG_PARAMETERS + TUNABLE)],
+    'com/scamera/app/settings/ModuleSensorSettings.java': [(LOOKUP, SENSOR_CONFIG + SENSOR_CONFIG_PARAMETERS)],
+    'com/scamera/app/settings/TunablePreferenceGenerator.java': [(LOOKUP, TUNABLE)],
+    'com/scamera/app/processing/opengl/postpipeline/ScamHybridBurst.java': [
         ('P627 log text: modeName() names the processing mode in the HYBRID ROUTE log line', ['«Качество»', '«Быстрый»']),
     ],
-    'com/particlesdevs/photoncamera/processing/color/DcpProfiles.java': [
+    'com/scamera/app/processing/color/DcpProfiles.java': [
         ('stored format of imported DCP profile names (user data), shown through DcpProfiles.label()',
          ['Профиль DCP', ' · только матрицы']),
     ],
@@ -106,12 +106,12 @@ ALLOW = {
 
 # (e) Latin literals of the settings code shown as they are in both languages: file -> [(reason, literals)].
 ALLOW_LATIN = {
-    'com/particlesdevs/photoncamera/ui/settings/SettingsActivity.java': [
+    'com/scamera/app/ui/settings/SettingsActivity.java': [
         ('the camera id label (Camera ID is the term of the Russian text too)', [' · ID ']),
         ('the photo file extension of the file name preview', ['.jpg']),
     ],
 }
-LATIN_SCOPE = ('com/particlesdevs/photoncamera/ui/settings/', 'com/particlesdevs/photoncamera/settings/')
+LATIN_SCOPE = ('com/scamera/app/ui/settings/', 'com/scamera/app/settings/')
 LATIN_SHOWN = {'setTitle', 'setSummary', 'setMessage', 'showToast'}
 LATIN_SHOWN_CALLS = {'Toast.makeText', 'Snackbar.make'}
 # Calls whose result is the UI text in the UI language (a lookup of the English / Russian key)

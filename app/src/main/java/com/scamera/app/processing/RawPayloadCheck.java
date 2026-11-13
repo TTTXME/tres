@@ -1,0 +1,508 @@
+package com.scamera.app.processing;
+
+import android.graphics.ImageFormat;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CaptureResult;
+import android.media.Image;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Per-frame check that a RAW_SENSOR buffer holds the plain 16-bit samples its metadata promises.
+ * <p>
+ * vivo X100 Ultra, main camera (owner's log, 2026-10-05): the frames of the repeating preview request (the ZSL ring) came as
+ * packed 10-bit data behind ImageFormat.RAW_SENSOR with RAW16 metadata (4096x3072, rowStride 8192, 25 165 824 bytes). Read
+ * as uint16, the first 5/8 of the rows were codes up to 65535 (white level 1023) and the rest exact zeros, so every Hybrid
+ * and SCAM HDR photo came out 3/8 black and 5/8 pink. The post-shutter frames of the same reader were plain: the layout is a
+ * property of the frame, not of the stream, so every frame is checked (32 rows x 256 samples, well under a millisecond).
+ * <p>
+ * A plain sample never exceeds the white level. Up to 4x the white level is tolerated (a HAL that reports 10 bits for 12-bit
+ * data still passes); a quarter of the samples above that, or 5 % with a quarter of the rows exactly zero, is a payload that
+ * no reader of this app can use. White levels above 4095 (16-bit ranges) are not checked.
+ */
+public final class RawPayloadCheck {
+    static final int ROWS = 32, SAMPLES = 256;
+    static final float IMPOSSIBLE_SHARE = 0.25f, IMPOSSIBLE_WITH_ZERO_ROWS = 0.05f, ZERO_ROW_SHARE = 0.25f;
+
+    private RawPayloadCheck() {}
+
+    /** Verdict for one frame: {@link #error} is null for a usable plain 16-bit payload. */
+    public static final class Result {
+        public final String error;
+        /** Share of the sampled values at or above 4x (white + 1), and of the sampled rows that are all zero. */
+        public final float impossibleShare, zeroRowShare;
+        public final boolean packed10;
+
+        Result(String error, float impossibleShare, float zeroRowShare) {
+            this(error, impossibleShare, zeroRowShare, false);
+        }
+
+        Result(String error, float impossibleShare, float zeroRowShare, boolean packed10) {
+            this.error = error; this.impossibleShare = impossibleShare; this.zeroRowShare = zeroRowShare;
+            this.packed10 = packed10;
+        }
+
+        public boolean plain() { return error == null; }
+        public boolean isPacked10() { return packed10; }
+    }
+
+    private static final Result UNCHECKED = new Result(null, 0, 0, false);
+
+    public static Result check(Image image, int whiteLevel) {
+        return image == null ? UNCHECKED : check(RingFrame.of(image), whiteLevel);
+    }
+
+    /** P91: the check on a ZSL ring frame (the camera's Image or its copy in the ring's memfd). */
+    public static Result check(RingFrame image, int whiteLevel) {
+        if (image == null || image.getFormat() != ImageFormat.RAW_SENSOR) return UNCHECKED;
+        return check(image.buffer(), image.getWidth(), image.getHeight(), image.rowStride(), whiteLevel);
+    }
+
+    /** The check on a little-endian RAW16 buffer as the reader delivers it (rows {@code rowStride} bytes apart). */
+    public static Result check(ByteBuffer buffer, int width, int height, int rowStride, int whiteLevel) {
+        // P230: a session whose sensor mode has a known depth (Xiaomi 15 Ultra DCG: 14 bit under the declared 1023) checks
+        // against that depth's white: its samples are no impossible values, its empty bottom rows no packed tail
+        final int known = RawLevels.knownWhite();
+        // P320: that white is the depth's scale, not the mode's clip (a DCG mode can clip under it, as the X300 Ultra's at 8694
+        // of 16383); the known-depth frames are not checked, but their clip plateau is still measured for the white
+        if (known > 4095 && whiteLevel > 0 && whiteLevel <= 4095 && RawLevels.wideEnabled() && buffer != null
+                && width > 0 && height > 0 && rowStride >= 2 * width && buffer.capacity() >= (long) (height - 1) * rowStride + 2L * width) {
+            final int clip = knownDepthClip(buffer, width, height, rowStride);
+            if (clip > 0) RawLevels.noteSaturation(clip);
+        }
+        // P641: a dual-gain session of a known depth (Xiaomi 17 Ultra) whose RAW_SENSOR buffer may hold the packed MIPI payload:
+        // a frame with a packed layout is no plain one, whatever the known depth (the unchecked frame would be read as 16-bit)
+        if (sKeepDepth && known > 4095 && whiteLevel > 0 && whiteLevel <= 4095 && buffer != null) {
+            final Layout packed = packedLayout(buffer, width, height, Math.max(1, Math.round(RawLevels.staticBlack())), whiteLevel);
+            if (packed != null) return new Result("RAW_SENSOR holds " + packed.describe() + " in a session of a known depth", 1f,
+                    1f - (float) packed.stride * height / Math.max(1, buffer.capacity()), packed.format == android.graphics.ImageFormat.RAW10);
+        }
+        whiteLevel = Math.max(whiteLevel, known);
+        if (buffer == null || width <= 0 || height <= 0 || whiteLevel <= 0 || whiteLevel > 4095) return UNCHECKED;
+        String geometry = String.format(Locale.ROOT, "%dx%d, rowStride %d, %d bytes", width, height, rowStride, buffer.capacity());
+        if (rowStride < 2 * width || (rowStride & 1) != 0)
+            return new Result("RAW16 rows do not fit their stride (" + geometry + ")", 0, 0);
+        if (buffer.capacity() < (long) (height - 1) * rowStride + 2L * width)
+            return new Result("RAW16 buffer is smaller than its rows (" + geometry + ")", 0, 0);
+        ByteBuffer view = buffer.duplicate();
+        view.position(0);
+        ShortBuffer data = view.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+        // P230: a DCG mode shorter than the buffer (SensorModeBand.noteResult): its rows only, not its empty band
+        final int image = sImageRows > 0 && sImageRows < height && sImageRows >= height / 2 ? sImageRows : height;
+        final int limit = 4 * (whiteLevel + 1), rows = Math.min(ROWS, image), step = Math.max(1, width / SAMPLES);
+        long impossible = 0, total = 0;
+        int zeroRows = 0, max = 0, max2 = 0, n = 0;
+        final int[] samples = new int[ROWS * SAMPLES];
+        for (int r = 0; r < rows; r++) {
+            int y = rows == 1 ? 0 : (int) ((long) r * (image - 1) / (rows - 1));
+            int base = (int) ((long) y * rowStride / 2);
+            boolean zero = true;
+            for (int i = 0, x = step / 2; i < SAMPLES && x < width; i++, x += step) {
+                int v = data.get(base + x) & 0xffff;
+                if (v >= limit) impossible++;
+                if (v > max) { max2 = max; max = v; } else if (v > max2) max2 = v;
+                if (n < samples.length) samples[n++] = v;
+                if (v != 0) zero = false;
+                total++;
+            }
+            if (zero) zeroRows++;
+        }
+        float share = total == 0 ? 0 : (float) impossible / total, zeroShare = (float) zeroRows / rows;
+        boolean packed10 = (share >= IMPOSSIBLE_WITH_ZERO_ROWS && zeroShare >= 0.28f && zeroShare <= 0.45f)
+                || (share >= 0.50f && zeroShare >= 0.28f);
+        // P104 / P127: a plain RAW wider than its declared white (vivo DCG: 14-bit Bayer under white 1023). Two samples the
+        // declared depth cannot hold (the second largest value: one hot pixel is no range) and no zero tail (packed payloads end
+        // in zero rows) prove a wider stream; its floor (0.5 % of the non-zero samples) is measured then, and while the metadata
+        // says the stream is wider, to tell 12 from 14 bits and to check the metadata (RawLevels).
+        if (RawLevels.wideEnabled()) {
+            final int declaredBits = RawLevels.bitsOfWhite(whiteLevel), sampled = RawLevels.bitsOfWhite(max2);
+            final boolean wider = zeroShare < 0.05f && sampled > declaredBits && sampled <= RawLevels.MAX_SAMPLED_BITS;
+            final float floor = wider || RawLevels.metadataWider() ? floor(samples, n) : -1f;
+            final int bits = wider ? RawLevels.sampledBits(max2, whiteLevel, RawLevels.staticBlack(), floor) : 0;
+            RawLevels.noteSamples(whiteLevel, bits, floor);
+            // the white of the wider stream from the data: its clip plateau (X300 Ultra DCG clips at 8694, not at 16383)
+            if (wider) {
+                final int clip = clipPlateau(samples, n);
+                if (clip > 0) RawLevels.noteSaturation(clip);
+            } else if (RawLevels.dcgFrames() && zeroShare < 0.05f) {
+                // P320: a DCG stream at its declared depth (the Pixel 10 Pro's main): its white is checked against its clip too
+                final int clip = clipPlateau(samples, n);
+                if (clip > 0) RawLevels.noteSaturation(clip);
+            }
+            if (bits > 0) return new Result(null, share, zeroShare, false);
+        }
+        if (share >= IMPOSSIBLE_SHARE || (share >= IMPOSSIBLE_WITH_ZERO_ROWS && zeroShare >= ZERO_ROW_SHARE))
+            return new Result(String.format(Locale.ROOT,
+                    "RAW is not plain 16-bit: %.1f %% of samples at or above 4x white %d, %.1f %% zero rows (%s)",
+                    share * 100, whiteLevel, zeroShare * 100, geometry), share, zeroShare, packed10);
+        return new Result(null, share, zeroShare, false);
+    }
+
+    /** P320: the clip plateau of a known-depth frame ({@link #clipPlateau} on the same samples as the check), 0 when none. */
+    static int knownDepthClip(ByteBuffer buffer, int width, int height, int rowStride) {
+        ByteBuffer view = buffer.duplicate();
+        view.position(0);
+        ShortBuffer data = view.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+        final int image = sImageRows > 0 && sImageRows < height && sImageRows >= height / 2 ? sImageRows : height;
+        final int rows = Math.min(ROWS, image), step = Math.max(1, width / SAMPLES);
+        final int[] samples = new int[ROWS * SAMPLES];
+        int n = 0;
+        for (int r = 0; r < rows; r++) {
+            int y = rows == 1 ? 0 : (int) ((long) r * (image - 1) / (rows - 1));
+            int base = (int) ((long) y * rowStride / 2);
+            for (int i = 0, x = step / 2; i < SAMPLES && x < width && n < samples.length; i++, x += step) samples[n++] = data.get(base + x) & 0xffff;
+        }
+        return clipPlateau(samples, n);
+    }
+
+    /**
+     * The value a frame clips on, 0 when its samples show no clip: at least 0.2 % of them (16 at least) within 0.1 % (2 DN at
+     * least) of the top sample, and the band of three times that width just under it holding fewer than half as many. A blown
+     * area piles up on one value; bright content, however flat, spreads with its noise and thins out towards its maximum.
+     */
+    static int clipPlateau(int[] samples, int n) {
+        if (n < 16) return 0;
+        // the 4th largest sample: a few hot pixels above a clip are no plateau of their own
+        final int[] sorted = java.util.Arrays.copyOf(samples, n);
+        java.util.Arrays.sort(sorted);
+        final int top = sorted[n - 4];
+        if (top <= 0) return 0;
+        final int tol = Math.max(2, top / 1000);
+        int at = 0, below = 0;
+        for (int i = 0; i < n; i++) {
+            final int v = samples[i];
+            if (v >= top - tol) at++;
+            else if (v >= top - 4 * tol) below++;
+        }
+        return at >= Math.max(16, n / 500) && 2 * below < at ? top : 0;
+    }
+
+    /** 0.5 % of the non-zero samples (zero is padding, not the floor), -1 when there are too few. */
+    static float floor(int[] samples, int n) {
+        final int[] sorted = java.util.Arrays.copyOf(samples, n);
+        java.util.Arrays.sort(sorted);
+        int zeros = 0;
+        while (zeros < n && sorted[zeros] == 0) zeros++;
+        final int left = n - zeros;
+        return left < 200 ? -1f : sorted[zeros + left / 200];
+    }
+
+    /** P104 dev switch raw_wide; CaptureController calls it for every camera session, which starts the stream's levels over. */
+    /** P230: rows of the running DCG mode in a taller buffer (0: the whole frame), see SensorModeBand.noteResult. */
+    private static volatile int sImageRows;
+
+    /** P230: the check samples the first {@code rows} rows only (a DCG mode's window; 0 = all rows). */
+    public static void setImageRows(int rows) {
+        sImageRows = Math.max(0, rows);
+    }
+
+    public static void setWideEnabled(boolean enabled) {
+        sImageRows = 0;
+        RawLevels.newSession(enabled);
+    }
+
+    /**
+     * Row stride in bytes of a packed MIPI RAW10 payload behind a RAW_SENSOR buffer, 0 when it cannot be read from the data.
+     * <p>
+     * Xiaomi 17 Ultra, tele 4 through logical camera 0 (owner's log, 2026-10-09): 4080x3072 RAW_SENSOR, rowStride 8160, the
+     * first 62.5 % of the buffer packed RAW10 and the rest zero. The reported rowStride is the RAW16 one, so the packed rows'
+     * stride is found from where the data ends: every packed group holds four high bytes of samples above black (never zero),
+     * so the payload is one run of non-zero 64-byte blocks followed by zeros. The smallest stride from width*10/8 whose
+     * {@code height} rows end there (last row with or without its padding) is the stride.
+     */
+    public static int packedStride(ByteBuffer buffer, int width, int height) {
+        if (buffer == null || width < 4 || (width & 3) != 0 || height < 2) return 0;
+        final int rowBytes = width * 10 / 8, capacity = buffer.capacity(), block = 64;
+        if ((long) rowBytes * height > capacity) return 0;
+        // Binary search for the first all-zero block after which the buffer stays zero.
+        int lo = 0, hi = capacity / block;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (zeroBlock(buffer, mid * block, Math.min(block, capacity - mid * block))) hi = mid; else lo = mid + 1;
+        }
+        int end = Math.min(capacity, lo * block);
+        while (end > 0 && buffer.get(end - 1) == 0) end--;
+        // No zero tail (a plain frame, or packed rows over a stale frame): nothing to read the stride from.
+        if (end <= 0 || end > capacity - rowBytes) return 0;
+        // Row padding up to 128 bytes (seen: 20 on the 17 Ultra, 16 / 64 in the tests); a larger one would also take a RAW14
+        // payload (P72: 7 / 5 of the RAW10 row) for RAW10 on narrow frames.
+        for (int stride = rowBytes; stride <= rowBytes + 128; stride++) {
+            long first = (long) (height - 1) * stride + rowBytes, all = (long) height * stride;
+            if (all > capacity) break;
+            // A zero last low-bits byte (or a zero padding tail) ends the data a few bytes early.
+            if (first <= end + 8L && end <= all) return stride;
+        }
+        return 0;
+    }
+
+    /** Format and row stride of a packed payload behind RAW_SENSOR (RawUnpack format codes), see {@link #packedLayout}. */
+    public static final class Layout {
+        public final int format, stride;
+        /** P641: the darkest 2 % of the samples the layout was judged on, at the packing's own depth (0: not measured, RAW10). */
+        public final int low;
+        Layout(int format, int stride) { this(format, stride, 0); }
+        Layout(int format, int stride, int low) { this.format = format; this.stride = stride; this.low = low; }
+        /** P641: the depth of the packing (10, 12, 14). */
+        public int packedBits() {
+            return format == android.graphics.ImageFormat.RAW10 ? 10 : format == android.graphics.ImageFormat.RAW12 ? 12 : 14;
+        }
+        public String describe() {
+            return (format == android.graphics.ImageFormat.RAW10 ? "packed MIPI RAW10"
+                    : format == android.graphics.ImageFormat.RAW12 ? "packed MIPI RAW12"
+                    : format == com.scamera.app.util.RawUnpack.RAW14_TO_10 ? "packed MIPI RAW14 (14-bit values, read >> 4)"
+                    : "packed MIPI RAW14") + " (stride " + stride + ")";
+        }
+    }
+
+    private static volatile boolean sKeepDepth;
+
+    /**
+     * P641: the session asked for a dual-gain sensor row (Xiaomi 17 Ultra, XiaomiDualGain): a packed RAW14 payload keeps its 14
+     * bits (no {@code >> 4} into the declared range - the session's levels follow the frames), and a packed RAW12 payload (the
+     * ultra wide's 12-bit DSG, three quarters of the buffer) is a layout too. Off in every other session.
+     */
+    public static void setKeepDepth(boolean keep) {
+        sKeepDepth = keep;
+    }
+
+    /**
+     * P641: a packed MIPI RAW12 payload behind RAW_SENSOR (two samples in three bytes, {@code width * 12 / 8} bytes a row), by the
+     * zero tail as the others; taken when its sample rows decode to a plausible image at the 12-bit scale (darkest samples from
+     * 2.5 x the black up: read against 4 x the white) or at the declared one. Null otherwise.
+     */
+    static Layout packedLayout12(ByteBuffer buffer, int width, int height, int black, int white) {
+        if (buffer == null || width < 4 || (width & 3) != 0 || height < 2 || white <= 0) return null;
+        final int rowBytes = width * 12 / 8, capacity = buffer.capacity();
+        if ((long) rowBytes * height > capacity) return null;
+        final int end = dataEnd(buffer);
+        if (end <= 0 || end > capacity - rowBytes) return null;
+        int stride = 0;
+        for (int s = rowBytes; s <= rowBytes + 128; s++) {
+            long first = (long) (height - 1) * s + rowBytes, all = (long) height * s;
+            if (all > capacity) break;
+            if (first <= end + 8L && end <= all) { stride = s; break; }
+        }
+        if (stride == 0) return null;
+        int[] values = new int[2 * 64 * (width / 16 + 1)];
+        int n = 0;
+        for (int r = 0; r < 64; r++) {
+            final int y = (int) ((long) (2 * r + 1) * height / 128);
+            for (int g = 0; g + 1 < width / 2; g += 8) {
+                final int at = y * stride + g * 3;
+                final int b2 = buffer.get(at + 2) & 0xff;
+                values[n++] = ((buffer.get(at) & 0xff) << 4) | (b2 & 0x0f);
+                values[n++] = ((buffer.get(at + 1) & 0xff) << 4) | (b2 >> 4);
+            }
+        }
+        if (n < 1000) return null;
+        int[] sorted = java.util.Arrays.copyOf(values, n);
+        java.util.Arrays.sort(sorted);
+        final int low = sorted[n / 50];
+        final int shift = low >= 2.5f * Math.max(black, 1) ? 2 : 0;
+        int over = 0;
+        for (int i = 0; i < n; i++) if ((values[i] >> shift) > white * 1.05f) over++;
+        if (over > 0.3f * n) return null;
+        if (shift == 2) {
+            final int clip = clipPlateau(values, n);
+            if (clip > 0) RawLevels.noteSaturation(clip);
+        }
+        return new Layout(android.graphics.ImageFormat.RAW12, stride, low);
+    }
+
+    /**
+     * P72: the packed layout of a RAW_SENSOR payload, or null. Packed MIPI RAW10 first ({@link #packedStride}); else MIPI RAW14,
+     * Xiaomi 17 Ultra tele in in-sensor zoom (owner's log 2026-10-10, mode 9): 4080x3072, rowStride 8160, data up to 87.5 % of
+     * the buffer = 7140 bytes a row = 4080 x 14 / 8. The stride is read from the zero tail as for RAW10. RAW14 is taken only
+     * when sample rows decode to a plausible image: values from 16 x the black level up (the darkest 2 % of the samples) are
+     * 14-bit and read >> 4 into the declared 10-bit range; then at most 30 % of the samples may exceed 1.05 x white (a wrong
+     * layout put 83 % of 16-bit reads above 4 x white). Anything else stays refused.
+     */
+    public static Layout packedLayout(ByteBuffer buffer, int width, int height, int black, int white) {
+        int stride10 = packedStride(buffer, width, height);
+        if (stride10 > 0) return new Layout(android.graphics.ImageFormat.RAW10, stride10);
+        if (sKeepDepth) { // P641: a dual-gain session's 12-bit payload
+            final Layout twelve = packedLayout12(buffer, width, height, black, white);
+            if (twelve != null) return twelve;
+        }
+        if (buffer == null || width < 4 || (width & 3) != 0 || height < 2 || white <= 0) return null;
+        final int rowBytes = width * 14 / 8, capacity = buffer.capacity();
+        if ((long) rowBytes * height > capacity) return null;
+        final int end = dataEnd(buffer);
+        if (end <= 0 || end > capacity - rowBytes) return null;
+        int stride = 0;
+        for (int s = rowBytes; s <= rowBytes + 512; s++) {
+            long first = (long) (height - 1) * s + rowBytes, all = (long) height * s;
+            if (all > capacity) break;
+            if (first <= end + 8L && end <= all) { stride = s; break; }
+        }
+        if (stride == 0) return null;
+        // sample rows: every 4th group of 64 rows spread over the frame
+        int[] values = new int[2 * 64 * (width / 16 + 1)];
+        int n = 0;
+        for (int r = 0; r < 64; r++) {
+            final int y = (int) ((long) (2 * r + 1) * height / 128);
+            for (int g = 0; g + 3 < width / 4; g += 4) {
+                int[] v = com.scamera.app.util.RawUnpack.raw14(buffer, y * stride + g * 7);
+                values[n++] = v[0]; values[n++] = v[1];
+            }
+        }
+        if (n < 1000) return null;
+        int[] sorted = java.util.Arrays.copyOf(values, n);
+        java.util.Arrays.sort(sorted);
+        final int low = sorted[n / 50];
+        final int shift = low >= 8 * Math.max(black, 1) ? 4 : 0;
+        int over = 0;
+        for (int i = 0; i < n; i++) if ((values[i] >> shift) > white * 1.05f) over++;
+        if (over > 0.3f * n) return null;
+        // P641: a dual-gain session keeps the 14 bits (the levels follow the frames); elsewhere they go to the declared range.
+        // Its clip is measured on the same samples (a packed frame never reaches the plain check's plateau measurement)
+        if (sKeepDepth && shift == 4) {
+            final int clip = clipPlateau(values, n);
+            if (clip > 0) RawLevels.noteSaturation(clip);
+        }
+        return new Layout(shift == 4 && !sKeepDepth ? com.scamera.app.util.RawUnpack.RAW14_TO_10
+                : com.scamera.app.util.RawUnpack.RAW14, stride, low);
+    }
+
+    /** P72: the payload ending at {@code end} (see {@link #dataEnd}) has {@code layout}'s geometry (a cheap per-frame test). */
+    public static boolean fits(Layout layout, int end, int width, int height) {
+        final int rowBytes = com.scamera.app.util.RawUnpack.packedRowBytes(layout.format, width);
+        if (rowBytes <= 0 || end <= 0) return false;
+        long first = (long) (height - 1) * layout.stride + rowBytes, all = (long) height * layout.stride;
+        return first <= end + 8L && end <= all;
+    }
+
+    /** Offset after the last non-zero byte of the buffer, found by the zero tail of 64-byte blocks (see packedStride). */
+    public static int dataEnd(ByteBuffer buffer) {
+        final int capacity = buffer.capacity(), block = 64;
+        int lo = 0, hi = capacity / block;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (zeroBlock(buffer, mid * block, Math.min(block, capacity - mid * block))) hi = mid; else lo = mid + 1;
+        }
+        int end = Math.min(capacity, lo * block);
+        while (end > 0 && buffer.get(end - 1) == 0) end--;
+        return end;
+    }
+
+    /** Smallest black level of the sensor (static pattern), 64 when unknown. */
+    public static int blackLevel(CameraCharacteristics characteristics) {
+        android.hardware.camera2.params.BlackLevelPattern pattern = characteristics == null ? null
+                : characteristics.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN);
+        if (pattern == null) return 64;
+        int min = Integer.MAX_VALUE;
+        for (int i = 0; i < 4; i++) min = Math.min(min, pattern.getOffsetForIndex(i & 1, i >> 1));
+        return min;
+    }
+
+    private static boolean zeroBlock(ByteBuffer buffer, int from, int length) {
+        for (int i = 0; i < length; i++) if (buffer.get(from + i) != 0) return false;
+        return true;
+    }
+
+    /** White level the check compares against: the larger of the static and the frame's dynamic white, 0 when unknown. */
+    public static int whiteLevel(CameraCharacteristics characteristics, CaptureResult result) {
+        int white = 0;
+        Integer stat = characteristics == null ? null : characteristics.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
+        if (stat != null) white = stat;
+        Integer dynamic = result == null ? null : result.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL);
+        if (dynamic != null) white = Math.max(white, dynamic);
+        try {
+            // P127: the camera of the checked frames, and the frame's metadata in its own units (RawLevels)
+            if (result != null) RawLevels.noteMetadata(RawLevels.staticBlack(characteristics), stat == null ? 0 : stat,
+                    result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL), dynamic == null ? 0 : dynamic);
+            else RawLevels.noteCamera(RawLevels.staticBlack(characteristics), stat == null ? 0 : stat);
+        } catch (RuntimeException ignored) {
+        }
+        return white;
+    }
+
+    private static final Set<String> sDumped = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Once per camera and process: the head of a rejected buffer and the bytes around 5/8 and 3/4 of it (where a 10- or 12-bit
+     * payload ends) go to Download/SCAMERA/raw-payload-*.zip with its metadata, so the layout can be read from real bytes.
+     */
+    public static void dumpOnce(Image image, Result result, String cameraId) {
+        if (image != null) dumpOnce(RingFrame.of(image), result, cameraId);
+    }
+
+    public static void dumpOnce(RingFrame image, Result result, String cameraId) {
+        if (image == null || result == null || result.plain()) return;
+        // A packed RAW10 payload whose stride is read from the data is understood and unpacked (Xiaomi 17 Ultra tele): no zip
+        // in Download/SCAMERA on every start for it.
+        if (result.isPacked10() && packedStride(image.buffer(), image.getWidth(), image.getHeight()) > 0) return;
+        // P72: a packed RAW14 payload that decodes plausibly is understood too (no zip)
+        if (packedLayout(image.buffer(), image.getWidth(), image.getHeight(), 64, 1023) != null) return;
+        if (!sDumped.add(String.valueOf(cameraId))) return;
+        try {
+            ByteBuffer src = image.buffer().duplicate();
+            src.position(0);
+            int capacity = src.capacity();
+            String meta = String.format(Locale.ROOT,
+                    "camera=%s device=%s format=%d size=%dx%d rowStride=%d pixelStride=%d capacity=%d timestamp=%d%n%s%n"
+                            + "head.bin=[0,%d) mid58.bin starts at %d, mid34.bin starts at %d%n",
+                    cameraId, android.os.Build.DEVICE, image.getFormat(), image.getWidth(), image.getHeight(),
+                    image.rowStride(), image.pixelStride(), capacity, image.getTimestamp(), result.error,
+                    Math.min(capacity, 256 << 10), Math.max(0, capacity / 8 * 5 - (32 << 10)), Math.max(0, capacity / 4 * 3 - (32 << 10)));
+            byte[] head = slice(src, 0, 256 << 10), mid58 = slice(src, capacity / 8 * 5 - (32 << 10), 64 << 10),
+                    mid34 = slice(src, capacity / 4 * 3 - (32 << 10), 64 << 10);
+            String name = "raw-payload-" + cameraId + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date());
+            new Thread(() -> export(name, meta, head, mid58, mid34), "raw-payload-dump").start();
+        } catch (RuntimeException e) {
+            com.scamera.app.util.Log.w("RawPayload", "dump failed: " + e);
+        }
+    }
+
+    private static byte[] slice(ByteBuffer src, int from, int length) {
+        from = Math.max(0, Math.min(from, src.capacity()));
+        byte[] out = new byte[Math.min(length, src.capacity() - from)];
+        ByteBuffer view = src.duplicate();
+        view.position(from);
+        view.get(out);
+        return out;
+    }
+
+    private static void export(String name, String meta, byte[] head, byte[] mid58, byte[] mid34) {
+        android.content.Context context = com.scamera.app.app.ScameraApp.getAppContext();
+        android.net.Uri uri = null;
+        try {
+            java.io.OutputStream stream;
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues v = new android.content.ContentValues();
+                v.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name + ".zip");
+                v.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/zip");
+                v.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/SCAMERA");
+                uri = context.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                stream = uri == null ? null : context.getContentResolver().openOutputStream(uri);
+            } else {
+                java.io.File dir = new java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS), "SCAMERA");
+                dir.mkdirs();
+                stream = new java.io.FileOutputStream(new java.io.File(dir, name + ".zip"));
+            }
+            if (stream == null) throw new java.io.IOException("cannot create " + name + ".zip");
+            try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(stream)) {
+                put(zip, "meta.txt", meta.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                put(zip, "head.bin", head);
+                put(zip, "mid58.bin", mid58);
+                put(zip, "mid34.bin", mid34);
+            }
+            com.scamera.app.util.Log.i("RawPayload", "Saved Download/SCAMERA/" + name + ".zip");
+        } catch (Exception e) {
+            if (uri != null) try { context.getContentResolver().delete(uri, null, null); } catch (Exception ignored) { }
+            com.scamera.app.util.Log.w("RawPayload", "dump export failed: " + e);
+        }
+    }
+
+    private static void put(java.util.zip.ZipOutputStream zip, String entry, byte[] data) throws java.io.IOException {
+        zip.putNextEntry(new java.util.zip.ZipEntry(entry));
+        zip.write(data);
+        zip.closeEntry();
+    }
+}

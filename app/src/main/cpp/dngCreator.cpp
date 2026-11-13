@@ -1,1432 +1,490 @@
 //
 // Created by eszdman on 02.06.2025.
 //
+// SCAMERA DNG writer (library dngCreator): collects a shot's raw metadata from processing/DngCreator.java and lays out a
+// single-IFD CFA DNG 1.3 through tiny_dng_writer - 16 bits per sample, uncompressed or lossless JPEG (LJ92), with the Exif
+// IFD, the lens-shading GainMap (opcode list 2) and the Quad / Tetra colour blocks (P318).
+//
+// The bytes of a file depend on the order in which the DNGImage setters run (every value lands in the data area in that
+// order): DngFile::build keeps the order the writer always had - tools/check_dng_metadata.cpp and check_dng_mosaic_cfa.cpp
+// read the result tag by tag.
 #include <jni.h>
 #include <android/log.h>
-#include <string>
-#include <sstream>
-#include <cmath>
 #include <algorithm>
-#include <vector>
+#include <array>
+#include <cmath>
 #include <cstdint>
-#include <ctime>
-#include <cstdio>
-#include <dlfcn.h>
-#include <sys/types.h>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <vector>
 #define TINY_DNG_WRITER_IMPLEMENTATION
 #include "deps/tiny_dng_writer.h"
-#include "dngCreator.h"
 
-// libarchive public headers — used for opaque types, constants, and function
-// pointer signatures.  The actual symbols come from libarchive-jni.so which is
-// loaded at runtime via dlopen (the library has no prefab / CMake export).
-#include <archive.h>
-#include <archive_entry.h>
+#define DNG_INFO(...) __android_log_print(ANDROID_LOG_DEBUG, "ScamDng", __VA_ARGS__)
+#define DNG_FAIL(...) __android_log_print(ANDROID_LOG_ERROR, "ScamDng", __VA_ARGS__)
 
-static const double COMPRESSION_GAMMA = 2.2;
-static const int STORED_LEVELS_10 = 1024;
-static const int MAX_INPUT_LEVELS = 65536;
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG,"dng_creator_native", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "dng_creator_native", __VA_ARGS__)
+namespace scamdng {
 
-// ---------------------------------------------------------------------------
-// libarchive runtime loader
-//
-// libarchive-android (me.zhanghai.android.libarchive) bundles libarchive as a
-// static library inside archive-jni.so.  That AAR does not publish a prefab
-// package, so we cannot link against it at CMake time.  Instead we dlopen the
-// shared library at runtime and resolve the symbols we need via dlsym.
-// The archive.h / archive_entry.h headers above give us the opaque struct
-// declarations, constants (AE_IFREG, ARCHIVE_OK …) and the precise function
-// signatures for the function-pointer typedefs below.
-// ---------------------------------------------------------------------------
+namespace tdw = tinydngwriter;
 
-struct LibArchive {
-    void* handle   = nullptr;
-    bool  loaded   = false;   // load() has been attempted
-    bool  available = false;  // load() succeeded
+/** The 3x3 matrices a file may carry, in the order their tags are written. */
+enum Matrix { kColour1, kColour2, kForward1, kForward2, kCalibration1, kCalibration2, kMatrixCount };
 
-    // --- write API ---
-    struct archive*       (*write_new)             (void)                                                   = nullptr;
-    int                   (*write_set_format_zip)  (struct archive*)                                        = nullptr;
-    int                   (*write_set_format_option)(struct archive*, const char*, const char*, const char*) = nullptr;
-    int                   (*write_add_filter_none) (struct archive*)                                        = nullptr;
-    int                   (*write_open_fd)         (struct archive*, int)                                   = nullptr;
-    int                   (*write_open_filename)   (struct archive*, const char*)                           = nullptr;
-    int                   (*write_header)          (struct archive*, struct archive_entry*)                 = nullptr;
-    la_ssize_t            (*write_data)            (struct archive*, const void*, size_t)                   = nullptr;
-    int                   (*write_close)           (struct archive*)                                        = nullptr;
-    int                   (*write_free)            (struct archive*)                                        = nullptr;
+/** Colour (0 R, 1 G, 2 B) of the 2x2 sites (y * 2 + x) for Camera2's CFA arrangement 0 RGGB, 1 GRBG, 2 GBRG, 3 BGGR. */
+constexpr unsigned char kSiteColour[4][4] = {{0, 1, 1, 2}, {1, 0, 2, 1}, {1, 2, 0, 1}, {2, 1, 1, 0}};
+/**
+ * The 2x2 site of each lens-shading channel (Camera2 order R, G on the even row, G on the odd row, B) per arrangement:
+ * the GainMap of channel k is anchored on that site.
+ */
+constexpr unsigned char kShadingSite[4][4] = {{0, 1, 2, 3}, {1, 0, 3, 2}, {2, 0, 3, 1}, {3, 1, 2, 0}};
 
-    // --- entry API ---
-    struct archive_entry* (*entry_new)                    (void)                                                   = nullptr;
-    struct archive_entry* (*entry_clear)                  (struct archive_entry*)                                  = nullptr;
-    void                  (*entry_set_pathname)           (struct archive_entry*, const char*)                     = nullptr;
-    void                  (*entry_set_size)               (struct archive_entry*, la_int64_t)                      = nullptr;
-    void                  (*entry_set_filetype)           (struct archive_entry*, unsigned int)                    = nullptr;
-    void                  (*entry_set_perm)               (struct archive_entry*, mode_t)                          = nullptr;
-    void                  (*entry_set_mtime)              (struct archive_entry*, time_t, long)                    = nullptr;
-    void                  (*entry_free)                   (struct archive_entry*)                                  = nullptr;
-
-    bool load() {
-        if (loaded) return available;
-        loaded = true;
-
-        handle = dlopen("libarchive-jni.so", RTLD_NOW);
-        if (!handle) {
-            LOGE("LibArchive dlopen failed: %s", dlerror());
-            return false;
-        }
-
-#define LOAD_SYM(member, sym)                                                  \
-        member = reinterpret_cast<decltype(member)>(dlsym(handle, sym));       \
-        if (!member) LOGE("LibArchive dlsym '%s' failed", sym)
-
-        LOAD_SYM(write_new,              "archive_write_new");
-        LOAD_SYM(write_set_format_zip,   "archive_write_set_format_zip");
-        LOAD_SYM(write_set_format_option,"archive_write_set_format_option");
-        LOAD_SYM(write_add_filter_none,  "archive_write_add_filter_none");
-        LOAD_SYM(write_open_fd,          "archive_write_open_fd");
-        LOAD_SYM(write_open_filename,    "archive_write_open_filename");
-        LOAD_SYM(write_header,           "archive_write_header");
-        LOAD_SYM(write_data,             "archive_write_data");
-        LOAD_SYM(write_close,            "archive_write_close");
-        LOAD_SYM(write_free,             "archive_write_free");
-        LOAD_SYM(entry_new,                     "archive_entry_new");
-        LOAD_SYM(entry_clear,                   "archive_entry_clear");
-        LOAD_SYM(entry_set_pathname,            "archive_entry_set_pathname");
-        LOAD_SYM(entry_set_size,                "archive_entry_set_size");
-        LOAD_SYM(entry_set_filetype,            "archive_entry_set_filetype");
-        LOAD_SYM(entry_set_perm,                "archive_entry_set_perm");
-        LOAD_SYM(entry_set_mtime,               "archive_entry_set_mtime");
-        LOAD_SYM(entry_free,                    "archive_entry_free");
-#undef LOAD_SYM
-
-        available = (write_new != nullptr && write_header != nullptr && entry_new != nullptr);
-        if (available)
-            LOGD("LibArchive loaded successfully from libarchive-jni.so");
-        else
-            LOGE("LibArchive: one or more required symbols missing");
-        return available;
+/** A matrix worth writing (P280): every entry finite and not all of them zero (zero = never set by the camera). */
+bool writable(const std::array<double, 9> &m) {
+    double magnitude = 0;
+    for (double v : m) {
+        if (!std::isfinite(v)) return false;
+        magnitude += std::fabs(v);
     }
+    return magnitude > 1e-9;
+}
+
+class DngFile {
+public:
+    DngFile() : image_(new tdw::DNGImage()) {
+        image_->SetSubfileType(false, false, false);
+        image_->SetBigEndian(false);
+        image_->SetSamplesPerPixel(1);
+        image_->SetPhotometric(tdw::PHOTOMETRIC_CFA);
+        image_->SetPlanarConfig(tdw::PLANARCONFIG_CONTIG);
+        image_->SetDNGVersion(1, 3, 0, 0);
+        // P618: ExifVersion 2.31 (the version with OffsetTime*) in the Exif IFD, where it belongs
+        image_->SetTag(1, tdw::EXIFTAG_EXIFVERSION, tdw::TIFF_UNDEFINED, 4, "0231");
+    }
+
+    // --- what goes straight to the image, in the caller's order ---
+    void setUniqueCameraModel(const std::string &s) { image_->SetUniqueCameraModel(s); }
+    void setDescription(const std::string &s) { image_->SetImageDescription(s); }
+    void setSoftware(const std::string &s) { image_->SetSoftware(s); }
+    void setMake(const std::string &s) { image_->SetMake(s); }
+    void setModel(const std::string &s) { image_->SetModel(s); }
+    void setDateTime(const std::string &s) { image_->SetDateTime(s); }
+    void setIso(unsigned short v) { image_->SetIso(v); }
+    void setExposureTime(double seconds) { image_->SetExposureTime(seconds); }
+    void setAperture(double fNumber) { image_->SetAperture(fNumber); }
+    void setFocalLength(double mm) { image_->SetFocalLength(mm); }
+    void setNoiseProfile(const double *pairs, int count) { image_->SetNoiseProfile(static_cast<unsigned int>(count / 2), pairs); }
+
+    /** P618: one more tag of IFD 0 (ifd 0) or the Exif IFD (ifd 1), values in host order; false (logged) when refused. */
+    bool setTag(int ifd, unsigned short tag, unsigned short type, unsigned int count, const void *values) {
+        if (image_->SetTag(ifd, tag, type, count, values)) return true;
+        DNG_FAIL("tag %u of IFD %d (type %u x %u) refused: %s", tag, ifd, type, count, image_->Error().c_str());
+        return false;
+    }
+
+    // --- what the layout uses when the file is built ---
+    void setOrientation(int v) { orientation_ = v; }
+    void setWhiteLevel(double v) { white_ = v; }
+    void setBlackLevel(const unsigned short *v) { std::copy(v, v + 4, black_.begin()); }
+    void setCompression(bool lossless) { lossless_ = lossless; }
+    void setBaselineExposure(double ev) { baselineEv_ = ev; }
+    void setCalibrationIlluminant1(unsigned short v) { illuminant_[0] = v; }
+    void setCalibrationIlluminant2(unsigned short v) { illuminant_[1] = v; }
+    void setColorMatrix1(const double *m) { keep(kColour1, m); }
+    void setColorMatrix2(const double *m) { keep(kColour2, m); }
+    void setForwardMatrix1(const double *m) { keep(kForward1, m); }
+    void setForwardMatrix2(const double *m) { keep(kForward2, m); }
+    void setCameraCalibration1(const double *m) { keep(kCalibration1, m); }
+    void setCameraCalibration2(const double *m) { keep(kCalibration2, m); }
+    void setAsShotNeutral(const double *rgb) {
+        std::copy(rgb, rgb + 3, neutral_.begin());
+        neutralSet_ = true;
+    }
+
+    /** Camera2's CFA arrangement; an unknown value is written as RGGB but places no GainMap. */
+    void setCFAPattern(int arrangement) {
+        arrangement_ = arrangement;
+        const int row = arrangement >= 0 && arrangement < 4 ? arrangement : 0;
+        std::copy(kSiteColour[row], kSiteColour[row] + 4, siteColour_.begin());
+    }
+
+    /** P318: colour block of the stored mosaic (2 Quad, 4 Tetra, else Bayer); before setGainMap, which places its maps by it. */
+    void setMosaicBlock(int block) {
+        block_ = block == 2 || block == 4 ? block : 1;
+        if (gainMapPlaced_ && block_ > 1) DNG_FAIL("block %d after the GainMap: the maps stay on the Bayer grid", block_);
+    }
+    int mosaicBlock() const { return block_; }
+
+    /** P618: DefaultCropOrigin / Size in the stored image's pixels; a non-positive size (or a negative origin) clears it. */
+    void setDefaultCrop(int x, int y, int w, int h) {
+        if (x >= 0 && y >= 0 && w > 0 && h > 0) crop_ = {unsigned(x), unsigned(y), unsigned(w), unsigned(h)};
+        else crop_ = {0, 0, 0, 0};
+    }
+
+    /**
+     * The lens-shading map, Camera2 layout (w x h points, 4 interleaved channels), over the stored area (xmin, ymin) ..
+     * (xmax, ymax): one GainMap per channel on its 2x2 site, or per channel and site of a b x b colour block (pitch 2b).
+     */
+    void setGainMap(const float *interleaved, int xmin, int ymin, int xmax, int ymax, int w, int h) {
+        const size_t points = static_cast<size_t>(w) * static_cast<size_t>(h);
+        const bool known = arrangement_ >= 0 && arrangement_ < 4;
+        std::vector<float> plane(points);
+        std::vector<tdw::GainMap> maps;
+        for (int channel = 0; channel < 4; ++channel) {
+            for (size_t p = 0; p < points; ++p) plane[p] = interleaved[4 * p + channel];
+            tdw::GainMap map(plane.data(), w, h, xmin, ymin, xmax, ymax);
+            if (known) {
+                const unsigned site = kShadingSite[arrangement_][channel];
+                map.top = site >> 1;
+                map.left = site & 1;
+            }
+            // P205: Bottom / Right are exclusive bounds of the area
+            map.bottom = static_cast<unsigned>(ymax - ymin);
+            map.right = static_cast<unsigned>(xmax - xmin);
+            for (int sy = 0; sy < block_; ++sy)
+                for (int sx = 0; sx < block_; ++sx) {
+                    tdw::GainMap onSite = map;
+                    if (block_ > 1) {
+                        onSite.top = map.top * block_ + sy;
+                        onSite.left = map.left * block_ + sx;
+                        onSite.row_pitch = onSite.col_pitch = 2 * block_;
+                    }
+                    maps.push_back(onSite);
+                }
+        }
+        image_->SetGainMap(maps);
+        gainMapPlaced_ = true;
+    }
+
+    /** The whole file for a w x h 16-bit mosaic (malloc'ed; the caller frees it), nullptr on failure. */
+    void *createDng(void *mosaic, int w, int h, size_t &size) {
+        tdw::DNGWriter writer(false);
+        const unsigned short bitsPerSample = 16;
+        const unsigned int width = static_cast<unsigned>(w), height = static_cast<unsigned>(h);
+        image_->SetBitsPerSample(1, &bitsPerSample);
+        image_->SetOrientation(static_cast<unsigned short>(orientation_));
+        image_->SetImageWidth(width);
+        image_->SetImageLength(height);
+        image_->SetRowsPerStrip(height);
+        const unsigned int active[4] = {0, 0, height, width};
+        image_->SetActiveArea(active);
+        image_->SetResolutionUnit(tdw::RESUNIT_INCH);
+        image_->SetXResolution(72.f);
+        image_->SetYResolution(72.f);
+
+        // P318: the 2x2 order repeated over the colour blocks (2x2 Bayer, 4x4 Quad, 8x8 Tetra)
+        const int period = 2 * block_;
+        unsigned char cfa[64];
+        for (int y = 0; y < period; ++y)
+            for (int x = 0; x < period; ++x) cfa[y * period + x] = siteColour_[siteOf(x, y, block_)];
+        image_->SetCFARepeatPatternDim(static_cast<unsigned short>(period), static_cast<unsigned short>(period));
+        image_->SetCFAPattern(static_cast<unsigned int>(period * period), cfa);
+        writeBlack(period);
+        image_->SetWhiteLevelRational(1, &white_);
+
+        writeColour();
+
+        if (crop_[2] > 0 && crop_[3] > 0) {
+            if (crop_[0] + crop_[2] <= width && crop_[1] + crop_[3] <= height) {
+                setTag(0, tdw::TIFFTAG_DEFAULT_CROP_ORIGIN, tdw::TIFF_LONG, 2, &crop_[0]);
+                setTag(0, tdw::TIFFTAG_DEFAULT_CROP_SIZE, tdw::TIFF_LONG, 2, &crop_[2]);
+            } else {
+                DNG_FAIL("default crop %u,%u %ux%u outside %ux%u: not written", crop_[0], crop_[1], crop_[2], crop_[3], width, height);
+            }
+        }
+        if (!image_->WriteExifIFD()) DNG_FAIL("Exif IFD not written: %s", image_->Error().c_str());
+
+        if (!(lossless_ && writeLosslessJpeg(mosaic, w, h))) {
+            image_->SetCompression(tdw::COMPRESSION_NONE);
+            image_->SetImageData(static_cast<const unsigned char *>(mosaic), static_cast<size_t>(width) * height * 2);
+        }
+        writer.AddImage(image_.get());
+        std::string error;
+        size_t stripOffset = 0;
+        void *file = writer.WriteToMemory(&size, &error, &stripOffset);
+        if (!error.empty()) DNG_FAIL("layout failed: %s", error.c_str());
+        return file;
+    }
+
+private:
+    /** The 2x2 site (y * 2 + x) whose colour the pixel (x, y) of a block-b mosaic has. */
+    static int siteOf(int x, int y, int b) { return ((y / b) & 1) * 2 + ((x / b) & 1); }
+
+    void keep(Matrix which, const double *m) {
+        std::copy(m, m + 9, matrix_[which].begin());
+        matrixSet_[which] = true;
+    }
+
+    bool usable(Matrix which) const { return matrixSet_[which] && writable(matrix_[which]); }
+
+    /** BlackLevel by 2x2 site: one 2x2 cell when the four agree, else the whole colour-block period. */
+    void writeBlack(int period) {
+        const bool flat = black_[1] == black_[0] && black_[2] == black_[0] && black_[3] == black_[0];
+        const int dim = flat ? 2 : period, b = dim / 2;
+        std::vector<unsigned short> levels(static_cast<size_t>(dim) * dim);
+        for (int y = 0; y < dim; ++y)
+            for (int x = 0; x < dim; ++x) levels[static_cast<size_t>(y) * dim + x] = black_[siteOf(x, y, b)];
+        image_->SetBlackLevelRepeatDim(static_cast<unsigned short>(dim), static_cast<unsigned short>(dim));
+        image_->SetBlackLevel(static_cast<unsigned int>(levels.size()), levels.data());
+    }
+
+    /**
+     * P280 (owner, 2026-10-19: «Наши равы не открываются в лайтруме»): only colour data a raw converter accepts. The second
+     * profile only with a usable first one and a different second illuminant; forward and calibration matrices only with
+     * their colour matrix; AsShotNeutral only with three positive channels.
+     */
+    void writeColour() {
+        const bool first = usable(kColour1);
+        const bool second = first && usable(kColour2) && illuminant_[1] != 0 && illuminant_[1] != illuminant_[0];
+        if (first) image_->SetColorMatrix1(3, matrix_[kColour1].data());
+        if (second) image_->SetColorMatrix2(3, matrix_[kColour2].data());
+        if (first && usable(kForward1)) image_->SetForwardMatrix1(3, matrix_[kForward1].data());
+        if (second && usable(kForward2)) image_->SetForwardMatrix2(3, matrix_[kForward2].data());
+        if (first && usable(kCalibration1)) image_->SetCameraCalibration1(3, matrix_[kCalibration1].data());
+        if (second && usable(kCalibration2)) image_->SetCameraCalibration2(3, matrix_[kCalibration2].data());
+        if (neutralSet_ && neutral_[0] > 0 && neutral_[1] > 0 && neutral_[2] > 0) image_->SetAsShotNeutral(3, neutral_.data());
+        if (baselineEv_ != 0.0) image_->SetBaselineExposure(baselineEv_);
+        if (first) image_->SetCalibrationIlluminant1(illuminant_[0]);
+        if (second) image_->SetCalibrationIlluminant2(illuminant_[1]);
+    }
+
+    /**
+     * P24: DNG compression 7 - the mosaic's row pairs as one 2W x H/2 component (LibRaw decodes it bit-exact). Encoded
+     * before the tag is set, so a failure leaves the caller to store the samples uncompressed.
+     */
+    bool writeLosslessJpeg(void *mosaic, int w, int h) {
+        if (w % 2 != 0 || h % 2 != 0) return false;
+        uint8_t *encoded = nullptr;
+        int encodedSize = 0;
+        const int rc = tdw::detail::lj92_encode(static_cast<uint16_t *>(mosaic), w * 2, h / 2, 16, w * 2 * (h / 2), 0,
+                                                nullptr, 0, &encoded, &encodedSize);
+        bool stored = false;
+        if (rc == tdw::detail::LJ92_ERROR_NONE && encoded != nullptr && encodedSize > 0) {
+            image_->SetCompression(tdw::COMPRESSION_NEW_JPEG);
+            stored = image_->SetImageData(encoded, static_cast<size_t>(encodedSize));
+            DNG_INFO("LJ92 %d x %d: %d bytes", w, h, encodedSize);
+        } else {
+            DNG_FAIL("LJ92 failed (%d): stored uncompressed", rc);
+        }
+        free(encoded);
+        return stored;
+    }
+
+    std::unique_ptr<tdw::DNGImage> image_;
+    int orientation_ = 0;
+    double white_ = 1023.0;
+    std::array<unsigned short, 4> black_{};
+    bool lossless_ = false;
+    double baselineEv_ = 0.0;
+    unsigned short illuminant_[2] = {0, 0};
+    std::array<std::array<double, 9>, kMatrixCount> matrix_{};
+    bool matrixSet_[kMatrixCount] = {};
+    std::array<double, 3> neutral_{};
+    bool neutralSet_ = false;
+    int arrangement_ = 0;
+    std::array<unsigned char, 4> siteColour_ = {1, 0, 2, 1};
+    int block_ = 1;
+    bool gainMapPlaced_ = false;
+    std::array<unsigned int, 4> crop_{};
 };
 
-static LibArchive g_libarchive;
+}  // namespace scamdng
+
+using DngCreator = scamdng::DngFile;
+
+// --- JNI (processing/DngCreator.java, static natives on a handle) ---------------------------------------------------------
+
+namespace {
+
+// Field ids shared with DngCreator.java (NUMBER_*, VECTOR_*, TEXT_*).
+enum NumberField { kOrientation, kWhite, kBaseline, kIlluminant1, kIlluminant2, kIso, kExposure, kAperture, kFocal, kCfa,
+                   kBlock, kLossless };
+enum VectorField { kVColour1, kVColour2, kVForward1, kVForward2, kVCalibration1, kVCalibration2, kVNeutral, kVNoise };
+enum TextField { kUniqueModel, kDescription, kSoftware, kMake, kModel, kDateTime };
+enum TagKind { kAscii, kShorts, kLongs, kRationals };
+
+DngCreator *file(jlong handle) { return reinterpret_cast<DngCreator *>(handle); }
+
+unsigned short asShort(double v) { return static_cast<unsigned short>(static_cast<jshort>(v)); }
+
+template <class T, class Get>
+std::vector<T> copyOut(JNIEnv *env, jsize n, Get get) {
+    std::vector<T> out(static_cast<size_t>(std::max<jsize>(n, 0)));
+    if (n > 0) get(env, n, out.data());
+    return out;
+}
+
+/** The unsigned tag values of `values` (each within 0 .. max, a rational's denominators above 0); false when one is not. */
+bool tagWords(const std::vector<jlong> &values, jlong max, bool rational, std::vector<unsigned int> &out) {
+    for (size_t i = 0; i < values.size(); ++i) {
+        const jlong v = values[i];
+        if (v < 0 || v > max || (rational && (i & 1) && v == 0)) return false;
+        out.push_back(static_cast<unsigned int>(v));
+    }
+    return true;
+}
+
+}  // namespace
 
 extern "C" {
 
-class DngCreator {
-    tinydngwriter::DNGImage *dng_image0 = nullptr;
-
-    // libarchive write state (nullptr when no archive is open)
-    struct archive*       archive_handle  = nullptr;
-    struct archive_entry* archive_entry_h = nullptr;
-
-
-    /** Build linearization + encoding tables when input white level > 10-bit and target bps is 10. Uses gamma curve. */
-    void build_compression_tables() {
-        const double whiteLevel = metadata.white_level;
-        if (whiteLevel <= 1023.0 || metadata.bps != 10) return;
-        const int inputLevels = static_cast<int>(whiteLevel) + 1;
-        const int tableSize = std::min(inputLevels, MAX_INPUT_LEVELS);
-        if (encoding_table) {
-            delete[] encoding_table;
-            encoding_table = nullptr;
-        }
-        encoding_table = new unsigned short[static_cast<size_t>(tableSize)];
-        encoding_table_size = tableSize;
-        /* Encoding: linear x in [0, whiteLevel] -> stored s in [0, 1023]: s = 1023 * (x/whiteLevel)^(1/gamma) */
-        for (int i = 0; i < tableSize; i++) {
-            double x = static_cast<double>(i) / whiteLevel;
-            if (x <= 0.0) {
-                encoding_table[i] = 0;
-                continue;
-            }
-            double s = 1023.0 * std::pow(x, 1.0 / COMPRESSION_GAMMA);
-            encoding_table[i] = static_cast<unsigned short>(std::min(1023.0, std::round(s)));
-        }
-        /* Linearization: stored s in [0, 1023] -> linear for DNG (0..65535). Inverse: linear = whiteLevel * (s/1023)^gamma; DNG value = linear*65535/whiteLevel */
-        for (int s = 0; s < STORED_LEVELS_10; s++) {
-            double t = static_cast<double>(s) / 1023.0;
-            double linear = whiteLevel * std::pow(t, COMPRESSION_GAMMA);
-            double dngLinear = (linear / whiteLevel) * 65535.0;
-            linearization_table[s] = static_cast<unsigned short>(std::min(65535.0, std::round(dngLinear)));
-        }
-        LOGD("DNG compression tables: whiteLevel=%.0f gamma=%.2f encoding_table_size=%d", whiteLevel, COMPRESSION_GAMMA, encoding_table_size);
-    }
-
-public:
-    /** When input white level > 10-bit and bps==10: linearization table for DNG tag (stored value -> linear 0..65535). */
-    unsigned short linearization_table[STORED_LEVELS_10];
-    /** Encoding table: linear input value -> 10-bit stored value. Allocated when needed, size up to MAX_INPUT_LEVELS. */
-    unsigned short* encoding_table = nullptr;
-    int encoding_table_size = 0;
-    DngMetadata metadata;
-    DngCreator() {
-        LOGD("DngCreator initialized");
-        dng_image0 = new tinydngwriter::DNGImage();
-        dng_image0->SetSubfileType(false, false, false);
-        dng_image0->SetBigEndian(false);
-        dng_image0->SetSamplesPerPixel(1);
-        dng_image0->SetPhotometric(tinydngwriter::PHOTOMETRIC_CFA);
-        dng_image0->SetPlanarConfig(tinydngwriter::PLANARCONFIG_CONTIG);
-        //dng_image0->SetCompression(tinydngwriter::COMPRESSION_NEW_JPEG);
-        dng_image0->SetDNGVersion(1, 3, 0, 0);
-        // P618: ExifVersion belongs to the Exif IFD (it sat in IFD 0 as "0220"); 2.31, the version of the photo's EXIF and
-        // the one with OffsetTime*
-        dng_image0->SetTag(1, tinydngwriter::EXIFTAG_EXIFVERSION, tinydngwriter::TIFF_UNDEFINED, 4, "0231");
-        metadata.bps = 16;
-    }
-
-    ~DngCreator() {
-        if (archive_handle) closeArchive();
-        if (dng_image0) {
-            delete dng_image0;
-        }
-        if (encoding_table) {
-            delete[] encoding_table;
-            encoding_table = nullptr;
-        }
-    }
-
-    // --- Archive API (backed by libarchive via dlopen) ---
-
-    // Shared init: ZIP format, STORED entries (no compression — fastest possible).
-    void setupArchiveFormat() {
-        g_libarchive.write_set_format_zip(archive_handle);
-        // No outer filter wrapper; ZIP handles per-entry compression internally.
-        g_libarchive.write_add_filter_none(archive_handle);
-
-        if (g_libarchive.write_set_format_option) {
-            // Current: STORED — zero CPU cost, maximum write speed.
-            g_libarchive.write_set_format_option(archive_handle, "zip", "compression", "store");
-
-            // To switch to DEFLATE instead, replace the line above with:
-            //   g_libarchive.write_set_format_option(archive_handle, "zip", "compression", "deflate");
-            // Optionally also set the level (1 = fastest, 9 = best ratio):
-            //   g_libarchive.write_set_format_option(archive_handle, "zip", "compression-level", "1");
-        }
-        LOGD("Archive: ZIP stored (no compression)");
-    }
-
-    void openArchive(const std::string& path) {
-        if (archive_handle) closeArchive();
-        if (!g_libarchive.load()) {
-            LOGE("openArchive: libarchive not available");
-            return;
-        }
-        archive_handle = g_libarchive.write_new();
-        setupArchiveFormat();
-        if (g_libarchive.write_open_filename(archive_handle, path.c_str()) != ARCHIVE_OK) {
-            LOGE("archive_write_open_filename failed: %s", path.c_str());
-            g_libarchive.write_free(archive_handle);
-            archive_handle = nullptr;
-            return;
-        }
-        archive_entry_h = g_libarchive.entry_new();
-        LOGD("Archive opened (path): %s", path.c_str());
-    }
-
-    void openArchiveByFd(int fd) {
-        if (archive_handle) closeArchive();
-        if (!g_libarchive.load()) {
-            LOGE("openArchiveByFd: libarchive not available");
-            return;
-        }
-        archive_handle = g_libarchive.write_new();
-        setupArchiveFormat();
-        if (g_libarchive.write_open_fd(archive_handle, fd) != ARCHIVE_OK) {
-            LOGE("archive_write_open_fd failed for fd=%d", fd);
-            g_libarchive.write_free(archive_handle);
-            archive_handle = nullptr;
-            return;
-        }
-        archive_entry_h = g_libarchive.entry_new();
-        LOGD("Archive opened (fd=%d)", fd);
-    }
-
-    void writeToArchive(const std::string& entryName, const void* data, size_t size) {
-        if (!archive_handle || !archive_entry_h) return;
-
-        g_libarchive.entry_clear(archive_entry_h);
-        g_libarchive.entry_set_pathname(archive_entry_h, entryName.c_str());
-        g_libarchive.entry_set_size(archive_entry_h, static_cast<la_int64_t>(size));
-        g_libarchive.entry_set_filetype(archive_entry_h, AE_IFREG);
-        g_libarchive.entry_set_perm(archive_entry_h, 0644);
-        if (g_libarchive.entry_set_mtime)
-            g_libarchive.entry_set_mtime(archive_entry_h, time(nullptr), 0);
-
-        int r = g_libarchive.write_header(archive_handle, archive_entry_h);
-        if (r != ARCHIVE_OK) {
-            LOGE("archive_write_header failed (%d) for %s", r, entryName.c_str());
-            return;
-        }
-        g_libarchive.write_data(archive_handle, data, size);
-        LOGD("Archive entry: %s (%zu bytes)", entryName.c_str(), size);
-    }
-
-    void closeArchive() {
-        if (!archive_handle) return;
-        g_libarchive.write_close(archive_handle);
-        g_libarchive.write_free(archive_handle);
-        archive_handle = nullptr;
-        if (archive_entry_h) {
-            g_libarchive.entry_free(archive_entry_h);
-            archive_entry_h = nullptr;
-        }
-        LOGD("Archive closed");
-    }
-
-    bool isArchiveOpen() const { return archive_handle != nullptr; }
-
-    void setBitsPerSample(int bps) {
-        metadata.bps = bps;
-    }
-
-    // The Compression tag is written with the image data: it says LJ92 only when the lossless JPEG really was encoded.
-    void setCompression(bool compression) {
-        metadata.compression = compression;
-    }
-
-    void setOrientation(int orientation) {
-        metadata.orientation = orientation;
-    }
-
-    void setWhiteLevel(double whiteLevel) {
-        metadata.white_level = whiteLevel;
-    }
-
-    void setBlackLevel(const unsigned short* blackLevel) {
-        for (int i = 0; i < 4; i++) {
-            metadata.black_level[i] = blackLevel[i];
-        }
-    }
-
-    void setColorMatrix1(const double* matrix) {
-        for (int i = 0; i < 9; i++) {
-            metadata.color_matrix1[i] = matrix[i];
-        }
-        metadata.has_color_matrix1 = true;
-    }
-
-    void setColorMatrix2(const double* matrix) {
-        for (int i = 0; i < 9; i++) {
-            metadata.color_matrix2[i] = matrix[i];
-        }
-        metadata.has_color_matrix2 = true;
-    }
-
-    void setForwardMatrix1(const double* matrix) {
-        for (int i = 0; i < 9; i++) {
-            metadata.forward_matrix1[i] = matrix[i];
-        }
-        metadata.has_forward_matrix1 = true;
-    }
-
-    void setForwardMatrix2(const double* matrix) {
-        for (int i = 0; i < 9; i++) {
-            metadata.forward_matrix2[i] = matrix[i];
-        }
-        metadata.has_forward_matrix2 = true;
-    }
-
-    void setCameraCalibration1(const double* matrix) {
-        for (int i = 0; i < 9; i++) {
-            metadata.camera_calibration1[i] = matrix[i];
-        }
-        metadata.has_camera_calibration1 = true;
-    }
-
-    void setCameraCalibration2(const double* matrix) {
-        for (int i = 0; i < 9; i++) {
-            metadata.camera_calibration2[i] = matrix[i];
-        }
-        metadata.has_camera_calibration2 = true;
-    }
-
-    void setAsShotNeutral(const double* neutral) {
-        for (int i = 0; i < 3; i++) {
-            metadata.as_shot_neutral[i] = neutral[i];
-        }
-        metadata.has_as_shot_neutral = true;
-    }
-
-    void setBaselineExposure(double ev) {
-        metadata.baseline_exposure = ev;
-        metadata.has_baseline_exposure = ev != 0.0;
-    }
-
-    void setAsShotWhiteXY(double x, double y) {
-        metadata.as_shot_white_xy[0] = x;
-        metadata.as_shot_white_xy[1] = y;
-        metadata.has_as_shot_white_xy = true;
-    }
-
-    void setAnalogBalance(const double* balance) {
-        for (int i = 0; i < 3; i++) {
-            metadata.analog_balance[i] = balance[i];
-        }
-        metadata.has_analog_balance = true;
-    }
-
-    void setCalibrationIlluminant1(unsigned short illuminant) {
-        metadata.calibration_illuminant1 = illuminant;
-    }
-
-    void setCalibrationIlluminant2(unsigned short illuminant) {
-        metadata.calibration_illuminant2 = illuminant;
-    }
-
-    void setUniqueCameraModel(const std::string& model) {
-        dng_image0->SetUniqueCameraModel(model);
-    }
-
-    void setDescription(std::string description){
-        dng_image0->SetImageDescription(description);
-    }
-
-    void setSoftware(std::string software){
-        dng_image0->SetSoftware(software);
-    }
-
-    void setIso(unsigned short iso) {
-        dng_image0->SetIso(iso);
-    }
-
-    void setExposureTime(double exposureTime) {
-        dng_image0->SetExposureTime(exposureTime);
-    }
-
-    void setAperture(double aperture) {
-        dng_image0->SetAperture(aperture);
-    }
-
-    void setFocalLength(double focalLength) {
-        dng_image0->SetFocalLength(focalLength);
-    }
-
-    void setMake(const std::string& make) {
-        dng_image0->SetMake(make);
-    }
-
-    void setModel(const std::string& model) {
-        dng_image0->SetModel(model);
-    }
-
-    void setTimeCode(const unsigned char* timecode) {
-        unsigned char tc[8];
-        for (int i = 0; i < 8; i++) {
-            tc[i] = timecode[i];
-        }
-        dng_image0->SetTimeCode(tc);
-    }
-
-    void setDateTime(const std::string& datetime) {
-        dng_image0->SetDateTime(datetime);
-    }
-
-    void setNoiseProfile(const double* noiseProfile, int numValues) {
-        unsigned int numPlanes = numValues / 2;
-        dng_image0->SetNoiseProfile(numPlanes, noiseProfile);
-    }
-
-    /**
-     * P618: one more tag of IFD 0 (ifd 0) or the Exif IFD (ifd 1), host-order values (DNGImage::SetTag). False (logged) for a
-     * tag the writer refuses.
-     */
-    bool setTag(int ifd, unsigned short tag, unsigned short type, unsigned int count, const void* data) {
-        const bool ok = dng_image0->SetTag(ifd, tag, type, count, data);
-        if (!ok) LOGE("DNG tag %u (IFD %d, type %u, count %u) not written: %s", tag, ifd, type, count, dng_image0->Error().c_str());
-        return ok;
-    }
-
-    /** P618: the stored image's default crop (DefaultCropOrigin / Size), in its own pixels; a zero size clears it. */
-    void setDefaultCrop(int x, int y, int w, int h) {
-        const bool ok = x >= 0 && y >= 0 && w > 0 && h > 0;
-        metadata.default_crop[0] = ok ? static_cast<unsigned int>(x) : 0;
-        metadata.default_crop[1] = ok ? static_cast<unsigned int>(y) : 0;
-        metadata.default_crop[2] = ok ? static_cast<unsigned int>(w) : 0;
-        metadata.default_crop[3] = ok ? static_cast<unsigned int>(h) : 0;
-    }
-
-    void setFrameRate(double frameRate) {
-        metadata.frame_rate = frameRate;
-        metadata.has_frame_rate = true;
-        dng_image0->SetFrameRate(frameRate);
-    }
-
-    void setCFAPattern(int pattern) {
-        // Define CFA patterns based on enum values
-        metadata.cfa = pattern;
-        switch (metadata.cfa) {
-            case 0: // CFA_PATTERN_RGGB
-                metadata.cfa_pattern[0] = 0; // Red
-                metadata.cfa_pattern[1] = 1; // Green
-                metadata.cfa_pattern[2] = 1; // Green
-                metadata.cfa_pattern[3] = 2; // Blue
-                break;
-            case 1: // CFA_PATTERN_GRBG
-                metadata.cfa_pattern[0] = 1; // Green
-                metadata.cfa_pattern[1] = 0; // Red
-                metadata.cfa_pattern[2] = 2; // Blue
-                metadata.cfa_pattern[3] = 1; // Green
-                break;
-            case 2: // CFA_PATTERN_GBRG
-                metadata.cfa_pattern[0] = 1; // Green
-                metadata.cfa_pattern[1] = 2; // Blue
-                metadata.cfa_pattern[2] = 0; // Red
-                metadata.cfa_pattern[3] = 1; // Green
-                break;
-            case 3: // CFA_PATTERN_BGGR
-                metadata.cfa_pattern[0] = 2; // Blue
-                metadata.cfa_pattern[1] = 1; // Green
-                metadata.cfa_pattern[2] = 1; // Green
-                metadata.cfa_pattern[3] = 0; // Red
-                break;
-            default:
-                // Default to RGGB
-                metadata.cfa_pattern[0] = 0; // Red
-                metadata.cfa_pattern[1] = 1; // Green
-                metadata.cfa_pattern[2] = 1; // Green
-                metadata.cfa_pattern[3] = 2; // Blue
-                break;
-        }
-        // P318: cfa_pattern keeps the 2x2 order; createDng expands it per colour block. A 4x4 expansion was written here into
-        // the 4-byte array: it overwrote cfa_repeat_pattern_dim and the has_* flags after it with colour indices (BGGR: no
-        // ForwardMatrix1 and no AsShotNeutral in the file; GBRG: no colour matrices at all), and a matrix set later moved the CFA.
-    }
-
-    /** P318: the stored mosaic's colour block (2 Quad, 4 Tetra, else Bayer); before setGainMap, which places its maps by it. */
-    void setMosaicBlock(int block) {
-        metadata.mosaic_block = block == 2 || block == 4 ? block : 1;
-        if (metadata.gain_map_written && metadata.mosaic_block > 1)
-            LOGE("DNG: mosaic block %d set after the GainMap: its maps stay on the Bayer grid", metadata.mosaic_block);
-    }
-
-    /** P318: the 2x2 base order expanded to the 2b x 2b period of the stored mosaic (b = 1: the base itself). */
-    int expandedCfa(unsigned char* out) const {
-        const int b = metadata.binning ? 1 : metadata.mosaic_block, dim = 2 * b;
-        for (int y = 0; y < dim; ++y)
-            for (int x = 0; x < dim; ++x)
-                out[y * dim + x] = metadata.cfa_pattern[((y / b) & 1) * 2 + ((x / b) & 1)];
-        return dim;
-    }
-
-    void setGainMap(const float* gainMap, int xmin, int ymin, int xmax, int ymax, int width, int height) {
-        float* gainMap0 = new float[width * height];
-        float* gainMap1 = new float[width * height];
-        float* gainMap2 = new float[width * height];
-        float* gainMap3 = new float[width * height];
-        for (int x = 0; x < width*height; x++) {
-                gainMap0[x] = gainMap[4*x];
-                gainMap1[x] = gainMap[4*x + 1];
-                gainMap2[x] = gainMap[4*x + 2];
-                gainMap3[x] = gainMap[4*x + 3];
-        }
-        std::vector<tinydngwriter::GainMap> gainMaps;
-        // Create gain maps for each channel
-        gainMaps.push_back(tinydngwriter::GainMap(gainMap0, width, height, xmin, ymin, xmax, ymax));
-        gainMaps.push_back(tinydngwriter::GainMap(gainMap1, width, height, xmin, ymin, xmax, ymax));
-        gainMaps.push_back(tinydngwriter::GainMap(gainMap2, width, height, xmin, ymin, xmax, ymax));
-        gainMaps.push_back(tinydngwriter::GainMap(gainMap3, width, height, xmin, ymin, xmax, ymax));
-        switch (metadata.cfa) {
-            case 0:
-                gainMaps[0].top = 0;
-                gainMaps[0].left = 0;
-                gainMaps[1].top = 0;
-                gainMaps[1].left = 1;
-                gainMaps[2].top = 1;
-                gainMaps[2].left = 0;
-                gainMaps[3].top = 1;
-                gainMaps[3].left = 1;
-                break;
-            case 1:
-                gainMaps[0].top = 0;
-                gainMaps[0].left = 1;
-                gainMaps[1].top = 0;
-                gainMaps[1].left = 0;
-                gainMaps[2].top = 1;
-                gainMaps[2].left = 1;
-                gainMaps[3].top = 1;
-                gainMaps[3].left = 0;
-                break;
-            case 2:
-                gainMaps[0].top = 1;
-                gainMaps[0].left = 0;
-                gainMaps[1].top = 0;
-                gainMaps[1].left = 0;
-                gainMaps[2].top = 1;
-                gainMaps[2].left = 1;
-                gainMaps[3].top = 0;
-                gainMaps[3].left = 1;
-                break;
-            case 3:
-                gainMaps[0].top = 1;
-                gainMaps[0].left = 1;
-                gainMaps[1].top = 0;
-                gainMaps[1].left = 1;
-                gainMaps[2].top = 1;
-                gainMaps[2].left = 0;
-                gainMaps[3].top = 0;
-                gainMaps[3].left = 0;
-                break;
-        }
-        // P205: Bottom / Right are exclusive (the area's rows top .. bottom - 1): size - 1 left the last row and column unshaded
-        int activeX = xmax - xmin;
-        int activeY = ymax - ymin;
-        gainMaps[0].bottom = activeY;
-        gainMaps[0].right = activeX;
-        gainMaps[1].bottom = activeY;
-        gainMaps[1].right = activeX;
-        gainMaps[2].bottom = activeY;
-        gainMaps[2].right = activeX;
-        gainMaps[3].bottom = activeY;
-        gainMaps[3].right = activeX;
-        // P318: a Quad / Tetra mosaic holds each channel on b x b sites of a 2b x 2b period: one map per channel and site
-        // (pitch 2b), else a channel's gain lands on its neighbours' sites (a binned file is Bayer, as expandedCfa)
-        const int b = metadata.binning ? 1 : metadata.mosaic_block;
-        if (b > 1) {
-            std::vector<tinydngwriter::GainMap> blockMaps;
-            for (const auto& m : gainMaps)
-                for (int sy = 0; sy < b; ++sy)
-                    for (int sx = 0; sx < b; ++sx) {
-                        tinydngwriter::GainMap s = m;
-                        s.top = m.top * b + sy;
-                        s.left = m.left * b + sx;
-                        s.row_pitch = s.col_pitch = 2 * b;
-                        blockMaps.push_back(s);
-                    }
-            gainMaps.swap(blockMaps);
-        }
-        dng_image0->SetGainMap(gainMaps);
-        metadata.gain_map_written = true;
-        delete[] gainMap0;
-        delete[] gainMap1;
-        delete[] gainMap2;
-        delete[] gainMap3;
-    }
-
-    void setBinning(bool binning) {
-        metadata.binning = binning;
-    }
-
-    /**
-     * Bayer 2x2 binning: each output pixel combines 4 same-color input pixels
-     * (from a 4x4 input block → 2x2 output Bayer cell), preserving the CFA pattern.
-     *
-     * useAverage=true  → average the 4 pixels (levels unchanged, for 16-bit full-range input).
-     * useAverage=false → sum the 4 pixels  (white/black levels ×4, for sub-16-bit input).
-     */
-    uint16_t* applyBayerBinning(const void* inputData, int srcWidth, int srcHeight,
-                                int& outWidth, int& outHeight, bool useAverage) {
-        outWidth  = srcWidth  / 2;
-        outHeight = srcHeight / 2;
-        uint16_t* output = new uint16_t[static_cast<size_t>(outWidth) * static_cast<size_t>(outHeight)];
-        const uint16_t* input = reinterpret_cast<const uint16_t*>(inputData);
-
-        for (int oy = 0; oy < outHeight; oy++) {
-            // Within the Bayer cell: row offset dr ∈ {0,1}; map to 4-row input block
-            int blockStartRow = (oy / 2) * 4;
-            int dr    = oy % 2;
-            int inRow  = blockStartRow + dr;
-            int inRow2 = std::min(inRow + 2, srcHeight - 1); // next same-color row
-
-            for (int ox = 0; ox < outWidth; ox++) {
-                int blockStartCol = (ox / 2) * 4;
-                int dc    = ox % 2;
-                int inCol  = blockStartCol + dc;
-                int inCol2 = std::min(inCol + 2, srcWidth - 1); // next same-color col
-
-                uint32_t sum =
-                    (uint32_t)input[inRow  * srcWidth + inCol ] +
-                    (uint32_t)input[inRow  * srcWidth + inCol2] +
-                    (uint32_t)input[inRow2 * srcWidth + inCol ] +
-                    (uint32_t)input[inRow2 * srcWidth + inCol2];
-
-                output[oy * outWidth + ox] = useAverage
-                    ? static_cast<uint16_t>(sum >> 2)
-                    : static_cast<uint16_t>(std::min(sum, (uint32_t)65535u));
-            }
-        }
-        LOGD("Bayer binning: %dx%d -> %dx%d (%s)", srcWidth, srcHeight, outWidth, outHeight,
-             useAverage ? "average" : "sum");
-        return output;
-    }
-
-    /** P280: a 3x3 matrix worth writing: finite, not all zero (a zero matrix is an unset one). */
-    static bool usableMatrix(const double* m) {
-        double sum = 0;
-        for (int i = 0; i < 9; i++) {
-            if (!std::isfinite(m[i])) return false;
-            sum += std::fabs(m[i]);
-        }
-        return sum > 1e-9;
-    }
-
-    void* createDng(void* imageData, int width, int height, size_t &size) {
-        metadata.original_width  = width;
-        metadata.original_height = height;
-
-        void*     dataToProcess = imageData;
-        int       actualWidth   = width;
-        int       actualHeight  = height;
-        uint16_t* binnedData    = nullptr;
-
-        if (metadata.binning) {
-            bool useAverage = (metadata.white_level >= 65535.0);
-            metadata.binning_uses_average = useAverage;
-            binnedData    = applyBayerBinning(imageData, width, height,
-                                              actualWidth, actualHeight, useAverage);
-            dataToProcess = binnedData;
-            if (!useAverage) {
-                metadata.white_level = std::min(metadata.white_level * 4.0, 65535.0);
-                for (int i = 0; i < 4; i++) {
-                    uint32_t bl = static_cast<uint32_t>(metadata.black_level[i]) * 4;
-                    metadata.black_level[i] = static_cast<unsigned short>(
-                        std::min(bl, (uint32_t)65535u));
-                }
-            }
-        }
-
-        metadata.width  = actualWidth;
-        metadata.height = actualHeight;
-        tinydngwriter::DNGWriter dng_writer(false);
-        dng_image0->SetBitsPerSample(1, &metadata.bps);
-        dng_image0->SetOrientation(metadata.orientation);
-        dng_image0->SetImageWidth(static_cast<unsigned int>(actualWidth));
-        dng_image0->SetImageLength(static_cast<unsigned int>(actualHeight));
-        dng_image0->SetRowsPerStrip(actualHeight);
-        dng_image0->SetActiveArea(new unsigned int[4]{0, 0, static_cast<unsigned int>(actualHeight), static_cast<unsigned int>(actualWidth)});
-        dng_image0->SetResolutionUnit(tinydngwriter::RESUNIT_INCH); // 72 dpi: the value 2 it always wrote (the constant was misnamed)
-        dng_image0->SetXResolution(72.f);
-        dng_image0->SetYResolution(72.f);
-
-        // Set CFA pattern: P318, the 2x2 order over the colour blocks of the stored mosaic (2 x 2 Bayer, 4 x 4 Quad, 8 x 8 Tetra)
-        unsigned char cfa[64];
-        const int cfaDim = expandedCfa(cfa);
-        dng_image0->SetCFARepeatPatternDim(static_cast<unsigned short>(cfaDim), static_cast<unsigned short>(cfaDim));
-        dng_image0->SetCFAPattern(static_cast<unsigned int>(cfaDim * cfaDim), cfa);
-        // The black level per site of the 2x2 cell; a mosaic with unequal values repeats them over its colour blocks
-        auto setBlack = [&](const unsigned short* v) {
-            const bool uniform = v[0] == v[1] && v[0] == v[2] && v[0] == v[3];
-            const int dim = uniform ? 2 : cfaDim, b = dim / 2;
-            std::vector<unsigned short> levels(static_cast<size_t>(dim) * dim);
-            for (int y = 0; y < dim; ++y)
-                for (int x = 0; x < dim; ++x) levels[static_cast<size_t>(y) * dim + x] = v[((y / b) & 1) * 2 + ((x / b) & 1)];
-            dng_image0->SetBlackLevelRepeatDim(static_cast<unsigned short>(dim), static_cast<unsigned short>(dim));
-            dng_image0->SetBlackLevel(static_cast<unsigned int>(levels.size()), levels.data());
-        };
-    
-        // When input white level is >10-bit and we output 10-bit, use gamma compression + linearization table
-        if (metadata.bps == 10 && metadata.white_level > 1023.0) {
-            build_compression_tables();
-            if (encoding_table) {
-                dng_image0->SetLinearizationTable(static_cast<unsigned int>(STORED_LEVELS_10), linearization_table);
-                const double newLevel = 65535;
-                dng_image0->SetWhiteLevelRational(1, &newLevel);
-                // set Black level too
-                unsigned short compressedBlackLevel[4];
-                for(int i =0; i<4;i++)
-                    compressedBlackLevel[i] = static_cast<unsigned short>((newLevel / metadata.white_level) * metadata.black_level[i]);
-                setBlack(compressedBlackLevel);
-            }
-        } else {
-            setBlack(metadata.black_level);
-            dng_image0->SetWhiteLevelRational(1, &metadata.white_level);
-        }
-
-        // P280 (owner, 2026-10-19: «Наши равы не открываются в лайтруме»): only usable colour data is written. An all-zero second
-        // matrix set (a single-illuminant profile: ColorMatrix2, ForwardMatrix2, CameraCalibration1/2 of zeros, illuminant 2 the
-        // same as 1) made Adobe's DNG SDK refuse the file; so did AsShotWhiteXY (0, 0) beside AsShotNeutral.
-        const bool cm1 = metadata.has_color_matrix1 && usableMatrix(metadata.color_matrix1);
-        const bool cm2 = cm1 && metadata.has_color_matrix2 && usableMatrix(metadata.color_matrix2)
-                && metadata.calibration_illuminant2 != 0 && metadata.calibration_illuminant2 != metadata.calibration_illuminant1;
-        if (cm1) {
-            dng_image0->SetColorMatrix1(3, metadata.color_matrix1);
-        }
-        if (cm2) {
-            dng_image0->SetColorMatrix2(3, metadata.color_matrix2);
-        }
-
-        // Set forward matrices (each only with its colour matrix)
-        if (cm1 && metadata.has_forward_matrix1 && usableMatrix(metadata.forward_matrix1)) {
-            dng_image0->SetForwardMatrix1(3, metadata.forward_matrix1);
-        }
-        if (cm2 && metadata.has_forward_matrix2 && usableMatrix(metadata.forward_matrix2)) {
-            dng_image0->SetForwardMatrix2(3, metadata.forward_matrix2);
-        }
-
-        // Set camera calibration matrices (absent = identity)
-        if (cm1 && metadata.has_camera_calibration1 && usableMatrix(metadata.camera_calibration1)) {
-            dng_image0->SetCameraCalibration1(3, metadata.camera_calibration1);
-        }
-        if (cm2 && metadata.has_camera_calibration2 && usableMatrix(metadata.camera_calibration2)) {
-            dng_image0->SetCameraCalibration2(3, metadata.camera_calibration2);
-        }
-
-        // Set white balance info: AsShotNeutral, or else a valid AsShotWhiteXY (the spec allows one of them)
-        const bool neutral = metadata.has_as_shot_neutral && metadata.as_shot_neutral[0] > 0 && metadata.as_shot_neutral[1] > 0
-                && metadata.as_shot_neutral[2] > 0;
-        if (neutral) {
-            dng_image0->SetAsShotNeutral(3, metadata.as_shot_neutral);
-        }
-        if (!neutral && metadata.has_as_shot_white_xy && metadata.as_shot_white_xy[0] > 0 && metadata.as_shot_white_xy[1] > 0) {
-            dng_image0->SetAsShotWhiteXY(metadata.as_shot_white_xy[0], metadata.as_shot_white_xy[1]);
-        }
-        if (metadata.has_analog_balance) {
-            dng_image0->SetAnalogBalance(3, metadata.analog_balance);
-        }
-        if (metadata.has_baseline_exposure) {
-            dng_image0->SetBaselineExposure(metadata.baseline_exposure);
-        }
-
-        // Set illuminants (the second only with its matrix)
-        if (cm1) dng_image0->SetCalibrationIlluminant1(metadata.calibration_illuminant1);
-        if (cm2) dng_image0->SetCalibrationIlluminant2(metadata.calibration_illuminant2);
-
-        // P618: the default crop (the photo's 4:3 crop of an ISZ frame), in the stored image's pixels (halved by the binning);
-        // only one inside the image
-        if (metadata.default_crop[2] > 0 && metadata.default_crop[3] > 0) {
-            const unsigned int d = metadata.binning ? 2u : 1u;
-            const unsigned int origin[2] = {metadata.default_crop[0] / d, metadata.default_crop[1] / d};
-            const unsigned int cropSize[2] = {metadata.default_crop[2] / d, metadata.default_crop[3] / d};
-            if (cropSize[0] > 0 && cropSize[1] > 0 && origin[0] + cropSize[0] <= static_cast<unsigned int>(actualWidth)
-                    && origin[1] + cropSize[1] <= static_cast<unsigned int>(actualHeight)) {
-                setTag(0, tinydngwriter::TIFFTAG_DEFAULT_CROP_ORIGIN, tinydngwriter::TIFF_LONG, 2, origin);
-                setTag(0, tinydngwriter::TIFFTAG_DEFAULT_CROP_SIZE, tinydngwriter::TIFF_LONG, 2, cropSize);
-            } else {
-                LOGE("DNG default crop %u,%u %ux%u outside %dx%d: not written", origin[0], origin[1], cropSize[0], cropSize[1],
-                     actualWidth, actualHeight);
-            }
-        }
-        // P618: the Exif IFD (time, lens, exposure) in the data ahead of the image
-        if (!dng_image0->WriteExifIFD()) LOGE("DNG Exif IFD not written: %s", dng_image0->Error().c_str());
-
-        // P24: lossless JPEG (LJ92, DNG compression 7): the Bayer rows in pairs, one component 2W x H/2 (tinydng's layout,
-        // LibRaw reads it bit-exact; a 12.6 MP 16-bit frame 25.2 -> 14.7 MB in ~240 ms on the OPPO). Encoded first, so a
-        // failure falls back to the uncompressed data instead of a file whose tag promises LJ92.
-        bool lossless = false;
-        if (metadata.compression && metadata.bps == 16 && actualWidth % 2 == 0 && actualHeight % 2 == 0) {
-            uint8_t* compressed = nullptr;
-            int compressedSize = 0;
-            const int rc = tinydngwriter::detail::lj92_encode(reinterpret_cast<uint16_t*>(dataToProcess), actualWidth * 2,
-                    actualHeight / 2, 16, actualWidth * 2 * (actualHeight / 2), 0, nullptr, 0, &compressed, &compressedSize);
-            if (rc == tinydngwriter::detail::LJ92_ERROR_NONE && compressed && compressedSize > 0) {
-                dng_image0->SetCompression(tinydngwriter::COMPRESSION_NEW_JPEG);
-                lossless = dng_image0->SetImageData(compressed, static_cast<size_t>(compressedSize));
-                LOGD("DNG LJ92: %d x %d -> %d bytes", actualWidth, actualHeight, compressedSize);
-            } else {
-                LOGE("DNG LJ92 encode failed (%d), writing it uncompressed", rc);
-            }
-            free(compressed);
-        }
-        if (!lossless) {
-            dng_image0->SetCompression(tinydngwriter::COMPRESSION_NONE);
-            // When encoding tables exist (10-bit output from >10-bit input), apply encoding + packing in-place
-            if (metadata.bps == 10) {
-                const size_t num_samples = static_cast<size_t>(actualWidth) * static_cast<size_t>(actualHeight);
-                const size_t packed_size = (num_samples * 10 + 7) / 8;  // Round up to bytes
-                LOGD("Applying in-place encoding+packing: %zu samples -> %zu bytes (10-bit)", num_samples, packed_size);
-                // In-place: read as uint16_t*, write as uint8_t* (safe because packed is smaller)
-                pack_10bit_big_endian_fast(
-                        reinterpret_cast<const uint16_t*>(dataToProcess),
-                        reinterpret_cast<uint8_t*>(dataToProcess),
-                        num_samples,
-                        encoding_table,
-                        encoding_table_size);
-                dng_image0->SetImageData(reinterpret_cast<const unsigned char*>(dataToProcess), packed_size);
-            } else {
-                // size_t: the int product w * h * bps overflowed above 134 MP at 16 bits (any RAW size)
-                dng_image0->SetImageData(reinterpret_cast<const unsigned char*>(dataToProcess),
-                                         static_cast<size_t>(actualWidth) * static_cast<size_t>(actualHeight) * static_cast<size_t>(metadata.bps) / 8);
-            }
-        }
-        dng_writer.AddImage(dng_image0);
-
-        size_t writeSize = 0;
-        std::string err;
-        auto res = dng_writer.WriteToMemory(&writeSize, &err, &metadata.strip_offset);
-        if (!err.empty()) {
-            LOGE("WriteToMemory error: %s", err.c_str());
-        }
-        if (binnedData) {
-            delete[] binnedData;
-        }
-        size = writeSize;
-        return res;
-    }
-    /** Packs 10-bit samples to big-endian bytes. If encoding_table is non-null, input values are mapped through it first (for >10-bit linear to 10-bit gamma-compressed). */
-    void pack_10bit_big_endian_fast(const uint16_t* input, uint8_t* output, size_t num_samples,
-                                    const unsigned short* encoding_table = nullptr, int encoding_table_size = 0) {
-        auto to_10bit = [encoding_table, encoding_table_size](const uint16_t* inp, size_t idx) -> uint16_t {
-            if (encoding_table && encoding_table_size > 0) {
-                unsigned int v = inp[idx];
-                if (v >= static_cast<unsigned int>(encoding_table_size)) return 1023;
-                return encoding_table[v] & 0x3FF;
-            }
-            return inp[idx] & 0x3FF;
-        };
-        uint8_t* out = output;
-        size_t i = 0;
-
-        // Process blocks of 4 samples -> 5 bytes
-        for (; i + 3 < num_samples; i += 4) {
-            uint16_t a = to_10bit(input, i);
-            uint16_t b = to_10bit(input, i + 1);
-            uint16_t c = to_10bit(input, i + 2);
-            uint16_t d = to_10bit(input, i + 3);
-
-            // Pack into 5 bytes (big‑endian bit order)
-            out[0] = (a >> 2) & 0xFF;                    // bits 9..2 of a
-            out[1] = ((a & 0x3) << 6) | ((b >> 4) & 0x3F); // lower 2 bits of a + top 6 bits of b
-            out[2] = ((b & 0xF) << 4) | ((c >> 6) & 0xF);  // lower 4 bits of b + top 4 bits of c
-            out[3] = ((c & 0x3F) << 2) | ((d >> 8) & 0x3); // lower 6 bits of c + top 2 bits of d
-            out[4] = d & 0xFF;                             // lower 8 bits of d
-
-            out += 5;
-        }
-
-        // Handle remaining samples (0..3) using a fast 64‑bit accumulator
-        if (i < num_samples) {
-            uint64_t accumulator = 0;
-            int bits_in_acc = 0;
-
-            while (i < num_samples) {
-                uint16_t value = to_10bit(input, i);
-                // Append 10 bits to the accumulator (big‑endian style)
-                accumulator = (accumulator << 10) | value;
-                bits_in_acc += 10;
-
-                // While we have at least 8 bits in the accumulator, output a byte
-                while (bits_in_acc >= 8) {
-                    bits_in_acc -= 8;
-                    *out++ = (accumulator >> bits_in_acc) & 0xFF;
-                }
-                i++;
-            }
-            // If there are leftover bits (<8), they remain in the accumulator.
-            // The DNG spec requires that the final byte be padded with zeros in the LSBs.
-            // Our accumulator already has the bits left‑justified, so we must shift right
-            // to align the leftover bits to the MSB of the next byte.
-            if (bits_in_acc > 0) {
-                // The leftover bits are the highest bits of accumulator.
-                // We need to output them as the MSBs of the final byte.
-                // Since we've been shifting out full bytes from the accumulator,
-                // the remaining bits are already in the correct position (aligned to the left).
-                *out = (accumulator << (8 - bits_in_acc)) & 0xFF;
-                // Note: no need to increment out; we're done.
-            }
-        }
-    }
-};
-
-    // JNI Functions
-
-    JNIEXPORT jlong JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_create(JNIEnv *env, jobject obj) {
-        DngCreator* creator = new DngCreator();
-        LOGD("DngCreator created at %p", creator);
-        return reinterpret_cast<jlong>(creator);
-    }
-
-    JNIEXPORT jobject JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_createDNG(JNIEnv *env, jobject obj, jlong creatorPtr, jint width, jint height, jobject imageData) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (!creator) {
-            LOGE("DngCreator is null");
-            return nullptr;
-        }
-        void* data = env->GetDirectBufferAddress(imageData);
-        size_t size = 0;
-
-
-        void* dngData = creator->createDng(data, width, height, size);
-        if (!dngData) {
-            return nullptr;
-        }
-        
-        // Create ByteBuffer to return
-        jobject byteBuffer = env->NewDirectByteBuffer(dngData, size);
-        return byteBuffer;
-    }
-
-    /** P187: the file createDNG returned (WriteToMemory's malloc), once it is written out; nothing freed it before. */
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_freeDNG(JNIEnv *env, jobject obj, jobject dngData) {
-        if (dngData == nullptr) return;
-        void* data = env->GetDirectBufferAddress(dngData);
-        if (data) free(data);
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setOrientation(
-        JNIEnv *env, jobject obj, jlong creatorPtr, jint orientation) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setOrientation(orientation);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setWhiteLevel(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble whiteLevel) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setWhiteLevel(whiteLevel);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setBlackLevel(JNIEnv *env, jobject obj, jlong creatorPtr, jshortArray blackLevel) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && blackLevel) {
-            jshort* levels = env->GetShortArrayElements(blackLevel, nullptr);
-            if (levels) {
-                unsigned short bl[4];
-                for (int i = 0; i < 4; i++) {
-                    bl[i] = static_cast<unsigned short>(levels[i]);
-                }
-                creator->setBlackLevel(bl);
-                env->ReleaseShortArrayElements(blackLevel, levels, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setColorMatrix1(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray matrix) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && matrix) {
-            jdouble* values = env->GetDoubleArrayElements(matrix, nullptr);
-            if (values) {
-                creator->setColorMatrix1(values);
-                env->ReleaseDoubleArrayElements(matrix, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setColorMatrix2(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray matrix) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && matrix) {
-            jdouble* values = env->GetDoubleArrayElements(matrix, nullptr);
-            if (values) {
-                creator->setColorMatrix2(values);
-                env->ReleaseDoubleArrayElements(matrix, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setForwardMatrix1(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray matrix) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && matrix) {
-            jdouble* values = env->GetDoubleArrayElements(matrix, nullptr);
-            if (values) {
-                creator->setForwardMatrix1(values);
-                env->ReleaseDoubleArrayElements(matrix, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setForwardMatrix2(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray matrix) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && matrix) {
-            jdouble* values = env->GetDoubleArrayElements(matrix, nullptr);
-            if (values) {
-                creator->setForwardMatrix2(values);
-                env->ReleaseDoubleArrayElements(matrix, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setCameraCalibration1(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray matrix) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && matrix) {
-            jdouble* values = env->GetDoubleArrayElements(matrix, nullptr);
-            if (values) {
-                creator->setCameraCalibration1(values);
-                env->ReleaseDoubleArrayElements(matrix, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setCameraCalibration2(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray matrix) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && matrix) {
-            jdouble* values = env->GetDoubleArrayElements(matrix, nullptr);
-            if (values) {
-                creator->setCameraCalibration2(values);
-                env->ReleaseDoubleArrayElements(matrix, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setAsShotNeutral(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray neutral) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && neutral) {
-            jdouble* values = env->GetDoubleArrayElements(neutral, nullptr);
-            if (values) {
-                creator->setAsShotNeutral(values);
-                env->ReleaseDoubleArrayElements(neutral, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setBaselineExposure(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble ev) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setBaselineExposure(ev);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setAsShotWhiteXY(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble x, jdouble y) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setAsShotWhiteXY(x, y);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setAnalogBalance(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray balance) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && balance) {
-            jdouble* values = env->GetDoubleArrayElements(balance, nullptr);
-            if (values) {
-                creator->setAnalogBalance(values);
-                env->ReleaseDoubleArrayElements(balance, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setCalibrationIlluminant1(JNIEnv *env, jobject obj, jlong creatorPtr, jshort illuminant) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setCalibrationIlluminant1(static_cast<unsigned short>(illuminant));
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setCalibrationIlluminant2(JNIEnv *env, jobject obj, jlong creatorPtr, jshort illuminant) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setCalibrationIlluminant2(static_cast<unsigned short>(illuminant));
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setUniqueCameraModel(JNIEnv *env, jobject obj, jlong creatorPtr, jstring model) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && model) {
-            const char* modelStr = env->GetStringUTFChars(model, nullptr);
-            if (modelStr) {
-                creator->setUniqueCameraModel(std::string(modelStr));
-                env->ReleaseStringUTFChars(model, modelStr);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setDescription(JNIEnv *env, jobject obj, jlong creatorPtr, jstring model) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && model) {
-            const char* desc = env->GetStringUTFChars(model, nullptr);
-            if (desc) {
-                creator->setDescription(std::string(desc));
-                env->ReleaseStringUTFChars(model, desc);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setSoftware(JNIEnv *env, jobject obj, jlong creatorPtr, jstring model) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && model) {
-            const char* soft = env->GetStringUTFChars(model, nullptr);
-            if (soft) {
-                creator->setSoftware(std::string(soft));
-                env->ReleaseStringUTFChars(model, soft);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setIso(JNIEnv *env, jobject obj, jlong creatorPtr, jshort iso) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setIso(static_cast<unsigned short>(iso));
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setExposureTime(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble exposureTime) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setExposureTime(exposureTime);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setAperture(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble aperture) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setAperture(aperture);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setFocalLength(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble focalLength) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setFocalLength(focalLength);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setMake(JNIEnv *env, jobject obj, jlong creatorPtr, jstring make) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && make) {
-            const char* makeStr = env->GetStringUTFChars(make, nullptr);
-            if (makeStr) {
-                creator->setMake(std::string(makeStr));
-                env->ReleaseStringUTFChars(make, makeStr);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setModel(JNIEnv *env, jobject obj, jlong creatorPtr, jstring model) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && model) {
-            const char* modelStr = env->GetStringUTFChars(model, nullptr);
-            if (modelStr) {
-                creator->setModel(std::string(modelStr));
-                env->ReleaseStringUTFChars(model, modelStr);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTimeCode(JNIEnv *env, jobject obj, jlong creatorPtr, jbyteArray timecode) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && timecode) {
-            jbyte* tc = env->GetByteArrayElements(timecode, nullptr);
-            if (tc) {
-                creator->setTimeCode(reinterpret_cast<const unsigned char*>(tc));
-                env->ReleaseByteArrayElements(timecode, tc, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setDateTime(JNIEnv *env, jobject obj, jlong creatorPtr, jstring datetime) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && datetime) {
-            const char* dt = env->GetStringUTFChars(datetime, nullptr);
-            if (dt) {
-                creator->setDateTime(std::string(dt));
-                env->ReleaseStringUTFChars(datetime, dt);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setNoiseProfile(JNIEnv *env, jobject obj, jlong creatorPtr, jdoubleArray noiseProfile) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && noiseProfile) {
-            jsize arrayLength = env->GetArrayLength(noiseProfile);
-            jdouble* values = env->GetDoubleArrayElements(noiseProfile, nullptr);
-            if (values) {
-                creator->setNoiseProfile(values, static_cast<int>(arrayLength));
-                env->ReleaseDoubleArrayElements(noiseProfile, values, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setFrameRate(JNIEnv *env, jobject obj, jlong creatorPtr, jdouble frameRate) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setFrameRate(frameRate);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setCFAPattern(JNIEnv *env, jobject obj, jlong creatorPtr, jint pattern) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setCFAPattern(pattern);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setMosaicBlock(JNIEnv *env, jobject obj, jlong creatorPtr, jint block) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setMosaicBlock(block);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setGainMap(JNIEnv *env, jobject obj, jlong creatorPtr, jfloatArray gainMap, jint xmin, jint ymin, jint xmax, jint ymax, jint width, jint height) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator && gainMap) {
-            jfloat* map = env->GetFloatArrayElements(gainMap, nullptr);
-            if (map) {
-                creator->setGainMap(map, xmin, ymin, xmax, ymax, width, height);
-                env->ReleaseFloatArrayElements(gainMap, map, 0);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setCompression(JNIEnv *env, jobject obj, jlong creatorPtr, jboolean useCompression) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setCompression(useCompression);
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setBinning(JNIEnv *env, jobject obj, jlong creatorPtr, jboolean binning) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) {
-            creator->setBinning(binning);
-        }
-    }
-
-    // P618: the generic tag setters (DngExif: the time, lens and exposure tags of IFD 0 and the Exif IFD)
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagAscii(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jstring value) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (!creator || !value) return;
-        const char* s = env->GetStringUTFChars(value, nullptr);
-        if (!s) return;
-        const std::string text(s);
-        env->ReleaseStringUTFChars(value, s);
-        if (!text.empty()) creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_ASCII,
-                                           static_cast<unsigned int>(text.size() + 1), text.c_str());
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagShorts(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jintArray values) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (!creator || !values) return;
-        const jsize n = env->GetArrayLength(values);
-        std::vector<jint> v(static_cast<size_t>(n));
-        if (n > 0) env->GetIntArrayRegion(values, 0, n, v.data());
-        std::vector<unsigned short> out;
-        for (jint x : v) {
-            if (x < 0 || x > 65535) { LOGE("DNG tag %d: SHORT %d out of range, not written", tag, x); return; }
-            out.push_back(static_cast<unsigned short>(x));
-        }
-        if (!out.empty()) creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_SHORT,
-                                          static_cast<unsigned int>(out.size()), out.data());
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagLongs(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jlongArray values) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (!creator || !values) return;
-        const jsize n = env->GetArrayLength(values);
-        std::vector<jlong> v(static_cast<size_t>(n));
-        if (n > 0) env->GetLongArrayRegion(values, 0, n, v.data());
-        std::vector<unsigned int> out;
-        for (jlong x : v) {
-            if (x < 0 || x > 0xFFFFFFFFLL) { LOGE("DNG tag %d: LONG out of range, not written", tag); return; }
-            out.push_back(static_cast<unsigned int>(x));
-        }
-        if (!out.empty()) creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_LONG,
-                                          static_cast<unsigned int>(out.size()), out.data());
-    }
-
-    /** Unsigned rationals: {numerator, denominator} pairs, each 0 .. 2^32 - 1, the denominators above 0. */
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setTagRationals(JNIEnv *env, jobject obj, jlong creatorPtr, jint ifd, jint tag, jlongArray pairs) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (!creator || !pairs) return;
-        const jsize n = env->GetArrayLength(pairs);
-        if (n < 2 || n % 2) { LOGE("DNG tag %d: %d rational words, not written", tag, n); return; }
-        std::vector<jlong> v(static_cast<size_t>(n));
-        env->GetLongArrayRegion(pairs, 0, n, v.data());
-        std::vector<unsigned int> out;
-        for (jsize i = 0; i < n; i++) {
-            const jlong x = v[static_cast<size_t>(i)];
-            if (x < 0 || x > 0xFFFFFFFFLL || (i % 2 == 1 && x == 0)) { LOGE("DNG tag %d: rational out of range, not written", tag); return; }
-            out.push_back(static_cast<unsigned int>(x));
-        }
-        creator->setTag(ifd, static_cast<unsigned short>(tag), tinydngwriter::TIFF_RATIONAL,
-                        static_cast<unsigned int>(out.size() / 2), out.data());
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setDefaultCrop(JNIEnv *env, jobject obj, jlong creatorPtr, jint x, jint y, jint w, jint h) {
-        DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-        if (creator) creator->setDefaultCrop(x, y, w, h);
-    }
-
-JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_setBitsPerSample(JNIEnv *env, jobject obj, jlong creatorPtr, jint bps) {
-    DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-    if (creator) {
-        creator->setBitsPerSample(bps);
+JNIEXPORT jlong JNICALL Java_com_scamera_app_processing_DngCreator_nOpen(JNIEnv *, jclass) {
+    return reinterpret_cast<jlong>(new DngCreator());
+}
+
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nClose(JNIEnv *, jclass, jlong handle) {
+    delete file(handle);
+}
+
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nNumber(JNIEnv *, jclass, jlong handle, jint field,
+                                                                          jdouble v) {
+    DngCreator *f = file(handle);
+    if (f == nullptr) return;
+    switch (field) {
+        case kOrientation: f->setOrientation(static_cast<int>(v)); break;
+        case kWhite: f->setWhiteLevel(v); break;
+        case kBaseline: f->setBaselineExposure(v); break;
+        case kIlluminant1: f->setCalibrationIlluminant1(asShort(v)); break;
+        case kIlluminant2: f->setCalibrationIlluminant2(asShort(v)); break;
+        case kIso: f->setIso(asShort(v)); break;
+        case kExposure: f->setExposureTime(v); break;
+        case kAperture: f->setAperture(v); break;
+        case kFocal: f->setFocalLength(v); break;
+        case kCfa: f->setCFAPattern(static_cast<int>(v)); break;
+        case kBlock: f->setMosaicBlock(static_cast<int>(v)); break;
+        case kLossless: f->setCompression(v != 0.0); break;
+        default: DNG_FAIL("unknown number field %d", field);
     }
 }
 
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_destroy(JNIEnv *env, jobject obj, jlong creatorPtr) {
-    DngCreator* creator = reinterpret_cast<DngCreator*>(creatorPtr);
-    if (creator) {
-        LOGD("DngCreator destroyed at %p", creator);
-        delete creator;
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nVector(JNIEnv *env, jclass, jlong handle, jint field,
+                                                                          jdoubleArray values) {
+    DngCreator *f = file(handle);
+    if (f == nullptr || values == nullptr) return;
+    const std::vector<double> v = copyOut<double>(env, env->GetArrayLength(values), [values](JNIEnv *e, jsize n, double *to) {
+        e->GetDoubleArrayRegion(values, 0, n, to);
+    });
+    const size_t need = field == kVNeutral ? 3 : field == kVNoise ? 0 : 9;
+    if (v.size() < need || v.empty()) return;
+    switch (field) {
+        case kVColour1: f->setColorMatrix1(v.data()); break;
+        case kVColour2: f->setColorMatrix2(v.data()); break;
+        case kVForward1: f->setForwardMatrix1(v.data()); break;
+        case kVForward2: f->setForwardMatrix2(v.data()); break;
+        case kVCalibration1: f->setCameraCalibration1(v.data()); break;
+        case kVCalibration2: f->setCameraCalibration2(v.data()); break;
+        case kVNeutral: f->setAsShotNeutral(v.data()); break;
+        case kVNoise: f->setNoiseProfile(v.data(), static_cast<int>(v.size())); break;
+        default: DNG_FAIL("unknown vector field %d", field);
     }
 }
 
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_writeFile(JNIEnv *env, jobject obj, jlong creatorPtr, jobject dngData, jobject rawData, jstring path, jint offset) {
-        DngCreator *creator = reinterpret_cast<DngCreator *>(creatorPtr);
-        if (creator) {
-            void *data = env->GetDirectBufferAddress(dngData);
-            size_t size = env->GetDirectBufferCapacity(dngData);
-            void *raw = env->GetDirectBufferAddress(rawData);
-            uint8_t* input = static_cast<uint8_t*>(raw) + offset;
-
-            uint16_t* binnedInput = nullptr;
-            const uint16_t* packInput = reinterpret_cast<const uint16_t*>(input);
-            size_t numSamples = static_cast<size_t>(creator->metadata.width) *
-                                static_cast<size_t>(creator->metadata.height);
-
-            if (creator->metadata.binning && creator->metadata.original_width > 0) {
-                int binnedW, binnedH;
-                binnedInput = creator->applyBayerBinning(
-                        input,
-                        creator->metadata.original_width,
-                        creator->metadata.original_height,
-                        binnedW, binnedH,
-                        creator->metadata.binning_uses_average);
-                packInput  = binnedInput;
-                numSamples = static_cast<size_t>(binnedW) * static_cast<size_t>(binnedH);
-            }
-
-            creator->pack_10bit_big_endian_fast(
-                    packInput,
-                    reinterpret_cast<uint8_t*>(data) + creator->metadata.strip_offset + 8,
-                    numSamples,
-                    creator->encoding_table,
-                    creator->encoding_table_size);
-
-            if (binnedInput) {
-                delete[] binnedInput;
-            }
-
-            const char *pathStr = env->GetStringUTFChars(path, nullptr);
-            if (pathStr) {
-                if (creator->isArchiveOpen()) {
-                    // Derive just the filename component for the archive entry name
-                    std::string fullPath(pathStr);
-                    size_t sep = fullPath.find_last_of("/\\");
-                    std::string entryName = (sep != std::string::npos)
-                        ? fullPath.substr(sep + 1)
-                        : fullPath;
-                    creator->writeToArchive(entryName, data, size);
-                } else {
-                    FILE *file = fopen(pathStr, "wb");
-                    if (file) {
-                        fwrite(data, 1, size, file);
-                        fclose(file);
-                        LOGD("DNG file written to %s", pathStr);
-                    } else {
-                        LOGE("Failed to open file %s for writing", pathStr);
-                    }
-                }
-                env->ReleaseStringUTFChars(path, pathStr);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_openArchive(JNIEnv *env, jobject obj, jlong creatorPtr, jstring path) {
-        DngCreator *creator = reinterpret_cast<DngCreator *>(creatorPtr);
-        if (creator && path) {
-            const char *pathStr = env->GetStringUTFChars(path, nullptr);
-            if (pathStr) {
-                creator->openArchive(std::string(pathStr));
-                env->ReleaseStringUTFChars(path, pathStr);
-            }
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_openArchiveByFd(JNIEnv *env, jobject obj, jlong creatorPtr, jint fd) {
-        DngCreator *creator = reinterpret_cast<DngCreator *>(creatorPtr);
-        if (creator) {
-            creator->openArchiveByFd(static_cast<int>(fd));
-        }
-    }
-
-    JNIEXPORT void JNICALL Java_com_particlesdevs_photoncamera_processing_DngCreator_closeArchive(JNIEnv *env, jobject obj, jlong creatorPtr) {
-        DngCreator *creator = reinterpret_cast<DngCreator *>(creatorPtr);
-        if (creator) {
-            creator->closeArchive();
-        }
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nText(JNIEnv *env, jclass, jlong handle, jint field,
+                                                                        jstring value) {
+    DngCreator *f = file(handle);
+    if (f == nullptr || value == nullptr) return;
+    const char *chars = env->GetStringUTFChars(value, nullptr);
+    if (chars == nullptr) return;
+    const std::string s(chars);
+    env->ReleaseStringUTFChars(value, chars);
+    switch (field) {
+        case kUniqueModel: f->setUniqueCameraModel(s); break;
+        case kDescription: f->setDescription(s); break;
+        case kSoftware: f->setSoftware(s); break;
+        case kMake: f->setMake(s); break;
+        case kModel: f->setModel(s); break;
+        case kDateTime: f->setDateTime(s); break;
+        default: DNG_FAIL("unknown text field %d", field);
     }
 }
+
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nBlack(JNIEnv *env, jclass, jlong handle,
+                                                                         jshortArray levels) {
+    DngCreator *f = file(handle);
+    if (f == nullptr || levels == nullptr || env->GetArrayLength(levels) < 4) return;
+    jshort raw[4];
+    env->GetShortArrayRegion(levels, 0, 4, raw);
+    const unsigned short black[4] = {static_cast<unsigned short>(raw[0]), static_cast<unsigned short>(raw[1]),
+                                     static_cast<unsigned short>(raw[2]), static_cast<unsigned short>(raw[3])};
+    f->setBlackLevel(black);
+}
+
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nGainMap(JNIEnv *env, jclass, jlong handle,
+                                                                           jfloatArray map, jint xmin, jint ymin,
+                                                                           jint xmax, jint ymax, jint w, jint h) {
+    DngCreator *f = file(handle);
+    if (f == nullptr || map == nullptr) return;
+    const jsize n = env->GetArrayLength(map);
+    if (w <= 0 || h <= 0 || static_cast<long long>(n) < 4LL * w * h) {
+        DNG_FAIL("GainMap of %d values for %d x %d points: not written", n, w, h);
+        return;
+    }
+    const std::vector<float> v = copyOut<float>(env, n, [map](JNIEnv *e, jsize count, float *to) {
+        e->GetFloatArrayRegion(map, 0, count, to);
+    });
+    f->setGainMap(v.data(), xmin, ymin, xmax, ymax, w, h);
+}
+
+/** P618: a generic tag of IFD 0 or the Exif IFD (ShotExif.Tag): ASCII text, or SHORT / LONG / RATIONAL words. */
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nTag(JNIEnv *env, jclass, jlong handle, jint ifd, jint tag,
+                                                                       jint kind, jstring text, jlongArray words) {
+    DngCreator *f = file(handle);
+    if (f == nullptr) return;
+    const unsigned short id = static_cast<unsigned short>(tag);
+    if (kind == kAscii) {
+        if (text == nullptr) return;
+        const char *chars = env->GetStringUTFChars(text, nullptr);
+        if (chars == nullptr) return;
+        const std::string s(chars);
+        env->ReleaseStringUTFChars(text, chars);
+        if (!s.empty()) f->setTag(ifd, id, tinydngwriter::TIFF_ASCII, static_cast<unsigned int>(s.size() + 1), s.c_str());
+        return;
+    }
+    if (words == nullptr) return;
+    const std::vector<jlong> v = copyOut<jlong>(env, env->GetArrayLength(words), [words](JNIEnv *e, jsize n, jlong *to) {
+        e->GetLongArrayRegion(words, 0, n, to);
+    });
+    if (kind == kRationals && (v.size() < 2 || v.size() % 2 != 0)) {
+        DNG_FAIL("tag %d: %zu rational words, not written", tag, v.size());
+        return;
+    }
+    std::vector<unsigned int> out;
+    if (!tagWords(v, kind == kShorts ? 65535 : 0xFFFFFFFFLL, kind == kRationals, out)) {
+        DNG_FAIL("tag %d: a value out of range, not written", tag);
+        return;
+    }
+    if (out.empty()) return;
+    if (kind == kShorts) {
+        const std::vector<unsigned short> shorts(out.begin(), out.end());
+        f->setTag(ifd, id, tinydngwriter::TIFF_SHORT, static_cast<unsigned int>(shorts.size()), shorts.data());
+    } else if (kind == kLongs) {
+        f->setTag(ifd, id, tinydngwriter::TIFF_LONG, static_cast<unsigned int>(out.size()), out.data());
+    } else if (kind == kRationals) {
+        f->setTag(ifd, id, tinydngwriter::TIFF_RATIONAL, static_cast<unsigned int>(out.size() / 2), out.data());
+    }
+}
+
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nCrop(JNIEnv *, jclass, jlong handle, jint x, jint y,
+                                                                        jint w, jint h) {
+    if (DngCreator *f = file(handle)) f->setDefaultCrop(x, y, w, h);
+}
+
+JNIEXPORT jobject JNICALL Java_com_scamera_app_processing_DngCreator_nBuild(JNIEnv *env, jclass, jlong handle, jint w,
+                                                                            jint h, jobject mosaic) {
+    DngCreator *f = file(handle);
+    void *samples = mosaic != nullptr ? env->GetDirectBufferAddress(mosaic) : nullptr;
+    if (f == nullptr || samples == nullptr) {
+        DNG_FAIL("no writer or no direct mosaic buffer");
+        return nullptr;
+    }
+    size_t size = 0;
+    void *bytes = f->createDng(samples, w, h, size);
+    return bytes != nullptr ? env->NewDirectByteBuffer(bytes, static_cast<jlong>(size)) : nullptr;
+}
+
+/** P187: frees a file nBuild returned (WriteToMemory's malloc) once it has been written out. */
+JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nDrop(JNIEnv *env, jclass, jobject bytes) {
+    if (bytes != nullptr) free(env->GetDirectBufferAddress(bytes));
+}
+
+}  // extern "C"

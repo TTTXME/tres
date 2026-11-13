@@ -51,10 +51,10 @@ extern "C" int transport(const char* path) {
 '''
 JAVA = r'''
 import android.hardware.camera2.CaptureResult;
-import com.particlesdevs.photoncamera.processing.ImageFrame;
-import com.particlesdevs.photoncamera.processing.opengl.postpipeline.VivoNiceAe;
-import com.particlesdevs.photoncamera.processing.opengl.postpipeline.VivoNiceBurst;
-import com.particlesdevs.photoncamera.processing.render.Parameters;
+import com.scamera.app.processing.ImageFrame;
+import com.scamera.app.processing.opengl.postpipeline.VivoNiceAe;
+import com.scamera.app.processing.opengl.postpipeline.VivoNiceBurst;
+import com.scamera.app.processing.render.Parameters;
 import java.nio.*;
 public class Check {
  static final CaptureResult.Key<float[]> AEC=new CaptureResult.Key<>("vivo.control.Vivo3rdAlgoAECFrameControl",float[].class);
@@ -68,7 +68,7 @@ public class Check {
    ByteBuffer raw=ByteBuffer.allocate(8192).order(ByteOrder.LITTLE_ENDIAN);
    for(int pixel=0;pixel<4096;++pixel)raw.putShort((short)(200+i));raw.clear();
    ImageFrame frame=new ImageFrame(raw);frame.timestamp=123456789012L+i;frame.width=frame.height=64;
-   frame.pair=new com.particlesdevs.photoncamera.processing.parameters.IsoExpoSelector.ExpoPair();
+   frame.pair=new com.scamera.app.processing.parameters.IsoExpoSelector.ExpoPair();
    frame.pair.isLongFrame=i==4;frame.pair.isHighlightFrame=i>=5;
    CaptureResult r=new CaptureResult();r.put(CaptureResult.SENSOR_TIMESTAMP,frame.timestamp);
    r.put(CaptureResult.SENSOR_SENSITIVITY,100);
@@ -202,18 +202,18 @@ def main():
         stubs.update({
             'android/content/Context.java':'package android.content; public class Context {}',
             'android/os/Build.java':'package android.os; public class Build {public static final String MANUFACTURER="vivo",DEVICE="PD2454";}',
-            BASE+'util/Log.java':'package com.particlesdevs.photoncamera.util; public class Log {public static void d(String a,String b){} public static void i(String a,String b){}}',
-            BASE+'processing/parameters/IsoExpoSelector.java':'package com.particlesdevs.photoncamera.processing.parameters; public class IsoExpoSelector {public static class ExpoPair {public boolean isHighlightFrame,isLongFrame;}}',
-            BASE+'processing/render/Parameters.java':'''package com.particlesdevs.photoncamera.processing.render;
+            BASE+'util/Log.java':'package com.scamera.app.util; public class Log {public static void d(String a,String b){} public static void i(String a,String b){}}',
+            BASE+'processing/parameters/IsoExpoSelector.java':'package com.scamera.app.processing.parameters; public class IsoExpoSelector {public static class ExpoPair {public boolean isHighlightFrame,isLongFrame;}}',
+            BASE+'processing/render/Parameters.java':'''package com.scamera.app.processing.render;
              public class Parameters {public static class Size {public int x=64,y=64;}
               public Size rawSize=new Size();public int cfaPattern=0,physicalID=3;
               public float whiteLevel=16383;public float[] blackLevel=new float[4];public boolean quadCfa=false;}''',
-            BASE+'settings/PreferenceKeys.java':'''package com.particlesdevs.photoncamera.settings;
+            BASE+'settings/PreferenceKeys.java':'''package com.scamera.app.settings;
              public class PreferenceKeys {public static boolean isNiceDiagnosticsEnabled(){return false;}
               public static boolean isRemosaicEnabled(){return false;}}''',
-            BASE+'processing/opengl/postpipeline/NiceDiagnostics.java':'''package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+            BASE+'processing/opengl/postpipeline/NiceDiagnostics.java':'''package com.scamera.app.processing.opengl.postpipeline;
              public class NiceDiagnostics {public static void begin(Object a,Object b,Object c,Object d){}}''',
-            BASE+'processing/opengl/postpipeline/VivoNeuralClient.java':'''package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+            BASE+'processing/opengl/postpipeline/VivoNeuralClient.java':'''package com.scamera.app.processing.opengl.postpipeline;
              public class VivoNeuralClient {public static java.nio.ByteBuffer processNiceBurst(Object a,Object b){return null;}}''',
         })
         for name,content in stubs.items():

@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The top row (P574, the approved concept: «Отлично, реализуем», 2026-11-09): one centred group of 40dp items 16dp apart.
+     TopRow (the «Верхняя строка» sheet) decides which items show and in what order; TopBar binds their states and scales sizes
+     and gaps with UiScale, closing the gaps when the row would not fit. Off: a white glyph on nothing; on: the accent on its
+     tint. Every item turns with the phone (bindRotate). -->
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+    <data>
+        <variable name="top_bar_click_listener" type="android.view.View.OnClickListener"/>
+        <variable name="uimodel" type="com.scamera.app.ui.camera.model.CameraFragmentModel"/>
+    </data>
+
+    <LinearLayout
+            android:id="@+id/top_row_items"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:minHeight="64dp"
+            android:paddingStart="10dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="10dp"
+            android:clipChildren="false"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+        <!-- the format and the photo size, one over the other («JPEG» / «12 Мп»); opens the format and size sheet. The first
+             item: no gap before it. -->
+        <LinearLayout
+                android:id="@+id/format_button"
+                style="@style/Cam.TopItem"
+                android:layout_width="wrap_content"
+                android:minWidth="40dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <TextView
+                    android:id="@+id/format_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:importantForAccessibility="no"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textSize="13sp"
+                    android:textStyle="bold"/>
+
+            <TextView
+                    android:id="@+id/size_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:importantForAccessibility="no"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textSize="9sp"/>
+        </LinearLayout>
+
+        <!-- the torch / flash mode -->
+        <FrameLayout
+                android:id="@+id/torch_button"
+                style="@style/Cam.TopItem.Next.Square"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/torch_icon"
+                    style="@style/Cam.Glyph"
+                    android:src="@drawable/cv_bolt"/>
+        </FrameLayout>
+
+        <!-- the self-timer, its seconds on a small badge at the bottom right (15dp high, 10sp bold, ink on the accent) -->
+        <FrameLayout
+                android:id="@+id/timer_button"
+                style="@style/Cam.TopItem.Next.Square"
+                android:clipChildren="false"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/timer_icon"
+                    style="@style/Cam.Glyph"
+                    android:src="@drawable/cv_timer"/>
+
+            <TextView
+                    android:id="@+id/timer_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="15dp"
+                    android:layout_marginBottom="2dp"
+                    android:layout_gravity="bottom|end"
+                    android:minWidth="15dp"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp"
+                    android:gravity="center"
+                    android:importantForAccessibility="no"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"/>
+        </FrameLayout>
+
+        <!-- the LUT and film tray (LutTray draws its round icon and handles the tap) -->
+        <TextView
+                android:id="@+id/lut_button"
+                style="@style/Cam.TopItem.Next.Square"
+                android:gravity="center"
+                bindRotate="@{uimodel}"/>
+
+        <!-- DCG, on modules that have it -->
+        <TextView
+                android:id="@+id/dcg_badge"
+                style="@style/Cam.TopItem.Next"
+                android:layout_width="wrap_content"
+                android:minWidth="40dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:gravity="center"
+                android:maxLines="1"
+                android:text="@string/topbar_dcg"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}"/>
+
+        <!-- P574: items only the «Верхняя строка» sheet adds (hidden until the row holds them): the grid, the level, Ultra HDR -->
+        <FrameLayout
+                android:id="@+id/grid_button"
+                style="@style/Cam.TopItem.Next.Square"
+                android:visibility="gone"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/grid_icon"
+                    style="@style/Cam.Glyph"
+                    android:src="@drawable/cv_grid"/>
+        </FrameLayout>
+
+        <FrameLayout
+                android:id="@+id/horizon_button"
+                style="@style/Cam.TopItem.Next.Square"
+                android:visibility="gone"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/horizon_icon"
+                    style="@style/Cam.Glyph"
+                    android:src="@drawable/cv_level"/>
+        </FrameLayout>
+
+        <!-- P583: Ultra HDR as the concept's sparkle, not a word -->
+        <FrameLayout
+                android:id="@+id/uhdr_button"
+                style="@style/Cam.TopItem.Next.Square"
+                android:visibility="gone"
+                android:onClick="@{top_bar_click_listener}"
+                bindRotate="@{uimodel}">
+
+            <ImageView
+                    android:id="@+id/uhdr_icon"
+                    style="@style/Cam.Glyph"
+                    android:src="@drawable/cv_sparkle"/>
+        </FrameLayout>
+    </LinearLayout>
+</layout>

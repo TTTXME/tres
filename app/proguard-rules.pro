@@ -1,102 +1,86 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# SCAMERA shrinking (R8). Only what reflection, JNI, GSON, an external launch or a theme reaches by name is listed here; layouts,
+# the manifest, navigation graphs and preference XML get their rules from aapt2. P662: the shipped (debug) variant is shrunk with
+# these rules, without renaming (-dontobfuscate: stack traces, logs, the settings keys made of class names and the JNI names stay).
+-dontobfuscate
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
-
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
-
-# ===== Tunable Annotation System Rules =====
-# Keep the @Tunable annotation
--keep @interface com.particlesdevs.photoncamera.settings.annotations.Tunable
--keepattributes *Annotation*
--keepattributes RuntimeVisibleAnnotations
--keepattributes RuntimeInvisibleAnnotations
-
-# Keep all classes with @Tunable annotated fields
--keep class * {
-    @com.particlesdevs.photoncamera.settings.annotations.Tunable <fields>;
+# The settings annotations and the classes that read them by reflection. A class with fields annotated @Tunable / @SensorConfig
+# keeps them (their names are the preference keys) and keeps itself (TunableInjector / SensorConfigInjector key them by the
+# class's simple name: it must not be merged into another class). P662: was "-keep class * { ... }", which kept every class.
+-keep class com.scamera.app.settings.annotations.** { *; }
+-keepclasseswithmembers class * {
+    @com.scamera.app.settings.annotations.Tunable <fields>;
 }
-
-# Keep field names for @Tunable annotated fields (needed for reflection)
+-keepclasseswithmembers class * {
+    @com.scamera.app.settings.annotations.SensorConfig <fields>;
+}
 -keepclassmembers class * {
-    @com.particlesdevs.photoncamera.settings.annotations.Tunable <fields>;
+    @com.scamera.app.settings.annotations.Tunable <fields>;
+    @com.scamera.app.settings.annotations.SensorConfig <fields>;
 }
+-keep class com.scamera.app.settings.TunableInjector,
+            com.scamera.app.settings.TunablePreferenceGenerator,
+            com.scamera.app.settings.TunablePreferenceGenerator$*,
+            com.scamera.app.settings.TunableSettingsManager,
+            com.scamera.app.settings.SettingsManagerExtensions,
+            com.scamera.app.settings.TunableKeyManager,
+            com.scamera.app.settings.SensorConfigInjector,
+            com.scamera.app.settings.SensorConfigPreferenceGenerator,
+            com.scamera.app.settings.SensorConfigPreferenceGenerator$*,
+            com.scamera.app.settings.SensorConfigRegistry,
+            com.scamera.app.settings.TunableRegistry,
+            com.scamera.app.settings.FieldSpec,
+            com.scamera.app.settings.SessionKeys { *; }
+-keep class com.scamera.app.ui.settings.custompreferences.TunableSeekBarPreference,
+            com.scamera.app.ui.settings.custompreferences.TunableKeyPreference,
+            com.scamera.app.ui.settings.custompreferences.TunableKeyDialog { *; }
 
-# Keep the Tunable system classes
--keep class com.particlesdevs.photoncamera.settings.annotations.** { *; }
--keep class com.particlesdevs.photoncamera.settings.TunableInjector { *; }
--keep class com.particlesdevs.photoncamera.settings.TunablePreferenceGenerator { *; }
--keep class com.particlesdevs.photoncamera.settings.TunablePreferenceGenerator$* { *; }
--keep class com.particlesdevs.photoncamera.settings.TunableSettingsManager { *; }
--keep class com.particlesdevs.photoncamera.settings.SettingsManagerExtensions { *; }
--keep class com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableSeekBarPreference { *; }
-
-# Keep all postpipeline nodes with @Tunable fields for reflection
--keepclassmembers class com.particlesdevs.photoncamera.processing.opengl.postpipeline.** {
-    @com.particlesdevs.photoncamera.settings.annotations.Tunable <fields>;
+# GSON models (fields by name or @SerializedName, made without a constructor call): vendor tag lists and the lens table.
+-keep class com.scamera.app.api.VendorTagUtils,
+            com.scamera.app.api.VendorTagUtils$TunableKey { *; }
+-keep class com.scamera.app.ui.camera.data.CameraLensData { *; }
+-keepclassmembers,allowobfuscation class * {
+    @com.google.gson.annotations.SerializedName <fields>;
 }
--keep class org.chickenhook.restrictionbypass.*{
-    public *;
-}
+-keep class * extends com.google.gson.reflect.TypeToken
 
-# ===== Sensor Config Annotation System Rules =====
-# Keep the @SensorConfig annotation
--keep @interface com.particlesdevs.photoncamera.settings.annotations.SensorConfig
+# The lab's parameter record: every instance field is written to and read from its JSON by reflection (ScamLabParams).
+-keepclassmembers class com.scamera.app.processing.render.Parameters { <fields>; }
 
-# Keep all classes with @SensorConfig annotated fields
--keep class * {
-    @com.particlesdevs.photoncamera.settings.annotations.SensorConfig <fields>;
-}
-
-# Keep field names for @SensorConfig annotated fields (needed for reflection)
--keepclassmembers class * {
-    @com.particlesdevs.photoncamera.settings.annotations.SensorConfig <fields>;
-}
-
-# Keep the SensorConfig system classes
--keep class com.particlesdevs.photoncamera.settings.SensorConfigInjector { *; }
--keep class com.particlesdevs.photoncamera.settings.SensorConfigPreferenceGenerator { *; }
--keep class com.particlesdevs.photoncamera.settings.SensorConfigPreferenceGenerator$* { *; }
--keep class com.particlesdevs.photoncamera.settings.SensorConfigRegistry { *; }
--keep class com.particlesdevs.photoncamera.settings.TunableKeyManager { *; }
--keep class com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableKeyPreference { *; }
--keep class com.particlesdevs.photoncamera.ui.settings.custompreferences.TunableKeyDialog { *; }
-
-# Keep VendorTagUtils and the nested TunableKey class with field names for GSON JSON round-trip
--keep class com.particlesdevs.photoncamera.api.VendorTagUtils { *; }
--keep class com.particlesdevs.photoncamera.api.VendorTagUtils$TunableKey { *; }
--keepclassmembers class com.particlesdevs.photoncamera.api.VendorTagUtils$TunableKey {
+# Serializable (SettingsSearchFragment.Entry in a Bundle): the standard members.
+-keepclassmembers class * implements java.io.Serializable {
+    static final long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
     <fields>;
 }
 
-# Missing class rules
+# Classes a library instantiates from a Class object (newInstance): the gallery's region decoder (ImageAdapter ->
+# SubsamplingScaleImageView.setRegionDecoderClass; R8 saw no "new" and removed its constructor and methods).
+-keep class * implements com.davemorrissey.labs.subscaleview.decoder.ImageRegionDecoder { <init>(...); *; }
+-keep class * implements com.davemorrissey.labs.subscaleview.decoder.ImageDecoder { <init>(...); *; }
+
+# The su launcher starts the merge job as "app_process64 /system/bin <ScamNeuralWorker> ..." (ScamNeuralClient): its main.
+-keep class com.scamera.app.processing.opengl.postpipeline.ScamNeuralWorker { *; }
+
+# JNI: every class with native methods keeps its name and those methods (the C++ side is bound by Java_<class>_<method>).
+-keepclasseswithmembers,includedescriptorclasses class * {
+    native <methods>;
+}
+# The OCR runtime's native code calls back into its Java classes (TessBaseAPI.onProgressValues, fields read from C++); its AAR
+# carries no rules.
+-keep class com.googlecode.tesseract.android.** { *; }
+-keep class com.googlecode.leptonica.android.** { *; }
+
+# The lab activity is kept whole; the stock AE keeps its JNI-bound natives.
+-keep class com.scamera.app.ui.settings.ScamActivity { *; }
+-keep class com.scamera.app.capture.ScamStockAe { native <methods>; }
+
+# P582: the base theme names it in viewInflaterClass; AppCompat makes it by reflection.
+-keep class com.scamera.app.ui.style.ConceptViewInflater { <init>(); }
+
+# A commons-lang class a dependency refers to but never loads here.
 -dontwarn org.apache.commons.lang.functor.Predicate
-
-# ONNX Runtime rules
-# Prevent R8 from stripping or obfuscating ONNX Runtime Java classes
-# which are accessed by native code.
--keep class ai.onnxruntime.** { *; }
--dontwarn ai.onnxruntime.**
--keep class com.particlesdevs.photoncamera.ui.settings.ScamActivity { *; }
--keep class com.particlesdevs.photoncamera.capture.ScamVcf2RootWorker { *; }
--keep class com.particlesdevs.photoncamera.capture.ScamVcf2RootWorker$ClientContext { *; }
--keep class com.particlesdevs.photoncamera.capture.ScamVcf2Device$NativeReader { *; }
--keep class com.particlesdevs.photoncamera.capture.ScamStockAe { native <methods>; }
-
-# P582: the base theme names it in viewInflaterClass; AppCompat makes it by reflection
--keep class com.particlesdevs.photoncamera.ui.style.ConceptViewInflater { <init>(); }

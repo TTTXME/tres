@@ -29,8 +29,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     
-    <!-- Removed MANAGE_EXTERNAL_STORAGE - now using Storage Access Framework (SAF)
-         for folder access on Android 11+. This is better for Play Store compliance. -->
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -41,7 +39,7 @@
     <uses-feature android:name="android.hardware.camera.capability.raw" />
 
     <application
-        android:name="com.particlesdevs.photoncamera.app.ScameraApp"
+        android:name=".app.ScameraApp"
         android:launchMode="singleTask"
         android:taskAffinity=""
         android:hardwareAccelerated="true"
@@ -54,14 +52,14 @@
         android:theme="@style/Theme.Scamera.BaseApp"
         tools:targetApi="q">
         <activity
-            android:name="com.particlesdevs.photoncamera.ui.settings.SettingsActivity"
+            android:name=".ui.settings.SettingsActivity"
             android:theme="@style/Theme.Scamera.SettingsActivity" />
         <activity
-            android:name="com.particlesdevs.photoncamera.ui.camera.LensDiscoveryActivity"
+            android:name=".ui.camera.LensDiscoveryActivity"
             android:label="@string/lens_discovery_title"
             android:theme="@style/Theme.Scamera.SettingsActivity" />
         <activity
-            android:name="com.particlesdevs.photoncamera.ui.SplashActivity"
+            android:name=".ui.SplashActivity"
             android:theme="@style/Theme.Scamera.Splash"
                 android:exported="true">
             <intent-filter>
@@ -82,7 +80,7 @@
         </activity>
 
         <activity
-                android:name="com.particlesdevs.photoncamera.gallery.ui.GalleryActivity"
+                android:name="com.scamera.app.gallery.ui.GalleryActivity"
                 android:label="@string/gallery_name"
                 android:taskAffinity=""
                 android:finishOnTaskLaunch="true"
@@ -376,8 +374,8 @@
 
         <!-- Activity alias for launcher icon - can be enabled/disabled programmatically -->
         <activity-alias
-                android:name="com.particlesdevs.photoncamera.gallery.ui.GalleryActivityLauncher"
-                android:targetActivity="com.particlesdevs.photoncamera.gallery.ui.GalleryActivity"
+                android:name=".gallery.ui.GalleryActivityLauncher"
+                android:targetActivity="com.scamera.app.gallery.ui.GalleryActivity"
                 android:label="@string/gallery_name"
                 android:icon="@mipmap/ic_gallery_launcher"
                 android:roundIcon="@mipmap/ic_gallery_launcher_round"
@@ -397,9 +395,8 @@
         </activity-alias>
 
         <activity
-            android:name="com.particlesdevs.photoncamera.ui.camera.CameraActivity"
+            android:name=".ui.camera.CameraActivity"
             android:configChanges="orientation|keyboardHidden|screenSize" />
-        <!-- <activity android:name="com.particlesdevs.photoncamera.gallery.ui.GalleryActivity" /> -->
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -411,16 +408,13 @@
                 android:resource="@xml/filepaths" />
         </provider>
 
-        <meta-data
-            android:name="firebase_performance_logcat_enabled"
-            android:value="false" />
         <uses-native-library android:name="libcdsprpc.so" android:required="false" />
         <activity android:name=".ui.settings.ScamActivity"
             android:exported="false" android:process=":scam"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- P499: the gallery's own video player (its own task, so it can float in picture-in-picture) -->
         <activity
-            android:name="com.particlesdevs.photoncamera.gallery.video.VideoPlayerActivity"
+            android:name=".gallery.video.VideoPlayerActivity"
             android:exported="false"
             android:theme="@style/Theme.Scamera.BaseApp"
             android:launchMode="singleTask"
@@ -431,15 +425,15 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode" />
         <!-- P640: the vivo SDK lease's guard, a process of its own: gives the phone's values back when the camera process dies -->
         <service
-            android:name="com.particlesdevs.photoncamera.capture.LeaseGuardService"
+            android:name="com.scamera.app.capture.LeaseGuardService"
             android:exported="false"
             android:process=":leaseguard" />
         <service
-            android:name="com.particlesdevs.photoncamera.gallery.video.VideoPlaybackService"
+            android:name=".gallery.video.VideoPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
         <service
-            android:name="com.particlesdevs.photoncamera.processing.ProcessingKeepAlive"
+            android:name=".processing.ProcessingKeepAlive"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

@@ -13,7 +13,9 @@ numpy reference of WhyCam's process_luma_fp16 (tools/why_sharpen_ref.py = resear
      2 px) is lifted far less than by the plain sharpening while the image detail below ~0.1 cycles / px keeps its gain;
   5. P337 lattice-free source (a plain Bayer shot, sharp_r1 mode 3): Ya minus its 2 px alternations (checker, rows, columns
      over the 5 x 5 sites, weights (1 2 2 2 1) / 8) = numpy; a constant / linear ramp passes untouched; the chain lifts the
-     2 px rows / columns / checker at most 5 % (the plain chain: x3.9-4.7), detail up to 0.2 cycles / px keeps its gain (8 %).
+     2 px rows / columns / checker at most 5 % (the plain chain: x3.9-4.7), detail up to 0.2 cycles / px keeps its gain (8 %);
+  6. P652 the RL halo margin's lower end: the shader reads 0 as unset (0.15), the floor WhyLumaSharpen sends for the row's 0
+     clamps as a margin of ~0 and the RL lift grows with the margin.
 Usage: python tools/check_why_sharpen.py
 """
 import sys, math
@@ -359,6 +361,30 @@ def main():
     print('     lattice-free                      ' + '  '.join(f'{g:5.2f}' for g in m3))
     check(all(abs(a - b) / b < 0.08 for a, b in zip(m3[:3], g1[:3])), 'lattice-free: detail up to 0.2 cycles / px keeps the plain gain (within 8 %)')
     check(1.0 < m3[3] <= g1[3] + 0.02, 'lattice-free: 0.3 cycles / px is still sharpened')
+    # ---- 6. P652: the RL halo margin's lower end. why/sharp_rl reads marginU <= 0 as unset (0.15), so WhyLumaSharpen sends the
+    # row's 0 as RL_MARGIN_FLOOR (1e-4): it must clamp as a margin of ~0 (as 0.01, tighter than 0.15), never as the default
+    mimg = synth(seed=11)
+    mL = tex(mimg)
+
+    def rl_margin(margin):
+        half, q = psf(2, 1.0)
+        common = dict(psfHalfU=half, psfU=tuple(float(v) for v in q), amountU=1.0, haloU=1.0, marginU=margin, macroU=0.4,
+                      protectShadowsU=0.0, protectHighlightsU=1.0, nbU=1, edgeGuardU=0.0)
+        est = mL
+        for k in range(3):
+            ratio = run('why/sharp_rl', empty(mimg.shape[1], mimg.shape[0], 1), {'Observed': mL, 'Estimate': est}, modeU=0, **common)
+            est = run('why/sharp_rl', empty(mimg.shape[1], mimg.shape[0], 1), {'Observed': mL, 'Estimate': est, 'Ratio': ratio},
+                      modeU=2 if k == 2 else 1, **common)
+        return read(est)[..., 0]
+    r_unset, r_floor, r_001, r_def = rl_margin(0.0), rl_margin(1e-4), rl_margin(0.01), rl_margin(0.15)
+    d_unset = np.abs(r_unset - r_def).max()
+    d_floor_def, d_floor_001 = np.abs(r_floor - r_def).mean(), np.abs(r_floor - r_001).mean()
+    print(f'     RL margin: 0 vs 0.15 max {d_unset:.1e}; floor vs 0.15 mean {d_floor_def:.2e}, floor vs 0.01 mean {d_floor_001:.2e}')
+    check(d_unset == 0.0, 'sharp_rl: marginU 0 is read as unset (0.15) - the reason WhyLumaSharpen floors the setting')
+    check(d_floor_def > 1e-5 and d_floor_001 < 0.25 * d_floor_def,
+          'sharp_rl: the floor 1e-4 (the row at 0) clamps like a margin of ~0, not like the default 0.15')
+    lift = lambda r: np.abs(r - mimg)[4:-4, 4:-4].mean()
+    check(lift(r_floor) <= lift(r_001) + 1e-6 <= lift(r_def) + 2e-6, 'sharp_rl: the RL lift grows with the margin (0 <= 0.01 <= 0.15)')
     print('ALL OK' if ok else 'FAILED')
     return 0 if ok else 1
 

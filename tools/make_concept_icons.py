@@ -8,6 +8,16 @@ circularbar library, circularbarlib/src/main/res/drawable/pro_ic_*.xml)
 import os
 import re
 
+
+def _unused():
+    """P655: the drawables the app does not use (tools/icons/unused.txt): not generated, not checked."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons/unused.txt')
+    with open(p, encoding='utf-8') as f:
+        return {l.strip() for l in f if l.strip() and not l.startswith('#')}
+
+
+UNUSED = _unused()
+
 ICONS = {
     'flash': '<path d="M13 2 5 13h6l-1 9 8-11h-6l1-9z"/>',
     'timer': '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
@@ -209,6 +219,8 @@ def main():
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     root = os.path.join(here, 'app', 'src', 'main', 'res', 'drawable')
     for name, svg in ICONS.items():
+        if 'ui_ic_' + name in UNUSED:
+            continue
         with open(os.path.join(root, 'ui_ic_%s.xml' % name), 'w', encoding='utf-8', newline='\n') as f:
             f.write(vector(name, svg))
     # P583: the Pro chips (pro_ic_*) are the approved concept's own icons now: tools/icons/concept_icons.py --board Viewfinder

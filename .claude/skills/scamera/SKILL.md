@@ -54,7 +54,7 @@ Kotlin нет. Сборка: JDK 17, Gradle 8.11.1, SDK 36, Build Tools 36.0.0, 
 
 ## Архитектура
 
-Пакеты `app/src/main/java/com/particlesdevs/photoncamera/`:
+Пакеты `app/src/main/java/com/scamera/app/`:
 `api` (Camera2, вендорные теги `VendorTagUtils`, `CameraManager2`) · `capture` (`CaptureController`, ZSL/брекет,
 превью, стабилизация `ForcedStabilization`/`StabilizationTrace`, `ScamPreview` профиль vivo, `XiaomiTeleZoom`) ·
 `control` (зум `ZoomController`, `FovSelfCheck`, фокус) · `processing` (сохранение, DNG, форматы, `opengl/postpipeline`,
@@ -76,7 +76,7 @@ Kotlin нет. Сборка: JDK 17, Gradle 8.11.1, SDK 36, Build Tools 36.0.0, 
 `camera2native` (`scamAe` и `scamProbe` убраны в P129, `scamNeuralProbe` — в P175), `scameraJpeg`
 (jpegli+Highway), `scameraAvif`, `lanczosDownscale`. Воркер `scam-neural-worker.cpp` — отдельный PIE-исполняемый
 файл (не JNI), собирается задачей `buildScamNeuralWorker` (на Windows не работает — собирать NDK clang вручную,
-см. HANDOFF §3). В APK: `assets/scam-neural/arm64-v8a/scam-neural-worker` + `lib/arm64-v8a/libscamera_worker.so`.
+см. HANDOFF §3). В APK (P662): одна копия `lib/arm64-v8a/libscamera_worker.so` (собрана с `-s`; su-путь запускает её из nativeLibraryDir, иначе распаковывает этот lib-вход; копии в `assets/scam-neural/` нет).
 
 Шейдеры:
 - ассеты `app/src/main/assets/shaders/` (через `GLProg`, `shaders/<имя>.glsl`): `why/` тон, `scamhdr/scamrgb.glsl`,
@@ -168,7 +168,7 @@ Kotlin нет. Сборка: JDK 17, Gradle 8.11.1, SDK 36, Build Tools 36.0.0, 
   `SCAMERA_NEURAL_ASSETS_KEY_V2` и локальный файл в `local-secrets/` (не читать). Запасные пути: артефакт
   `SCAMERA-neural-assets-v2`, секрет `SCAMERA_NEURAL_ASSETS_URL`. Распаковка `tools/ci_neural_assets.py` (группы
   `bundle/`, `hexquad/`, `nice/` — не переименовывать), упаковка `tools/package_scam_neural.py`
-  (воркер в `assets/scam-neural/`, рантайм в `lib/arm64-v8a/`, переподпись, проверка хэшей).
+  (воркер уже в шаблоне `lib/arm64-v8a/`, рантайм туда же, переподпись, проверка хэшей).
 - Цель «200 Мп на телефото» в документах проекта **не подтверждена**: `docs/tetra-detail.md` прямо говорит, что
   реконструкция полного 200 Мп не делается. Есть: HP9 теле 4× ISZ Tetra 4080×3072 → ремозаик в Bayer того же размера,
   нативная склейка Sabre на Tetra (P40, 10× у X200U), Sabre ×2 для ISZ 2× Quad (P56, 8192×6144). Для Tetra 4× ×2 — не

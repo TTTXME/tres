@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- the camera screen's background colour of the theme -->
+    <attr name="cameraFragmentBackground" format="reference"/>
 
+    <!-- a settings row with a slider on a step grid (UniversalSeekBarPreference): its range, the grid (steps per unit), a
+         decimal or a whole value, and whether the value pill shows -->
     <declare-styleable name="UniversalSeekBarPreference">
         <attr name="minValue" format="float"/>
         <attr name="maxValue" format="float"/>
@@ -9,30 +13,10 @@
         <attr name="showSeekBarValue" format="boolean"/>
     </declare-styleable>
 
-    <attr name="cameraFragmentBackground" format="reference"/>
-
-    <attr name="modeSelectedTextColor" format="color"/>
-
-    <attr name="processingProgressColor" format="color"/>
-
-    <declare-styleable name="FlashButtonStates">
-        <attr name="flash_off" format="boolean"/>
-        <attr name="flash_on" format="boolean"/>
-        <attr name="flash_auto" format="boolean"/>
-        <attr name="flash_torch" format="boolean"/>
-    </declare-styleable>
-
+    <!-- the tap-focus brackets: their colour by state (focus_failed: the focus did not lock) and line width -->
     <declare-styleable name="FocusCircleView">
-        <attr name="focused_locked" format="boolean"/>
-        <attr name="unfocused_locked" format="boolean"/>
+        <attr name="focus_failed" format="boolean"/>
         <attr name="android:color" format="reference|color"/>
         <attr name="android:thickness" format="dimension"/>
     </declare-styleable>
-
-    <declare-styleable name="TimerButtonStates">
-        <attr name="timer_off" format="boolean"/>
-        <attr name="timer_3s" format="boolean"/>
-        <attr name="timer_10s" format="boolean"/>
-    </declare-styleable>
-
 </resources>

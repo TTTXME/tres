@@ -153,7 +153,7 @@ void probe(const std::string& directory,const Reporter& report) {
 
 #ifndef SCAM_HOST_TEST
 extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_ui_settings_ScamActivity_nativeProbe(JNIEnv* env,jobject activity,jstring path) {
+Java_com_scamera_app_ui_settings_ScamActivity_nativeProbe(JNIEnv* env,jobject activity,jstring path) {
     jclass type=env->GetObjectClass(activity);
     jmethodID progress=env->GetMethodID(type,"onNativeProgress","(Ljava/lang/String;)V");
     if(!progress)return;

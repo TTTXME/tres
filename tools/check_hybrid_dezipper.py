@@ -25,7 +25,7 @@ import moderngl
 ROOT = Path(__file__).resolve().parents[1]
 H = ROOT / 'app/src/main/cpp/scam-hybrid.h'
 SRC = H.read_text(encoding='utf-8')
-JAVA = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/settings/PreferenceKeys.java').read_text(encoding='utf-8')
+JAVA = (ROOT / 'app/src/main/java/com/scamera/app/settings/PreferenceKeys.java').read_text(encoding='utf-8')
 FAIL = []
 # P478 (2026-11-03): one comment of kHybMergeCommon renamed the reference app (P335's line) - the code is unchanged
 MERGE_SOURCES = '7b467ebd634f91722dc84bd8a1115c9351c66aac25edb13b20243f18eb64e8e5'
@@ -83,6 +83,12 @@ def main():
             '    if(fine.x>=0.0){c=fine;c0=0.5*(c.x+c.y);c1=0.5*(c.y-c.x);nTensor*=16.0*k61cU.y;} // P332: single sites, half the step\n')
     check(stream.count(p596[0]) == 1, 'P596: the fine tensor choice in kHybHelpers, once')
     stream = stream.replace(*p596)
+    # P658: the Bayer base demosaic's red / blue from the demosaiced green (off by default): its uniform + helper and its block
+    p658 = (r'uniform vec3 bdRbU;.*?\n    return c\+\(g2-g\)\*k;\n\}\n',
+            r'    float rbShare=bdRbU\.x>0\.0\?.*?\n        dR=mix\(dR,rb\.x-gq,rbShare\);dB=mix\(dB,rb\.y-gq,rbShare\);\n    \}\n')
+    for pat in p658:
+        check(len(re.findall(pat, stream, re.S)) == 1, 'P658: the red / blue from green block, once')
+        stream = re.sub(pat, '', stream, flags=re.S)
     got = hashlib.sha256(stream.encode()).hexdigest()
     check(got == MERGE_SOURCES, 'the merge program\'s sources unchanged without the dezipper (%s)' % got[:12])
     spec = re.search(r'inline std::string hybridPartialSpec\(.*?\n\}', SRC, re.S).group(0)

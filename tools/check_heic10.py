@@ -38,7 +38,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-HEIF = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/heif'
+HEIF = ROOT / 'app/src/main/java/com/scamera/app/processing/heif'
 
 
 class Bad(Exception):
@@ -377,7 +377,7 @@ def must_fail(data, what, tmp):
 
 def guard_8bit_path():
     """The 8-bit HEIC / JPEG / WebP path is the one before the 10-bit HEIC: same writer calls, same render target."""
-    po = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/PhotoOutput.java').read_text(encoding='utf-8')
+    po = (ROOT / 'app/src/main/java/com/scamera/app/processing/PhotoOutput.java').read_text(encoding='utf-8')
     heif = po[po.index('static boolean saveHeic(Path file, Bitmap img, int quality, ParseExif.ExifData exif)'):]
     heif = heif[:heif.index('private static volatile Boolean heicEncoder')]
     for line in ('new androidx.heifwriter.HeifWriter.Builder(file.toString(), width, height,',
@@ -386,9 +386,9 @@ def guard_8bit_path():
                  'writer.addBitmap(img);', 'if (exifBlock != null) writer.addExifData(0, exifBlock, 0, exifBlock.length);',
                  'exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img));'):
         need(line in heif, 'PhotoOutput.saveHeic (8-bit HEIC) changed: %r missing' % line)
-    pp = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/PostPipeline.java').read_text(encoding='utf-8')
+    pp = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/PostPipeline.java').read_text(encoding='utf-8')
     need('GLFormat format = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);' in pp, 'PostPipeline output format changed')
-    gl = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/GLCoreBlockProcessing.java').read_text(encoding='utf-8')
+    gl = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/GLCoreBlockProcessing.java').read_text(encoding='utf-8')
     eight = gl[gl.index('public Bitmap drawBlocksToBitmap() {'):]
     eight = eight[:eight.index('static final class TileBlitter')]
     for line in ('final Bitmap dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);',

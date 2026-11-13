@@ -125,26 +125,26 @@ static jstring renderWithQueue(JNIEnv* env,jstring directory,jobject input,jobje
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_availableNative(
+Java_com_scamera_app_processing_color_FilmReferenceEngine_availableNative(
         JNIEnv* env,jclass,jstring directory){
     return availableWithQueue(env,directory,0);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_availableWithQueueNative(
+Java_com_scamera_app_processing_color_FilmReferenceEngine_availableWithQueueNative(
         JNIEnv* env,jclass,jstring directory,jint policy){
     return availableWithQueue(env,directory,policy);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderNative(
+Java_com_scamera_app_processing_color_FilmReferenceEngine_renderNative(
         JNIEnv* env,jclass,jstring directory,jobject input,jobject output,jobject packet,
         jint width,jint height,jlong budget,jdouble time){
     return renderWithQueue(env,directory,input,output,packet,width,height,budget,time,0);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_processing_color_FilmReferenceEngine_renderWithQueueNative(
+Java_com_scamera_app_processing_color_FilmReferenceEngine_renderWithQueueNative(
         JNIEnv* env,jclass,jstring directory,jobject input,jobject output,jobject packet,
         jint width,jint height,jlong budget,jdouble time,jint policy){
     return renderWithQueue(env,directory,input,output,packet,width,height,budget,time,policy);

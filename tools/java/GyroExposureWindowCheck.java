@@ -1,5 +1,5 @@
-import com.particlesdevs.photoncamera.control.GyroBurst;
-import com.particlesdevs.photoncamera.control.GyroExposureWindow;
+import com.scamera.app.control.GyroBurst;
+import com.scamera.app.control.GyroExposureWindow;
 
 public final class GyroExposureWindowCheck {
     static void near(float a, float b) {

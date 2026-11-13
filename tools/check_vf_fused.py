@@ -48,8 +48,11 @@ FAILURES: list[str] = []
 BASELINE_COMMIT = '7a920e8b'
 # SHA-256 of why/combine.glsl's token stream at 7a920e8b (imports expanded, preprocessed, comments dropped) with POINT_FUSED 0
 # (the photo) and POINT_FUSED 1 (the viewfinder's tone pass of P314)
-BASELINE_TOKENS = {'0': '8eee80560928a0990c989d3c78ec173eaaf7f5c674de22152899ca7ff957fc50',
-                   '1': 'bad492bd436d4977367e9d62ac16df9050b08e45c5eec931a066ecc0bb82d5ca'}
+# P659 R3 rewrote utils/import_interpolation.glsl (same cubic() / textureBicubicHardware() results bit for bit on every importing
+# shader, combine POINT_FUSED 0 / 1 included): with the old import the streams are still 7a920e8b's (8eee8056... / bad492bd...),
+# so these are 7a920e8b's combine.glsl with the new import expanded.
+BASELINE_TOKENS = {'0': '3b32283d1af848da18265b2752b22e48de5a4c60e070bbddfb59aee1e5a58dca',
+                   '1': '32d54f7c38a4be07ff5140e3beadfe544ec0509355f381ad8169b2dc9a6105ad'}
 # FusedCurve: entry i at log2 I = LOG2_MIN + i / PER_EV
 LOG2_MIN, LOG2_MAX, PER_EV = -16.0, 6.0, 16
 SIZE = int((LOG2_MAX - LOG2_MIN) * PER_EV) + 1

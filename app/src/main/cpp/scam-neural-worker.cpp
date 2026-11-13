@@ -244,6 +244,9 @@ int main(int argc,char** argv) {
             size_t sensorPixels=0; // P501: the burst's RAW pixels (the mask is their HALF grid at any output size)
             bool noEffMap=false; // P187: header flag 16 (or SCAM_NO_EFFMAP in an offline replay): no effective-frame map
             std::vector<float> result;
+            // P662: the result's float count - result.size(), or, for a fast-merge result whose halves were streamed, the floats its
+            // reservation stands for (scam::hybridStreamedFloats: the floats were never filled, nothing here reads them)
+            size_t resultFloats=0;
             // P440 (tune fastExit): the merge's large buffers, freed after the completion line (_exit: never)
             scam::HybridLater later;
             bool fastExit=false;
@@ -308,14 +311,20 @@ int main(int argc,char** argv) {
                 // P627 (owner, 2026-11-11: every mode stays the mode the user chose): the route of this shot, the only one that makes it
                 report(tuning.fastMerge>0?"HYBRID ROUTE: «Быстрый» (the fast merge route; no other route takes this shot)"
                                          :"HYBRID ROUTE: «Качество» (the SCAM merge; no other route takes this shot)");
+                scam::hybridStreamedFloats()=0;
                 result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
+                resultFloats=result.empty()&&scam::hybridStreamedFloats()?scam::hybridStreamedFloats():result.size();
+                scam::hybridStreamedFloats()=0;
+                if(resultFloats!=result.size()&&(!streamOut||(hin.outW>0&&resultFloats!=size_t(hin.outW)*hin.outH*3)))
+                    throw std::runtime_error("Hybrid: a streamed result of "+std::to_string(resultFloats/3)+" px without its stream or at another size");
                 // P501: the app's Sabre 1.5x size; a result at another grid (the SCAM merge's 2x, a fallback's 1x) is resampled to it
-                if(hin.outW>0&&result.size()!=size_t(hin.outW)*hin.outH*3){
+                if(hin.outW>0&&resultFloats!=size_t(hin.outW)*hin.outH*3){
                     const size_t px=result.size()/3;int g=0;
                     for(int k=1;k<=2;++k)if(px==size_t(hin.w)*k*size_t(hin.h)*k)g=k;
                     if(!g)throw std::runtime_error("Hybrid: a result of "+std::to_string(px)+" px is no grid of "+std::to_string(hin.w)+"x"+std::to_string(hin.h));
                     const auto t0=std::chrono::steady_clock::now();
                     scam::hybridResampleResult(result,hin.w*g,hin.h*g,hin.outW,hin.outH,effMap.empty()?nullptr:&effMap,clipFlags.empty()?nullptr:&clipFlags);
+                    resultFloats=result.size();
                     report("HYBRID SABRE OUTPUT: the "+std::to_string(hin.w*g)+"x"+std::to_string(hin.h*g)+" result resampled to "+std::to_string(hin.outW)+"x"
                         +std::to_string(hin.outH)+" (Catmull-Rom; effective map nearest, clip flags OR) in "
                         +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()))+" ms");
@@ -336,6 +345,7 @@ int main(int argc,char** argv) {
                 for(int y=h-1;y>=0;--y)f.write(reinterpret_cast<const char*>(data.data()+size_t(y)*w*3),w*3*sizeof(float));
                 if(!f)report("SCAM DIAGNOSTIC: incomplete tile dump");
             },alignment,&mergedDng,&effMap);
+            resultFloats=result.size();
             }
             const double mergedMs=sinceStart();
             // The CRE's first call prints an unterminated line ("Failed to load symbol ..."): with the warm-up joined here at the
@@ -350,7 +360,7 @@ int main(int argc,char** argv) {
             const bool halfOut=hybrid&&requestedHalf;
             const bool statsInFill=halfOut&&!std::getenv("SCAM_RGB_STATS_PASS");
             auto addStats=[&](double s,float m){std::lock_guard<std::mutex> guard(statsLock);sum+=s;maximum=std::max(maximum,m);};
-            auto reportStats=[&]{report("SCAM RGB: mean="+std::to_string(sum/result.size())+" max="+std::to_string(maximum));};
+            auto reportStats=[&]{report("SCAM RGB: mean="+std::to_string(sum/resultFloats)+" max="+std::to_string(maximum));};
             if(!statsInFill){
                 scam::mergeRowBands(int((result.size()+65535)/65536),[&](int b0,int b1){
                     double s=0;float m=0;
@@ -370,7 +380,7 @@ int main(int argc,char** argv) {
                 while(bytes){const ssize_t n=write(out,p,bytes);if(n<0&&errno==EINTR)continue;
                     if(n<=0){close(out);throw std::runtime_error("Incomplete SCAM output");}p+=n;bytes-=size_t(n);}
             };
-            std::vector<std::pair<const void*,size_t>> parts{{result.data(),result.size()*sizeof(float)}};
+            std::vector<std::pair<const void*,size_t>> parts{{result.data(),resultFloats*sizeof(float)}};
             // P80: the job marker `rgb-half` (the app asks for it, SCAM Hybrid only): the RGB as IEEE half floats (round to nearest
             // even), half the bytes to write, read and upload; the app's first stage stores it in half floats anyway (its input
             // texture is sampled into RGBA16F). The trailers stay as they are.
@@ -383,17 +393,17 @@ int main(int argc,char** argv) {
             // P153: the halves go straight into the mapped output (below): no 1.2 GB half copy of a 200 MP 2x grid and one pass less;
             // a null source marks that part. Only the plain write path (no mapping) still converts into `half` first.
             if(halfOut){
-                parts[0]={nullptr,result.size()*sizeof(uint16_t)};
-                report("SCAM RGB: written as half floats ("+std::to_string(result.size()*2>>20)+" MB)");
+                parts[0]={nullptr,resultFloats*sizeof(uint16_t)};
+                report("SCAM RGB: written as half floats ("+std::to_string(resultFloats*2>>20)+" MB)");
             }
             // Optional trailer: merged Bayer RAW (uint16, sensor layout) for the DNG.
             if(!mergedDng.empty())parts.emplace_back(mergedDng.data(),mergedDng.size()*sizeof(uint16_t));
             // Optional second trailer: effective merged frames per pixel (uint8, 1/8 frame), w*h bytes.
-            if(!effMap.empty()&&effMap.size()*3==result.size())parts.emplace_back(effMap.data(),effMap.size());
+            if(!effMap.empty()&&effMap.size()*3==resultFloats)parts.emplace_back(effMap.data(),effMap.size());
             // Optional third trailer (only on request, after the effective map): clip flags, uint8 per output pixel (bits: 0/1/2 R/G/B
             // from the clipped mean, 3 clip border, 4 Bento mask, 5 ultrashort clipped mean).
             // P187: without the map (header flag 16) they follow the RGB / the merged RAW directly
-            if(!clipFlags.empty()&&(noEffMap?clipFlags.size()*3==result.size():clipFlags.size()==effMap.size()))
+            if(!clipFlags.empty()&&(noEffMap?clipFlags.size()*3==resultFloats:clipFlags.size()==effMap.size()))
                 parts.emplace_back(clipFlags.data(),clipFlags.size());
             // P480: optional last trailer (job marker hl-mask, the fast merge with the highlight path only): the base highlight mask
             // at HALF for the app's dezipper pass - 16 bytes of header ("SCHLMSK1", HALF width, height) and its halves row by row
@@ -409,13 +419,15 @@ int main(int argc,char** argv) {
             bool streamed=false;
             if(streamOut){
                 double s=0;float m=0;
-                streamed=halfOut&&streamOut->take(result,s,m);
+                streamed=halfOut&&streamOut->take(result.data(),resultFloats,s,m);
                 if(streamed&&statsInFill)addStats(s,m);
                 if(!streamed)report("SCAM OUTPUT STREAM: not used ("+(halfOut?streamOut->reason():std::string("no half output"))+", "
                     +std::to_string(streamOut->rows())+" rows came)");
                 scam::hybridFinalRowsHook()=nullptr;scam::hybridFinalHalvesHook()=nullptr;
                 streamOut.reset();
             }
+            // P662: a streamed result's floats were never filled: without its halves in the output there is nothing to write
+            if(!streamed&&result.size()!=resultFloats){close(out);throw std::runtime_error("Hybrid: the streamed result's halves were not taken");}
             // P179 (200 MP: the app was killed for LOW_MEMORY around here): an output above 1 GiB is not reserved at once - the
             // file is sized (sparse) and its pages come as they are filled, while the source pages already written go back
             // (madvise DONTNEED, page-aligned inside the source): the FP32 RGB slice by slice, each trailer after its copy. The
@@ -431,7 +443,21 @@ int main(int argc,char** argv) {
                 struct stat st{};
                 if(total>0&&fstat(out,&st)==0&&S_ISREG(st.st_mode)&&st.st_size==(streamed?off_t(parts[0].second):0)&&lseek(out,0,SEEK_CUR)==0
                         &&(sparse?ftruncate(out,off_t(total)):fallocate(out,0,0,off_t(total)))==0){
+                    // P662 (speed): each band's pages of the output come in one call on its own thread before it is filled
+                    // (MADV_POPULATE_WRITE, Linux 5.14+: no write fault per 4 KB page; where the kernel lacks it the pages fault
+                    // in as before). Host, 300 MB of halves on 4 threads: the write ~15 % shorter (the sparse one above 1 GiB
+                    // ~25 %); MAP_POPULATE (one thread for the whole mapping) gained nothing there. SCAM_NO_MAP_POPULATE: as before
+                    const bool populate=!std::getenv("SCAM_NO_MAP_POPULATE");
                     void* map=mmap(nullptr,total,PROT_READ|PROT_WRITE,MAP_SHARED,out,0);
+                    auto populateRange=[&](void* at,size_t bytes){ // (page-aligned around the range, inside the mapping)
+                        if(!populate||!bytes)return;
+#ifndef MADV_POPULATE_WRITE
+#define MADV_POPULATE_WRITE 23
+#endif
+                        const uintptr_t page=uintptr_t(sysconf(_SC_PAGESIZE));
+                        const uintptr_t a=uintptr_t(at)&~(page-1),e=(uintptr_t(at)+bytes+page-1)&~(page-1);
+                        madvise(reinterpret_cast<void*>(a),e-a,MADV_POPULATE_WRITE); // (EINVAL on an older kernel: faults)
+                    };
                     if(map!=MAP_FAILED){
                         char* dst=static_cast<char*>(map);
                         for(const auto& part:parts){
@@ -445,7 +471,9 @@ int main(int argc,char** argv) {
                                 for(size_t s0=0;s0<n;s0+=slice){
                                     const size_t s1=std::min(n,s0+slice);
                                     scam::mergeRowBands(int((s1-s0+kElems-1)/kElems),[&](int c0,int c1){
-                                        toHalf(h,s0+size_t(c0)*kElems,std::min(s1,s0+size_t(c1)*kElems));
+                                        const size_t i0=s0+size_t(c0)*kElems,i1=std::min(s1,s0+size_t(c1)*kElems);
+                                        populateRange(h+i0,(i1-i0)*sizeof(uint16_t));
+                                        toHalf(h,i0,i1);
                                     });
                                     if(sparse)release(result.data()+s0,(s1-s0)*sizeof(float));
                                 }
@@ -454,7 +482,7 @@ int main(int argc,char** argv) {
                             constexpr size_t kChunk=size_t(4)<<20;
                             scam::mergeRowBands(int((bytes+kChunk-1)/kChunk),[&](int c0,int c1){
                                 const size_t a=size_t(c0)*kChunk,e=std::min(bytes,size_t(c1)*kChunk);
-                                if(e>a)std::memcpy(dst+a,src+a,e-a);
+                                if(e>a){populateRange(dst+a,e-a);std::memcpy(dst+a,src+a,e-a);}
                             });
                             if(sparse)release(src,bytes);
                             dst+=bytes;

@@ -858,6 +858,7 @@ private:
     }
     GLuint tryShader(GLenum type,const char* src,std::string& log){
         GLuint s=glCreateShader(type);
+        scamGlslDump("fast",src,type==GL_COMPUTE_SHADER?"comp":type==GL_VERTEX_SHADER?"vert":"frag"); // P662
         glShaderSource(s,1,&src,nullptr);
         // P500 (vivo X200 Pro, Mali-G925, Android 17: the driver's compiler died on the fast route's programs, the crash said
         // «EGL warm-up» and the app took the GPU for unusable - every shot one frame): the crash report names the fast route, so

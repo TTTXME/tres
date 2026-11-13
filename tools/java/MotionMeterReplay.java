@@ -1,4 +1,4 @@
-package com.particlesdevs.photoncamera.capture;
+package com.scamera.app.capture;
 
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;

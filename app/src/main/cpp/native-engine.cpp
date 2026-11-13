@@ -1,383 +1,211 @@
+// Library camera2native (api/NativeEngine.java): opens the camera framework's non-SDK members (vendor keys, the custom
+// capture session) to the app. Two parts:
+//  - nativeInitialize lifts the hidden-API policy for this process (ART's policy word when its symbol is visible, and
+//    VMRuntime.setHiddenApiExemptions, from a freshly attached thread when the app's own call is refused);
+//  - nativeGetCameraMethod / nativeGetCameraField resolve one declared member on a freshly attached thread, which has no
+//    managed caller for ART to judge.
+// P214a: a lookup leaves no global reference behind (tools/check_native_engine_refs.cpp builds this file on the host with a
+// counting JNIEnv and its own log stub, SCAM_HOST_TEST).
 #include <jni.h>
-#include <string>
 #ifndef SCAM_HOST_TEST
-// P214a: tools/check_native_engine_refs.cpp builds this file on the host with its own log stub and a counting JNIEnv.
 #include <android/log.h>
 #endif
 #include <dlfcn.h>
 #include <thread>
-#include <future>
+#include <utility>
 
-#define LOG_TAG "NativeEngine"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define ENGINE_LOG(level, ...) __android_log_print(level, "NativeEngine", __VA_ARGS__)
 
-// Global JavaVM instance for thread attachment
-static JavaVM* gJavaVM = nullptr;
+namespace {
 
-// Function pointers for JNI internal functions
-typedef jint (*JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
+JavaVM *g_vm = nullptr;
+void *g_art = nullptr;
 
-// Hidden API restriction bypass helpers
-static void* gLibArtHandle = nullptr;
-
-/**
- * Attach current thread to JVM
- */
-static JNIEnv* attachCurrentThread() {
-    JNIEnv* env = nullptr;
-    if (gJavaVM != nullptr) {
-        int res = gJavaVM->AttachCurrentThread(&env, nullptr);
-        LOGD("Thread attached with result: %d", res);
-    } else {
-        LOGE("JavaVM is null, cannot attach thread");
-    }
-    return env;
-}
-
-/**
- * Detach current thread from JVM
- */
-static void detachCurrentThread() {
-    if (gJavaVM != nullptr) {
-        gJavaVM->DetachCurrentThread();
-    }
-}
-
-/**
- * Initialize library handle for bypassing hidden API restrictions
- */
-static void initLibArtHandle() {
-    if (gLibArtHandle == nullptr) {
-        gLibArtHandle = dlopen("libart.so", RTLD_NOW);
-        if (gLibArtHandle == nullptr) {
-            LOGE("Failed to open libart.so: %s", dlerror());
-        } else {
-            LOGI("Successfully opened libart.so");
+/** A thread attached to the VM for its lifetime (env() null when the VM is unknown or refuses). */
+class AttachedThread {
+public:
+    AttachedThread() {
+        if (g_vm == nullptr) {
+            ENGINE_LOG(ANDROID_LOG_ERROR, "no JavaVM to attach a thread to");
+            return;
         }
+        const jint rc = g_vm->AttachCurrentThread(&env_, nullptr);
+        ENGINE_LOG(ANDROID_LOG_DEBUG, "lookup thread attached (%d)", rc);
     }
-}
+    ~AttachedThread() {
+        if (g_vm != nullptr) g_vm->DetachCurrentThread();
+    }
+    AttachedThread(const AttachedThread &) = delete;
+    AttachedThread &operator=(const AttachedThread &) = delete;
+    JNIEnv *env() const { return env_; }
 
-/**
- * Configure camera API access at native level
- * Enables full vendor camera extension support
- */
-static bool disableHiddenApiEnforcementNative() {
-    if (gLibArtHandle == nullptr) {
-        LOGD("ART library not loaded for camera configuration");
-        return false;
-    }
-    
-    // Look for camera API policy configuration symbols
-    void* apiPolicy = dlsym(gLibArtHandle, "_ZN3art9hiddenapi6detail19g_hiddenapi_policyE");
-    if (apiPolicy != nullptr) {
-        LOGI("Configuring camera API policy (primary)");
-        // Set policy to allow vendor camera extensions
-        *reinterpret_cast<int*>(apiPolicy) = 0;
-        LOGI("Camera API policy configured successfully");
-        return true;
-    }
-    
-    // Try alternative configuration for newer platform versions
-    apiPolicy = dlsym(gLibArtHandle, "_ZN3art9hiddenapi6detail24kStrongHiddenApiSentinelE");
-    if (apiPolicy != nullptr) {
-        LOGI("Configuring camera API policy (alternative)");
-        *reinterpret_cast<int*>(apiPolicy) = 0;
-        return true;
-    }
-    
-    LOGD("Native camera API policy not configurable, using Java fallback");
-    return false;
-}
+private:
+    JNIEnv *env_ = nullptr;
+};
 
-/**
- * Configure camera API access permissions
- * Enables access to vendor-specific camera extensions
- */
-static bool setHiddenApiExemptions(JNIEnv* env) {
-    jclass vmRuntimeClass = env->FindClass("dalvik/system/VMRuntime");
-    if (vmRuntimeClass == nullptr) {
-        LOGD("VMRuntime class not accessible");
-        env->ExceptionClear();
-        return false;
-    }
-    
-    jmethodID getRuntimeMethod = env->GetStaticMethodID(vmRuntimeClass, "getRuntime", "()Ldalvik/system/VMRuntime;");
-    if (getRuntimeMethod == nullptr) {
-        LOGD("Runtime method not accessible");
-        env->ExceptionClear();
-        return false;
-    }
-    
-    jobject runtime = env->CallStaticObjectMethod(vmRuntimeClass, getRuntimeMethod);
-    if (runtime == nullptr) {
-        LOGD("Runtime instance not available");
-        env->ExceptionClear();
-        return false;
-    }
-    
-    jmethodID setHiddenApiExemptionsMethod = env->GetMethodID(vmRuntimeClass, "setHiddenApiExemptions", "([Ljava/lang/String;)V");
-    if (setHiddenApiExemptionsMethod == nullptr) {
-        LOGD("API exemption method not available");
-        env->ExceptionClear();
-        return false;
-    }
-    
-    // Configure camera API access scope
-    jobjectArray exemptions = env->NewObjectArray(1, env->FindClass("java/lang/String"), env->NewStringUTF("L"));
-    
-    env->CallVoidMethod(runtime, setHiddenApiExemptionsMethod, exemptions);
-    
-    if (env->ExceptionCheck()) {
-        LOGD("Camera API configuration exception");
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-        return false;
-    }
-    
-    LOGI("Camera API access scope configured");
+/** Clears a pending exception (logged with `what`); true when there was one. */
+bool swallow(JNIEnv *env, const char *what) {
+    if (!env->ExceptionCheck()) return false;
+    ENGINE_LOG(ANDROID_LOG_DEBUG, "%s", what);
+    env->ExceptionDescribe();
+    env->ExceptionClear();
     return true;
 }
 
-/**
- * Ensure hidden API bypass is initialized
- */
-static void ensureHiddenApiBypass(JNIEnv* env) {
-    static bool initialized = false;
-    if (!initialized) {
-        initLibArtHandle();
-        setHiddenApiExemptions(env);
-        initialized = true;
-    }
+void openArt() {
+    if (g_art != nullptr) return;
+    g_art = dlopen("libart.so", RTLD_NOW);
+    if (g_art == nullptr) ENGINE_LOG(ANDROID_LOG_ERROR, "libart.so not opened: %s", dlerror());
+    else ENGINE_LOG(ANDROID_LOG_INFO, "libart.so opened");
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_api_NativeEngine_nativeInitialize(
-        JNIEnv* env,
-        jclass /* clazz */) {
-    
-    LOGI("Camera subsystem initialization started");
-    
-    // Initialize camera library components
-    initLibArtHandle();
-    
-    // Configure camera API access level (native)
-    bool nativeAccess = disableHiddenApiEnforcementNative();
-    
-    // Configure camera API access level (Java)
-    bool javaAccess = setHiddenApiExemptions(env);
-
-    // Android 11+ denies VMRuntime.setHiddenApiExemptions to app callers. On a freshly
-    // attached native thread there is no managed frame to identify the caller, and ART
-    // treats an undeterminable JNI caller as trusted, so repeat the call from there.
-    if (!javaAccess && gJavaVM != nullptr) {
-        std::thread worker([&javaAccess]() {
-            JNIEnv* threadEnv = attachCurrentThread();
-            if (threadEnv != nullptr) {
-                javaAccess = setHiddenApiExemptions(threadEnv);
-                detachCurrentThread();
-            }
-        });
-        worker.join();
-        LOGI("Camera API access via attached native thread: %d", javaAccess);
+/** Zeroes ART's hidden-API policy word when one of its symbols is visible (older platforms); false when none is. */
+bool clearArtPolicy() {
+    if (g_art == nullptr) {
+        ENGINE_LOG(ANDROID_LOG_DEBUG, "no libart handle: the policy word stays");
+        return false;
     }
+    static const char *const kPolicySymbols[] = {
+            "_ZN3art9hiddenapi6detail19g_hiddenapi_policyE",
+            "_ZN3art9hiddenapi6detail24kStrongHiddenApiSentinelE",
+    };
+    for (const char *symbol : kPolicySymbols) {
+        if (void *word = dlsym(g_art, symbol)) {
+            *static_cast<int *>(word) = 0;
+            ENGINE_LOG(ANDROID_LOG_INFO, "hidden-API policy cleared (%s)", symbol);
+            return true;
+        }
+    }
+    ENGINE_LOG(ANDROID_LOG_DEBUG, "no policy symbol in libart: the exemption call decides");
+    return false;
+}
 
-    if (nativeAccess || javaAccess) {
-        LOGI("Camera API access configured (native: %d, java: %d)", 
-             nativeAccess, javaAccess);
+/** VMRuntime.getRuntime().setHiddenApiExemptions(new String[]{"L"}): every class. False when refused or unavailable. */
+bool exemptEverything(JNIEnv *env) {
+    jclass runtimeClass = env->FindClass("dalvik/system/VMRuntime");
+    if (runtimeClass == nullptr) {
+        swallow(env, "VMRuntime not found");
+        return false;
+    }
+    jmethodID current = env->GetStaticMethodID(runtimeClass, "getRuntime", "()Ldalvik/system/VMRuntime;");
+    jobject runtime = current != nullptr ? env->CallStaticObjectMethod(runtimeClass, current) : nullptr;
+    jmethodID exempt = runtime != nullptr
+            ? env->GetMethodID(runtimeClass, "setHiddenApiExemptions", "([Ljava/lang/String;)V") : nullptr;
+    if (exempt == nullptr) {
+        env->ExceptionClear();
+        ENGINE_LOG(ANDROID_LOG_DEBUG, "VMRuntime exemptions not reachable");
+        return false;
+    }
+    jobjectArray prefixes = env->NewObjectArray(1, env->FindClass("java/lang/String"), env->NewStringUTF("L"));
+    env->CallVoidMethod(runtime, exempt, prefixes);
+    if (swallow(env, "setHiddenApiExemptions refused")) return false;
+    ENGINE_LOG(ANDROID_LOG_INFO, "hidden-API exemptions set");
+    return true;
+}
+
+/** What a lookup thread resolves: a declared method (with its parameter types) or a declared field of `owner`. */
+struct Member {
+    jobject owner;
+    jstring name;
+    jobjectArray parameters;  // methods only, may be null
+    bool method;
+};
+
+/**
+ * On the calling (attached) thread: owner.getDeclaredMethod / getDeclaredField, a global reference to the member (null when
+ * there is none; the lookup's exception is cleared - normal for a key a vendor does not have).
+ */
+jobject resolveHere(JNIEnv *env, const Member &m) {
+    jclass classOfClass = env->GetObjectClass(m.owner);
+    jobject found;
+    if (m.method) {
+        jmethodID get = env->GetMethodID(classOfClass, "getDeclaredMethod",
+                                         "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;");
+        found = env->CallObjectMethod(m.owner, get, m.name, m.parameters);
     } else {
-        LOGW("Camera API configuration incomplete");
+        jmethodID get = env->GetMethodID(classOfClass, "getDeclaredField", "(Ljava/lang/String;)Ljava/lang/reflect/Field;");
+        found = env->CallObjectMethod(m.owner, get, m.name);
     }
+    swallow(env, m.method ? "no such method (may be normal for vendor keys)" : "no such field (may be normal for vendor keys)");
+    if (found == nullptr) return nullptr;
+    ENGINE_LOG(ANDROID_LOG_INFO, "%s resolved", m.method ? "method" : "field");
+    return env->NewGlobalRef(found);
 }
 
 /**
- * JNI_OnLoad - Called when the library is loaded
- * This stores the JavaVM pointer which is essential for thread attachment
+ * Resolves `m` on a fresh attached thread. The inputs travel there as global references (a local one belongs to its
+ * thread); the result comes back as a global one and is returned as a local reference of the caller, so the global table
+ * ends as it started (P214a: the old code kept about nine entries per lookup, and ART aborts at 51200 - OPPO Find X7 Ultra,
+ * 2026-10-17).
  */
-JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
-    LOGI("JNI_OnLoad called - storing JavaVM pointer");
-    gJavaVM = vm;
-    
-    JNIEnv* env = nullptr;
-    if (vm->GetEnv((void**)(&env), JNI_VERSION_1_6) != JNI_OK) {
-        LOGE("Failed to get JNIEnv");
-        return -1;
-    }
-    
-    LOGI("JNI_OnLoad completed successfully");
-    return JNI_VERSION_1_6;
-}
+jobject resolveOnFreshThread(JNIEnv *env, Member m) {
+    m.owner = env->NewGlobalRef(m.owner);
+    m.name = static_cast<jstring>(env->NewGlobalRef(m.name));
+    if (m.parameters != nullptr) m.parameters = static_cast<jobjectArray>(env->NewGlobalRef(m.parameters));
 
-/**
- * P214a: the lookup thread hands its result over as a global reference (a local one dies with that thread). The caller
- * turns it into a local reference of its own frame and deletes the global one, so nothing stays in the global table.
- */
-static jobject toLocalRef(JNIEnv* env, jobject global) {
+    jobject global = nullptr;
+    std::thread worker([&global, &m]() {
+        AttachedThread attached;
+        if (attached.env() != nullptr) global = resolveHere(attached.env(), m);
+        else ENGINE_LOG(ANDROID_LOG_ERROR, "lookup thread not attached");
+    });
+    worker.join();
+
+    env->DeleteGlobalRef(m.owner);
+    env->DeleteGlobalRef(m.name);
+    if (m.parameters != nullptr) env->DeleteGlobalRef(m.parameters);
+    swallow(env, "exception after the lookup");
     if (global == nullptr) return nullptr;
     jobject local = env->NewLocalRef(global);
     env->DeleteGlobalRef(global);
     return local;
 }
 
-/**
- * Internal function for camera method resolution
- * Runs on separate thread for enhanced camera API access
- */
-static jobject getCameraMethod_internal(
-        jobject clazz,
-        jstring methodName,
-        jobjectArray parameterTypes) {
-    
-    // Attach this thread to the JVM
-    JNIEnv* env = attachCurrentThread();
-    if (env == nullptr) {
-        LOGE("Failed to attach thread for camera method access");
-        return nullptr;
+}  // namespace
+
+extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
+    g_vm = vm;
+    JNIEnv *env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        ENGINE_LOG(ANDROID_LOG_ERROR, "JNI_OnLoad: no JNIEnv");
+        return -1;
     }
-    
-    // Resolve camera metadata method
-    jclass classClass = env->GetObjectClass(clazz);
-    jmethodID getDeclaredMethodID = env->GetMethodID(classClass, "getDeclaredMethod",
-                                                     "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;");
-    
-    // Execute camera method query
-    jobject method = env->CallObjectMethod(clazz, getDeclaredMethodID, methodName, parameterTypes);
-    
-    if (env->ExceptionCheck()) {
-        LOGD("Camera method resolution exception (may be normal for vendor keys)");
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-    }
-    
-    // Create global reference for camera method
-    jobject globalMethod = nullptr;
-    if (method != nullptr) {
-        globalMethod = env->NewGlobalRef(method);
-        LOGI("Camera method successfully resolved");
-    }
-    
-    // Detach the thread
-    detachCurrentThread();
-    return globalMethod;
+    ENGINE_LOG(ANDROID_LOG_INFO, "camera2native loaded");
+    return JNI_VERSION_1_6;
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_api_NativeEngine_nativeGetCameraMethod(
-        JNIEnv* env,
-        jclass /* clazz */,
-        jclass targetClass,
-        jstring methodName,
-        jobjectArray parameterTypes) {
-    
-    LOGD("Camera method resolver initiated");
-    
-    if (targetClass == nullptr || methodName == nullptr) {
-        LOGE("Invalid camera class or method name");
-        return nullptr;
+extern "C" JNIEXPORT void JNICALL Java_com_scamera_app_api_NativeEngine_nativeInitialize(JNIEnv *env, jclass) {
+    ENGINE_LOG(ANDROID_LOG_INFO, "hidden-API access: starting");
+    openArt();
+    const bool policy = clearArtPolicy();
+    bool exempt = exemptEverything(env);
+    // Android 11+ refuses the exemption to an app caller; a freshly attached native thread has no managed frame, and ART
+    // treats a caller it cannot determine as trusted - so the call is repeated from one.
+    if (!exempt && g_vm != nullptr) {
+        std::thread([&exempt]() {
+            AttachedThread attached;
+            if (attached.env() != nullptr) exempt = exemptEverything(attached.env());
+        }).join();
+        ENGINE_LOG(ANDROID_LOG_INFO, "exemptions from an attached native thread: %d", exempt);
     }
-    
-    // Prepare camera method query parameters. P214a: only the class, the name and the array get a global reference (the
-    // lookup thread needs them); the array keeps its elements reachable. The old code also took a global reference for
-    // every element and stored it back into the array, never deleted - with the three below and the result that was about
-    // 9 entries per lookup, and the runtime aborts at 51200 ("global reference table overflow", OPPO Find X7 Ultra,
-    // 2026-10-17 11:09 and 11:17).
-    jobject globalClass = env->NewGlobalRef(targetClass);
-    jstring globalMethodName = (jstring)env->NewGlobalRef(methodName);
-    jobjectArray globalParams = parameterTypes != nullptr ? (jobjectArray)env->NewGlobalRef(parameterTypes) : nullptr;
-
-    // Execute camera method resolution asynchronously
-    auto future = std::async(std::launch::async, &getCameraMethod_internal,
-                            globalClass, globalMethodName, globalParams);
-    auto result = future.get();
-
-    // P214a: the lookup is finished, so its inputs are released, and the result goes back as a local reference (freed by
-    // the runtime when this native call returns) instead of a global one nobody deletes.
-    env->DeleteGlobalRef(globalClass);
-    env->DeleteGlobalRef(globalMethodName);
-    if (globalParams != nullptr) env->DeleteGlobalRef(globalParams);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-    }
-
-    return toLocalRef(env, result);
+    if (policy || exempt) ENGINE_LOG(ANDROID_LOG_INFO, "hidden-API access open (policy %d, exemptions %d)", policy, exempt);
+    else ENGINE_LOG(ANDROID_LOG_WARN, "hidden-API access not opened");
 }
 
-/**
- * Internal function for camera field resolution
- * Runs on separate thread for enhanced camera metadata access
- */
-static jobject getCameraField_internal(
-        jobject object,
-        jstring fieldName) {
-    
-    // Attach this thread to the JVM
-    JNIEnv* env = attachCurrentThread();
-    if (env == nullptr) {
-        LOGE("Failed to attach thread for camera field access");
+extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_nativeGetCameraMethod(JNIEnv *env, jclass,
+        jclass owner, jstring name, jobjectArray parameterTypes) {
+    if (owner == nullptr || name == nullptr) {
+        ENGINE_LOG(ANDROID_LOG_ERROR, "method lookup without a class or a name");
         return nullptr;
     }
-    
-    // Resolve camera metadata field
-    jclass classClass = env->GetObjectClass(object);
-    jmethodID getDeclaredFieldID = env->GetMethodID(classClass, "getDeclaredField",
-                                                    "(Ljava/lang/String;)Ljava/lang/reflect/Field;");
-    
-    // Execute camera field query
-    jobject field = env->CallObjectMethod(object, getDeclaredFieldID, fieldName);
-    
-    if (env->ExceptionCheck()) {
-        LOGD("Camera field resolution exception (may be normal for vendor fields)");
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-    }
-    
-    // Create global reference for camera field
-    jobject globalField = nullptr;
-    if (field != nullptr) {
-        globalField = env->NewGlobalRef(field);
-        LOGI("Camera field successfully resolved");
-    }
-    
-    // Detach the thread
-    detachCurrentThread();
-    return globalField;
+    return resolveOnFreshThread(env, Member{owner, name, parameterTypes, true});
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_api_NativeEngine_nativeGetCameraField(
-        JNIEnv* env,
-        jclass /* clazz */,
-        jclass targetClass,
-        jstring fieldName) {
-    
-    LOGD("Camera field resolver initiated");
-    
-    if (targetClass == nullptr || fieldName == nullptr) {
-        LOGE("Invalid camera class or field name");
+extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_nativeGetCameraField(JNIEnv *env, jclass,
+        jclass owner, jstring name) {
+    if (owner == nullptr || name == nullptr) {
+        ENGINE_LOG(ANDROID_LOG_ERROR, "field lookup without a class or a name");
         return nullptr;
     }
-    
-    // Prepare camera field query parameters
-    jobject globalObject = env->NewGlobalRef(targetClass);
-    jstring globalFieldName = (jstring)env->NewGlobalRef(fieldName);
-    
-    // Execute camera field resolution asynchronously
-    auto future = std::async(std::launch::async, &getCameraField_internal,
-                            globalObject, globalFieldName);
-    auto result = future.get();
-
-    // P214a: release the inputs and return the field as a local reference (see nativeGetCameraMethod).
-    env->DeleteGlobalRef(globalObject);
-    env->DeleteGlobalRef(globalFieldName);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-    }
-
-    return toLocalRef(env, result);
+    return resolveOnFreshThread(env, Member{owner, name, nullptr, false});
 }

@@ -50,6 +50,15 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-metadata
 # free punches its pages, unmapped after the last view; review B1: the trailers between the views survive the release)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_allocator_adopt.cpp -o /tmp/check-allocator-adopt
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-allocator-adopt
+# P662: the packed RAW10 / RAW12 unpack (allocator.cpp: NEON on aarch64, 16 samples a step) gives the scalar unpack's samples on
+# random rows of every width, shift and alignment, never reading past a row; the NEON path itself where qemu runs an aarch64 build
+g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_raw_unpack.cpp -o /tmp/check-raw-unpack
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-raw-unpack
+NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+if command -v qemu-aarch64-static >/dev/null && [ -x "$NDK_BIN/aarch64-linux-android35-clang++" ]; then
+  "$NDK_BIN/aarch64-linux-android35-clang++" -static -std=c++17 -O2 tools/check_raw_unpack.cpp -o /tmp/check-raw-unpack-arm64
+  qemu-aarch64-static /tmp/check-raw-unpack-arm64
+fi
 # P609: the OnePlus 16 main's 50 MP from its 200 MP row - allocator.cpp binBlocks2 averages each 2x2 box of a Tetra frame into the
 # sensor's own Quad (colour order, levels, rounding, whole 8x8 periods, padded strides, packed RAW10 / RAW12, refusals)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_tetra_bin.cpp -o /tmp/check-tetra-bin

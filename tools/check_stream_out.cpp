@@ -137,11 +137,11 @@ static void protocol() {
     });
     refused("a commit without an attempt", [&](StreamOut& o) { o.event(v.data(), w, h, -1, -1); return o.take(v, s, m); });
     refused("the RGB above the cap", [&](StreamOut& o) {
-        const int bw = 8192, bh = 4096; // 192 MB of halves: never reserved, the rows never read
+        const int bw = 16384, bh = 12288; // P662: 1.1 GiB of halves (a 200 MP output; the cap is 1 GiB): never reserved, the rows never read
         float dummy[3]{};
         o.event(nullptr, bw, bh, 0, 0); o.event(dummy, bw, bh, 0, 1);
         const bool took = o.take(v, s, m);
-        expect(o.reason().find("160 MB") != std::string::npos, "the RGB above the cap: the reason");
+        expect(o.reason().find("1 GiB") != std::string::npos, "the RGB above the cap: the reason");
         return took;
     });
     { // a retry of the same size, then one of another size: the last attempt's rows
@@ -179,6 +179,59 @@ static void protocol() {
         out.event(nullptr, w, h, 0, 0); give(out, v, w, h, 0, h, 19); out.event(v.data(), w, h, -1, -1);
         expect(!out.take(v, s, m), "a pipe: not used");
         close(p[0]); close(p[1]);
+    }
+}
+
+// P662: the fast route's protocol (StreamOut::halves, the result only reserved as hybridFastMerge leaves it when streamed): an
+// output above the old 160 MB cap (a 50 MP fast merge's 288 MB) is prepared, streamed in row bands and taken by the reservation's
+// data and float count, the memfd holding exactly the halves; above 1 GiB the preparation refuses (the floats are then filled);
+// a reservation of another size or another one is not taken
+static void fastHalves() {
+    const int w = 6400, h = 4800; // 30.7 MP: 176 MB of halves
+    const size_t n = size_t(w) * h * 3;
+    std::vector<uint16_t> src(n);
+    for (size_t i = 0; i < n; ++i) src[i] = floatToHalf(float((i * 2654435761u) % 4096) / 1024.f);
+    double rs = 0; float rm = 0;
+    for (size_t i = 0; i < n; ++i) { const float f = hybridHalfToFloat(src[i]); rs += f; rm = std::max(rm, f); }
+    double s = 0; float m = 0;
+    {
+        const int fd = memfd_create("t", 0);
+        StreamOut out(dup(fd));
+        std::vector<float> result; result.reserve(n); // the reservation alone: size 0
+        expect(out.halves(nullptr, w, h, 0, 0, result.data()), "fast route above 160 MB: prepared");
+        for (int y = 0; y < h; y += 512) expect(out.halves(src.data() + size_t(y) * w * 3, w, h, y, std::min(h, y + 512), result.data()), "fast route: a band taken");
+        expect(out.halves(nullptr, w, h, -1, -1, result.data()), "fast route: committed");
+        expect(out.take(result.data(), n, s, m), "fast route: taken by the reservation and its float count");
+#if defined(__aarch64__) // (the halves' sum / max are counted by the NEON path only)
+        expect(std::fabs(s - rs) <= 1e-6 * rs && m == rm, "fast route: the halves' sum and max");
+#else
+        (void)rs; (void)rm;
+#endif
+        std::vector<uint16_t> got(n);
+        expect(sizeOf(fd) == off_t(n * 2) && pread(fd, got.data(), n * 2, 0) == ssize_t(n * 2) && got == src, "fast route: the memfd holds the halves, that long");
+        close(fd);
+    }
+    {
+        const int fd = memfd_create("t", 0);
+        StreamOut out(dup(fd));
+        std::vector<float> result; result.reserve(16);
+        expect(!out.halves(nullptr, 16384, 12288, 0, 0, result.data()), "fast route above 1 GiB: refused at the preparation");
+        expect(out.reason().find("1 GiB") != std::string::npos && sizeOf(fd) == 0, "fast route above 1 GiB: the reason, nothing reserved");
+        close(fd);
+    }
+    {
+        const int fd = memfd_create("t", 0);
+        StreamOut out(dup(fd));
+        const int sw = 64, sh = 32; const size_t sn = size_t(sw) * sh * 3;
+        std::vector<float> result; result.reserve(sn);
+        out.halves(nullptr, sw, sh, 0, 0, result.data());
+        out.halves(src.data(), sw, sh, 0, sh, result.data());
+        out.halves(nullptr, sw, sh, -1, -1, result.data());
+        expect(!out.take(result, s, m), "fast route: the reservation's vector (size 0) is no result of that size");
+        std::vector<float> other; other.reserve(sn);
+        expect(!out.take(other.data(), sn, s, m), "fast route: another reservation is not taken");
+        expect(sizeOf(fd) == 0, "fast route: not taken, the memfd empty again");
+        close(fd);
     }
 }
 
@@ -261,11 +314,12 @@ static void plainSink(long& cases) {
 int main() {
     halves();
     protocol();
+    fastHalves();
     long cases = 0;
     plainSink(cases);
     if (failures) { std::printf("stream out: %d failure(s)\n", failures); return 1; }
     std::printf("stream out: halvesOf == floatToHalf; StreamOut takes only a committed result (refused cases leave its memfd empty, "
                 "another's untouched); the plain sink's streamed halves == the finished result's in %ld merges (retries, stops, "
-                "shifts, 1..8 threads): ok\n", cases);
+                "shifts, 1..8 threads); the fast route's halves above 160 MB taken by their reservation: ok\n", cases);
     return 0;
 }

@@ -1,101 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The gallery's screens. It starts on the viewer (the camera's thumbnail, VIEW / REVIEW); GalleryActivity.startNavigation puts the
+     library first for the gallery's launcher icon and a pick, and the editor for ACTION_EDIT.
+     P498: a photo opens out of its thumbnail and folds back into it (gallery_open / gallery_close); the editor and compare slide in
+     as iOS pushes (motion_push / motion_pop). -->
 <navigation xmlns:android="http://schemas.android.com/apk/res/android"
             xmlns:app="http://schemas.android.com/apk/res-auto"
-            xmlns:tools="http://schemas.android.com/tools"
-            android:id="@+id/gallery_nav"
-            app:startDestination="@id/imageViewerFragment">
+            android:id="@+id/gallery_graph"
+            app:startDestination="@id/gallery_viewer">
 
-    <!-- P498: the photo opens out of its thumbnail and folds back into it (gallery_open / gallery_close); the editor, compare and
-         settings come in as iOS pushes (motion_push / motion_pop). The old slide_* waited 500 ms before every move. -->
+    <!-- two photos side by side, from the viewer or from a selection in the library -->
+    <action
+            android:id="@+id/push_compare"
+            app:destination="@id/gallery_compare"
+            app:enterAnim="@anim/motion_push_enter"
+            app:exitAnim="@anim/motion_push_exit"
+            app:popEnterAnim="@anim/motion_pop_enter"
+            app:popExitAnim="@anim/motion_pop_exit"/>
+
     <fragment
-            android:id="@+id/imageViewerFragment"
-            android:name="com.particlesdevs.photoncamera.gallery.ui.fragments.ImageViewerFragment"
-            android:label="ImageViewerFragment">
+            android:id="@+id/gallery_viewer"
+            android:name="com.scamera.app.gallery.ui.fragments.ImageViewerFragment"
+            android:label="viewer">
+        <!-- back to the grid: the photo folds into its thumbnail -->
         <action
-                android:id="@+id/action_imageViewFragment_to_imageLibraryFragment"
-                app:destination="@id/imageLibraryFragment"
+                android:id="@+id/fold_to_library"
+                app:destination="@id/gallery_library"
                 app:enterAnim="@anim/gallery_close_enter"
                 app:exitAnim="@anim/gallery_close_exit"
                 app:popEnterAnim="@anim/gallery_open_enter"
-                app:popExitAnim="@anim/gallery_open_exit" />
-        <action
-                android:id="@+id/action_imageViewerFragment_to_imageCompareFragment"
-                app:destination="@id/imageCompareFragment"
-                app:enterAnim="@anim/motion_push_enter"
-                app:exitAnim="@anim/motion_push_exit"
-                app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
-        <action
-                android:id="@+id/action_imageViewerFragment_to_gallerySettingsFragment"
-                app:destination="@id/gallerySettingsFragment"
-                app:enterAnim="@anim/motion_push_enter"
-                app:exitAnim="@anim/motion_push_exit"
-                app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
+                app:popExitAnim="@anim/gallery_open_exit"/>
         <!-- P351: the photo editor -->
         <action
-                android:id="@+id/action_imageViewerFragment_to_photoEditorFragment"
-                app:destination="@id/photoEditorFragment"
+                android:id="@+id/push_editor"
+                app:destination="@id/gallery_editor"
                 app:enterAnim="@anim/motion_push_enter"
                 app:exitAnim="@anim/motion_push_exit"
                 app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
+                app:popExitAnim="@anim/motion_pop_exit"/>
     </fragment>
+
     <fragment
-            android:id="@+id/photoEditorFragment"
-            android:name="com.particlesdevs.photoncamera.gallery.editor.PhotoEditorFragment"
-            android:label="PhotoEditorFragment"/>
-    <fragment
-            android:id="@+id/imageLibraryFragment"
-            android:name="com.particlesdevs.photoncamera.gallery.ui.fragments.ImageLibraryFragment"
-            android:label="ImageLibraryFragment">
+            android:id="@+id/gallery_library"
+            android:name="com.scamera.app.gallery.ui.fragments.ImageLibraryFragment"
+            android:label="library">
+        <!-- a thumbnail opens into the photo -->
         <action
-                android:id="@+id/action_imageLibraryFragment_to_imageViewerFragment"
-                app:destination="@id/imageViewerFragment"
+                android:id="@+id/open_photo"
+                app:destination="@id/gallery_viewer"
                 app:enterAnim="@anim/gallery_open_enter"
                 app:exitAnim="@anim/gallery_open_exit"
                 app:popEnterAnim="@anim/gallery_close_enter"
-                app:popExitAnim="@anim/gallery_close_exit" >
-        </action>
-        <action
-                android:id="@+id/action_imageLibraryFragment_to_imageCompareFragment"
-                app:destination="@id/imageCompareFragment"
-                app:enterAnim="@anim/motion_push_enter"
-                app:exitAnim="@anim/motion_push_exit"
-                app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
-        <action
-                android:id="@+id/action_imageLibraryFragment_to_gallerySettingsFragment"
-                app:destination="@id/gallerySettingsFragment"
-                app:enterAnim="@anim/motion_push_enter"
-                app:exitAnim="@anim/motion_push_exit"
-                app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
-
-    </fragment>
-    <fragment
-            android:id="@+id/imageCompareFragment"
-            android:name="com.particlesdevs.photoncamera.gallery.ui.fragments.ImageCompareFragment"
-            android:label="ImageCompareFragment">
-        <action
-                android:id="@+id/action_imageCompareFragment_to_imageLibraryFragment"
-                app:destination="@id/imageLibraryFragment"
-                app:enterAnim="@anim/motion_push_enter"
-                app:exitAnim="@anim/motion_push_exit"
-                app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
+                app:popExitAnim="@anim/gallery_close_exit"/>
     </fragment>
 
     <fragment
-            android:id="@+id/gallerySettingsFragment"
-            android:name="com.particlesdevs.photoncamera.gallery.ui.fragments.GallerySettingsFragment"
-            android:label="GallerySettingsFragment">
-        <action
-                android:id="@+id/action_gallerySettingsFragment_to_imageLibraryFragment"
-                app:destination="@id/imageLibraryFragment"
-                app:enterAnim="@anim/motion_push_enter"
-                app:exitAnim="@anim/motion_push_exit"
-                app:popEnterAnim="@anim/motion_pop_enter"
-                app:popExitAnim="@anim/motion_pop_exit" />
-    </fragment>
+            android:id="@+id/gallery_compare"
+            android:name="com.scamera.app.gallery.ui.fragments.ImageCompareFragment"
+            android:label="compare"/>
+
+    <fragment
+            android:id="@+id/gallery_editor"
+            android:name="com.scamera.app.gallery.editor.PhotoEditorFragment"
+            android:label="editor"/>
 </navigation>

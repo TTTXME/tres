@@ -1,6 +1,6 @@
 import java.nio.*;
 import java.util.*;
-import com.particlesdevs.photoncamera.capture.RawFrameQuality;
+import com.scamera.app.capture.RawFrameQuality;
 public class RawFrameQualityCheck {
     static ByteBuffer scene(int block,boolean blur,boolean noise) {
         int w=640,h=480,stride=w*2+32;ByteBuffer b=ByteBuffer.allocateDirect(stride*h).order(ByteOrder.LITTLE_ENDIAN);

@@ -8,6 +8,16 @@ VectorDrawables: res/drawable/<prefix><name>.xml, white strokes (tinted by the v
       the menu's tick; each at its own viewBox, size and stroke, checked to be still in its board)"""
 import argparse, json, os, re, sys
 
+
+def _unused():
+    """P655: the drawables the app does not use (tools/icons/unused.txt): not generated, not checked."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'unused.txt')
+    with open(p, encoding='utf-8') as f:
+        return {l.strip() for l in f if l.strip() and not l.startswith('#')}
+
+
+UNUSED = _unused()
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
@@ -109,6 +119,8 @@ def main():
         if only and name not in only:
             continue
         f = os.path.join(out, o.prefix + re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower() + '.xml')
+        if os.path.basename(f)[:-4] in UNUSED:
+            continue
         text = vector(d, stroke, box, colours.get(name, '#FFFFFFFF'))
         if o.check:
             if not os.path.isfile(f) or open(f, encoding='utf-8').read() != text:

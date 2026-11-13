@@ -152,7 +152,7 @@ int main() {
         ++cases;
         DngCreator c;
         c.setMosaicBlock(block);
-        if (c.metadata.mosaic_block != 1) { std::printf("FAIL block %d kept\n", block); ++failures; }
+        if (c.mosaicBlock() != 1) { std::printf("FAIL block %d kept\n", block); ++failures; }
     }
     if (failures) std::printf("DNG mosaic CFA: %d failures of %d cases\n", failures, cases);
     else std::printf("DNG mosaic CFA: ok (%d cases)\n", cases);

@@ -41,7 +41,7 @@ import numpy as np  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 TP = ROOT / 'app/src/main/cpp/third_party/tone_port'
 JNI = ROOT / 'app/src/main/cpp/oldstyle-tone-jni.cpp'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/oldstyle'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/oldstyle'
 FIXTURES = ROOT / 'tools/fixtures/oldstyle_live'
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_oldstyle_tone as C  # noqa: E402
@@ -62,7 +62,7 @@ def check(cond, msg):
 
 
 DRIVER = r'''
-package com.particlesdevs.photoncamera.processing.oldstyle;
+package com.scamera.app.processing.oldstyle;
 import java.nio.*;
 import java.nio.file.*;
 public final class LiveHost {
@@ -232,14 +232,14 @@ def main():
         sh(['g++', '-std=c++17', '-O2', '-fPIC', '-shared', '-pthread', '-ffp-contract=off', '-I' + str(TP / 'include'), '-I' + str(JNI.parent),
             '-I' + str(java_home / 'include'), '-I' + str(java_home / 'include/linux')]
            + [str(p) for p in sorted((TP / 'src').glob('*.cpp'))] + [str(JNI), '-o', str(lib)])
-        pkg = d / 'java/com/particlesdevs/photoncamera/processing/oldstyle'
+        pkg = d / 'java/com/scamera/app/processing/oldstyle'
         pkg.mkdir(parents=True)
         for f in ('OldstyleNative.java', 'OldstyleAe.java', 'OldstyleLive.java'):
             shutil.copy(JAVA / f, pkg / f)
         (pkg / 'LiveHost.java').write_text(DRIVER)
         (d / 'classes').mkdir()
         sh(['javac', '-nowarn', '-encoding', 'UTF-8', '-d', str(d / 'classes')] + [str(p) for p in pkg.glob('*.java')])
-        java = ['java', '-Dscamera.tone.lib=' + str(lib), '-cp', str(d / 'classes'), 'com.particlesdevs.photoncamera.processing.oldstyle.LiveHost']
+        java = ['java', '-Dscamera.tone.lib=' + str(lib), '-cp', str(d / 'classes'), 'com.scamera.app.processing.oldstyle.LiveHost']
         g = C.Gpu()
         cases = []
         # the owner's «Фото» frame: the ISP frame itself, its RAW the screenshot back to light over a gain, before the matrix

@@ -9,6 +9,14 @@ python3 tools/check_scam_capture_sequence.py
 python3 tools/check_shader_fp16.py
 # P612: no GLSL loop index over a parameter of its function (Mali-G925 leaks it: «int * float», the blend refused)
 python3 tools/check_glsl_loop_shadow.py
+# P662: the merge's programs as a Mali phone gets them (the «Качество» context's variants, the fast route's, the F6 alignment's),
+# dumped and compiled by glslc as strict GLSL ES 3.10 and with the Mali-G925 loop-index leak emulated (31253's blend0 fails it);
+# a driver's refusal remembered per driver and source, logged once, not compiled again (SCAM_GLSL_FAULTS)
+g++ -pthread -std=c++17 -O1 -DSCAM_GLSL_FAULTS tools/check_glsl_programs.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-glsl-programs
+rm -rf /tmp/scam-glsl-dump /tmp/scam-glsl-refusals && mkdir -p /tmp/scam-glsl-refusals
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-glsl-programs /tmp/scam-glsl-dump
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-glsl-programs --refusals /tmp/scam-glsl-refusals
+python3 tools/check_glsl_loop_shadow.py --dump /tmp/scam-glsl-dump
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
@@ -26,6 +34,8 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_film_unpack.
 # P619: the gallery editor's LUT / film look equals the camera's LUT stage; its film grain tiles without seams
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_editor_look.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_resolve_denoise.py
+# P648: «Подстройка под свет (SNR)» - the Resolve's night flat smoothing: off and one-frame pixels bit for bit, texture / colour / edges kept
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_snr.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_scam_hdr_gpu.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_highlights.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid.py

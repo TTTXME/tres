@@ -1,126 +1,39 @@
+// SCAM: smooth upsampling of small maps (lens shading, gain and luma grids): a uniform cubic B-spline over the texel centres,
+// read with four taps of the hardware's bilinear filter instead of sixteen point reads. The sampler must filter LINEAR.
+//
+// Along one axis a sample at fraction f of its cell weighs the texels -1, 0, +1 and +2 with the B-spline basis below; the
+// pairs (-1, 0) and (+1, +2) each collapse into one bilinear read placed between the two texels in proportion to their
+// weights, so the four reads at the pair centres (x and y) and one blend per axis give the full 4 x 4 filter.
+
+// B-spline weights of the texels -1, 0, +1, +2 for a sample at fraction x of the cell between texels 0 and +1 (sum 1).
 vec4 cubic(float x)
 {
-    float x22 = x * x;
-    float x33 = x22 * x;
-    vec4 w;
-    w.x =   -x33 + 3.0*x22 - 3.0*x + 1.0;
-    w.y =  3.0*x33 - 6.0*x22       + 4.0;
-    w.z = -3.0*x33 + 3.0*x22 + 3.0*x + 1.0;
-    w.w =  x33;
-    return w / 6.0;
-}
-vec4 textureLinear (sampler2D sampler, vec2 pixel) {
-    // Nearest sampling:
-    // Software bilinear sampling
-    vec2 texSize = vec2(textureSize(sampler, 0));
-    pixel*=texSize;
-    float fracu = fract(pixel.x);
-    float fracv = fract(pixel.y);
-    vec2 floorPixel = floor(pixel) + vec2(0.5,0.5);
-    vec4 A = texture(sampler, (floorPixel / (texSize)));
-    vec4 B = texture(sampler, ((floorPixel+vec2(1.0,0.0)) / (texSize)));
-    vec4 C = texture(sampler, ((floorPixel+vec2(0.0,1.0)) / (texSize)));
-    vec4 D = texture(sampler, ((floorPixel+vec2(1.0,1.0)) / (texSize)));
-    return mix(mix(A,B,fracu), mix(C,D,fracu), fracv);
-}
-vec4 mix4(vec4 inp[4],vec2 mixing){
-    return mix(mix(inp[0],inp[1],mixing.x), mix(inp[2],inp[3],mixing.x), mixing.y);
-}
-vec4 textureLinear1D (sampler2D sampler, vec2 pixel) {
-    // Nearest sampling:
-    // Software linear sampling
-    vec2 texSize = vec2(textureSize(sampler, 0));
-    pixel*=texSize;
-    float fracu = fract(pixel.x);
-    vec2 floorPixel = floor(pixel) + vec2(0.5,0.0);
-    vec4 A = texture(sampler, (floorPixel / (texSize)));
-    vec4 B = texture(sampler, ((floorPixel+vec2(1.0,0.0)) / (texSize)));
-    return mix(A,B,fracu);
-}
-vec4 textureCubic(sampler2D sampler, vec2 texCoords){
-    // Nearest sampling:
-    // Software bicubic sampling
-    vec2 texSize = vec2(textureSize(sampler, 0));
-    vec2 invTexSize = 1.0 / texSize;
-    texCoords = texCoords * texSize - 0.5;
-    vec2 fxy = fract(texCoords);
-    texCoords -= fxy;
-    vec4 xcubic = cubic(fxy.x);
-    vec4 ycubic = cubic(fxy.y);
-    vec4 c = texCoords.xxyy + vec2 (-0.5, +1.5).xyxy;
-    vec4 s = vec4(xcubic.xz + xcubic.yw, ycubic.xz + ycubic.yw);
-    vec4 offset = c + vec4 (xcubic.yw, ycubic.yw) / s;
-    offset *= invTexSize.xxyy;
-    vec4 sample2 = textureLinear1D(sampler, offset.xw);
-    vec4 sample3 = textureLinear1D(sampler, offset.yw);
-    float sx = s.x / (s.x + s.y);
-    return mix(sample3, sample2, sx);
-}
-vec4 textureCubicHardware(sampler2D sampler, vec2 texCoords){
-    // Nearest sampling:
-    // Software bicubic sampling
-    vec2 texSize = vec2(textureSize(sampler, 0));
-    vec2 invTexSize = 1.0 / texSize;
-    texCoords = texCoords * texSize - 0.5;
-    vec2 fxy = fract(texCoords);
-    texCoords -= fxy;
-    vec4 xcubic = cubic(fxy.x);
-    vec4 ycubic = cubic(fxy.y);
-    vec4 c = texCoords.xxyy + vec2 (-0.5, +1.5).xyxy;
-    vec4 s = vec4(xcubic.xz + xcubic.yw, ycubic.xz + ycubic.yw);
-    vec4 offset = c + vec4 (xcubic.yw, ycubic.yw) / s;
-    offset *= invTexSize.xxyy;
-    vec4 sample2 = texture(sampler, offset.xw);
-    vec4 sample3 = texture(sampler, offset.yw);
-    float sx = s.x / (s.x + s.y);
-    return mix(sample3, sample2, sx);
-}
-vec4 textureBicubic(sampler2D sampler, vec2 texCoords){
-    // Nearest sampling:
-    // Software bicubic sampling
-    vec2 texSize = vec2(textureSize(sampler, 0));
-    vec2 invTexSize = 1.0 / texSize;
-    texCoords = texCoords * texSize - 0.5;
-    vec2 fxy = fract(texCoords);
-    texCoords -= fxy;
-    vec4 xcubic = cubic(fxy.x);
-    vec4 ycubic = cubic(fxy.y);
-    vec4 c = texCoords.xxyy + vec2 (-0.5, +1.5).xyxy;
-    vec4 s = vec4(xcubic.xz + xcubic.yw, ycubic.xz + ycubic.yw);
-    vec4 offset = c + vec4 (xcubic.yw, ycubic.yw) / s;
-    offset *= invTexSize.xxyy;
-    vec4 sample0 = textureLinear(sampler, offset.xz);
-    vec4 sample1 = textureLinear(sampler, offset.yz);
-    vec4 sample2 = textureLinear(sampler, offset.xw);
-    vec4 sample3 = textureLinear(sampler, offset.yw);
-    float sx = s.x / (s.x + s.y);
-    float sy = s.z / (s.z + s.w);
-    return mix(
-    mix(sample3, sample2, sx), mix(sample1, sample0, sx)
-    , sy);
+    float sq = x * x;
+    float cu = sq * x;
+    vec4 basis = vec4(-cu + 3.0 * sq - 3.0 * x + 1.0,
+                      3.0 * cu - 6.0 * sq + 4.0,
+                      -3.0 * cu + 3.0 * sq + 3.0 * x + 1.0,
+                      cu);
+    return basis / 6.0;
 }
 
-vec4 textureBicubicHardware(sampler2D sampler, vec2 texCoords){
-    // Linear sampling:
-    // Software bicubic sampling with hardware acceleration
-    vec2 texSize = vec2(textureSize(sampler, 0));
-    vec2 invTexSize = 1.0 / texSize;
-    texCoords = texCoords * texSize - 0.5;
-    vec2 fxy = fract(texCoords);
-    texCoords -= fxy;
-    vec4 xcubic = cubic(fxy.x);
-    vec4 ycubic = cubic(fxy.y);
-    vec4 c = texCoords.xxyy + vec2 (-0.5, +1.5).xyxy;
-    vec4 s = vec4(xcubic.xz + xcubic.yw, ycubic.xz + ycubic.yw);
-    vec4 offset = c + vec4 (xcubic.yw, ycubic.yw) / s;
-    offset *= invTexSize.xxyy;
-    vec4 sample0 = texture(sampler, offset.xz);
-    vec4 sample1 = texture(sampler, offset.yz);
-    vec4 sample2 = texture(sampler, offset.xw);
-    vec4 sample3 = texture(sampler, offset.yw);
-    float sx = s.x / (s.x + s.y);
-    float sy = s.z / (s.z + s.w);
-    return mix(
-    mix(sample3, sample2, sx), mix(sample1, sample0, sx)
-    , sy);
+// The map at texCoords (0..1 of the texture), B-spline filtered.
+vec4 textureBicubicHardware(sampler2D sampler, vec2 texCoords)
+{
+    vec2 size = vec2(textureSize(sampler, 0));
+    vec2 texel = texCoords * size - 0.5;      // in texel units, 0 at the centre of texel 0
+    vec2 frac = fract(texel);
+    vec2 cell = texel - frac;                 // the texel at or left of / below the sample
+    vec4 wx = cubic(frac.x);
+    vec4 wy = cubic(frac.y);
+    // the weight of each texel pair: (x -1/0, x +1/+2, y -1/0, y +1/+2)
+    vec4 pair = vec4(wx.x + wx.y, wx.z + wx.w, wy.x + wy.y, wy.z + wy.w);
+    // where each pair's bilinear read goes: its first texel's edge plus the share of its second texel, in 0..1 units
+    vec4 edge = cell.xxyy + vec4(-0.5, 1.5, -0.5, 1.5);
+    vec4 at = (edge + vec4(wx.y, wx.w, wy.y, wy.w) / pair) * (1.0 / size).xxyy;
+    // the share of the near pair (-1/0) on each axis
+    vec2 near = vec2(pair.x / (pair.x + pair.y), pair.z / (pair.z + pair.w));
+    vec4 above = mix(texture(sampler, at.yw), texture(sampler, at.xw), near.x);
+    vec4 below = mix(texture(sampler, at.yz), texture(sampler, at.xz), near.x);
+    return mix(above, below, near.y);
 }

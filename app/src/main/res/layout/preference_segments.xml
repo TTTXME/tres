@@ -60,7 +60,7 @@
                 android:textSize="13dp" />
         </LinearLayout>
     </LinearLayout>
-    <com.particlesdevs.photoncamera.ui.controls.IosSegmented
+    <com.scamera.app.ui.controls.IosSegmented
         android:id="@+id/choice_segments"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

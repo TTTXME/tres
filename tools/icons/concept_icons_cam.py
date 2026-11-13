@@ -4,6 +4,16 @@ VectorDrawables: res/drawable/<prefix><name>.xml, white strokes (tinted by the v
   concept_icons.py --board Viewfinder --prefix cv_ [--only bolt,timer] [--stroke 2] [--check]"""
 import argparse, os, re, sys
 
+
+def _unused():
+    """P655: the drawables the app does not use (tools/icons/unused.txt): not generated, not checked."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'unused.txt')
+    with open(p, encoding='utf-8') as f:
+        return {l.strip() for l in f if l.strip() and not l.startswith('#')}
+
+
+UNUSED = _unused()
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
@@ -80,6 +90,7 @@ def main():
         lib = os.path.join(ROOT, 'circularbarlib', 'src', 'main', 'res', 'drawable')
         for chip, name in LIB_PRO.get(o.board, {}).items():
             targets.append((os.path.join(lib, 'pro_ic_%s.xml' % chip), vector(icons[name], o.stroke)))
+    targets = [(f, text) for f, text in targets if os.path.basename(f)[:-4] not in UNUSED]
     for f, text in targets:
         if o.check:
             if not os.path.isfile(f) or open(f, encoding='utf-8').read() != text:

@@ -58,7 +58,7 @@ def shipped():
     """WhyTone's defaults of the bands {lo, hi (EV of a step), the band floor z, strength, reach, fall}, the noise cap {lo, hi,
     levels}, BAND_BETA (the cap's band noise), the edges' noise shift k and EDGE_STEP / EDGE_BETA (the edge measure's step response
     and white-noise factor per level)."""
-    src = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
+    src = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
     v = {k: float(re.search(r'value\("%s", ([\d.]+)f\)' % k, src).group(1))
          for k in ('fusion_bands_lo', 'fusion_bands_hi', 'fusion_bands_strength', 'fusion_bands_reach', 'fusion_bands_fall', 'fusion_noise_lo',
                    'fusion_noise_hi', 'fusion_noise_levels', 'fusion_bands_noise')}

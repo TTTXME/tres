@@ -18,7 +18,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 SH = ROOT / 'app/src/main/assets/shaders'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/oldstyle'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/oldstyle'
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_colour_output import expand_imports, set_define, find_glslc  # noqa: E402
 
@@ -279,7 +279,7 @@ def adjust_checks(g, rng):
           'grain: noise on the flat grey, its mean kept')
     main_fs = (SH / 'preview/main_fs.glsl').read_text(encoding='utf-8')
     check('//#oldstyle_adjust' in main_fs and 'oldstyleStyle(' in main_fs, 'viewfinder main_fs splices the style')
-    renderer = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java').read_text(encoding='utf-8')
+    renderer = (ROOT / 'app/src/main/java/com/scamera/app/ui/camera/views/viewfinder/MainRenderer.java').read_text(encoding='utf-8')
     check('shaders/utils/import_oldstyle_adjust.glsl' in renderer, 'MainRenderer splices utils/import_oldstyle_adjust.glsl (the photo\'s file)')
     photo = (SH / 'oldstyle/adjust.glsl').read_text(encoding='utf-8')
     check('#import oldstyle_adjust' in photo, 'the photo pass imports the same file')
@@ -310,7 +310,7 @@ def live_tone_checks(g):
     check(np.abs(lev - want).max() < 6e-3, 'tone preview: the level in linear light before the grid (%.1g)' % np.abs(lev - want).max())
     styled = pair.tone(grid, tone=0.5)
     check(np.abs(styled - out).mean() > 0.01, 'the style applies after the tone preview')
-    renderer = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/ui/camera/views/viewfinder/MainRenderer.java').read_text(encoding='utf-8')
+    renderer = (ROOT / 'app/src/main/java/com/scamera/app/ui/camera/views/viewfinder/MainRenderer.java').read_text(encoding='utf-8')
     check('shaders/utils/import_oldstyle_tone_live.glsl' in renderer and 'OLDSTYLE_TONE_MARKER = "//#oldstyle_tone"' in renderer,
           'MainRenderer splices the tone preview into main_fs')
 

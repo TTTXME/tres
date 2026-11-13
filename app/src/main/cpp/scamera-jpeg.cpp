@@ -11,6 +11,7 @@
 
 #include "scamera-jpeg-core.h"
 #include "scamera-jpeg-parallel.h"
+#include "scamera-rowcopy.h"
 
 namespace {
 struct PixelLock {
@@ -28,7 +29,7 @@ struct PixelLock {
 // Bitmap.copyPixelsFromBuffer of an RGBA_8888 bitmap, but its first-touch page faults (~50 ms for 12 MP on one thread on the OPPO
 // PHY110, 6.5 ms on four) spread over the threads. False when the bitmap or the buffer does not fit: the caller copies as before.
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_copyPixels(JNIEnv* env, jclass, jobject src, jobject bitmap, jint threads) {
+Java_com_scamera_app_processing_JpegliEncoder_copyPixels(JNIEnv* env, jclass, jobject src, jobject bitmap, jint threads) {
     AndroidBitmapInfo info{};
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS || info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
         return JNI_FALSE;
@@ -58,10 +59,32 @@ Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_copyPixels(JNIEnv* 
     return JNI_TRUE;
 }
 
+// P662 (item 4): `rows` tightly packed RGBA8 rows of `src` (a mapped pixel-pack buffer of one tile) into rows y .. y + rows - 1 of
+// the RGBA_8888 or RGBA_1010102 bitmap (4 bytes a pixel), split over `threads` threads - the bytes TileBlitter's strip bitmap and
+// SRC draw put there (TileBlitterTest), one copy instead of two. False when the bitmap or the buffer does not fit.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_scamera_app_processing_JpegliEncoder_copyRowsNative(JNIEnv* env, jclass, jobject src, jobject bitmap, jint y, jint rows, jint threads) {
+    AndroidBitmapInfo info{};
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS
+        || (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 && info.format != ANDROID_BITMAP_FORMAT_RGBA_1010102))
+        return JNI_FALSE;
+    const auto* from = static_cast<const uint8_t*>(env->GetDirectBufferAddress(src));
+    const jlong capacity = env->GetDirectBufferCapacity(src);
+    const size_t row = size_t(info.width) * 4;
+    if (from == nullptr || y < 0 || rows < 0 || uint32_t(y) + uint32_t(rows) > info.height || info.stride < row || capacity < 0
+        || size_t(capacity) < row * size_t(rows))
+        return JNI_FALSE;
+    PixelLock lock(env, bitmap);
+    if (lock.pixels == nullptr) return JNI_FALSE;
+    scamera_rowcopy::copyRows(from, static_cast<uint8_t*>(lock.pixels) + size_t(y) * info.stride, row, info.stride, uint32_t(rows),
+                              int(threads));
+    return JNI_TRUE;
+}
+
 // P473: the new bitmap's pages faulted in on `threads` threads (one byte written per 4 KB page; copyPixels overwrites them all) while
 // the GPU still draws the final tiles, so the copy after the readback no longer takes the first-touch faults on its path.
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_touchPixels(JNIEnv* env, jclass, jobject bitmap, jint threads) {
+Java_com_scamera_app_processing_JpegliEncoder_touchPixels(JNIEnv* env, jclass, jobject bitmap, jint threads) {
     AndroidBitmapInfo info{};
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
     PixelLock lock(env, bitmap);
@@ -84,12 +107,12 @@ Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_touchPixels(JNIEnv*
 
 // P443: jpegli's adaptive quantisation for the following encodes (scamera-jpeg-core.h; off by default).
 extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_setAdaptiveQuantization(JNIEnv*, jclass, jboolean on) {
+Java_com_scamera_app_processing_JpegliEncoder_setAdaptiveQuantization(JNIEnv*, jclass, jboolean on) {
     scamera_jpeg::adaptiveQuantisation().store(on == JNI_TRUE);
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_setFastHuffmanTables(JNIEnv*, jclass, jboolean on) {
+Java_com_scamera_app_processing_JpegliEncoder_setFastHuffmanTables(JNIEnv*, jclass, jboolean on) {
     scamera_jpeg::parallel::fastHuffmanTables().store(on == JNI_TRUE);
 }
 
@@ -160,7 +183,7 @@ static jstring finishEncode(JNIEnv* env, jbyteArray chunk, std::string error) {
 // P147: threads > 1 and at least 4 MP: strips on that many threads (scamera-jpeg-parallel.h); when the strips cannot be
 // joined (nothing written yet) the one-thread progressive encode runs. *modeOut: "strips N" / "one thread".
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_encode(JNIEnv* env, jclass, jobject bitmap, jint quality,
+Java_com_scamera_app_processing_JpegliEncoder_encode(JNIEnv* env, jclass, jobject bitmap, jint quality,
                                                                     jobject out, jint threads, jintArray modeOut) {
     const bool aq = scamera_jpeg::adaptiveQuantisation().load();
     const bool fastTables = scamera_jpeg::parallel::fastHuffmanTables().load();
@@ -188,7 +211,7 @@ Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_encode(JNIEnv* env,
 // pixel-pack buffer, or a sub-rectangle of it: a slice at its first pixel), with no bitmap and no copy into one: the bytes of
 // encode() on a bitmap holding these pixels (encodePixels).
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_processing_JpegliEncoder_encodeBuffer(JNIEnv* env, jclass, jobject src, jint width, jint height,
+Java_com_scamera_app_processing_JpegliEncoder_encodeBuffer(JNIEnv* env, jclass, jobject src, jint width, jint height,
                                                                           jint stride, jint quality, jobject out, jint threads,
                                                                           jintArray modeOut) {
     const bool aq = scamera_jpeg::adaptiveQuantisation().load();

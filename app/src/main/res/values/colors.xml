@@ -1,14 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- the app's base theme (styles.xml): a near-black primary over black, the purple accent -->
     <color name="colorPrimary">#212121</color>
     <color name="colorPrimaryDark">#000000</color>
-    <color name="colorAccent">@color/md_deep_purple_400</color>
-    <color name="colorPrimaryContainer">@color/md_deep_purple_400_dark</color>
+    <color name="colorAccent">@color/accent_purple</color>
+    <color name="colorPrimaryContainer">@color/accent_purple_container</color>
+
+    <!-- accents of the selectable themes (custom_themes.xml): the accent and the darker container it sits on -->
+    <color name="accent_purple">#7E57C2</color>
+    <color name="accent_purple_container">#4D2B90</color>
+    <color name="accent_blue_container">#1E88E5</color>
+    <color name="accent_red_container">#B61827</color>
+    <color name="accent_orange">#FFA726</color>
+    <color name="accent_orange_container">#C77800</color>
+    <color name="accent_green_container">#5A9216</color>
+    <color name="accent_pink_container">#B4004E</color>
+    <color name="accent_cyan_container">#0095A8</color>
+    <color name="accent_teal_container">#00766C</color>
+    <color name="accent_white_container">#F0EEE9</color>
+
+    <!-- the bottom bar's plate in the layouts that give it one (CameraUIViewImpl) -->
     <color name="panel_transparency">#40000000</color>
-    <color name="white">#FFFFFF</color>
-    <color name="grid_thumbnail_background">#AAAAAA</color>
-    <color name="white_theme_background">#F0EEE9</color>
-    <!-- Settings sheet (SHADE_SPEC): text, dim text and icons, accent, text on a light chip. -->
-    <!-- Scrim under the FULL quick-settings shade (P25 concept: #000a) -->
+    <!-- under the FULL quick-settings sheet (P25 concept: #000a) -->
     <color name="shade_scrim">#73000000</color>
 </resources>

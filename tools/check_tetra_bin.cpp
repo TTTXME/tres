@@ -37,7 +37,7 @@ void expect(bool ok, const std::string& what) {
 JNIEnv* env = nullptr;
 
 bool bin(std::vector<uint16_t>& out, std::vector<uint8_t>& in, int offset, int format, int w, int h, int stride) {
-    return Java_com_particlesdevs_photoncamera_util_Allocator_binBlocks2(env, nullptr, direct(out.data(), jlong(out.size() * 2)),
+    return Java_com_scamera_app_util_Allocator_binBlocks2(env, nullptr, direct(out.data(), jlong(out.size() * 2)),
             direct(in.data(), jlong(in.size())), offset, format, w, h, stride) == JNI_TRUE;
 }
 

@@ -1,95 +1,37 @@
 precision highp float;
 precision highp sampler2D;
+// The last pass of the post pipeline (RotateWatermark): the processed frame turned upright - rotate = quarter turns of the
+// output against the sensor rows (0, 3 = a 90 degree photo, 2, 1 = 270) - mirrored for the front camera, and the crop's rows
+// below the ones the sensor delivered beyond it skipped; clamped to 0..1, opaque. P387: every index stays inside the texture
+// (size - 1 is its last texel; texelFetch outside it gave the black edge column of the portrait photos up to build 31136).
+// P628: the watermark is drawn into the finished photo afterwards (PhotoWatermark), not here.
 uniform sampler2D InputBuffer;
-uniform sampler2D Watermark;
-uniform sampler2D Noise;
 uniform int yOffset;
 uniform int rotate;
 uniform bool mirror;
 uniform ivec2 cropSize;
 uniform ivec2 rawSize;
 out vec4 Output;
-#define WATERMARK 1
-uniform float watersizek;      // 100 / watermark height in percent of the frame
-uniform float watermarkAlpha;  // 0..1
-#define OFFSET 0,0
-#import interpolation
-
-// Triangular remapping: maps [0,1] blue noise to [-0.5, 0.5] with triangular distribution.
-// This eliminates the DC bias of simple centered remapping and produces
-// a smoother error distribution across adjacent quantization levels.
-float triRemap(float v) {
-    float orig = v * 2.0 - 1.0;
-    return sign(orig) * (1.0 - sqrt(1.0 - abs(orig))) * 0.5;
-}
-vec3 triRemap(vec3 v) {
-    return vec3(triRemap(v.r), triRemap(v.g), triRemap(v.b));
-}
 
 void main() {
-    ivec2 xy = ivec2(gl_FragCoord.xy);
-    ivec2 texSize = ivec2(textureSize(InputBuffer, 0));
-    vec2 texS = vec2(textureSize(InputBuffer, 0));
-    vec2 watersize = vec2(textureSize(Watermark, 0));
-    vec2 noiseSize = vec2(textureSize(Noise, 0));
-    vec4 water;
-    vec2 cr;
-    xy+=ivec2(0,yOffset)+ivec2(OFFSET);
-    switch(rotate){
-        case 0:
-        xy += ivec2(0,(rawSize.y-cropSize.y));
-        cr = (vec2(xy+ivec2(0,-texSize.y))/(texS));
-        // P387: the last texel is size - 1 (size itself is outside the texture: texelFetch gives 0, a black line)
-        if(mirror)
-            xy.y = texSize.y - 1 - xy.y;
-        Output = texelFetch(InputBuffer, xy, 0);
-        break;
-        case 1:
-
-        xy += ivec2((rawSize.y-cropSize.y),0);
-        cr = (vec2(xy+ivec2(-(rawSize.y-cropSize.y),-cropSize.x))/(texS));
-        if(mirror)
-            xy.x = cropSize.y - 1 - xy.x;
-        Output = texelFetch(InputBuffer, ivec2(texSize.x-1-xy.y,xy.x), 0);
-        break;
-        case 2:
-        //xy += ivec2(0,-(texSize.y-rotatedSize.y)/4);
-        cr = (vec2(xy+ivec2(0,-cropSize.y))/(texS));
-        if(mirror)
-            xy.y = texSize.y - 1 - xy.y;
-        Output = texelFetch(InputBuffer, ivec2(texSize.x-1-xy.x,texSize.y-1-xy.y), 0);
-        break;
-        case 3:
-        //xy += ivec2(-(texSize.x-rotatedSize.x)/4,0);
-        cr = (vec2(xy+ivec2(0,-texSize.x))/(texS));
-        if(mirror)
-            xy.x = cropSize.y - 1 - xy.x;
-        // P387 (both build-31136 photos of the film pair and an OPPO X8U photo: column 0 of the portrait JPEG black - row
-        // texSize.y read outside the texture): the sensor's last row is texSize.y - 1
-        Output = texelFetch(InputBuffer, ivec2(xy.y,texSize.y-1-xy.x),0);
-        break;
+    ivec2 p = ivec2(gl_FragCoord.xy) + ivec2(0, yOffset);
+    ivec2 last = ivec2(textureSize(InputBuffer, 0)) - 1;
+    int skipped = rawSize.y - cropSize.y;
+    ivec2 at;
+    if (rotate == 1) {
+        p.x += skipped;
+        if (mirror) p.x = cropSize.y - 1 - p.x;
+        at = ivec2(last.x - p.y, p.x);
+    } else if (rotate == 2) {
+        if (mirror) p.y = last.y - p.y;
+        at = last - p;
+    } else if (rotate == 3) {
+        if (mirror) p.x = cropSize.y - 1 - p.x;
+        at = ivec2(p.y, last.y - p.x);
+    } else {
+        p.y += skipped;
+        if (mirror) p.y = last.y - p.y;
+        at = p;
     }
-    #if WATERMARK == 1
-    cr+=vec2(0.0,1.0/watersizek);
-    cr.x*=(texS.x)/(texS.y);
-    cr.x/=watersize.x/watersize.y;
-    cr.x*=1.025;
-    cr*=watersizek;
-    if(cr.x >= 0.0 && cr.y >= 0.0){
-    water = texture(Watermark,cr);
-    water.a *= watermarkAlpha;
-    Output = mix(Output,water,water.a);
-    }
-    #endif
-    //Output*=1.005;
-
-    // Blue noise dithering: tile noise over the output at 1:1 pixel ratio.
-    // Triangular remap gives a zero-mean [-0.5, 0.5] distribution, scaled
-    // to one 8-bit quantization step so dither is invisible but breaks banding.
-    vec2 noiseUV = vec2(gl_FragCoord.xy) / noiseSize;
-    vec3 noiseVal = texture(Noise, noiseUV).rgb;
-    //Output.rgb += triRemap(noiseVal) * (2.0 / 255.0);
-    Output = clamp(Output, 0.0, 1.0);
-    Output.a = 1.0;
-
+    Output = vec4(clamp(texelFetch(InputBuffer, at, 0).rgb, 0.0, 1.0), 1.0);
 }

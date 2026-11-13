@@ -8,8 +8,6 @@
     <string name="request_permission">This app needs camera permission.</string>
     <string name="camera_error">This device doesn\'t support Camera2 API.</string>
 
-    <string name="ultrahdr" translatable="false">Ultra HDR</string>
-    <string name="ultrahdr_summary">Adds a brightness map to the JPEG: brighter highlights on HDR screens. Normal screens show a normal photo.</string>
     <string name="turn_on_grid">Grid</string>
     <string name="turn_on_round_edges">Rounded corners</string>
     <string name="turn_on_watermark">Watermark</string>
@@ -29,40 +27,26 @@
     <string name="version_title">Version</string>
     <string name="reset">Reset All</string>
     <string name="reset_preferences_warning">This will reset all settings to their default values. Continue?</string>
-    <string name="backup">Backup</string>
-    <string name="backup_summary_json">Save all settings and module profiles to a file in Download/SCAMERA/XML</string>
     <string name="app_will_restart">App Will Restart</string>
-    <string name="restore">Restore</string>
-    <string name="restore_summary_json">Load settings from an XML file in Download/SCAMERA/XML, or pick a file</string>
     <string name="empty_file_name_error">File name cannot be an empty string</string>
     <string name="af_mode">Auto Focus Mode</string>
-    <string name="this_device">Your Device - %1$s</string>
     <string name="mode_unlimited">Unlimited</string>
     <string name="mode_rawvideo">RAW Video</string>
     <string name="mode_motion">Photo</string>
     <string name="mode_photo">Photo</string>
     <string name="mode_night">Night</string>
     <string name="mode_video">Video</string>
-    <string name="on">On</string>
     <string name="off">Off</string>
     <string name="golden_ratio">Golden Ratio</string>
     <string name="diag_triangle">Diag. Triangles</string>
     <string name="three_x3" translatable="false">3x3</string>
     <string name="four_x4" translatable="false">4x4</string>
     <string name="processing_processname">Processing %1$s...</string>
-    <string name="binning">Process 4x lower resolution</string>
     <string name="gallery_folders">Gallery Folders</string>
     <string name="options">Options</string>
     <string name="session_on_configure_failed">System session configuration failed try changing preview format</string>
 
-  <!-- Metering mode strings -->
-    <string name="pref_ae_metering_std_key" translatable="false">pref_ae_metering_std_mode_key</string>
-
-    <!-- Bracketing mode strings -->
-    <string name="pref_bracketing_key" translatable="false">pref_bracketing_mode_key</string>
-
-    <!-- Video Settings -->
-    <string name="pref_video_resolution_key" translatable="false">pref_video_resolution_key</string>
+    <!-- the camera's video size until one is chosen -->
     <string name="pref_video_resolution_default" translatable="false">1920x1080</string>
 
     <!-- Storage Access Framework folder picker -->
@@ -113,7 +97,6 @@
     <string name="motion_mode_on">Sport mode: on</string>
     <string name="motion_mode_off">Sport mode: off</string>
     <string name="motion_mode_on_toast">Sport: fast buffer, sharp moving subjects</string>
-    <string name="motion_mode_off_toast">Photo</string>
     <string name="prefs_scam_motion_on_title">Sport mode</string>
     <string name="prefs_scam_motion_on_summary">A short shutter and a fast frame buffer for moving subjects: children, animals, sport. In low light the noise reduction is stronger.</string>
     <string name="prefs_scam_motion_screen_title">Sport</string>
@@ -133,12 +116,6 @@
     <string name="prefs_low_light_boost_summary">In the dark the viewfinder gets brighter, but updates less often and the frames for the shot get longer. Needs Android 15; does not work in Sport mode.</string>
     <string name="dcg14_on">DCG 14-bit: on</string>
     <string name="dcg14_off">DCG 14-bit: off</string>
-    <string name="dcg14_on_toast">DCG 14-bit on: the sensor\'s dual-gain HDR mode is requested, the camera restarts</string>
-    <string name="dcg14_off_toast">DCG 14-bit off</string>
-    <string name="full_res_on">Full resolution: on</string>
-    <string name="full_res_off">Full resolution: off</string>
-    <string name="full_res_on_toast">Full resolution on: 50 MP RAW, frames after the shutter, the camera restarts</string>
-    <string name="full_res_off_toast">Full resolution off</string>
     <string name="prefs_developer_settings_screen_title">For developers</string>
     <string name="prefs_developer_settings_screen_summary">Hidden parameters of the scam_dev.txt file for experiments and debugging.</string>
     <!-- P240: the overlay while the camera is brought back after an error -->
