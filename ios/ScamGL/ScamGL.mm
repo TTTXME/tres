@@ -1098,14 +1098,14 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
     [t->second.mtl getBytes:raw.data() bytesPerRow:size_t(from.size()) * size_t(width) fromRegion:region mipmapLevel:0];
     const bool normalised = t->second.mtl.pixelFormat == MTLPixelFormatRGBA8Unorm || t->second.mtl.pixelFormat == MTLPixelFormatR8Unorm
         || t->second.mtl.pixelFormat == MTLPixelFormatRG8Unorm;
-    const int fb = from.size() / from.components, tb = to.size() / to.components;
+    const int fromBytes = from.size() / from.components, toBytes = to.size() / to.components;
     for (int yy = 0; yy < height; ++yy) {
         const uint8_t* sp = raw.data() + size_t(yy) * size_t(width) * size_t(from.size());
         uint8_t* dp = dst + size_t(yy) * row;
         for (int xx = 0; xx < width; ++xx) {
             for (int k = 0; k < to.components; ++k) {
-                const double v = k < from.components ? toClient(readComponent(sp + k * fb, from.kind), from.kind, to.kind, normalised) : 1.0;
-                writeComponent(dp + k * tb, to.kind, v);
+                const double v = k < from.components ? toClient(readComponent(sp + k * fromBytes, from.kind), from.kind, to.kind, normalised) : 1.0;
+                writeComponent(dp + k * toBytes, to.kind, v);
             }
             sp += from.size();
             dp += to.size();
