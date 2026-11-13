@@ -469,6 +469,9 @@ public final class DevKeys {
         k.add(s(post, "hybrid_why_rim_support", true, Lang.t("Пропуск пустых областей защиты граней перед тонмапингом", "Skip empty light-rim support before tone mapping")));
         k.add(s(post, "hybrid_why_edge_luma_cache", true, Lang.t("Кэш исходной яркости для защиты резких границ", "Cache scene luminance for sharp-edge protection")));
         // P671: the photo's combine reads its one-channel windows as textureGather blocks (bit for bit, tools/check_combine_gather.py)
+        // P671: WhyMsDenoise's corner filter reads its neighbours' Oklab from a per-strip cache (bit for bit, tools/check_ms_oklab_cache.py)
+        k.add(s(post, "ms_oklab_cache", true, Lang.t("Шумодав: цвет соседей в Oklab для фильтра углов кадра считается один раз на пиксель, а не 25 (тот же результат); выкл — как раньше",
+                "Denoise: the neighbours' Oklab colour of the frame-corner filter computed once a pixel instead of 25 times (the same result); off: as before")));
         k.add(s(post, "why_gather_taps", true, Lang.t("Тон: одноканальные окна (B-сплайн яркости, удержание краёв) читаются блоками 2×2 (тот же результат, меньше выборок); выкл — по одной, как раньше",
                 "Tone: the one-channel windows (the luma B-spline, the edge hold) read in 2 x 2 blocks (the same result, fewer reads); off: one by one as before")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",
