@@ -221,8 +221,8 @@ struct SettingsAvailability {
     }
 
     private static let RAW_MERGE_ONLY: Set<String> = [
-        HYB + "zsl_frames", HYB + "fullres50_frames", HYB + "fullres50_zsl", HYB + "fullres200_frames",
-        HYB + "kernel_texture", HYB + "kernel_bokeh", HYB + "kernel_transition",
+        HYB + "fullres50_frames", HYB + "fullres50_zsl", HYB + "fullres200_frames",
+        HYB + "kernel_texture", HYB + "kernel_bokeh", HYB + "kernel_transition", HYB + "kernel_snr",
         "scam_hybrid_motion_screen", "scam_hybrid_merge_align_category",
         "scam_hybrid_merge_reject_category", "scam_hybrid_merge_kernel_category", "scam_hybrid_merge_quad_category",
         "scam_hybrid_mosaic_screen", "scam_hybrid_mosaic_native_category", "scam_hybrid_merge_final_category",
@@ -440,8 +440,8 @@ struct SettingsAvailability {
             return Lang.t("Включите «Восстановление светов по каналам».", "Turn on “Per-channel highlight recovery”.")
         }
         if any(key, "pref_scam_hybrid_why_clarity", "pref_scam_hybrid_why_flat_protect") && num("pref_scam_hybrid_why_sharp_gain", 1) == 0 {
-            return Lang.t("Не действует при «Резкость» = 0 (группа «Снимок»): работает только с деталью Why.",
-                          "No effect with “Sharpness” = 0 (the “Picture” group): acts on the Why detail only.")
+            return Lang.t("Не действует при «Сила резкости» = 0 («Настройки изображения»): работает только с деталью Why.",
+                          "No effect with “Sharpening strength” = 0 (Image settings): acts on the Why detail only.")
         }
         if key.hasPrefix("pref_watermark_") && !on("pref_show_watermark_key", true) {
             return Lang.t("Включите водяной знак.", "Turn on the watermark.")
