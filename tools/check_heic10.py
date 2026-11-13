@@ -387,14 +387,14 @@ def guard_8bit_path():
                  'exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img));'):
         need(line in heif, 'PhotoOutput.saveHeic (8-bit HEIC) changed: %r missing' % line)
     pp = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/PostPipeline.java').read_text(encoding='utf-8')
-    need('GLFormat format = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);' in pp, 'PostPipeline output format changed')
+    need('final GLFormat rgba8 = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);' in pp, 'PostPipeline output format changed')
     gl = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/GLCoreBlockProcessing.java').read_text(encoding='utf-8')
     eight = gl[gl.index('public Bitmap drawBlocksToBitmap() {'):]
     eight = eight[:eight.index('static final class TileBlitter')]
     for line in ('final Bitmap dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);',
-                 'glReadPixels(0, 0, mOutWidth, height, mglFormat.getGLFormatExternal(), mglFormat.getGLType(), mBlockBuffer);'):
+                 'glReadPixels(0, 0, mOutWidth, tile[1], mglFormat.getGLFormatExternal(), mglFormat.getGLType(), mBlockBuffer);'):
         need(line in eight, 'the 8-bit readback changed: %r missing' % line)
-    need('glRenderbufferStorage(GL_RENDERBUFFER, glFormat.getGLFormatInternal(), mOutWidth, rows);' in gl,
+    need('glRenderbufferStorage(GL_RENDERBUFFER, internalFormat, mOutWidth, tileRows());' in gl,
          'the 8-bit tile target changed')
 
 

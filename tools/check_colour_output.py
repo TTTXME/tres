@@ -34,7 +34,9 @@ SH = ROOT / 'app/src/main/assets/shaders'
 JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing'
 # SHA-256 of the token stream of why/combine.glsl at a3e94db (before P46) without the sharpening guard (see without_guard),
 # #import expanded, comments dropped.
-BASELINE_COMBINE_TOKENS = '4649ce9ff089ae8244e629a4c8ecbb77b5e5072cb1fae675225f8d7c75a5bee0'  # P319: a3e94db under the Why names
+# P659 R3: utils/import_interpolation.glsl rewritten with bit-identical results; with the old import the stream is still
+# 4649ce9ff089ae82 (the pre-P46 shader), so this is the same shader with the new import expanded.
+BASELINE_COMBINE_TOKENS = 'f35b8975f1294da76c552e88130931857ecd724133578dae490d86044c9d8b01'  # P319: a3e94db under the Why names
 BASELINE_COMMIT = 'a3e94db'
 # P370 (review): the --gl renders' signedHueU - 0 (unset, the shader before P370) by default, SIGNED_HUE=1 in the environment
 # renders the shipped default (CI runs both)
