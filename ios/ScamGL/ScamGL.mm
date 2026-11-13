@@ -1112,7 +1112,21 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
         }
     }
 }
+// an integer attachment takes the clear colour's doubles as its integer values (Metal)
+static void clearColour(GLenum buffer, GLint drawBuffer, const double* value);
 void glClearBufferfv(GLenum buffer, GLint drawBuffer, const GLfloat* value) {
+    const double v[4] = {value[0], value[1], value[2], value[3]};
+    clearColour(buffer, drawBuffer, v);
+}
+void glClearBufferuiv(GLenum buffer, GLint drawBuffer, const GLuint* value) {
+    const double v[4] = {double(value[0]), double(value[1]), double(value[2]), double(value[3])};
+    clearColour(buffer, drawBuffer, v);
+}
+void glClearBufferiv(GLenum buffer, GLint drawBuffer, const GLint* value) {
+    const double v[4] = {double(value[0]), double(value[1]), double(value[2]), double(value[3])};
+    clearColour(buffer, drawBuffer, v);
+}
+static void clearColour(GLenum buffer, GLint drawBuffer, const double* value) {
     Guard g(gLock);
     Context* c = ctx();
     if (!c || buffer != GL_COLOR || drawBuffer < 0 || drawBuffer >= 8) return;
