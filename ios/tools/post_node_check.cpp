@@ -10,7 +10,7 @@
 #include "../Engine/post/nodes/WhyHlDezipper.hpp"
 #include "../Engine/post/nodes/WhyMsDenoise.hpp"
 #include "../Engine/post/nodes/WhyLumaSharpen.hpp"
-#include "../Engine/post/nodes/WhyFusion.hpp"
+#include "../Engine/post/PostPipelineRun.hpp"
 
 #include <EGL/egl.h>
 
@@ -162,6 +162,8 @@ int main(int argc, char** argv) {
             else if (name == "WhyStats") p.add(std::make_unique<WhyStats>());
             else if (name == "WhyLumaSharpen") p.add(std::make_unique<WhyLumaSharpen>());
             else if (name == "WhyFusion") p.add(std::make_unique<WhyFusion>());
+            else if (name == "WhyCombine") p.add(std::make_unique<WhyCombine>());
+            else if (name == "full") {}
             else throw std::runtime_error("node " + name + " is not ported yet");
         }
         // WhyStats issues WhyLumaSharpen's passes early (PostPipeline.BuildDefaultPipeline: whyStats.earlySharpen)
@@ -170,6 +172,37 @@ int main(int argc, char** argv) {
                 for (auto& b : p.Nodes)
                     if (auto* sharpen = dynamic_cast<WhyLumaSharpen*>(b.get())) stats->earlySharpen = sharpen;
         int failures = 0;
+        if (nodeNames.size() == 1 && nodeNames[0] == "full") {
+            // the whole pipeline (BuildDefaultPipeline + the final output) against the reference's photo.rgba
+            const auto t0 = std::chrono::steady_clock::now();
+            const PostOutput photo = runPostPipeline(p);
+            const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            const auto ref = readAll(refDir + "/photo.rgba");
+            uint32_t hdr[4];
+            std::memcpy(hdr, ref.data(), 16);
+            size_t diff = 0, maxd = 0, n = photo.rgba.size();
+            if (int(hdr[1]) != photo.width || int(hdr[2]) != photo.height) {
+                std::printf("photo %dx%d, the reference %ux%u\n", photo.width, photo.height, hdr[1], hdr[2]);
+                return 3;
+            }
+            double sum = 0;
+            for (size_t i = 0; i < n; i++) {
+                if (i % 4 == 3) continue;
+                const int d = std::abs(int(photo.rgba[i]) - int(ref[16 + i]));
+                if (d) diff++;
+                maxd = std::max(maxd, size_t(d));
+                sum += d;
+            }
+            std::printf("photo %dx%d in %.0f ms: %zu of %zu channel values differ, max %zu, mean %.4f\n", photo.width, photo.height, ms, diff,
+                        n / 4 * 3, maxd, sum / double(n / 4 * 3));
+            if (!save.empty()) {
+                std::ofstream f(save + "/photo.rgba", std::ios::binary);
+                const uint32_t h2[4] = {0x38524353u, uint32_t(photo.width), uint32_t(photo.height), 4u};
+                f.write(reinterpret_cast<const char*>(h2), 16);
+                f.write(reinterpret_cast<const char*>(photo.rgba.data()), std::streamsize(photo.rgba.size()));
+            }
+            return diff == 0 ? 0 : 3;
+        }
         // the «Why» state textures the reference dumps under their stage names (WhyCombine's ScamDiagnostics.gpu calls)
         auto checkState = [&](const char* stage, const Texture& t, int channels) {
             const std::string ref = dumpOf(stage);
@@ -210,8 +243,8 @@ int main(int argc, char** argv) {
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, r.w, r.h, GL_RGBA, GL_FLOAT, r.v.data());
             }
         }
-        if (p.why) checkState("WhyLumaS", p.why->lumaS, 1);
-        if (p.why) checkState("WhyFused", p.why->fused, 1);
+        if (p.why && p.why->lumaS) checkState("WhyLumaS", p.why->lumaS, 1);
+        if (p.why && p.why->fused) checkState("WhyFused", p.why->fused, 1);
         checkGl("end");
         prog.close();
         return failures == 0 ? 0 : 3;
