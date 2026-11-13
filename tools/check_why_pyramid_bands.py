@@ -153,17 +153,27 @@ def share_uniforms(bands, level, coarsest):
             'coneU': (float(fall), float(lo0), float(hi0), float(fall0))}
 
 
-def fuse(gl, low, uni, coarse=24, bands=None, noise=None, low_band=1.0, levels=None, gmix=None, edge=None, sh=None, shift=None, win=None):
+def fuse(gl, low, uni, coarse=24, bands=None, noise=None, low_band=1.0, levels=None, gmix=None, edge=None, sh=None, shift=None, win=None,
+         jbu=None):
     """WhyFusion.pyramid on whyLow {low} (H x W x 4): bands None = EDGE_BANDS 0 (the pyramid; gmix / edge: P349's guided share,
     P389's edge share, as shipped before P391), else EDGE_BANDS 1 with the noise cap {noise}, the lowest band's weight {low_band}
     and the edges' noise shift {shift} (k, S_I, O_I); win (P400, with bands): (strength, lo, hi, the window level) = WINDOW 1;
-    win (P401): (share, lo, hi, the window level, the fused luma of build 31091's weights: Fused31, whyLow's size).
+    win (P401): (share, lo, hi, the window level, the fused luma of build 31091's weights: Fused31, whyLow's size); jbu (P673):
+    (guide, sigma_r, log floor) of the joint bilateral expand of MODE 4 / 5 (JBU <guide>: 1 the lumas, 2 the fused luma; log floor
+    > 0: the guide in log2); None / sigma 0: JBU 0, the shader before P673.
     -> (fused, levels)."""
     h, w = low.shape[:2]
     src = gl.tex(low)
     n = levels or cwp.levels_for(w, h, coarse)
     eb = '1' if bands is not None else '0'
-    P = lambda mode, eb_=eb: gl.progd('why/lpyr', {'MODE': str(mode), 'EDGE_BANDS': eb_}, sh)
+    jb = str(int(jbu[0])) if jbu is not None and jbu[1] > 0 else '0'
+    ju = {'jbuU': (float(jbu[1]), float(jbu[2]))} if jb != '0' else {}
+
+    def P(mode, eb_=eb):
+        d = {'MODE': str(mode), 'EDGE_BANDS': eb_}
+        if jb != '0' and mode in (4, 5):
+            d['JBU'] = jb
+        return gl.progd('why/lpyr', d, sh)
     deep = n + REF_DOWN - 1 if bands is not None else n
     if win is not None:
         deep = max(deep, win[3])
@@ -213,9 +223,9 @@ def fuse(gl, low, uni, coarse=24, bands=None, noise=None, low_band=1.0, levels=N
             tx += [('LevelGF', GF[l]), ('CoarseGF', GF[l + 1]), ('LevelA', A[l])]
             un = band_uniforms(bands, noise, l, 1.0 - low_band if l == n - 1 else 0.0, shift)
 
-        gl.draw(P(4), F[l], tx, un)
+        gl.draw(P(4), F[l], tx, dict(un, **ju))
     tx = [('InputBuffer', src), ('CoarseL', L[1]), ('CoarseF', F[1])]
-    u5 = dict(u)
+    u5 = dict(u, **ju)
     if bands is not None:
         tx += [('CoarseGF', GF[1]), ('LevelA', D0)]
         u5.update(band_uniforms(bands, noise, 0, 1.0 - low_band if n == 1 else 0.0, shift))
@@ -238,7 +248,10 @@ def fuse(gl, low, uni, coarse=24, bands=None, noise=None, low_band=1.0, levels=N
         f31 = gl.tex(np.ascontiguousarray(win[4][..., None], np.float32), 'f4')
         tx += [('WinMean', GF[win[3]]), ('Fused31', f31)]
         u5.update(winU=(float(win[0]), float(win[1]), float(win[2]), 0.0), winScaleU=float(2 ** win[3]))
-        gl.draw(gl.progd('why/lpyr', {'MODE': '5', 'EDGE_BANDS': eb, 'WINDOW': '1'}, sh), out, tx, u5)
+        dw = {'MODE': '5', 'EDGE_BANDS': eb, 'WINDOW': '1'}
+        if jb != '0':
+            dw['JBU'] = jb
+        gl.draw(gl.progd('why/lpyr', dw, sh), out, tx, u5)
         f31.release()
     else:
         gl.draw(P(5), out, tx, u5)

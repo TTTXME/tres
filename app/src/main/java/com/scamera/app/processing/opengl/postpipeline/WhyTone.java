@@ -292,6 +292,48 @@ public final class WhyTone {
     }
 
     /**
+     * P673 (owner, 2026-11-13: the reference's k_fs_ef_pyr_collapse with joint bilateral upsampling - «вместо аппаратного
+     * билинейного texture() ... сэмплируются 4 coarse-текселя с весом exp(-(g_coarse - g_fine)^2 / 2 sigma_r^2)», «реализуй всё-таки
+     * это и сравни»): sigma_r of that range weight in the collapse of V1's pyramid (why/lpyr JBU, MODE 4 / 5: expand's 2 x 2 nodes)
+     * in the guide's unit ({@link #jbuGuide}: display luma, EV with a log guide); 0: off, the plain expand bit for bit (no define).
+     */
+    static float jbuSigma() {
+        return Math.max(0f, value("fusion_jbu_sigma", 0f));
+    }
+
+    /** P673: {@link #jbuSigma()} of the V2 tone (WhyV2Fusion, why/v2_ef_collapse JBU: texture()'s 4 bilinear texels); 0: off. */
+    static float jbuSigmaV2() {
+        return Math.max(0f, value("v2_jbu_sigma", 0f));
+    }
+
+    /**
+     * P673: the guide g of the collapse's range weight: 1 the lumas of the four exposures (the shader's own g_fine / g_coarse, their
+     * squared distance), 2 the collapsing image (the coarser fused luma against the pixel's fused luma of the plain expand); 3 / 4
+     * the same in log2 (floor {@link #JBU_LOG_FLOOR}, sigma_r in EV).
+     */
+    static int jbuGuide() {
+        return Math.max(1, Math.min(4, Math.round(value("fusion_jbu_guide", 1f))));
+    }
+
+    /** P673: {@link #jbuGuide()} of the V2 tone. */
+    static int jbuGuideV2() {
+        return Math.max(1, Math.min(4, Math.round(value("v2_jbu_guide", 1f))));
+    }
+
+    /** P673: the display luma floor of a log2 guide (3 / 4). */
+    static final float JBU_LOG_FLOOR = 0.01f;
+
+    /** P673: the shaders' JBU define of a guide setting (1 the lumas, 2 the fused luma). */
+    static int jbuDefine(int guide) {
+        return guide == 2 || guide == 4 ? 2 : 1;
+    }
+
+    /** P673: the shaders' log floor of a guide setting (0: the guide as it is). */
+    static float jbuLog(int guide) {
+        return guide >= 3 ? JBU_LOG_FLOOR : 0f;
+    }
+
+    /**
      * P391 (item 3): the cap of the deep shadows' fused-luma noise the bright layer's floor may lift them to (import why_fusion
      * deepNoiseU.x; 0: the floor as before).
      */

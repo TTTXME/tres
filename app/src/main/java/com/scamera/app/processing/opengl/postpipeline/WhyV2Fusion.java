@@ -53,6 +53,9 @@ public final class WhyV2Fusion extends Node {
         final int n = lv.length;
         final GLTexture[] g = new GLTexture[n], w = new GLTexture[n], fu = new GLTexture[n];
         final float[] em = WhyV2Ae.exposures(r), lw = WhyV2Ae.layerWeights(p);
+        // P673: the owner's joint bilateral collapse (0: off, texture() as the reference)
+        final float jbu = WhyTone.jbuSigmaV2();
+        final int jbuGuide = WhyTone.jbuGuideV2();
         try {
             for (int l = 0; l < n; l++) {
                 g[l] = plane(lv[l][0], lv[l][1], 4);
@@ -93,7 +96,12 @@ public final class WhyV2Fusion extends Node {
             shaderProg.setVar("u_height", lv[n - 1][1]);
             shaderProg.drawBlocks(fu[n - 1]);
             for (int l = n - 2; l >= 0; l--) {
+                if (jbu > 0f) shaderProg.setDefine("JBU", WhyTone.jbuDefine(jbuGuide));
                 shaderProg.useAssetProgram("why/v2_ef_collapse", false);
+                if (jbu > 0f) {
+                    shaderProg.setVar("u_jbu_sigma", jbu);
+                    shaderProg.setVar("u_jbu_log", WhyTone.jbuLog(jbuGuide));
+                }
                 shaderProg.setTexture("u_tex_G_fine", g[l]);
                 shaderProg.setTexture("u_tex_G_coarse", g[l + 1]);
                 shaderProg.setTexture("u_tex_W_fine", w[l]);
@@ -116,6 +124,7 @@ public final class WhyV2Fusion extends Node {
         }
         Log.i("SCAM_PIPELINE", "WHY V2 fusion levels=" + n + " base=" + lv[0][0] + "x" + lv[0][1] + " coarsest=" + lv[n - 1][0] + "x"
                 + lv[n - 1][1] + " em=" + em[0] + "," + em[1] + "," + em[2] + "," + em[3] + " lw=" + lw[0] + "," + lw[1] + "," + lw[2]
-                + "," + lw[3] + " centre=" + p.weightCenter + " smooth=" + p.blendSmoothness + " ms=" + (System.currentTimeMillis() - started));
+                + "," + lw[3] + " centre=" + p.weightCenter + " smooth=" + p.blendSmoothness
+                + (jbu > 0f ? " jbu=" + jbu + "/" + jbuGuide : "") + " ms=" + (System.currentTimeMillis() - started));
     }
 }

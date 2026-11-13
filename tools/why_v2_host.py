@@ -268,12 +268,13 @@ def statistics(clean, bento=False, noise=(0.0, 0.0), face=None, params=None):
 
 
 def render(clean, luma_s=None, bento=False, noise=(0.0, 0.0), p3=False, face=None, ae=None, keep=None, uniforms=None, fixed=None,
-           quant8=False, scale=None, params=None, lut=None, lut_strength=1.0):
+           quant8=False, scale=None, params=None, lut=None, lut_strength=1.0, jbu=None):
     """The V2 chain on the host (see the module doc). ae: a dict to override the AE result's keys (an A/B), uniforms: of the
     tonemap pass (an A/B), keep: a dict that receives the intermediate planes (fused) when given, fixed: the statistics' result of
     another image to render with (no statistics of this one), quant8: the QUANT8 define (an 8-bit photo), scale: force level 0's
     scale (1 or 2; None: WhyV2Fusion.baseScale), params: WhyV2Ae.Params overrides (the V2 settings), lut: an N x N x N x 3
-    film LUT (FILM_LUT, its strength lut_strength)."""
+    film LUT (FILM_LUT, its strength lut_strength), jbu (P673): (guide, sigma_r, log floor) of the collapse's joint bilateral
+    upsampling (JBU <guide>: 1 the lumas, 2 the fused luma; log floor > 0: the guide in log2); None / sigma 0: JBU 0, as before."""
     g = gpu()
     h, w = clean.shape[:2]
     if fixed is not None:
@@ -313,9 +314,12 @@ def render(clean, luma_s=None, bento=False, noise=(0.0, 0.0), p3=False, face=Non
                    {'u_texel_size': (1.0 / lv[i][0], 1.0 / lv[i][1]), 'u_dst_w': lv[i + 1][0], 'u_dst_h': lv[i + 1][1]})
     g.draw(g.prog('v2_ef_coarsest'), F[n - 1], {'u_tex_G': G[n - 1], 'u_tex_W': W[n - 1]}, {'u_width': lv[n - 1][0], 'u_height': lv[n - 1][1]})
     for i in range(n - 2, -1, -1):
-        g.draw(g.prog('v2_ef_collapse'), F[i], {'u_tex_G_fine': G[i], 'u_tex_G_coarse': G[i + 1], 'u_tex_W_fine': W[i],
-                                                'u_tex_fused_coarse': F[i + 1]},
-               {'u_width': lv[i][0], 'u_height': lv[i][1], 'u_clarity': r['P.clarity']})
+        cu = {'u_width': lv[i][0], 'u_height': lv[i][1], 'u_clarity': r['P.clarity']}
+        on = jbu is not None and jbu[1] > 0
+        if on:
+            cu.update(u_jbu_sigma=float(jbu[1]), u_jbu_log=float(jbu[2]))
+        g.draw(g.prog('v2_ef_collapse', {'JBU': int(jbu[0])} if on else None), F[i],
+               {'u_tex_G_fine': G[i], 'u_tex_G_coarse': G[i + 1], 'u_tex_W_fine': W[i], 'u_tex_fused_coarse': F[i + 1]}, cu)
     if keep is not None:
         keep['fused'] = g.read(F[0], 1)[..., 0]
         keep['levels'] = lv
