@@ -18,6 +18,9 @@ namespace scam_post {
 
 struct ShotOutput {
     PostOutput photo;
+    /// Ultra HDR on (pref_ultrahdr_key): the gain map of the photo (GainMapComputer.Result: RGBA8 rows as the photo's, R = G = B;
+    /// IsoGainMap.luma for one byte a pixel), GainMapMin / GainMapMax (log2) and HDRCapacityMax; none when off or when the pass failed
+    std::optional<GainMapComputer::Result> gainMap;
     Parameters params;
     double mergeMs = 0, postMs = 0;
 };
@@ -106,6 +109,8 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     p.scamRgb = readWorkerOutput(p.merge, bytes, report, merged.width, merged.height, w, h, merged.rgbHalf, effectiveMap, clipFlags,
                                  highlightMask);
     out.photo = runPostPipeline(p);
+    out.gainMap = std::move(out.photo.gainMap);
+    out.photo.gainMap.reset();
     out.params = p.mParameters;
     out.postMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     return out;

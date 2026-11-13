@@ -34,6 +34,14 @@ targets:
       # the merge tuning of the replays (tools/replay_tuning.txt: the Android app's hybrid_tuning.txt of a shot)
       - path: ../tools/replay_tuning.txt
         buildPhase: resources
+      # «Oldstyle»: the owner's tone-port module as the Android app builds it (Engine/post/oldstyle/ToneNative.cpp calls it)
+      - path: ../app/src/main/cpp/third_party/tone_port/src/curves.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/processing.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/rgb8_hdr.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/linear_hdr31.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/raw_tone.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/raw_finish31.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/parallel.cpp
       # the Android app's shaders: the post pipeline (Engine/post) loads them as the app's assets
       - path: ../app/src/main/assets/shaders
         type: folder
@@ -67,7 +75,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_OBJC_BRIDGING_HEADER: Bridge/SCAMERA-Bridging-Header.h
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine", "$(SRCROOT)/ScamGL/include", "$(SRCROOT)/ScamGL",
-                              "$(SRCROOT)/../app/src/main/cpp", "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include",
+                              "$(SRCROOT)/../app/src/main/cpp", "$(SRCROOT)/../app/src/main/cpp/third_party/tone_port/include",
+                              "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include",
                               "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include/spirv_cross"]
         # glslang / SPIRV-Cross static libraries (tools/build_shader_deps.sh; CI passes SCAM_DEPS)
         SCAM_DEPS: $(SRCROOT)/build/deps

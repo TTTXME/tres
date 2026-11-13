@@ -2,8 +2,21 @@
 // lab burst with its DNG (tools/make_test_dng.py) and its prefs; against the Android photo of that burst when given (the app's
 // burst tuning adds the shot's own lines, so the merge is not the lab's: a PSNR, not identity).
 //   shot_run_check <shaders> <meta.json> <burst.nch (a copy: its header flags are set)> <dng> [photo.rgba of the Android run]
+// «Oldstyle» needs the owner's tone-port module: -Iapp/src/main/cpp/third_party/tone_port/include (else an Oldstyle shot stops at
+// its tone). Ultra HDR (pref_ultrahdr_key): the gain map's size and metadata are printed.
 #include "../Engine/post/Json.hpp"
 #include "../Engine/post/ShotRun.hpp"
+#if __has_include("tone_port.h") && __has_include("oldstyle-tone-core.h")
+#include "../Engine/post/oldstyle/ToneUnity.hpp"
+#else
+namespace scam_post::ToneNative {
+int setThreads(int) { return 1; }
+void render(int, const int16_t*, int, int, const float*, float, float, bool, bool, float, const float*, int, const float*, int, int, float*,
+            uint8_t*) {
+    throw std::runtime_error("the tone-port module is not in this build (-Iapp/src/main/cpp/third_party/tone_port/include)");
+}
+} // namespace scam_post::ToneNative
+#endif
 
 #include <EGL/egl.h>
 #include <iterator>
@@ -46,6 +59,10 @@ int main(int argc, char** argv) {
         }, makeContext);
         std::printf("shot: merge %.0f ms, post %.0f ms, photo %dx%d, %zu log lines\n", out.mergeMs, out.postMs, out.photo.width,
                     out.photo.height, lines);
+        if (out.gainMap)
+            std::printf("Ultra HDR gain map %dx%d min %s max %s capacity %s\n", out.gainMap->width, out.gainMap->height,
+                        javaFloatString(out.gainMap->gainMapMin).c_str(), javaFloatString(out.gainMap->gainMapMax).c_str(),
+                        javaFloatString(out.gainMap->hdrCapacityMax).c_str());
         if (argc > 5) {
             const auto ref = readAll(argv[5]);
             if (ref.size() != 16 + out.photo.rgba.size()) { std::printf("the Android photo has another size\n"); return 3; }

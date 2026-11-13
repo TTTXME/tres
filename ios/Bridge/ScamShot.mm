@@ -13,6 +13,12 @@
 @property (nonatomic, readwrite) double mergeMilliseconds;
 @property (nonatomic, readwrite) double postMilliseconds;
 @property (nonatomic, readwrite) NSArray<NSString *> *log;
+@property (nonatomic, readwrite, nullable) NSData *gainMap;
+@property (nonatomic, readwrite) NSInteger gainMapWidth;
+@property (nonatomic, readwrite) NSInteger gainMapHeight;
+@property (nonatomic, readwrite) float gainMapMin;
+@property (nonatomic, readwrite) float gainMapMax;
+@property (nonatomic, readwrite) float hdrCapacityMax;
 @end
 
 @implementation SCAMPhoto
@@ -61,6 +67,15 @@ static void makePostContext() {
         photo.height = out.photo.height;
         photo.mergeMilliseconds = out.mergeMs;
         photo.postMilliseconds = out.postMs;
+        if (out.gainMap) {
+            const std::vector<uint8_t> luma = out.gainMap->luma();
+            photo.gainMap = [NSData dataWithBytes:luma.data() length:luma.size()];
+            photo.gainMapWidth = out.gainMap->width;
+            photo.gainMapHeight = out.gainMap->height;
+            photo.gainMapMin = out.gainMap->gainMapMin;
+            photo.gainMapMax = out.gainMap->gainMapMax;
+            photo.hdrCapacityMax = out.gainMap->hdrCapacityMax;
+        }
         photo.log = lines;
     } catch (const std::exception &e) {
         if (error) *error = [NSError errorWithDomain:@"SCAMShot" code:2

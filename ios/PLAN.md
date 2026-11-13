@@ -164,7 +164,37 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     светов» 0.8, clarity 0.5, the own curve + lift -10 / contrast 20 0; V2 Uchimura + vibrance 0.3, skin hue 50, sRGB gamma 0;
     V2 + «Уменьшить до» 8 MP lanczos 0 of 23970816. Lenta / «Текстура» V1 still 0. Not exercised by Lenta: bracket_denoise (it
     runs only with merged short frames, the ceiling 8; Lenta's shorts were all rejected).
-  - Not ported yet (they throw): Oldstyle, DCG noise zones, film, lens filters, Ultra HDR, Portrait.
+  - 2026-11-13: «Oldstyle» («ScamMaster Тон», pref_oldstyle_mode). oldstyle/OldstyleAe.hpp (OldstyleAe: meter, plan27 / plan31 /
+    capCaptureRatio / fusionGains, the plan; OldstyleStyle; OldstyleMode / ShotLook.Oldstyle readers: version, V2 levels, the tone's
+    rows with OldstyleMode.value's default / range rules, pref_oldstyle_style_*), nodes/OldstyleTone.hpp (OldstyleTone: v2_clean /
+    v2_stride samples, the version by memory - os_proc_available_memory on the iPhone, oldstyle/linear RGBA16I read back in strips,
+    the module, oldstyle/rgb8; OldstyleStyleNode: oldstyle/adjust). The tone itself is the owner's tone-port module unchanged:
+    oldstyle/ToneNative.{hpp,cpp} = oldstyle-tone-jni.cpp's setThreads / render without the JNI on
+    app/src/main/cpp/oldstyle-tone-core.h; project.yml compiles third_party/tone_port/src and adds its include path; host tools take
+    oldstyle/ToneUnity.hpp (they need -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include; without them they build
+    as before and an Oldstyle shot stops at its tone). tools/android-host/run.sh builds libscameraTone.so for the Android reference
+    (OldstyleNative.load). Lenta against the Android reference on Mesa (post_node_check full): V1 neutral 0 of 37748736 values
+    differ; V2 + style (tone 35, colour -40, exposure 20, grain 2, vignette 40, sharpness 30) 0; V1 + style (warmth, hue,
+    highlights, shadows, aura, halo, boosts) + curve mid 0.3, out saturation 0.2, HDR on 0; V2 without HDR (oldstyle_hdr off), 8
+    levels (postview), dehaze off, V2 saturation 0.2: 0. The app's whole shot (shot_run_check, Oldstyle V2 + style) runs: PSNR 44.6
+    dB to the lab photo (the shot's own tuning lines). Not on iOS: the mode's capture (manual row, burst frames), its viewfinder
+    tone and the style palette UI (the style rows are read when stored; unset = neutral).
+  - 2026-11-13: Ultra HDR (pref_ultrahdr_key, the top row). UltraHdr.hpp: PostPipeline.RunHDRGainMap (ultrahdr/sceneluma with the
+    lens shading, the render's luma weights and the sky ratio; GLHistogram medians; ultrahdr/gainmap; gainmax / gainquant on the
+    GPU) and GainMapComputer (range, requantisation, CPU normalisation, Result: GainMapMin / Max, HDRCapacityMax);
+    nodes/LinearExposure.hpp (the linear snapshot before the tone, at the final size by the "area" resize; halves on the CPU);
+    WhyCombine's sky ratio (skyHdrRatio, why/skyratio). Run as ScamProcessor runs it after PostPipeline.Run; iOS takes the switch
+    alone (Android also wants a JPEG: the iPhone writes the map into JPEG and HEIC). HostPostRender runs RunHDRGainMap +
+    GainMapComputer when the shot's settings turn Ultra HDR on (gainmap.rgba, gainmap.txt) and post_node_check full compares map and
+    metadata. Lenta on Mesa: V1 (sky 35 %, ratio 512x384) photo 0 of 37748736, gain map 0 of 50331648 values, min 0 / max 3.312 /
+    capacity 3.312 as Android; «Why тон» V2 photo 0, map 0, max 3.048 as Android; Oldstyle V2 + «Уменьшить до» 8 MP lanczos (the
+    snapshot by the area resize, 2448x3264) photo 0 of 23970816, map 0 of 31961088, max 2.664 as Android. shot_run_check with Ultra
+    HDR prints the map (3072x4096, max 3.336 with the shot's own tuning lines). App path: ShotRun.hpp ShotOutput.gainMap,
+    SCAMPhoto.gainMap (one byte a pixel) + size, min, max, capacity; ShotProcessor.encode writes it with
+    CGImageDestinationAddAuxiliaryDataInfo(kCGImageAuxiliaryDataTypeISOGainMap) on iOS 18 (data + description: width, height, bytes
+    per row, OneComponent8; metadata: the hdrgm XMP of UltraHdrContainer / IsoGainMap); iOS 17 saves SDR. Not checked on a device:
+    whether ImageIO takes the ISO metadata from the hdrgm XMP of the auxiliary info.
+  - Not ported yet (they throw): DCG noise zones, film, lens filters, Portrait.
     Transport: the base frame is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the
     DNG profile scaled by ISO.
   - The iOS settings screen writes the Android keys (Engine/PostSettings.swift, UserDefaults "scam.prefs"); unset keys take

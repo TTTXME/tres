@@ -46,6 +46,9 @@ import java.util.Map;
  * shot folder (meta.json, burst.nch), SCAM_HOST_REPLAY = the hybrid_replay binary, SCAM_HOST_RESULT = the output folder.
  * Output: tuning.txt, report.txt, merge.f32 (SCRG float RGB), photo.rgba (SCR8 header + RGBA8 rows); with SCAM_HOST_DUMP each
  * node's output (ShadowScamDiagnostics). Photos above 16 MP come through the tile readback (ShadowTileBlitter).
+ * Ultra HDR (the shot's pref_ultrahdr_key with a JPEG, Settings.ultraHdr): ScamProcessor's RunHDRGainMap + GainMapComputer after
+ * Run - gainmap.rgba (SCR8 header + the map's RGBA8 rows) and gainmap.txt (GainMapMin, GainMapMax, HDRCapacityMax as the floats'
+ * raw bits in hex, then as Float.toString, then normalisedMax).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, shadows = {scam.host.ShadowGLES20.class, scam.host.ShadowGLES30.class,
@@ -56,6 +59,7 @@ import java.util.Map;
 public class HostPostRender {
     private MockedStatic<ScameraApp> camera;
     private SettingsManager manager;
+    private com.particlesdevs.photoncamera.api.Settings settings;
 
     @Before public void setUp() {
         org.robolectric.shadows.ShadowLog.stream = System.out;
@@ -73,7 +77,7 @@ public class HostPostRender {
         when(app.getSettingsManager()).thenReturn(manager);
         camera.when(() -> ScameraApp.getInstance(any(Context.class))).thenReturn(app);
         PreferenceKeys.initialise(manager);
-        final com.particlesdevs.photoncamera.api.Settings settings = new com.particlesdevs.photoncamera.api.Settings();
+        settings = new com.particlesdevs.photoncamera.api.Settings();
         camera.when(ScameraApp::getSettings).thenReturn(settings);
     }
 
@@ -100,6 +104,8 @@ public class HostPostRender {
         final Map<String, Object> values = ScamLabRun.basePrefs(shot);
         PreferenceValue.overlay(manager.getDefaultPreferences(), values);
         PreferenceKeys.labDevOverlay(shot.dev == null ? java.util.Collections.emptyMap() : shot.dev);
+        // Settings.loadCache's gain-map switch under the shot's settings (the HDR HEIC / AVIF's stays off)
+        settings.ultraHdr = PreferenceKeys.isUltraHdrActive();
 
         // the worker's job as ScamNeuralClient makes it for this burst
         final File job = new File(out, "job");
@@ -131,8 +137,21 @@ public class HostPostRender {
         final long t0 = System.nanoTime();
         final PostPipeline pipeline = new PostPipeline();
         Bitmap photo;
+        com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.Result gain = null;
         try {
             photo = pipeline.Run(null, params);
+            // ScamProcessor: the gain-map pass on the photo as the pipeline produced it, then GainMapComputer
+            if (PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film)) {
+                final PostPipeline.GainMapRaw gm = pipeline.RunHDRGainMap(null, params, photo,
+                        com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.SCALE_DOWN,
+                        com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.SCALE);
+                final boolean gpu = !Float.isNaN(gm.normalisedMax);
+                gain = gpu ? com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.normalised(gm.bitmap, gm.normalisedMax)
+                        : com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.compute(gm.bitmap, gm.down, gm.scale);
+                writeGainMap(gain, gm.normalisedMax, out);
+                System.out.println("HOST POST: gain map " + gain.gainW + "x" + gain.gainH + " min=" + gain.gainMapMin + " max=" + gain.gainMapMax
+                        + " capacity=" + gain.hdrCapacityMax + (gpu ? " (GPU)" : " (CPU)"));
+            }
         } finally {
             pipeline.close();
         }
@@ -230,6 +249,25 @@ public class HostPostRender {
             }
         }
         into.flip();
+    }
+
+    private static void writeGainMap(com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.Result gain, float normalisedMax,
+                                     File out) throws IOException {
+        final Bitmap map = gain.gainMap;
+        final int w = map.getWidth(), h = map.getHeight();
+        final ByteBuffer px = ByteBuffer.allocate(w * h * 4);
+        map.copyPixelsToBuffer(px);
+        try (FileOutputStream f = new FileOutputStream(new File(out, "gainmap.rgba"))) {
+            final ByteBuffer header = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+            header.putInt(0x38524353).putInt(w).putInt(h).putInt(4);
+            f.write(header.array());
+            f.write(px.array());
+        }
+        final String text = Integer.toHexString(Float.floatToRawIntBits(gain.gainMapMin)) + " "
+                + Integer.toHexString(Float.floatToRawIntBits(gain.gainMapMax)) + " "
+                + Integer.toHexString(Float.floatToRawIntBits(gain.hdrCapacityMax)) + "\n"
+                + gain.gainMapMin + " " + gain.gainMapMax + " " + gain.hdrCapacityMax + " " + normalisedMax + "\n";
+        Files.write(new File(out, "gainmap.txt").toPath(), text.getBytes(StandardCharsets.UTF_8));
     }
 
     private static void writePhoto(Bitmap photo, File out) throws IOException {

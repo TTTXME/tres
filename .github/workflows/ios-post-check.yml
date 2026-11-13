@@ -66,7 +66,7 @@ jobs:
           EGL_PLATFORM: surfaceless
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          g++ -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include ios/tools/post_node_check.cpp -lEGL -lGLESv2 -pthread -o "$RUNNER_TEMP/post_node_check"
+          g++ -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include ios/tools/post_node_check.cpp -lEGL -lGLESv2 -pthread -o "$RUNNER_TEMP/post_node_check"
           "$RUNNER_TEMP/post_node_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot" "$RUNNER_TEMP/reference" full | tee "$RUNNER_TEMP/reference/mesa.txt" | tail -3
           { echo '### iOS post port vs the Android pipeline (Mesa)'; echo '```'; grep "^photo" "$RUNNER_TEMP/reference/mesa.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           head -c 128 "$RUNNER_TEMP/shot/burst.nch" > "$RUNNER_TEMP/reference/burst.nch"
@@ -76,7 +76,7 @@ jobs:
           EGL_PLATFORM: surfaceless
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          g++ -pthread -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp ios/tools/shot_run_check.cpp -ldl -lEGL -lGLESv2 \
+          g++ -pthread -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include ios/tools/shot_run_check.cpp -ldl -lEGL -lGLESv2 \
             -o "$RUNNER_TEMP/shot_run_check"
           cp "$RUNNER_TEMP/shot/burst.nch" "$RUNNER_TEMP/app-burst.nch"
           "$RUNNER_TEMP/shot_run_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/app-burst.nch" "$RUNNER_TEMP/shot.dng" \
@@ -124,7 +124,7 @@ jobs:
           SCAM_POST_MIN_PSNR: '40'
         run: |
           D="$RUNNER_TEMP/deps/macos"
-          clang++ -std=c++17 -O2 -ffp-contract=off -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+          clang++ -std=c++17 -O2 -ffp-contract=off -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
             ios/tools/post_node_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
             -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
             -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \

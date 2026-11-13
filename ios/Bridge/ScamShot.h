@@ -10,6 +10,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) double mergeMilliseconds;
 @property (nonatomic, readonly) double postMilliseconds;
 @property (nonatomic, readonly) NSArray<NSString *> *log;
+/// Ultra HDR (pref_ultrahdr_key): the photo's gain map, one byte a pixel (rows top-down, pixel-aligned with rgba; the codes linear
+/// in log2 gain between gainMapMin and gainMapMax, gamma 1), nil when Ultra HDR is off or its pass failed
+@property (nonatomic, readonly, nullable) NSData *gainMap;
+@property (nonatomic, readonly) NSInteger gainMapWidth;
+@property (nonatomic, readonly) NSInteger gainMapHeight;
+/// GainMapComputer.Result: GainMapMin / GainMapMax (log2) and HDRCapacityMax (log2, the alternate rendition's headroom)
+@property (nonatomic, readonly) float gainMapMin;
+@property (nonatomic, readonly) float gainMapMax;
+@property (nonatomic, readonly) float hdrCapacityMax;
 @end
 
 /// The Android photo route of an SHDR shot (Engine/post/ShotRun.hpp): the merge and the post pipeline on the GPU (ScamGL).

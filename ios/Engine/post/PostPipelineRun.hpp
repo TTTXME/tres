@@ -1,7 +1,13 @@
-// PostPipeline.Run + BuildDefaultPipeline (the photo route of an SHDR shot, «Why тон» V1 or V2) one to one for what an iPhone
-// shot takes: no film simulation, no lens filter, no Oldstyle, no Ultra HDR. The other routes throw until they are ported.
+// PostPipeline.Run + BuildDefaultPipeline (the photo route of an SHDR shot: «Why тон» V1 or V2, or the «Oldstyle» mode's tone and
+// style) one to one for what an iPhone shot takes: no film simulation, no lens filter. The other routes throw until they are ported.
+// Ultra HDR (pref_ultrahdr_key): the linear snapshot (LinearExposure) before the tone and, after Run, the gain map of the photo
+// (UltraHdr.hpp: RunHDRGainMap + GainMapComputer, as ScamProcessor runs them).
 // The tail (PostPipeline.tail): «Текстура» (ScamLocalContrast), the final size (HybridFinalResize), the rotation.
 #pragma once
+
+#include "UltraHdr.hpp"
+#include "nodes/LinearExposure.hpp"
+#include "nodes/OldstyleTone.hpp"
 
 #include "nodes/HybridFinalResize.hpp"
 #include "nodes/RotateWatermark.hpp"
@@ -24,10 +30,19 @@ namespace scam_post {
 struct PostOutput {
     std::vector<uint8_t> rgba; // RGBA8 rows as the Java bitmap holds them
     int width = 0, height = 0;
+    /// Ultra HDR on: the gain map of the photo (pixel-aligned, its rows as the photo's) with its metadata; none when off or failed
+    std::optional<GainMapComputer::Result> gainMap;
 };
+
+/// Settings.gainMapPass on iOS: the top row's Ultra HDR (pref_ultrahdr_key). Android also asks for a JPEG (PhotoFormat.ultraHdrApplies)
+/// or «HDR в HEIC / AVIF»; the iPhone writes the gain map into the JPEG and the HEIC alike (ImageIO's ISO gain map), so the switch
+/// alone decides. No film on iOS: PostPipeline.gainMapWanted is the switch.
+inline bool gainMapPass() { return Settings::current().getBoolean("pref_ultrahdr_key", false); }
 
 /// PostPipeline.V2_MAX_PIXELS: the largest grid «Why тон» V2 runs on (the 200 MP grids keep V1)
 constexpr int64_t V2_MAX_PIXELS = 100000000LL;
+
+inline void tail(PostPipeline& p);
 
 inline void buildDefaultPipeline(PostPipeline& p) {
     Settings& prefs = Settings::current();
@@ -36,7 +51,16 @@ inline void buildDefaultPipeline(PostPipeline& p) {
     p.add(std::make_unique<ScamHdrDenoise>());
     if (p.merge.lastHlMask) p.add(std::make_unique<WhyHlDezipper>(*p.merge.lastHlMask));
     if (prefs.hybridSwitch("denoise", true)) p.add(std::make_unique<WhyMsDenoise>());
-    if (prefs.getBoolean("pref_oldstyle_mode", false)) throw std::runtime_error("post port: Oldstyle is not ported");
+    // no lens filter or film nodes on iOS; LinearExposure only keeps the Ultra HDR linear snapshot
+    if (p.captureDemosaic) p.add(std::make_unique<LinearExposure>());
+    // P630 «Oldstyle»: the mode's tone (V1 2.7 / V2 3.1) in place of «Why тон», then its style (no film here)
+    if (const auto oldstyle = OldstyleMode::now()) {
+        p.add(std::make_unique<OldstyleTone>(oldstyle->v2, oldstyle->params, oldstyle->postview));
+        if (!oldstyle->style.neutralAfterTone()) p.add(std::make_unique<OldstyleStyleNode>(oldstyle->style));
+        logI("SCAM_PIPELINE", std::string("tone Oldstyle ") + (oldstyle->v2 ? "V2" : "V1") + " style " + oldstyle->style.toString());
+        tail(p);
+        return;
+    }
     // P614 «Why тон» V2 (PreferenceKeys.whyToneV2, no film here): the reference tone instead of V1's WhyStats / WhyFusion /
     // WhyCombine, with our sharpening between them; a grid above V2_MAX_PIXELS keeps V1
     const int64_t pixels = p.mParameters.rawSize ? int64_t(p.mParameters.rawSize->x) * p.mParameters.rawSize->y : 0;
@@ -59,7 +83,12 @@ inline void buildDefaultPipeline(PostPipeline& p) {
         p.add(std::move(sharpen));
         p.add(std::make_unique<WhyCombine>());
     }
-    // PostPipeline.tail: texture on request (not with a film), the final size, the rotation (no film grain without a film)
+    tail(p);
+}
+
+/// PostPipeline.tail: texture on request (not with a film), the final size, the rotation (no film grain without a film)
+inline void tail(PostPipeline& p) {
+    Settings& prefs = Settings::current();
     const bool texture = prefs.hybridSwitch("why_texture", false);
     logI("SCAM_PIPELINE", std::string("WHY tail: sharpen=why (WhyLumaSharpen) texture=") + (texture ? "true" : "false"));
     if (texture && p.film == nullptr) p.add(std::make_unique<ScamLocalContrast>());
@@ -70,6 +99,9 @@ inline void buildDefaultPipeline(PostPipeline& p) {
 /// PostPipeline.Run: the shot's parameters and merge in, the photo out
 inline PostOutput runPostPipeline(PostPipeline& p) {
     PostGlMode::invalidateFlag() = Settings::current().scamDevSwitch("post_invalidate", true);
+    p.captureDemosaic = gainMapPass();
+    p.mCaptured = false;
+    releaseDemosaicLinear(p);
     p.linearDisplayGain = 1.f;
     p.whyV2 = nullptr;
     p.workSize = *p.mParameters.rawSize;
@@ -90,6 +122,9 @@ inline PostOutput runPostPipeline(PostPipeline& p) {
     out.width = rotated.x;
     out.height = rotated.y;
     for (GLTexture* t : std::vector<GLTexture*>(openTextures().begin(), openTextures().end())) t->close();
+    // ScamProcessor: the gain-map pass on the photo as the pipeline produced it (a failure leaves the photo SDR)
+    if (gainMapPass()) out.gainMap = UltraHdr::gainMap(p, out.rgba, out.width, out.height);
+    releaseDemosaicLinear(p);
     return out;
 }
 

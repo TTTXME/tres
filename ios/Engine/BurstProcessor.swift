@@ -65,7 +65,10 @@ enum BurstProcessor {
         log += photo.log
         log.append("merge \(Int(photo.mergeMilliseconds)) ms, post \(Int(photo.postMilliseconds)) ms, photo \(photo.width)x\(photo.height), \(memoryFootprint())")
         let format = ShotProcessor.photoFormat
-        let heic = try ShotProcessor.encode(rgba: photo.rgba, width: photo.width, height: photo.height, metadata: metadata, format: format)
+        var encodeLog: [String] = []
+        let heic = try ShotProcessor.encode(rgba: photo.rgba, width: photo.width, height: photo.height, metadata: metadata, format: format,
+                                            gainMap: ShotProcessor.GainMap(photo: photo), log: { encodeLog.append($0) })
+        log += encodeLog
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")
         return Result(heic: heic, uti: format.type.identifier, log: log)
     }

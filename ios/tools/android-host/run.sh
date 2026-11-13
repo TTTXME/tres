@@ -15,6 +15,11 @@ gcc -shared -fPIC -O1 -Wall -Wno-unused-parameter -I"$jni" -I"$jni/linux" "$out/
 # the app's own native buffers (Allocator) built for the host
 g++ -shared -fPIC -O2 -std=c++17 -I"$root/tools/host-include" -I"$jni" -I"$jni/linux" "$root/app/src/main/cpp/allocator.cpp" "$here/host_alloc_stubs.cpp" \
     -o "$out/lib/liballocator.so"
+# «Oldstyle»: the owner's tone-port module behind its JNI (library scameraTone, OldstyleNative.load: System.loadLibrary from
+# java.library.path), built as the app's CMake builds it (-O3 -ffp-contract=off)
+tp="$root/app/src/main/cpp/third_party/tone_port"
+g++ -shared -fPIC -O3 -std=c++17 -fexceptions -ffp-contract=off -fvisibility=hidden -pthread -I"$root/app/src/main/cpp" -I"$tp/include" \
+    -I"$jni" -I"$jni/linux" "$root/app/src/main/cpp/oldstyle-tone-jni.cpp" "$tp"/src/*.cpp -o "$out/lib/libscameraTone.so"
 filter="$1"; shift
 for kv in "$@"; do export "SCAM_HOST_$kv"; done
 export SCAM_HOST_DIR="$here" SCAM_HOST_GEN="$out/gen" SCAM_HOST_LIB="$out/lib" SCAM_HOST_OUT="$out"

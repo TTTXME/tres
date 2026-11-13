@@ -103,7 +103,13 @@ public:
     std::optional<Point> finalSize;
     bool finalResized = false;
     float rawClipLevel = 1.f;
+    // Ultra HDR (PostPipeline: captureDemosaic, the linear scene snapshot LinearExposure keeps for RunHDRGainMap): the texture's
+    // halves (8 B a pixel, RGBA), its size; p3Output: the base is Display P3 (never on iOS: the photo is sRGB)
     bool captureDemosaic = false;
+    bool mCaptured = false;
+    std::vector<uint16_t> demosaicLinear;
+    std::optional<Point> demosaicLinearSize;
+    bool p3Output = false;
     // the worker RGB (Parameters.scamRgb): halves or floats as the worker wrote it; ScamRgb leaves its decimated float copy
     std::vector<uint8_t> scamRgb;
     bool scamRgbHalf = false;

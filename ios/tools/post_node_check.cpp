@@ -4,6 +4,9 @@
 // before the next node runs (every node then starts from the reference's input).
 //   post_node_check <shaders root> <shot dir> <reference dir> <nodes> [--inject] [--save <dir>]
 //   <nodes>: comma separated, e.g. ScamRgb
+// "full" also compares the Ultra HDR gain map (the shot's pref_ultrahdr_key) with the reference's gainmap.rgba / gainmap.txt.
+// «Oldstyle» needs the owner's tone-port module: build with -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include
+// (without them the tool builds as before and an Oldstyle shot stops at its tone).
 #include "../Engine/post/WorkerOutput.hpp"
 #include "../Engine/post/nodes/ScamRgb.hpp"
 #include "../Engine/post/nodes/ScamHdrDenoise.hpp"
@@ -11,6 +14,17 @@
 #include "../Engine/post/nodes/WhyMsDenoise.hpp"
 #include "../Engine/post/nodes/WhyLumaSharpen.hpp"
 #include "../Engine/post/PostPipelineRun.hpp"
+#if __has_include("tone_port.h") && __has_include("oldstyle-tone-core.h")
+#include "../Engine/post/oldstyle/ToneUnity.hpp"
+#else
+namespace scam_post::ToneNative {
+int setThreads(int) { return 1; }
+void render(int, const int16_t*, int, int, const float*, float, float, bool, bool, float, const float*, int, const float*, int, int, float*,
+            uint8_t*) {
+    throw std::runtime_error("the tone-port module is not in this build (-Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include)");
+}
+} // namespace scam_post::ToneNative
+#endif
 
 #include <EGL/egl.h>
 
@@ -148,7 +162,7 @@ int main(int argc, char** argv) {
             std::snprintf(prefix, sizeof prefix, "%02d-", i);
             for (const char* name : {"ScamRgb", "ScamHdrDenoise", "WhyHlDezipper", "WhyMsDenoise", "WhyStats", "WhyFusion", "WhyLumaSharpen",
                                      "WhyFused", "WhyLumaS", "WhyCombine", "WhyV2Stats", "WhyV2Highlights", "WhyV2Fusion",
-                                     "WhyV2Tone", "ScamLocalContrast", "FinalResize"}) {
+                                     "WhyV2Tone", "ScamLocalContrast", "FinalResize", "OldstyleTone", "OldstyleStyle"}) {
                 const std::string path = refDir + "/dump/" + prefix + name + ".f32";
                 if (std::ifstream(path).good()) dumps.push_back(path);
             }
@@ -221,9 +235,55 @@ int main(int argc, char** argv) {
                 f.write(reinterpret_cast<const char*>(h2), 16);
                 f.write(reinterpret_cast<const char*>(photo.rgba.data()), std::streamsize(photo.rgba.size()));
             }
+            // Ultra HDR: the gain map and its metadata against the reference's (HostPostRender: gainmap.rgba, gainmap.txt)
+            bool gainSame = true;
+            if (photo.gainMap || std::ifstream(refDir + "/gainmap.rgba").good()) {
+                if (!photo.gainMap) {
+                    std::printf("gain map: none here, the reference has one\n");
+                    gainSame = false;
+                } else if (!std::ifstream(refDir + "/gainmap.rgba").good()) {
+                    std::printf("gain map %dx%d here, none in the reference\n", photo.gainMap->width, photo.gainMap->height);
+                    gainSame = false;
+                } else {
+                    const auto gref = readAll(refDir + "/gainmap.rgba");
+                    uint32_t gh[4];
+                    std::memcpy(gh, gref.data(), 16);
+                    const auto& g = *photo.gainMap;
+                    size_t gdiff = 0, gmax = 0;
+                    if (int(gh[1]) != g.width || int(gh[2]) != g.height) {
+                        std::printf("gain map %dx%d, the reference %ux%u\n", g.width, g.height, gh[1], gh[2]);
+                        gainSame = false;
+                    } else {
+                        for (size_t i = 0; i < g.rgba.size(); i++) {
+                            const int d = std::abs(int(g.rgba[i]) - int(gref[16 + i]));
+                            if (d) gdiff++;
+                            gmax = std::max(gmax, size_t(d));
+                        }
+                        // gainmap.txt: GainMapMin, GainMapMax, HDRCapacityMax as raw float bits (hex) and as Float.toString
+                        std::ifstream t(refDir + "/gainmap.txt");
+                        uint32_t bits[3] = {0, 0, 0};
+                        std::string word;
+                        for (int k = 0; k < 3 && (t >> word); k++) bits[k] = uint32_t(std::stoul(word, nullptr, 16));
+                        float ref3[3];
+                        std::memcpy(ref3, bits, 12);
+                        const bool meta = ref3[0] == g.gainMapMin && ref3[1] == g.gainMapMax && ref3[2] == g.hdrCapacityMax;
+                        std::printf("gain map %dx%d: %zu of %zu values differ, max %zu; min %s max %s capacity %s (reference %s %s %s)%s\n",
+                                    g.width, g.height, gdiff, g.rgba.size(), gmax, javaFloatString(g.gainMapMin).c_str(),
+                                    javaFloatString(g.gainMapMax).c_str(), javaFloatString(g.hdrCapacityMax).c_str(), javaFloatString(ref3[0]).c_str(),
+                                    javaFloatString(ref3[1]).c_str(), javaFloatString(ref3[2]).c_str(), meta ? "" : " METADATA DIFFERS");
+                        gainSame = gdiff == 0 && meta;
+                    }
+                    if (!save.empty()) {
+                        std::ofstream f(save + "/gainmap.rgba", std::ios::binary);
+                        const uint32_t h2[4] = {0x38524353u, uint32_t(g.width), uint32_t(g.height), 4u};
+                        f.write(reinterpret_cast<const char*>(h2), 16);
+                        f.write(reinterpret_cast<const char*>(g.rgba.data()), std::streamsize(g.rgba.size()));
+                    }
+                }
+            }
             const char* minPsnr = std::getenv("SCAM_POST_MIN_PSNR"); // a GPU other than the reference's: a bound, not identity
             if (minPsnr) return mse > 0 && 10 * std::log10(255.0 * 255.0 / mse) < std::atof(minPsnr) ? 3 : 0;
-            return diff == 0 ? 0 : 3;
+            return diff == 0 && gainSame ? 0 : 3;
         }
         // the «Why» state textures the reference dumps under their stage names (WhyCombine's ScamDiagnostics.gpu calls)
         auto checkState = [&](const char* stage, const Texture& t, int channels) {

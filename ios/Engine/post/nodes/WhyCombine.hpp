@@ -1,7 +1,7 @@
 // WhyCombine.java one to one (the default GL model): the WHY tone's final pass - the highlight landing mask, the fused luma's
 // local contrast, the rim support tiles, the sun bloom and the opposed landing of ScamRgb, the sky, the colour look and the
-// tone curve - into the next main. Not ported (they throw or stay off): Portrait faces, the film simulation and its LUT, the
-// sky's Ultra HDR ratio (no Ultra HDR on iOS yet), the scene luma cache (the reference renders without it: the original
+// tone curve - into the next main; with Ultra HDR the sky term's ratio for the gain map (skyHdrRatio). Not ported (they throw or
+// stay off): Portrait faces, the film simulation and its LUT, the scene luma cache (the reference renders without it: the original
 // colour evaluation).
 #pragma once
 
@@ -101,6 +101,61 @@ public:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, GLuint(previous[0]));
         prog.closed = true;
         return tiles;
+    }
+
+    /// the sky ratio grid's longer side at most (why/skyratio, PostPipeline.skyHdrRatio)
+    static constexpr int SKY_RATIO_SIDE = 512;
+
+    /// P378 review: the SDR's own ratio of the sky term into PostPipeline.skyHdrRatio - the combine program still bound draws whyLow
+    /// (fU 1: no detail, no dither) with the sky term and without it, then why/skyratio takes their luminance ratio on a grid of
+    /// whyLow (its longer side SKY_RATIO_SIDE) and it is read back
+    void skyHdrRatio(PostPipeline& pipeline, WhyToneState& st, const WhyAe::Result& r, GLTexture& with, GLTexture& without, bool lightChroma,
+                     bool skyMeasured) {
+        GLProg& prog = *glProg;
+        const Texture colour = st.lowDn ? st.lowDn : st.low;
+        if (lightChroma) prog.setVar("lightChromaU", 0.f);
+        prog.setTexture("InputBuffer", st.low);
+        prog.setTexture("WhyColour", colour);
+        prog.setVar("fU", 1);
+        prog.setVar("colourFU", 1);
+        prog.setVar("detailGainU", 0.f);
+        prog.setVar("ditherU", 0);
+        if (r.hr > 0.f) prog.setVar("hrDetailU", 0.f);
+        if (skyMeasured) {
+            prog.setVar("hlMeasDetailU", 0.f);
+            prog.setVar("hlMeasGlareU", 0.f);
+        }
+        prog.drawBlocks(with);
+        prog.setVar("skyU", 0.f, 0.f, 1.f, 1.f);
+        prog.setVar("skyMU", 0.f, 0.f, 0.f, 1.f);
+        prog.drawBlocks(without);
+        const Point low = st.low->mSize;
+        const int box = std::max(1, (std::max(low.x, low.y) + SKY_RATIO_SIDE - 1) / SKY_RATIO_SIDE);
+        const Point size = WhyTone::reduced(low, box);
+        Texture ratio = makeTexture(size, GLFormat(DataType::FLOAT_32, 4), nullptr, GL_NEAREST, GL_CLAMP_TO_EDGE);
+        try {
+            prog.useAssetProgram("why/skyratio", false);
+            prog.setTexture("WithSky", with);
+            prog.setTexture("WithoutSky", without);
+            prog.setVar("boxU", box);
+            prog.setVar("p3U", pipeline.p3Output ? 1 : 0);
+            prog.setVar("epsU", 1.0f / 64.0f); // GainMapComputer.DECODE_OFFSET
+            prog.drawBlocks(*ratio);
+            std::vector<float> b(size_t(size.x) * size_t(size.y) * 4);
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+            ratio->textureBuffer(GLFormat(DataType::FLOAT_32, 4), b.data());
+            std::vector<float> out(size_t(size.x) * size_t(size.y));
+            for (size_t i = 0; i < out.size(); i++) {
+                const float v = b[4 * i];
+                out[i] = v > 0.f && v < 16.f ? v : 1.f;
+            }
+            pipeline.skyHdrRatio = std::move(out);
+            pipeline.skyHdrRatioSize = size;
+        } catch (...) {
+            ratio->close();
+            throw;
+        }
+        ratio->close();
     }
 
     void Run() override {
@@ -245,6 +300,18 @@ public:
             skyLog = " sky=" + std::to_string(javaRound(100.f * st.skyMask->coverage)) + "%";
             if (st.skyMask->keep < 1.f) skyLog += " backlit (level x" + javaFloatString(float(javaRound(100.f * st.skyMask->keep)) / 100.f) + ")";
         }
+        // P378 review: Ultra HDR keeps the sky term's change - the combine at whyLow with and without it (skyHdrRatio), its targets
+        // made before the combine's samplers are bound: RGBA8, none above 100 MP (ScamRgb.earlyRelease)
+        Texture skyWith, skyWithout;
+        if (st.sky && st.skyMask->keep > 0.f && pipeline.captureDemosaic) {
+            const bool earlyRelease = int64_t(input->mSize.x) * input->mSize.y > 100000000LL
+                                      || Settings::current().scamDevSwitch("early_release", false);
+            if (earlyRelease) skyLog += " hdrSkyRatio=skipped (over 100 MP)";
+            else {
+                skyWith = makeTexture(st.low->mSize, GLFormat(DataType::SIMPLE_8, 4), nullptr, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                skyWithout = makeTexture(st.low->mSize, GLFormat(DataType::SIMPLE_8, 4), nullptr, GL_NEAREST, GL_CLAMP_TO_EDGE);
+            }
+        }
         WorkingTexture = pipeline.getMain();
         if (rimTiles) prog.setDefine("RIM_SUPPORT", 1);
         const int stop = javaRound(Settings::current().scamDevNumber("why_combine_stop", 0.f));
@@ -379,6 +446,20 @@ public:
         }
         prog.drawBlocks(WorkingTexture);
         if (rimTiles) logI("SCAM_PIPELINE", "WHY rim support tiles=" + std::to_string(rimTiles->size));
+        if (skyWith) {
+            try {
+                skyHdrRatio(pipeline, st, r, *skyWith, *skyWithout, lightChroma > 0.f, measured > 0.f);
+                if (pipeline.skyHdrRatio)
+                    skyLog += " hdrSkyRatio=" + std::to_string(pipeline.skyHdrRatioSize->x) + "x" + std::to_string(pipeline.skyHdrRatioSize->y);
+            } catch (const std::exception& e) {
+                // the photo stands; its gain map takes the scene as before
+                pipeline.skyHdrRatio.reset();
+                pipeline.skyHdrRatioSize.reset();
+                logI("SCAM_PIPELINE", std::string("WHY combine: the sky's Ultra HDR ratio failed (") + e.what() + ")");
+            }
+            skyWith->close();
+            skyWithout->close();
+        }
         prog.closed = true;
         if (rimTiles) rimTiles.reset();
         if (rimBound) {

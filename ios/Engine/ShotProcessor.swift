@@ -69,8 +69,75 @@ enum ShotProcessor {
         return (.jpeg, Double(Int(store.string("pref_jpeg_quality", "98")) ?? 98) / 100)
     }
 
+    /// The photo's Ultra HDR gain map (SCAMPhoto.gainMap, Engine/post/UltraHdr.hpp): one byte a pixel, rows top-down, pixel-aligned
+    /// with the photo; the codes linear in log2 gain from `min` to `max` (GainMapComputer.Result). Its ISO 21496-1 metadata is
+    /// IsoGainMap.java's: gamma 1, base and alternate offsets GainMapComputer.DECODE_OFFSET, base headroom 0, alternate headroom
+    /// HDRCapacityMax (`capacity`), one channel in the base image's colour space.
+    struct GainMap {
+        let data: Data
+        let width: Int
+        let height: Int
+        let min: Float
+        let max: Float
+        let capacity: Float
+
+        /// GainMapComputer.DECODE_OFFSET (OffsetSDR / OffsetHDR)
+        static let decodeOffset: Float = 1.0 / 64.0
+
+        init?(photo: SCAMPhoto) {
+            guard let data = photo.gainMap, photo.gainMapWidth > 0, photo.gainMapHeight > 0,
+                  data.count >= photo.gainMapWidth * photo.gainMapHeight else { return nil }
+            self.data = data
+            width = photo.gainMapWidth
+            height = photo.gainMapHeight
+            min = photo.gainMapMin
+            max = photo.gainMapMax
+            capacity = photo.hdrCapacityMax
+        }
+    }
+
+    /// The gain map as the image's ISO 21496-1 gain map auxiliary image (ImageIO, iOS 18): the map's bytes with their description
+    /// (one 8-bit component a pixel) and its metadata as the gain map XMP schema (hdrgm, the values of UltraHdrContainer's XMP and
+    /// IsoGainMap). Returns false when the metadata could not be built (nothing added).
+    @available(iOS 18.0, *)
+    static func addGainMap(_ gain: GainMap, to destination: CGImageDestination) -> Bool {
+        let metadata = CGImageMetadataCreateMutable()
+        guard CGImageMetadataRegisterNamespaceForPrefix(metadata, "http://ns.adobe.com/hdr-gain-map/1.0/" as CFString,
+                                                        "hdrgm" as CFString, nil) else { return false }
+        let number = { (v: Float) in String(format: "%.6f", Double(v)) }
+        let values: [(String, String)] = [
+            ("Version", "1.0"),
+            ("GainMapMin", number(gain.min)),
+            ("GainMapMax", number(gain.max)),
+            ("Gamma", "1"),
+            ("OffsetSDR", number(GainMap.decodeOffset)),
+            ("OffsetHDR", number(GainMap.decodeOffset)),
+            ("HDRCapacityMin", "0"),
+            ("HDRCapacityMax", number(gain.capacity)),
+            ("BaseRenditionIsHDR", "False"),
+        ]
+        for (key, value) in values {
+            guard CGImageMetadataSetValueWithPath(metadata, nil, "hdrgm:\(key)" as CFString, value as CFString) else { return false }
+        }
+        let description: [String: Any] = [
+            kCGImagePropertyWidth as String: gain.width,
+            kCGImagePropertyHeight as String: gain.height,
+            kCGImagePropertyBytesPerRow as String: gain.width,
+            kCGImagePropertyPixelFormat as String: NSNumber(value: kCVPixelFormatType_OneComponent8),
+        ]
+        let info: [String: Any] = [
+            kCGImageAuxiliaryDataInfoData as String: gain.data as CFData,
+            kCGImageAuxiliaryDataInfoDataDescription as String: description,
+            kCGImageAuxiliaryDataInfoMetadata as String: metadata,
+        ]
+        CGImageDestinationAddAuxiliaryDataInfo(destination, kCGImageAuxiliaryDataTypeISOGainMap, info as CFDictionary)
+        return true
+    }
+
+    /// `gainMap` (Ultra HDR): written as the ISO gain map on iOS 18 and later, left out before (the photo stays SDR); `log` says which.
     static func encode(rgba bytes: Data, width w: Int, height h: Int, metadata: [String: Any], orientation: Int = 1,
-                       format: (type: UTType, quality: Double) = (.heic, 0.92)) throws -> Data {
+                       format: (type: UTType, quality: Double) = (.heic, 0.92), gainMap: GainMap? = nil,
+                       log: ((String) -> Void)? = nil) throws -> Data {
         let rowBytes = w * 4
         guard let provider = CGDataProvider(data: bytes as CFData),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -98,6 +165,18 @@ enum ShotProcessor {
         properties[kCGImagePropertyTIFFDictionary as String] = tiff
         properties[kCGImageDestinationLossyCompressionQuality as String] = format.quality
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        if let gainMap {
+            if gainMap.width != w || gainMap.height != h {
+                log?("Ultra HDR: gain map \(gainMap.width)x\(gainMap.height) for a \(w)x\(h) photo, not written (SDR)")
+            } else if #available(iOS 18.0, *) {
+                let added = addGainMap(gainMap, to: destination)
+                log?(added ? "Ultra HDR: ISO gain map \(gainMap.width)x\(gainMap.height) min=\(gainMap.min) max=\(gainMap.max)"
+                             + " capacity=\(gainMap.capacity)"
+                           : "Ultra HDR: the gain map's metadata could not be built, not written (SDR)")
+            } else {
+                log?("Ultra HDR: the ISO gain map needs iOS 18, the photo is SDR")
+            }
+        }
         guard CGImageDestinationFinalize(destination) else { throw EngineError.encode("HEIC finalize") }
         return out as Data
     }

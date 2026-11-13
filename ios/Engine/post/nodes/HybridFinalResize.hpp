@@ -24,6 +24,23 @@ public:
 
     void Compile() override {}
 
+    /// HybridFinalResize.resized: the linear scene snapshot of Ultra HDR at the final size (LINEAR_IN: the input is linear light)
+    static Texture resized(GLProg& prog, const Texture& in, Point target, const std::string& kernelName) {
+        if (target.x >= in->mSize.x || target.y >= in->mSize.y || target.x * 4 < in->mSize.x || target.y * 4 < in->mSize.y)
+            throw std::runtime_error("resize " + std::to_string(in->mSize.x) + "x" + std::to_string(in->mSize.y) + " -> "
+                                     + std::to_string(target.x) + "x" + std::to_string(target.y) + " out of range");
+        prog.setDefine("LINEAR_IN", 1);
+        prog.useAssetProgram("hybrid/final_resize", false);
+        prog.setTexture("InputBuffer", in);
+        prog.setVar("kernel", kernelIndex(kernelName));
+        prog.setVar("inSize", in->mSize.x, in->mSize.y);
+        prog.setVar("outSize", target.x, target.y);
+        Texture out = makeTexture(target, in->mFormat, nullptr, GL_LINEAR, GL_CLAMP_TO_EDGE);
+        prog.drawBlocks(*out);
+        prog.closed = true;
+        return out;
+    }
+
     void Run() override {
         PostPipeline& p = *basePipeline;
         GLProg& prog = *glProg;
