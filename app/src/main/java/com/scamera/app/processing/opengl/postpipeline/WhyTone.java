@@ -299,6 +299,11 @@ public final class WhyTone {
         return Math.max(0f, value("deep_noise", DEEP_NOISE));
     }
 
+    /** P672: WhyFusion.noiseModel - scam_dev.txt "hybrid_why_fusion_noise_model" (0 by default: no noise terms, as V2's fusion). */
+    static boolean fusionNoiseModel() {
+        return value("fusion_noise_model", 0f) >= 0.5f;
+    }
+
     /** P391: the default of {@link #deepNoise}: the fused luma's noise at most 0.008 (two 8-bit steps of the curve) in a lifted shadow. */
     static final float DEEP_NOISE = 0.008f;
 

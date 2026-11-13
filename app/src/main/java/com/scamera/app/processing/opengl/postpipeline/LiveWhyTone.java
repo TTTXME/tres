@@ -726,9 +726,11 @@ public final class LiveWhyTone {
 
     /**
      * P391: import why_fusion deepNoiseU of the viewfinder at the AE {@code ae} - the photo's (WhyFusion.guideNoise) with the merge's
-     * expected share of the frame's noise (its frame map is the photo's alone): {tau, S_I, O_I}, zeros without a model.
+     * expected share of the frame's noise (its frame map is the photo's alone): {tau, S_I, O_I}, zeros without a model. P672: zeros
+     * while the photo's fusion takes no noise model (WhyFusion.noiseModel, off by default), so the viewfinder keeps the photo's curve.
      */
     private float[] deepNoise(float ae) {
+        if (!WhyFusion.noiseModel()) return new float[]{0f, 0f, 0f};
         final float[] n = WhyFusion.guideNoise((float) frameNoiseS, (float) frameNoiseO, WhyTone.expectedMerged(), ae, inScale, WhyTone.noiseScale());
         final float tau = n == null ? 0f : WhyTone.deepNoise();
         return tau > 0f ? new float[]{tau, n[0], n[1]} : new float[]{0f, 0f, 0f};

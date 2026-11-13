@@ -497,7 +497,9 @@ public final class DevKeys {
         // P443: the SCAM 9.6 engine's rows out of the menu (the Resolve engine is the default), the JPEG and night detail lines
         k.add(s(post, "jpeg_aq", false, Lang.t("JPEG: адаптивное квантование jpegli (вкл. — как раньше: в тёмных и ровных местах стирает мелкие детали и зерно)", "JPEG: jpegli's adaptive quantisation (on: as before - it erases fine detail and grain in dark and flat areas)")));
         k.add(s(post, "jpeg_fast_tables", true, Lang.t("JPEG: сохранить полные токены DCT (выкл. — прежний путь)", "JPEG: retain complete DCT tokens (off: original path)")));
-        k.add(n(post, "hybrid_why_night_detail", "1.3", Lang.t("Детали ночью: усиление детали при SNR 15 и ниже до SNR 5 (1 — как раньше: x1 до SNR 20)", "Night detail: the detail gain from SNR 5 up to SNR 15 and beyond (1: as before, x1 up to SNR 20)")));
+        // P672: 1 by default (V1's detail transfer at night as V2's: x1 up to SNR 20); 1.3 = P443's night floor as before
+        k.add(n(post, "hybrid_why_night_detail", "1", Lang.t("Детали ночью (тон V1): усиление детали при SNR от 5 до 15 и выше; 1 — x1 до SNR 20, как в тоне V2 (по умолчанию), 1.3 — как раньше",
+                "Night detail (tone V1): the detail gain from SNR 5 up to SNR 15 and beyond; 1: x1 up to SNR 20, as tone V2 (default), 1.3: as before")));
         k.add(n(post, "hybrid_dn_snr_scale", "1", Lang.t("Шумодав: множитель SNR кадра (резкость и детали ночью читают его в обоих движках)", "Denoise: the shot SNR multiplier (the sharpening and the night detail read it with either engine)")));
         k.add(n(post, "hybrid_dn_model_shot", "1.2", Lang.t("Шумодав: дробовая составляющая модели шума (для SNR кадра)", "Denoise: the noise model's shot term (for the shot SNR)")));
         k.add(n(post, "hybrid_dn_model_read", "2", Lang.t("Шумодав: составляющая шума считывания модели (для SNR кадра)", "Denoise: the noise model's read term (for the shot SNR)")));
@@ -553,6 +555,9 @@ public final class DevKeys {
                 "Tone, bands: an edge counts only beyond this many noise sigmas of its measure (taken out in quadrature; noise is no edge); 0: off")));
         k.add(n(post, "hybrid_why_fusion_depth_smooth", "1", Lang.t("Тон: глубина пирамиды без скачков по разрешению (нижняя полоса по дробной глубине, с полосами); 0 — целые уровни, как раньше",
                 "Tone: the pyramid's depth without jumps across resolutions (the lowest band by the fractional depth, with the bands); 0: whole levels, as before")));
+        // P672: V1's fusion without the noise model by default (V2's has none): the three P391 noise terms below act only with it
+        k.add(n(post, "hybrid_why_fusion_noise_model", "0", Lang.t("Тон V1: слияние учитывает модель шума кадра (пределы шума в тенях и мелких полосах, P391); 0 — нет, как в тоне V2 (по умолчанию), 1 — как раньше",
+                "Tone V1: the fusion reads the frame's noise model (the noise limits of the shadows and the fine bands, P391); 0: no, as tone V2 (default), 1: as before")));
         k.add(n(post, "hybrid_why_deep_noise", "0.008", Lang.t("Тон: глубокие тени поднимаются ярким слоем не дальше, чем позволяет шум кадра — предел шума в тенях (доля яркости слияния); 0 — выкл.",
                 "Tone: deep shadows lifted by the bright layer only as far as the frame's noise allows - the shadow noise limit (share of fused luma); 0: off")));
         k.add(n(post, "hybrid_why_noise_scale", "1.0", Lang.t("Тон: поправка модели шума к шуму whyLow (после шумодава) для пределов шума тона",
