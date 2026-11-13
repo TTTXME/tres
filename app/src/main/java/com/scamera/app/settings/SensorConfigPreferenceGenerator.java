@@ -369,7 +369,9 @@ public final class SensorConfigPreferenceGenerator {
         row.setSummaryProvider(p -> {
             final StringBuilder state = new StringBuilder();
             for (com.scamera.app.capture.XiaomiDualGain.Kind kind : kinds)
-                state.append(state.length() == 0 ? "" : ". ").append(com.scamera.app.capture.XiaomiDualGain.state(camera, kind));
+                state.append(state.length() == 0 ? "" : ". ").append(kind == com.scamera.app.capture.XiaomiDualGain.Kind.LOFIC
+                        && !com.scamera.app.capture.XiaomiLofic.routeOff() ? com.scamera.app.capture.XiaomiLofic.state() // P679
+                        : com.scamera.app.capture.XiaomiDualGain.state(camera, kind));
             return state + Lang.t(context, ". Опытная функция: на телефоне не проверена.", ". Experimental: not proven on a phone.");
         });
         row.setOnPreferenceChangeListener((p, value) -> {
@@ -380,23 +382,25 @@ public final class SensorConfigPreferenceGenerator {
                 return false;
             }
             com.scamera.app.capture.XiaomiDualGain.tryAgain(camera);
+            com.scamera.app.capture.XiaomiLofic.tryAgain(); // P679
             com.scamera.app.capture.Dcg14Mode.setMode(chosen);
             return true;
         });
         com.scamera.app.ui.settings.SettingHelp.describe(row, Lang.t(context,
                 "Режим сенсора с двумя усилениями в одном кадре: больше деталей в тенях и светах, RAW глубже 10 бит (14 бит, на сверхширокой"
-                        + " камере DSG — 12 бит). DCG+LOFIC — кадр DCG + кадр переполнения LOFIC той же экспозиции, склеиваются вместе:"
-                        + " второй кадр идёт отдельным потоком и хранит света, выбитые в первом; камера берёт его в склейку, только когда"
-                        + " сами кадры это подтверждают, иначе снимает один 14-битный кадр этого режима; не проверено на телефоне."
+                        + " камере DSG — 12 бит). DCG+LOFIC на основной камере — пара кадров одного момента: длинный (14 бит) и короткий"
+                        + " (10 бит, кадр переполнения LOFIC); короткий добавляет света выше клипа длинного, наша склейка берёт обе части."
+                        + " Сначала пробуется 4:3 · 30 к/с, иначе 16:10 · 60 к/с (4096×2560); только автоэкспозиция; режим проверяется по"
+                        + " самим кадрам, при сбое — обычный режим. Не проверено на телефоне."
                         + " Это тот же переключатель, что кнопка DCG в верхней строке. Камера перебирает несколько способов включить"
                         + " режим и проверяет каждый по самим кадрам: первый сработавший запоминается для этой прошивки, несработавшие"
                         + " больше не пробуются. Если не сработал ни один, DCG+LOFIC заменяется на DCG, а DCG и DSG выключаются. Выбор режима"
                         + " здесь заново разрешает все способы. На телефоне не проверено: проверяйте днём, на контрастной сцене.",
                 "A sensor mode with two gains in one frame: more detail in shadows and highlights, a RAW deeper than 10 bits (14 bits; the"
-                        + " ultra wide's DSG is 12 bits). DCG+LOFIC is a DCG frame + a LOFIC overflow frame of the same exposure, merged"
-                        + " together: the second frame comes on a stream of its own and holds the highlights the first one clips; the camera"
-                        + " takes it into the merge only when the frames themselves prove it, else it shoots the mode's 14-bit frame alone;"
-                        + " not proven on a phone. This is the same switch as the DCG button of the top bar. The camera goes through several ways of"
+                        + " ultra wide's DSG is 12 bits). DCG+LOFIC on the main camera is a pair of frames of one moment: a long one (14 bits)"
+                        + " and a short one (10 bits, the LOFIC overflow read); the short one adds highlights above the long one's clip, our"
+                        + " merge takes both. 4:3 · 30 fps is tried first, else 16:10 · 60 fps (4096x2560); auto exposure only; the mode is"
+                        + " checked on the frames themselves, on a failure the normal mode runs. Not proven on a phone. This is the same switch as the DCG button of the top bar. The camera goes through several ways of"
                         + " turning the mode on and checks each on the frames themselves: the first that works is remembered for this firmware,"
                         + " the ones that failed are not tried again. If none works, DCG+LOFIC becomes DCG, and DCG and DSG switch off. Choosing"
                         + " a mode here allows every way again. Not proven on a phone: test by day, on a contrasty scene."));

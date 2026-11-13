@@ -689,6 +689,18 @@ public final class DevKeys {
         k.add(n(xiaomi, "xiaomi17_dxg_window", String.valueOf(com.scamera.app.capture.XiaomiDualGain.WINDOW), Lang.t(
                 "DCG / DSG: за сколько кадров видоискателя способ должен дать глубину больше 10 бит",
                 "DCG / DSG: the viewfinder frames a way has to show more than 10 bits in")));
+        // P679: the main camera's LOFIC pair (Long RAW14 + Short RAW10 of one moment) behind the «DCG+LOFIC» switch
+        k.add(n(xiaomi, "xiaomi17_lofic", "-1", Lang.t("LOFIC: -1 — по переключателю DCG+LOFIC, 1 — всегда на основной камере, 0 — выкл (DCG+LOFIC"
+                        + " тогда работает по-старому)",
+                "LOFIC: -1 follows the DCG+LOFIC switch, 1 always on the main camera, 0 off (DCG+LOFIC then runs the older way)")));
+        k.add(n(xiaomi, "xiaomi17_lofic_setup", "0", Lang.t("LOFIC: 0 — сначала 4:3 · 30 к/с, потом 16:10 · 60 к/с; 1 — только 16:10",
+                "LOFIC: 0 tries 4:3 · 30 fps first, then 16:10 · 60 fps; 1 runs 16:10 only")));
+        k.add(n(xiaomi, "xiaomi17_lofic_window", String.valueOf(com.scamera.app.capture.XiaomiLofic.WINDOW), Lang.t(
+                "LOFIC: за сколько кадров видоискателя режим должен пройти проверку", "LOFIC: the viewfinder frames a setup has to pass its checks in")));
+        k.add(n(xiaomi, "lofic_pairs", String.valueOf(com.scamera.app.capture.XiaomiLofic.PAIRS), Lang.t(
+                "LOFIC: пар кадров (длинный + короткий) на снимок, 1..16", "LOFIC: pairs of frames (Long + Short) a shot takes, 1..16")));
+        k.add(n(xiaomi, "lofic_blend", "0", Lang.t("LOFIC: сшивка пары — 0 по шуму (без шва), 1 — фиксированный переход 11000..14000 из исходного описания",
+                "LOFIC: the pair's merge - 0 by the noise (no seam), 1 the fixed 11000..14000 ramp of the source description")));
         k.add(s(xiaomi, "xiaomi17_row12", false, Lang.t("75 мм: слать режим сенсора 12 (4x ISZ) и со стоковым модулем сенсора — там кадр не заканчивается",
                 "75 mm: send sensor mode 12 (4x ISZ) with the stock sensor module too - the frame never ends there")));
         // Xiaomi 15 Ultra (P230)

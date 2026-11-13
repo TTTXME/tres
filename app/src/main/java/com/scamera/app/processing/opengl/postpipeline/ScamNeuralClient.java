@@ -460,7 +460,9 @@ public final class ScamNeuralClient {
                 if(!tuning.isEmpty())try(java.io.FileWriter tw=new java.io.FileWriter(new File(dir,"hybrid_tuning.txt"))){tw.write(tuning);}
                 log.accept("CLIENT: SCAM Hybrid merge requested"+(tuning.isEmpty()?"":" tuning="+tuning.replace('\n',' ')));
                 // P482 (ahb_transport): the RGB in a hardware buffer of the app (AhbRoute), the worker's fast merge writes it there
-                ahbWanted=direct&&AhbRoute.wanted(true,rgbHalf,(long)scamBurst.outputWidth()*scamBurst.outputHeight(),scamBurst.mergedDng(),tuning);
+                ahbWanted=direct&&AhbRoute.wanted(true,rgbHalf,(long)scamBurst.outputWidth()*scamBurst.outputHeight(),scamBurst.mergedDng(),tuning)
+                        // P679: a LOFIC shot's result is scaled in place after the merge: never the read-only hardware buffer
+                        &&!(scamBurst instanceof ScamHybridBurst&&((ScamHybridBurst)scamBurst).loficLog2()>0);
             }
             if(adopted==null)writeDumpForward(context,dir);
             final long assetsDone=android.os.SystemClock.elapsedRealtime();
