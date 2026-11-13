@@ -43,6 +43,9 @@ jobs:
         run: |
           g++ -std=c++17 -O1 ios/tools/post_shader_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/post_shader_check"
           "$RUNNER_TEMP/post_shader_check" app/src/main/assets/shaders | tail -5
+          g++ -std=c++17 -O1 -Iios/ScamGL/include ios/tools/post_pass_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/post_pass_check"
+          mkdir -p "$RUNNER_TEMP/reference/post"
+          "$RUNNER_TEMP/post_pass_check" app/src/main/assets/shaders "$RUNNER_TEMP/reference/post"
       - name: Merge
         env:
           EGL_PLATFORM: surfaceless
@@ -55,6 +58,7 @@ jobs:
           path: |
             ${{ runner.temp }}/reference/*.f32
             ${{ runner.temp }}/reference/*.log
+            ${{ runner.temp }}/reference/post/*.f32
           retention-days: 3
 
   merge-metal:
@@ -102,6 +106,13 @@ jobs:
             -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
             -o "$RUNNER_TEMP/post_shader_check" > "$RUNNER_TEMP/post-build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/post-build.log" | head -30; exit 1; }
           "$RUNNER_TEMP/post_shader_check" app/src/main/assets/shaders | grep -v "^SKIP" | tee "$RUNNER_TEMP/post-shaders.txt"
+          clang++ -std=c++17 -O1 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/post_pass_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/post_pass_check" > "$RUNNER_TEMP/pass-build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/pass-build.log" | head -30; exit 1; }
+          mkdir -p "$RUNNER_TEMP/metal/post"
+          "$RUNNER_TEMP/post_pass_check" app/src/main/assets/shaders "$RUNNER_TEMP/metal/post"
       - name: Merge
         run: |
           python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
@@ -114,6 +125,8 @@ jobs:
         run: |
           set -o pipefail
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 80 | tee "$RUNNER_TEMP/compare.txt"
+          echo "post passes (Why V2 shaders through Engine/post/GLCore.hpp):" | tee -a "$RUNNER_TEMP/compare.txt"
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/post" "$RUNNER_TEMP/metal/post" --max-psnr-drop 70 | tee -a "$RUNNER_TEMP/compare.txt"
           { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()

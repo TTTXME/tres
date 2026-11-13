@@ -15,6 +15,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -224,6 +225,17 @@ Format formatOf(GLenum internal) {
     case GL_RG32I: return {MTLPixelFormatRG32Sint, 8};
     case GL_RGBA32I: return {MTLPixelFormatRGBA32Sint, 16};
     case GL_R11F_G11F_B10F: return {MTLPixelFormatRG11B10Float, 4};
+    // Metal has no 3-channel formats: RGB is stored as RGBA (uploads and readbacks convert, alpha 1)
+    case GL_RGB8: return {MTLPixelFormatRGBA8Unorm, 4};
+    case GL_RGB16F: return {MTLPixelFormatRGBA16Float, 8};
+    case GL_RGB32F: return {MTLPixelFormatRGBA32Float, 16};
+    case GL_RGB16UI: return {MTLPixelFormatRGBA16Uint, 8};
+    case GL_RGB32UI: return {MTLPixelFormatRGBA32Uint, 16};
+    case GL_RG8UI: return {MTLPixelFormatRG8Uint, 2};
+    case GL_R8I: return {MTLPixelFormatR8Sint, 1};
+    case GL_RGBA8I: return {MTLPixelFormatRGBA8Sint, 4};
+    case GL_RG16I: return {MTLPixelFormatRG16Sint, 4};
+    case GL_RGBA16I: return {MTLPixelFormatRGBA16Sint, 8};
     case GL_RGB10_A2: return {MTLPixelFormatRGB10A2Unorm, 4};
     default: return {MTLPixelFormatInvalid, 0};
     }
@@ -252,6 +264,161 @@ size_t rowBytes(int width, int bytesPerPixel, GLint rowLength, GLint alignment) 
     size_t row = size_t(rowLength > 0 ? rowLength : width) * size_t(bytesPerPixel);
     const size_t a = size_t(alignment > 0 ? alignment : 1);
     return (row + a - 1) / a * a;
+}
+
+// ---- pixel conversions between client data (format / type) and the Metal storage ----
+
+enum class Kind { F16, F32, U8, U16, U32, I8, I16, I32 };
+
+struct Layout {
+    int components = 0;
+    Kind kind = Kind::U8;
+    int size() const {
+        const int b = kind == Kind::U8 || kind == Kind::I8 ? 1 : kind == Kind::F16 || kind == Kind::U16 || kind == Kind::I16 ? 2 : 4;
+        return components * b;
+    }
+};
+
+Layout clientLayout(GLenum format, GLenum type) {
+    Kind k = Kind::U8;
+    switch (type) {
+    case GL_FLOAT: k = Kind::F32; break;
+    case GL_HALF_FLOAT: k = Kind::F16; break;
+    case GL_UNSIGNED_SHORT: k = Kind::U16; break;
+    case GL_UNSIGNED_INT: k = Kind::U32; break;
+    case GL_BYTE: k = Kind::I8; break;
+    case GL_SHORT: k = Kind::I16; break;
+    case GL_INT: k = Kind::I32; break;
+    default: k = Kind::U8; break;
+    }
+    return {componentsOf(format), k};
+}
+
+Layout storageLayout(MTLPixelFormat f) {
+    switch (f) {
+    case MTLPixelFormatR8Unorm: case MTLPixelFormatR8Uint: return {1, Kind::U8};
+    case MTLPixelFormatRG8Unorm: case MTLPixelFormatRG8Uint: return {2, Kind::U8};
+    case MTLPixelFormatRGBA8Unorm: case MTLPixelFormatRGBA8Uint: return {4, Kind::U8};
+    case MTLPixelFormatR8Sint: return {1, Kind::I8};
+    case MTLPixelFormatRGBA8Sint: return {4, Kind::I8};
+    case MTLPixelFormatR16Float: return {1, Kind::F16};
+    case MTLPixelFormatRG16Float: return {2, Kind::F16};
+    case MTLPixelFormatRGBA16Float: return {4, Kind::F16};
+    case MTLPixelFormatR32Float: return {1, Kind::F32};
+    case MTLPixelFormatRG32Float: return {2, Kind::F32};
+    case MTLPixelFormatRGBA32Float: return {4, Kind::F32};
+    case MTLPixelFormatR16Uint: return {1, Kind::U16};
+    case MTLPixelFormatRG16Uint: return {2, Kind::U16};
+    case MTLPixelFormatRGBA16Uint: return {4, Kind::U16};
+    case MTLPixelFormatR16Sint: return {1, Kind::I16};
+    case MTLPixelFormatRG16Sint: return {2, Kind::I16};
+    case MTLPixelFormatRGBA16Sint: return {4, Kind::I16};
+    case MTLPixelFormatR32Uint: return {1, Kind::U32};
+    case MTLPixelFormatRG32Uint: return {2, Kind::U32};
+    case MTLPixelFormatRGBA32Uint: return {4, Kind::U32};
+    case MTLPixelFormatR32Sint: return {1, Kind::I32};
+    case MTLPixelFormatRG32Sint: return {2, Kind::I32};
+    case MTLPixelFormatRGBA32Sint: return {4, Kind::I32};
+    default: return {0, Kind::U8};
+    }
+}
+
+inline uint16_t floatToHalf(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, 4);
+    const uint32_t sign = (x >> 16) & 0x8000u;
+    const uint32_t mant = x & 0x007fffffu;
+    const int exp = int((x >> 23) & 0xff) - 127 + 15;
+    if (((x >> 23) & 0xff) == 0xff) return uint16_t(sign | 0x7c00u | (mant ? 0x200u : 0u));
+    if (exp >= 31) return uint16_t(sign | 0x7c00u);
+    if (exp <= 0) {
+        if (exp < -10) return uint16_t(sign);
+        const uint32_t m = mant | 0x00800000u;
+        const int shift = 14 - exp;
+        uint32_t h = m >> shift;
+        const uint32_t rem = m & ((1u << shift) - 1), half = 1u << (shift - 1);
+        if (rem > half || (rem == half && (h & 1u))) ++h;
+        return uint16_t(sign | h);
+    }
+    uint32_t h = (uint32_t(exp) << 10) | (mant >> 13);
+    const uint32_t rem = mant & 0x1fffu;
+    if (rem > 0x1000u || (rem == 0x1000u && (h & 1u))) ++h; // round to nearest even (as the GL / Metal conversions)
+    return uint16_t(sign | h);
+}
+
+inline float halfToFloat(uint16_t h) {
+    const uint32_t sign = uint32_t(h & 0x8000u) << 16;
+    uint32_t exp = (h >> 10) & 0x1f, mant = h & 0x3ffu, x;
+    if (exp == 0) {
+        if (mant == 0) x = sign;
+        else {
+            exp = 127 - 15 + 1;
+            while (!(mant & 0x400u)) { mant <<= 1; --exp; }
+            mant &= 0x3ffu;
+            x = sign | (exp << 23) | (mant << 13);
+        }
+    } else if (exp == 31) x = sign | 0x7f800000u | (mant << 13);
+    else x = sign | ((exp - 15 + 127) << 23) | (mant << 13);
+    float f;
+    std::memcpy(&f, &x, 4);
+    return f;
+}
+
+inline double readComponent(const uint8_t* p, Kind k) {
+    switch (k) {
+    case Kind::F16: { uint16_t v; std::memcpy(&v, p, 2); return halfToFloat(v); }
+    case Kind::F32: { float v; std::memcpy(&v, p, 4); return v; }
+    case Kind::U8: return p[0];
+    case Kind::I8: return int8_t(p[0]);
+    case Kind::U16: { uint16_t v; std::memcpy(&v, p, 2); return v; }
+    case Kind::I16: { int16_t v; std::memcpy(&v, p, 2); return v; }
+    case Kind::U32: { uint32_t v; std::memcpy(&v, p, 4); return v; }
+    case Kind::I32: { int32_t v; std::memcpy(&v, p, 4); return v; }
+    }
+    return 0;
+}
+
+inline void writeComponent(uint8_t* p, Kind k, double v) {
+    switch (k) {
+    case Kind::F16: { const uint16_t h = floatToHalf(float(v)); std::memcpy(p, &h, 2); break; }
+    case Kind::F32: { const float f = float(v); std::memcpy(p, &f, 4); break; }
+    case Kind::U8: p[0] = uint8_t(v); break;
+    case Kind::I8: p[0] = uint8_t(int8_t(v)); break;
+    case Kind::U16: { const uint16_t x = uint16_t(v); std::memcpy(p, &x, 2); break; }
+    case Kind::I16: { const int16_t x = int16_t(v); std::memcpy(p, &x, 2); break; }
+    case Kind::U32: { const uint32_t x = uint32_t(v); std::memcpy(p, &x, 4); break; }
+    case Kind::I32: { const int32_t x = int32_t(v); std::memcpy(p, &x, 4); break; }
+    }
+}
+
+// A float client value of an 8-bit normalised storage (GL_FLOAT into RGBA8) is in 0..1; bytes of U8 storage are copied.
+inline double toStorage(double v, Kind client, Kind storage, bool normalised) {
+    if (normalised && (client == Kind::F32 || client == Kind::F16)) return std::round(std::min(1.0, std::max(0.0, v)) * 255.0);
+    return v;
+}
+inline double toClient(double v, Kind storage, Kind client, bool normalised) {
+    if (normalised && (client == Kind::F32 || client == Kind::F16)) return v / 255.0;
+    return v;
+}
+
+/// Rows of `width` pixels from `src` (client layout, `srcRow` bytes a row) into tight storage-layout rows.
+std::vector<uint8_t> convertRows(const uint8_t* src, size_t srcRow, int width, int height, Layout from, Layout to, bool normalised) {
+    std::vector<uint8_t> out(size_t(to.size()) * size_t(width) * size_t(height));
+    const int fb = from.size() / std::max(from.components, 1), tb = to.size() / std::max(to.components, 1);
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* s = src + size_t(y) * srcRow;
+        uint8_t* d = out.data() + size_t(y) * size_t(width) * size_t(to.size());
+        for (int x = 0; x < width; ++x) {
+            for (int c = 0; c < to.components; ++c) {
+                const double v = c < from.components ? toStorage(readComponent(s + c * fb, from.kind), from.kind, to.kind, normalised)
+                                                     : (to.kind == Kind::U8 && normalised ? 255.0 : 1.0);
+                writeComponent(d + c * tb, to.kind, v);
+            }
+            s += from.size();
+            d += to.size();
+        }
+    }
+    return out;
 }
 
 id<MTLSamplerState> samplerOf(Texture& t) {
@@ -617,6 +784,10 @@ void glGetIntegerv(GLenum name, GLint* data) {
     case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT: *data = 16; break;
     case GL_ACTIVE_TEXTURE: *data = GLint(GL_TEXTURE0 + (c ? c->activeUnit : 0)); break;
     case GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS: *data = 1024; break;
+    case GL_FRAMEBUFFER_BINDING: *data = GLint(c ? c->drawFb : 0); break;
+    case GL_TEXTURE_BINDING_2D: *data = GLint(c ? c->tex2D[c->activeUnit] : 0); break;
+    case GL_CURRENT_PROGRAM: *data = GLint(c ? c->program : 0); break;
+    case GL_VIEWPORT: if (c) for (int i = 0; i < 4; ++i) data[i] = c->viewport[i]; break;
     case GL_MAX_COMPUTE_SHARED_MEMORY_SIZE: *data = 32768; break;
     default: *data = 0; note("glGetIntegerv " + std::to_string(name)); break;
     }
@@ -831,6 +1002,11 @@ void glTexStorage2D(GLenum target, GLsizei levels, GLenum internal, GLsizei widt
 void glTexStorage3D(GLenum target, GLsizei levels, GLenum internal, GLsizei width, GLsizei height, GLsizei depth) {
     storage(target, levels, internal, width, height, depth);
 }
+void glTexImage2D(GLenum target, GLint level, GLint internal, GLsizei width, GLsizei height, GLint, GLenum format, GLenum type,
+                  const void* pixels) {
+    if (level == 0) storage(target, 1, GLenum(internal), width, height, 1);
+    if (pixels) glTexSubImage2D(target, level, 0, 0, width, height, format, type, pixels);
+}
 void glTexSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                      const void* pixels) {
     Guard g(gLock);
@@ -838,12 +1014,23 @@ void glTexSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei width
     Texture* t = c ? boundTexture(*c, target) : nullptr;
     if (!t || !t->mtl) { fail(GL_INVALID_OPERATION); return; }
     const int bpp = componentsOf(format) * typeBytes(type);
-    if (bpp != formatOf(t->internal).bytes) { note("glTexSubImage2D: conversion not supported"); fail(GL_INVALID_OPERATION); return; }
     const uint8_t* src = static_cast<const uint8_t*>(pixels);
     if (Buffer* unpack = bufferBound(*c, GL_PIXEL_UNPACK_BUFFER)) src = static_cast<const uint8_t*>(unpack->mtl.contents) + reinterpret_cast<uintptr_t>(pixels);
-    const size_t row = rowBytes(width, bpp, c->unpackRowLength, c->unpackAlignment);
-    const size_t bytes = row * size_t(height - 1) + size_t(width) * size_t(bpp);
-    id<MTLBuffer> staging = [metalDevice() newBufferWithBytes:src length:bytes options:MTLResourceStorageModeShared];
+    if (!src || width <= 0 || height <= 0) return;
+    size_t row = rowBytes(width, bpp, c->unpackRowLength, c->unpackAlignment);
+    id<MTLBuffer> staging;
+    if (bpp != formatOf(t->internal).bytes) {
+        const Layout to = storageLayout(t->mtl.pixelFormat), from = clientLayout(format, type);
+        if (!to.components || !from.components) { note("glTexSubImage2D: conversion not supported"); fail(GL_INVALID_OPERATION); return; }
+        const bool normalised = t->mtl.pixelFormat == MTLPixelFormatRGBA8Unorm || t->mtl.pixelFormat == MTLPixelFormatR8Unorm
+            || t->mtl.pixelFormat == MTLPixelFormatRG8Unorm;
+        const std::vector<uint8_t> converted = convertRows(src, row, width, height, from, to, normalised);
+        row = size_t(to.size()) * size_t(width);
+        staging = [metalDevice() newBufferWithBytes:converted.data() length:converted.size() options:MTLResourceStorageModeShared];
+    } else {
+        const size_t bytes = row * size_t(height - 1) + size_t(width) * size_t(bpp);
+        staging = [metalDevice() newBufferWithBytes:src length:bytes options:MTLResourceStorageModeShared];
+    }
     id<MTLTexture> dst = t->mtl;
     blit(*c, ^(id<MTLBlitCommandEncoder> e) {
         [e copyFromBuffer:staging sourceOffset:0 sourceBytesPerRow:row sourceBytesPerImage:row * size_t(height)
@@ -895,13 +1082,35 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
     auto t = fb == gFramebuffers.end() ? gTextures.end() : gTextures.find(fb->second.color[0]);
     if (t == gTextures.end() || !t->second.mtl) { fail(GL_INVALID_OPERATION); return; }
     const int bpp = componentsOf(format) * typeBytes(type);
-    if (bpp != formatOf(t->second.internal).bytes) { note("glReadPixels: conversion not supported"); fail(GL_INVALID_OPERATION); return; }
     submit(*c, true);
     uint8_t* dst = static_cast<uint8_t*>(pixels);
     if (Buffer* pack = bufferBound(*c, GL_PIXEL_PACK_BUFFER)) dst = static_cast<uint8_t*>(pack->mtl.contents) + reinterpret_cast<uintptr_t>(pixels);
     const size_t row = rowBytes(width, bpp, c->packRowLength, c->packAlignment);
-    [t->second.mtl getBytes:dst bytesPerRow:row fromRegion:MTLRegionMake2D(NSUInteger(x), NSUInteger(y), NSUInteger(width), NSUInteger(height))
-                mipmapLevel:0];
+    const MTLRegion region = MTLRegionMake2D(NSUInteger(x), NSUInteger(y), NSUInteger(width), NSUInteger(height));
+    if (bpp == formatOf(t->second.internal).bytes) {
+        [t->second.mtl getBytes:dst bytesPerRow:row fromRegion:region mipmapLevel:0];
+        return;
+    }
+    // GL_FLOAT of a half-float target, RGB of an RGBA store, ...: read the storage, convert the rows
+    const Layout from = storageLayout(t->second.mtl.pixelFormat), to = clientLayout(format, type);
+    if (!from.components || !to.components) { note("glReadPixels: conversion not supported"); fail(GL_INVALID_OPERATION); return; }
+    std::vector<uint8_t> raw(size_t(from.size()) * size_t(width) * size_t(height));
+    [t->second.mtl getBytes:raw.data() bytesPerRow:size_t(from.size()) * size_t(width) fromRegion:region mipmapLevel:0];
+    const bool normalised = t->second.mtl.pixelFormat == MTLPixelFormatRGBA8Unorm || t->second.mtl.pixelFormat == MTLPixelFormatR8Unorm
+        || t->second.mtl.pixelFormat == MTLPixelFormatRG8Unorm;
+    const int fb = from.size() / from.components, tb = to.size() / to.components;
+    for (int yy = 0; yy < height; ++yy) {
+        const uint8_t* sp = raw.data() + size_t(yy) * size_t(width) * size_t(from.size());
+        uint8_t* dp = dst + size_t(yy) * row;
+        for (int xx = 0; xx < width; ++xx) {
+            for (int k = 0; k < to.components; ++k) {
+                const double v = k < from.components ? toClient(readComponent(sp + k * fb, from.kind), from.kind, to.kind, normalised) : 1.0;
+                writeComponent(dp + k * tb, to.kind, v);
+            }
+            sp += from.size();
+            dp += to.size();
+        }
+    }
 }
 void glClearBufferfv(GLenum buffer, GLint drawBuffer, const GLfloat* value) {
     Guard g(gLock);
@@ -1212,7 +1421,7 @@ void glProgramUniform4f(GLuint p, GLint l, GLfloat a, GLfloat b, GLfloat c, GLfl
     const GLfloat v[] = {a, b, c, d};
     writeUniform(p, l, 4, 1, v, 0);
 }
-void glProgramUniformMatrix4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+static void writeMatrix(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value, int n) {
     Guard g(gLock);
     auto it = gPrograms.find(program);
     if (location < 0 || it == gPrograms.end() || !it->second.linked || location >= GLint(it->second.locations.size())) return;
@@ -1224,13 +1433,25 @@ void glProgramUniformMatrix4fv(GLuint program, GLint location, GLsizei count, GL
     const uint32_t stride = m.arrayStride ? m.arrayStride : m.size;
     for (GLsizei i = 0; i < count && uint32_t(loc.element + i) < m.count; ++i) {
         uint8_t* dst = p.block.data() + m.offset + uint32_t(loc.element + i) * stride;
-        for (int col = 0; col < 4; ++col)
-            for (int row = 0; row < 4; ++row) {
-                const float v = transpose ? value[i * 16 + row * 4 + col] : value[i * 16 + col * 4 + row];
+        for (int col = 0; col < n; ++col)
+            for (int row = 0; row < n; ++row) {
+                const float v = transpose ? value[i * n * n + row * n + col] : value[i * n * n + col * n + row];
                 std::memcpy(dst + col * colStride + row * 4, &v, 4);
             }
     }
 }
+void glProgramUniformMatrix4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+    writeMatrix(program, location, count, transpose, value, 4);
+}
+void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+    writeMatrix(currentProgram(), location, count, transpose, value, 4);
+}
+void glUniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+    writeMatrix(currentProgram(), location, count, transpose, value, 3);
+}
+void glUniform3i(GLint l, GLint a, GLint b, GLint c) { const GLint v[] = {a, b, c}; writeUniform(currentProgram(), l, 3, 1, v, 1); }
+void glUniform2ui(GLint l, GLuint a, GLuint b) { const GLuint v[] = {a, b}; writeUniform(currentProgram(), l, 2, 1, v, 2); }
+void glUniform1ui(GLint l, GLuint a) { writeUniform(currentProgram(), l, 1, 1, &a, 2); }
 
 // ---- dispatch, sync, queries ----
 
