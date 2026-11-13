@@ -85,6 +85,43 @@ public final class YuvMergeRoute {
         }
     }
 
+    /**
+     * P667: the module slot whose switch decides the route of a session on {@code physicalId}: the active module when it is this
+     * camera, else the first visible module of this camera, else any module of it; null when no module is this camera (the
+     * route then follows {@link #defaultOn}). Before P667 only the active module counted: a session that opened camera "1" while
+     * the stored module was still a back one (the app's first open, a restart that reopened the front camera; owner's logs of
+     * builds 31262 / 31266) ran the plain RAW-less session at 8 bits from the ring, the next one after a lens flip the route's
+     * P010 / HLG10 series - two different photos from one camera.
+     */
+    @Nullable
+    public static String slotFor(@Nullable String physicalId, @Nullable String active, @Nullable java.util.List<String> slots,
+                                 java.util.function.Function<String, String> cameraOf, java.util.function.Predicate<String> visible) {
+        if (physicalId == null) return null;
+        if (active != null && physicalId.equals(cameraOf.apply(active))) return active;
+        String any = null;
+        if (slots != null)
+            for (String slot : slots) {
+                if (!physicalId.equals(cameraOf.apply(slot))) continue;
+                if (visible.test(slot)) return slot;
+                if (any == null) any = slot;
+            }
+        return any;
+    }
+
+    /** P667: the route of a session on {@code physicalId}: the switch of its {@link #slotFor} module, else the default. */
+    public static boolean onFor(@Nullable Map<String, ?> values, @Nullable String physicalId, @Nullable String slot, boolean x200Pro) {
+        if (physicalId == null) return false;
+        return slot != null ? on(values, slot, physicalId, x200Pro) : defaultOn(x200Pro, physicalId);
+    }
+
+    /**
+     * P667: the default of «YUV: 10 бит» - off. The X200 Pro front camera's HLG10 session (build 31266) gave a washed-out white
+     * photo and viewfinder: its HAL renders the whole session for HLG (the STANDARD viewfinder stream too), and where its HLG
+     * puts the scene's white is the camera's choice (BT.2408 says 75 % of the signal; the merge has to assume one), while the
+     * 8-bit stream's white is the code 255 by definition. 8 bits, our capture curve, give the photo of the 8-bit session.
+     */
+    public static final boolean TEN_BIT_DEFAULT = false;
+
     /** The current module's lens has the route on (the settings' greying: DeviceAvailability); never throws. */
     public static boolean activeOn(@Nullable Map<String, ?> values) {
         try {
@@ -153,11 +190,13 @@ public final class YuvMergeRoute {
         YuvFrames.sessionHlg = false;
         try {
             if (physicalId == null || map == null || c == null || !PreferenceKeys.scamDevSwitch("yuv_merge", true)) return null;
-            final String slot = ModuleRegistry.active();
-            final String camera = cameraOf(slot);
-            if (!physicalId.equals(camera)) return null;
+            final String active = ModuleRegistry.active();
+            final String slot = slotFor(physicalId, active, ModuleRegistry.slots(), YuvMergeRoute::cameraOf, ModuleRegistry::visible);
             final Map<String, ?> values = com.scamera.app.app.ScameraApp.getSettingsManagerStatic().getDefaultPreferences().getAll();
-            if (!on(values, slot, camera, x200Pro())) return null;
+            if (!onFor(values, physicalId, slot, x200Pro())) return null;
+            if (slot != null && !slot.equals(active))
+                Log.i(TAG, "YUV MERGE camera " + physicalId + ": the stored module " + active + " is another camera, module " + slot + "'s switch (P667)");
+            else if (slot == null) Log.i(TAG, "YUV MERGE camera " + physicalId + ": no module of this camera yet, the default switch (P667)");
             final Size largest = largest(map.getOutputSizes(YUV));
             if (largest == null) {
                 Log.w(TAG, "YUV MERGE camera " + physicalId + ": no YUV_420_888 size, the route is off");
@@ -189,7 +228,7 @@ public final class YuvMergeRoute {
 
     /** P010 at the YUV still size with HLG10 allowed beside STANDARD (the viewfinder), Android 13, not refused, the row on. */
     static boolean tenBit(String camera, StreamConfigurationMap map, CameraCharacteristics c, Size still, StringBuilder why) {
-        if (!PreferenceKeys.hybridSwitch("yuv_10bit", true)) return false;
+        if (!PreferenceKeys.hybridSwitch("yuv_10bit", TEN_BIT_DEFAULT)) { why.append("10 bit off"); return false; }
         if (Build.VERSION.SDK_INT < 33) { why.append("10 bit needs Android 13"); return false; }
         if (sTenBitRefused.contains(camera)) { why.append("10 bit refused by this camera before"); return false; }
         boolean size = false;

@@ -50,6 +50,8 @@ public class ImageFrame {
     /** P646 «Склейка YUV»: bits of a YUV frame's packed planar samples (8, 10; 0: a RAW frame), and the session's HLG10 stream. */
     public int yuvBits;
     public boolean yuvHlg;
+    /** P667: the YCbCr range the camera's Image declares (its dataspace, Android 13): 0 not declared, 1 full, 2 limited. */
+    public int yuvRange;
     /** P646: packs a deferred YUV ring frame's three planes at its copy (null: the RAW copy of plane 0). */
     public java.util.function.Supplier<ByteBuffer> yuvPacker;
     /** SCAM: L exposure ratio for an L built from the ZSL N frames (0 = L was captured). */

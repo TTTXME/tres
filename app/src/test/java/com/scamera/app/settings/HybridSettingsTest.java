@@ -1412,6 +1412,27 @@ public class HybridSettingsTest {
         assertEquals(1,prefs.getInt(SettingsMigration.FRINGE_LIGHT_REV,0));
     }
 
+    @Test public void yuvTenBitFormerDefaultMovesOffOnce() {
+        // P667: a stored «YUV: 10 бит» on (the former XML default, written by setDefaultValues) moves once to off; switched on again
+        // after the move it stays; a stored off stays off
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
+                .putBoolean("pref_scam_hybrid_yuv_10bit",true).commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        assertFalse(prefs.getBoolean("pref_scam_hybrid_yuv_10bit",true));
+        assertEquals(1,prefs.getInt(SettingsMigration.YUV_TEN_BIT_REV,0));
+        assertFalse(PreferenceKeys.hybridSwitch("yuv_10bit",com.scamera.app.capture.YuvMergeRoute.TEN_BIT_DEFAULT));
+        prefs.edit().putBoolean("pref_scam_hybrid_yuv_10bit",true).commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertTrue("once: switched on by hand later it stays",prefs.getBoolean("pref_scam_hybrid_yuv_10bit",false));
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1).commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertFalse("nothing stored: the default, off",prefs.contains("pref_scam_hybrid_yuv_10bit"));
+        assertFalse(PreferenceKeys.hybridSwitch("yuv_10bit",com.scamera.app.capture.YuvMergeRoute.TEN_BIT_DEFAULT));
+        assertEquals(1,prefs.getInt(SettingsMigration.YUV_TEN_BIT_REV,0));
+    }
+
     @Test public void denoiseAndMergeLayoutJoinsOnce() {
         // P629: «Шумоподавление» and «Склейка» are one group; a stored order of their groups («Расположение») becomes the group's line
         // once - the denoise groups first -, the other pages' lines and every value as they were

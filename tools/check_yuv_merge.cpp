@@ -12,6 +12,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <numeric>
 #include <random>
 
 using namespace scam_yuv;
@@ -839,6 +840,93 @@ static void checkTenBitHlg() {
     }
 }
 
+/**
+ * P667: a room (no deep black, no clipped white: Y within the narrow range) taken (a) at 8 bits with our capture curve and (b) as
+ * the camera's HLG10 P010 stream, its white at HLG's reference (BT.2408: 75 % of the signal) in FULL range - Camera2's HLG10
+ * dataspace (DataSpace.DATASPACE_BT2020_HLG) - must give the same linear light to the tone: the same brightness and contrast.
+ * With the range declared (the Image's dataspace) it does; guessed from the Y extremes (before P667) the room reads as narrow
+ * range and its light comes out with the highlights too bright and the shadows too dark.
+ */
+static void checkHlgMatchesEightBit() {
+    const int w = 256, h = 192;
+    Scene room(w, h, false, 91);
+    for (float& v : room.rgb) v = std::clamp(0.62f * v, 0.f, 0.85f);  // a dim room: 0.4 % .. 85 % of the white
+    std::vector<float> in, out;
+    const Transfer points = pointsCurve(in, out);
+    const auto curve = pointsEncoder(in, out);
+    std::vector<FrameInfo> info(4);
+    Settings set;
+    std::vector<float> eight(std::size_t(w) * h * 3);
+    {
+        std::vector<Owned<uint8_t>> frames;
+        for (int j = 0; j < 4; ++j) frames.push_back(encode(room.rgb, w, h, curve, 0.0004f, 1e-6f, 900 + j));
+        std::vector<Frame420<uint8_t>> views;
+        for (auto& f : frames) views.push_back(f.view());
+        mergeBurst(views, info, set, points, Decoder{}, NoiseFallback{0.0001f, 1e-6f}, eight.data());
+    }
+    // the HLG stream: scene light x (1 = the white) at HLG's reference white, 0.265 of its peak
+    const float white = Transfer::hlgDecode(0.75f);
+    std::vector<float> scaled(room.rgb);
+    for (float& v : scaled) v *= white;
+    Transfer hlg;
+    hlg.kind = Transfer::HLG;
+    hlg.build();
+    // mode: 2 full (declared), 1 narrow unless the extremes say full (the guess before P667), 3 narrow (declared, narrow frames)
+    for (int mode : {2, 1, 3}) {
+        std::vector<Owned<uint16_t>> frames;
+        for (int j = 0; j < 4; ++j) frames.push_back(encodeHlg(scaled, w, h, 0.004f, 950 + j, mode == 3));
+        std::vector<Frame420<uint16_t>> views;
+        for (auto& f : frames) views.push_back(f.view());
+        Decoder d;
+        d.bits = 10;
+        d.bt2020 = true;
+        d.narrow = mode != 2;
+        d.rangeKnown = mode != 1;
+        std::vector<float> ten(std::size_t(w) * h * 3);
+        const Report rep = mergeBurst(views, info, set, hlg, d, NoiseFallback{0.0001f, 1e-6f}, ten.data());
+        // brightness: the median luminance ratio of 8 x 8 blocks (the two bursts' noise averaged out); contrast: p90 / p10 of the
+        // luminance; both against the 8-bit result
+        std::vector<float> ratio, l8, l10;
+        for (std::size_t p = 0; p < std::size_t(w) * h; ++p) {
+            l8.push_back(luminance(&eight[p * 3]));
+            l10.push_back(luminance(&ten[p * 3]));
+        }
+        for (int by = 0; by + 8 <= h; by += 8)
+            for (int bx = 0; bx + 8 <= w; bx += 8) {
+                double a = 0, b = 0;
+                for (int y = by; y < by + 8; ++y)
+                    for (int x = bx; x < bx + 8; ++x) {
+                        a += l8[std::size_t(y) * w + x];
+                        b += l10[std::size_t(y) * w + x];
+                    }
+                if (a > 64 * 0.01) ratio.push_back(float(b / a));
+            }
+        auto pct = [](std::vector<float> v, float q) {
+            const std::size_t k = std::min(v.size() - 1, std::size_t(q * float(v.size())));
+            std::nth_element(v.begin(), v.begin() + k, v.end());
+            return v[k];
+        };
+        const float bright = pct(ratio, 0.5f), hi = pct(ratio, 0.98f), lo = pct(ratio, 0.02f);
+        const float contrast = (pct(l10, 0.9f) / pct(l10, 0.1f)) / (pct(l8, 0.9f) / pct(l8, 0.1f));
+        const float mean10 = std::accumulate(l10.begin(), l10.end(), 0.f) / float(l10.size());
+        const float mean8 = std::accumulate(l8.begin(), l8.end(), 0.f) / float(l8.size());
+        std::printf("HLG10 vs 8-bit (%s): brightness x%.3f (2 %% .. 98 %% of 8x8 blocks x%.3f .. x%.3f), mean x%.3f, contrast p90/p10 x%.3f, %s\n",
+                    mode == 2 ? "full range declared" : mode == 1 ? "full range, range guessed" : "narrow range declared", bright, lo,
+                    hi, mean10 / mean8, contrast, rep.decodeNote.c_str());
+        if (mode == 1) {
+            // the guess the phone's photo took: narrow - the room's light no longer the 8-bit one's
+            CHECK(rep.decodeNote == "narrow range");
+            CHECK(hi > 1.15f || contrast > 1.15f);
+        } else {
+            CHECK(std::fabs(bright - 1.f) < 0.02f);
+            CHECK(lo > 0.95f && hi < 1.05f);
+            CHECK(std::fabs(contrast - 1.f) < 0.03f);
+            CHECK(std::fabs(mean10 / mean8 - 1.f) < 0.02f);
+            CHECK(rep.decodeNote == (mode == 2 ? "full range (declared)" : "narrow range (declared)"));
+        }
+    }
+}
+
 int main() {
     checkStages();
     checkPrepared();
@@ -849,6 +937,7 @@ int main() {
     checkGuidedChroma();
     checkBracket();
     checkTenBitHlg();
+    checkHlgMatchesEightBit();
     if (failures) {
         std::fprintf(stderr, "check_yuv_merge: %d failures\n", failures);
         return 1;
