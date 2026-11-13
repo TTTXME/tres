@@ -22,9 +22,6 @@
     <string name="accent_name_white">White</string>
     <!-- Manual controls in the card style (MANUAL_TASK.md): names stay in content descriptions and toasts only. -->
     <string name="manual_tab_iso" translatable="false">ISO</string>
-    <string name="manual_state_auto">auto</string>
-    <string name="manual_state_manual">man.</string>
-    <string name="manual_state_off">off</string>
     <string name="manual_value_auto">Auto</string>
     <string name="manual_all_auto">All auto</string>
     <string name="manual_toast_auto">%1$s: auto</string>

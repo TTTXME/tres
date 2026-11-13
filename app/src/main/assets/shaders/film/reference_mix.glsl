@@ -1,6 +1,4 @@
-precision highp float;
-precision highp sampler2D;
-precision highp sampler3D;
+precision highp float; precision highp sampler2D; precision highp sampler3D;
 #define FILM_LUT 0
 #define FILM_TO_P3 0
 uniform sampler2D InputBuffer;

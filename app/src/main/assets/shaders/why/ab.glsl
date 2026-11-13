@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY tone (WhyFusion): guided-filter coefficients [fc_cl_source.cl:1343-1372 gf_compute_ab] per weight channel k:
 // a = cov(I, p_k) / (var I + eps), b = mean p_k - a * mean I (MODE 0 writes a, MODE 1 writes b).
 #define MODE 0

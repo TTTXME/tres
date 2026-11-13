@@ -22,6 +22,7 @@
 #include "scam-la-gpu.h"     // P308 the F6 alignment on the GPU (laGpu)
 #include "scam-fast-gpu.h"    // the fast merge route's GPU side (tune fastMerge, scam-fast-merge.h at the end)
 #include "scam-crash.h"
+#include "scam-glsl-guard.h" // P662 the compile refusals remembered, SCAM_GLSL_DUMP
 #include "scam-progress.h" // P220 the heartbeat counters (the app's watchdog and processing ring)
 #include "scam-bayer-quads.h"
 #include "scam-dcg-noise.h" // P320 the DCG two-zone noise fit (dcgNoiseFit)
@@ -296,6 +297,48 @@ struct HybridTuning {
     // the mosaic merge through the guide, the native Quad / Tetra merge from the same covariance, the fast route) - see
     // hybridKernelFootprint.
     float kernelTexture=1.f,kernelBokeh=1.f,kernelTransition=1.f;
+    // P647 (owner, 2026-11-12: «by day detail better, at night noise lower ... depend on SNR»): the three footprints follow the
+    // burst's SNR key on top of the user's factors above (user 1 = the automatic value alone, another value scales it); kernelSnr 0 =
+    // static footprints (the user's alone, bit for bit as before P647). The key: the 6.1 key of one sensor site (key61 / the fast
+    // route's snr) x the colour block (1 Bayer, 2 Quad, 4 Tetra: the SNR of the block's mean, so a Quad / Tetra daylight burst reads
+    // as one). Each factor is 1 at kernelSnrPivot and blends in log(key) by smoothstep to its day value at kernelSnrDay and above,
+    // to its night value at kernelSnrNight and below (continuous, monotone, flat beyond both ends); Tetra (tetraDay: shot by day
+    // only) never takes the night side. The fast route's transition takes kernelSnrFastNight on top at the night end (its ramp is
+    // not noise-relative: the reference's fixed clip 0.001 / slope 166.67, see hybridKernelFootprintSnr). See PLAN.md P647.
+    int kernelSnr=1;
+    float kernelSnrNight=8.f,kernelSnrPivot=14.f,kernelSnrDay=40.f;
+    float kernelSnrDayTexture=0.85f,kernelSnrDayBokeh=1.2f,kernelSnrDayTransition=1.5f;
+    float kernelSnrNightTexture=1.1f,kernelSnrNightBokeh=1.f,kernelSnrNightTransition=1.8f;
+    float kernelSnrFastNight=2.75f;
+    // the kernel across edges by day (night 1): Sabre 6.1 k61a[0] / edge, round 4 shrunk x edge; «Быстрый»: its shrink / edge and
+    // the packing range of its precisions x the lift (the reference's range capped every kernel at precision 5: the shrink 8.8
+    // never reached the merge, the base beyond x0.81) - see scam-fast-merge.h covRangeRg and P647b below
+    float kernelSnrDayEdge=0.8f;
+    // P647b (the review of P647: a period-1 zipper where the texture narrowed - schoolb «Качество» +10 %, churcha «Быстрый» +8 %, the
+    // synthetic Quad's period-2 checker «Быстрый» +8 % -, a lamp crop -0.1 .. -0.3 % detail): the day side per colour block and route,
+    // each value swept on the day crops (zipper / checker within 2 % of before, detail not below before; PLAN.md P647b):
+    // - texture by day: Tetra kernelSnrDayTexture (0.85, both routes), the Quad SCAM merge kernelSnrDayTextureQuad (0.92), Bayer
+    //   (both routes) kernelSnrDayTextureBayer and the fast Quad route kernelSnrDayTextureQuadFast (1: a narrower base drew the zipper);
+    // - across edges: kernelSnrDayEdge (0.8), the fast Quad route kernelSnrDayEdgeQuadFast (0.85: its period-2 checker); the fast route's
+    //   packing range x 1 / edge^2 with them;
+    // - the fast Bayer route: from kernelSnrFastBayerFrom (30; up to it every day factor 1: the lift alone cost a key-21 crop's fine
+    //   detail) to kernelSnrFastBayerTo (60) its packing range x kernelSnrDayFastLiftBayer (3: the reference's cap at precision 5 ->
+    //   8.7, the shrink reaches the merge, the clip no longer bends the kernel's axes) with the shrink / kernelSnrDayEdgeBayerFast
+    //   (1.1: 8.0; x0.8 there cost a lamp crop and the school crop 0.1 % detail); its bokeh / transition on the same ramp;
+    // - the transition of the Bayer SCAM merge: kernelSnrDayTransitionBayer (1.25; x1.5 cost the school crop 0.1 % detail).
+    float kernelSnrDayTextureBayer=1.f,kernelSnrDayTextureQuad=0.92f,kernelSnrDayTextureQuadFast=1.f,kernelSnrDayEdgeQuadFast=0.85f;
+    float kernelSnrDayTransitionBayer=1.25f;
+    float kernelSnrDayEdgeBayerFast=1.1f,kernelSnrDayFastLiftBayer=3.f;
+    float kernelSnrFastBayerFrom=30.f,kernelSnrFastBayerTo=60.f;
+    // - a Bayer burst of few frames keeps its kernel by day: its day-side factors scale by smoothstep over kernelSnrDayFramesLo (6)
+    //   .. kernelSnrDayFramesHi (10) frames merged (a narrower kernel needs the sub-pixel cover of many frames on the R / B lattice:
+    //   a 5-frame synthetic texture lost 2.8 % detail and its error against the scene rose 2 % with the narrowing across edges)
+    float kernelSnrDayFramesLo=6.f,kernelSnrDayFramesHi=10.f;
+    // P647b: where the base kernel widens (below widenBelow accepted donors) the widening (widenMul) also undoes the day narrowing
+    // (min(texture, across edges)) to this power: 0 = the narrowed kernel x widenMul (P647), 1 = the kernel before x widenMul; the
+    // plain merge only. 0.5: the lamp crop (hand-held, leaves in the wind) -0.14 -> +0.07 % detail with its zipper within 2 % (1:
+    // +0.35 % but the zipper +4 %)
+    float kernelSnrWiden=0.5f;
     float widenBelow=4.f;        // base-frame kernel widening below this accumulated donor weight (6.1: 4.0)
     float widenMul=1.826f;       // 6.1: covariance x0.3 = sigma x1.826
     float kernelFloor=0.00005f;  // 6.1 kEpsilon: no hole where the kernel is narrower than the lattice
@@ -696,6 +739,9 @@ struct HybridTuning {
     // every merge strip's output buffer carries sentinel words before its passes; a strip read back with one left is not written
     // (a dropped or faulted GPU job): the merge fails instead of handing over stale rows; 0 = no stamps and no check, as before
     int stripGuard=1;
+    // P662: the «Качество» merge's GPU dispatches each a submission of its own, at most gpuPace of them in flight (the viewfinder's
+    // frames are not queued behind a strip's passes); the same commands in the same order (the output bit for bit); 0 = as before
+    int gpuPace=2;
     int gpuAlignUsRegister=0;    // P364: 1 = the ultrashort registration after a good GPU homography too (0: only after a weak one)
     int isoKernel=0;             // diagnostics, round-4 kernel only (sabre61 off): 1 = isotropic sigma = base (no edge shaping), 2 = also no
                                  // flat widening: a "spatial RGB"-like isotropic Gaussian (SCAM 9.6 spatial_rgb: sigma 0.28..0.40 px)
@@ -755,6 +801,13 @@ struct HybridTuning {
     float mosaicTetraMotionSmooth=1.f,mosaicTetraMotionSmoothRange=1.5f,mosaicTetraMotionSmoothLo=5.f,mosaicTetraMotionSmoothHi=9.f;
     // P596: the Quad luma cone's radius in sites on structure (the same ratio; 2.2 = the flat cone, as before)
     float baseDemosaicQuadRadius=1.8f;
+    // P658 (owner, 2026-11-13), on by default since P661 (owner: «Включай первую, вторую выключи навсегда»; the Quad directional
+    // green was removed: more false colour, no detail gain); 0 = the Bayer base demosaic as before, byte for byte:
+    // baseDemosaicRbGreen: Bayer base demosaic, share of red / blue taken per site from the two nearest same-colour sites along
+    // the axis (or the diagonals) that agree best with the site's demosaiced green, plus that green's own detail scaled by the
+    // colour's ratio to it (a thin dark twig on the sky keeps a dark, not a cyan / magenta, colour), on structure from the
+    // structure / noise ratio Lo to Hi (flat areas keep the smoothed colour difference).
+    float baseDemosaicRbGreen=1.f,baseDemosaicRbGreenLo=1.5f,baseDemosaicRbGreenHi=3.f;
     // P596 (owner, 2026-11-10, 140309: «деталь на стенке здания гораздо лучше у Арк»): the native Quad merge's 6.1 structure tensor
     // also from the green sites (P332's fine tensor, its noise x16 x this), taken where it finds more structure over its noise than
     // the 2x2 quad lumas' one, which cannot see a period under ~5 px (a facade's 4.5 px grooves read as flat and took the flat
@@ -1170,6 +1223,12 @@ struct HybridTuning {
     // (the base and a few partly accepted donors) printed the Quad's 2x2 blocks as a checker / dots over its sleeves, hair and
     // face with the narrow kernel. 0 = the narrow kernel everywhere (round 4)
     float mosaicQuadTextureFrames=24.f;
+    // P647: with kernelSnr, the Quad texture factor above ramps from mosaicQuadTexture at the pivot key and above to
+    // max(mosaicQuadTexture, this) at kernelSnrNight and below (the same log-key smoothstep as the footprints; the key of the block).
+    // Night Quad (142001 crop at x4 gain, block key 9.1, over the night footprints): x0.7 flat noise -6.9 % / -10 % («Качество» /
+    // «Быстрый»), x1 -15 % / -20 % but the finest band -3 % and the grain gone; x0.6 kept with the gentler night footprints (the
+    // owner: fine detail, colour transitions and a little grain stay at night). Daylight untouched.
+    float mosaicQuadTextureNight=0.6f;
     // P601 (owner, 2026-11-10, 140309: «лицо женщины в автобусе за парнем видно только на качестве»): the fast route's donor flow
     // picked per 4 x 4 HALF block among the L0 tiles around it where the tile field misfits the block (kFastFlowPick: a static
     // subject beside a moving occluder kept the occluder's dragged flow and lost its donors); 0 = the tile field, as before
@@ -1425,13 +1484,17 @@ inline bool& hybridBlendStagesOff(){static bool off=false;return off;}
 // Factors of exactly 1 leave every value as it was (bit for bit): nothing is multiplied then.
 struct HybridKernelFootprint {
     float texture=1.f,bokeh=1.f,transition=1.f;
-    bool active()const{return texture!=1.f||bokeh!=1.f||transition!=1.f;}
+    float edge=1.f; // P647: the kernel across edges (Sabre 6.1 k61a[0] / the fast route's shrink: p / edge; round 4: shrunk x edge)
+    float lift=1.f; // P647: the fast route's packing range of the kernel precisions x lift (1 = the reference's range)
+    bool active()const{return texture!=1.f||bokeh!=1.f||transition!=1.f||edge!=1.f||lift!=1.f;}
     void apply61(std::array<float,4>& a,std::array<float,4>& b)const{
+        if(edge!=1.f)a[0]/=edge;
         if(texture!=1.f)a[3]/=texture;
         if(bokeh!=1.f)b[0]/=bokeh;
         if(transition!=1.f){a[2]*=transition;b[1]/=transition;}
     }
     void applyRound4(SuperResTuning& k)const{
+        if(edge!=1.f)k.shrunk*=edge;
         if(texture!=1.f)k.base*=texture;
         if(bokeh!=1.f)k.flat*=bokeh;
         if(transition!=1.f){k.flat0*=transition;k.flat1*=transition;}
@@ -1441,10 +1504,97 @@ inline HybridKernelFootprint hybridKernelFootprint(const HybridTuning& t){
     auto f=[](float v){return std::isfinite(v)&&v>0.f?std::clamp(v,0.25f,4.f):1.f;};
     return {f(t.kernelTexture),f(t.kernelBokeh),f(t.kernelTransition)};
 }
+// P647: the automatic footprint of an SNR key (HybridTuning::kernelSnr*): 1 at the pivot key, smoothstep in log(key) to `day` at
+// kernelSnrDay and above, to `night` at kernelSnrNight and below; 1 for a key that is not a positive number
+inline float hybridSnrRamp(float key,float lo,float pivot,float hi,float night,float day){
+    if(!std::isfinite(key)||!(key>0.f)||!std::isfinite(night)||!std::isfinite(day))return 1.f;
+    auto ss=[](float x){x=std::clamp(x,0.f,1.f);return x*x*(3.f-2.f*x);};
+    const float p=std::isfinite(pivot)&&pivot>1e-3f?pivot:20.f;
+    if(key>=p){
+        const float h=std::isfinite(hi)&&hi>p*1.001f?hi:p*1.001f;
+        return 1.f+(day-1.f)*ss(std::log(key/p)/std::log(h/p));
+    }
+    const float l=std::isfinite(lo)&&lo>1e-3f&&lo<p*0.999f?lo:p*0.999f;
+    return 1.f+(night-1.f)*ss(std::log(p/key)/std::log(p/l));
+}
+// P647: the key of the footprint curves: one sensor site's 6.1 key x the colour block (Bayer 1, Quad 2, Tetra 4)
+inline float hybridSnrFootprintKey(float siteKey,int block){return siteKey*float(block==2||block==4?block:1);}
+// P647: the automatic factors alone (no user factor): texture / bokeh / transition / across edges / the fast packing lift of the
+// key for a colour block (1 Bayer, 2 Quad, 4 Tetra); Tetra keeps the night side at 1; fast: the fast route's transition x
+// kernelSnrFastNight's ramp on top. By day (P647b) the texture narrows on Tetra and the Quad SCAM merge only (kernelSnrDayTexture),
+// Bayer x kernelSnrDayTextureBayer, the fast Quad route x kernelSnrDayTextureQuadFast; the fast Bayer route: across edges
+// kernelSnrDayEdgeBayerFast with the packing lift kernelSnrDayFastLiftBayer, the other fast streams the lift 1 / edge^2
+inline HybridKernelFootprint hybridSnrFactors(const HybridTuning& t,float key,int block,bool fast,int frames=0){
+    const bool dayOnly=block==4,bayerFast=fast&&block!=2&&block!=4;
+    const float k=dayOnly&&std::isfinite(key)&&key<t.kernelSnrPivot?t.kernelSnrPivot:key;
+    // the fast Bayer route's day side: 1 up to kernelSnrFastBayerFrom (>= the pivot), its day values from kernelSnrFastBayerTo
+    const float bFrom=std::max(t.kernelSnrFastBayerFrom,t.kernelSnrPivot),bTo=std::max(t.kernelSnrFastBayerTo,bFrom*1.001f);
+    auto r=[&](float night,float day){
+        if(bayerFast&&std::isfinite(k)&&k>t.kernelSnrPivot)return std::clamp(hybridSnrRamp(k,t.kernelSnrNight,bFrom,bTo,1.f,day),0.25f,4.f);
+        return std::clamp(hybridSnrRamp(k,t.kernelSnrNight,t.kernelSnrPivot,t.kernelSnrDay,night,day),0.25f,4.f);
+    };
+    const float dayTexture=block==4?t.kernelSnrDayTexture:block==2?(fast?t.kernelSnrDayTextureQuadFast:t.kernelSnrDayTextureQuad):t.kernelSnrDayTextureBayer;
+    const float dayTransition=block!=2&&block!=4&&!fast?t.kernelSnrDayTransitionBayer:t.kernelSnrDayTransition;
+    HybridKernelFootprint f{r(t.kernelSnrNightTexture,dayTexture),r(t.kernelSnrNightBokeh,t.kernelSnrDayBokeh),
+                            r(t.kernelSnrNightTransition,dayTransition)};
+    if(fast)f.transition*=r(t.kernelSnrFastNight,1.f);
+    if(bayerFast){
+        f.edge=r(1.f,t.kernelSnrDayEdgeBayerFast);
+        f.lift=std::clamp(r(1.f,t.kernelSnrDayFastLiftBayer),1.f,16.f);
+    }else{
+        f.edge=r(1.f,fast&&block==2?t.kernelSnrDayEdgeQuadFast:t.kernelSnrDayEdge);
+        if(fast&&f.edge<1.f)f.lift=1.f/(f.edge*f.edge);
+    }
+    // a Bayer burst of few frames (frames > 0: known): its day side x smoothstep(frames over kernelSnrDayFramesLo .. Hi)
+    if(block!=2&&block!=4&&frames>0&&std::isfinite(k)&&k>t.kernelSnrPivot&&t.kernelSnrDayFramesHi>t.kernelSnrDayFramesLo){
+        float x=std::clamp((float(frames)-t.kernelSnrDayFramesLo)/(t.kernelSnrDayFramesHi-t.kernelSnrDayFramesLo),0.f,1.f);
+        x=x*x*(3.f-2.f*x);
+        if(x<1.f){
+            auto m=[x](float v){return 1.f+(v-1.f)*x;};
+            f.texture=m(f.texture);f.bokeh=m(f.bokeh);f.transition=m(f.transition);f.edge=m(f.edge);f.lift=m(f.lift);
+        }
+    }
+    return f;
+}
+// P647: the footprints a shot merges with: the user's (hybridKernelFootprint) x the automatic factors of its key with kernelSnr
+// (texture / bokeh within 0.25 .. 4, the transition 0.25 .. 16); kernelSnr 0: the user's alone, exactly. `line` gets the shot's
+// log line (the key and the values used)
+inline HybridKernelFootprint hybridKernelFootprintSnr(const HybridTuning& t,float siteKey,int block,bool fast,std::string* line=nullptr,int frames=0){
+    const HybridKernelFootprint u=hybridKernelFootprint(t);
+    const float key=hybridSnrFootprintKey(siteKey,block);
+    char buf[480];
+    if(!t.kernelSnr){
+        if(line){std::snprintf(buf,sizeof(buf),"SNR footprints off (key %.2f): texture x%.3f, bokeh x%.3f, transition x%.3f (the user's)",key,u.texture,u.bokeh,u.transition);*line=buf;}
+        return u;
+    }
+    const HybridKernelFootprint a=hybridSnrFactors(t,key,block,fast,frames);
+    HybridKernelFootprint f{std::clamp(u.texture*a.texture,0.25f,4.f),std::clamp(u.bokeh*a.bokeh,0.25f,4.f),std::clamp(u.transition*a.transition,0.25f,16.f)};
+    f.edge=std::clamp(a.edge,0.25f,4.f);
+    f.lift=a.lift;
+    if(line){
+        std::snprintf(buf,sizeof(buf),"SNR footprints: key %.2f (site %.2f x block %d%s, %d frames): texture x%.3f, bokeh x%.3f, transition x%.3f, across edges x%.3f%s (auto %.3f / %.3f / %.3f, user %.3f / %.3f / %.3f)",
+                      key,siteKey,block==2||block==4?block:1,block==4?", Tetra: day side only":"",frames,f.texture,f.bokeh,f.transition,f.edge,
+                      fast?(", packing range x"+std::to_string(f.lift).substr(0,5)).c_str():"",a.texture,a.bokeh,a.transition,u.texture,u.bokeh,u.transition);
+        *line=buf;
+    }
+    return f;
+}
 // P596 (owner, 2026-11-10: «Узкое ядро склейки»): a Quad (block 2) stream's texture footprint x HybridTuning::mosaicQuadTexture on top
 // of the user's kernelTexture (its meaning kept); 1 / unset = as the user's alone
 inline void hybridQuadTexture(HybridKernelFootprint& fp,const HybridTuning& t){
     if(std::isfinite(t.mosaicQuadTexture)&&t.mosaicQuadTexture>0.f&&t.mosaicQuadTexture!=1.f)fp.texture=std::clamp(fp.texture*t.mosaicQuadTexture,0.25f,4.f);
+}
+// P647: the Quad texture factor of a block key (kernelSnr: mosaicQuadTexture by day, up to max(it, mosaicQuadTextureNight) at
+// night; kernelSnr 0 or no key: mosaicQuadTexture as P596); 1 = the user's footprint alone
+inline float hybridQuadTextureFactor(const HybridTuning& t,float key){
+    if(!(std::isfinite(t.mosaicQuadTexture)&&t.mosaicQuadTexture>0.f))return 1.f;
+    const float q=t.mosaicQuadTexture;
+    if(!t.kernelSnr||!std::isfinite(key)||!(key>0.f)||!std::isfinite(t.mosaicQuadTextureNight)||!(t.mosaicQuadTextureNight>q))return q;
+    return q*hybridSnrRamp(key,t.kernelSnrNight,t.kernelSnrPivot,t.kernelSnrDay,t.mosaicQuadTextureNight/q,1.f);
+}
+inline void hybridQuadTexture(HybridKernelFootprint& fp,const HybridTuning& t,float key){
+    const float q=hybridQuadTextureFactor(t,key);
+    if(q!=1.f)fp.texture=std::clamp(fp.texture*q,0.25f,4.f);
 }
 inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::function<void(const std::string&)>& report) {
     HybridTuning t;
@@ -1465,7 +1615,11 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("motionThreshold",&t.motionThreshold)
             ||set("filterVariance",&t.filterVariance)||set("dilateOffset",&t.dilateOffset)||set("dilateScale",&t.dilateScale)||set("dilateFloor",&t.dilateFloor)
             ||set("clipLevel",&t.clipLevel)||set("fwe",&t.fwe)||set("weightCap",&t.weightCap)||set("lutLo",&t.lutLo)||set("lutHi",&t.lutHi)
-            ||set("lutHiSigma",&t.lutHiSigma)||set("kernelScale",&t.kernelScale)||set("kernelTexture",&t.kernelTexture)||set("kernelBokeh",&t.kernelBokeh)||set("kernelTransition",&t.kernelTransition)||set("widenBelow",&t.widenBelow)||set("widenMul",&t.widenMul)
+            ||set("lutHiSigma",&t.lutHiSigma)||set("kernelScale",&t.kernelScale)||set("kernelTexture",&t.kernelTexture)||set("kernelBokeh",&t.kernelBokeh)||set("kernelTransition",&t.kernelTransition)
+            ||set("kernelSnr",nullptr,&t.kernelSnr)||set("kernelSnrNight",&t.kernelSnrNight)||set("kernelSnrPivot",&t.kernelSnrPivot)||set("kernelSnrDay",&t.kernelSnrDay) // P647
+            ||set("kernelSnrDayTexture",&t.kernelSnrDayTexture)||set("kernelSnrDayBokeh",&t.kernelSnrDayBokeh)||set("kernelSnrDayTransition",&t.kernelSnrDayTransition)
+            ||set("kernelSnrNightTexture",&t.kernelSnrNightTexture)||set("kernelSnrNightBokeh",&t.kernelSnrNightBokeh)||set("kernelSnrNightTransition",&t.kernelSnrNightTransition)
+            ||set("kernelSnrFastNight",&t.kernelSnrFastNight)||set("kernelSnrDayEdge",&t.kernelSnrDayEdge)||set("kernelSnrDayTextureBayer",&t.kernelSnrDayTextureBayer)||set("kernelSnrDayTextureQuad",&t.kernelSnrDayTextureQuad)||set("kernelSnrDayTextureQuadFast",&t.kernelSnrDayTextureQuadFast)||set("kernelSnrDayEdgeQuadFast",&t.kernelSnrDayEdgeQuadFast)||set("kernelSnrDayTransitionBayer",&t.kernelSnrDayTransitionBayer)||set("kernelSnrDayEdgeBayerFast",&t.kernelSnrDayEdgeBayerFast)||set("kernelSnrDayFastLiftBayer",&t.kernelSnrDayFastLiftBayer)||set("kernelSnrFastBayerFrom",&t.kernelSnrFastBayerFrom)||set("kernelSnrFastBayerTo",&t.kernelSnrFastBayerTo)||set("kernelSnrDayFramesLo",&t.kernelSnrDayFramesLo)||set("kernelSnrDayFramesHi",&t.kernelSnrDayFramesHi)||set("kernelSnrWiden",&t.kernelSnrWiden)||set("widenBelow",&t.widenBelow)||set("widenMul",&t.widenMul)
             ||set("kernelFloor",&t.kernelFloor)||set("chromaDiff",&t.chromaDiff)||set("chromaDiffClamp",nullptr,&t.chromaDiffClamp)||set("rawTensor",&t.rawTensor)||set("rawNoise",&t.rawNoise)||set("bento",nullptr,&t.bento)
             ||set("bentoHighlight",&t.bentoHighlight)||set("bentoDilate",nullptr,&t.bentoDilate)||set("bentoSmooth",&t.bentoSmooth)
             ||set("grid",nullptr,&t.grid)||set("bentoMinClipped",&t.bentoMinClipped)||set("bentoMaxUsClipped",&t.bentoMaxUsClipped)||set("bentoNearClip",&t.bentoNearClip)||set("bentoMaxHole",nullptr,&t.bentoMaxHole)
@@ -1503,7 +1657,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("rimRatio",nullptr,&t.rimRatio)||set("rimSigma",&t.rimSigma)||set("rimLo",&t.rimLo)||set("rimHi",&t.rimHi)||set("rimStride",nullptr,&t.rimStride)||set("rimLift",nullptr,&t.rimLift)
             ||set("localAlign",nullptr,&t.localAlign)||set("laWin",nullptr,&t.laWin)||set("laStride",nullptr,&t.laStride)||set("laIters",nullptr,&t.laIters)
             ||set("laItersCoarse",nullptr,&t.laItersCoarse)||set("laMu",&t.laMu)||set("laKappa",&t.laKappa)||set("laMaxShift",&t.laMaxShift)
-            ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("usWeakHom",nullptr,&t.usWeakHom)||set("usClipVote",nullptr,&t.usClipVote)||set("stripGuard",nullptr,&t.stripGuard)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
+            ||set("laMedian",nullptr,&t.laMedian)||set("laUltrashort",nullptr,&t.laUltrashort)||set("laThreads",nullptr,&t.laThreads)||set("laStream",nullptr,&t.laStream)||set("laGpu",nullptr,&t.laGpu)||set("gpuAlign",nullptr,&t.gpuAlign)||set("gpuAlignUsRegister",nullptr,&t.gpuAlignUsRegister)||set("usWeakHom",nullptr,&t.usWeakHom)||set("usClipVote",nullptr,&t.usClipVote)||set("stripGuard",nullptr,&t.stripGuard)||set("gpuPace",nullptr,&t.gpuPace)||set("laScam",nullptr,&t.laScam)||set("isoKernel",nullptr,&t.isoKernel)
             ||set("mosaicBlock",nullptr,&t.mosaicBlock)||set("mosaicGain",nullptr,&t.mosaicGain)||set("mosaicGainField",nullptr,&t.mosaicGainField)||set("mosaicGainZones",nullptr,&t.mosaicGainZones)||set("mosaicUsSmooth",nullptr,&t.mosaicUsSmooth)||set("plainChromaMedian",nullptr,&t.plainChromaMedian)||set("plainChromaHand",&t.plainChromaHand)||set("baseDemosaic",&t.baseDemosaic)||set("baseDemosaicAniso",&t.baseDemosaicAniso)||set("baseDemosaicTetraRadius",&t.baseDemosaicTetraRadius)||set("baseDemosaicSharpLo",&t.baseDemosaicSharpLo)||set("baseDemosaicSharpHi",&t.baseDemosaicSharpHi)||set("baseDemosaicAlias",&t.baseDemosaicAlias)||set("baseDemosaicBayerLo",&t.baseDemosaicBayerLo)||set("baseDemosaicBayerHi",&t.baseDemosaicBayerHi)||set("baseDemosaicDetailLo",&t.baseDemosaicDetailLo)||set("baseDemosaicDetailHi",&t.baseDemosaicDetailHi)||set("baseDemosaicNeutral",&t.baseDemosaicNeutral)||set("mosaicAlongEdge",&t.mosaicAlongEdge)||set("mosaicAlongEdgeK",&t.mosaicAlongEdgeK)||set("mosaicTetraAlongEdgeK",&t.mosaicTetraAlongEdgeK)||set("mosaicTetraAlongEdgeClipK",&t.mosaicTetraAlongEdgeClipK)||set("mosaicTetraAlongEdgeClipReach",&t.mosaicTetraAlongEdgeClipReach)||set("mosaicClipShare",&t.mosaicClipShare)||set("mosaicBorderShare",&t.mosaicBorderShare)||set("baseDemosaicCover",nullptr,&t.baseDemosaicCover)||set("baseDemosaicTetraCover",&t.baseDemosaicTetraCover)||set("mosaicLatticeNotch",&t.mosaicLatticeNotch)||set("mosaicTetraLatticeNotch",&t.mosaicTetraLatticeNotch)||set("mosaicTetraNotchClipReach",&t.mosaicTetraNotchClipReach)||set("mosaicTetraFrameSat",&t.mosaicTetraFrameSat)||set("mosaicTetraFrameSatLo",&t.mosaicTetraFrameSatLo)||set("mosaicTetraFrameSatHi",&t.mosaicTetraFrameSatHi)||set("mosaicQuadFrameSat",&t.mosaicQuadFrameSat)||set("mosaicQuadFrameSatLo",&t.mosaicQuadFrameSatLo)||set("mosaicQuadFrameSatHi",&t.mosaicQuadFrameSatHi)||set("mosaicDezip",nullptr,&t.mosaicDezip)||set("bentoSubpixel",nullptr,&t.bentoSubpixel)||set("mosaicRobustBilinear",nullptr,&t.mosaicRobustBilinear)||set("mosaicFrames",nullptr,&t.mosaicFrames)||set("seriesFrames",nullptr,&t.seriesFrames)||set("mosaicChroma",nullptr,&t.mosaicChroma)||set("mosaicShare",nullptr,&t.mosaicShare)||set("mosaicEdgeScale",&t.mosaicEdgeScale)
             ||set("caCorrect",nullptr,&t.caCorrect)||set("caMinShift",&t.caMinShift)
             // P29 native mosaic path
@@ -1533,8 +1687,9 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("markSparse",nullptr,&t.markSparse)||set("creLazy",nullptr,&t.creLazy) // P440
             ||set("stripTrailers",nullptr,&t.stripTrailers)||set("fastExit",nullptr,&t.fastExit)
             ||set("fastMerge",nullptr,&t.fastMerge)||set("mosaicNatTex",nullptr,&t.mosaicNatTex)||set("fastMosaicChroma",nullptr,&t.fastMosaicChroma)||set("fastSiteGain",nullptr,&t.fastSiteGain)||set("mosaicNatTile",nullptr,&t.mosaicNatTile)||set("fastQuadLattice",nullptr,&t.fastQuadLattice)||set("fastMergeSelect",nullptr,&t.fastMergeSelect)||set("fastMergeTetra",nullptr,&t.fastMergeTetra)
-            ||set("normalWeakHom",nullptr,&t.normalWeakHom)||set("normalWeakHomRms",&t.normalWeakHomRms)||set("fastTetraPost",nullptr,&t.fastTetraPost)||set("fastTetraClipNotch",nullptr,&t.fastTetraClipNotch)||set("fastTetraAlongEdgeK",&t.fastTetraAlongEdgeK)||set("fastQuadFlatNoise",&t.fastQuadFlatNoise)||set("fastQuadLineFrames",&t.fastQuadLineFrames)||set("baseDemosaicQuadRadius",&t.baseDemosaicQuadRadius)||set("mosaicQuadFine",&t.mosaicQuadFine)||set("fastQuadCone",&t.fastQuadCone)||set("mosaicQuadTexture",&t.mosaicQuadTexture) // P596
+            ||set("normalWeakHom",nullptr,&t.normalWeakHom)||set("normalWeakHomRms",&t.normalWeakHomRms)||set("fastTetraPost",nullptr,&t.fastTetraPost)||set("fastTetraClipNotch",nullptr,&t.fastTetraClipNotch)||set("fastTetraAlongEdgeK",&t.fastTetraAlongEdgeK)||set("fastQuadFlatNoise",&t.fastQuadFlatNoise)||set("fastQuadLineFrames",&t.fastQuadLineFrames)||set("baseDemosaicQuadRadius",&t.baseDemosaicQuadRadius)||set("baseDemosaicRbGreen",&t.baseDemosaicRbGreen)||set("baseDemosaicRbGreenLo",&t.baseDemosaicRbGreenLo)||set("baseDemosaicRbGreenHi",&t.baseDemosaicRbGreenHi)||set("mosaicQuadFine",&t.mosaicQuadFine)||set("fastQuadCone",&t.fastQuadCone)||set("mosaicQuadTexture",&t.mosaicQuadTexture) // P596
             ||set("mosaicQuadTextureFrames",&t.mosaicQuadTextureFrames) // P596
+            ||set("mosaicQuadTextureNight",&t.mosaicQuadTextureNight) // P647
             ||set("fastFlowPick",nullptr,&t.fastFlowPick) // P601
             ||set("fastLightFill",&t.fastLightFill) // P607
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
@@ -3054,6 +3209,17 @@ uniform float rampKU; // P309: the ramp mask's K (0 = the previous mask): the ba
 uniform vec4 bdU; // x = share at no donor (HybridTuning::baseDemosaic), y = anisotropy, z / w = structure / noise ratio from
                   // which to which the demosaic takes over (flat areas keep the merge's wider, less noisy kernel)
 uniform float bdAliasU; // P335: 0..1 share of the false-colour damping (0 = off, the demosaic as before)
+uniform vec3 bdRbU; // P658: x = share of red / blue from the demosaiced green (0 = off), y / z = structure / noise ratio from which to which
+// P658: a colour at a site from its two opposite same-colour neighbours c1, c3 (greens g1, g3; the site's own green g2): each side
+// counts by how far the OTHER side's green is from the site's (the side across an edge counts less; tau, the noise, keeps a flat
+// pair even), and the site's green detail against that pair's green comes back scaled by the colour's ratio to the green (at most 1:
+// a dark line through a bright colour keeps the colour's hue, darkened)
+float bdSidePair(float c1,float c3,float g1,float g2,float g3,float tau){
+    float w1=abs(g3-g2)+tau,w3=abs(g1-g2)+tau;
+    float c=(w1*c1+w3*c3)/(w1+w3),g=(w1*g1+w3*g3)/(w1+w3);
+    float k=clamp(max(c,0.0)/max(max(g2,g),max(c,1.0e-4)),0.0,1.0);
+    return c+(g2-g)*k;
+}
 bool bayerDemosaic(vec2 O,out vec3 rgb,out float detail){
     ivec2 N=ivec2(floor(O+0.5));
     float A[81];
@@ -3107,6 +3273,39 @@ bool bayerDemosaic(vec2 O,out vec3 rgb,out float detail){
     }
     if(nR<=1.0e-6||nB<=1.0e-6)return false;
     float dR=sR/nR,dB=sB/nB;
+    float rbShare=bdRbU.x>0.0?bdRbU.x*smoothstep(bdRbU.y,bdRbU.z,detail):0.0;
+    if(rbShare>0.0){
+        // P658: red and blue at the (up to) four core sites around O, bilinear like the green: a site of the colour keeps its
+        // sample; a green site takes the pair along the axis that holds the colour; the other colour's site the two diagonal
+        // pairs, each by the inverse square of its own change (greens and samples along the diagonal)
+        vec2 rb=vec2(0.0);float gq=0.0;
+        for(int q=0;q<4;q++){
+            int qi=p0.x+(q&1),qj=p0.y+(q>>1);
+            float wq=((q&1)==1?f.x:1.0-f.x)*((q>>1)==1?f.y:1.0-f.y);
+            if(wq<=0.0)continue;
+            int sc=qj*5+qi,kc=(qj+2)*9+qi+2,cc=Cs[sc];
+            float g2=Gs[sc];
+            vec2 v;
+            for(int t=0;t<2;t++){
+                int want=2*t;
+                float val;
+                if(cc==want)val=A[kc];
+                else if(cc==1){
+                    bool alongX=Cs[sc+1]==want;
+                    int ds=alongX?1:5,dk=alongX?1:9;
+                    val=bdSidePair(A[kc-dk],A[kc+dk],Gs[sc-ds],g2,Gs[sc+ds],sig);
+                }else{
+                    float a1=bdSidePair(A[kc-10],A[kc+10],Gs[sc-6],g2,Gs[sc+6],sig);
+                    float a2=bdSidePair(A[kc-8],A[kc+8],Gs[sc-4],g2,Gs[sc+4],sig);
+                    float e1=abs(Gs[sc-6]-Gs[sc+6])+abs(A[kc-10]-A[kc+10])+sig,e2=abs(Gs[sc-4]-Gs[sc+4])+abs(A[kc-8]-A[kc+8])+sig;
+                    val=(a1*e2*e2+a2*e1*e1)/(e1*e1+e2*e2);
+                }
+                v[t]=val;
+            }
+            rb+=wq*v;gq+=wq*g2;
+        }
+        dR=mix(dR,rb.x-gq,rbShare);dB=mix(dB,rb.y-gq,rbShare);
+    }
     if(bdAliasU>0.0){
         // P335 (owner, 2026-10-25: Why's anti-zipper «попробуй его улучшить и добавить нам»): luma detail near the Bayer Nyquist
         // shows in one frame as a step between the two green phases and as false colour (the zipper / moire of a moving subject);
@@ -6213,6 +6412,10 @@ inline std::function<void(const float*,int,int,int,int)>& hybridFinalRowsHook(){
 // from 0; (nullptr, w, h, 0, 0, result) prepares the output beside the merge (optional); (nullptr, w, h, -1, -1, result) commits: result (the vector hybridReconstruct returns, its floats then NOT filled) is
 // what the halves stand for. false: not taken (the merge fills the floats instead; the worker then writes them as before).
 inline std::function<bool(const uint16_t*,int,int,int,int,const float*)>& hybridFinalHalvesHook(){static std::function<bool(const uint16_t*,int,int,int,int,const float*)> f;return f;}
+// P662 (speed, memory): a result whose halves the stream took comes back as the floats' reservation alone (capacity, size 0: its
+// floats were never filled, so their pages are not touched either - 600 MB at 50 MP); this holds the floats it stands for (the
+// worker's contract size), set by the merge as it returns such a result, 0 otherwise. The worker clears it before hybridReconstruct.
+inline size_t& hybridStreamedFloats(){static size_t n=0;return n;}
 // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune creLazy): the worker
 // loads the CRE when a merge first needs the corner tracker (hybridAlignmentEnsure: true when it is there); empty = the worker
 // loaded it before the merge, as before. Every place that tests the alignment before using it tests this too.
@@ -7390,6 +7593,7 @@ class HybridGpu {
     void cleanup() noexcept {
         if(display==EGL_NO_DISPLAY)return;
         if(context!=EGL_NO_CONTEXT&&eglMakeCurrent(display,surface,surface,context)){
+            paceRelease(); // P662
             for(GLuint program:{meanProgram,flagsProgram,markProgram,guideProgram,cellsProgram,rejectProgram,dilateProgram,mergeProgram,rimProgram,bentoProgram,chromaProgram,bayerSplitA,bayerSplitB,blendProgram})if(program)glDeleteProgram(program);
             for(GLuint p:qSitePrograms)if(p)glDeleteProgram(p);
             if(qzQuadCells)glDeleteProgram(qzQuadCells);if(qzQuadMerge)glDeleteProgram(qzQuadMerge);if(qzQuadTexture)glDeleteTextures(1,&qzQuadTexture);
@@ -7436,17 +7640,22 @@ class HybridGpu {
     std::string driver;            // GL_RENDERER + GL_VERSION: part of the program cache key
     int cacheHits=0,cacheStores=0;
     // Cache file of a program: FNV-1a 64 of the driver and the whole source; "" without a cache directory or binary formats.
-    std::string programCacheFile(const std::string& source){
+    // P662: the key of a program, also the key of a remembered compile refusal (ScamGlslRefusals)
+    uint64_t programKey(const std::string& source) const {
+        uint64_t hash=1469598103934665603ULL;
+        auto mix=[&](const std::string& text){for(unsigned char c:text){hash^=c;hash*=1099511628211ULL;}hash^=0xff;hash*=1099511628211ULL;};
+        mix(driver);mix(source);
+        return hash;
+    }
+    std::string programCacheFile(uint64_t key){
         const std::string& dir=hybridProgramCacheDir();
         if(dir.empty())return "";
         GLint formats=0;glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS,&formats);
         if(formats<=0)return "";
-        uint64_t hash=1469598103934665603ULL;
-        auto mix=[&](const std::string& text){for(unsigned char c:text){hash^=c;hash*=1099511628211ULL;}hash^=0xff;hash*=1099511628211ULL;};
-        mix(driver);mix(source);
-        char name[40];std::snprintf(name,sizeof(name),"hyb-%016llx.bin",static_cast<unsigned long long>(hash));
+        char name[40];std::snprintf(name,sizeof(name),"hyb-%016llx.bin",static_cast<unsigned long long>(key));
         return dir+"/"+name;
     }
+    std::string programCacheFile(const std::string& source){return programCacheFile(programKey(source));}
     GLuint loadProgramBinary(const std::string& file){
         std::ifstream in(file,std::ios::binary);
         if(!in)return 0;
@@ -7495,6 +7704,17 @@ class HybridGpu {
     // progress, for the worker's crash report. One GPU thread compiles at a time; the text lives for the whole process.
     static char* compileStage(){static char text[96];return text;}
     const char* compileName="?";
+    // P662: the constructor's early report (the merge's trace once it has the context; stderr without either)
+    std::function<void(const std::string&)> earlyReport;
+    void compileReport(const std::string& line){
+        if(trace)trace(line); else if(earlyReport)earlyReport(line);
+        else{const std::string text=line+"\n";if(::write(2,text.data(),text.size())<0){}}
+    }
+    static std::string trimmedDriverLog(std::string msg){
+        for(char& c:msg)if(c=='\n'||c=='\r')c=' ';
+        while(!msg.empty()&&(msg.back()==' '||msg.back()=='\0'))msg.pop_back();
+        return msg;
+    }
     void markCompile(const char* step){
         std::snprintf(compileStage(),96,"GPU compile %s: %s",compileName,step);worker_crash::mark(compileStage());
     }
@@ -7504,16 +7724,46 @@ class HybridGpu {
     GLuint compile(const char* body,bool standalone=false){
         const char* helpers=dcg&&!standalone?hybridDcgSources().helpers.c_str():kHybHelpers; // P320
         std::string source=standalone?std::string(body):std::string(kHybCommon)+helpersPrefix+helpers+body;
-        const std::string cacheFile=programCacheFile(source);
+        const uint64_t key=programKey(source);
+        const std::string cacheFile=programCacheFile(key);
         markCompile("glProgramBinary (cache)");
         scam_progress::tick(); // P220: each program is progress (built ahead on a helper thread during the alignment, too)
         if(!cacheFile.empty())if(GLuint cached=loadProgramBinary(cacheFile))return cached;
+        { // P662: a source this driver refused before is not handed to it again (scam-glsl-guard.h)
+            std::string refusal;bool first=false,fromDisk=false;
+            if(ScamGlslRefusals::find(key,hybridProgramCacheDir(),"hyb-",refusal,first,fromDisk)){
+                // «HYBRID GPU REFUSED», not «HYBRID GPU: compile»: the app takes the last «compile» line for the program a crash died in
+                if(first)compileReport(std::string("HYBRID GPU REFUSED: ")+compileName+" skipped: this driver refused the same source "
+                    +(fromDisk?"in an earlier worker":"earlier in this worker")+" (P662): "+trimmedDriverLog(refusal));
+                throw std::runtime_error(std::string("HYBRID GPU shader: ")+refusal);
+            }
+        }
+        scamGlslDump(compileName,source); // P662: SCAM_GLSL_DUMP (host lint of the programs as compiled)
         markCompile("glCompileShader");
         GLuint shader=glCreateShader(GL_COMPUTE_SHADER);const char* sources[]={kHybCommon,helpersPrefix,helpers,body};
         if(standalone)glShaderSource(shader,1,&body,nullptr); else glShaderSource(shader,4,sources,nullptr);
         glCompileShader(shader);
         GLint ok=0;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);
-        if(!ok){char msg[4096]{};glGetShaderInfoLog(shader,sizeof(msg),nullptr,msg);glDeleteShader(shader);throw std::runtime_error(std::string("HYBRID GPU shader: ")+msg);}
+#ifdef SCAM_GLSL_FAULTS
+        // host check (tools/check_glsl_programs.cpp): SCAM_GLSL_REFUSE=<program> takes its compile for a refusal
+        // (SCAM_GLSL_REFUSE_MSG: the driver's message), counted by scamGlslInjectedRefusals
+        const char* injected=nullptr;
+        if(const char* name=std::getenv("SCAM_GLSL_REFUSE"))if(std::strcmp(name,compileName)==0){
+            ok=0;++scamGlslInjectedRefusals();
+            injected=std::getenv("SCAM_GLSL_REFUSE_MSG")?std::getenv("SCAM_GLSL_REFUSE_MSG"):"0:1: S0001: injected refusal\n";
+        }
+#endif
+        if(!ok){
+            char msg[4096]{};glGetShaderInfoLog(shader,sizeof(msg),nullptr,msg);glDeleteShader(shader);
+#ifdef SCAM_GLSL_FAULTS
+            if(injected)std::snprintf(msg,sizeof(msg),"%s",injected);
+#endif
+            // P662: remembered (on disk when the message names a place in the source) and logged once
+            const bool kept=ScamGlslRefusals::remember(key,hybridProgramCacheDir(),"hyb-",msg);
+            compileReport(std::string("HYBRID GPU REFUSED: ")+compileName+" by the driver: "+trimmedDriverLog(msg)
+                +(kept?" (remembered for this driver and source, P662)":" (remembered for this worker, P662)"));
+            throw std::runtime_error(std::string("HYBRID GPU shader: ")+msg);
+        }
         GLuint program=glCreateProgram();glAttachShader(program,shader);
         if(!cacheFile.empty())glProgramParameteri(program,GL_PROGRAM_BINARY_RETRIEVABLE_HINT,GL_TRUE);
         markCompile("glLinkProgram");
@@ -7710,6 +7960,37 @@ class HybridGpu {
     // many small flushed submissions cost ~1 ms each. The current program must be bound. flushEach (P29 native merge): every
     // dispatch is its own submission (a pass whose dispatches together run for seconds). P364: first > 0 dispatches only the rows
     // [first, rows) of the pass (chunkU still counts from row 0).
+    // P662 (owner's X200 Ultra, Adreno 830, «Качество»: SHOT SUMMARY vf_merge 11.0 fps / 1348 ms gaps, the fast route's many short
+    // passes 29 fps): a pass went to the GPU as one submission and the worker queued a strip or two of them ahead of the readback;
+    // the viewfinder's frame (another process, the same priority ring) waited behind all of it. Every dispatch of the merge's
+    // strips is now a submission of its own (glFlush) with a fence, and at most paceDepth (tune gpuPace, 2) of them are in flight:
+    // the submitting thread waits for the oldest before it queues more. The GPU runs the same commands in the same order with the
+    // same barriers and chunks (the same output, bit for bit); only when they are handed over changes. gpuPace 0 = as before.
+public:
+    int paceDepth=2;               // the merge sets it from tune gpuPace
+private:
+    std::deque<GLsync> paceFences;
+    long paceSubmits=0,paceWaits=0;double paceWaitMs=0,paceWaitMax=0;
+    void paced(){
+        if(paceDepth<=0)return;
+        GLsync fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+        glFlush();
+        if(!fence)return; // no fence (a lost context): the submission stays flushed, nothing to wait for
+        paceFences.push_back(fence);++paceSubmits;
+        while(int(paceFences.size())>paceDepth){
+            GLsync oldest=paceFences.front();paceFences.pop_front();
+            GLenum r=glClientWaitSync(oldest,0,0);
+            if(r==GL_TIMEOUT_EXPIRED){
+                const auto t0=std::chrono::steady_clock::now();
+                scam_progress::FenceWait gpuWait; // P220: the GPU's time (a hung GPU stops here: the app's watchdog sees fence=)
+                for(int i=0;i<120&&r==GL_TIMEOUT_EXPIRED;++i)r=glClientWaitSync(oldest,0,GLuint64(1000)*1000000ULL);
+                const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+                ++paceWaits;paceWaitMs+=ms;paceWaitMax=std::max(paceWaitMax,ms);
+            }
+            glDeleteSync(oldest);
+        }
+    }
+    void paceRelease(){for(GLsync f:paceFences)glDeleteSync(f);paceFences.clear();}
     void dispatchRows(GLuint program,int w2,int rows,int gz,int chunk,int pass,bool barrier=true,bool flushEach=false,int first=0){
         const GLint l=loc(program,"chunkU");
         const auto t0=std::chrono::steady_clock::now();
@@ -7717,7 +7998,7 @@ class HybridGpu {
         for(int r=first;r<rows;r+=chunk){
             glUniform1i(l,r);
             glDispatchCompute(GLuint((w2+7)/8),GLuint((std::min(chunk,rows-r)+7)/8),GLuint(std::max(gz,1)));
-            if(flushEach||smallJobs)glFlush();
+            if(paceDepth>0)paced(); else if(flushEach||smallJobs)glFlush(); // P662
         }
         glFlush();
         if(barrier)glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -7741,6 +8022,7 @@ class HybridGpu {
         glDispatchComputeIndirect(GLintptr(offset));
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER,0);
         glFlush();
+        paced(); // P662
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         if(profile){
             glFinish();const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();passMs[pass]+=ms;
@@ -7804,6 +8086,7 @@ public:
                                                         // P364: their cell rows [0, n) (n >= h / 2: all of it)
         std::vector<int> hotList;                       // normal frames of the fixed-pattern outlier test (base first); empty = off
         std::array<float,4> k61a{},k61b{},k61c{};      // Sabre 6.1 kernel uniforms (k61a[3] = 0: round-4 kernel)
+        float quadTexture=0.f;                          // P647: the Quad texture factor the shot took (0: mosaicQuadTexture, P596)
         int mergeMode=0;                                // 1 per-frame 6.1 covariance, 2 6.1 window, 4 6.1 base widening
         bool noBase=false;                              // split-half diagnostics: the base is not accumulated
         // F6 local alignment: per merge frame (0 = base, zeros) ny x nx tiles of (dx, dy) RAW px; laMode 0 = off
@@ -7872,6 +8155,7 @@ public:
             :localAlign(withLocalAlign),sumsCarry(withSumsCarry),outlierPrograms(withOutlierPrograms),dcg(dcgZones),rejOpts(!rejSpecDefs.empty()),rejSpec(rejSpecDefs),
              blendOpts(blendOptions&&blendPass),partialSpec(partialDefs){
         if(localAlign)helpersPrefix="#define LOCAL_ALIGN 1\n";
+        earlyReport=early; // P662
         try{
             display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
             worker_crash::mark("GPU context (EGL)");
@@ -8047,7 +8331,8 @@ public:
             glBufferData(GL_UNIFORM_BUFFER,GLsizeiptr(6*size_t(kHybridGpuFrames)*16),nullptr,GL_DYNAMIC_DRAW);
             glBindBufferBase(GL_UNIFORM_BUFFER,0,frameTable);
             check("init");
-        }catch(...){cleanup();throw;}
+            earlyReport=nullptr; // P662: the caller's report may not outlive the constructor (later compiles: trace, else stderr)
+        }catch(...){earlyReport=nullptr;cleanup();throw;}
     }
     HybridGpu(const HybridGpu&)=delete;
     ~HybridGpu(){cleanup();}
@@ -8748,6 +9033,8 @@ public:
             glUniform4f(loc(chromaProgram,"bdU"),std::clamp(tune.baseDemosaic,0.f,1.f),std::clamp(tune.baseDemosaicAniso,0.f,2.f),
                         tune.baseDemosaicBayerLo,std::max(tune.baseDemosaicBayerHi,tune.baseDemosaicBayerLo+0.01f)); // P282
             glUniform1f(loc(chromaProgram,"bdAliasU"),std::clamp(tune.baseDemosaicAlias,0.f,1.f)); // P335
+            glUniform3f(loc(chromaProgram,"bdRbU"),std::clamp(tune.baseDemosaicRbGreen,0.f,1.f),tune.baseDemosaicRbGreenLo,
+                        std::max(tune.baseDemosaicRbGreenHi,tune.baseDemosaicRbGreenLo+0.01f)); // P658
             glUseProgram(mergeMain);
         }
         {const float s=std::max(0.3f,tune.rimSigma);
@@ -8841,7 +9128,7 @@ public:
                                      std::max(tune.baseDemosaicSharpHi,tune.baseDemosaicSharpLo+0.01f)); // P596: the Quad cone on structure
                 { // P596 round 5: the Quad texture kernel back to the user's where few frames merged (6.1 kernel only)
                     HybridKernelFootprint fu=hybridKernelFootprint(tune),fq=fu;
-                    if(nb==2)hybridQuadTexture(fq,tune);
+                    if(nb==2){if(in.quadTexture>0.f){if(in.quadTexture!=1.f)fq.texture=std::clamp(fq.texture*in.quadTexture,0.25f,4.f);}else hybridQuadTexture(fq,tune);} // P647
                     int donors=0; // N at most 3/4 of the burst's donors (a short burst keeps the narrow kernel on its static texture)
                     for(size_t f=1;f<in.role.size()&&f<in.weight.size();++f)if(in.role[f]!=5&&in.weight[f]>0.f)donors++;
                     const float tq=fq.texture/fu.texture,
@@ -9282,6 +9569,7 @@ public:
                                 for(int r=runStart;r<r0;r+=chunk){
                                     glUniform1i(chunkLoc,r);
                                     glDispatchCompute(GLuint((w2+7)/8),GLuint((std::min(chunk,r0-r)+15)/16),1); // two rows an invocation
+                                    paced(); // P662
                                 }
                                 runStart=-1;
                             }
@@ -9328,6 +9616,7 @@ public:
                         glDispatchComputeIndirect(0);
                         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER,0);
                         glFlush();
+                        paced(); // P662
                         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                         if(profile){glFinish();const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
                             passMs[7]+=ms;programMs.push_back({markSparseProgram,ms});}
@@ -9342,6 +9631,7 @@ public:
                 for(int r=0;r<maxRows;r+=chunk){
                     glUniform1i(chunkLoc,r);
                     glDispatchCompute(GLuint((w2+7)/8),GLuint((std::min(chunk,maxRows-r)+15)/16),GLuint(std::max(frames,1)));
+                    paced(); // P662
                 }
                 glFlush();
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -9849,6 +10139,12 @@ public:
          if(doneRows>0)scam_progress::at(doneRows);
          if(doneRows>0&&in.rowsDone)in.rowsDone(out,doneRows);}
         worker_crash::mark("GPU merge"); // P377: the blend lists' strips are all read back
+        if(paceDepth>0){ // P662: the paced submissions of this merge (the viewfinder's share of the GPU: SHOT SUMMARY vf_merge)
+            paceRelease();
+            if(trace){char l[200];std::snprintf(l,sizeof(l),"HYBRID GPU PACE: %ld submissions, at most %d in flight; the merge waited %ld times, %.0f ms (longest %.0f ms)",
+                paceSubmits,paceDepth,paceWaits,paceWaitMs,paceWaitMax);trace(l);}
+            paceSubmits=paceWaits=0;paceWaitMs=paceWaitMax=0;
+        }
         if(usCacheProgram&&trace)trace("HYBRID US CACHE: "+std::to_string(cacheStrips)+" of "+std::to_string(stripIndex)+" strips, "+hybridMB(usCacheCapacity)+" MB scratch, reference blend elsewhere");
         if(stripsShrunk&&trace)trace("HYBRID GPU: "+std::to_string(stripsShrunk)+" of "+std::to_string(stripIndex)+" strips shrunk to fit the storage block / memory budget (smallest "
             +std::to_string(smallestStrip)+" cells; first: "+shrinkWhy+")");
@@ -12700,8 +12996,12 @@ inline float hybridHalfToFloat(uint16_t h){
 // P150: a still burst - fewer than a quarter of its donors moved (the rest sample the base's sites)
 inline bool hybridStillBurst(int moved,int donors){return donors>0&&moved*4<donors;}
 struct MosaicChromaPasses;
+// P662 (speed, the fast route's Quad at 50 MP): the Quad lattice (ChromaMedianGpu::quadLattice) asked to follow the chroma median in
+// the median's own GPU bands - each band's result stays on the GPU for its lattice strip (no readback of the median, no upload of the
+// lattice). done: it ran there (how: its times); otherwise the caller runs the lattice after the median as before.
+struct HybridLatticeFuse { float clipK=2.5f;bool relative=true;bool done=false;std::string how; };
 inline void mosaicChromaMedian(std::vector<float>& rgb,int w,int h,int block,const std::vector<float>* osc,bool gpu,std::string* how,
-                               int bandRows,MosaicChromaPasses* passes); // defined with the mosaic merges (P269: the plain trial)
+                               int bandRows,MosaicChromaPasses* passes,HybridLatticeFuse* fuse); // defined with the mosaic merges (P269: the plain trial)
 // P310: the ultrashort blend weight per 2x2 cell of the base frame (HybridTuning::bentoBlend): the cell's brightest site (the
 // frame's own black / white, no white balance) through smoothstep(lo, hi), a diamond max of bentoBlendDilate cells, a gaussian of
 // bentoBlendSigma cells, times smoothstep(0.08, 0.45) of the blurred near-clip share (smoothstep(0.70, 0.88) of the cell: the
@@ -14375,8 +14675,24 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                     :sabreSnr(baseSlope,keyOffset,tune.snrScale);
     snrKernel(kernel,snr);
     kernel.base*=tune.kernelScale;kernel.shrunk*=tune.kernelScale;kernel.stretched*=tune.kernelScale;kernel.flat*=tune.kernelScale;
-    HybridKernelFootprint footprint=hybridKernelFootprint(tune); // P587
-    if(native&&native->block==2)hybridQuadTexture(footprint,tune); // P596
+    // Sabre 6.1 kernel (sabre2x_61.md F1): key = 0.18/sqrt(O + 0.18 S) of the base frame (no snrScale), 6.1 curves f0..f3
+    // (the Sabre 6.1 curves in research), f4 = 4, f5 = 2.2; uniforms exactly as the reference library 0x723f04-0x724008.
+    const float key61=tune.snrFixed>0?float(tune.snrFixed):native?sabreSnr(baseSlope*native->keyNoise,keyOffset*native->keyNoise,1.f)
+                      :sabreSnr(baseSlope,keyOffset,1.f);
+    std::string snrFootLine;
+    const int normalFrames=int(std::count_if(input.frames.begin(),input.frames.end(),[](const HybridFrame& fr){return fr.role==kRoleNormal;}));
+    HybridKernelFootprint footprint=hybridKernelFootprintSnr(tune,key61,native?native->block:1,false,&snrFootLine,normalFrames); // P587, P647
+    float snrWiden=1.f; // P647: the day narrowing (texture, across edges) the base widening undoes (mergeTune.widenMul below)
+    if(tune.kernelSnr){
+        const HybridKernelFootprint fa=hybridSnrFactors(tune,hybridSnrFootprintKey(key61,native?native->block:1),native?native->block:1,false,normalFrames);
+        snrWiden=std::min({fa.texture,fa.edge,1.f});
+    }
+    report("HYBRID KERNEL: "+snrFootLine);
+    const float quadTexture=native&&native->block==2?hybridQuadTextureFactor(tune,hybridSnrFootprintKey(key61,2)):1.f; // P596, P647
+    if(native&&native->block==2){
+        hybridQuadTexture(footprint,tune,hybridSnrFootprintKey(key61,2));
+        if(tune.kernelSnr&&quadTexture!=tune.mosaicQuadTexture)report("HYBRID KERNEL: SNR footprints: Quad texture x"+std::to_string(quadTexture)+" (by day x"+std::to_string(tune.mosaicQuadTexture)+")");
+    }
     if(footprint.active()){
         footprint.applyRound4(kernel);
         report("HYBRID KERNEL: footprint texture x"+std::to_string(footprint.texture)+", bokeh x"+std::to_string(footprint.bokeh)
@@ -14385,11 +14701,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     if(native&&native->block==2&&tune.mosaicQuadTexture>0.f&&tune.mosaicQuadTexture<1.f&&tune.mosaicQuadTextureFrames>0.f) // P596 round 5
         report("HYBRID KERNEL: Quad texture kernel back to the user's below "+std::to_string(tune.mosaicQuadTextureFrames)+" accepted donor frames");
     if(tune.isoKernel){kernel.shrunk=kernel.stretched=kernel.base;if(tune.isoKernel>=2)kernel.flat=kernel.base;}
-    // Sabre 6.1 kernel (sabre2x_61.md F1): key = 0.18/sqrt(O + 0.18 S) of the base frame (no snrScale), 6.1 curves f0..f3
-    // (the Sabre 6.1 curves in research), f4 = 4, f5 = 2.2; uniforms exactly as the reference library 0x723f04-0x724008.
     std::array<float,4> k61a{},k61b{},k61c{};
-    const float key61=tune.snrFixed>0?float(tune.snrFixed):native?sabreSnr(baseSlope*native->keyNoise,keyOffset*native->keyNoise,1.f)
-                      :sabreSnr(baseSlope,keyOffset,1.f);
     if(hybridDcgZones(input))report("HYBRID DCG: two noise zones (knee "+std::to_string(base.dcgKnee)+", offset "+std::to_string(baseOffset)+" / "
         +std::to_string(base.dcgOffsetLcg)+"): the GPU programs take the offset of each level's zone (blended over 0.9 .. 1.1 x the knee); Sabre key "
         +std::to_string(key61)+" snr "+std::to_string(snr)+" from the offset at 0.18 (LCG share "+std::to_string(dcgShare)+")");
@@ -15382,7 +15694,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         for(int f:index)in.nativeFrames.push_back(f<int(native->frames.size())?native->frames[f]:nullptr);
         for(int f:index)in.nativeRowFix.push_back(native->fixesRows(f)?f:-1); // P197
     }
-    in.k61a=k61a;in.k61b=k61b;in.k61c=k61c;
+    in.k61a=k61a;in.k61b=k61b;in.k61c=k61c;in.quadTexture=quadTexture;
     in.mergeMode=sabre61?(tune.s61Mode&7):0;
     if(tune.dezipper>0.f)in.dezipWb=hybridBlendWb(input,tune); // P480: the gains the reference merges with (wbR / wbB, else grey world)
     HybridCa caModel;
@@ -15566,6 +15878,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         if(!held)held=std::make_unique<HybridGpu>(tune.rimRatio!=0,withLocalAlign,bentoPass,tune.chromaDiff>0.f,report,large,native!=nullptr,
                 tune.hotSigma>0||tune.hotBaseSigma>0,blendPass,hybridDcgZones(input),hybridRejSpec(tune),hybridBlendOptions(tune),hybridPartialSpec(tune,native!=nullptr));
         HybridGpu& gpu=*held;gpu.trace=report;gpu.profile=tune.profile!=0;gpu.profilePasses=tune.profile>=2;
+        gpu.paceDepth=std::clamp(tune.gpuPace,0,64); // P662
         report("HYBRID GPU: "+gpu.renderer+" frames="+std::to_string(in.frames.size())+" limits "+gpu.limits
             +" init ms="+std::to_string(int(millis(Clock::now()-gpuStarted)))+" (compile"+gpu.compileMs+")"+built);
         if(mochiPending){
@@ -15618,6 +15931,10 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         // (synthetic still burst on the X200 Ultra: error at the detail 0.079 -> 0.034, chroma p99 0.24 -> 0.15; the green-clipped
         // sky of the magenta-rim case unchanged); a moving burst keeps cellClip (its merge unchanged).
         HybridTuning mergeTune=tune;
+        // P647b: where the base kernel widens (fewer than widenBelow accepted donors: a moving subject, leaves in the wind) the
+        // widening also undoes the day narrowing to the power kernelSnrWiden (HybridTuning); the plain merge only (the native mosaics
+        // widen by their own rule)
+        if(snrWiden<1.f&&!native&&tune.kernelSnrWiden>0.f)mergeTune.widenMul=tune.widenMul/std::pow(snrWiden,std::clamp(tune.kernelSnrWiden,0.f,1.f));
         // P334: frames the alignment refused (identity start of F6) say nothing about the hand's motion
         std::vector<BackwardHomography> movedH;
         for(size_t i=0;i<in.homography.size();++i)if(i==0||!idStart[size_t(index[i])])movedH.push_back(in.homography[i]);
@@ -15817,7 +16134,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                 for(size_t i=size_t(y0)*outW;i<size_t(y1)*outW;++i){rb[2*i]=floatToHalf(out[3*i]);rb[2*i+1]=floatToHalf(out[3*i+2]);}
             });
         }
-        if(keepMedian>0.f)mosaicChromaMedian(out,outW,outH,std::max(1,tune.plainChromaMedian)*grid,nullptr,tune.chromaGpu>0,&how,0,nullptr);
+        if(keepMedian>0.f)mosaicChromaMedian(out,outW,outH,std::max(1,tune.plainChromaMedian)*grid,nullptr,tune.chromaGpu>0,&how,0,nullptr,nullptr);
         if(!rb.empty()){
             mergeRowBands(outH,[&](int y0,int y1){
                 for(size_t i=size_t(y0)*outW;i<size_t(y1)*outW;++i){
@@ -17048,8 +17365,78 @@ inline bool mosaicChromaMedianBands(std::vector<float>& rgb,int w,int h,int bloc
     chromaGiveBack(std::move(g));
     return true;
 }
+// P662: the chroma median and then the Quad lattice in the same GPU bands (HybridLatticeFuse). Each band of `band` rows is the
+// median's band of mosaicChromaMedianBands with kQlHalo rows more below it, so its rows down to its end + kQlHalo are the median's
+// final values (each at least `halo` rows inside the band, as every row the bands keep); its lattice strip (the band's rows, kQlHalo
+// rows of halo each side as quadLattice's) is copied from there and from the median's last kQlHalo rows of the band above (kQT),
+// GPU to GPU: the lattice reads the bytes the median's readback and its own upload gave before. Nothing of the median is read back;
+// the frame's rows keep their originals until the lattice's rows replace them (the median's top halo from `saved`, as the bands).
+// False (nothing touched): the bands with the lattice's storage beside them would be below kFuseMinRows rows (more halo per row than
+// the transfer saves) or no GPU. A GPU failure: the rows from that band on get the median on the CPU (as mosaicChromaMedianBands'
+// fallback) and no lattice (*why says from which row).
+constexpr int kFuseMinRows=768;
+inline bool mosaicChromaLatticeBands(std::vector<float>& rgb,int w,int h,int block,uint64_t avail,HybridLatticeFuse& fuse,std::string* why){
+    const int d=std::max(1,block/2),r1=block,r2=2*block,r3=3*block;
+    const int reach=std::max(2*d+2*r3+1,r1+1+r2)+2;
+    const int halo=((reach+2*block-1)/(2*block))*(2*block);
+    const int LH=ChromaMedianGpu::kQlHalo;
+    if(w<16||h<16||rgb.size()<size_t(w)*h*3)return false;
+    auto g=chromaTake();
+    GLint64 maxBlock=0;glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&maxBlock);
+    // a band with the median's storage (48 B / px over its rows and halos) and the lattice's (12 + 12 + 3 x 4, over the strip) within
+    // a quarter of MemAvailable; each buffer within a storage block (12 B / px)
+    int64_t rowsCap=maxBlock>0?int64_t(maxBlock)/(int64_t(w)*12)-2*halo-LH:int64_t(1)<<30;
+    if(avail>0)rowsCap=std::min<int64_t>(rowsCap,int64_t(avail/4)/(int64_t(w)*(48+36))-2*halo-2*LH);
+    int band=int(std::min<int64_t>(1024,rowsCap));
+    band=(band/(2*block))*(2*block);
+    if(band<std::min(kFuseMinRows,(h+2*block-1)/(2*block)*(2*block))||band<4*halo||band<2*LH){
+        if(why)*why="fused bands of "+std::to_string(band)+" rows: below "+std::to_string(kFuseMinRows);
+        chromaGiveBack(std::move(g));return false;
+    }
+    std::vector<float> in,saved(size_t(halo)*w*3),next(size_t(halo)*w*3);
+    const auto t0=std::chrono::steady_clock::now();
+    double upMs=0,passMs=0,readMs=0;
+    int bands=0,cpuFrom=-1;std::string cpuWhy;
+    try{g->ensureQuadLattice();g->latticeBuffers(w,std::min(h,band+2*LH),true);}
+    catch(const std::exception& e){if(why)*why=std::string("fused bands: ")+e.what();g->latticeRelease();chromaGiveBack(std::move(g));return false;}
+    const double prep=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+    for(int y0=0;y0<h;y0+=band,++bands){
+        const int y1=std::min(h,y0+band),a=std::max(0,y0-halo),b=std::min(h,y1+halo+LH),rows=b-a,top=y0-a;
+        const int keep=std::min(halo,y1);
+        std::memcpy(next.data()+size_t(halo-keep)*w*3,rgb.data()+size_t(y1-keep)*w*3,size_t(keep)*w*3*4);
+        if(cpuFrom<0)try{
+            g->times.clear();
+            // the median of rows a..b: nothing read back (rows y0..y1 + LH of it are final)
+            g->processRows(saved.data()+size_t(halo-top)*w*3,top,rgb.data()+size_t(y0)*w*3,w,rows,block,nullptr,rgb.data()+size_t(y0)*w*3,top,top);
+            const auto u=std::chrono::steady_clock::now();
+            const int ga=std::max(0,y0-LH),gb=std::min(h,y1+LH);
+            g->latticeFromBand(w,h,a,y0,y1,ga,gb);
+            upMs+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-u).count();
+            g->latticeStrip(w,h,ga,gb-ga,y0,y1,fuse.clipK,fuse.relative,rgb.data()+size_t(y0)*w*3,passMs,readMs);
+        }catch(const std::exception& e){cpuFrom=y0;cpuWhy=e.what();}
+        if(cpuFrom>=0){ // the median on the CPU for this band's rows (as they are: the originals), no lattice
+            const int cb=std::min(h,y1+halo),crows=cb-a;
+            in.resize(size_t(crows)*w*3);
+            if(top>0)std::memcpy(in.data(),saved.data()+size_t(halo-top)*w*3,size_t(top)*w*3*4);
+            std::memcpy(in.data()+size_t(top)*w*3,rgb.data()+size_t(y0)*w*3,size_t(cb-y0)*w*3*4);
+            MosaicChromaStream st(in.data(),w,crows,block,nullptr,0,0,nullptr);st.advance(crows);
+            std::memcpy(rgb.data()+size_t(y0)*w*3,in.data()+size_t(top)*w*3,size_t(y1-y0)*w*3*4);
+        }
+        saved.swap(next);
+    }
+    try{g->latticeRelease();g->releaseBuffers();}catch(...){}
+    const double total=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+    if(why)*why=std::to_string(bands)+" bands of "+std::to_string(band)+" rows, halo "+std::to_string(halo)+" (+"+std::to_string(LH)
+        +" below: the lattice's), the Quad lattice in each (P662)"+(cpuFrom>=0?", from row "+std::to_string(cpuFrom)+" the median on the CPU and no lattice ("+cpuWhy+")":std::string())
+        +", "+std::to_string(int(total))+" ms";
+    fuse.done=cpuFrom!=0;
+    fuse.how="programs "+std::to_string(int(prep))+" upload "+std::to_string(int(upMs))+" (from the median's GPU bands, P662) passes "+std::to_string(int(passMs))
+        +" readback "+std::to_string(int(readMs))+" ("+std::to_string(bands)+" strips) ms"+(cpuFrom>0?", none from row "+std::to_string(cpuFrom):std::string());
+    chromaGiveBack(std::move(g));
+    return true;
+}
 inline void mosaicChromaMedian(std::vector<float>& rgb,int w,int h,int block,const std::vector<float>* osc=nullptr,bool gpu=false,
-                               std::string* how=nullptr,int bandRows=0,MosaicChromaPasses* passes=nullptr){
+                               std::string* how=nullptr,int bandRows=0,MosaicChromaPasses* passes=nullptr,HybridLatticeFuse* fuse=nullptr){
     if(gpu){
         // within the GPU storage of one call and a quarter of MemAvailable (any RAW size: 8192x6144 needs 2.4 GB, it stays here)
         const uint64_t avail=hybridMemAvailable();
@@ -17066,6 +17453,12 @@ inline void mosaicChromaMedian(std::vector<float>& rgb,int w,int h,int block,con
             // every band's own rows get the floats of one call over the frame. The bands start on whole colour periods.
             try{
                 std::string t;
+                // P662: the Quad lattice in the median's bands (the fast route; no oscillation map there)
+                if(fuse&&!osc){
+                    std::string ft;
+                    if(mosaicChromaLatticeBands(rgb,w,h,block,avail,*fuse,&ft)){if(how)*how="gpu bands: "+ft+" (one call: "+why+")";return;}
+                    why+="; "+ft;
+                }
                 if(mosaicChromaMedianBands(rgb,w,h,block,osc,avail,&t)){if(how)*how="gpu bands: "+t+" (one call: "+why+")";return;}
                 why+="; bands: "+t;
             }catch(const std::exception& e){why+=std::string("; bands: ")+e.what();}

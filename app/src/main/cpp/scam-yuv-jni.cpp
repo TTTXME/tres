@@ -74,7 +74,7 @@ scam_yuv::Report run(JNIEnv* env, jobjectArray frames, int w, int h, int bits, c
 
 extern "C" {
 
-JNIEXPORT jboolean JNICALL Java_com_particlesdevs_photoncamera_processing_yuv_YuvMergeNative_pack(
+JNIEXPORT jboolean JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_pack(
         JNIEnv* env, jclass, jobject y, jobject u, jobject v, jint yRow, jint yPixel, jint uRow, jint uPixel, jint vRow,
         jint vPixel, jint width, jint height, jint sampleBytes, jint shift, jobject out) {
     auto* py = static_cast<const uint8_t*>(env->GetDirectBufferAddress(y));
@@ -98,7 +98,7 @@ JNIEXPORT jboolean JNICALL Java_com_particlesdevs_photoncamera_processing_yuv_Yu
  * BT.601, 1 narrow BT.2020). curve: the points' linear inputs then their encoded outputs. noise: S, O of the camera's profile.
  * stats out: base, mean frames, linear S, linear O, bracket used, ES share, L share, noise measured, measured bins, median frames.
  */
-JNIEXPORT jstring JNICALL Java_com_particlesdevs_photoncamera_processing_yuv_YuvMergeNative_merge(
+JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_merge(
         JNIEnv* env, jclass, jobjectArray frames, jint width, jint height, jint bits, jfloatArray ratios, jintArray roles,
         jfloatArray settings, jfloatArray curve, jfloatArray noise, jobject outRgb, jobject countsOut, jfloatArray stats) {
     try {

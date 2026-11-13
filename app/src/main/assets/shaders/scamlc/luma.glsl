@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Display-encoded luminance of the tone-mapped image (the local contrast works on this plane).
 uniform sampler2D InputBuffer;
 out float Output;

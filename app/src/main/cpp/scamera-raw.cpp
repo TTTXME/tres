@@ -68,7 +68,7 @@ int bayerPhase(LibRaw &raw) {
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nOpen(JNIEnv *env, jclass, jstring path) {
+Java_com_scamera_app_gallery_raw_LibRawBridge_nOpen(JNIEnv *env, jclass, jstring path) {
     const char *p = env->GetStringUTFChars(path, nullptr);
     auto *h = new (std::nothrow) Handle();
     if (!h) {
@@ -86,14 +86,14 @@ Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nOpen(JNIEnv *env, 
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nClose(JNIEnv *, jclass, jlong h) {
+Java_com_scamera_app_gallery_raw_LibRawBridge_nClose(JNIEnv *, jclass, jlong h) {
     delete of(h);
 }
 
 // {width, height, flip, iso, shutter, aperture, focal, timestamp, black, maximum, colors, filters, bayer phase (-1 none),
 //  cam_mul[4], pre_mul[4], cam_xyz[9] (XYZ -> camera, first three rows), thumb format, thumb w, thumb h, is DNG}
 extern "C" JNIEXPORT jdoubleArray JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nInfo(JNIEnv *env, jclass, jlong hh) {
+Java_com_scamera_app_gallery_raw_LibRawBridge_nInfo(JNIEnv *env, jclass, jlong hh) {
     Handle *h = of(hh);
     const libraw_data_t &d = h->raw.imgdata;
     double v[40] = {0};
@@ -126,7 +126,7 @@ Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nInfo(JNIEnv *env, 
 
 // "make\nmodel\nlens"
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nText(JNIEnv *env, jclass, jlong hh) {
+Java_com_scamera_app_gallery_raw_LibRawBridge_nText(JNIEnv *env, jclass, jlong hh) {
     const libraw_data_t &d = of(hh)->raw.imgdata;
     char buf[400];
     snprintf(buf, sizeof buf, "%s\n%s\n%s", d.idata.make, d.idata.model, d.lens.Lens);
@@ -137,7 +137,7 @@ Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nText(JNIEnv *env, 
 
 // the embedded thumbnail: JPEG bytes (info {1, w, h, 0}) or 8-bit RGB (info {2, w, h, colors}); null when there is none usable
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nThumb(JNIEnv *env, jclass, jlong hh, jintArray info) {
+Java_com_scamera_app_gallery_raw_LibRawBridge_nThumb(JNIEnv *env, jclass, jlong hh, jintArray info) {
     Handle *h = of(hh);
     int r = h->raw.unpack_thumb();
     if (r != LIBRAW_SUCCESS) return nullptr;
@@ -158,7 +158,7 @@ Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nThumb(JNIEnv *env,
 // same-colour samples averaged (DngRaw's layout: output (2X + px, 2Y + py) <- block X, Y of 2 bin x 2 bin, phase px, py).
 // Returns the Bayer phase, -1 when this is not a 2x2 Bayer raw (or the unpack failed).
 extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nMosaic(JNIEnv *env, jclass, jlong hh, jobject out, jint bin,
+Java_com_scamera_app_gallery_raw_LibRawBridge_nMosaic(JNIEnv *env, jclass, jlong hh, jobject out, jint bin,
                                                                        jint outW, jint outH) {
     Handle *h = of(hh);
     int phase = bayerPhase(h->raw);
@@ -201,7 +201,7 @@ Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nMosaic(JNIEnv *env
 // display = true: 8-bit sRGB with the camera's WB, flipped, auto-bright (the gallery's fallback picture). half: 2x2 binned.
 // dims gets {width, height, colours, bits}; null on failure.
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_gallery_raw_LibRawBridge_nProcess(JNIEnv *env, jclass, jlong hh, jboolean half,
+Java_com_scamera_app_gallery_raw_LibRawBridge_nProcess(JNIEnv *env, jclass, jlong hh, jboolean half,
                                                                         jboolean display, jintArray dims) {
     Handle *h = of(hh);
     if (!unpack(h)) return nullptr;

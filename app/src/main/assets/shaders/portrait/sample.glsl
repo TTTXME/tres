@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 #define CAMERA_SOURCE 0
 #if CAMERA_SOURCE == 1
 #import interpolation

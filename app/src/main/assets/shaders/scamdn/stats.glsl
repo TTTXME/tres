@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // SCAM noise reduction, noise statistics of one pyramid level (the measured counterpart of the reference
 // ScaleForStride: our merge leaves correlated noise, so the per-level, per-stride noise is measured instead of
 // derived from a white spectrum). One output texel per block of 16 x 16 level pixels (4 x 4 sub-blocks of 4 x 4):

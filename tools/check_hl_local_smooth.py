@@ -22,8 +22,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = (ROOT / 'app/src/main/assets/shaders/why/combine.glsl').read_text(encoding='utf-8')
-JAVA = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyCombine.java').read_text(encoding='utf-8')
-TONE = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
+JAVA = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyCombine.java').read_text(encoding='utf-8')
+TONE = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
 fails = []
 
 
@@ -36,7 +36,7 @@ def check(ok, what):
 m = re.search(r'#if HL_LOCAL == 1\n    if \(hlLocalU\.x > 0\.0\) \{\n(.*?)\n    \}\n#endif', SRC, re.S)
 check(m is not None, 'the HL_LOCAL block in why/combine.glsl')
 check('#define HL_LOCAL_SMOOTH 0\n' in SRC, 'HL_LOCAL_SMOOTH defaults to 0 in the shader (WhyCombine sets it)')
-check('glProg.setDefine("HL_LOCAL_SMOOTH", 1);' in JAVA and 'hlLocalSmooth()' in JAVA, 'WhyCombine sets HL_LOCAL_SMOOTH from WhyTone.hlLocalSmooth()')
+check('shaderProg.setDefine("HL_LOCAL_SMOOTH", 1);' in JAVA and 'hlLocalSmooth()' in JAVA, 'WhyCombine sets HL_LOCAL_SMOOTH from WhyTone.hlLocalSmooth()')
 check('value("hl_local_smooth", 1f)' in TONE, 'scam_dev hybrid_why_hl_local_smooth (default 1)')
 BLOCK = m.group(1) if m else ''
 HL = (0.8, 1.5, 6.0, 12.0)

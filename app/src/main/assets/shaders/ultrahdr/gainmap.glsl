@@ -1,96 +1,51 @@
-precision highp float;
-precision highp sampler2D;
-
-// Ultra HDR gain-map comparison shader (final stage of the scene-anchored
-// pass).
-//
-// InputBuffer: stored SDR base rendition (display-encoded sRGB, RGBA8)
-// LBuffer:     scene-luma plane - linear luminance of the pre-local-tone-map
-//              scene buffer (ultrahdr/sceneluma.glsl), pixel-aligned with the
-//              base image. Fusion LTM compresses clipped highlights below
-//              display white inside the rendering chain, so this plane is the
-//              only place the recoverable highlight headroom still exists.
-//
-// The anchor uAnchor = medianLinearSDR / medianL declares the midtones of the
-// scene equal to the midtones of the rendering (matched medians). Because the
-// SDR signal saturates while the scene plane keeps climbing, the ratio grows
-// monotonically toward clipped highlights: pixels at the midtone anchor get
-// zero gain, brighter scene content gets progressively more, and everything
-// below is floored to identity by the clamp.
-
+precision highp float; precision highp sampler2D;
+// The Ultra HDR gain map (the last stage of the scene-anchored pass): per uDown x uDown block, log2 of the anchored scene
+// luminance over the base's, both with the hdrgm offset added (the decoder applies (SDR + OffsetSDR) 2^gain - OffsetHDR),
+// faded out in deep blacks (no shadow noise boosted on HDR displays), over [0, uScale] in 8 bits (R = G = B, A = 1).
+// InputBuffer: the stored SDR base (display-encoded RGBA8). LBuffer: the scene-luma plane (ultrahdr/sceneluma.glsl, linear,
+// pixel-aligned) - the only place the highlight headroom the local tone map compressed away is left.
+// uAnchor: linear median of the base / linear median of the scene plane: the midtones gain nothing, brighter scene content
+// more, anything below stays at identity (clamp).
 uniform sampler2D InputBuffer;
+uniform float uAnchor, uScale, uEps;
 uniform sampler2D LBuffer;
-// Scene-to-render anchor: linear median of the base divided by the linear
-// median of the scene plane (midtone alignment).
-uniform float uAnchor;
-// Downsample factor per axis (e.g. 4 -> gain map is 1/16 the pixels)
 uniform int uDown;
-// Total log2 range the gain map covers: logBoost in [0, uScale]
-uniform float uScale;
-// OffsetSDR/OffsetHDR from the hdrgm XMP metadata (1/64)
-uniform float uEps;
 // P370 (B3): 1 = the base is Display P3 (PhotoOutput): its luminance takes the P3 weights; 0 / unset: sRGB (Rec.709)
 uniform int uP3;
-
 out vec4 Output;
 
-#define GAINSHADOWFLOOR 0.02
-#define lum709(x) dot(x, vec3(0.2126, 0.7152, 0.0722))
+#define SHADOW_FADE 0.02
+const vec3 W709 = vec3(0.2126, 0.7152, 0.0722);
+const vec3 WP3 = vec3(0.2290, 0.6917, 0.0793);
 
-float srgbToLinear(float c) {
-    c = clamp(c, 0.0, 1.0);
-    if (c <= 0.04045) return c / 12.92;
-    return pow((c + 0.055) / 1.055, 2.4);
-}
-vec3 srgbToLinear(vec3 c) {
-    return vec3(srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b));
+float decode(float v) {
+    v = clamp(v, 0.0, 1.0);
+    if (v <= 0.04045) return v / 12.92;
+    return pow((v + 0.055) / 1.055, 2.4);
 }
 
 void main() {
-    ivec2 outXY = ivec2(gl_FragCoord.xy);
-    int sx = outXY.x * uDown;
-    int sy = outXY.y * uDown;
-
-    float sdrSum = 0.0;
-    float hdrSum = 0.0;
-    int count = 0;
-
-    for (int dy = 0; dy < uDown; dy++) {
-        for (int dx = 0; dx < uDown; dx++) {
-            ivec2 p = ivec2(sx + dx, sy + dy);
-            vec3 s = texelFetch(InputBuffer, p, 0).rgb;
-            vec3 l = max(texelFetch(LBuffer, p, 0).rgb, vec3(0.0));
-
-            // SDR luminance in linear light.
-            float sL = uP3 == 1 ? dot(srgbToLinear(s), vec3(0.2290, 0.6917, 0.0793)) : lum709(srgbToLinear(s));
-            // Scene luminance is already linear; anchored to the render's top.
-            float hL = lum709(l) * uAnchor;
-
-            // Decode applies (SDR + OffsetSDR) * 2^gain - OffsetHDR, so the
-            // encode-side ratio must add the offset, not clamp to it.
-            sdrSum += sL + uEps;
-            hdrSum += hL + uEps;
-            count++;
+    ivec2 corner = ivec2(gl_FragCoord.xy) * uDown;
+    float base = 0.0;
+    float scene = 0.0;
+    int n = 0;
+    for (int y = 0; y < uDown; y++) {
+        for (int x = 0; x < uDown; x++) {
+            ivec2 p = corner + ivec2(x, y);
+            vec3 sdr = texelFetch(InputBuffer, p, 0).rgb;
+            vec3 linear = vec3(decode(sdr.r), decode(sdr.g), decode(sdr.b));
+            float sdrY = uP3 == 1 ? dot(linear, WP3) : dot(linear, W709);
+            float sceneY = dot(max(texelFetch(LBuffer, p, 0).rgb, vec3(0.0)), W709) * uAnchor;
+            base += sdrY + uEps;
+            scene += sceneY + uEps;
+            n++;
         }
     }
-
-    float sdrL = sdrSum / float(count);
-    float hdrL = hdrSum / float(count);
-
-    // Scene above the anchor with a saturated SDR signal yields positive
-    // boost; anything below is clamped to identity so shadows/midtones are
-    // never darkened.
-    float logBoost = log2(hdrL / sdrL);
-
-    // Fade the boost out in deep blacks so sensor noise is not amplified into
-    // visible shadow grain on HDR displays. Sole tuning constant in this pass.
-    logBoost *= smoothstep(0.0, GAINSHADOWFLOOR, sdrL - uEps);
-
-    // Map into [0,1] across the fixed log2 range [0, uScale], then store as 8-bit.
-    float v = clamp(logBoost / uScale, 0.0, 1.0);
-    int byteVal = int(v * 255.0 + 0.5);
-
-    // Single-channel gain map, packed as R=G=B=value, A=255 (ARGB_8888).
-    float chan = float(byteVal) / 255.0;
-    Output = vec4(chan, chan, chan, 1.0);
+    float sdrL = base / float(n);
+    float sceneL = scene / float(n);
+    float boost = log2(sceneL / sdrL);
+    boost *= smoothstep(0.0, SHADOW_FADE, sdrL - uEps);
+    int code = int(clamp(boost / uScale, 0.0, 1.0) * 255.0 + 0.5);
+    float level = float(code) / 255.0;
+    Output = vec4(level, level, level, 1.0);
 }

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Highlight recovery, step 2: 4x4 average of the block sums (a wider colour neighbourhood).
 uniform sampler2D InputBuffer;
 out vec4 Output;

@@ -1,4 +1,4 @@
-"""P46 colour output check (Display P3, HDR HLG), no device.
+"""P46 colour output check (Display P3), no device.
 
     python3 tools/check_colour_output.py            every part whose tools are installed (the rest is reported as skipped)
     python3 tools/check_colour_output.py --shader   why/combine.glsl: P3_OUT 0 is the pre-P46 shader token for token
@@ -6,8 +6,7 @@
     python3 tools/check_colour_output.py --gl       why/combine.glsl on the GPU (moderngl): Display P3 renders the sRGB
                                                     picture exactly for colours inside sRGB and keeps wider colours
     python3 tools/check_colour_output.py --files    the app's ICC / JPEG / WebP / HEIF code (javac) on files of Pillow,
-                                                    libwebp and libheif, read back by them; the HLG maths against an
-                                                    independent BT.2100 implementation (needs android.jar: $ANDROID_HOME)
+                                                    libwebp and libheif, read back by them (needs android.jar: $ANDROID_HOME)
     add --strict to fail instead of skipping a part whose tools are missing; SIGNED_HUE=1 in the environment renders --gl
     with the P370 signed hue on (the shipped default; the colours outside sRGB are then not compared with the old shader).
 
@@ -32,10 +31,12 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 SH = ROOT / 'app/src/main/assets/shaders'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing'
 # SHA-256 of the token stream of why/combine.glsl at a3e94db (before P46) without the sharpening guard (see without_guard),
 # #import expanded, comments dropped.
-BASELINE_COMBINE_TOKENS = '4649ce9ff089ae8244e629a4c8ecbb77b5e5072cb1fae675225f8d7c75a5bee0'  # P319: a3e94db under the Why names
+# P659 R3: utils/import_interpolation.glsl rewritten with bit-identical results; with the old import the stream is still
+# 4649ce9ff089ae82 (the pre-P46 shader), so this is the same shader with the new import expanded.
+BASELINE_COMBINE_TOKENS = 'f35b8975f1294da76c552e88130931857ecd724133578dae490d86044c9d8b01'  # P319: a3e94db under the Why names
 BASELINE_COMMIT = 'a3e94db'
 # P370 (review): the --gl renders' signedHueU - 0 (unset, the shader before P370) by default, SIGNED_HUE=1 in the environment
 # renders the shipped default (CI runs both)
@@ -242,31 +243,6 @@ def srgb_eotf(v):
 def srgb_oetf(v):
     v = np.clip(np.asarray(v, float), 0, None)
     return np.where(v <= 0.0031308, v * 12.92, 1.055 * v ** (1 / 2.4) - 0.055)
-
-
-HLG_A = 0.17883277
-HLG_B = 1 - 4 * HLG_A
-HLG_C = 0.5 - HLG_A * np.log(4 * HLG_A)
-
-
-def hlg_oetf(e):
-    e = np.clip(np.asarray(e, float), 0, 1)
-    return np.where(e <= 1 / 12, np.sqrt(3 * e), HLG_A * np.log(np.maximum(12 * e - HLG_B, 1e-12)) + HLG_C)
-
-
-def hlg_from_display(rgb, peak=1000.0, ref=203.0, gamma=1.2, knee=0.8):
-    """BT.2100 HLG signal of BT.2020 display light relative to SDR white (1 = 203 cd/m2), BT.2408 placement; the soft
-    knee of the brightest channel above 80 % of the headroom is SCAMERA's own (HlgRendition.knee)."""
-    rgb = np.clip(np.asarray(rgb, float), 0, None)
-    p = peak / ref
-    m = rgb.max(-1, keepdims=True)
-    k = knee * p
-    kneed = np.where(m > k, k + (p - k) * (1 - np.exp(-(m - k) / (p - k))), m)
-    rgb = np.where(m > k, rgb * kneed / np.maximum(m, 1e-12), rgb)
-    fd = rgb * ref / peak                      # display light, 1 = the nominal peak
-    yd = fd @ np.array([0.2627, 0.6780, 0.0593])
-    scale = np.where(yd > 0, np.maximum(yd, 1e-30) ** ((1 - gamma) / gamma), 0.0)
-    return hlg_oetf(np.minimum(fd * scale[..., None], 1.0))
 
 
 def oklab(lin):
@@ -647,7 +623,7 @@ def compile_java(tmp: Path, strict: bool) -> tuple[str, str] | None:
     (stub / 'RequiresApi.java').write_text('package androidx.annotation; public @interface RequiresApi { int value() default 1; int api() default 1; }')
     classes = tmp / 'classes'
     files = [JAVA / 'color/OutputColour.java', JAVA / 'color/IccProfiles.java', JAVA / 'color/IccEmbed.java',
-             JAVA / 'color/HlgRendition.java', JAVA / 'heif/HeifColourPatch.java', JAVA / 'heif/TenBitBitmaps.java',
+             JAVA / 'heif/HeifColourPatch.java', JAVA / 'heif/TenBitBitmaps.java',
              JAVA / 'ultrahdr/GainMapComputer.java', stub / 'RequiresApi.java', ROOT / 'tools/java/ColourOutputSample.java']
     subprocess.run([javac, '-encoding', 'UTF-8', '-cp', android, '-d', str(classes)] + [str(f) for f in files], check=True)
     return java, os.pathsep.join([str(classes), android])
@@ -732,42 +708,6 @@ def files_part(strict: bool) -> None:
                 if 'color_primaries' in kw:
                     check(summary.get('nclx') == (12, 13, 6, 1), 'HEIF (%s): nclx %s' % (label, summary.get('nclx')))
             print('HEIF: the profile added to libheif files (with / without nclx: primaries -> 12, matrix kept), pixels unchanged')
-        # 6. HLG: Java vs the BT.2100 reference here
-        rng = np.random.default_rng(2100)
-        light = np.concatenate([np.array([[1, 1, 1], [0, 0, 0], [0.18, 0.18, 0.18], [4.9, 4.9, 4.9], [20, 3, 1], [0.01, 0.5, 2]]),
-                                rng.random((400, 3)) * (2.0 ** rng.uniform(-8, 3, (400, 1)))])
-        (tmp / 'hlg_in.txt').write_text('\n'.join('%.17g %.17g %.17g' % tuple(c) for c in light))
-        run_sample(jc, 'hlg', tmp / 'hlg_in.txt', tmp / 'hlg_out.txt')
-        java_hlg = np.loadtxt(tmp / 'hlg_out.txt')
-        ref = hlg_from_display(light)
-        err = np.abs(java_hlg - ref).max()
-        print('HLG: Java vs the BT.2100 reference: max %.2e; SDR white -> %.4f (BT.2408: 0.75)' % (err, java_hlg[0, 0]))
-        check(err < 1e-9, 'HLG signal differs from the reference by %.3g' % err)
-        check(abs(java_hlg[0, 0] - 0.75) < 0.001, 'SDR white is not 75 % HLG')
-        # 7. the renderer: base pixel + gain map value -> HLG pixel, against the reference chain
-        lines, want = [], []
-        for _ in range(300):
-            ten = rng.random() < 0.5
-            space = 'p3' if rng.random() < 0.5 else 'srgb'
-            gmax = float(rng.uniform(0.5, 6))
-            levels = 1023 if ten else 255
-            rgb = rng.integers(0, levels + 1, 3)
-            px = (int(rgb[0]) | int(rgb[1]) << 10 | int(rgb[2]) << 20 | 3 << 30) if ten else (int(rgb[0]) | int(rgb[1]) << 8 | int(rgb[2]) << 16 | 255 << 24)
-            g = int(rng.integers(0, 256))
-            lines.append('%d %s 0 %r %r %d %d' % (ten, space, gmax, gmax, px - (1 << 32) if px >= 1 << 31 else px, g))
-            lin = srgb_eotf(rgb / levels)
-            w = min(1.0, np.log2(1000 / 203) / gmax)
-            boost = 2.0 ** (gmax * g / 255 * w)
-            hdr = (lin + 1 / 64) * boost - 1 / 64
-            hdr = hdr @ (P2B if space == 'p3' else S2B).T
-            want.append(np.round(np.clip(hlg_from_display(hdr), 0, 1) * 1023))
-        (tmp / 'r_in.txt').write_text('\n'.join(lines))
-        run_sample(jc, 'render', tmp / 'r_in.txt', tmp / 'r_out.txt')
-        got = np.array([[v & 0x3FF, (v >> 10) & 0x3FF, (v >> 20) & 0x3FF] for v in (int(x) & 0xFFFFFFFF for x in (tmp / 'r_out.txt').read_text().split())])
-        err = np.abs(got - np.array(want)).max()
-        print('HLG renderer: Java vs the reference chain (sRGB / P3 base, 8 / 10 bit, gain map): max %d code(s)' % err)
-        check(err <= 1, 'the HLG renderer differs from the reference by %d codes' % err)
-
 
 def main(argv: list[str]) -> int:
     strict = '--strict' in argv

@@ -1,0 +1,64 @@
+# P662: SCAMERA's baseline profile (hand-written; profileinstaller installs it, ART compiles these with speed-profile at install).
+# The hot paths: the app start and the camera open (application, splash, camera activity / fragment, the viewfinder renderers,
+# the capture session and its controls, settings reads), the shot (capture, saving, the processing pipeline, the merge client,
+# the GL post pipeline, the encoders), and the gallery and settings entry points.
+# H hot, S startup, P post-startup; "**" matches any characters (also "/"), "*" within a package level.
+
+# Application, launch and the camera screen
+HSPLcom/scamera/app/app/**;->**(**)**
+HSPLcom/scamera/app/ui/SplashActivity;->**(**)**
+HSPLcom/scamera/app/ui/Icons;->**(**)**
+HSPLcom/scamera/app/ui/Motion;->**(**)**
+HSPLcom/scamera/app/ui/camera/**;->**(**)**
+HSPLcom/scamera/app/ui/controls/**;->**(**)**
+HSPLcom/scamera/app/ui/style/**;->**(**)**
+HSPLcom/scamera/app/circularbarlib/**;->**(**)**
+
+# Camera2, the session, zoom / focus, settings and the helpers every start reads
+HSPLcom/scamera/app/api/**;->**(**)**
+HSPLcom/scamera/app/capture/**;->**(**)**
+HSPLcom/scamera/app/control/**;->**(**)**
+HSPLcom/scamera/app/settings/**;->**(**)**
+HSPLcom/scamera/app/util/**;->**(**)**
+
+# The shot: saving, the processing pipeline, the merge client, the GL post pipeline, colour, the output formats
+HSPLcom/scamera/app/processing/*;->**(**)**
+HSPLcom/scamera/app/processing/processor/**;->**(**)**
+HSPLcom/scamera/app/processing/opengl/**;->**(**)**
+HSPLcom/scamera/app/processing/render/**;->**(**)**
+HSPLcom/scamera/app/processing/parameters/**;->**(**)**
+HSPLcom/scamera/app/processing/color/**;->**(**)**
+HSPLcom/scamera/app/processing/heif/**;->**(**)**
+HSPLcom/scamera/app/processing/avif/**;->**(**)**
+HSPLcom/scamera/app/processing/ultrahdr/**;->**(**)**
+HSPLcom/scamera/app/processing/watermark/**;->**(**)**
+HSPLcom/scamera/app/processing/yuv/**;->**(**)**
+
+# Gallery entry: the activity, its grid and viewer, thumbnails (Glide), the DNG preview
+HSPLcom/scamera/app/gallery/*;->**(**)**
+HSPLcom/scamera/app/gallery/ui/**;->**(**)**
+HSPLcom/scamera/app/gallery/adapters/**;->**(**)**
+HSPLcom/scamera/app/gallery/glide/**;->**(**)**
+HSPLcom/scamera/app/gallery/dng/**;->**(**)**
+HSPLcom/scamera/app/gallery/files/**;->**(**)**
+HSPLcom/scamera/app/gallery/helper/**;->**(**)**
+HSPLcom/scamera/app/gallery/model/**;->**(**)**
+HSPLcom/scamera/app/gallery/viewmodel/**;->**(**)**
+HSPLcom/scamera/app/gallery/views/**;->**(**)**
+HSPLcom/scamera/app/gallery/binding/**;->**(**)**
+
+# Settings entry: the activity, its pages and their custom rows
+HSPLcom/scamera/app/ui/settings/**;->**(**)**
+
+# The classes of those paths, loaded at startup
+Lcom/scamera/app/app/**;
+Lcom/scamera/app/ui/SplashActivity;
+Lcom/scamera/app/ui/camera/**;
+Lcom/scamera/app/ui/controls/**;
+Lcom/scamera/app/ui/style/**;
+Lcom/scamera/app/circularbarlib/**;
+Lcom/scamera/app/api/**;
+Lcom/scamera/app/capture/**;
+Lcom/scamera/app/control/**;
+Lcom/scamera/app/settings/**;
+Lcom/scamera/app/util/**;

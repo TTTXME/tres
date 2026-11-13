@@ -14,9 +14,9 @@ import moderngl
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG = 'com.particlesdevs.photoncamera.processing.opengl.postpipeline'
+PKG = 'com.scamera.app.processing.opengl.postpipeline'
 JAVA = ROOT / 'app/src/main/java' / PKG.replace('.', '/')
-TEST_JAVA = ROOT / 'app/src/test/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline'
+TEST_JAVA = ROOT / 'app/src/test/java/com/scamera/app/processing/opengl/postpipeline'
 SHADERS = ROOT / 'app/src/main/assets/shaders'
 VS = '#version 310 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.-1.,0,1);}'
 try:

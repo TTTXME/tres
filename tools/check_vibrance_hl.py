@@ -67,7 +67,7 @@ P393_SKY_BLOCK = re.compile(r'    if \(vibHlU > 0\.0\) \{\n        float c0 = le
 
 
 def java_shape():
-    src = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
+    src = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
     m = re.search(r'VIBRANCE_HL_SHAPE = \{([^}]*)\}', src)
     p = re.search(r'VIBRANCE_HL_SHAPE_P341 = \{([^}]*)\}', src)
     return (tuple(float(v.strip().rstrip('f')) for v in m.group(1).split(',')),

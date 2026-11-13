@@ -62,10 +62,10 @@ int main() {
         std::vector<uint8_t> source(n + 7);
         for (size_t i = 0; i < source.size(); ++i) source[i] = uint8_t(i * 131u + 7u);
         jobject origin = newDirect(&env, source.data(), jlong(source.size()));
-        jobject copy = Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopy(&env, nullptr, jint(n), origin, 7);
+        jobject copy = Java_com_scamera_app_util_Allocator_allocateAndCopy(&env, nullptr, jint(n), origin, 7);
         expect(copy && capacity(&env, copy) == jlong(n) && std::memcmp(address(&env, copy), source.data() + 7, n) == 0,
                "allocateAndCopy copies the bytes from the offset: " + std::to_string(n));
-        if (copy) Java_com_particlesdevs_photoncamera_util_Allocator_free(&env, nullptr, copy);
+        if (copy) Java_com_scamera_app_util_Allocator_free(&env, nullptr, copy);
     }
 
     // a result as the worker leaves it: halves (here 72 MB + a page), then a 12 MB trailer of clip flags
@@ -80,12 +80,12 @@ int main() {
         munmap(w, total);
     }
     const size_t before = arenaCount();
-    const jint id = Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(&env, nullptr, fd, jlong(total));
+    const jint id = Java_com_scamera_app_util_Allocator_arenaAdopt(&env, nullptr, fd, jlong(total));
     expect(id > 0 && arenaCount() == before + 1, "adopted");
-    jobject rgbView = Java_com_particlesdevs_photoncamera_util_Allocator_arenaView(&env, nullptr, id, 0, jint(rgb));
-    jobject clipView = Java_com_particlesdevs_photoncamera_util_Allocator_arenaView(&env, nullptr, id, jlong(rgb), jint(clip));
+    jobject rgbView = Java_com_scamera_app_util_Allocator_arenaView(&env, nullptr, id, 0, jint(rgb));
+    jobject clipView = Java_com_scamera_app_util_Allocator_arenaView(&env, nullptr, id, jlong(rgb), jint(clip));
     expect(rgbView && clipView, "views");
-    Java_com_particlesdevs_photoncamera_util_Allocator_arenaRelease(&env, nullptr, id);
+    Java_com_scamera_app_util_Allocator_arenaRelease(&env, nullptr, id);
     expect(arenaCount() == before + 1, "a released arena stays while its views live");
     // the views read the bytes the worker wrote, in place
     bool same = true;
@@ -98,7 +98,7 @@ int main() {
     // the caller's fd stays its own (a duplicate is held)
     expect(fcntl(fd, F_GETFD) >= 0, "the caller keeps its fd");
     // the RGB view freed (ScamRgb after the upload): its pages go back at once (a hole), the clip flags stay
-    Java_com_particlesdevs_photoncamera_util_Allocator_free(&env, nullptr, rgbView);
+    Java_com_scamera_app_util_Allocator_free(&env, nullptr, rgbView);
     {
         std::vector<uint8_t> head(4096), tail(4096);
         expect(pread(fd, head.data(), head.size(), 0) == ssize_t(head.size()), "pread head");
@@ -112,15 +112,15 @@ int main() {
         expect(c[4097] == uint8_t(((rgb + 4097) * 2654435761u) >> 24), "the clip view still reads");
     }
     expect(arenaCount() == before + 1, "still mapped for the clip view");
-    Java_com_particlesdevs_photoncamera_util_Allocator_free(&env, nullptr, clipView);
+    Java_com_scamera_app_util_Allocator_free(&env, nullptr, clipView);
     expect(arenaCount() == before, "unmapped and closed once every view is freed");
-    expect(Java_com_particlesdevs_photoncamera_util_Allocator_arenaFd(&env, nullptr, id) == -1, "the arena is gone");
+    expect(Java_com_scamera_app_util_Allocator_arenaFd(&env, nullptr, id) == -1, "the arena is gone");
     // failures: no fd, no size, a size the fd cannot map
-    expect(Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(&env, nullptr, -1, 4096) == 0, "bad fd");
-    expect(Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(&env, nullptr, fd, 0) == 0, "no size");
+    expect(Java_com_scamera_app_util_Allocator_arenaAdopt(&env, nullptr, -1, 4096) == 0, "bad fd");
+    expect(Java_com_scamera_app_util_Allocator_arenaAdopt(&env, nullptr, fd, 0) == 0, "no size");
     int p[2];
     expect(pipe(p) == 0, "pipe");
-    expect(Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(&env, nullptr, p[0], 4096) == 0, "a pipe cannot be mapped");
+    expect(Java_com_scamera_app_util_Allocator_arenaAdopt(&env, nullptr, p[0], 4096) == 0, "a pipe cannot be mapped");
     expect(arenaCount() == before, "no arena left by the failures");
     close(p[0]); close(p[1]);
     close(fd);
@@ -138,25 +138,25 @@ int main() {
             for (size_t i = 0; i < all; ++i) w[i] = pat(i);
             munmap(w, all);
         }
-        const jint t = Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(&env, nullptr, out, jlong(all));
-        jobject tRgb = Java_com_particlesdevs_photoncamera_util_Allocator_arenaView(&env, nullptr, t, 0, jint(vRgb));
-        jobject tClip = Java_com_particlesdevs_photoncamera_util_Allocator_arenaView(&env, nullptr, t, jlong(vRgb + vDng + vEff), jint(vClip));
+        const jint t = Java_com_scamera_app_util_Allocator_arenaAdopt(&env, nullptr, out, jlong(all));
+        jobject tRgb = Java_com_scamera_app_util_Allocator_arenaView(&env, nullptr, t, 0, jint(vRgb));
+        jobject tClip = Java_com_scamera_app_util_Allocator_arenaView(&env, nullptr, t, jlong(vRgb + vDng + vEff), jint(vClip));
         expect(t > 0 && tRgb && tClip, "trailers: adopted, two views");
         // the client's order before the fix: released with its views, then the trailers read from the memfd
-        Java_com_particlesdevs_photoncamera_util_Allocator_arenaRelease(&env, nullptr, t);
+        Java_com_scamera_app_util_Allocator_arenaRelease(&env, nullptr, t);
         std::vector<uint8_t> trailers(vDng + vEff);
         expect(pread(out, trailers.data(), trailers.size(), off_t(vRgb)) == ssize_t(trailers.size()), "trailers pread");
         size_t changed = 0;
         for (size_t i = 0; i < trailers.size(); ++i) changed += trailers[i] != pat(vRgb + i);
         expect(changed == 0, "the merged DNG and the effective map keep their bytes after the release (" + std::to_string(changed) + " changed)");
         // arenaPunch: refused over a view, for a range out of bounds, for an arena not adopted; the read trailers given back
-        expect(!Java_com_particlesdevs_photoncamera_util_Allocator_arenaPunch(&env, nullptr, t, jlong(vRgb - 4096), jlong(vDng)), "no punch over the RGB view");
-        expect(!Java_com_particlesdevs_photoncamera_util_Allocator_arenaPunch(&env, nullptr, t, jlong(vRgb), jlong(vDng + vEff + 4096)), "no punch over the clip view");
-        expect(!Java_com_particlesdevs_photoncamera_util_Allocator_arenaPunch(&env, nullptr, t, jlong(all - 4096), 8192), "no punch beyond the arena");
-        const jint ring = Java_com_particlesdevs_photoncamera_util_Allocator_arenaCreate(&env, nullptr, jlong(8 * MB));
-        expect(ring > 0 && !Java_com_particlesdevs_photoncamera_util_Allocator_arenaPunch(&env, nullptr, ring, 0, jlong(4 * MB)), "no punch in a shot's arena");
-        Java_com_particlesdevs_photoncamera_util_Allocator_arenaRelease(&env, nullptr, ring);
-        expect(Java_com_particlesdevs_photoncamera_util_Allocator_arenaPunch(&env, nullptr, t, jlong(vRgb), jlong(vDng + vEff)), "the read trailers punched");
+        expect(!Java_com_scamera_app_util_Allocator_arenaPunch(&env, nullptr, t, jlong(vRgb - 4096), jlong(vDng)), "no punch over the RGB view");
+        expect(!Java_com_scamera_app_util_Allocator_arenaPunch(&env, nullptr, t, jlong(vRgb), jlong(vDng + vEff + 4096)), "no punch over the clip view");
+        expect(!Java_com_scamera_app_util_Allocator_arenaPunch(&env, nullptr, t, jlong(all - 4096), 8192), "no punch beyond the arena");
+        const jint ring = Java_com_scamera_app_util_Allocator_arenaCreate(&env, nullptr, jlong(8 * MB));
+        expect(ring > 0 && !Java_com_scamera_app_util_Allocator_arenaPunch(&env, nullptr, ring, 0, jlong(4 * MB)), "no punch in a shot's arena");
+        Java_com_scamera_app_util_Allocator_arenaRelease(&env, nullptr, ring);
+        expect(Java_com_scamera_app_util_Allocator_arenaPunch(&env, nullptr, t, jlong(vRgb), jlong(vDng + vEff)), "the read trailers punched");
         expect(pread(out, trailers.data(), trailers.size(), off_t(vRgb)) == ssize_t(trailers.size()), "trailers pread after the punch");
         bool zero = true;
         for (uint8_t v : trailers) zero &= v == 0;
@@ -168,10 +168,48 @@ int main() {
         views &= rv[vRgb - 1] == pat(vRgb - 1);
         for (size_t i = 0; i < vClip; i += 4093) views &= cv[i] == pat(vRgb + vDng + vEff + i);
         expect(views, "the views keep their bytes around the punched range");
-        Java_com_particlesdevs_photoncamera_util_Allocator_free(&env, nullptr, tRgb);
-        Java_com_particlesdevs_photoncamera_util_Allocator_free(&env, nullptr, tClip);
-        expect(Java_com_particlesdevs_photoncamera_util_Allocator_arenaFd(&env, nullptr, t) == -1, "trailers: the arena gone after its views");
+        Java_com_scamera_app_util_Allocator_free(&env, nullptr, tRgb);
+        Java_com_scamera_app_util_Allocator_free(&env, nullptr, tClip);
+        expect(Java_com_scamera_app_util_Allocator_arenaFd(&env, nullptr, t) == -1, "trailers: the arena gone after its views");
         close(out);
+    }
+    {
+        // P662: a fresh ZSL ring's part prefaulted on its own thread (arenaPrefault): a slot's bytes stay as the copy wrote them,
+        // the pages are resident afterwards, a released arena is refused, and an arena released while the prefault holds it is
+        // unmapped by the prefault itself
+        const size_t slot = size_t(4) << 20;
+        const jint r = Java_com_scamera_app_util_Allocator_arenaCreate(&env, nullptr, jlong(65536 + 3 * slot));
+        expect(r > 0, "prefault: ring made");
+        std::vector<uint8_t> frame(slot);
+        for (size_t i = 0; i < slot; ++i) frame[i] = uint8_t(i * 13u + 7u);
+        jobject src = newDirect(&env, frame.data(), jlong(slot));
+        jobject v = Java_com_scamera_app_util_Allocator_arenaCopy(&env, nullptr, r, 65536, src, 0, jint(slot));
+        expect(v != nullptr, "prefault: frame copied into slot 0");
+        expect(Java_com_scamera_app_util_Allocator_arenaPrefault(&env, nullptr, r, 65536, jlong(3 * slot)), "prefault: the ring part");
+        const uint8_t* bytes = v ? static_cast<const uint8_t*>(address(&env, v)) : nullptr;
+        bool kept = bytes != nullptr;
+        for (size_t i = 0; bytes && i < slot; i += 4093) kept &= bytes[i] == frame[i];
+        expect(kept, "prefault: the copied slot keeps its bytes");
+        uint8_t* base = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(arenaLock);
+            const long i = findLocked(r);
+            if (i >= 0) base = arenas[size_t(i)].base;
+        }
+        std::vector<unsigned char> resident(slot / 4096);
+        expect(base && mincore(base + 65536 + 2 * slot, slot, resident.data()) == 0, "prefault: mincore");
+        bool all = true;
+        for (unsigned char c : resident) all &= (c & 1) != 0;
+        expect(all, "prefault: the last slot's pages are resident");
+        expect(!Java_com_scamera_app_util_Allocator_arenaPrefault(&env, nullptr, r, 0, jlong(4 * slot)), "prefault: out of bounds refused");
+        Java_com_scamera_app_util_Allocator_free(&env, nullptr, v);
+        Java_com_scamera_app_util_Allocator_arenaRelease(&env, nullptr, r);
+        expect(!Java_com_scamera_app_util_Allocator_arenaPrefault(&env, nullptr, r, 65536, jlong(slot)), "prefault: a released ring refused");
+        const jint r2 = Java_com_scamera_app_util_Allocator_arenaCreate(&env, nullptr, jlong(65536 + 64 * slot));
+        std::thread pre([&] { Java_com_scamera_app_util_Allocator_arenaPrefault(&env, nullptr, r2, 65536, jlong(64 * slot)); });
+        Java_com_scamera_app_util_Allocator_arenaRelease(&env, nullptr, r2);
+        pre.join();
+        expect(Java_com_scamera_app_util_Allocator_arenaFd(&env, nullptr, r2) == -1, "prefault: a ring released meanwhile is unmapped after it");
     }
     expect(arenaCount() == before, "no arena left");
     for (Direct* d : made) delete d;

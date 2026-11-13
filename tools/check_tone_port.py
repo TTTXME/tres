@@ -50,7 +50,7 @@ SUPP = ROOT / 'app/src/main/cpp/third_party/tone_supplement/tone_supplement.cpp'
 HOOK = ROOT / 'app/src/main/cpp/third_party/tone_port.p630e.diff'
 THREADS_DIFF = ROOT / 'app/src/main/cpp/third_party/tone_port.p636.diff'
 BENCH = ROOT / 'tools/bench_oldstyle_tone.cpp'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/oldstyle'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/oldstyle'
 FAIL = []
 
 
@@ -231,7 +231,7 @@ int main() {
 
 # OldstyleAe's Java port and the JNI's plan on the same rows; OldstyleAe.meter on the control scenes
 PLAN_DRIVER = r'''
-package com.particlesdevs.photoncamera.processing.oldstyle;
+package com.scamera.app.processing.oldstyle;
 import java.nio.*;
 import java.nio.file.*;
 import java.util.*;
@@ -305,7 +305,7 @@ def table_rows(lines, tag):
 
 
 DRIVER = r'''
-package com.particlesdevs.photoncamera.processing.oldstyle;
+package com.scamera.app.processing.oldstyle;
 import java.nio.*;
 import java.nio.file.*;
 public final class ToneHost {
@@ -477,7 +477,7 @@ def main():
         (d / 'direct.cpp').write_text(DIRECT)
         sh(['g++', '-std=c++17', '-O2', '-ffp-contract=off', '-I' + str(TP / 'include'), '-I' + str(SUPP.parent), str(d / 'direct.cpp'),
             str(d / 'build/libtone_port.a'), '-o', str(d / 'direct'), '-lpthread'])
-        pkg = d / 'java/com/particlesdevs/photoncamera/processing/oldstyle'
+        pkg = d / 'java/com/scamera/app/processing/oldstyle'
         pkg.mkdir(parents=True)
         for f in ('OldstyleNative.java', 'OldstyleAe.java'):
             shutil.copy(JAVA / f, pkg / f)
@@ -487,7 +487,7 @@ def main():
         sh(['javac', '-nowarn', '-encoding', 'UTF-8', '-d', str(d / 'classes')] + [str(p) for p in pkg.glob('*.java')])
         java = ['java', '-Dscamera.tone.lib=' + str(lib), '-cp', str(d / 'classes')]
         # the rows through OldstyleAe's Java port, and the JNI's plan (2.7 YUV and 3.1 RAW: the app's two rules)
-        r = sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.PlanHost', 'plan', str(d / 'rows.txt')])
+        r = sh(java + ['com.scamera.app.processing.oldstyle.PlanHost', 'plan', str(d / 'rows.txt')])
         lines = r.stdout.strip().splitlines()
         table_rows(lines, 'OldstyleAe (Java)')
         k = 0
@@ -505,7 +505,7 @@ def main():
             fp = d / ('scene%02d.f32' % n)
             np.ascontiguousarray(scene(n), '<f4').tofile(fp)
             files.append(str(fp))
-        r = sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.PlanHost', 'meter'] + files)
+        r = sh(java + ['com.scamera.app.processing.oldstyle.PlanHost', 'meter'] + files)
         agree = {27: [], 31: []}
         for n, line in enumerate(r.stdout.strip().splitlines(), 1):
             r27, r31, f27, f31, h27, h31 = line.split()
@@ -541,7 +541,7 @@ def main():
                        (2, 0.25, 0.98, 10.0, 1, 0, 0.0), (2, 0.25, 1.1, 6.4, 1, 1, 0.2), (2, 1.0, 0.8, 7.0, 1, 0, -0.3)]
               for ver, scale, gs, gl, hdr, post, sat in cases:
                   cm = ccm if ver == 1 else '1,0,0,0,1,0,0,0,1'
-                  sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
+                  sh(java + ['com.scamera.app.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
                              str(scale), str(d / 'planes.i16'), cm, str(gs), str(gl), str(hdr), str(post), str(sat), nothing, '-', '0', '0',
                              str(d / 'jni.rgb')], env=jenv)
                   planes = np.fromfile(d / 'planes.i16', '<i2').reshape(3, h, w)
@@ -564,7 +564,7 @@ def main():
                       sat = ('0.25', '1.3', '0.05', '0.02') if son else ('0', '1', '0', '0')
                       post = '%d,%d,%g,%g,%s,%s,%s,%s,0,16' % ((dh,) + params + sat)
                       sf = [str(d / 'shading.f32'), str(sw), str(shh)] if shd != '-' else ['-', '0', '0']
-                      sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
+                      sh(java + ['com.scamera.app.processing.oldstyle.ToneHost', str(ver), str(w), str(h), str(d / 'lin.f32'),
                                  '1', str(d / 'planes.i16'), cm, str(gs), str(gl), str(hdr), '0', '0', post] + sf + [str(d / 'jni.rgb')], env=jenv)
                       sh([str(d / 'direct'), str(ver), str(w), str(h), str(d / 'planes.i16'), str(gs), str(gl), str(hdr), '0', '0', cm,
                           str(d / 'direct.rgb'), str(dh), str(params[0]), str(params[1]), str(params[2]), str(son)] + list(sat) + sf, env=denv)
@@ -579,7 +579,7 @@ def main():
         frame[np.hypot(x - 48, y - 32) < 10] = (7.5, 7.0, 6.5)
         np.ascontiguousarray(frame, '<f4').tofile(d / 'lin.f32')
         for gs, gl, hdr, lf in ((16.0, 16.0, 0, 0), (0.9, 6.0, 1, 1)):
-            sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', '1', str(w), str(h), str(d / 'lin.f32'), '1',
+            sh(java + ['com.scamera.app.processing.oldstyle.ToneHost', '1', str(w), str(h), str(d / 'lin.f32'), '1',
                        str(d / 'planes.i16'), '1.62,-0.48,-0.14,-0.21,1.41,-0.20,0.03,-0.52,1.49', str(gs), str(gl), str(hdr), '0', '0',
                        '0,48,0.2,0.2,0,1,0,0,%d,16' % lf, '-', '0', '0', str(d / 'jni.rgb')])
             o8 = np.fromfile(d / 'jni.rgb', np.uint8).reshape(h, w, 3)
@@ -595,7 +595,7 @@ def main():
         outs = {}
         for lf in (0, 1):
             post = '0,48,0.2,0.2,0,1,0,0,%d,16' % lf
-            r = sh(java + ['com.particlesdevs.photoncamera.processing.oldstyle.ToneHost', '1', str(w), str(h), str(d / 'lin.f32'), '1',
+            r = sh(java + ['com.scamera.app.processing.oldstyle.ToneHost', '1', str(w), str(h), str(d / 'lin.f32'), '1',
                            str(d / 'planes.i16'), '1,0,0,0,1,0,0,0,1', '0.9', '3.15', '1', '0', '0', post, '-', '0', '0', str(d / 'jni.rgb')])
             outs[lf] = np.fromfile(d / 'jni.rgb', np.uint8).reshape(h, w, 3).astype(np.float64)
             if lf:
@@ -610,7 +610,7 @@ def main():
               % (err[0], err[1], scale))
         # 7. P630h, the rows of «Oldstyle Тон» that reach the module: each at both ends of its range on every route (no error, black
         # and white kept), and its direction on the picture
-        tone = 'com.particlesdevs.photoncamera.processing.oldstyle.ToneHost'
+        tone = 'com.scamera.app.processing.oldstyle.ToneHost'
         w, h = 160, 96
         y, x = np.indices((h, w))
         ramp = (x / (w - 1.0)) ** 2.2 * (0.6 + 0.4 * y / (h - 1.0))

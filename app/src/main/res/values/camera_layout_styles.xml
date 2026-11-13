@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Placement and look shared by the camera screen's layouts (camera_screen, camera_viewfinder, camera_top_row,
+     camera_shutter_row). Only attributes the inflater reads through the style: data binding and android:fontFamily
+     (ConceptViewInflater reads it off the tag) stay on the views. -->
+<resources>
+    <style name="Cam"/>
+
+    <!-- ConstraintLayout children -->
+
+    <!-- the parent's full width -->
+    <style name="Cam.Wide">
+        <item name="android:layout_width">0dp</item>
+        <item name="layout_constraintStart_toStartOf">parent</item>
+        <item name="layout_constraintEnd_toEndOf">parent</item>
+    </style>
+
+    <!-- the parent's width less 8dp a side (the Pro panel's column) -->
+    <style name="Cam.Wide.Inset">
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginEnd">8dp</item>
+    </style>
+
+    <!-- camera_stage above the bottom bar: the area the quick-settings sheet and its scrim cover -->
+    <style name="Cam.OverStage" parent="Cam.Wide">
+        <item name="android:layout_height">0dp</item>
+        <item name="layout_constraintTop_toTopOf">parent</item>
+        <item name="layout_constraintBottom_toTopOf">@id/bottom_bar</item>
+    </style>
+
+    <!-- its own size, centred across the parent -->
+    <style name="Cam.Centred">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="layout_constraintStart_toStartOf">parent</item>
+        <item name="layout_constraintEnd_toEndOf">parent</item>
+    </style>
+
+    <!-- centred, sitting on the bottom bar's top edge (the message band's line) -->
+    <style name="Cam.OverBar" parent="Cam.Centred">
+        <item name="layout_constraintBottom_toTopOf">@id/bottom_bar</item>
+    </style>
+
+    <!-- exactly over the preview (camera_viewfinder's GLPreview) -->
+    <style name="Cam.OnPreview">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="layout_constraintTop_toTopOf">@id/texture</item>
+        <item name="layout_constraintBottom_toBottomOf">@id/texture</item>
+        <item name="layout_constraintStart_toStartOf">@id/texture</item>
+        <item name="layout_constraintEnd_toEndOf">@id/texture</item>
+    </style>
+
+    <!-- over the preview and never taking a touch (the taps go through to the preview) -->
+    <style name="Cam.OnPreview.Passive">
+        <item name="android:clickable">false</item>
+        <item name="android:focusable">false</item>
+    </style>
+
+    <!-- top row -->
+
+    <!-- a 40dp high item of the row -->
+    <style name="Cam.TopItem">
+        <item name="android:layout_height">40dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!-- every item after the first: 16dp from the one before (TopBar rescales sizes and gaps with UiScale) -->
+    <style name="Cam.TopItem.Next">
+        <item name="android:layout_marginStart">16dp</item>
+    </style>
+
+    <style name="Cam.TopItem.Next.Square">
+        <item name="android:layout_width">40dp</item>
+    </style>
+
+    <!-- a 22dp glyph in the middle of its item -->
+    <style name="Cam.Glyph">
+        <item name="android:layout_width">22dp</item>
+        <item name="android:layout_height">22dp</item>
+        <item name="android:layout_gravity">center</item>
+        <item name="android:importantForAccessibility">no</item>
+    </style>
+
+    <!-- shutter row -->
+
+    <!-- one 44dp disc of the mode switch -->
+    <style name="Cam.ModeDisc">
+        <item name="android:layout_width">44dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:padding">10.5dp</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+
+    <style name="Cam.ModeDisc.Next">
+        <item name="android:layout_marginStart">10dp</item>
+    </style>
+</resources>

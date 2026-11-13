@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 
 uniform sampler2D u_tex_coarse_recon; // Level k+1 reconstructed (Oklab)
 uniform sampler2D u_tex_laplace_filt;  // Level k filtered Laplace (Oklab diff)

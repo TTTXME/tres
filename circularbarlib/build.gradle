@@ -1,48 +1,44 @@
+// The manual-controls panel (ISO, shutter, EV, focus, white balance) used by the camera screen: an Android library the app
+// links in (project ':circularbarlib'), Java 8 sources, the same SDK levels as the app.
 plugins {
     id 'com.android.library'
+    id 'kotlin-android'
     id 'jacoco'
 }
-apply plugin: 'kotlin-android'
+
+def panelJava = JavaVersion.VERSION_1_8
 
 android {
-    compileSdkVersion 36
-
+    namespace = 'com.scamera.app.circularbarlib'
+    compileSdk = 36
     defaultConfig {
-        minSdkVersion 26
-        //Waiting for api 32 sources
+        minSdk = 26
         //noinspection OldTargetApi
-        targetSdkVersion 35
-
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles "consumer-rules.pro"
-    }
-
-    buildTypes {
-        release {
-            minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
+        targetSdk = 35
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+        // rules the app's R8 takes from the library (none so far: the app's own keep what it reaches by name)
+        consumerProguardFiles 'consumer-rules.pro'
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = panelJava
+        targetCompatibility = panelJava
     }
-    namespace 'com.particlesdevs.photoncamera.circularbarlib'
+    // a release build of the library alone is shrunk with its own rules
+    buildTypes.release {
+        minifyEnabled = true
+        proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
+    }
+}
+
+repositories {
+    mavenCentral()
 }
 
 dependencies {
-    implementation 'androidx.core:core-ktx:1.9.0'
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    androidTestImplementation 'androidx.test:monitor:1.6.1'
-    testImplementation 'org.testng:testng:7.1.0'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    testImplementation 'junit:junit:4.13.1'
-    androidTestImplementation 'junit:junit:4.13.1'
-
-/*    testImplementation 'junit:junit:4.+'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'*/
-}
-repositories {
-    mavenCentral()
+    [
+            'androidx.core:core-ktx:1.9.0',
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version",
+    ].each { implementation it }
+    ['junit:junit:4.13.1', 'org.testng:testng:7.1.0'].each { testImplementation it }
+    ['junit:junit:4.13.1', 'androidx.test.ext:junit:1.1.5', 'androidx.test:monitor:1.6.1'].each { androidTestImplementation it }
 }

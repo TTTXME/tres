@@ -12,7 +12,10 @@
 #include <vector>
 #include "android/log.h"
 
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "Allocator", __VA_ARGS__)
+#define ALLOC_LOG(...) __android_log_print(ANDROID_LOG_DEBUG, "Allocator", __VA_ARGS__)
+// The JNI entry points of util/Allocator.java (and RawUnpack.java)
+#define ALLOC_JNI(type, name) extern "C" JNIEXPORT type JNICALL Java_com_scamera_app_util_Allocator_##name
+#define UNPACK_JNI(type, name) extern "C" JNIEXPORT type JNICALL Java_com_scamera_app_util_RawUnpack_##name
 
 #include <atomic>
 #include <mutex>
@@ -21,6 +24,9 @@
 #include <linux/falloc.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 std::atomic<long> memoryCount{0};
 
 // Pixel 10 Pro XL (owner's RAW10 photo, 2026-10-12: green shadows): its main camera declares 12-bit levels (black 256, white
@@ -28,8 +34,7 @@ std::atomic<long> memoryCount{0};
 // camera's declared white is wider than the format (set per session from Java, RawUnpack.setPackedShift), so every level of
 // the metadata (black, white, dynamic levels, noise profile) fits the unpacked data. 0 = as stored.
 static std::atomic<int> gRaw10Shift{0}, gRaw12Shift{0};
-extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_setPackedShift(JNIEnv*, jclass, jint raw10, jint raw12) {
+ALLOC_JNI(void, setPackedShift)(JNIEnv*, jclass, jint raw10, jint raw12) {
     gRaw10Shift.store(raw10 < 0 || raw10 > 6 ? 0 : raw10);
     gRaw12Shift.store(raw12 < 0 || raw12 > 4 ? 0 : raw12);
 }
@@ -145,8 +150,7 @@ long containingLocked(const void* p) {
 }
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaCreate(JNIEnv*, jclass, jlong bytes) {
+ALLOC_JNI(jint, arenaCreate)(JNIEnv*, jclass, jlong bytes) {
     if (bytes <= 0) return 0;
     const int fd = int(syscall(__NR_memfd_create, "scamera-shot", 1 /* MFD_CLOEXEC */));
     if (fd < 0) return 0;
@@ -159,8 +163,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaCreate(JNIEnv*, jclass, 
     return id;
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaCopy(JNIEnv* env, jclass, jint id, jlong offset, jobject origin,
+ALLOC_JNI(jobject, arenaCopy)(JNIEnv* env, jclass, jint id, jlong offset, jobject origin,
                                                               jint originOffset, jint bytes) {
     void* src = origin ? env->GetDirectBufferAddress(origin) : nullptr;
     const jlong srcCapacity = origin ? env->GetDirectBufferCapacity(origin) : 0;
@@ -187,8 +190,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaCopy(JNIEnv* env, jclass
     return view;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaWrite(JNIEnv* env, jclass, jint id, jlong offset, jobject origin) {
+ALLOC_JNI(jboolean, arenaWrite)(JNIEnv* env, jclass, jint id, jlong offset, jobject origin) {
     void* src = origin ? env->GetDirectBufferAddress(origin) : nullptr;
     const jlong bytes = origin ? env->GetDirectBufferCapacity(origin) : 0;
     if (!src || bytes <= 0) return JNI_FALSE;
@@ -200,8 +202,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaWrite(JNIEnv* env, jclas
 }
 
 // {arena id, byte offset} of a buffer that is an arena view, or null.
-extern "C" JNIEXPORT jlongArray JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaOf(JNIEnv* env, jclass, jobject buffer) {
+ALLOC_JNI(jlongArray, arenaOf)(JNIEnv* env, jclass, jobject buffer) {
     void* p = buffer ? env->GetDirectBufferAddress(buffer) : nullptr;
     if (!p) return nullptr;
     jlong out[2];
@@ -223,8 +224,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaOf(JNIEnv* env, jclass, 
 // keeps its fd (a duplicate is held); arenaRelease, then every view's free, unmaps it, as a shot's frames. Adopted: its release
 // punches no gaps (review B1: the trailers between its views are read after it); arenaPunch gives back what was read. 0 on any
 // failure.
-extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(JNIEnv*, jclass, jint fd, jlong bytes) {
+ALLOC_JNI(jint, arenaAdopt)(JNIEnv*, jclass, jint fd, jlong bytes) {
     if (fd < 0 || bytes <= 0) return 0;
     const int own = fcntl(fd, F_DUPFD_CLOEXEC, 3);
     if (own < 0) return 0;
@@ -237,16 +237,14 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaAdopt(JNIEnv*, jclass, j
 }
 
 // A duplicate of the arena's memfd (the caller owns it), -1 when the arena is gone.
-extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaFd(JNIEnv*, jclass, jint id) {
+ALLOC_JNI(jint, arenaFd)(JNIEnv*, jclass, jint id) {
     std::lock_guard<std::mutex> lock(arenaLock);
     const long i = findLocked(id);
     return i < 0 ? -1 : fcntl(arenas[size_t(i)].fd, F_DUPFD_CLOEXEC, 3);
 }
 
 // P91: one more view of {offset, bytes} of the arena (a ring frame handed to a shot): its slot stays pinned until it is freed.
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaView(JNIEnv* env, jclass, jint id, jlong offset, jint bytes) {
+ALLOC_JNI(jobject, arenaView)(JNIEnv* env, jclass, jint id, jlong offset, jint bytes) {
     uint8_t* p;
     {
         std::lock_guard<std::mutex> lock(arenaLock);
@@ -271,8 +269,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaView(JNIEnv* env, jclass
 }
 
 // P91: the views left of the slot at {offset} (0: the ring may write it again).
-extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaSlotRefs(JNIEnv*, jclass, jint id, jlong offset) {
+ALLOC_JNI(jint, arenaSlotRefs)(JNIEnv*, jclass, jint id, jlong offset) {
     std::lock_guard<std::mutex> lock(arenaLock);
     const long i = findLocked(id);
     if (i < 0 || offset < 0) return -1;
@@ -281,8 +278,7 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaSlotRefs(JNIEnv*, jclass
 }
 
 // The shot hands out no more views; the arena goes once its views are freed.
-extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaRelease(JNIEnv*, jclass, jint id) {
+ALLOC_JNI(void, arenaRelease)(JNIEnv*, jclass, jint id) {
     ArenaWork work;
     std::lock_guard<std::mutex> lock(arenaLock);
     const long i = findLocked(id);
@@ -292,11 +288,49 @@ Java_com_particlesdevs_photoncamera_util_Allocator_arenaRelease(JNIEnv*, jclass,
     else punchFreeLocked(size_t(i), work);
 }
 
+// P662: the pages of {offset, bytes} of a live arena allocated and mapped now (a fresh ZSL ring's part, on a thread of its own),
+// so the camera thread's copies into it take no first-touch faults (2-4 s of 9-21 ms ring copies after every open, 3.2-3.5 ms
+// once the slots were touched). fallocate gives the memfd its pages (zeroed by the kernel), MADV_POPULATE_WRITE (Linux 5.14)
+// maps them writable without writing them; an older kernel gets a read of each page instead. Nothing is ever written, so a
+// slot the camera is filling meanwhile keeps its bytes. The arena is pinned (one more reference) while it runs: a release
+// meanwhile unmaps it after this returns. false: no such arena, released, out of bounds.
+#ifndef MADV_POPULATE_WRITE
+#define MADV_POPULATE_WRITE 23
+#endif
+ALLOC_JNI(jboolean, arenaPrefault)(JNIEnv*, jclass, jint id, jlong offset, jlong bytes) {
+    int fd;
+    uint8_t* p;
+    size_t size;
+    {
+        std::lock_guard<std::mutex> lock(arenaLock);
+        const long i = findLocked(id);
+        if (i < 0 || offset < 0 || bytes <= 0) return JNI_FALSE;
+        Arena& a = arenas[size_t(i)];
+        if (a.released || a.adopted || size_t(offset) + size_t(bytes) > a.size) return JNI_FALSE;
+        a.refs++;
+        fd = a.fd; // closed only by unmapLocked, which waits for this reference
+        p = a.base + offset;
+        size = a.size;
+    }
+    const size_t lo = size_t(offset) & ~size_t(4095), hi = std::min(size, (size_t(offset) + size_t(bytes) + 4095) & ~size_t(4095));
+    uint8_t* const from = p - (size_t(offset) - lo);
+    fallocate(fd, 0, off_t(lo), off_t(hi - lo));
+    if (madvise(from, hi - lo, MADV_POPULATE_WRITE) != 0) {
+        volatile uint8_t sink = 0;
+        for (size_t o = 0; o < hi - lo; o += 4096) sink = sink + static_cast<volatile uint8_t*>(from)[o];
+        (void) sink;
+    }
+    ArenaWork work;
+    std::lock_guard<std::mutex> lock(arenaLock);
+    const long i = containingLocked(p);
+    if (i >= 0 && --arenas[size_t(i)].refs == 0 && arenas[size_t(i)].released) unmapLocked(size_t(i), work);
+    return JNI_TRUE;
+}
+
 // P371 (review B1): the pages of {offset, bytes} of an adopted arena go back (a hole in the memfd: the client read those trailers
 // into buffers of their own), whole pages inside the range only, never a page a view holds. false: not an adopted arena, out of
 // its bounds, or a view overlaps the range.
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaPunch(JNIEnv*, jclass, jint id, jlong offset, jlong bytes) {
+ALLOC_JNI(jboolean, arenaPunch)(JNIEnv*, jclass, jint id, jlong offset, jlong bytes) {
     ArenaWork work;
     std::lock_guard<std::mutex> lock(arenaLock);
     const long i = findLocked(id);
@@ -334,16 +368,14 @@ static inline int clampMosaicIndex(int value, int count) {
     return std::max(0, std::min(value, count - 1));
 }
 
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_reconstructMosaicSr(
+ALLOC_JNI(jobject, reconstructMosaicSr)(
         JNIEnv *env, jclass, jobject originBuffer, jint inputWidth, jint inputHeight,
         jint outputWidth, jint outputHeight, jint kernel) {
     auto *input = static_cast<const uint16_t*>(env->GetDirectBufferAddress(originBuffer));
     jlong inputCapacity = env->GetDirectBufferCapacity(originBuffer);
     if (input == nullptr || inputWidth < 2 || inputHeight < 2 || outputWidth < 2 || outputHeight < 2
             || inputCapacity < static_cast<jlong>(inputWidth) * inputHeight * 2) {
-        LOGD("Invalid RAW SR mosaic input");
+        ALLOC_LOG("Invalid RAW SR mosaic input");
         return nullptr;
     }
     outputWidth &= ~1;
@@ -404,435 +436,323 @@ Java_com_particlesdevs_photoncamera_util_Allocator_reconstructMosaicSr(
         return nullptr;
     }
     memoryCount += static_cast<long>(byteCount);
-    LOGD("RAW SR mosaic reconstructed: %dx%d -> %dx%d, kernel=%d",
+    ALLOC_LOG("RAW SR mosaic reconstructed: %dx%d -> %dx%d, kernel=%d",
          inputWidth, inputHeight, outputWidth, outputHeight, kernel);
     return result;
 }
 
-// A direct buffer over malloc memory, or null (the Java side's null checks then work): a negative capacity (an int product that
-// overflowed) or a failed malloc used to reach NewDirectByteBuffer, which aborts the process on either (JNI check), and a
-// failed NewDirectByteBuffer leaked the memory.
-static jobject directBuffer(JNIEnv* env, void* allocation, size_t bytes) {
-    if (allocation == nullptr && bytes > 0) return nullptr;
-    jobject buffer = env->NewDirectByteBuffer(allocation, jlong(bytes));
-    if (buffer == nullptr) free(allocation);
-    return buffer;
-}
-// width x height x bytes per pixel in size_t (the int products overflowed above 1 GP / 2 GiB); a direct buffer holds at most
-// INT32_MAX bytes, the callers refuse more.
-static size_t outputBytes(int width, int height, size_t bytesPerPixel) {
-    return size_t(std::max(width, 0)) * size_t(std::max(height, 0)) * bytesPerPixel;
-}
+// --- plain native buffers and the RAW unpack / bin copies (util/Allocator.java) ------------------------------------------
 
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocate(JNIEnv *env, jclass clazz,
-                                                            jint capacity) {
-    // Allocate a direct ByteBuffer of the specified size
-    if (capacity < 0) {
-        LOGD("Failed to allocate buffer of size %d (negative)", capacity);
+namespace {
+
+// A direct buffer over `bytes` of fresh malloc memory (counted in memoryCount), or null - logged as `what` - when the
+// size is negative or above what a direct buffer holds (INT32_MAX), malloc fails or the VM refuses the buffer (it would
+// abort on a null address or a negative capacity, and the memory would leak).
+jobject freshBuffer(JNIEnv* env, long long bytes, const char* what, void** memory) {
+    *memory = nullptr;
+    if (bytes < 0 || bytes > INT32_MAX) {
+        ALLOC_LOG("%s: %lld bytes refused", what, bytes);
         return nullptr;
     }
-    jobject buffer = directBuffer(env, malloc(size_t(capacity)), size_t(capacity));
+    void* m = malloc(size_t(bytes));
+    if (m == nullptr && bytes > 0) {
+        ALLOC_LOG("%s: malloc of %lld bytes failed", what, bytes);
+        return nullptr;
+    }
+    jobject buffer = env->NewDirectByteBuffer(m, jlong(bytes));
     if (buffer == nullptr) {
-        // Handle allocation failure
-        LOGD("Failed to allocate buffer of size %d", capacity);
+        free(m);
+        ALLOC_LOG("%s: no direct buffer over %lld bytes", what, bytes);
         return nullptr;
     }
-    memoryCount += capacity;
+    memoryCount += long(bytes);
+    *memory = m;
     return buffer;
 }
 
-extern "C"
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "MemoryLeak"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopy(JNIEnv *env, jclass clazz,
-                                                            jint capacity, jobject originBuffer, jint offset) {
-    // Allocate a direct ByteBuffer of the specified size
-    if (capacity < 0) {
-        LOGD("Failed to allocate buffer of size %d (negative)", capacity);
-        return nullptr;
+long long pixelBytes(int width, int height) { return (long long)std::max(width, 0) * std::max(height, 0) * 2; }
+
+// Camera2 packed RAW10 / RAW12 (ImageFormat 0x25 / 0x26) and the MIPI RAW14 codes of RawUnpack (0x7E04 as stored, 0x7E14
+// shifted down into the 10-bit range the metadata declares).
+constexpr int kRaw10 = 0x25, kRaw12 = 0x26, kRaw14 = 0x7E04, kRaw14To10 = 0x7E14;
+
+}  // namespace
+
+static bool isRaw14(int format) { return format == kRaw14 || format == kRaw14To10; }
+
+// RAW10: 4 samples in 5 bytes - their high 8 bits, then one byte of the four low pairs (sample k in bits 2k+1..2k). The
+// whole groups of the row (4 * floor(width / 4) samples), each shifted by the session's RAW10 shift; the count written.
+// P662: the scalar form (the NEON path's tail and its reference: tools/check_raw_unpack.cpp)
+static int decodeRaw10RowScalar(const uint8_t* row, uint16_t* out, int width, int shift) {
+    const int groups = std::max(width, 0) / 4;
+    for (int g = 0; g < groups; ++g, row += 5, out += 4) {
+        const unsigned low = row[4];
+        for (int k = 0; k < 4; ++k) out[k] = uint16_t(((row[k] << 2) | ((low >> (2 * k)) & 3u)) << shift);
     }
-    void* allocation = malloc(size_t(capacity));
-    jobject buffer = directBuffer(env, allocation, size_t(capacity));
-    if (buffer == nullptr) {
-        // Handle allocation failure (directBuffer freed the allocation)
-        LOGD("Failed to allocate buffer of size %d", capacity);
-        return nullptr;
-    }
-    void* ptr = env->GetDirectBufferAddress(originBuffer);
-    if (ptr == nullptr) {
-        LOGD("Failed to get direct buffer address of originBuffer, disabling copying");
-        return buffer;
-    } else {
-        // Copy the contents of the original buffer to the new buffer. P610 (speed): on 4 threads from 32 MB (copyBytes, P200): the
-        // reference RAW out of the shot arena before the post pipeline (382 MB at 200 MP, ~0.4 s of the OnePlus 16's shot on one core)
-        copyBytes(static_cast<uint8_t*>(allocation), reinterpret_cast<const uint8_t*>(ptr) + offset, size_t(capacity));
-        LOGD("Buffer allocated and copied successfully");
-    }
-    memoryCount += capacity;
-    LOGD("Current memory count: %ld MB", (memoryCount/1024)/1024);
-    return buffer;
+    return groups * 4;
 }
 
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopyConvert(JNIEnv *env, jclass clazz,
-                                                                          jint capacity, jobject originBuffer,
-                                                                          jint width, jint row_stride, jint offset) {
-    // Calculate output buffer size (width * height * 2 bytes per pixel)
-    int height = capacity / row_stride;
-    const size_t output_size = outputBytes(width, height, sizeof(uint16_t));
-    if (output_size > size_t(INT32_MAX)) {
-        LOGD("Output of %dx%d above 2 GiB", width, height);
-        return nullptr;
+// RAW12: 2 samples in 3 bytes - their high 8 bits, then the low nibbles (the first sample's in the low half).
+static int decodeRaw12RowScalar(const uint8_t* row, uint16_t* out, int width, int shift) {
+    const int pairs = std::max(width, 0) / 2;
+    for (int p = 0; p < pairs; ++p, row += 3, out += 2) {
+        out[0] = uint16_t(((row[0] << 4) | (row[2] & 0x0F)) << shift);
+        out[1] = uint16_t(((row[1] << 4) | (row[2] >> 4)) << shift);
     }
-
-    // Allocate output buffer
-    auto* allocation = static_cast<uint16_t *>(malloc(output_size));
-    jobject buffer = directBuffer(env, allocation, output_size);
-
-    if (buffer == nullptr) {
-        LOGD("Failed to allocate buffer of size %zu", output_size);
-        return nullptr;
-    }
-
-    void* ptr = env->GetDirectBufferAddress(originBuffer);
-    if (ptr == nullptr) {
-        LOGD("Failed to get direct buffer address of originBuffer");
-        free(allocation);
-        return nullptr;
-    }
-
-    uint8_t* input = static_cast<uint8_t*>(ptr) + offset;
-    uint16_t* output = allocation;
-
-    // Calculate bytes per row of actual image data (without padding)
-    int bytes_per_row = (width * 10) / 8;
-    const int s = gRaw10Shift.load(std::memory_order_relaxed);
-
-    // Process each row
-    for (int row = 0; row < height; row++) {
-        uint8_t* row_start = input + size_t(row) * row_stride;
-
-        // Process each group of 4 pixels (5 bytes) in the row
-        for (int col = 0; col < bytes_per_row; col += 5) {
-            // Ensure we don't read beyond the row
-            if (col + 4 >= bytes_per_row) break;
-
-            uint8_t b0 = row_start[col];
-            uint8_t b1 = row_start[col + 1];
-            uint8_t b2 = row_start[col + 2];
-            uint8_t b3 = row_start[col + 3];
-            uint8_t b4 = row_start[col + 4];
-
-            // Convert and store as 16-bit values
-            *output++ = (uint16_t)(((b0 << 2) | (b4 & 0x03)) << s);        // Pixel 0
-            *output++ = (uint16_t)(((b1 << 2) | ((b4 >> 2) & 0x03)) << s); // Pixel 1
-            *output++ = (uint16_t)(((b2 << 2) | ((b4 >> 4) & 0x03)) << s); // Pixel 2
-            *output++ = (uint16_t)(((b3 << 2) | (b4 >> 6)) << s);          // Pixel 3
-        }
-    }
-
-    LOGD("Buffer allocated and converted successfully with padding handling");
-    memoryCount += long(output_size);
-    LOGD("Current memory count: %ld MB", (memoryCount / 1024) / 1024);
-    return buffer;
+    return pairs * 2;
 }
 
-// Helper: decode one RAW10 row into dst (width uint16_t values)
-static void decodeRaw10Row(const uint8_t* row_start, uint16_t* dst, int width) {
-    int bytes_per_row = (width * 10) / 8;
-    const int s = gRaw10Shift.load(std::memory_order_relaxed);
-    for (int col = 0, px = 0; col + 4 < bytes_per_row && px + 3 < width; col += 5, px += 4) {
-        uint8_t b0 = row_start[col];
-        uint8_t b1 = row_start[col + 1];
-        uint8_t b2 = row_start[col + 2];
-        uint8_t b3 = row_start[col + 3];
-        uint8_t b4 = row_start[col + 4];
-        dst[px]     = (uint16_t)(((b0 << 2) | (b4 & 0x03)) << s);
-        dst[px + 1] = (uint16_t)(((b1 << 2) | ((b4 >> 2) & 0x03)) << s);
-        dst[px + 2] = (uint16_t)(((b2 << 2) | ((b4 >> 4) & 0x03)) << s);
-        dst[px + 3] = (uint16_t)(((b3 << 2) | (b4 >> 6)) << s);
+#if defined(__aarch64__)
+// P662 (speed: the ZSL ring's unpack of every RAW10 / RAW12 frame on the camera thread): 16 samples a step with NEON - the 20
+// (RAW10) / 24 (RAW12) bytes of 4 groups / 8 pairs read as two overlapping 16-byte loads (never past those bytes), the high bytes
+// and each sample's low byte gathered by a table lookup, the low bits moved down by a per-lane shift: exactly the integers of the
+// scalar form (its tail finishes the row)
+static int decodeRaw10RowNeon(const uint8_t* row, uint16_t* out, int width, int shift) {
+    const int groups = std::max(width, 0) / 4;
+    // table {row[0..15], row[4..19]}: byte p < 16 at p, byte p >= 16 at p + 12
+    static const uint8_t kHi[16] = {0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 28, 29, 30};
+    static const uint8_t kLo[16] = {4, 4, 4, 4, 9, 9, 9, 9, 14, 14, 14, 14, 31, 31, 31, 31};
+    static const int16_t kDown[8] = {0, -2, -4, -6, 0, -2, -4, -6};
+    const uint8x16_t hiIdx = vld1q_u8(kHi), loIdx = vld1q_u8(kLo);
+    const int16x8_t down = vld1q_s16(kDown), up = vdupq_n_s16(int16_t(shift));
+    const uint16x8_t three = vdupq_n_u16(3);
+    int g = 0;
+    for (; g + 4 <= groups; g += 4, row += 20, out += 16) {
+        uint8x16x2_t t;
+        t.val[0] = vld1q_u8(row);
+        t.val[1] = vld1q_u8(row + 4);
+        const uint8x16_t hi = vqtbl2q_u8(t, hiIdx), lo = vqtbl2q_u8(t, loIdx);
+        const uint16x8_t h0 = vshlq_n_u16(vmovl_u8(vget_low_u8(hi)), 2), h1 = vshlq_n_u16(vmovl_u8(vget_high_u8(hi)), 2);
+        const uint16x8_t l0 = vandq_u16(vshlq_u16(vmovl_u8(vget_low_u8(lo)), down), three);
+        const uint16x8_t l1 = vandq_u16(vshlq_u16(vmovl_u8(vget_high_u8(lo)), down), three);
+        vst1q_u16(out, vshlq_u16(vorrq_u16(h0, l0), up));
+        vst1q_u16(out + 8, vshlq_u16(vorrq_u16(h1, l1), up));
+    }
+    return g * 4 + decodeRaw10RowScalar(row, out, (groups - g) * 4, shift);
+}
+
+static int decodeRaw12RowNeon(const uint8_t* row, uint16_t* out, int width, int shift) {
+    const int pairs = std::max(width, 0) / 2;
+    // table {row[0..15], row[8..23]}: byte p < 16 at p, byte p >= 16 at p + 8
+    static const uint8_t kHi[16] = {0, 1, 3, 4, 6, 7, 9, 10, 12, 13, 15, 24, 26, 27, 29, 30};
+    static const uint8_t kLo[16] = {2, 2, 5, 5, 8, 8, 11, 11, 14, 14, 25, 25, 28, 28, 31, 31};
+    static const int16_t kDown[8] = {0, -4, 0, -4, 0, -4, 0, -4};
+    const uint8x16_t hiIdx = vld1q_u8(kHi), loIdx = vld1q_u8(kLo);
+    const int16x8_t down = vld1q_s16(kDown), up = vdupq_n_s16(int16_t(shift));
+    const uint16x8_t nibble = vdupq_n_u16(0x0F);
+    int p = 0;
+    for (; p + 8 <= pairs; p += 8, row += 24, out += 16) {
+        uint8x16x2_t t;
+        t.val[0] = vld1q_u8(row);
+        t.val[1] = vld1q_u8(row + 8);
+        const uint8x16_t hi = vqtbl2q_u8(t, hiIdx), lo = vqtbl2q_u8(t, loIdx);
+        const uint16x8_t h0 = vshlq_n_u16(vmovl_u8(vget_low_u8(hi)), 4), h1 = vshlq_n_u16(vmovl_u8(vget_high_u8(hi)), 4);
+        const uint16x8_t l0 = vandq_u16(vshlq_u16(vmovl_u8(vget_low_u8(lo)), down), nibble);
+        const uint16x8_t l1 = vandq_u16(vshlq_u16(vmovl_u8(vget_high_u8(lo)), down), nibble);
+        vst1q_u16(out, vshlq_u16(vorrq_u16(h0, l0), up));
+        vst1q_u16(out + 8, vshlq_u16(vorrq_u16(h1, l1), up));
+    }
+    return p * 2 + decodeRaw12RowScalar(row, out, (pairs - p) * 2, shift);
+}
+#endif
+
+static int decodeRaw10Row(const uint8_t* row, uint16_t* out, int width) {
+    const int shift = gRaw10Shift.load(std::memory_order_relaxed);
+#if defined(__aarch64__)
+    return decodeRaw10RowNeon(row, out, width, shift);
+#else
+    return decodeRaw10RowScalar(row, out, width, shift);
+#endif
+}
+
+static int decodeRaw12Row(const uint8_t* row, uint16_t* out, int width) {
+    const int shift = gRaw12Shift.load(std::memory_order_relaxed);
+#if defined(__aarch64__)
+    return decodeRaw12RowNeon(row, out, width, shift);
+#else
+    return decodeRaw12RowScalar(row, out, width, shift);
+#endif
+}
+
+// P72: packed MIPI RAW14 (Xiaomi 17 Ultra tele in in-sensor zoom, mode 9: 7140 bytes per 4080-wide row behind RAW_SENSOR):
+// 4 samples in 7 bytes - their high 8 bits, then 24 bits of the four low 6-bit parts in sample order, least significant
+// bits first.
+static void decodeRaw14Row(const uint8_t* row, uint16_t* out, int width, int shift) {
+    for (int px = 0; px + 3 < width; px += 4, row += 7) {
+        const uint32_t low = uint32_t(row[4]) | uint32_t(row[5]) << 8 | uint32_t(row[6]) << 16;
+        for (int k = 0; k < 4; ++k) out[px + k] = uint16_t(((row[k] << 6) | ((low >> (6 * k)) & 0x3Fu)) >> shift);
     }
 }
 
-// P72: packed MIPI RAW14 (Xiaomi 17 Ultra tele in in-sensor zoom, mode 9: 7140 bytes per 4080-wide row behind RAW_SENSOR).
-// 4 samples in 7 bytes: bytes 0..3 the high 8 bits, bytes 4..6 the low 6 bits (b4 = p1[1:0]<<6 | p0[5:0], b5 = p2[3:0]<<4 |
-// p1[5:2], b6 = p3[5:0]<<2 | p2[5:4]). Format codes (RawUnpack): 0x7E04 as is, 0x7E14 shifted right by 4 (14-bit values into
-// the 10-bit range the metadata declares).
-constexpr int kRaw14=0x7E04,kRaw14To10=0x7E14;
-static bool isRaw14(int format){return format==kRaw14||format==kRaw14To10;}
-static void decodeRaw14Row(const uint8_t* row_start, uint16_t* dst, int width, int shift) {
-    for (int px = 0, col = 0; px + 3 < width; px += 4, col += 7) {
-        const uint8_t* g = row_start + col;
-        dst[px]     = (uint16_t)(((g[0] << 6) | (g[4] & 0x3F)) >> shift);
-        dst[px + 1] = (uint16_t)(((g[1] << 6) | (g[4] >> 6) | ((g[5] & 0x0F) << 2)) >> shift);
-        dst[px + 2] = (uint16_t)(((g[2] << 6) | (g[5] >> 4) | ((g[6] & 0x03) << 4)) >> shift);
-        dst[px + 3] = (uint16_t)(((g[3] << 6) | (g[6] >> 2)) >> shift);
-    }
-}
 static long packedRowBytes(int format, int width) {
-    return format == 0x25 ? long(width) * 10 / 8 : format == 0x26 ? long(width) * 12 / 8 : isRaw14(format) ? long(width) * 14 / 8 : 0;
+    const long bits = format == kRaw10 ? 10 : format == kRaw12 ? 12 : isRaw14(format) ? 14 : 0;
+    return long(width) * bits / 8;
 }
-static void decodeRaw12Row(const uint8_t* row_start, uint16_t* dst, int width);
+
 static void decodePackedRow(int format, const uint8_t* in, uint16_t* out, int width) {
-    if (format == 0x25) decodeRaw10Row(in, out, width);
-    else if (format == 0x26) decodeRaw12Row(in, out, width);
+    if (format == kRaw10) decodeRaw10Row(in, out, width);
+    else if (format == kRaw12) decodeRaw12Row(in, out, width);
     else decodeRaw14Row(in, out, width, format == kRaw14To10 ? 4 : 0);
 }
 
-// Helper: Bayer-aware 2x2 binning matching dngCreator::applyBayerBinning.
-// Each output pixel combines 4 same-colour pixels from a 4x4 input block.
-// input is width*height uint16_t (packed, no stride padding).
-static void applyBayerBinning(const uint16_t* input, uint16_t* output,
-                               int srcWidth, int srcHeight,
-                               int outWidth, int outHeight) {
-    for (int oy = 0; oy < outHeight; oy++) {
-        int blockStartRow = (oy / 2) * 4;
-        int dr    = oy % 2;
-        int inRow  = blockStartRow + dr;
-        int inRow2 = (inRow + 2 < srcHeight) ? inRow + 2 : srcHeight - 1;
+namespace {
 
-        for (int ox = 0; ox < outWidth; ox++) {
-            int blockStartCol = (ox / 2) * 4;
-            int dc    = ox % 2;
-            int inCol  = blockStartCol + dc;
-            int inCol2 = (inCol + 2 < srcWidth) ? inCol + 2 : srcWidth - 1;
-
-            // size_t indices: an int row offset overflowed above 2^31 sites
-            const size_t row1 = size_t(inRow) * srcWidth, row2 = size_t(inRow2) * srcWidth;
-            uint32_t sum =
-                (uint32_t)input[row1 + inCol ] +
-                (uint32_t)input[row1 + inCol2] +
-                (uint32_t)input[row2 + inCol ] +
-                (uint32_t)input[row2 + inCol2];
-
-            output[size_t(oy) * outWidth + ox] = (uint16_t)(sum > 65535u ? 65535u : sum);
+// Bayer-aware 2x2 sum binning: output site (x, y) sums the four input sites of its colour around it - rows r and r + 2
+// with r = 4 * (y / 2) + y % 2 (the same for columns), the second one clamped to the last row / column - saturated at
+// 65535. `rowOf(y)` gives input row y; output rows go in pairs, so rowOf is asked for rows 4j .. 4j + 3 of pair j only.
+template <class RowOf>
+void binSums(RowOf&& rowOf, int srcWidth, int srcHeight, uint16_t* out, int outWidth, int outHeight) {
+    for (int oy = 0; oy < outHeight; ++oy) {
+        const int r0 = (oy / 2) * 4 + oy % 2, r1 = std::min(r0 + 2, srcHeight - 1);
+        const uint16_t* a = rowOf(r0);
+        const uint16_t* b = rowOf(r1);
+        uint16_t* o = out + size_t(oy) * size_t(outWidth);
+        for (int ox = 0; ox < outWidth; ++ox) {
+            const int c0 = (ox / 2) * 4 + ox % 2, c1 = std::min(c0 + 2, srcWidth - 1);
+            const uint32_t sum = uint32_t(a[c0]) + a[c1] + b[c0] + b[c1];
+            o[ox] = uint16_t(std::min(sum, 65535u));
         }
     }
 }
 
-// Converts RAW10 to uint16, then applies Bayer-aware 2x2 sum binning.
-// Output size: (width/2) * (height/2) * sizeof(uint16_t)
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopyConvertBinning(JNIEnv *env, jclass clazz,
-                                                                                  jint capacity, jobject originBuffer,
-                                                                                  jint width, jint row_stride, jint offset) {
-    int height = capacity / row_stride;
-    int out_width  = width  / 2;
-    int out_height = height / 2;
-    const size_t output_size = outputBytes(out_width, out_height, sizeof(uint16_t));
-    if (output_size > size_t(INT32_MAX)) {
-        LOGD("allocateAndCopyConvertBinning: output of %dx%d above 2 GiB", out_width, out_height);
-        return nullptr;
-    }
-
-    auto* allocation = static_cast<uint16_t*>(malloc(output_size));
-    jobject buffer = directBuffer(env, allocation, output_size);
-    if (buffer == nullptr) {
-        LOGD("allocateAndCopyConvertBinning: failed to allocate output");
-        return nullptr;
-    }
-
-    void* ptr = env->GetDirectBufferAddress(originBuffer);
-    if (ptr == nullptr) {
-        LOGD("allocateAndCopyConvertBinning: failed to get buffer address");
-        free(allocation);
-        return nullptr;
-    }
-
-    // Decode entire RAW10 image into a packed uint16 buffer (no row padding)
-    const size_t full_size = outputBytes(width, height, sizeof(uint16_t));
-    auto* decoded = static_cast<uint16_t*>(malloc(full_size));
-    if (decoded == nullptr) {
-        LOGD("allocateAndCopyConvertBinning: failed to allocate decode buffer");
-        free(allocation);
-        return nullptr;
-    }
-    uint8_t* input = static_cast<uint8_t*>(ptr) + offset;
-    for (int row = 0; row < height; row++) {
-        decodeRaw10Row(input + size_t(row) * row_stride, decoded + size_t(row) * width, width);
-    }
-
-    applyBayerBinning(decoded, allocation, width, height, out_width, out_height);
-    free(decoded);
-
-    memoryCount += long(output_size);
-    LOGD("allocateAndCopyConvertBinning: %dx%d -> %dx%d, memory %ld MB",
-         width, height, out_width, out_height, (memoryCount / 1024) / 1024);
-    return buffer;
-}
-
-// Helper: decode one RAW12 row (MIPI packed, 3 bytes -> 2 pixels) into dst (width uint16_t values)
-static void decodeRaw12Row(const uint8_t* row_start, uint16_t* dst, int width) {
-    int bytes_per_row = (width * 12) / 8;
-    const int s = gRaw12Shift.load(std::memory_order_relaxed);
-    for (int col = 0, px = 0; col + 2 < bytes_per_row && px + 1 < width; col += 3, px += 2) {
-        uint8_t b0 = row_start[col];
-        uint8_t b1 = row_start[col + 1];
-        uint8_t b2 = row_start[col + 2];
-        dst[px]     = (uint16_t)(((b0 << 4) | (b2 & 0x0F)) << s);
-        dst[px + 1] = (uint16_t)(((b1 << 4) | (b2 >> 4)) << s);
-    }
-}
-
-// Converts RAW12 (packed) to uint16 (width*height*2, no row padding).
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopyConvert12(JNIEnv *env, jclass clazz,
-                                                                            jint capacity, jobject originBuffer,
-                                                                            jint width, jint row_stride, jint offset) {
-    int height = capacity / row_stride;
-    const size_t output_size = outputBytes(width, height, sizeof(uint16_t));
-    if (output_size > size_t(INT32_MAX)) { LOGD("allocateAndCopyConvert12: output of %dx%d above 2 GiB", width, height); return nullptr; }
-    auto* allocation = static_cast<uint16_t*>(malloc(output_size));
-    jobject buffer = directBuffer(env, allocation, output_size);
-    if (buffer == nullptr) { LOGD("allocateAndCopyConvert12: failed to allocate output"); return nullptr; }
-    void* ptr = env->GetDirectBufferAddress(originBuffer);
-    if (ptr == nullptr) { LOGD("allocateAndCopyConvert12: failed to get buffer address"); free(allocation); return nullptr; }
-    uint8_t* input = static_cast<uint8_t*>(ptr) + offset;
-    for (int row = 0; row < height; row++) decodeRaw12Row(input + size_t(row) * row_stride, allocation + (size_t)row * width, width);
-    memoryCount += long(output_size);
-    LOGD("allocateAndCopyConvert12: %dx%d, memory %ld MB", width, height, (memoryCount / 1024) / 1024);
-    return buffer;
-}
-
-// Converts RAW12 to uint16, then applies Bayer-aware 2x2 sum binning.
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopyConvert12Binning(JNIEnv *env, jclass clazz,
-                                                                                   jint capacity, jobject originBuffer,
-                                                                                   jint width, jint row_stride, jint offset) {
-    int height = capacity / row_stride;
-    int out_width = width / 2, out_height = height / 2;
-    const size_t output_size = outputBytes(out_width, out_height, sizeof(uint16_t));
-    if (output_size > size_t(INT32_MAX)) { LOGD("allocateAndCopyConvert12Binning: output of %dx%d above 2 GiB", out_width, out_height); return nullptr; }
-    auto* allocation = static_cast<uint16_t*>(malloc(output_size));
-    jobject buffer = directBuffer(env, allocation, output_size);
-    if (buffer == nullptr) { LOGD("allocateAndCopyConvert12Binning: failed to allocate output"); return nullptr; }
-    void* ptr = env->GetDirectBufferAddress(originBuffer);
-    if (ptr == nullptr) { LOGD("allocateAndCopyConvert12Binning: failed to get buffer address"); free(allocation); return nullptr; }
-    auto* decoded = static_cast<uint16_t*>(malloc(outputBytes(width, height, sizeof(uint16_t))));
-    if (decoded == nullptr) { free(allocation); return nullptr; }
-    uint8_t* input = static_cast<uint8_t*>(ptr) + offset;
-    for (int row = 0; row < height; row++) decodeRaw12Row(input + size_t(row) * row_stride, decoded + (size_t)row * width, width);
-    applyBayerBinning(decoded, allocation, width, height, out_width, out_height);
-    free(decoded);
-    memoryCount += long(output_size);
-    return buffer;
-}
-
-// Applies Bayer-aware 2x2 sum binning on a RAW16 (uint16_t) buffer.
-// row_stride is in bytes; output is (width/2)*(height/2)*sizeof(uint16_t)
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_allocateAndCopyBinning(JNIEnv *env, jclass clazz,
-                                                                           jint capacity, jobject originBuffer,
-                                                                           jint width, jint height, jint row_stride) {
-    int out_width  = width  / 2;
-    int out_height = height / 2;
-    const size_t output_size = outputBytes(out_width, out_height, sizeof(uint16_t));
-    if (output_size > size_t(INT32_MAX)) {
-        LOGD("allocateAndCopyBinning: output of %dx%d above 2 GiB", out_width, out_height);
-        return nullptr;
-    }
-
-    auto* allocation = static_cast<uint16_t*>(malloc(output_size));
-    jobject buffer = directBuffer(env, allocation, output_size);
-    if (buffer == nullptr) {
-        LOGD("allocateAndCopyBinning: failed to allocate output");
-        return nullptr;
-    }
-
-    void* ptr = env->GetDirectBufferAddress(originBuffer);
-    if (ptr == nullptr) {
-        LOGD("allocateAndCopyBinning: failed to get buffer address");
-        free(allocation);
-        return nullptr;
-    }
-
-    // If row_stride matches width (no padding), bin directly
-    int stride_pixels = row_stride / (int)sizeof(uint16_t);
-    if (stride_pixels == width) {
-        applyBayerBinning(static_cast<const uint16_t*>(ptr), allocation,
-                          width, height, out_width, out_height);
-    } else {
-        // De-stride into a packed buffer first
-        const size_t full_size = outputBytes(width, height, sizeof(uint16_t));
-        auto* packed = static_cast<uint16_t*>(malloc(full_size));
-        if (packed == nullptr) {
-            LOGD("allocateAndCopyBinning: failed to allocate pack buffer");
-            free(allocation);
-            return nullptr;
+// P659: the packed frame is unpacked four rows at a time into a small window (a pair of output rows reads input rows
+// 4j .. 4j + 3 only) instead of one whole-frame uint16 copy - 100 MB less native memory at 50 MP. Samples a row does not
+// decode (a width that is no whole group) read as 0.
+jobject unpackAndBin(JNIEnv* env, jint capacity, jobject origin, jint width, jint rowStride, jint offset, bool raw12,
+                     const char* what) {
+    const int height = rowStride != 0 ? capacity / rowStride : 0;
+    const int outWidth = width / 2, outHeight = height / 2;
+    auto* src = origin != nullptr ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;
+    void* memory = nullptr;
+    jobject buffer = src != nullptr ? freshBuffer(env, pixelBytes(outWidth, outHeight), what, &memory) : nullptr;
+    if (buffer == nullptr) return nullptr;
+    src += offset;
+    std::vector<uint16_t> window(size_t(4) * size_t(std::max(width, 0)), 0);
+    int windowStart = -1;
+    auto rowOf = [&](int y) -> const uint16_t* {
+        const int start = y & ~3;
+        if (start != windowStart) {
+            windowStart = start;
+            for (int k = 0; k < 4 && start + k < height; ++k) {
+                const uint8_t* packed = src + size_t(start + k) * size_t(rowStride);
+                uint16_t* row = window.data() + size_t(k) * size_t(width);
+                if (raw12) decodeRaw12Row(packed, row, width);
+                else decodeRaw10Row(packed, row, width);
+            }
         }
-        const uint8_t* src = static_cast<const uint8_t*>(ptr);
-        for (int row = 0; row < height; row++) {
-            memcpy(packed + size_t(row) * width, src + size_t(row) * row_stride, width * sizeof(uint16_t));
-        }
-        applyBayerBinning(packed, allocation, width, height, out_width, out_height);
-        free(packed);
-    }
-
-    memoryCount += long(output_size);
-    LOGD("allocateAndCopyBinning: %dx%d -> %dx%d, memory %ld MB",
-         width, height, out_width, out_height, (memoryCount / 1024) / 1024);
+        return window.data() + size_t(y - start) * size_t(width);
+    };
+    binSums(rowOf, width, height, static_cast<uint16_t*>(memory), outWidth, outHeight);
+    ALLOC_LOG("%s: %dx%d -> %dx%d, %ld MB counted", what, width, height, outWidth, outHeight, long(memoryCount / (1 << 20)));
     return buffer;
 }
 
-#pragma clang diagnostic pop
+// The rows of a packed frame unpacked one after another, `pitch` samples apart.
+jobject unpackRows(JNIEnv* env, jint capacity, jobject origin, jint width, jint rowStride, jint offset, bool raw12,
+                   const char* what) {
+    const int height = rowStride != 0 ? capacity / rowStride : 0;
+    auto* src = origin != nullptr ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;
+    void* memory = nullptr;
+    jobject buffer = src != nullptr ? freshBuffer(env, pixelBytes(width, height), what, &memory) : nullptr;
+    if (buffer == nullptr) return nullptr;
+    src += offset;
+    auto* out = static_cast<uint16_t*>(memory);
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* packed = src + size_t(y) * size_t(rowStride);
+        // RAW10 rows follow each other without gaps (a width that is no whole group leaves the tail unwritten); RAW12 rows
+        // keep their width apart
+        if (raw12) decodeRaw12Row(packed, out + size_t(y) * size_t(width), width);
+        else out += decodeRaw10Row(packed, out, width);
+    }
+    ALLOC_LOG("%s: %dx%d, %ld MB counted", what, width, height, long(memoryCount / (1 << 20)));
+    return buffer;
+}
+
+}  // namespace
+
+ALLOC_JNI(jobject, allocate)(JNIEnv* env, jclass, jint capacity) {
+    void* memory = nullptr;
+    return freshBuffer(env, capacity, "allocate", &memory);
+}
+
+ALLOC_JNI(jobject, allocateAndCopy)(JNIEnv* env, jclass, jint capacity, jobject origin, jint offset) {
+    void* memory = nullptr;
+    jobject buffer = freshBuffer(env, capacity, "allocateAndCopy", &memory);
+    if (buffer == nullptr) return nullptr;
+    // P610 (speed): on 4 threads from 32 MB (copyBytes, P200) - the reference RAW out of the shot arena before the post
+    // pipeline (382 MB at 200 MP). Without an origin the buffer comes back as allocated.
+    auto* src = origin != nullptr ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;
+    if (src != nullptr) copyBytes(static_cast<uint8_t*>(memory), src + offset, size_t(capacity));
+    else ALLOC_LOG("allocateAndCopy: origin is no direct buffer, nothing copied");
+    return buffer;
+}
+
+ALLOC_JNI(jobject, allocateAndCopyConvert)(JNIEnv* env, jclass, jint capacity, jobject origin, jint width, jint rowStride,
+                                           jint offset) {
+    return unpackRows(env, capacity, origin, width, rowStride, offset, false, "allocateAndCopyConvert");
+}
+
+ALLOC_JNI(jobject, allocateAndCopyConvert12)(JNIEnv* env, jclass, jint capacity, jobject origin, jint width, jint rowStride,
+                                             jint offset) {
+    return unpackRows(env, capacity, origin, width, rowStride, offset, true, "allocateAndCopyConvert12");
+}
+
+ALLOC_JNI(jobject, allocateAndCopyConvertBinning)(JNIEnv* env, jclass, jint capacity, jobject origin, jint width,
+                                                  jint rowStride, jint offset) {
+    return unpackAndBin(env, capacity, origin, width, rowStride, offset, false, "allocateAndCopyConvertBinning");
+}
+
+ALLOC_JNI(jobject, allocateAndCopyConvert12Binning)(JNIEnv* env, jclass, jint capacity, jobject origin, jint width,
+                                                    jint rowStride, jint offset) {
+    return unpackAndBin(env, capacity, origin, width, rowStride, offset, true, "allocateAndCopyConvert12Binning");
+}
+
+// RAW16 binned straight from its padded rows (P659: no whole-frame de-strided copy first).
+ALLOC_JNI(jobject, allocateAndCopyBinning)(JNIEnv* env, jclass, jint, jobject origin, jint width, jint height,
+                                           jint rowStride) {
+    auto* src = origin != nullptr ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;
+    void* memory = nullptr;
+    jobject buffer = src != nullptr ? freshBuffer(env, pixelBytes(width / 2, height / 2), "allocateAndCopyBinning", &memory)
+                                    : nullptr;
+    if (buffer == nullptr) return nullptr;
+    auto rowOf = [&](int y) { return reinterpret_cast<const uint16_t*>(src + size_t(y) * size_t(rowStride)); };
+    binSums(rowOf, width, height, static_cast<uint16_t*>(memory), width / 2, height / 2);
+    return buffer;
+}
 
 bool scamAhbFreeView(const void* ptr); // P482: scam-ahb.cpp (the merge RGB in the app's hardware buffer)
 
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_free(JNIEnv *env, jclass clazz,
-                                                            jobject buffer) {
-    if (buffer == nullptr) {
-        LOGD("Buffer is null, nothing to free");
+// Frees a buffer of this library: a hardware-buffer view is unlocked (P482), an arena view drops one reference of its slot
+// and arena (P30; the slot's pages go once its last view does, P179), anything else was malloc'ed here.
+ALLOC_JNI(void, free)(JNIEnv* env, jclass, jobject buffer) {
+    void* p = buffer != nullptr ? env->GetDirectBufferAddress(buffer) : nullptr;
+    if (p == nullptr) {
+        ALLOC_LOG("free: no direct buffer");
         return;
     }
-
-    // Get the address of the allocated memory
-    void* ptr = env->GetDirectBufferAddress(buffer);
-    long capacity = env->GetDirectBufferCapacity(buffer);
-    if (ptr == nullptr) {
-        LOGD("Failed to get direct buffer address");
-        return;
-    }
-    if (scamAhbFreeView(ptr)) return; // P482: a view of the locked hardware buffer: unlocked and released
-
-    {   // an arena view: one reference less (P30)
+    const long capacity = long(env->GetDirectBufferCapacity(buffer));
+    if (scamAhbFreeView(p)) return;
+    {
         ArenaWork work;
         std::lock_guard<std::mutex> lock(arenaLock);
-        const long i = containingLocked(ptr);
+        const long i = containingLocked(p);
         if (i >= 0) {
-            const size_t offset = size_t(static_cast<uint8_t*>(ptr) - arenas[size_t(i)].base);
+            Arena& a = arenas[size_t(i)];
+            const size_t offset = size_t(static_cast<uint8_t*>(p) - a.base);
             if (slotUnrefLocked(size_t(i), offset) && capacity > 0) punchLocked(size_t(i), offset, size_t(capacity), work);
-            if (--arenas[size_t(i)].refs <= 0 && arenas[size_t(i)].released) unmapLocked(size_t(i), work);
+            if (--a.refs <= 0 && a.released) unmapLocked(size_t(i), work);
             return;
         }
     }
-    // Free the allocated memory
-    free(ptr);
+    ::free(p);
     memoryCount -= capacity;
-    LOGD("Buffer freed successfully");
 }
 
-extern "C"
-JNIEXPORT jlong JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_getMemoryCount(JNIEnv *env, jclass clazz) {
-    // Return the current memory count
-    LOGD("Current memory count: %ld MB", (memoryCount/1024)/1024);
-    return memoryCount;
-}
+ALLOC_JNI(jlong, getMemoryCount)(JNIEnv*, jclass) { return jlong(memoryCount.load()); }
 
 // RawUnpack: packed RAW10 / RAW12 rows to uint16 into the caller's buffer (RAW viewfinder and mosaic measurement on RAW10 /
 // RAW12 streams). Rows split over up to four threads; the bit layout of decodeRaw10Row / decodeRaw12Row.
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_RawUnpack_nativeUnpack(JNIEnv* env, jclass, jobject src, jint format, jint width,
+UNPACK_JNI(jboolean, nativeUnpack)(JNIEnv* env, jclass, jobject src, jint format, jint width,
                                                                 jint height, jint rowStride, jobject dst) {
     auto* in = static_cast<const uint8_t*>(src ? env->GetDirectBufferAddress(src) : nullptr);
     auto* out = static_cast<uint16_t*>(dst ? env->GetDirectBufferAddress(dst) : nullptr);
@@ -856,8 +776,7 @@ Java_com_particlesdevs_photoncamera_util_RawUnpack_nativeUnpack(JNIEnv* env, jcl
 
 // P30: a packed RAW10 / RAW12 frame unpacked straight into its arena slot (uint16, width per row), so a RAW10 stream
 // (OPPO Find X8 Ultra default) also reaches the worker without the transport copy.
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_arenaCopyUnpack(JNIEnv* env, jclass, jint id, jlong offset, jobject origin,
+ALLOC_JNI(jobject, arenaCopyUnpack)(JNIEnv* env, jclass, jint id, jlong offset, jobject origin,
                                                                     jint originOffset, jint format, jint width, jint rowStride,
                                                                     jint height) {
     auto* src = origin ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;
@@ -945,8 +864,7 @@ static bool binBlocks2Rows(uint16_t* out, size_t outCapacity, const uint8_t* in,
     return true;
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_Allocator_binBlocks2(JNIEnv* env, jclass, jobject dst, jobject origin, jint offset, jint format,
+ALLOC_JNI(jboolean, binBlocks2)(JNIEnv* env, jclass, jobject dst, jobject origin, jint offset, jint format,
                                                              jint width, jint height, jint rowStride) {
     auto* out = dst ? static_cast<uint16_t*>(env->GetDirectBufferAddress(dst)) : nullptr;
     auto* in = origin ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(origin)) : nullptr;

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // Chroma pyramid of the reference ChromaDenoise: X[L+1](q) = sum_ij h[i] h[j] X[L](clamp(2q + (i-1, j-1))),
 // h = {1,3,3,1}/8, all three channels (Y,U,V). The pairs (1,3) and (3,1) are bilinear fetches at 2q-0.25 and
 // 2q+1.25 (exact quarter fractions), half the weight each.

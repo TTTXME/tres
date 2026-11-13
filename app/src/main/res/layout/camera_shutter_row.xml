@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The shutter row and the bottom row under it.
+     Shutter row (P25): three columns - the gallery card 52dp in from the left, the shutter in the exact centre, the front / back
+     switch 52dp in from the right; each side item stays in its half.
+     Bottom row (P574, the approved concept): the gear (all settings), the mode switch in the middle (icon discs in a capsule),
+     «Про» (the Pro panel) at the end - 50dp squares with 16dp corners, the switch a 52dp capsule of 44dp discs. -->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+    <data>
+        <variable name="bottom_bar_click_listener" type="android.view.View.OnClickListener"/>
+        <variable name="uimodel" type="com.scamera.app.ui.camera.model.CameraFragmentModel"/>
+        <variable name="timermodel" type="com.scamera.app.ui.camera.model.TimerFrameCountModel"/>
+    </data>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+        <!-- the gallery card: the last shot's thumbnail, the gallery glyph until there is one, the processing ring round the edge -->
+        <FrameLayout
+                android:id="@+id/gallery_card"
+                android:layout_width="@dimen/vf_side_button_size"
+                android:layout_height="@dimen/vf_side_button_size"
+                android:layout_marginStart="52dp"
+                android:background="@drawable/shade_gallery_card"
+                app:layout_constraintHorizontal_bias="0"
+                app:layout_constraintTop_toTopOf="@id/shutter_box"
+                app:layout_constraintBottom_toBottomOf="@id/shutter_box"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/shutter_box">
+
+            <!-- the gallery glyph in the accent, until the first thumbnail -->
+            <ImageView
+                    android:id="@+id/gallery_placeholder"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_shade_jpeg"/>
+
+            <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/gallery_thumb"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="center"
+                    android:contentDescription="@string/shade_gallery"
+                    android:scaleType="centerCrop"
+                    android:onClick="@{bottom_bar_click_listener}"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearance.Scamera.Thumb"
+                    imageFromBitmap="@{uimodel.bitmap}"
+                    bindRotate="@{uimodel}"/>
+
+            <!-- P158: the shot's processing, an accent arc running round the card (as in WhyCam) -->
+            <com.scamera.app.ui.camera.views.ProcessingRing
+                    android:id="@+id/processing_ring"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="invisible"/>
+        </FrameLayout>
+
+        <!-- The shutter (P25): a ring round a filled disc; CameraUIViewImpl gives it its state drawable. Square, centred, packed
+             over the bottom row. -->
+        <FrameLayout
+                android:id="@+id/shutter_box"
+                android:layout_width="@dimen/vf_shutter_size"
+                android:layout_height="0dp"
+                app:layout_constraintDimensionRatio="1.0"
+                app:layout_constraintVertical_bias="1.0"
+                app:layout_constraintVertical_chainStyle="packed"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toTopOf="@id/bottom_row"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+            <ImageButton
+                    android:id="@+id/shutter_key"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/roundbutton"
+                    android:backgroundTint="@null"
+                    android:clickable="true"
+                    android:contentDescription="@string/shade_shutter"
+                    android:textAppearance="@style/TextAppearance.AppCompat"
+                    android:onClick="@{bottom_bar_click_listener}"/>
+
+            <!-- frames left in a series, over the shutter (kept hidden: SIMPLE_UI §1 shows the time under it instead) -->
+            <TextView
+                    android:id="@+id/shutter_frames"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="@{timermodel.frameCount}"
+                    android:textAlignment="center"
+                    android:textColor="#303438"
+                    android:textSize="22sp"
+                    android:typeface="normal"
+                    android:visibility="gone"/>
+        </FrameLayout>
+
+        <!-- SIMPLE_UI §1: a long burst's time left, one small line just under the shutter -->
+        <TextView
+                android:id="@+id/burst_left"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:translationY="16dp"
+                android:fontFeatureSettings="tnum"
+                android:importantForAccessibility="no"
+                android:text="@{timermodel.timerCount}"
+                android:textColor="@color/settings_muted"
+                android:textSize="11sp"
+                android:visibility="@{timermodel.timerCount == null || timermodel.timerCount.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE}"
+                app:layout_constraintBottom_toBottomOf="@id/shutter_box"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"/>
+
+        <!-- the front / back switch, the gallery card's shape (BottomChrome); the box clips the switch's half turn -->
+        <FrameLayout
+                android:id="@+id/switch_box"
+                android:layout_width="@dimen/vf_side_button_size"
+                android:layout_height="@dimen/vf_side_button_size"
+                android:layout_marginEnd="52dp"
+                app:layout_constraintHorizontal_bias="1"
+                app:layout_constraintTop_toTopOf="@id/shutter_box"
+                app:layout_constraintBottom_toBottomOf="@id/shutter_box"
+                app:layout_constraintStart_toEndOf="@id/shutter_box"
+                app:layout_constraintEnd_toEndOf="parent">
+
+            <ImageButton
+                    android:id="@+id/flip_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="center"
+                    android:padding="16dp"
+                    android:background="@drawable/shade_gallery_card"
+                    android:clickable="true"
+                    android:contentDescription="@string/shade_flip_camera"
+                    android:tooltipText="@string/shade_flip_camera"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/cv_flip"
+                    android:onClick="@{bottom_bar_click_listener}"/>
+        </FrameLayout>
+
+        <!-- the bottom row: gear · mode switch · «Про», the switch centred in the room the two squares leave -->
+        <LinearLayout
+                android:id="@+id/bottom_row"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:clipChildren="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                app:layout_constraintTop_toBottomOf="@id/shutter_box"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+            <ImageButton
+                    android:id="@+id/gear_button"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:padding="14dp"
+                    android:contentDescription="@string/sheet_all_settings"
+                    android:tooltipText="@string/sheet_all_settings"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/cv_gear"
+                    android:onClick="@{bottom_bar_click_listener}"
+                    bindRotate="@{uimodel}"/>
+
+            <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
+
+            <!-- Sport | Photo | Oldstyle (P630): icons only, the chosen mode on a lighter disc in the accent (BottomChrome.bindModes) -->
+            <LinearLayout
+                    android:id="@+id/mode_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:padding="4dp"
+                    android:gravity="center_vertical"
+                    android:importantForAccessibility="no"
+                    android:orientation="horizontal">
+
+                <ImageButton
+                        android:id="@+id/mode_sport"
+                        style="@style/Cam.ModeDisc"
+                        android:src="@drawable/cv_run_m"
+                        android:onClick="@{bottom_bar_click_listener}"
+                        bindRotate="@{uimodel}"/>
+
+                <ImageButton
+                        android:id="@+id/mode_photo"
+                        style="@style/Cam.ModeDisc.Next"
+                        android:src="@drawable/cv_photo_m"
+                        android:onClick="@{bottom_bar_click_listener}"
+                        bindRotate="@{uimodel}"/>
+
+                <!-- P630: «Oldstyle» (OldstyleMode): the photo mode with the old tone, manual controls and adjustments -->
+                <ImageButton
+                        android:id="@+id/mode_oldstyle"
+                        style="@style/Cam.ModeDisc.Next"
+                        android:src="@drawable/cv_os_cassette"
+                        android:onClick="@{bottom_bar_click_listener}"
+                        bindRotate="@{uimodel}"/>
+            </LinearLayout>
+
+            <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
+
+            <!-- «Про»: the square itself carries the disc BottomChrome paints (on / off), the sliders glyph in it -->
+            <FrameLayout
+                    android:id="@+id/pro_button"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="@string/bottom_pro"
+                    bindRotate="@{uimodel}">
+
+                <ImageView
+                        android:id="@+id/pro_icon"
+                        style="@style/Cam.Glyph"
+                        android:src="@drawable/cv_sliders"/>
+            </FrameLayout>
+        </LinearLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</layout>

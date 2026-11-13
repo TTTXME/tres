@@ -23,7 +23,7 @@ import moderngl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = (ROOT / 'app/src/main/assets/shaders/why/msdn.glsl').read_text(encoding='utf-8')
-JAVA = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyMsDenoise.java').read_text(encoding='utf-8')
+JAVA = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyMsDenoise.java').read_text(encoding='utf-8')
 FAIL = []
 try:
     ctx = moderngl.create_standalone_context(backend='egl', require=430)

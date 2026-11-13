@@ -8,6 +8,18 @@
 //   * texture != 1 changes the textured part, the flat part (almost) not; bokeh != 1 the flat part, the textured part (almost) not;
 //   * texture 2 smooths the texture (less energy of the fine detail than texture 0.5); bokeh 2 lowers the flat part's noise
 //     against bokeh 0.5; transition 4 (more of the frame takes the bokeh kernel) acts like bokeh in the flat part.
+//   (these with kernelSnr 0: the static footprints, as P587 measured them)
+// P647: the footprints that follow the burst's SNR key (HybridTuning::kernelSnr*, hybridKernelFootprintSnr):
+// - the curves: 1 at the pivot key, the day / night values beyond kernelSnrDay / kernelSnrNight, continuous, monotone on each side
+//   of the pivot, flat beyond both ends; Tetra (block 4) never on the night side; the fast route's transition x kernelSnrFastNight
+//   at night; the key = one site's key x the block; the user's factors multiply the automatic ones; kernelSnr 0 = the user's alone
+//   (the same object, the same merge bit for bit as automatic factors of 1);
+// - the burst: by day (this noise, key ~42) the texture's detail up against kernelSnr 0, at night (noise x100, site key ~4.1) the flat
+//   part's noise down against kernelSnr 0, every route; one log line a shot with the key and the values used.
+// P647b: the day side per colour block / route (Bayer and the fast Quad route keep the texture kernel, the Quad SCAM merge 0.92,
+// the fast Quad route 0.85 across edges, the fast Bayer route its own ramp / across-edge factor / packing lift, the Bayer SCAM
+// transition 1.25), the curves and keys of those; a Bayer burst of few frames keeps its kernel by day (the 5-frame burst: bit for
+// bit kernelSnr 0's merge by day), while the narrowing itself (frames gate off, texture x0.85) still lifts the texture's detail.
 #include "../app/src/main/cpp/scam-capture.h"
 #include "../app/src/main/cpp/scam-hybrid.h"
 #include <cassert>
@@ -59,6 +71,7 @@ struct Stack {
     std::vector<std::array<double, 2>> d{{0, 0}, {0.5, 0.25}, {-0.75, 0.5}, {0.25, -0.5}, {-0.5, -0.75}};
     std::vector<std::vector<uint16_t>> raw;
     int block;
+    double noise = NOISE; // the frames' noise model (NOISE when the stack was made)
     // move: the donors' texture moved by that many px against what the alignment says (a subject moving over the static flat part)
     explicit Stack(int b, double move = 0) : block(b) {
         for (size_t f = 0; f < d.size(); ++f) raw.push_back(bayer(d[f][0] + (f ? move * double(f) : 0), d[f][1], 500 + unsigned(f), b));
@@ -69,7 +82,7 @@ static std::vector<float> merge(const Stack& b, HybridTuning t, std::vector<std:
     HybridInput in; in.w = W; in.h = H; in.cfa = 0; in.white = 4095; in.black.fill(64); in.mosaic = b.block;
     std::map<const uint16_t*, int> who;
     for (size_t f = 0; f < b.d.size(); ++f) {
-        HybridFrame fr; fr.raw = b.raw[f].data(); fr.role = kRoleNormal; fr.exposure = 1; fr.iso = 400; fr.slope = float(NOISE); fr.offset = 1e-6f;
+        HybridFrame fr; fr.raw = b.raw[f].data(); fr.role = kRoleNormal; fr.exposure = 1; fr.iso = 400; fr.slope = float(b.noise); fr.offset = 1e-6f;
         fr.orderMs = float(f) * 33.f; in.frames.push_back(fr); who[fr.raw] = int(f);
     }
     ScamAlignment align = [&](scam::Burst& burst) {
@@ -155,6 +168,7 @@ int main() {
     int routes = 0;
     for (const Route r : {Route{"Sabre 6.1", 1, 0, 1}, Route{"round 4", 0, 0, 1}, Route{"fast route", 1, 1, 1}, Route{"native Quad", 1, 0, 2}}) {
         HybridTuning base; base.sabre61 = r.sabre61; base.fastMerge = r.fast; base.fastMergeSelect = 0;
+        base.kernelSnr = 0;           // P647: the static footprints (the automatic ones are checked below)
         base.mosaicQuadTexture = 1.f; // P596: the user's factors alone here (the Quad default x0.5 is checked below)
         base.mosaicQuadFine = 0.f;    // P596: on the quad tensor this synthetic texture is «texture» (the green-site one reads it as edges)
         std::vector<std::string> log;
@@ -206,7 +220,7 @@ int main() {
     // P596: the Quad stream's own texture factor (HybridTuning::mosaicQuadTexture, default 0.5) on top of the user's 1: said, and the
     // output not the factor-1 merge's; a Bayer stream ignores it (bit for bit)
     {
-        HybridTuning q; q.sabre61 = 1; q.fastMerge = 0; q.fastMergeSelect = 0; q.mosaicQuadFine = 0.f;
+        HybridTuning q; q.sabre61 = 1; q.fastMerge = 0; q.fastMergeSelect = 0; q.mosaicQuadFine = 0.f; q.kernelSnr = 0;
         assert(q.mosaicQuadTexture == 0.5f);
         std::vector<std::string> l;
         const std::vector<float> qd = merge(quad, q, &l);
@@ -236,6 +250,194 @@ int main() {
         std::printf("P596 round 5: static burst |change| from the ungated merge: texture %.3g, flat %.3g (the narrow kernel's own change "
                     "%.3g); a moving texture's |change| from the factor-1 merge: narrow %.3g, gated %.3g\n", sT, sF, diff(q0d, q1d, tex), n1, g1);
         assert(n1 > 1e-4 && g1 < 0.5 * n1);
+    }
+    // ---- P647: the footprints that follow the SNR key
+    {
+        const HybridTuning t;
+        assert(t.kernelSnr == 1 && t.kernelSnrNight < t.kernelSnrPivot && t.kernelSnrPivot < t.kernelSnrDay && t.kernelSnrDayEdge < 1.f);
+        {   // the across-edge factor on the uniforms: Sabre 6.1 k61a[0] / edge, round 4 shrunk x edge; nothing else
+            HybridKernelFootprint e; e.edge = 0.8f;
+            std::array<float, 4> a{6.f, 1.f, 0.002f, 3.f}, b{0.6f, 66.f, 1.f, 1.f};
+            const auto a0 = a, b0 = b;
+            e.apply61(a, b);
+            assert(e.active() && a[0] == a0[0] / 0.8f && a[1] == a0[1] && a[2] == a0[2] && a[3] == a0[3] && std::memcmp(b.data(), b0.data(), sizeof(b)) == 0);
+            SuperResTuning k; k.shrunk = 0.3f; k.base = 0.4f;
+            e.applyRound4(k);
+            assert(k.shrunk == 0.3f * 0.8f && k.base == 0.4f);
+        }
+        {
+            const char* temp = std::getenv("TMPDIR");
+            std::string dir = std::string(temp ? temp : "/tmp") + "/scamera-footprint-XXXXXX";
+            assert(mkdtemp(dir.data()) != nullptr);
+            { std::ofstream f(dir + "/hybrid_tuning.txt"); f << "kernelSnr 0\nkernelSnrNight 4\nkernelSnrPivot 12\nkernelSnrDay 50\nkernelSnrDayTexture 0.7\n"
+                  "kernelSnrDayBokeh 1.3\nkernelSnrDayTransition 1.4\nkernelSnrNightTexture 1.3\nkernelSnrNightBokeh 1.1\nkernelSnrNightTransition 2.5\nkernelSnrFastNight 5\n"
+                  "kernelSnrDayEdge 0.9\nmosaicQuadTextureNight 0.8\nkernelSnrDayTextureBayer 0.95\nkernelSnrDayTextureQuadFast 0.9\n"
+                  "kernelSnrDayEdgeBayerFast 1.2\nkernelSnrDayFastLiftBayer 2.5\nkernelSnrFastBayerFrom 20\nkernelSnrFastBayerTo 70\nkernelSnrWiden 0.25\nkernelSnrDayTransitionBayer 1.1\nkernelSnrDayTextureQuad 0.8\nkernelSnrDayEdgeQuadFast 0.95\nkernelSnrDayFramesLo 3\nkernelSnrDayFramesHi 5\n"; }
+            const HybridTuning l = loadHybridTuning(dir, [](const std::string&) {});
+            unlink((dir + "/hybrid_tuning.txt").c_str()); rmdir(dir.c_str());
+            assert(l.kernelSnr == 0 && l.kernelSnrNight == 4.f && l.kernelSnrPivot == 12.f && l.kernelSnrDay == 50.f && l.kernelSnrDayTexture == 0.7f);
+            assert(l.kernelSnrDayBokeh == 1.3f && l.kernelSnrDayTransition == 1.4f && l.kernelSnrNightTexture == 1.3f && l.kernelSnrNightBokeh == 1.1f);
+            assert(l.kernelSnrNightTransition == 2.5f && l.kernelSnrFastNight == 5.f && l.kernelSnrDayEdge == 0.9f && l.mosaicQuadTextureNight == 0.8f);
+            assert(l.kernelSnrDayTextureBayer == 0.95f && l.kernelSnrDayTextureQuadFast == 0.9f && l.kernelSnrDayEdgeBayerFast == 1.2f && l.kernelSnrDayFastLiftBayer == 2.5f);
+            assert(l.kernelSnrFastBayerFrom == 20.f && l.kernelSnrFastBayerTo == 70.f && l.kernelSnrWiden == 0.25f && l.kernelSnrDayTransitionBayer == 1.1f && l.kernelSnrDayTextureQuad == 0.8f && l.kernelSnrDayEdgeQuadFast == 0.95f && l.kernelSnrDayFramesLo == 3.f && l.kernelSnrDayFramesHi == 5.f);
+        }
+        // P647b: by day the texture narrows on Tetra and the Quad SCAM merge only; the fast Bayer route's day side from its own keys
+        assert(t.kernelSnrDayTexture < 1.f && t.kernelSnrDayTextureQuad < 1.f && t.kernelSnrDayTextureBayer == 1.f && t.kernelSnrDayTextureQuadFast == 1.f && t.kernelSnrDayEdgeQuadFast < 1.f);
+        assert(t.kernelSnrFastBayerFrom > t.kernelSnrPivot && t.kernelSnrFastBayerTo > t.kernelSnrFastBayerFrom && t.kernelSnrDayFastLiftBayer > 1.f);
+        // the curves over keys 0.5 .. 1000: 1 at the pivot, the end values beyond the ends, monotone on each side, continuous
+        for (int fast = 0; fast < 2; ++fast)
+            for (int block : {1, 2, 4}) {
+                const bool bayerFast = fast && block == 1;
+                const float dayTexture = block == 4 ? t.kernelSnrDayTexture : block == 2 ? (fast ? t.kernelSnrDayTextureQuadFast : t.kernelSnrDayTextureQuad) : t.kernelSnrDayTextureBayer;
+                const float dayEdge = bayerFast ? t.kernelSnrDayEdgeBayerFast : fast && block == 2 ? t.kernelSnrDayEdgeQuadFast : t.kernelSnrDayEdge, dayEnd = bayerFast ? t.kernelSnrFastBayerTo : t.kernelSnrDay;
+                const float dayTransition = block == 1 && !fast ? t.kernelSnrDayTransitionBayer : t.kernelSnrDayTransition;
+                HybridKernelFootprint prev{};
+                float prevKey = 0.f;
+                for (int i = 0; i <= 4000; ++i) {
+                    const float key = 0.5f * std::pow(2000.f, float(i) / 4000.f);
+                    const HybridKernelFootprint f = hybridSnrFactors(t, key, block, fast != 0);
+                    const HybridKernelFootprint s = hybridKernelFootprintSnr(t, key / float(block), block, fast != 0);
+                    assert(std::fabs(s.texture - f.texture) < 1e-6f * 4 && std::fabs(s.bokeh - f.bokeh) < 1e-6f * 4 && std::fabs(s.transition - f.transition) < 1e-5f);
+                    assert(s.edge == f.edge && s.lift == f.lift);
+                    // the fast packing lift: the fast route only; 1 / edge^2 where the kernel narrows across edges, the fast Bayer route its own
+                    if (!fast) assert(f.lift == 1.f);
+                    else if (!bayerFast) assert(f.edge < 1.f ? std::fabs(f.lift - 1.f / (f.edge * f.edge)) < 1e-5f : f.lift == 1.f);
+                    else assert(f.lift >= 1.f && f.lift <= t.kernelSnrDayFastLiftBayer + 1e-6f);
+                    // the fast Bayer route: every factor 1 from the pivot up to kernelSnrFastBayerFrom
+                    if (bayerFast && key >= t.kernelSnrPivot && key <= t.kernelSnrFastBayerFrom)
+                        assert(f.texture == 1.f && f.bokeh == 1.f && f.transition == 1.f && f.edge == 1.f && f.lift == 1.f);
+                    if (i) {
+                        // continuous: no step between neighbouring keys (0.2 % apart) above 1 % of the range
+                        assert(std::fabs(f.texture - prev.texture) < 0.01f && std::fabs(f.bokeh - prev.bokeh) < 0.01f && std::fabs(f.transition - prev.transition) < 0.05f);
+                        assert(std::fabs(f.edge - prev.edge) < 0.01f && std::fabs(f.lift - prev.lift) < 0.05f);
+                        const bool day = prevKey >= t.kernelSnrPivot;
+                        // texture: narrower towards the day, wider towards the night (both sides: non-increasing in the key)
+                        assert(f.texture <= prev.texture + 1e-6f);
+                        // bokeh / transition: away from 1 towards each end (day: up to the day value; night: up to the night value)
+                        // the kernel across edges: towards its day value (narrower; the fast Bayer route wider with its lift), the lift up
+                        if (day) assert(f.bokeh >= prev.bokeh - 1e-6f && f.transition >= prev.transition - 1e-6f && f.lift >= prev.lift - 1e-6f
+                                        && (dayEdge <= 1.f ? f.edge <= prev.edge + 1e-6f : f.edge >= prev.edge - 1e-6f));
+                        else if (key <= t.kernelSnrPivot) assert(f.bokeh <= prev.bokeh + 1e-6f && f.transition <= prev.transition + 1e-6f);
+                    }
+                    if (key >= dayEnd)
+                        assert(f.texture == dayTexture && f.bokeh == t.kernelSnrDayBokeh && f.transition == dayTransition && f.edge == dayEdge
+                               && (!bayerFast || f.lift == t.kernelSnrDayFastLiftBayer));
+                    if (key <= t.kernelSnrPivot) assert(f.edge == 1.f); // the kernel across edges: the day side only
+                    if (key <= t.kernelSnrNight) {
+                        if (block == 4) assert(f.texture == 1.f && f.bokeh == 1.f && f.transition == 1.f); // Tetra: the day side only
+                        else assert(f.texture == t.kernelSnrNightTexture && f.bokeh == t.kernelSnrNightBokeh
+                                    && std::fabs(f.transition - t.kernelSnrNightTransition * (fast ? t.kernelSnrFastNight : 1.f)) < 1e-5f);
+                    }
+                    prev = f; prevKey = key;
+                }
+                const HybridKernelFootprint p = hybridSnrFactors(t, t.kernelSnrPivot, block, fast != 0);
+                assert(p.texture == 1.f && p.bokeh == 1.f && p.transition == 1.f && p.edge == 1.f && p.lift == 1.f);
+            }
+        // P647b: a Bayer burst's day side x smoothstep over kernelSnrDayFramesLo .. Hi frames (1 below Lo, unchanged from Hi, unknown
+        // frames 0 = unchanged); Quad / Tetra and the night side never
+        assert(t.kernelSnrDayFramesLo > 1.f && t.kernelSnrDayFramesHi > t.kernelSnrDayFramesLo);
+        for (int fast = 0; fast < 2; ++fast)
+            for (int block : {1, 2, 4})
+                for (float key : {5.f, 20.f, 45.f, 200.f}) {
+                    const HybridKernelFootprint all = hybridSnrFactors(t, key, block, fast != 0), none = hybridSnrFactors(t, key, block, fast != 0, 0);
+                    assert(all.texture == none.texture && all.edge == none.edge && all.lift == none.lift && all.transition == none.transition);
+                    float prevDist = -1.f;
+                    for (int n = 1; n <= 30; ++n) {
+                        const HybridKernelFootprint g = hybridSnrFactors(t, key, block, fast != 0, n);
+                        const float dist = std::fabs(g.texture - 1.f) + std::fabs(g.bokeh - 1.f) + std::fabs(g.transition - 1.f) + std::fabs(g.edge - 1.f) + std::fabs(g.lift - 1.f);
+                        if (block != 1 || key <= t.kernelSnrPivot || n >= t.kernelSnrDayFramesHi)
+                            assert(g.texture == all.texture && g.bokeh == all.bokeh && g.transition == all.transition && g.edge == all.edge && g.lift == all.lift);
+                        else if (n <= t.kernelSnrDayFramesLo) assert(dist == 0.f);
+                        assert(dist >= prevDist - 1e-6f); prevDist = dist;
+                    }
+                }
+        // the key: one site's x the block (Quad 2, Tetra 4; anything else 1); a key that is not a number keeps the factors at 1
+        assert(hybridSnrFootprintKey(10.f, 1) == 10.f && hybridSnrFootprintKey(10.f, 2) == 20.f && hybridSnrFootprintKey(10.f, 4) == 40.f && hybridSnrFootprintKey(10.f, 3) == 10.f);
+        for (float bad : {0.f, -3.f, std::nanf(""), INFINITY}) { const auto f = hybridSnrFactors(t, bad, 1, true); assert(f.texture == 1.f && f.bokeh == 1.f && f.transition == 1.f && f.edge == 1.f && f.lift == 1.f); }
+        // the user's factors multiply the automatic ones (the product within 0.25 .. 4, the transition 0.25 .. 16); kernelSnr 0: the user's
+        HybridTuning u = t; u.kernelTexture = 0.5f; u.kernelBokeh = 2.f; u.kernelTransition = 3.f;
+        for (float key : {3.f, 14.f, 25.f, 80.f}) {
+            const HybridKernelFootprint a = hybridSnrFactors(u, key, 1, true), f = hybridKernelFootprintSnr(u, key, 1, true);
+            assert(f.edge == a.edge && f.lift == a.lift && f.texture == std::clamp(0.5f * a.texture, 0.25f, 4.f) && f.bokeh == std::clamp(2.f * a.bokeh, 0.25f, 4.f) && f.transition == std::clamp(3.f * a.transition, 0.25f, 16.f));
+            HybridTuning off = u; off.kernelSnr = 0;
+            std::string line;
+            const HybridKernelFootprint o = hybridKernelFootprintSnr(off, key, 1, true, &line), uo = hybridKernelFootprint(off);
+            assert(o.texture == uo.texture && o.bokeh == uo.bokeh && o.transition == uo.transition && line.find("off") != std::string::npos);
+        }
+        // the Quad texture factor (P596's mosaicQuadTexture) by day, up to max(it, mosaicQuadTextureNight) at night; never narrower at
+        // night than by day; kernelSnr 0 / no key: P596's factor
+        {
+            assert(t.mosaicQuadTexture == 0.5f && t.mosaicQuadTextureNight > t.mosaicQuadTexture);
+            float prevQ = 10.f;
+            for (int i = 0; i <= 2000; ++i) {
+                const float key = 0.5f * std::pow(2000.f, float(i) / 2000.f), q = hybridQuadTextureFactor(t, key);
+                assert(q <= prevQ + 1e-6f && q >= t.mosaicQuadTexture - 1e-6f && q <= t.mosaicQuadTextureNight + 1e-6f && std::fabs(q - prevQ) < 0.01f + (i ? 0.f : 10.f));
+                if (key >= t.kernelSnrPivot) assert(q == t.mosaicQuadTexture);
+                if (key <= t.kernelSnrNight) assert(std::fabs(q - t.mosaicQuadTextureNight) < 1e-6f);
+                prevQ = q;
+            }
+            HybridTuning q0 = t; q0.kernelSnr = 0;
+            HybridTuning q1 = t; q1.mosaicQuadTexture = 1.f;
+            for (float key : {2.f, 9.f, 30.f}) {
+                assert(hybridQuadTextureFactor(q0, key) == 0.5f && hybridQuadTextureFactor(q1, key) == 1.f);
+                HybridKernelFootprint a{}, b{};
+                hybridQuadTexture(a, q0); hybridQuadTexture(b, q0, key);
+                assert(a.texture == b.texture);
+            }
+            assert(hybridQuadTextureFactor(t, std::nanf("")) == 0.5f);
+        }
+        HybridTuning ones = t; ones.kernelSnrDayTexture = ones.kernelSnrDayBokeh = ones.kernelSnrDayTransition = 1.f;
+        ones.kernelSnrNightTexture = ones.kernelSnrNightBokeh = ones.kernelSnrNightTransition = ones.kernelSnrFastNight = 1.f;
+        ones.mosaicQuadTextureNight = 0.f; ones.kernelSnrDayEdge = 1.f; ones.kernelSnrDayEdgeBayerFast = ones.kernelSnrDayFastLiftBayer = ones.kernelSnrDayTransitionBayer = ones.kernelSnrDayTextureQuad = ones.kernelSnrDayEdgeQuadFast = 1.f;
+        for (float key : {2.f, 30.f, 200.f}) assert(!hybridKernelFootprintSnr(ones, key, 1, true).active());
+
+        // the burst: day (NOISE, key ~42) and night (x100, key ~4.1; the Quad block key ~8.3), every route: on against off, off = automatic factors of 1 bit for bit
+        const double day = NOISE;
+        NOISE = 100 * day;
+        const Stack nightBurst(1), nightQuad(2);
+        NOISE = day;
+        int checked = 0;
+        for (const Route r : {Route{"Sabre 6.1", 1, 0, 1}, Route{"round 4", 0, 0, 1}, Route{"fast route", 1, 1, 1}, Route{"native Quad", 1, 0, 2}}) {
+            HybridTuning on; on.sabre61 = r.sabre61; on.fastMerge = r.fast; on.fastMergeSelect = 0; on.mosaicQuadFine = 0.f;
+            HybridTuning off = on; off.kernelSnr = 0;
+            HybridTuning flat1 = ones; flat1.sabre61 = r.sabre61; flat1.fastMerge = r.fast; flat1.fastMergeSelect = 0; flat1.mosaicQuadFine = 0.f;
+            for (int night = 0; night < 2; ++night) {
+                const Stack& st = night ? (r.block == 2 ? nightQuad : nightBurst) : (r.block == 2 ? quad : burst);
+                std::vector<std::string> lOn, lOff;
+                const std::vector<float> a = merge(st, on, &lOn), b = merge(st, off, &lOff), c = merge(st, flat1);
+                if (r.fast) {
+                    bool fast = false;
+                    for (const auto& l : lOn) fast |= l.rfind("HYBRID FAST MERGE", 0) == 0;
+                    if (!fast) { std::printf("P647 %s: not taken on this host (skipped)\n", r.name); break; }
+                }
+                assert(!a.empty() && a.size() == b.size() && b.size() == c.size());
+                assert(std::memcmp(b.data(), c.data(), b.size() * 4) == 0); // off = automatic factors of 1, bit for bit
+                int lines = 0, offLines = 0;
+                for (const auto& l : lOn) lines += l.find("SNR footprints: key ") != std::string::npos;
+                for (const auto& l : lOff) offLines += l.find("SNR footprints off (key ") != std::string::npos;
+                assert(lines == 1 && offLines == 1);
+                const double dOn = detail(a, tex), dOff = detail(b, tex), nOn = stddev(a, flat), nOff = stddev(b, flat);
+                std::printf("P647 %s %s: texture detail off %.4f on %.4f; flat noise off %.5f on %.5f\n", r.name, night ? "night" : "day", dOff, dOn, nOff, nOn);
+                // by day: more texture detail, the flat noise not up (the native Quad, already at P596's x0.5 texture kernel: its
+                // texture within 3 %, the flat noise down); at night: less flat noise
+                if (!night && r.block == 2) assert(dOn >= 0.97 * dOff && nOn < nOff);
+                else if (!night) {
+                    // P647b: a Bayer burst of 5 frames keeps its kernel by day (kernelSnrDayFramesLo / Hi): the merge bit for bit
+                    // kernelSnr 0's; the day narrowing itself (frames gate off, texture x0.85 as P647) still lifts the texture's detail
+                    assert(std::memcmp(a.data(), b.data(), a.size() * 4) == 0);
+                    HybridTuning mech = on; mech.kernelSnrDayFramesLo = 1.f; mech.kernelSnrDayFramesHi = 2.f; mech.kernelSnrDayTextureBayer = 0.85f;
+                    const std::vector<float> m = merge(st, mech);
+                    const double dM = detail(m, tex), nM = stddev(m, flat);
+                    std::printf("P647b %s day, the narrowing on 5 frames: texture detail %.4f, flat noise %.5f\n", r.name, dM, nM);
+                    assert(dM > dOff * (r.sabre61 ? 1.01 : 1.0) - 1e-7 && nM <= nOff * 1.05);
+                }
+                // (round 4, the kernel the app no longer merges with - it writes sabre61 1 -: the transition is its flat0 / flat1 and its
+                // texture factor its base sigma, already wide at this key: -3 % here)
+                else assert(nOn < (r.sabre61 ? 0.97 : 0.99) * nOff);
+                ++checked;
+            }
+        }
+        assert(checked >= 6);
     }
     std::printf("hybrid kernel footprint check PASS (%d routes)\n", routes);
     return 0;

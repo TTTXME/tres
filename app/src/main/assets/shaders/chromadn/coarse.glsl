@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Post-network luma noise, coarse step 2: what the non-local means leaves at the scale of
 // 16-64 px is a cloudy residue of the noise itself (blotches). At quarter resolution an
 // edge-stopping smoothing over 13x13 samples (about 50 px) finds the flat level under it; the

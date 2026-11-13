@@ -9,7 +9,7 @@
         android:shortcutShortLabel="@string/shortcut_settings_short">
         <intent
             android:action="org.codeaurora.snapcam.action.SETTINGS"
-            android:targetClass="com.particlesdevs.photoncamera.ui.settings.SettingsActivity"
+            android:targetClass="com.scamera.app.ui.settings.SettingsActivity"
             android:targetPackage="@string/shortcut_target_package" />
     </shortcut>
 </shortcuts>

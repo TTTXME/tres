@@ -1,12 +1,6 @@
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
-
+    <!-- the gallery's options: which folders the library shows -->
     <PreferenceCategory app:title="@string/options">
-
-        <MultiSelectListPreference
-                app:key="@string/pref_folders_list"
-                app:title="@string/gallery_folders"
-                app:useSimpleSummaryProvider="true" />
-
+        <MultiSelectListPreference app:key="pref_folders_list" app:title="@string/gallery_folders" app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
-
 </PreferenceScreen>

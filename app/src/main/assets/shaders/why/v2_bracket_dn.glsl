@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Highlights): the reference tone's bracket_denoise, one to one - a 5x5 range / colour-weighted mean of the clean RGB above luma 0.95 (short frames merged), blended by smoothstep(0.95, 1.15, luma) x strength.
 uniform sampler2D u_tex_rgb;
 uniform int u_width; uniform int u_height;

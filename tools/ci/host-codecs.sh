@@ -13,11 +13,15 @@ python3 -m venv /tmp/avif-check
 g++ -pthread -std=c++17 -O2 -Wall -Wextra app/src/main/cpp/scam-neural-worker.cpp -ldl -lEGL -lGLESv2 -o /tmp/scam-neural-worker
 /tmp/scam-neural-worker --transport-check
 mkdir -p /tmp/zsl-quality-check
-javac -d /tmp/zsl-quality-check app/src/main/java/com/particlesdevs/photoncamera/capture/RawFrameQuality.java tools/java/RawFrameQualityCheck.java
+javac -d /tmp/zsl-quality-check app/src/main/java/com/scamera/app/capture/RawFrameQuality.java tools/java/RawFrameQualityCheck.java
 java -ea -cp /tmp/zsl-quality-check RawFrameQualityCheck
 /usr/bin/python3 tools/check_lanczos_downscale.py
 cmake -S tools/jpeg-check -B /tmp/jpeg-check -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/jpeg-check -j 4
 /tmp/jpeg-check/scamera-jpeg-check 2592 1944 95 4 - /tmp && /tmp/jpeg-check/scamera-jpeg-check 1000 3000 100 3 - /tmp
+# P662: the final readback ring's row copy (JpegliEncoder.copyRows) gives the strip path's bytes
+g++ -std=c++17 -O1 -pthread -fsanitize=address tools/check_row_copy.cpp -o /tmp/check-row-copy && /tmp/check-row-copy
 g++ -std=c++17 -O1 -fsanitize=address tools/check_dng_memory.cpp -o /tmp/check-dng-memory
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-memory /tmp
 LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/python3 tools/checks/preview_gl.py
+# P662: the RAW viewfinder's copy pass is the identity where MainRenderer.directTone skips it
+LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/python3 tools/checks/vf_direct_tone_gl.py

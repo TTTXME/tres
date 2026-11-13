@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P154 «Мягкость засветов»: the blurred share of the data ceiling that WhyCombine's highlight landing follows (WhyHl).
 //  dirU (0, 0): the max channel of the colour source (whyLow) over the ceiling, one value per texel;
 //  dirU (1, 0) / (0, 1): one axis of a gaussian of sigmaU texels (clamped edges) of that share.
@@ -20,7 +19,7 @@ out vec4 Output;
 
 void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
-    ivec2 size = textureSize(InputBuffer, 0);
+    ivec2 extent = textureSize(InputBuffer, 0);
     if (dirU == ivec2(0)) {
         vec3 c = texelFetch(InputBuffer, xy, 0).rgb;
         float m = max(c.r, max(c.g, c.b));
@@ -32,8 +31,8 @@ void main() {
     float weight = weightsU[0].x;
     for (int i = 1; i <= radiusU; i++) {
         float w = weightsU[i >> 2][i & 3];
-        sum += (texelFetch(InputBuffer, clamp(xy - dirU * i, ivec2(0), size - 1), 0).r
-                + texelFetch(InputBuffer, clamp(xy + dirU * i, ivec2(0), size - 1), 0).r) * w;
+        sum += (texelFetch(InputBuffer, clamp(xy - dirU * i, ivec2(0), extent - 1), 0).r
+                + texelFetch(InputBuffer, clamp(xy + dirU * i, ivec2(0), extent - 1), 0).r) * w;
         weight += 2.0 * w;
     }
     Output = vec4(sum / weight, 0.0, 0.0, 1.0);
@@ -44,7 +43,7 @@ void main() {
     float sum = 0.0;
     float weight = 0.0;
     for (int i = -radius; i <= radius; i++) {
-        ivec2 p = clamp(xy + dirU * i, ivec2(0), size - 1);
+        ivec2 p = clamp(xy + dirU * i, ivec2(0), extent - 1);
         float w = exp(float(i * i) * inv);
         sum += texelFetch(InputBuffer, p, 0).r * w;
         weight += w;

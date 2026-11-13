@@ -1,0 +1,406 @@
+package com.scamera.app.processing;
+
+import android.app.Application;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.ColorSpace;
+
+import androidx.exifinterface.media.ExifInterface;
+
+import com.scamera.app.api.ParseExif;
+import com.scamera.app.app.ScameraApp;
+import com.scamera.app.processing.avif.AvifEncoder;
+import com.scamera.app.processing.color.IccEmbed;
+import com.scamera.app.processing.color.IccProfiles;
+import com.scamera.app.processing.color.OutputColour;
+import com.scamera.app.processing.heif.Heic10Support;
+import com.scamera.app.processing.heif.P010;
+import com.scamera.app.processing.opengl.GLLimits;
+import com.scamera.app.processing.ultrahdr.GainMapComputer;
+import com.scamera.app.settings.PreferenceKeys;
+import com.scamera.app.settings.SettingsManager;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.junit.runner.RunWith;
+import org.mockito.MockedStatic;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * P46 in PhotoOutput: «Цветовое пространство» Display P3 tags every format (JPEG / Ultra HDR APP2, WebP ICCP, 10-bit HEIC nclx
+ * 12 + ICC, AVIF CICP 12 + ICC), «HDR в HEIC / AVIF» writes the SDR photo with its ISO 21496-1 gain map (P125) with an SDR
+ * fallback, and the
+ * defaults write exactly the files of the four-argument save (no profile, the old encoder calls). The HEVC / AV1 encoders are
+ * stubs (the host has neither; the real ones: tools/check_heic10.py, tools/check_avif.py).
+ */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 35, application = Application.class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+public class PhotoOutputColourTest {
+    @Rule public TemporaryFolder tmp = new TemporaryFolder();
+    private SettingsManager manager;
+    private MockedStatic<ScameraApp> camera;
+    private PhotoOutput.TenBitHeicWriter realHeic;
+    private PhotoOutput.AvifWriter realAvif;
+    private PhotoOutput.GainMapHeicWriter realGainHeic;
+    private final List<Bitmap.Config> gainHeicConfigs = new ArrayList<>();
+    private final List<OutputColour.Signal> gainHeicColours = new ArrayList<>();
+    private final List<int[]> gainHeicMapSizes = new ArrayList<>();
+    private final List<byte[]> gainHeicToneMaps = new ArrayList<>();
+    private boolean gainHeicFails;
+    private final List<OutputColour.Signal> heicColours = new ArrayList<>();
+    private final List<Bitmap.Config> heicConfigs = new ArrayList<>();
+    private final List<int[]> heicPixels = new ArrayList<>();
+    private final List<AvifEncoder.Options> avifOptions = new ArrayList<>();
+    private final List<Bitmap.Config> avifConfigs = new ArrayList<>();
+
+    private static final Heic10Support.Encoder HW = new Heic10Support.Encoder("c2.test.hevc.encoder", true, true, true, true, true,
+            0, 100, 1000, 100_000_000);
+
+    @Before
+    public void setUp() {
+        Context context = RuntimeEnvironment.getApplication();
+        manager = new SettingsManager(context);
+        manager.getDefaultPreferences().edit().clear().commit();
+        camera = mockStatic(ScameraApp.class);
+        camera.when(ScameraApp::getAppContext).thenReturn(context);
+        camera.when(ScameraApp::getResourcesStatic).thenReturn(context.getResources());
+        camera.when(() -> ScameraApp.getStringStatic(anyInt())).thenAnswer(inv -> context.getString(inv.getArgument(0)));
+        camera.when(ScameraApp::getSettingsManagerStatic).thenReturn(manager);
+        ScameraApp app = mock(ScameraApp.class, RETURNS_DEEP_STUBS);
+        when(app.getSettingsManager()).thenReturn(manager);
+        camera.when(() -> ScameraApp.getInstance(any(Context.class))).thenReturn(app);
+        PreferenceKeys.initialise(manager);
+        GLLimits.setForTesting(GLLimits.of(16384, 16384, 16384, 16384));
+        realHeic = PhotoOutput.tenBitHeic;
+        realAvif = PhotoOutput.avifWriter;
+        realGainHeic = PhotoOutput.gainMapHeic;
+        PhotoOutput.gainMapHeic = (file, img, gainMap, toneMap, quality, exifBlock, timeoutMs, detail, colour) -> {
+            gainHeicConfigs.add(img.getConfig());
+            gainHeicColours.add(colour);
+            gainHeicMapSizes.add(new int[]{gainMap.getWidth(), gainMap.getHeight()});
+            gainHeicToneMaps.add(toneMap);
+            if (gainHeicFails) return false;
+            write(file, "heic10+gainmap");
+            return true;
+        };
+        AvifEncoder.setAvailableForTesting(true);
+        PhotoOutput.tenBitHeic = (file, img, quality, exifBlock, timeoutMs, detail, colour) -> {
+            heicColours.add(colour);
+            heicConfigs.add(img.getConfig());
+            heicPixels.add(pixels(img));
+            write(file, "heic10");
+            return true;
+        };
+        PhotoOutput.avifWriter = (img, file, options, exifBlock) -> {
+            avifOptions.add(options);
+            avifConfigs.add(img.getConfig());
+            write(file, "avif");
+            return new AvifEncoder.Result(new long[]{options.depth, 1, 1, 1, 4, 1});
+        };
+    }
+
+    @After
+    public void tearDown() {
+        PhotoOutput.tenBitHeic = realHeic;
+        PhotoOutput.avifWriter = realAvif;
+        PhotoOutput.gainMapHeic = realGainHeic;
+        AvifEncoder.setAvailableForTesting(null);
+        Heic10Support.clearForTesting();
+        GLLimits.setForTesting(null);
+        camera.close();
+    }
+
+    private static void write(Path file, String text) {
+        try {
+            Files.write(file, text.getBytes(StandardCharsets.US_ASCII));
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    private void prefs(String format, boolean alsoJpeg) {
+        manager.getDefaultPreferences().edit().putString(PhotoFormat.KEY, format).putBoolean(PhotoFormat.KEY_HEIC_10BIT, true)
+                .putBoolean(PhotoFormat.KEY_ALSO_JPEG, alsoJpeg).commit();
+    }
+
+    private static ParseExif.ExifData exif() {
+        ParseExif.ExifData d = new ParseExif.ExifData();
+        d.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        d.isoValue = "400";
+        d.fNumber = "1.8";
+        d.exposureTime = "0.01";
+        d.dateTime = "2026:10:08 10:10:10";
+        d.compression = ParseExif.COMPRESSION_JPEG;
+        d.colorSpace = "sRGB";
+        return d;
+    }
+
+    private static Bitmap picture(int w, int h) {
+        final Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) b.setPixel(x, y, Color.rgb(x * 255 / w, y * 255 / h, 90));
+        return b;
+    }
+
+    private static Bitmap tenBitPicture(int w, int h) {
+        final int[] px = new int[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) px[y * w + x] = P010.pack(x * 1023 / (w - 1), y * 1023 / (h - 1), 1023);
+        final Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.RGBA_1010102);
+        final ByteBuffer buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder());
+        buf.asIntBuffer().put(px);
+        b.copyPixelsFromBuffer(buf);
+        return b;
+    }
+
+    private static int[] pixels(Bitmap b) {
+        final ByteBuffer buf = ByteBuffer.allocateDirect(b.getByteCount()).order(ByteOrder.nativeOrder());
+        b.copyPixelsToBuffer(buf);
+        buf.rewind();
+        final int[] out = new int[b.getWidth() * b.getHeight()];
+        buf.asIntBuffer().get(out);
+        return out;
+    }
+
+    /** A gain map of the image size, every value {@code v}, GainMapMax {@code max} stops. */
+    private static GainMapComputer.Result gain(int w, int h, int v, float max) throws Exception {
+        final Bitmap m = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        m.eraseColor(Color.rgb(v, v, v));
+        final java.lang.reflect.Constructor<GainMapComputer.Result> c =
+                GainMapComputer.Result.class.getDeclaredConstructor(Bitmap.class, float.class, float.class);
+        c.setAccessible(true);
+        return c.newInstance(m, 0f, max);
+    }
+
+    private static ColorSpace decodedSpace(Path file) {
+        final BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.toString(), o);
+        return o.outColorSpace;
+    }
+
+    // ------------------------------------------------------------------------------------------------ defaults
+
+    @Test
+    public void defaultJpegIsTheOldFileWithoutAProfile() throws Exception {
+        prefs("jpeg", false);
+        final Bitmap img = picture(48, 32);
+        final Bitmap copy = img.copy(Bitmap.Config.ARGB_8888, false);
+        final Path base = tmp.getRoot().toPath().resolve("IMG_D");
+        final PhotoOutput.Result r = PhotoOutput.save(base, img, exif(), null, null, OutputColour.Space.SRGB);
+        final Path old = tmp.getRoot().toPath().resolve("OLD.jpg");
+        assertTrue(ImageSaver.Util.saveBitmapAsJPG(old, copy, PreferenceKeys.getJpegQuality(), exif(), true));
+        final byte[] got = Files.readAllBytes(r.files.get(0));
+        assertArrayEquals("the same bytes as the pre-P46 JPEG path", Files.readAllBytes(old), got);
+        assertNotEquals("no Display P3 profile", Arrays.toString(IccProfiles.displayP3()), Arrays.toString(IccEmbed.jpegProfile(got)));
+    }
+
+    @Test
+    public void defaultWebpIsTheOldFileWithoutAProfile() throws Exception {
+        prefs("webp", false);
+        final Bitmap img = picture(48, 32);
+        final Bitmap copy = img.copy(Bitmap.Config.ARGB_8888, false);
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_W"), img, exif(), null, null, OutputColour.Space.SRGB);
+        final Path old = tmp.getRoot().toPath().resolve("OLD.webp");
+        assertTrue(PhotoOutput.saveWebp(old, copy, PreferenceKeys.getWebpQuality(), false, exif()));
+        final byte[] got = Files.readAllBytes(r.files.get(0));
+        assertArrayEquals(Files.readAllBytes(old), got);
+        assertNotEquals("no Display P3 profile", Arrays.toString(IccProfiles.displayP3()), Arrays.toString(IccEmbed.webpProfile(got)));
+    }
+
+    @Test
+    public void defaultHeicAndAvifDeclareTheOldColour() throws Exception {
+        Heic10Support.setForTesting(HW);
+        prefs("heic", false);
+        PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_H"), tenBitPicture(32, 32), exif(), null);
+        assertEquals(1, heicColours.size());
+        assertTrue(heicColours.get(0).isDefault());
+        prefs("avif", false);
+        PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_A"), tenBitPicture(32, 32), exif(), null);
+        assertEquals(1, avifOptions.size());
+        assertTrue(avifOptions.get(0).colour.isDefault());
+        assertEquals(PreferenceKeys.getAvifOptions().describe(), avifOptions.get(0).describe());
+    }
+
+    // ------------------------------------------------------------------------------------------------ Display P3
+
+    @Test
+    public void displayP3JpegCarriesTheProfileAndAndroidReadsP3() throws Exception {
+        prefs("jpeg", false);
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_P"), picture(48, 32), exif(), null, null,
+                OutputColour.Space.DISPLAY_P3);
+        final Path f = r.files.get(0);
+        final byte[] got = Files.readAllBytes(f);
+        assertArrayEquals(IccProfiles.displayP3(), IccEmbed.jpegProfile(got));
+        assertEquals(ColorSpace.get(ColorSpace.Named.DISPLAY_P3), decodedSpace(f));
+        final ExifInterface e = new ExifInterface(f.toFile());
+        assertEquals("EXIF kept next to the profile", "400", e.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY));
+        assertEquals("EXIF ColorSpace: uncalibrated (not sRGB)", "65535", e.getAttribute(ExifInterface.TAG_COLOR_SPACE));
+        final Bitmap decoded = BitmapFactory.decodeFile(f.toString());
+        assertEquals(48, decoded.getWidth());
+    }
+
+    @Test
+    public void displayP3WebpCarriesTheProfile() throws Exception {
+        prefs("webp", false);
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_PW"), picture(48, 32), exif(), null, null,
+                OutputColour.Space.DISPLAY_P3);
+        final Path f = r.files.get(0);
+        assertArrayEquals(IccProfiles.displayP3(), IccEmbed.webpProfile(Files.readAllBytes(f)));
+        assertEquals(ColorSpace.get(ColorSpace.Named.DISPLAY_P3), decodedSpace(f));
+        assertEquals("400", new ExifInterface(f.toFile()).getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY));
+        assertNotNull(BitmapFactory.decodeFile(f.toString()));
+    }
+
+    @Test
+    public void displayP3UltraHdrHasTheProfileInThePrimaryOnly() throws Exception {
+        prefs("jpeg", false);
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_U"), picture(48, 32), exif(),
+                gain(48, 32, 128, 2f), null, OutputColour.Space.DISPLAY_P3);
+        final byte[] f = Files.readAllBytes(r.files.get(0));
+        assertArrayEquals(IccProfiles.displayP3(), IccEmbed.jpegProfile(f));
+        // the gain-map image after the primary (its SOI right before its hdrgm XMP with GainMapMax) has none
+        final int max = new String(f, StandardCharsets.ISO_8859_1).indexOf("hdrgm:GainMapMax");
+        assertTrue(max > 0);
+        int second = -1;
+        for (int i = max; i > 2; i--) if ((f[i] & 0xFF) == 0xFF && (f[i + 1] & 0xFF) == 0xD8) { second = i; break; }
+        assertTrue(second > 2);
+        assertNotEquals("the gain map is not tagged P3", Arrays.toString(IccProfiles.displayP3()),
+                Arrays.toString(IccEmbed.jpegProfile(Arrays.copyOfRange(f, second, f.length))));
+        assertTrue(com.scamera.app.gallery.helper.UltraHdrGalleryUtil.containsUltraHdrMarkers(f, Math.min(f.length, 65536)));
+        assertEquals(ColorSpace.get(ColorSpace.Named.DISPLAY_P3), decodedSpace(r.files.get(0)));
+    }
+
+    @Test
+    public void displayP3HeicAndAvifDeclareP3() throws Exception {
+        Heic10Support.setForTesting(HW);
+        prefs("heic", true);
+        final PhotoOutput.Result h = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_PH"), tenBitPicture(32, 32), exif(), null,
+                null, OutputColour.Space.DISPLAY_P3);
+        assertEquals(Arrays.asList(PhotoFormat.HEIC, PhotoFormat.JPEG).size(), h.files.size());
+        assertEquals(12, heicColours.get(0).primaries);
+        assertArrayEquals(IccProfiles.displayP3(), heicColours.get(0).icc());
+        assertArrayEquals("the extra JPEG is P3 too", IccProfiles.displayP3(), IccEmbed.jpegProfile(Files.readAllBytes(h.files.get(1))));
+        prefs("avif", false);
+        PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_PA"), tenBitPicture(32, 32), exif(), null, null, OutputColour.Space.DISPLAY_P3);
+        final OutputColour.Signal c = avifOptions.get(0).colour;
+        assertEquals(12, c.primaries);
+        assertEquals(13, c.transfer);
+        assertEquals(1, c.matrix);
+        assertArrayEquals(IccProfiles.displayP3(), c.icc());
+    }
+
+    // ------------------------------------------------------------------------------------------------ HDR
+
+    @Test
+    public void hdrHeicIsTheSdrPhotoWithItsGainMap() throws Exception {
+        Heic10Support.setForTesting(HW);
+        prefs("heic", false);
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_HH"), tenBitPicture(32, 16), exif(), null,
+                gain(32, 16, 0, 2f), OutputColour.Space.SRGB);
+        assertEquals(Collections.singletonList(PhotoFormat.HEIC.fileFor(tmp.getRoot().toPath().resolve("IMG_HH"))), r.files);
+        assertEquals(1, gainHeicColours.size());
+        assertTrue("the SDR photo in its own colour, no HLG", gainHeicColours.get(0).isDefault());
+        assertEquals(Bitmap.Config.RGBA_1010102, gainHeicConfigs.get(0));
+        assertArrayEquals("the map at half size per axis", new int[]{16, 8}, gainHeicMapSizes.get(0));
+        final byte[] expected = com.scamera.app.processing.ultrahdr.IsoGainMap.of(gain(32, 16, 0, 2f)).toneMapPayload();
+        assertArrayEquals(expected, gainHeicToneMaps.get(0));
+        assertTrue("no plain 10-bit encode", heicColours.isEmpty());
+        // an 8-bit picture goes as its 10-bit copy
+        gainHeicConfigs.clear();
+        PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_H8"), picture(32, 16), exif(), null, gain(32, 16, 0, 2f),
+                OutputColour.Space.DISPLAY_P3);
+        assertEquals(Bitmap.Config.RGBA_1010102, gainHeicConfigs.get(0));
+        assertEquals(12, gainHeicColours.get(1).primaries);
+    }
+
+    @Test
+    public void failedHdrFallsBackToTheSdrHeic() throws Exception {
+        Heic10Support.setForTesting(HW);
+        prefs("heic", false);
+        gainHeicFails = true;
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_HF"), tenBitPicture(32, 16), exif(), null,
+                gain(32, 16, 0, 2f), OutputColour.Space.SRGB);
+        assertEquals(1, r.files.size());
+        assertEquals(1, gainHeicColours.size());
+        assertEquals(1, heicColours.size());
+        assertTrue("SDR 10-bit HEIC in the default colour", heicColours.get(0).isDefault());
+    }
+
+    @Test
+    public void hdrAvifCarriesTheGainMapAtAnyDepth() throws Exception {
+        prefs("avif", false);
+        manager.getDefaultPreferences().edit().putString(PhotoFormat.KEY_AVIF_DEPTH, "12").commit();
+        PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_HA"), picture(32, 16), exif(), null, gain(32, 16, 200, 3f),
+                OutputColour.Space.DISPLAY_P3);
+        assertEquals(1, avifOptions.size());
+        final AvifEncoder.Options o = avifOptions.get(0);
+        assertEquals("the SDR photo in its colour", 12, o.colour.primaries);
+        assertEquals(12, o.depth);
+        assertEquals(16, o.gainWidth);
+        assertEquals(8, o.gainHeight);
+        assertEquals(16 * 8, o.gainMap.length);
+        assertEquals(200, o.gainMap[0] & 0xFF);
+        assertEquals("GainMapMax", 3.0, o.gainMeta[1], 1e-6);
+        assertEquals("alternate headroom", 3.0, o.gainMeta[6], 1e-6);
+        // 8-bit AVIF holds the map too (the HLG picture needed 10 bits)
+        avifOptions.clear();
+        manager.getDefaultPreferences().edit().putString(PhotoFormat.KEY_AVIF_DEPTH, "8").commit();
+        PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_H8"), picture(32, 16), exif(), null, gain(32, 16, 200, 3f),
+                OutputColour.Space.SRGB);
+        assertNotNull(avifOptions.get(0).gainMap);
+        assertTrue(avifOptions.get(0).colour.isDefault());
+        assertEquals(Bitmap.Config.ARGB_8888, avifConfigs.get(1));
+    }
+
+    @Test
+    public void failedAvifGainMapFallsBackToTheSdrAvif() throws Exception {
+        prefs("avif", false);
+        PhotoOutput.avifWriter = (img, file, options, exifBlock) -> {
+            avifOptions.add(options);
+            if (options.gainMap != null) throw new java.io.IOException("AVIF: encode: gain map failed");
+            write(file, "avif");
+            return new AvifEncoder.Result(new long[]{options.depth, 1, 1, 1, 4, 1});
+        };
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_AF"), picture(32, 16), exif(), null,
+                gain(32, 16, 200, 3f), OutputColour.Space.SRGB);
+        assertEquals(1, r.files.size());
+        assertEquals(2, avifOptions.size());
+        assertNull(avifOptions.get(1).gainMap);
+    }
+
+    @Test
+    public void hdrLeavesTheExtraJpegSdr() throws Exception {
+        Heic10Support.setForTesting(HW);
+        prefs("heic", true);
+        final PhotoOutput.Result r = PhotoOutput.save(tmp.getRoot().toPath().resolve("IMG_HJ"), tenBitPicture(32, 16), exif(), null,
+                gain(32, 16, 255, 2f), OutputColour.Space.SRGB);
+        assertEquals(2, r.files.size());
+        final byte[] jpeg = Files.readAllBytes(r.files.get(1));
+        assertFalse("no Ultra HDR without its switch",
+                com.scamera.app.gallery.helper.UltraHdrGalleryUtil.containsUltraHdrMarkers(jpeg, Math.min(jpeg.length, 65536)));
+        assertNotEquals(Arrays.toString(IccProfiles.displayP3()), Arrays.toString(IccEmbed.jpegProfile(jpeg)));
+    }
+}

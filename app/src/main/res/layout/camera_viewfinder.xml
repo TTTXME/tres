@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The preview and what is drawn over it. vf_stage holds the GLPreview (texture, its size set by the camera's aspect) and the
+     layers matched to it (Cam.OnPreview), so the overlays are clipped to the preview. The series ring and the self-timer count
+     sit outside it, centred on the whole area: their parent's layout transition fades them in and out. -->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+    <data>
+        <variable name="timermodel" type="com.scamera.app.ui.camera.model.TimerFrameCountModel"/>
+    </data>
+
+    <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:animateLayoutChanges="true">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/vf_stage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center">
+
+            <!-- the camera's frames (GLPreview sizes itself to the stream's aspect), from the top left -->
+            <com.scamera.app.ui.camera.views.viewfinder.GLPreview
+                    android:id="@+id/texture"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:layout_constraintHorizontal_bias="0.0"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"/>
+
+            <!-- P345: the last frame, held while the camera reopens after the gallery / settings (it was black before) -->
+            <ImageView
+                    android:id="@+id/vfFreeze"
+                    style="@style/Cam.OnPreview.Passive"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:visibility="gone"/>
+
+            <!-- P42: face boxes and the tracking box -->
+            <com.scamera.app.ui.camera.views.SubjectOverlayView
+                    android:id="@+id/subjectOverlay"
+                    style="@style/Cam.OnPreview.Passive"/>
+
+            <!-- the focus ring, square, @dimen/focus_circle_size wide; TouchFocus moves it to the tap (here it cannot leave the preview) -->
+            <com.scamera.app.ui.camera.views.FocusCircleView
+                    android:id="@+id/focus_ring"
+                    style="@style/Cam.OnPreview"
+                    android:layout_width="@dimen/focus_circle_size"
+                    android:color="@color/focus_circle_color"
+                    android:thickness="1.5dp"
+                    android:visibility="invisible"
+                    app:layout_constraintDimensionRatio="1:1"/>
+
+            <!-- the grid, the HUD and the other drawn guides (SurfaceViewOverViewfinder) -->
+            <com.scamera.app.ui.camera.views.viewfinder.SurfaceViewOverViewfinder
+                    android:id="@+id/vf_overlay"
+                    style="@style/Cam.OnPreview"
+                    android:background="#00000000"/>
+
+            <!-- P319: the wipe between two LUTs on a swipe - the old picture over the preview, cut away as the finger moves -->
+            <com.scamera.app.ui.camera.views.LutWipeView
+                    android:id="@+id/lut_wipe"
+                    style="@style/Cam.OnPreview.Passive"/>
+
+            <!-- the live area's outline: a border only (the preview shows through) -->
+            <com.scamera.app.ui.camera.views.ViewfinderFrame
+                    android:id="@+id/vf_outline"
+                    style="@style/Cam.OnPreview.Passive"/>
+
+            <!-- SIMPLE_UI §1: the brightness sun next to the focus ring; CameraFragment places it on every tap -->
+            <com.scamera.app.ui.camera.views.ExposureSunView
+                    android:id="@+id/ev_sun"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"/>
+
+            <!-- SIMPLE_UI §1: the focus / exposure lock (a long press), a 20dp pill at the preview's top right -->
+            <TextView
+                    android:id="@+id/lock_pill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="20dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginEnd="8dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center_vertical"
+                    android:maxLines="1"
+                    android:textSize="11sp"
+                    android:visibility="gone"
+                    app:layout_constraintTop_toTopOf="@id/texture"
+                    app:layout_constraintEnd_toEndOf="@id/texture"/>
+
+            <!-- the level, a 420dp square centred on the preview -->
+            <com.scamera.app.ui.camera.views.viewfinder.HorizonIndicatorView
+                    android:id="@+id/level_view"
+                    android:layout_width="420dp"
+                    android:layout_height="420dp"
+                    app:layout_constraintTop_toTopOf="@id/texture"
+                    app:layout_constraintBottom_toBottomOf="@id/texture"
+                    app:layout_constraintStart_toStartOf="@id/texture"
+                    app:layout_constraintEnd_toEndOf="@id/texture"/>
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <!-- a series' progress ring; SIMPLE_UI §1 keeps one ring only (round the gallery card), this one stays hidden -->
+        <ProgressBar
+                android:id="@+id/series_ring"
+                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                android:layout_width="@dimen/capture_progress_circle_size"
+                android:layout_height="@dimen/capture_progress_circle_size"
+                android:layout_gravity="center"
+                android:indeterminate="false"
+                android:max="100"
+                android:progressDrawable="@drawable/circular_progress_bar"
+                android:visibility="gone"/>
+
+        <!-- the self-timer's seconds, large, in the middle -->
+        <TextView
+                android:id="@+id/self_timer_count"
+                android:layout_width="120dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="@{timermodel.timerCount}"
+                android:textAlignment="center"
+                android:textColor="@android:color/white"
+                android:textSize="36sp"
+                android:typeface="normal"
+                android:visibility="gone"/>
+    </FrameLayout>
+</layout>

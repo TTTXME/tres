@@ -18,7 +18,7 @@ import numpy as np
 import moderngl
 
 ROOT = Path(__file__).resolve().parents[1]
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/ScamDiagnostics.java'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/ScamDiagnostics.java'
 
 
 def sample_pass() -> str:

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // Highlight recovery "Inpaint opposed" (RawTherapee rtengine/hilite_recon.cc, RawImageSource::highlight_recovery_opposed,
 // GPL-3; after darktable's opposed reconstruction by Hanno Schwalm with Iain and garagecoder): the global chrominance
 // correction, on the GPU. A clipped channel is later rebuilt as max(value, reference + chrominance) (scamhdr/scamrgb), the

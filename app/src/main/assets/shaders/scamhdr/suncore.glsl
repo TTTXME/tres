@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P349 (owner, 2026-10-26: «у нас солнце как круг выглядит на новой версии, сделай схоже с Why камерой»): the glow of a light
 // whose core has no data at all - R, G and B clipped in every frame, the ultrashort too (clip flags bits 0-2) - for WhyCombine's
 // sun bloom. WhyCam clips everything above white, so a setting sun is a soft warm-white area with no edge; our Bento headroom
@@ -49,7 +48,7 @@ uniform vec3 clipLoU;           // scamrgb's clip levels per camera channel (raw
 uniform vec3 clipHiU;
 uniform mat3 toRenderU;         // camera RGB -> the render's linear sRGB (WhyTone.colourMatrix x sensorToProPhoto)
 #endif
-uniform int blockU;             // MODE 0 / 2: block size, px
+uniform int blockU;             // MODE 0 / 2: block extent, px
 uniform int noShortU;           // P506 MODE 0: 1 = the shot took no short frames (no bit 5 can be set): every fully clipped pixel counts
 uniform ivec2 dirU;             // MODE 1 / 3: the axis
 uniform float radiusU;          // MODE 1 / 3: R, texels
@@ -59,13 +58,13 @@ out vec4 Output;
 
 void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
-    ivec2 size = textureSize(InputBuffer, 0);
+    ivec2 extent = textureSize(InputBuffer, 0);
 #if MODE == 0
     int n = 0, c = 0;
     for (int j = 0; j < blockU; j++) {
         for (int i = 0; i < blockU; i++) {
             ivec2 p = xy * blockU + ivec2(i, j);
-            if (p.x >= size.x || p.y >= size.y) continue;
+            if (p.x >= extent.x || p.y >= extent.y) continue;
             int f = int(texelFetch(InputBuffer, p, 0).r * 255.0 + 0.5);
             n++;
             if ((f & 7) == 7 && ((f & 32) != 0 || noShortU != 0)) c++;
@@ -82,7 +81,7 @@ void main() {
     for (int j = 0; j < blockU; j++) {
         for (int i = 0; i < blockU; i++) {
             ivec2 p = xy * blockU + ivec2(i, j);
-            if (p.x >= size.x || p.y >= size.y) continue;
+            if (p.x >= extent.x || p.y >= extent.y) continue;
             n++;
             if (!level) continue;
             int f = clipFlagsU != 0 ? int(texelFetch(ClipFlags, p, 0).r * 255.0 + 0.5) : 0;
@@ -121,7 +120,7 @@ void main() {
     float m = 0.0, sat = 0.0;
     for (int i = -r; i <= r; i++) {
         ivec2 p = xy + dirU * i;
-        if (p.x < 0 || p.y < 0 || p.x >= size.x || p.y >= size.y) continue;
+        if (p.x < 0 || p.y < 0 || p.x >= extent.x || p.y >= extent.y) continue;
         float t = float(i) / radiusU;
         vec4 b = texelFetch(InputBuffer, p, 0);
         float v = exp(-t * t) * (finalU == 0 ? clamp(b.a / glowFullU, 0.0, 1.0) : b.g);
@@ -138,7 +137,7 @@ void main() {
     float m = 0.0, g = 0.0;
     for (int i = -r; i <= r; i++) {
         ivec2 p = xy + dirU * i;
-        if (p.x < 0 || p.y < 0 || p.x >= size.x || p.y >= size.y) continue;
+        if (p.x < 0 || p.y < 0 || p.x >= extent.x || p.y >= extent.y) continue;
         float t = float(i) / radiusU;
         vec2 b = texelFetch(InputBuffer, p, 0).rg;
         float v = exp(-t * t) * b.r;

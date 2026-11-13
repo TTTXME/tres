@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 
 root = Path(__file__).resolve().parents[1]
-java = (root / 'app/src/main/java/com/particlesdevs/photoncamera/processing/color/FilmReferenceParameters.java').read_text(encoding='utf-8')
+java = (root / 'app/src/main/java/com/scamera/app/processing/color/FilmReferenceParameters.java').read_text(encoding='utf-8')
 native = (root / 'app/src/main/cpp/third_party/spektrafilm/SpektraGeneratedProfileCurves.cpp').read_text(encoding='utf-8')
 packet = re.search(r'SLIDE_DIR=\{(.*?)\};', java, re.S).group(1)
 rows = [[float(x.rstrip('f')) for x in row.split(',')] for row in re.findall(r'\{([^{}]+)\}', packet)]

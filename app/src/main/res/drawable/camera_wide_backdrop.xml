@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The camera screen's backdrop in the 16:9 frame (CameraUIViewImpl.wideFrame), behind the translucent bottom bar: one square
+     filled with camera_wide_backdrop_fill, black over the upper part and turning into the accent towards the bottom. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="120dp"
+        android:height="120dp"
+        android:viewportWidth="120"
+        android:viewportHeight="120">
+    <path
+            android:fillColor="@color/camera_wide_backdrop_fill"
+            android:pathData="M0,0H120V120H0Z"/>
+</vector>

@@ -1,0 +1,1838 @@
+package com.scamera.app.processing.opengl.postpipeline;
+
+import android.content.Context;
+import com.scamera.app.processing.ImageFrame;
+import com.scamera.app.processing.render.Parameters;
+import com.scamera.app.settings.PreferenceKeys;
+import com.scamera.app.util.Log;
+import java.io.*;
+import java.nio.*;
+import java.nio.channels.FileChannel;
+import java.util.*;
+import com.scamera.app.util.Lang;
+
+/**
+ * SCAM Hybrid burst transport (NCH v10): any number of frames, each with its role, exposure ratio to the
+ * base frame, ISO and its own noise model; the base frame first. The worker merges them with the Sabre
+ * kernel, the SCAM rejection and frame weights, Bento (ultrashort) and Shasta (bracketed) rules.
+ * <pre>
+ * header 128 B: magic 'NCH1', version 11, w, h, cfa, frameCount, white f32, black f32[4], flags u32
+ *               (1 diagnostics, 2 merged DNG, 4 clip flags, 8 strict 2x), baseIndex u32 (0), grid u32 (1 = sensor grid, 2 = the Sabre 6.1 2x
+ *               grid: RGB 2w x 2h, four sub-positions +-0.25 px per sensor pixel), colour block u32 (0 = unknown: the worker
+ *               measures it, 1 plain Bayer, 2 Quad, 4 Tetra: a mosaic is merged from its own sites), reserved
+ * frame table:  frameCount x 32 B: role u32 (1 normal, 3 bracketed, 5 ultrashort), exposure f32 (ratio to base),
+ *               iso u32, noiseSlope f32, noiseOffset f32, orderMs f32, flags u32, reserved u32
+ * planes:       frameCount x w*h uint16 (sensor layout)
+ * </pre>
+ * Result: RGB float32 on the output grid, then the optional trailers in this order: merged Bayer RAW (w*h uint16, flag 2),
+ * effective-frame map (uint8 per output pixel, always from the hybrid), clip flags (uint8 per output pixel, flag 4).
+ */
+public final class ScamHybridBurst implements ScamTransport {
+    /** Merged Bayer RAW of the last SHDR shot (uint16, sensor layout, white 16383), or null (ScamNeuralClient fills it). */
+    public static volatile java.nio.ByteBuffer lastMergedDng;
+    /**
+     * Effective merged frames per pixel of the last SHDR result, or null (the denoisers' frame map). uint8 and relative only
+     * (P214c): the worker scales the codes so their median is 64 (scam-hybrid.h codeScale = 64 / median), so a code / 8 is no
+     * frame count; the frames of the merge are {@link #lastMergeFrames}.
+     */
+    public static volatile java.nio.ByteBuffer lastEffectiveFrames;
+    /** P212h (A5 = M5): the coverage (frames) code 64 of {@link #lastEffectiveFrames} stands for; NaN when the worker gave none. */
+    public static volatile float lastEffectiveMedian = Float.NaN;
+    /**
+     * P212h (A5): the N frames the last merge took (the burst's normals, fewer when the worker's «HYBRID SERIES» line says it left
+     * some of a series out; 1 for the base frame alone).
+     */
+    public static volatile int lastNormals = 1;
+    /** P480: the base highlight mask of the last merge (HALF grid, IEEE halves row by row, native order) for WhyHlDezipper. */
+    public static final class HlMask {
+        public final java.nio.ByteBuffer halves;
+        public final int width, height;
+        HlMask(java.nio.ByteBuffer halves, int width, int height) { this.halves = halves; this.width = width; this.height = height; }
+    }
+    /** P480: set by ScamNeuralClient when the worker sent it (the fast merge with the highlight path on), else null. */
+    public static volatile HlMask lastHlMask;
+    static final int ROLE_NORMAL = 1, ROLE_BRACKETED = 3, ROLE_ULTRASHORT = 5;
+    private static final long BASE_WINDOW_NS = 205_000_000L; // SCAM: base candidates within 205 ms of the newest frame
+    private static final int BASE_CANDIDATES = 4;
+    /** P111 «Движение»: the base is the frame of the moment (the newest ring frame) or one of the two before it, 70 ms at most. */
+    static final long MOTION_BASE_WINDOW_NS = 70_000_000L;
+    static final int MOTION_BASE_CANDIDATES = 3;
+    /** P471: capture v2's base: the frame before the anchor (at most this much older) when it is MOMENT_SWITCH_RATIO x sharper. */
+    static final long MOMENT_SWITCH_WINDOW_NS = 40_000_000L;
+    static final double MOMENT_SWITCH_RATIO = 1.15;
+
+    /** P471: whether a candidate of sharpness {@code other} replaces the press anchor of sharpness {@code anchor}. */
+    static boolean momentSwitch(double anchor, double other) {
+        return other >= MOMENT_SWITCH_RATIO * Math.max(anchor, 0) && other > 0;
+    }
+    // Frames one burst sends (the app's own cap: 65 N + the bento's up to 3 + 5 bracketed / ultrashort - P578, owner 2026-11-09: «Увеличь максимальное
+    // количество кадров в склейке до 65», was 41 + 7; the worker takes up to kHybridMaxFrames = 128, scam-hybrid.h, and holds
+    // kHybridGpuFrames = 128 on the GPU).
+    static final int WORKER_MAX_FRAMES = 73;
+    /** P578: frames one burst may carry at all (the worker's kHybridMaxFrames). */
+    static final int BURST_MAX_FRAMES = 128;
+    /** P27: N frames of the conservative retry after a failed merge. */
+    private static final int CONSERVATIVE_NORMALS = 16;
+    /** P27: worker tuning of the conservative retry (no tile-local alignment, Sabre 6.1 kernel, rim or chroma passes). */
+    /**
+     * P72: frames read in different layouts (Xiaomi 17 Ultra tele in in-sensor zoom: packed RAW10 and RAW14 frames alternate;
+     * their field and colour block are not known to match) are not merged together: the layout most frames have stays (on a tie
+     * the first frame's), the others are dropped and counted.
+     */
+    static void keepOneLayout(List<ImageFrame> frames) {
+        java.util.Map<Integer, Integer> count = new java.util.LinkedHashMap<>();
+        for (ImageFrame f : frames) count.merge(f.sourceFormat, 1, Integer::sum);
+        if (count.size() <= 1) return;
+        int keep = frames.get(0).sourceFormat;
+        for (java.util.Map.Entry<Integer, Integer> e : count.entrySet()) if (e.getValue() > count.get(keep)) keep = e.getKey();
+        final int kept = keep;
+        frames.removeIf(f -> f.sourceFormat != kept);
+        Log.w("SCAM_HDR", "hybrid: frames of " + count.size() + " RAW layouts " + count + " (format: frames): only 0x"
+                + Integer.toHexString(kept) + " merged, " + frames.size() + " frames");
+    }
+
+    private static final String CONSERVATIVE_TUNING = "localAlign 0\nsabre61 0\nrimRatio 0\nchromaDiff 0\n";
+    /** Threshold for the larger-stream memory planner and transport; not a resolution limit. */
+    public static final long CLASSIC_INPUT_PIXELS = 16_000_000L;
+    /**
+     * P179: above this a burst's frames the merge leaves out are freed before the worker runs, not after it (200 MP: 401 MB each,
+     * the app was killed for LOW_MEMORY); the first frame stays (the reference RAW of the DNG).
+     */
+    static final long HUGE_INPUT_PIXELS = 100_000_000L;
+    /** P27 any resolution: worker memory that does not grow with N (output stage, RGB result transport), bytes per sensor pixel. */
+    static final double FIXED_BYTES_PER_PIXEL = 40;
+    /**
+     * P179: above HUGE_INPUT_PIXELS the frames are freed before the pipeline (ScamProcessor; the reference RAW too) and the
+     * camera is closed for the merge, so only the merge's own working set stands beside them: the FP32 RGB result, its
+     * effective-frame plane and maps, the half-float output (about 20 B per output pixel); the pipeline's textures come after.
+     */
+    static final double HUGE_FIXED_BYTES_PER_PIXEL = 20;
+    /**
+     * Worker memory of one more frame: the GPU strip windows of every storage slot (~300 RAW rows of the frame held at a time,
+     * 3.8 KB per pixel column) and the F6 local-alignment field (CPU and GPU, ~0.15 B per pixel).
+     */
+    static final double STRIP_BYTES_PER_COLUMN = 3800, FIELD_BYTES_PER_PIXEL = 0.15;
+    /** Share of the memory available before the merge (the burst is already in the shot arena then) the worker may take. */
+    static final double MEMORY_SHARE = 0.6;
+    /** N frames kept whatever the memory budget says: the base and one more (a failed merge still falls back, never fails). */
+    static final int MIN_NORMALS = 2;
+    /**
+     * P179 (owner, 2026-10-16: «хотя бы 3 кадра и один из них был ультракороткий», «Сделай 4 кадра»): above HUGE_INPUT_PIXELS
+     * the capture sized the series itself (four stills: three N and an ultrashort, or four N with Bento off; the camera in its
+     * plain session for the merge), so the merge keeps all its N whatever its estimate says, and the ultrashort.
+     */
+    static final int HUGE_MIN_NORMALS = 4;
+    /** P190: a 200 MP series of up to this many frames is merged whole by the worker on its own (CaptureController.HUGE_SERIES). */
+    static final int HUGE_SERIES = 4;
+
+    private final int width, height, cfa;
+    /**
+     * RGB size the worker returns: the sensor grid or the Sabre 2x grid (pref_scam_hybrid_output).
+     */
+    private final int outWidth, outHeight;
+    private final boolean strictTwoX, rgbHalf;
+    /** Final JPEG size: the pipeline runs on the worker grid, the bitmap is resized at the very end (after sharpening). */
+    private final int finalWidth, finalHeight;
+    private final float white;
+    private final float[] black;
+    /**
+     * P14: colour block of the stream measured on the first frame (MosaicBlockDetector): 1 plain Bayer, 2 Quad, 4 Tetra, 0 = no
+     * clear model (the worker measures it). A mosaic is merged from its own sites on the sensor grid (header word 14).
+     */
+    private final int mosaicBlock;
+    /**
+     * P267: the colour block of a Quad / Tetra shot without «Наш ремозаик» (2, 4), or 1: the burst is merged as always, the worker
+     * writes its merged RAW in the sensor's mosaic layout (tuning dngMosaic 1: each site its own colour of the block, no remosaic)
+     * and ScamProcessor saves that DNG alone, for Scam Remosaic or another developer; the merge stays on the sensor grid.
+     */
+    private final int dngMosaic;
+    private final boolean diagnostics;
+    /**
+     * Ask the worker for the per-pixel clip flags (header flag 4): ScamRgb's per-channel highlight recovery picks the
+     * clip level per pixel from them (base white 1 or the ultrashort's k). Only while that recovery runs
+     * (pref_scam_hybrid_highlight_recovery &gt; 0); scam_dev.txt "hybrid_clip_flags 0" turns the trailer off.
+     */
+    private final boolean clipFlags;
+    private final boolean conservative;
+    /**
+     * P190: frames of a FULLRES series (Parameters.fullResSeries: an explicit «Кадров в снимке 50 / 200 Мп», every 200 MP shot) the
+     * capture sized against the memory itself: the merge keeps it whole (no memory budget, no worker limit; 64 at most, the
+     * transport's limit) and tells the worker (tuning seriesFrames). 0: any other shot, and the conservative retry.
+     */
+    private final int series;
+    /** P190: the frames a FULLRES shot asked for (0: not FULLRES); the N frames its memory budget left out. */
+    private final int requested;
+    private int budgetDropped;
+    private boolean mergedDng;
+    private final List<ImageFrame> frames = new ArrayList<>();
+    private final List<Integer> roles = new ArrayList<>();
+    private final List<Float> exposures = new ArrayList<>();
+    private final List<float[]> noise = new ArrayList<>();
+    private final List<Float> orderMs = new ArrayList<>();
+    final ImageFrame base;
+    private String noiseSource = "Camera2 SENSOR_NOISE_PROFILE";
+    /** P320: a DCG shot (header flag 32): the worker measures its two noise zones and merges it without exposure brackets. */
+    private final boolean dcg;
+    private final float dcgIsoScale;
+    /** The characteristics the shot was captured with (Parameters.shotCharacteristics; null: the open camera's). */
+    private final android.hardware.camera2.CameraCharacteristics shotCamera;
+    /** P366: the base frame's EV100 for the worker (tuning usSceneEv, {@link #sceneEv100}); NaN when its exposure is unknown. */
+    final float sceneEv;
+    /** P523: the camera neutral R / G, B / G of the RAW (the shot's white point) for the worker; null when unusable. */
+    final float[] neutral;
+
+    /**
+     * P27: one frame never costs the shot. A frame without a usable RAW, role or exposure, or whose payload is not plain 16-bit,
+     * is dropped with a log line; with no N frame the plain frame closest to N becomes the base; a frame that missed its plan
+     * by up to 0.5 EV darker (0.05 EV brighter) than the base is merged as an N frame. Throws only when no frame is usable.
+     * {@code conservative}: the retry after a failed merge (sensor grid, at most 16 N frames, the round-5 extras off).
+     */
+    private ScamHybridBurst(List<ImageFrame> source, Parameters p, boolean conservative) throws IOException {
+        width = p.rawSize.x; height = p.rawSize.y; white = p.whiteLevel; black = p.cfaBlack.clone();
+        cfa = p.cfaPattern;
+        dcg = p.dcgShot;
+        dcgIsoScale = p.dcgShot && p.dcgIsoScale > 1f ? p.dcgIsoScale : 1f;
+        shotCamera = p.shotCharacteristics();
+        this.conservative = conservative;
+        series = conservative ? 0 : Math.max(0, p.fullResSeries);
+        requested = p.fullResRequested;
+        diagnostics = PreferenceKeys.hybridSwitch("diagnostics", false);
+        clipFlags = PreferenceKeys.hybridSwitch("clip_flags", true) && PreferenceKeys.hybridValue("highlight_recovery", 100f) > 0f;
+        // The hybrid measures the colour block (Quad / Tetra) of the stream itself (header word 14).
+        if (cfa < 0 || cfa > 3 || com.scamera.app.util.Allocator.binning)
+            throw new IOException(Lang.t("SHDR: нужен RAW с порядком CFA 2×2, без программного биннинга", "SHDR: needs a RAW with a 2×2 CFA order, without software binning"));
+        if (black.length != 4) throw new IOException(Lang.t("SHDR: нужны четыре уровня чёрного", "SHDR: needs four black levels"));
+        if (width < 64 || height < 64 || (width & 1) != 0 || (height & 1) != 0)
+            throw new IOException(Lang.t("SHDR: размер RAW ", "SHDR: RAW size ") + width + "x" + height
+                    + Lang.t(" (нужны чётные стороны от 64)", " (needs even sides of at least 64)"));
+        // P27 any resolution: no megapixel cap. Only the hard limits stop the hybrid (sensor-grid RGB above one 2 GB buffer, a side
+        // above the GPU's limit); ScamProcessor bins such a stream with RawBin before, so this is a defensive check.
+        final int gpuMaxSide = com.scamera.app.processing.opengl.GLLimits.get().maxSide();
+        final String beyond = com.scamera.app.processing.RawBin.limitExceeded(width, height, gpuMaxSide, true);
+        if (beyond != null) throw new IOException("Hybrid: RAW " + width + "x" + height
+                + Lang.t(" за пределами склейки (", " is beyond the merge limits (") + beyond + ")");
+        if (source.isEmpty() || source.size() > BURST_MAX_FRAMES) throw new IOException(Lang.t("SHDR: нужно 1–" + BURST_MAX_FRAMES + " кадров", "SHDR: needs 1–" + BURST_MAX_FRAMES + " frames"));
+        // P226: «Увеличивать кадр с кропом» off - a crop shot keeps its pixels (no 2x grid, no resize up to the output size)
+        final boolean keepCrop = !PreferenceKeys.cropUpscale() && PreferenceKeys.cropShot();
+        android.graphics.Point fin = keepCrop ? new android.graphics.Point(width, height) : PreferenceKeys.hybridFinalSize(width, height);
+        if (keepCrop) Log.i("SCAM_HDR", "hybrid output: a crop shot without upscale (P226): sensor grid, no output resize");
+        List<ImageFrame> usable = new ArrayList<>();
+        Set<Long> stamps = new HashSet<>();
+        for (ImageFrame f : source) {
+            String problem = f == null ? "missing frame"
+                    : f.timestamp <= 0 || !stamps.add(f.timestamp) ? "repeated or missing timestamp"
+                    : f.measuredIso <= 0 || f.measuredExposure <= 0 ? "no measured exposure"
+                    : f.getCaptureRole() == null ? "no role from matched metadata"
+                    : f.buffer == null || f.width != width || f.height != height || f.buffer.capacity() != (long) width * height * 2 ? "incomplete RAW"
+                    // RawPayloadCheck: a frame whose RAW is not plain 16-bit never reaches the merge.
+                    : f.rawPayloadError;
+            if (problem != null) {
+                Log.w("SCAM_HDR", "hybrid: frame dropped (" + problem + "): " + (f == null ? "null" : "frame=" + f.number
+                        + " timestamp=" + f.timestamp + " ZSL=" + f.fromZsl + " role=" + f.getCaptureRole()));
+                continue;
+            }
+            usable.add(f);
+        }
+        if (usable.isEmpty()) throw new IOException(Lang.t("SHDR: ни одного пригодного RAW-кадра (", "SHDR: no usable RAW frame (") + source.size() + Lang.t(" получено)", " received)"));
+        keepOneLayout(usable);
+        // P35: the stream's stored block (or a declared Quad / Tetra sensor mode) without the detector; a binned burst is another
+        // grid and is always measured.
+        final int knownBlock = knownBlock(p);
+        if (knownBlock > 0) {
+            mosaicBlock = knownBlock;
+            Log.i("SCAM_HDR", "hybrid stream colour block: " + knownBlock + " (stored for "
+                    + com.scamera.app.processing.MosaicBlockStore.shotKey() + ", detector skipped)");
+        } else {
+            com.scamera.app.processing.ShotTimeline.mark("mosaic_start");
+            com.scamera.app.processing.MosaicBlockDetector.Result mosaic =
+                    com.scamera.app.processing.MosaicBlockDetector.detect(usable.get(0).buffer, width, height, width * 2,
+                            (black[0] + black[1] + black[2] + black[3]) / 4f, white, 8);
+            com.scamera.app.processing.ShotTimeline.mark("mosaic_done");
+            mosaicBlock = mosaic == null || !mosaic.confident ? 0 : mosaic.block;
+            if (mosaic != null) Log.i("SCAM_HDR", "hybrid stream colour block: " + mosaic);
+            if (p.rawBinning <= 1) com.scamera.app.processing.MosaicBlockStore.observeShot(mosaic, "hybrid shot");
+        }
+        // P56: a Quad (2x ISZ) or Tetra (4x ISZ, Realme GT8 Pro 2026-10-09) mosaic gets the Sabre 2x grid too, merged natively by the
+        // worker (kHybMergeMosaic / Fast at g = 2b: the sites at +-0.25 px).
+        // P267 (owner, 2026-10-19: «При выкл сохраняй только днг без ремозаика чтобы можно было его проявлять через сторонние
+        // проявщики по типу того же нашего Scam Remosaic»; «Склейка должны быть, просто без ремозаика»): without our remosaic a
+        // Quad / Tetra burst is merged at the sensor grid and saved as its merged mosaic DNG alone (dngMosaic) - the binned 12 MP
+        // Bayer photo of P195 is gone; the worker always remosaics its RGB (tuningOverride says so).
+        final boolean remosaic = PreferenceKeys.hybridSwitch("mosaic_remosaic", true); // = PreferenceKeys.isHybridMosaicRemosaic()
+        dngMosaic = dngOnlyBlock(remosaic, mosaicBlock, width, height);
+        if (dngMosaic > 1) Log.i("SCAM_HDR", "hybrid without remosaic: colour block " + dngMosaic + " " + width + "x" + height
+                + " merged, saved as the merged mosaic DNG alone (no photo)");
+        else if (!remosaic && mosaicBlock > 1) Log.i("SCAM_HDR", "hybrid without remosaic: " + width + "x" + height
+                + " is not whole " + 2 * mosaicBlock + "x" + 2 * mosaicBlock + " colour periods, merged with the remosaic");
+        final String outputMode = PreferenceKeys.hybridOutputMode();
+        // P576: a crop shot cut to its window (SabreCrop) is merged on the window's own grid (the plan's), never strict
+        final com.scamera.app.processing.processor.SabreCrop.Plan window = p.sabreCrop;
+        strictTwoX = window == null && !conservative && !keepCrop && dngMosaic == 1 && "2x".equals(outputMode);
+        final boolean outputMode2x = !conservative && !keepCrop && dngMosaic == 1
+                && (window != null ? window.sabre() : !"sensor".equals(outputMode));
+        final boolean wants2x = outputMode2x && mosaicBlock <= 4;
+        if (strictTwoX && !wants2x) throw new IOException(Lang.t("SHDR: склейка 2× недоступна для цветового блока ",
+                "SHDR: Sabre 2x is unavailable for colour block ") + mosaicBlock);
+        if (outputMode2x && !wants2x) Log.i("SCAM_HDR", "hybrid output: sensor grid " + width + "x" + height + " (Sabre 2x grid off for a block "
+                + mosaicBlock + " mosaic stream: the native merge has no 2x grid for it)");
+        final boolean twoX = wants2x && sabre2xFits(width, height, gpuMaxSide);
+        if (window != null && window.sabre() && !twoX) Log.i("SCAM_HDR", "Sabre crop (P576): the window " + width + "x" + height
+                + " merged on the sensor grid (" + (conservative ? "conservative retry" : keepCrop ? "no upscale" : dngMosaic != 1
+                ? "mosaic DNG" : !wants2x ? "block " + mosaicBlock : "GPU limits") + "), brought to the photo size after the pipeline");
+        if (strictTwoX && !twoX) throw new IOException(Lang.t("SHDR: склейка 2× ", "SHDR: Sabre 2x ") + 2L * width + "x" + 2L * height
+                + Lang.t(" превышает предел стороны GPU ", " exceeds GPU side ") + gpuMaxSide
+                + Lang.t(" или размер буфера RGB FP16 (2 ГБ)", " or one FP16 RGB buffer (2 GB)"));
+        if (wants2x && !twoX) Log.i("SCAM_HDR", "hybrid output: sensor grid " + width + "x" + height + " (Sabre 2x grid "
+                + 2L * width + "x" + 2L * height + " exceeds GPU side " + gpuMaxSide + " or one FP16 RGB buffer)");
+        Log.i("SCAM_HDR", "hybrid output mode=" + PreferenceKeys.hybridOutputMode() + " availMem=" + (availableMemory() >> 20) + " MB twoX=" + twoX
+                + (conservative ? " (conservative retry)" : ""));
+        // P501: the Sabre scale's size (1.5x: the SCAM merge on the 2x grid, the worker resamples; the fast route merges at it)
+        final android.graphics.Point sabre = window != null ? new android.graphics.Point(window.outWidth, window.outHeight)
+                : sabreSize(width, height, outputMode);
+        outWidth = twoX ? sabre.x : width; outHeight = twoX ? sabre.y : height;
+        rgbHalf = transportHalf(outWidth, outHeight, halfTransport());
+        // P576: the window's photo size comes after the pipeline (ScamProcessor: the remaining crop, then the photo's size)
+        finalWidth = window != null ? outWidth : fin.x; finalHeight = window != null ? outHeight : fin.y;
+        if (twoX) Log.i("SCAM_HDR", "hybrid output: Sabre " + outputMode + " grid " + outWidth + "x" + outHeight + ", final " + finalWidth + "x" + finalHeight);
+        List<ImageFrame> normal = new ArrayList<>(), bracketed = new ArrayList<>(), shorts = new ArrayList<>();
+        for (ImageFrame f : usable) {
+            switch (f.getCaptureRole()) {
+                case NORMAL: normal.add(f); break;
+                case LONG: bracketed.add(f); break;
+                default: shorts.add(f); break;
+            }
+        }
+        if (normal.isEmpty()) {
+            // P27: no N frame arrived (all lost, or a SCAM HDR burst without its N): the plain frame closest to N is the base,
+            // the shortest bracketed one, else the longest short one.
+            ImageFrame promoted;
+            if (!bracketed.isEmpty()) {
+                promoted = Collections.min(bracketed, Comparator.comparingDouble(this::product));
+                bracketed.remove(promoted);
+            } else {
+                promoted = Collections.max(shorts, Comparator.comparingDouble(this::product));
+                shorts.remove(promoted);
+            }
+            normal.add(promoted);
+            Log.w("SCAM_HDR", "hybrid: no N frame arrived, frame " + promoted.number + " (" + promoted.getCaptureRole() + ") is the base");
+        }
+        if (com.scamera.app.settings.MotionMode.on()) {
+            bracketed.clear();
+            shorts.removeIf(f -> f.pairedMain == null); // P641d: an overflow frame is its main frame's own exposure: no time offset
+        }
+        lastOverflowPairs = overflowPairs(shorts);
+        if (lastOverflowPairs > 0) Log.i("SCAM_HDR", "hybrid DCG+LOFIC: " + lastOverflowPairs + " overflow frame(s) of the N frames' own"
+                + " exposures as short frames (no time offset; P641d)");
+        if (dcg && !bracketed.isEmpty()) {
+            // P320: a DCG frame holds the high- and the low-gain read of one exposure; a longer frame brings motion, not range
+            Log.i("SCAM_HDR", "hybrid DCG: " + bracketed.size() + " bracketed frame(s) left out (no exposure brackets for DCG)");
+            bracketed.clear();
+        }
+        normal.sort(Comparator.comparingLong(f -> -f.timestamp)); // newest first
+        // P27 any resolution: above 16 MP the worker's working set grows with the frame, so N is capped by the memory available
+        // now (DESIGN 5); the oldest N frames go first, as at the worker limit. At 16 MP or less nothing changes.
+        final int reservedExtras = com.scamera.app.capture.HybridPlan.bentoFrames() + 5;
+        final int workerLimit = conservative ? CONSERVATIVE_NORMALS : WORKER_MAX_FRAMES - reservedExtras;
+        final long available = (long) width * height > CLASSIC_INPUT_PIXELS ? memoryAvailable() : -1;
+        final int grid = twoX ? 2 : 1;
+        // P191 (owner's 50 MP shots, 2026-10-17: 20 frames taken, 2 merged - «Сетка не исчезла»): a mosaic stream below 100 MP is
+        // budgeted by the worker itself - its native merge holds each frame binned (~24 MB at 50 MP) and picks the frames its
+        // MemAvailable allows - while this estimate counted each frame at full size (156 MB) and kept 2 of 20
+        final boolean workerBudget = workerBudgetsMosaic(width, height, mosaicBlock);
+        final int budget = workerBudget ? Integer.MAX_VALUE : memoryFrameBudget(width, height, mosaicBlock, grid, available);
+        if (workerBudget && available > 0) Log.i("SCAM_HDR", "hybrid memory " + width + "x" + height + " colour block " + mosaicBlock
+                + ": the worker's native mosaic budget picks the frames (available " + (available >> 20) + " MB)");
+        // The input and three post-pipeline RGBA16F textures coexist. A smaller frame budget alone is only an estimate.
+        if (strictTwoX && available > 0 && minimumPostBytes(outWidth, outHeight) > available)
+            throw new IOException(Lang.t("SHDR: недостаточно свободной памяти для склейки 2× ",
+                    "SHDR: not enough available memory for the requested Sabre 2x grid ") + outWidth + "x" + outHeight);
+        final int normalLimit = normalLimit(series, workerLimit, budget, minNormals(width, height), reservedExtras,
+                bracketed.size() + shorts.size());
+        final String limitReason = normalLimit < workerLimit ? "memory budget" : "worker limit";
+        if (budget != Integer.MAX_VALUE) {
+            Log.i("SCAM_HDR", "hybrid memory " + (series > 0 ? "estimate " : "budget ") + width + "x" + height + ": " + budget
+                    + " frames (available " + (available >> 20)
+                    + " MB, fixed " + (long) (((long) width * height > HUGE_INPUT_PIXELS ? HUGE_FIXED_BYTES_PER_PIXEL : FIXED_BYTES_PER_PIXEL)
+                    * outWidth * outHeight) / (1 << 20) + " MB, "
+                    + (long) perFrameBytes(width, height, mosaicBlock) / (1 << 20) + " MB per frame) -> "
+                    + (series > 0 ? "series of " + series + " kept whole" : "at most " + normalLimit + " N"));
+        }
+        // Base frame: the sharpest of the newest candidates within the SCAM time window.
+        long newest = normal.get(0).timestamp;
+        final int from = baseFrom(normal, com.scamera.app.settings.MotionMode.on());
+        final boolean moment = from >= 0;
+        final int start = moment ? from : 0;
+        final long anchor = normal.get(start).timestamp;
+        ImageFrame best = normal.get(start); double bestScore = -1;
+        // P471: capture v2 keeps the press anchor unless the frame before it is clearly sharper (a hand-shaken anchor capped the
+        // moving subject's detail: the rejected areas show the base alone)
+        final boolean v2 = moment && com.scamera.app.settings.MotionMode.captureV2();
+        final boolean v2Sharp = v2 && PreferenceKeys.scamDevSwitch("motion_base_sharp", true);
+        final int candidates = v2 ? (v2Sharp ? 2 : 1) : moment ? MOTION_BASE_CANDIDATES : BASE_CANDIDATES;
+        double anchorScore = -1;
+        for (int i = start; i < Math.min(start + candidates, normal.size()); i++) {
+            ImageFrame f = normal.get(i);
+            if (anchor - f.timestamp > (v2 ? MOMENT_SWITCH_WINDOW_NS : moment ? MOTION_BASE_WINDOW_NS : BASE_WINDOW_NS)) break;
+            if (Float.isNaN(f.sharpness)) f.computeSharpness();
+            double s = Float.isNaN(f.sharpness) ? 0 : f.sharpness;
+            if (i == start) anchorScore = s;
+            if (s > bestScore) { bestScore = s; best = f; }
+        }
+        if (v2 && best != normal.get(start) && !momentSwitch(anchorScore, bestScore)) best = normal.get(start);
+        base = best;
+        // P366: the scene brightness of the merge's base frame (the ISO a DCG frame's noise model takes: its analog gain)
+        sceneEv = sceneEv100(base.measuredExposure, Math.max(1, Math.round(base.measuredIso / dcgIsoScale)), p.fNumber);
+        neutral = neutralOf(p.asShotNeutral);
+        if (moment) Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "motion: base = frame %d, %.1f ms before the moment's frame (%d after it skipped)",
+                base.number, (anchor - base.timestamp) / 1e6, start));
+        final double ref = product(base);
+        add(base, ROLE_NORMAL, ref, newest);
+        final java.util.Set<ImageFrame> blurred = blurredNormals(normal, base);
+        // The worker holds at most WORKER_MAX_FRAMES frames (uniform arrays); the oldest N frames go first,
+        // reserved slots stay for the ultrashort frames and the bracketed ones.
+        int normals = 1;
+        for (ImageFrame f : normal) {
+            if (f == base || blurred.contains(f)) continue;
+            if (normals >= normalLimit) {
+                Log.w("SCAM_HDR", "hybrid: " + (normal.size() - normals) + " oldest N frames dropped, " + limitReason + " " + normalLimit);
+                if ("memory budget".equals(limitReason)) budgetDropped = normal.size() - normals;
+                break;
+            }
+            if (add(f, ROLE_NORMAL, ref, newest)) normals++;
+        }
+        // Bracketed frames: those really longer than the base; one that came back at the N exposure is an N frame (P27).
+        bracketed.sort(Comparator.comparingDouble(this::product));
+        int bracketedCount = 0;
+        for (ImageFrame f : bracketed) {
+            double r = product(f) / ref;
+            if (r < 1.2) {
+                if (normalBand(r) && normals < normalLimit && add(f, ROLE_NORMAL, ref, newest)) {
+                    normals++;
+                    Log.w("SCAM_HDR", "hybrid: bracketed frame " + f.number + " at x" + (float) r + " of the base, merged as N");
+                } else Log.w("SCAM_HDR", "hybrid: bracketed frame " + f.number + " at x" + (float) r + " is not longer than the base, dropped");
+                continue;
+            }
+            if (add(f, ROLE_BRACKETED, ref, newest)) bracketedCount++;
+        }
+        // Ultrashort: the short frame closest to base/8 and, with bento_frames 2, one more at the same exposure (within x1.3);
+        // a short frame that came back at the N exposure is an N frame (P27); others are dropped.
+        int ultrashort = 0;
+        final int shortsCaptured = shorts.size();
+        for (Iterator<ImageFrame> it = shorts.iterator(); it.hasNext();) {
+            ImageFrame f = it.next();
+            double r = product(f) / ref;
+            if (r < 0.75) continue;
+            it.remove();
+            if (normalBand(r) && normals < normalLimit && add(f, ROLE_NORMAL, ref, newest)) {
+                normals++;
+                Log.w("SCAM_HDR", "hybrid: short frame " + f.number + " at x" + (float) r + " of the base, merged as N");
+            } else Log.w("SCAM_HDR", "hybrid: short frame " + f.number + " at x" + (float) r + " dropped");
+        }
+        if (!shorts.isEmpty()) {
+            final double target = ref / com.scamera.app.capture.HybridPlan.ultrashortFactor();
+            shorts.sort(Comparator.comparingDouble(f -> Math.abs(Math.log(product(f) / target))));
+            // P641d: among the overflow frames the base frame's own first (the same photons as the base: nothing to align)
+            pairedFirst(shorts, base);
+            final double first = product(shorts.get(0));
+            final int want = com.scamera.app.capture.HybridPlan.bentoFrames();
+            for (ImageFrame us : shorts) {
+                if (ultrashort >= want) break;
+                if (product(us) / ref >= 0.75 || Math.abs(Math.log(product(us) / first)) > Math.log(1.3)) continue;
+                if (add(us, ROLE_ULTRASHORT, ref, newest)) ultrashort++;
+            }
+        }
+        // MergeStamp: the ES / L frames the shot brought and the ones the merge gets
+        lastEsCaptured = shortsCaptured;
+        lastEsSent = ultrashort;
+        lastLongCaptured = bracketed.size();
+        lastLongSent = bracketedCount;
+        Log.i("SCAM_HDR", "hybrid burst: frames=" + frames.size() + " base=" + base.number + " sharpness=" + base.sharpness
+                + " normals=" + normals + " bracketed=" + bracketedCount
+                + " ultrashort=" + ultrashort + " noise=" + noiseSource + " base slope=" + noise.get(0)[0] + " offset=" + noise.get(0)[1]
+                + " EV100=" + sceneEv + " (f/" + p.fNumber + ")");
+    }
+
+    /**
+     * P111: in «Движение» the base candidates start at the newest ring frame (the one at the press: the cutoff is the touch's
+     * frame), not at a frame taken after the shutter; -1 outside the mode or without ring frames (the SCAM window as before).
+     * {@code normal} is newest first.
+     */
+    static int baseFrom(List<ImageFrame> normal, boolean motion) {
+        if (!motion) return -1;
+        for (int i = 0; i < normal.size(); i++) if (normal.get(i).fromZsl) return i;
+        return -1;
+    }
+
+    /** P331: N frames below this share of the burst's median sharpness are left out (scam_dev hybrid_sharp_select; 0 = off). */
+    static final float SHARP_SELECT = 0.75f;
+    /** P331: the selection keeps at least this many N frames (base included) and leaves out at most this share of the donors. */
+    static final int SHARP_KEEP = 8;
+    static final float SHARP_MAX_SHARE = 1f / 3f;
+
+    /**
+     * P331 (owner, 2026-10-25: «исправь чтобы не было мыла»): every N frame took the same weight, a ZSL frame smeared by the
+     * hand's shake as much as a sharp one (the rejection catches shifts and motion, not blur). The N donors whose
+     * RawFrameQuality score is below SHARP_SELECT x the median of the N frames (base included) stay out of the merge, the
+     * softest first, while at least SHARP_KEEP N frames remain and at most SHARP_MAX_SHARE of the donors go. The score
+     * subtracts its own noise floor, so in a noise-bound shot the frames score alike and none goes; frames with no score
+     * (NaN) always stay.
+     */
+    private java.util.Set<ImageFrame> blurredNormals(List<ImageFrame> normal, ImageFrame base) {
+        final java.util.Set<ImageFrame> out = new java.util.HashSet<>();
+        final float ratio = PreferenceKeys.hybridValue("sharp_select", SHARP_SELECT);
+        final boolean sharpMotion = com.scamera.app.settings.MotionMode.sharpPriority();
+        if (!(ratio > 0f) || normal.size() <= (sharpMotion ? 1 : SHARP_KEEP)) return out;
+        final float[] scores = new float[normal.size()];
+        int baseIndex = -1;
+        for (int i = 0; i < scores.length; i++) {
+            final ImageFrame f = normal.get(i);
+            if (Float.isNaN(f.sharpness)) f.computeSharpness();
+            scores[i] = f.sharpness;
+            if (f == base) baseIndex = i;
+        }
+        final List<Integer> drop = sharpMotion
+                ? com.scamera.app.capture.MotionPolicy.blurredDonors(scores, baseIndex, Math.max(0.85f, Math.min(ratio, 1f)))
+                : blurredDonors(scores, baseIndex, Math.min(ratio, 1f), SHARP_KEEP, SHARP_MAX_SHARE);
+        if (drop.isEmpty()) return out;
+        final StringBuilder log = new StringBuilder("hybrid sharpness: median ").append(medianFinite(scores))
+                .append(", below x").append(ratio).append(" left out:");
+        for (int i : drop) {
+            out.add(normal.get(i));
+            log.append(' ').append(normal.get(i).number).append('=').append(scores[i]);
+        }
+        Log.i("SCAM_HDR", log.toString());
+        return out;
+    }
+
+    /** Median of the finite values (NaN when fewer than 4). */
+    static float medianFinite(float[] v) {
+        final float[] f = new float[v.length];
+        int n = 0;
+        for (float x : v) if (Float.isFinite(x)) f[n++] = x;
+        if (n < 4) return Float.NaN;
+        java.util.Arrays.sort(f, 0, n);
+        return (n & 1) == 1 ? f[n / 2] : 0.5f * (f[n / 2 - 1] + f[n / 2]);
+    }
+
+    /**
+     * P331: the indices of {@code scores} (N frames; {@code baseIndex} the base, never left out) below {@code ratio} x their
+     * median, softest first, while at least {@code keep} frames remain and at most {@code maxShare} of the donors go. Empty
+     * without a positive median of at least 4 finite scores.
+     */
+    static List<Integer> blurredDonors(float[] scores, int baseIndex, float ratio, int keep, float maxShare) {
+        final List<Integer> out = new ArrayList<>();
+        final float median = medianFinite(scores);
+        if (!(ratio > 0f) || !(median > 0f)) return out;
+        final float limit = ratio * median;
+        final List<Integer> soft = new ArrayList<>();
+        for (int i = 0; i < scores.length; i++) if (i != baseIndex && Float.isFinite(scores[i]) && scores[i] < limit) soft.add(i);
+        soft.sort((a, b) -> Float.compare(scores[a], scores[b]));
+        final int donors = scores.length - (baseIndex >= 0 ? 1 : 0);
+        final int most = Math.min((int) Math.floor(maxShare * donors), scores.length - keep);
+        for (int i = 0; i < soft.size() && i < most; i++) out.add(soft.get(i));
+        return out;
+    }
+
+    /** P27: a frame this much darker (or barely brighter) than the base is merged as an N frame (HybridPlan.classify's band). */
+    private static boolean normalBand(double ratio) {
+        return ratio >= Math.pow(2, -0.5) && ratio <= 1.035;
+    }
+
+    /** Adds a frame to the burst; false (frame dropped, logged) when its exposure is outside the worker's x1/512..x512. */
+    private boolean add(ImageFrame f, int role, double ref, long newest) throws IOException {
+        double ratio = product(f) / ref;
+        if (!(ratio > 1.0 / 512) || !(ratio < 512)) {
+            if (f == base) throw new IOException(Lang.t("SHDR: экспозиция базового кадра вне диапазона frame=", "SHDR: base frame exposure out of range frame=") + f.number);
+            Log.w("SCAM_HDR", "hybrid: frame " + f.number + " dropped, exposure x" + ratio + " of the base is outside the merge range");
+            return false;
+        }
+        frames.add(f); roles.add(role); exposures.add((float) ratio); noise.add(noiseFor(f));
+        orderMs.add((float) ((f.timestamp - newest) / 1e6));
+        return true;
+    }
+
+    private double product(ImageFrame f) { return (double) f.measuredExposure * f.measuredIso; }
+
+    /** P641d: the overflow frames (LoficPair) the last burst took as short frames. */
+    public static volatile int lastOverflowPairs;
+
+    /** P641d: the frames of {@code shorts} that are an N frame's overflow read. */
+    static int overflowPairs(List<ImageFrame> shorts) {
+        int n = 0;
+        for (ImageFrame f : shorts) if (f.pairedMain != null) n++;
+        return n;
+    }
+
+    /** P641d: the overflow frame of {@code base} to the front, then the other overflow frames, the order otherwise kept. */
+    static void pairedFirst(List<ImageFrame> shorts, ImageFrame base) {
+        final List<ImageFrame> own = new ArrayList<>(), paired = new ArrayList<>(), rest = new ArrayList<>();
+        for (ImageFrame f : shorts) (f.pairedMain == null ? rest : f.pairedMain == base ? own : paired).add(f);
+        shorts.clear();
+        shorts.addAll(own);
+        shorts.addAll(paired);
+        shorts.addAll(rest);
+    }
+
+    /**
+     * Per-frame noise model in normalised units (slope, offset): the frame's own Camera2 profile, or the noise model profile
+     * when one is chosen (not «Авто»; the denoise and the alignment take it too). A separate switch «Источник шума для склейки»
+     * chose between them until the settings cleanup of P310: with the profile on «Авто» its "settings" was the camera anyway,
+     * and a profile with the switch on the camera gave the merge and the denoise different models.
+     */
+    private float[] noiseFor(ImageFrame frame) throws IOException {
+        float slope = frame.noiseSlope, offset = frame.noiseOffset;
+        // P322: a DCG frame's HAL profile is keyed by its inflated ISO (NoiseModeler.scaledProfile; X200 Ultra x16)
+        if (dcgIsoScale > 1f) { slope /= dcgIsoScale; offset /= dcgIsoScale * dcgIsoScale; }
+        com.scamera.app.processing.render.NoiseModelProfile profile =
+                com.scamera.app.processing.render.NoiseModelProfile.byId(PreferenceKeys.getNoiseModelProfileId());
+        if (profile != null) {
+            // the shot's camera (a lens switch while the shot waited replaces the open one)
+            final android.hardware.camera2.CameraCharacteristics camera = shotCamera != null ? shotCamera
+                    : com.scamera.app.capture.CaptureController.mCameraCharacteristics;
+            Integer maxAnalog = camera == null ? null
+                    : camera.get(android.hardware.camera2.CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY);
+            // P320: a DCG mode's ISO is its range scale times the gain (dcgIsoScale); the profile is keyed by the gain
+            final int iso = Math.max(1, Math.round(frame.measuredIso / dcgIsoScale));
+            android.util.Pair<Double, Double>[] model = profile.evaluate(iso, maxAnalog == null ? iso : maxAnalog);
+            double s = 0, o = 0; for (android.util.Pair<Double, Double> c : model) { s += c.first; o += c.second; }
+            slope = (float) (s / model.length); offset = (float) (o / model.length);
+            noiseSource = "settings profile " + profile.id;
+        }
+        if (!validNoise(slope, offset)) {
+            // P27: a missing or invalid SENSOR_NOISE_PROFILE never stops the shot: another frame's profile scaled to this
+            // frame's ISO, else the built-in sensor model at its ISO, at worst clamped (logged as the noise source).
+            String fallback = null;
+            for (ImageFrame g : frames.isEmpty() ? Collections.singletonList(frame) : frames) {
+                if (g == frame || !validNoise(g.noiseSlope, g.noiseOffset) || g.measuredIso <= 0) continue;
+                float k = (float) frame.measuredIso / g.measuredIso;
+                slope = g.noiseSlope * k; offset = g.noiseOffset * k * k;
+                fallback = "profile of frame " + g.number + " scaled to ISO " + frame.measuredIso;
+                break;
+            }
+            if (fallback == null) {
+                final int iso = Math.max(1, Math.round(frame.measuredIso / dcgIsoScale));
+                android.util.Pair<Double, Double>[] model = com.scamera.app.processing.render.NoiseModelProfile.LGV50_IMX363_0
+                        .evaluate(iso, iso);
+                double s = 0, o = 0; for (android.util.Pair<Double, Double> c : model) { s += c.first; o += c.second; }
+                slope = (float) (s / model.length); offset = (float) (o / model.length);
+                fallback = "built-in model at ISO " + frame.measuredIso;
+            }
+            if (!Float.isFinite(slope) || slope <= 0) slope = 1e-6f;
+            if (!Float.isFinite(offset) || offset < 0) offset = 0f;
+            noiseSource = "no valid noise profile for frame " + frame.number + ": " + fallback;
+            Log.w("SCAM_HDR", "hybrid: " + noiseSource);
+        }
+        if (frame.binnedSamples > 1) {
+            // P27: a binned frame (RawBin) averages binnedSamples sensor samples: variance / binnedSamples.
+            slope /= frame.binnedSamples;
+            offset /= frame.binnedSamples;
+        }
+        slope *= PreferenceKeys.hybridValue("noise_photon", 1f);
+        offset *= PreferenceKeys.hybridValue("noise_readout", 1f);
+        if (!Float.isFinite(slope) || slope <= 0) slope = 1e-6f;
+        if (!Float.isFinite(offset) || offset < 0) offset = 0f;
+        return new float[]{slope, offset};
+    }
+
+    private static boolean validNoise(float slope, float offset) {
+        return Float.isFinite(slope) && slope > 0 && Float.isFinite(offset) && offset >= 0;
+    }
+
+    @Override public int width() { return width; }
+    @Override public int height() { return height; }
+    /**
+     * P501: the merged size of a w x h stream in output {@code mode}: the reference's OUT = RAW x sabre_scale (1.5x: the width on
+     * 4 px, the height on 2 px, which the fast merge's output pass and the 2x2 colour sites need).
+     */
+    public static android.graphics.Point sabreSize(int w, int h, String mode) {
+        if ("2x".equals(mode)) return new android.graphics.Point(2 * w, 2 * h);
+        if ("1.5x".equals(mode)) return new android.graphics.Point(Math.min(2 * w, Math.round(w * 1.5f / 4f) * 4), Math.min(2 * h, Math.round(h * 1.5f / 2f) * 2));
+        return new android.graphics.Point(w, h);
+    }
+    /**
+     * P503 (owner, 2026-11-05: «верни ресайз … до кастомного разрешения/количества мегапикселей помимо старых 12/16/20»): the
+     * photo size a w x h frame is scaled down to after the pipeline (pref_scam_hybrid_resize), null when off or unreadable.
+     * "12" / "16" / "20": the classic 4:3 sizes (4032x3024, 4608x3456, 5184x3888; the sensor size counts as its own class);
+     * "mp": {@code custom} megapixels; "px": {@code custom} as "W x H" (the photo fits in that box, either way round) or the long side.
+     * The caller keeps the merged size when this is not smaller (no upscale).
+     */
+    @androidx.annotation.Nullable
+    public static android.graphics.Point resizeTarget(@androidx.annotation.Nullable String mode, @androidx.annotation.Nullable String custom, int w, int h) {
+        if (mode == null || w <= 0 || h <= 0) return null;
+        switch (mode) {
+            case "12": case "16": case "20": {
+                android.graphics.Point t = megapixelSize(Integer.parseInt(mode), w, h);
+                return Math.abs((long) t.x * t.y - (long) w * h) < 0.1 * w * h ? new android.graphics.Point(w, h) : t;
+            }
+            case "mp": {
+                final double mp = firstNumbers(custom, 1).length == 1 ? firstNumbers(custom, 1)[0] : -1;
+                return mp >= 0.3 && mp <= 1000 ? megapixelSize(mp, w, h) : null;
+            }
+            case "px": {
+                final double[] n = firstNumbers(custom, 2);
+                if (n.length == 0 || n[0] < 64) return null;
+                final double longSide = Math.max(w, h), shortSide = Math.min(w, h);
+                double s = n[0] / longSide;
+                if (n.length == 2 && n[1] >= 64) s = Math.min(Math.max(n[0], n[1]) / longSide, Math.min(n[0], n[1]) / shortSide);
+                return new android.graphics.Point(Math.max(64, (int) Math.round(w * s / 2) * 2), Math.max(64, (int) Math.round(h * s / 2) * 2));
+            }
+            default: return null;
+        }
+    }
+    /** {@code megapixels} in the aspect of w x h: 4:3 widths on a 64 px step keep both sides on the 16 px JPEG MCU grid. */
+    static android.graphics.Point megapixelSize(double megapixels, int w, int h) {
+        final double aspect = (double) w / h, pixels = megapixels * 1_000_000.0;
+        final int step = Math.abs(aspect - 4.0 / 3.0) < 0.01 ? 64 : 16;
+        int tw = (int) Math.round(Math.sqrt(pixels * aspect) / step) * step;
+        int th = (int) Math.round(tw / aspect / 16) * 16;
+        return new android.graphics.Point(Math.max(64, tw), Math.max(64, th));
+    }
+    /** Up to {@code max} positive numbers of {@code text} ("4000x3000", "24", "12,5"). */
+    private static double[] firstNumbers(@androidx.annotation.Nullable String text, int max) {
+        if (text == null) return new double[0];
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+(?:[.,]\\d+)?").matcher(text);
+        double[] out = new double[max];
+        int n = 0;
+        while (n < max && m.find()) out[n++] = Double.parseDouble(m.group().replace(',', '.'));
+        return java.util.Arrays.copyOf(out, n);
+    }
+    /** P501: header words 15 / 16: {@code ow} x {@code oh} unless it is the sensor grid or the 2x grid of {@code w} x {@code h}. */
+    static int[] sabreWords(int w, int h, int ow, int oh) {
+        final boolean grid = ow == w && oh == h || ow == 2 * w && oh == 2 * h;
+        return grid ? new int[]{0, 0} : new int[]{ow, oh};
+    }
+    @Override public int outputWidth() { return outWidth; }
+    @Override public int outputHeight() { return outHeight; }
+    /** Scale of the returned RGB against the sensor grid (1 = sensor size). */
+    public float outputScale() { return (float) outWidth / width; }
+    private static long availableMemory() {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) com.scamera.app.app.ScameraApp.getAppContext().getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            android.app.ActivityManager.MemoryInfo info = new android.app.ActivityManager.MemoryInfo();
+            if (am == null) return 0;
+            am.getMemoryInfo(info);
+            return info.lowMemory ? 0 : info.availMem;
+        } catch (RuntimeException e) { return 0; }
+    }
+    /** P27 any resolution: ActivityManager.MemoryInfo.availMem (also under lowMemory), -1 when unknown. */
+    private static long memoryAvailable() {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) com.scamera.app.app.ScameraApp.getAppContext().getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            if (am == null) return -1;
+            android.app.ActivityManager.MemoryInfo info = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(info);
+            return info.availMem;
+        } catch (RuntimeException e) { return -1; }
+    }
+
+    /** P576: {@link #sabre2xFits} for SabreCrop (the whole frame's 2x grid, as an uncropped shot would take it). */
+    public static boolean sabre2xFitsFrame(int w, int h, int gpuMaxSide) { return sabre2xFits(w, h, gpuMaxSide); }
+    /** P576: the memory available now (bytes), -1 when unknown. */
+    public static long memoryAvailableNow() { return memoryAvailable(); }
+    /**
+     * P576: whether the next merge takes the fast route, which merges a Sabre scale at that scale; the SCAM route merges it on the 2x
+     * grid and resamples (P501). P627 (owner, 2026-11-11: every mode stays the mode the user chose): exactly «Режим обработки»
+     * «Быстрый» - no black SCAM merge, crash or hang sends a shot of another mode there, or a «Быстрый» shot elsewhere.
+     */
+    public static boolean fastRoute() {
+        return PreferenceKeys.fastProcessing();
+    }
+
+    static boolean sabre2xFits(int w, int h, int gpuMaxSide) {
+        final long px = (long) w * h;
+        return w > 0 && h > 0 && 2L * Math.max(w, h) <= gpuMaxSide && px <= Integer.MAX_VALUE / 24L;
+    }
+
+    static boolean transportHalf(int w, int h, boolean preferredHalf) {
+        return preferredHalf || (long) w * h > Integer.MAX_VALUE / 12L;
+    }
+
+    static long minimumPostBytes(int outputWidth, int outputHeight) { return 32L * outputWidth * outputHeight; }
+
+    @Override public boolean rgbHalfTransport() { return rgbHalf; }
+    @Override public boolean hybrid() { return true; }
+    @Override public String burstTuning() { return tuningOverride(); }
+
+    /**
+     * P35: the colour block of the shot's stream without the detector - its stored block, else its module's declared Quad / Tetra
+     * mode; 0 when unknown (the merge measures it) or for a binned burst (another grid). P386: the black floor reads the same.
+     */
+    public static int knownBlock(Parameters p) {
+        return p.rawBinning > 1 ? 0 : com.scamera.app.processing.MosaicBlockStore.blockForShot(declaredSensorModeBlock());
+    }
+
+    /**
+     * P35: block of the active module's declared ISZ sensor mode (5 Quad -> 2, 7 Tetra -> 4), else 0. Only a fallback: a shot
+     * carries its own module's declared block from the shutter (MosaicBlockStore.setShotKey).
+     */
+    private static int declaredSensorModeBlock() {
+        try {
+            // P214i: the X300 Ultra's list of the module's camera (elsewhere 5 -> 2, 7 -> 4 as before)
+            return com.scamera.app.capture.VivoQcomIsz.declaredBlockOf(com.scamera.app.settings.ModuleRegistry.active());
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /** Worker memory of one more frame of a w x h stream (see {@link #STRIP_BYTES_PER_COLUMN}); a mosaic adds its worker copy. */
+    static double perFrameBytes(int w, int h, int mosaicBlock) {
+        final double px = (double) w * h;
+        double bytes = STRIP_BYTES_PER_COLUMN * w + FIELD_BYTES_PER_PIXEL * px;
+        // A Quad / Tetra stream: the worker keeps each picked frame and its binned copy (2 B + 2/b^2 B per pixel).
+        if (mosaicBlock >= 2) bytes += 2.0 * px * (1 + 1.0 / ((double) mosaicBlock * mosaicBlock));
+        return bytes;
+    }
+
+    /**
+     * P27 any resolution (DESIGN 5): frames of all roles the worker can hold for a w x h stream: {@link #MEMORY_SHARE} of the
+     * memory {@code availableBytes} available before the merge, minus the N-independent cost ({@link #FIXED_BYTES_PER_PIXEL}),
+     * over {@link #perFrameBytes}. Integer.MAX_VALUE (no cap) at 16 MP or less or when the available memory is unknown.
+     */
+    /**
+     * N frames a burst keeps: the worker limit ({@code workerLimit}), cut by the memory {@code budget} (Integer.MAX_VALUE: none) less
+     * the slots of its {@code extras} bracketed / ultrashort frames (at most {@code reservedExtras}), never below
+     * {@code minNormals}. P190: a FULLRES series ({@code series} &gt; 0) is kept whole: the capture sized it against the memory.
+     */
+    static int normalLimit(int series, int workerLimit, int budget, int minNormals, int reservedExtras, int extras) {
+        if (series > 0) return Integer.MAX_VALUE;
+        if (budget == Integer.MAX_VALUE) return workerLimit;
+        return Math.min(workerLimit, Math.max(minNormals, budget - Math.min(reservedExtras, extras)));
+    }
+
+    /**
+     * P191: a Quad / Tetra stream above 16 MP and at most 100 MP (FULLRES 50 MP) leaves the frame count to the worker's native
+     * mosaic budget (HYBRID MOSAIC NATIVE: N frames (memory budget ...)), which knows its binned working copies.
+     */
+    static boolean workerBudgetsMosaic(int w, int h, int mosaicBlock) {
+        final long px = (long) w * h;
+        return mosaicBlock >= 2 && px > CLASSIC_INPUT_PIXELS && px <= HUGE_INPUT_PIXELS;
+    }
+
+    /** P179: the N frames a merge of a w x h stream keeps whatever its memory budget says. */
+    static int minNormals(int w, int h) {
+        return (long) w * h > HUGE_INPUT_PIXELS ? HUGE_MIN_NORMALS : MIN_NORMALS;
+    }
+
+    static int memoryFrameBudget(int w, int h, int mosaicBlock, long availableBytes) {
+        return memoryFrameBudget(w, h, mosaicBlock, 1, availableBytes);
+    }
+
+    static int memoryFrameBudget(int w, int h, int mosaicBlock, int grid, long availableBytes) {
+        final long px = (long) w * h;
+        if (px <= CLASSIC_INPUT_PIXELS || availableBytes <= 0) return Integer.MAX_VALUE;
+        final double fixed = px > HUGE_INPUT_PIXELS ? HUGE_FIXED_BYTES_PER_PIXEL : FIXED_BYTES_PER_PIXEL;
+        final double free = MEMORY_SHARE * availableBytes - fixed * px * grid * grid;
+        return (int) Math.max(0, Math.min(Integer.MAX_VALUE - 1, Math.floor(free / perFrameBytes(w, h, mosaicBlock))));
+    }
+
+    /**
+     * P27 any resolution: the client's wait for the worker. 900 s up to 16 MP (unchanged); above it the merge time grows with the
+     * pixels (CRE, alignment, GPU strips, per-pixel passes), so the wait grows in proportion, at most an hour.
+     */
+    public static long workerTimeoutSeconds(int w, int h) {
+        final long px = (long) w * h;
+        return px <= CLASSIC_INPUT_PIXELS ? 900 : Math.min(3600, (long) Math.ceil(900.0 * px / CLASSIC_INPUT_PIXELS));
+    }
+
+    @Override public int cfa() { return cfa; }
+    @Override public boolean mergedDng() { return mergedDng; }
+    @Override public boolean diagnostics() { return diagnostics; }
+    @Override public boolean clipFlags() { return clipFlags; }
+    /**
+     * P187 (owner, 2026-10-17: less memory at full resolution, the same picture): above 100 MP (ScamHdrDenoise.huge, the same
+     * predicate on the same output size) the worker does not make it - its float coverage plane (4 B a pixel, 765 MB at 200 MP),
+     * the median sample and the map itself sat on the merge's peak; the 200 MP denoise (P306) takes a flat strength map instead.
+     */
+    @Override public boolean effectiveMap() { return !ScamHdrDenoise.huge(outWidth, outHeight); }
+    /**
+     * P27: extra hybrid_tuning.txt lines for this burst (the conservative retry), appended after the user's tuning; then the steps
+     * a worker of this process died in (see {@link #avoidedSteps}).
+     */
+    public String tuningOverride() {
+        // P267: the remosaic and the mosaic DNG layout first (still after the user's tuning)
+        return REMOSAIC_TUNING + (dngMosaic > 1 ? "dngMosaic 1\n" : "") + (conservative ? CONSERVATIVE_TUNING : "") + avoidedTuning()
+                + sceneEvTuning(sceneEv) + neutralTuning(neutral)
+                + (strictTwoX ? "grid 2\nauto2x 0\n" : "") + seriesTuning() + (dcg ? dcgTuning(com.scamera.app.capture.HybridPlan.bentoMode()) : "");
+    }
+    /**
+     * P366 (owner, 2026-10-27, vivo X200 Ultra ISZ at sea at noon: «вот такие фото получаю с исз, исправь» - pink blotches in the
+     * white wake foam): the worker's lamp-flicker corrections of the ultrashort frames (the row profile and the tile field) took
+     * water that moved between the frames for lamps on other flicker phases and recoloured the foam. The worker holds both from
+     * daylight up (HybridTuning::usDaylightEv, default {@link #US_DAYLIGHT_EV}: the owner's sea read 11.2 / 11.7, his LED and
+     * lamp shots 4 - 6) and holds a tile field that is incoherent (usIncoherent, default {@link #US_INCOHERENT}). Every burst
+     * with a known exposure tells it the base frame's EV100 (usSceneEv); the thresholds are the settings' lines
+     * (PreferenceKeys.hybridTuningText, scam_dev.txt "hybrid_us_daylight_ev" / "hybrid_us_incoherent", 0 = off).
+     */
+    public static final float US_DAYLIGHT_EV = 10f, US_INCOHERENT = 0.5f;
+    /** P366: EV100 = log2(N^2 / t) - log2(ISO / 100) of a frame exposed {@code exposureNs} at {@code iso} through f/{@code aperture}; NaN without one of them. */
+    static float sceneEv100(long exposureNs, int iso, float aperture) {
+        if (exposureNs <= 0 || iso <= 0 || !(aperture > 0f) || !Float.isFinite(aperture)) return Float.NaN;
+        final double t = exposureNs * 1e-9, n = aperture;
+        return (float) (Math.log(n * n / t / (iso / 100.0)) / Math.log(2.0));
+    }
+    /**
+     * P523 (Ark X8U Quad bursts, moving people: pink stripes): the worker's Quad / Tetra base demosaic damps its aliasing colour
+     * toward the camera neutral (HybridTuning::baseDemosaicNeutral; without these lines the base frame's grey world). The white
+     * point is the RAW's neutral normalised to green; null when it is not one (unset, non-finite, outside 0.1..10).
+     */
+    static float[] neutralOf(float[] wp) {
+        if (wp == null || wp.length < 3 || !(wp[1] > 0f) || !Float.isFinite(wp[1])) return null;
+        final float r = wp[0] / wp[1], b = wp[2] / wp[1];
+        return r >= 0.1f && r <= 10f && b >= 0.1f && b <= 10f ? new float[]{r, b} : null;
+    }
+    /** P523: the neutral's lines for the worker (none when unknown). */
+    static String neutralTuning(float[] n) {
+        return n == null ? "" : String.format(Locale.ROOT, "wbR %.5f\nwbB %.5f\n", n[0], n[1]);
+    }
+    /** P366: the burst's EV100 line for the worker (none when unknown). */
+    static String sceneEvTuning(float ev) {
+        return Float.isFinite(ev) ? String.format(Locale.ROOT, "usSceneEv %.2f\n", ev) : "";
+    }
+    /**
+     * P320: a DCG burst: Bento only where its frame measurably clips («Всегда» reads as «Авто»: no ultrashort mask without
+     * clipping), no Shasta and no Mochi (they exist for exposure brackets, which a DCG frame does not need).
+     */
+    static String dcgTuning(int bento) {
+        return (bento == 2 ? "bento 1\n" : "") + "shastaEnable 0\nmochi 0\n";
+    }
+    /**
+     * P267: every merge remosaics - this burst's result is read at the sensor grid, so a tuning file's own mosaicRemosaic 0 (the
+     * worker's binned merge, W/b x H/b) never reaches the worker.
+     */
+    static final String REMOSAIC_TUNING = "mosaicRemosaic 1\n";
+    /** P267: the colour block of the merged mosaic DNG this burst asks for (1: the merged Bayer DNG as before). */
+    public int dngMosaic() { return dngMosaic; }
+    /**
+     * P267: the colour block of a shot saved as the merged mosaic DNG alone without the remosaic ({@code remosaic} false), or 1:
+     * Quad / Tetra of whole 2b x 2b colour periods with at least 64 binned px a side (P195's rule, the worker's
+     * hybridMosaicBinnable). An unknown block (0: the worker would measure it) is merged with the remosaic into a photo.
+     */
+    static int dngOnlyBlock(boolean remosaic, int block, int w, int h) {
+        if (remosaic || (block != 2 && block != 4)) return 1;
+        return w % (2 * block) == 0 && h % (2 * block) == 0 && w / block >= 64 && h / block >= 64 ? block : 1;
+    }
+    /** The merged Bayer RAW of the DNG trailer is the sensor grid. */
+    @Override public long mergedRawPixels() { return (long) width * height; }
+    /**
+     * P190: the worker's frame pick keeps a FULLRES series whole (its memory budget and mosaicFrames only floor it); not for a
+     * 200 MP series of up to HUGE_SERIES frames, which the worker merges whole on its own (kHybridHugeFrames): that shot stays
+     * byte for byte as before.
+     */
+    String seriesTuning() {
+        return seriesTuning(series, width, height, frames.size());
+    }
+    static String seriesTuning(int series, int w, int h, int sent) {
+        final boolean huge = (long) w * h > HUGE_INPUT_PIXELS;
+        return series > 0 && (!huge || series > HUGE_SERIES) ? "seriesFrames " + sent + "\n" : "";
+    }
+    /** The worker leaves the CRE motion out (job marker cre-off) after a worker of this process died inside it. */
+    @Override public boolean creOff() { return avoidedSteps.contains(STEP_CRE); }
+
+    private ByteBuffer header() { return header(null); }
+    /** pages: NCH v12, frame i at byte pages[i] * 4096 of the shared memfd (the shot's arena); null: v11, planes follow the table. */
+    private ByteBuffer header(long[] pages) {
+        ByteBuffer h = ByteBuffer.allocate(128 + 32 * frames.size()).order(ByteOrder.LITTLE_ENDIAN);
+        h.putInt(0x3143484e).putInt(pages != null ? 12 : 11).putInt(width).putInt(height).putInt(cfa).putInt(frames.size()).putFloat(white);
+        for (float b : black) h.putFloat(b);
+        h.putInt((diagnostics ? 1 : 0) | (mergedDng ? 2 : 0) | (clipFlags ? 4 : 0) | (strictTwoX ? 8 : 0) | (effectiveMap() ? 0 : 16)
+                | (dcg ? 32 : 0)).putInt(0)
+         .putInt(outWidth == width && outHeight == height ? 1 : 2).putInt(mosaicBlock)
+         // P501 (words 15 / 16): the result's size when it is no whole grid (the 1.5x Sabre scale), else 0
+         .putInt(sabreWords(width, height, outWidth, outHeight)[0]).putInt(sabreWords(width, height, outWidth, outHeight)[1]);
+        h.position(128);
+        for (int i = 0; i < frames.size(); i++) {
+            h.putInt(roles.get(i)).putFloat(exposures.get(i)).putInt(frames.get(i).measuredIso)
+             .putFloat(noise.get(i)[0]).putFloat(noise.get(i)[1]).putFloat(orderMs.get(i)).putInt(0).putInt(pages != null ? (int) pages[i] : 0);
+        }
+        h.position(0);
+        return h;
+    }
+    /**
+     * P27 any resolution, above 16 MP only: a burst that is not all in one shot arena (the post-shutter path, frames binned by
+     * RawBin) is moved into a new arena frame by frame, each original freed right after its copy, instead of a second copy of the
+     * whole burst in the transport (2.7 GB more at 50 MP x 27): the peak is one frame more. Same bytes, order and position.
+     */
+    private void moveIntoArena() {
+        final long frameBytes = (long) width * height * 2;
+        int arena = -1;
+        boolean shared = true;
+        for (ImageFrame f : frames) {
+            long[] where = f.buffer == null ? null : com.scamera.app.util.Allocator.arenaOf(f.buffer);
+            if (where == null || (arena >= 0 && where[0] != arena) || (where[1] & 4095) != 0) { shared = false; break; }
+            arena = (int) where[0];
+        }
+        if (shared || frameBytes > Integer.MAX_VALUE) return;
+        final com.scamera.app.util.ShotArena late = com.scamera.app.util.ShotArena.create(frames.size(), frameBytes);
+        if (late == null) { Log.w("SCAM_HDR", "hybrid burst: no shot arena for " + frames.size() + " x " + (frameBytes >> 20) + " MB"); return; }
+        int moved = 0;
+        try {
+            for (ImageFrame f : frames) {
+                final ByteBuffer old = f.buffer;
+                if (old == null || old.capacity() != frameBytes) break;
+                final ByteBuffer view = late.copy(old, 0, (int) frameBytes);
+                if (view == null) break;
+                view.order(old.order());
+                view.position(old.position());
+                f.buffer = view;
+                com.scamera.app.util.Allocator.free(old);
+                moved++;
+            }
+        } finally {
+            late.release();
+        }
+        Log.i("SCAM_HDR", "hybrid burst moved into a shot arena: " + moved + "/" + frames.size() + " frames of " + (frameBytes >> 20) + " MB");
+    }
+
+    /** P30: every frame of the burst is a view of one shot arena: header into its first page, its memfd to the worker. */
+    @Override public android.os.ParcelFileDescriptor sharedBurst() {
+        if ((long) width * height > CLASSIC_INPUT_PIXELS) {
+            moveIntoArena();
+            com.scamera.app.processing.ShotTimeline.mark("arena_moved"); // P236 (P235: at the press when it was made)
+        }
+        int arena = -1;
+        final long[] pages = new long[frames.size()];
+        for (int i = 0; i < frames.size(); i++) {
+            ByteBuffer b = frames.get(i).buffer;
+            long[] where = b == null ? null : com.scamera.app.util.Allocator.arenaOf(b);
+            if (where == null || (arena >= 0 && where[0] != arena) || (where[1] & 4095) != 0 || b.capacity() != (long) width * height * 2) {
+                Log.i("SCAM_HDR", "hybrid burst copied into the transport: frame " + frames.get(i).number + " "
+                        + (where == null ? "not in an arena" : "arena " + where[0] + " offset " + where[1] + " capacity " + b.capacity()));
+                return null;
+            }
+            arena = (int) where[0];
+            pages[i] = where[1] >> 12;
+        }
+        if (arena < 0) return null;
+        ByteBuffer heap = header(pages);
+        if (heap.capacity() > com.scamera.app.util.ShotArena.HEADER) return null;
+        ByteBuffer direct = ByteBuffer.allocateDirect(heap.capacity()).order(ByteOrder.LITTLE_ENDIAN);
+        direct.put(heap); direct.flip();
+        if (!com.scamera.app.util.Allocator.arenaWrite(arena, 0, direct)) return null;
+        final int fd = com.scamera.app.util.Allocator.arenaFd(arena);
+        return fd < 0 ? null : android.os.ParcelFileDescriptor.adoptFd(fd);
+    }
+    @Override public void write(File file) throws IOException {
+        try (FileChannel out = new FileOutputStream(file).getChannel()) { write(out); }
+    }
+    @Override public void write(FileChannel out) throws IOException {
+        ByteBuffer header = header();
+        long position = 0;
+        while (header.hasRemaining()) position += out.write(header, position);
+        final long[] offsets = new long[frames.size()];
+        for (int i = 0; i < frames.size(); i++) { offsets[i] = position; position += frames.get(i).buffer.capacity(); }
+        final java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
+        final IOException[] failure = {null};
+        Thread[] workers = new Thread[Math.min(4, frames.size())];
+        for (int t = 0; t < workers.length; t++) {
+            workers[t] = new Thread(() -> {
+                try {
+                    for (int i = next.getAndIncrement(); i < frames.size(); i = next.getAndIncrement()) {
+                        ByteBuffer raw = frames.get(i).buffer.duplicate(); raw.clear(); long at = offsets[i];
+                        while (raw.hasRemaining()) at += out.write(raw, at);
+                    }
+                } catch (IOException e) { synchronized (failure) { failure[0] = e; } }
+            }, "hybrid-write-" + t);
+            workers[t].start();
+        }
+        for (Thread w : workers) try { w.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException(e); }
+        if (failure[0] != null) throw failure[0];
+    }
+
+    /** True when the worker applied Bento in the last shot: the highlights are real data from the ultrashort frame. */
+    public static volatile boolean lastBentoApplied;
+    /**
+     * MergeStamp («Отметка ES / L на фото»): the shot's ultrashort / long frames captured and handed to the merge (-1: no
+     * hybrid burst for this shot) and the worker's report at its completion line (null: none). Reset per shot (resetStamp).
+     */
+    public static volatile int lastEsCaptured = -1, lastEsSent = -1, lastLongCaptured = -1, lastLongSent = -1;
+    public static volatile String lastReport;
+
+    /** A new shot: no burst and no report yet (ScamProcessor.start). */
+    public static void resetStamp() {
+        lastEsCaptured = lastEsSent = lastLongCaptured = lastLongSent = -1;
+        lastReport = null;
+    }
+    /** Bento factor k of the last shot (the ultrashort content saturates at k in base-frame units) and the share of the mask where the ultrashort itself was clipped. */
+    public static volatile float lastBentoFactor = 1f, lastBentoUsClipped = 0f;
+    /**
+     * P165: the merged DNG's headroom (the worker's «HYBRID DNG: ... headroom=»): its 16-bit white is this many times the N
+     * frames' white (the highlights Bento took from the ultrashort frames); 1 when nothing is above the N clip.
+     */
+    public static volatile float lastMergedDngHeadroom = 1f;
+    /**
+     * P214c: frames the last merge averaged (the worker's «HYBRID MERGE FACTORS»: the base plus every donor's mean accepted
+     * weight, DngMetadata.mergeFrames), for the merged DNG's NoiseProfile; NaN when the report has none.
+     */
+    public static volatile double lastMergeFrames = Double.NaN;
+    /** P77: noise model factor the worker measured and merged with (HYBRID NOISE CHECK "-> model xK"), 1 = HAL model kept. */
+    public static volatile float lastNoiseFactor = 1f;
+    /**
+     * P417: the deep shadows' read-term factor the worker measured (HYBRID NOISE CHECK DARK "read term xR", on top of
+     * lastNoiseFactor), for the colour denoise of the dark pixels; 1 = not measured.
+     */
+    public static volatile float lastNoiseDarkRead = 1f;
+    /**
+     * P320: the DCG shot's noise the worker measured («HYBRID NOISE CHECK DCG: slope= hcg= lcg= knee=», normalised units):
+     * {slope, high-gain offset, low-gain offset, knee}; null when the shot was not DCG or the worker could not measure it.
+     */
+    public static volatile float[] lastDcgNoise;
+    /** P80: the last hybrid RGB is IEEE half floats (6 B a pixel, the worker's rgb-half output), not float32. */
+    public static volatile boolean lastRgbHalf;
+    /** P80: whether the worker returns the RGB as half floats; scam_dev.txt "hybrid_rgb_half 0" keeps float32. */
+    static boolean halfTransport() { return PreferenceKeys.scamDevSwitch("hybrid_rgb_half", true); }
+    /** Size of the RGB returned by the last hybrid merge (sensor size unless the Sabre 2x output is on). */
+    public static volatile android.graphics.Point lastOutputSize;
+    /**
+     * P267: the colour block of the last hybrid shot's merged mosaic DNG (2 Quad, 4 Tetra: «Наш ремозаик» off, the DNG alone),
+     * 1 for a photo.
+     */
+    public static volatile int lastDngMosaic = 1;
+    /**
+     * P318: the colour block of the stream the last hybrid shot merged (2 Quad, 4 Tetra, whole colour periods; 1 Bayer or
+     * unmeasured): the layout of its reference frame's RAW, for that frame's DNG.
+     */
+    public static volatile int lastStreamBlock = 1;
+    /** Final JPEG size of the last hybrid shot (the bitmap is resized to it after the whole pipeline). */
+    public static volatile android.graphics.Point lastFinalSize;
+    /** P27: the worker died at GPU init in this process (Mali, X200 Pro): further shots go straight to the CPU fallback. */
+    private static volatile String gpuUnusable;
+    /*
+     * P627 (owner, 2026-11-11: «Every processing mode must ALWAYS stay on the mode the user selected - no automatic hand-over»):
+     * P501's scamMergeBlack (a black SCAM merge sent «Качество» shots, the retry first, to the fast route) and P509b's
+     * fastRouteHung (a hung fast merge sent the retry and the session's later «Быстрый» shots to the SCAM merge) are gone. A black
+     * or hung merge is retried on the same route (the conservative retry); a second failure saves the base frame alone (cpuSingle,
+     * its «HYBRID ROUTE» log line), never another mode's merge.
+     */
+    /** P501: whether the worker report says the fast merge route made the result. */
+    static boolean fastRouteMerged(String report) {
+        return report != null && currentAttempt(report).contains("(fast merge)");
+    }
+    /**
+     * P501 (Pixel 7 log of build 31224: the retry's fast merge, mean 0.008, was taken for black - its job report carries the first
+     * attempt's «SCAM RGB: mean=0.000000 max=0.000000» before «RETRY:», ScamNeuralClient): the report's own attempt, after the last
+     * «RETRY:» line (the whole report without one).
+     */
+    static String currentAttempt(String report) {
+        final String marker = "\nRETRY:\n";
+        final int at = report.lastIndexOf(marker);
+        return at < 0 ? report : report.substring(at + marker.length());
+    }
+    /** P371 (review M2c): the GPU merge is off for this session (every shot merges on the CPU: no worker to start ahead). */
+    static boolean gpuMergeUnusable() {
+        return gpuUnusable != null;
+    }
+    /**
+     * Optional worker steps a worker of this process died in (its crash report names the stage, or the last "HYBRID GPU: compile"
+     * line before the exit): every later merge of the process leaves them out. vivo X200 Pro (Mali-G925, owner's log 2026-10-07):
+     * 14 of 14 merges died compiling the outlier-test program kHybFlags; without the outlier tests the merge may run.
+     */
+    static final java.util.Set<String> avoidedSteps = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    static final String STEP_OUTLIERS = "outlier tests", STEP_RIM = "rim pass", STEP_BENTO = "Bento colour pass",
+            STEP_CHROMA = "chroma pass", STEP_CRE = "CRE motion", STEP_BLEND = "Bento blend", STEP_US_FILL = "ultrashort fill",
+            /** The cells pass's P364 build (kHybCells): the vivo X200 Pro's Mali-G925 compiler died on it; kHybCellsPlain instead. */
+            STEP_CELLS = "own-quad cells",
+            /** P377: the ultrashort blend's per-stage programs (blend0 - blend4): one program with the stage uniform instead. */
+            STEP_BLEND_STAGES = "blend stage programs",
+            /** P377: the blend's GPU-built tile lists (its indirect dispatches): every pixel instead. */
+            STEP_BLEND_LISTS = "blend tile lists", STEP_US_CACHE = "ultrashort demosaic cache", STEP_BAYER_SPLIT = "split Bayer demosaic",
+            /**
+             * P500 (owner, 2026-11-04: vivo X200 Pro, Mali-G925, Android 17 - «на мали не работает правильно шумодав»: every shot was
+             * one frame because the driver's compiler died on the fast route's programs): the fast route (fastMerge) left out, the
+             * shot merges on the classic route.
+             */
+            STEP_FAST = "fast merge route";
+    /**
+     * P377 (owner, 2026-10-28: «всё что работает на адрено на гпу, на мали тоже должно работать на гпу. При этом чтобы никто из них не
+     * пострадал и результат не ухудшился»): the GPU variants P364 kept to Adreno (the own-quad cells, the blend's stage programs and
+     * tile lists) run on every GPU; each has a variant with the same result (md5) to fall back to. A driver that dies on one leaves
+     * it out for good on this build of the phone and of the app ({@link #storeLearned}): a crash once, not at every start.
+     */
+    static final java.util.Set<String> SAME_RESULT_STEPS = new java.util.HashSet<>(java.util.Arrays.asList(STEP_CELLS,
+            STEP_BLEND_STAGES, STEP_BLEND_LISTS, STEP_US_CACHE, STEP_BAYER_SPLIT));
+    /**
+     * P500: the steps kept off on this build of the phone and the app after one crash (P377's same-result steps, the fast route and
+     * the outlier tests the Mali-G925 compiler dies on): without it every start paid the crash again, and the fast route's crash
+     * at the start left the shot one frame.
+     */
+    static final java.util.Set<String> KEPT_STEPS = new java.util.HashSet<>(java.util.Arrays.asList(STEP_CELLS,
+            STEP_BLEND_STAGES, STEP_BLEND_LISTS, STEP_US_CACHE, STEP_BAYER_SPLIT, STEP_FAST, STEP_OUTLIERS));
+    /** Crash site that leaves no GPU merge (a required program, the context): the session goes to the CPU fallback. */
+    static final String STEP_GPU = "GPU";
+
+    /**
+     * P602: the lines of {@link #tuningOverride} that do not depend on the burst and can hold a key the worker reads before its go
+     * byte (ScamNeuralClient.PRE_GO_KEYS) - the steps a worker of this process died in, then the fast route of P501 - in that order,
+     * for a worker spawned at the shutter (worker_prespawn), before the burst is there. A retry's conservative lines never meet a
+     * standby (a retry spawns its own).
+     */
+    static String preGoBurstTuning() {
+        return avoidedTuning(); // P627: no other mode's lines (P501's fast route after a black SCAM merge is gone)
+    }
+
+    static String avoidedTuning() {
+        StringBuilder t = new StringBuilder();
+        if (avoidedSteps.contains(STEP_OUTLIERS)) t.append("hotSigma 0\nhotBaseSigma 0\n");
+        if (avoidedSteps.contains(STEP_RIM)) t.append("rimRatio 0\n");
+        if (avoidedSteps.contains(STEP_BENTO)) t.append("bentoChromaSigma 0\n");
+        // P310: the ultrashort blend after the merge (kHybUsBlend) left out: the highlight frames mix inside the merge as before
+        if (avoidedSteps.contains(STEP_BLEND)) t.append("bentoBlend 0\n");
+        // P313: the native mosaic merge's ultrashort fill (its own program variant) left out: Bento by its mask inside the merge
+        if (avoidedSteps.contains(STEP_US_FILL)) t.append("mosaicUsFill 0\n");
+        if (avoidedSteps.contains(STEP_CHROMA)) t.append("chromaDiff 0\n");
+        if (avoidedSteps.contains(STEP_CELLS)) t.append("cellsPlain 1\n");
+        if (avoidedSteps.contains(STEP_BLEND_STAGES)) t.append("blendStages 0\n");
+        if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
+        if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
+        if (avoidedSteps.contains(STEP_BAYER_SPLIT)) t.append("bayerSplit 0\n");
+        // P627: STEP_FAST no longer writes «fastMerge 0» (a «Быстрый» shot on the SCAM merge): merge() saves it as the base frame
+        return t.toString();
+    }
+
+    /**
+     * Where a worker that died on a signal was (null: it did not die on a signal, or nothing names the step): the stage of its crash
+     * report ("WORKER CRASH: ... stage=X last=Y"), else the last program the GPU thread announced before the exit when the GPU
+     * context never reported itself ready (off Adreno every program is announced before it compiles).
+     */
+    static String crashStage(String report) {
+        if (report == null || !report.contains("WORKER EXIT: signal")) return null;
+        int at = report.lastIndexOf("WORKER CRASH: signal");
+        if (at >= 0) {
+            int end = report.indexOf('\n', at);
+            String line = end < 0 ? report.substring(at) : report.substring(at, end);
+            int s = line.indexOf(" stage="), l = line.indexOf(" last=", s + 1);
+            if (s < 0) return null;
+            String stage = line.substring(s + 7, l > s ? l : line.length()).trim();
+            // a thread without a stage of its own (a driver's compiler thread): the GPU program being compiled, nothing else
+            if (stage.equals("-") && l > s) {
+                String last = line.substring(l + 6).trim();
+                // P377 (review): the blend's lists run on the driver's threads too (Mali's command threads die with stage=-)
+                stage = last.startsWith("GPU compile ") || last.startsWith("GPU merge (blend lists)") || last.startsWith("GPU merge (US cache)") || last.startsWith("GPU merge (Bayer split)") ? last : "-";
+            }
+            return stage.isEmpty() || stage.equals("-") ? null : stage;
+        }
+        if (java.util.regex.Pattern.compile("HYBRID GPU: .* frames=\\d+ limits").matcher(report).find()) return null; // context was ready
+        int compile = report.lastIndexOf("HYBRID GPU: compile ");
+        if (compile < 0) return null;
+        int end = report.indexOf('\n', compile);
+        String name = (end < 0 ? report.substring(compile + 20) : report.substring(compile + 20, end)).trim();
+        return name.isEmpty() ? null : "GPU compile " + name;
+    }
+
+    /** The step to leave out after a crash in {@code stage}: one of the STEP_ constants, or null (not a step the app can drop). */
+    static String stepOf(String stage) {
+        if (stage == null) return null;
+        if (stage.startsWith("CRE")) return STEP_CRE;
+        if (stage.startsWith("GPU compile ")) {
+            String program = stage.substring(12);
+            int colon = program.indexOf(':');
+            if (colon >= 0) program = program.substring(0, colon);
+            program = program.trim();
+            switch (program) {
+                case "fast": return STEP_FAST; // P500: a program of the fast route (scam-fast-gpu.h names it «fast: …»)
+                case "mean": case "flags": return STEP_OUTLIERS;
+                case "rim": return STEP_RIM;
+                case "bento": return STEP_BENTO;
+                case "blend": return STEP_BLEND;
+                case "usCache": case "blendCache": return STEP_US_CACHE;
+                case "chromaSplit": case "bayerSplit": case "chromaTile": case "nativeTile":
+                case "donorMerge": case "donorChroma": return STEP_BAYER_SPLIT;
+                // P377: one of the blend's stage programs (the blend itself stays, as one program)
+                case "blend0": case "blend1": case "blend2": case "blend3": case "blend4": return STEP_BLEND_STAGES;
+                case "mosaicUs": case "mosaicUsT": return STEP_US_FILL;
+                case "chroma": return STEP_CHROMA;
+                // the same pass without the own-quad fill (owner's log 2026-10-28: a Mali compiler crash); cellsPlain itself is required
+                case "cells": return STEP_CELLS;
+                default: return STEP_GPU; // mark, guide, cellsPlain, reject, dilate, merge: every merge needs them
+            }
+        }
+        if (stage.startsWith("GPU context") || stage.startsWith("GPU init") || stage.startsWith("EGL")) return STEP_GPU;
+        if (stage.startsWith("GPU merge (blend lists)")) return STEP_BLEND_LISTS; // P377: the worker marks their dispatches
+        if (stage.startsWith("GPU merge (US cache)")) return STEP_US_CACHE;
+        if (stage.startsWith("GPU merge (Bayer split)")) return STEP_BAYER_SPLIT;
+        return null;
+    }
+
+    /**
+     * The worker died at GPU init (the GPU merge is off for the session, every later shot the base frame alone): it died on a signal
+     * with no "HYBRID GPU:" line, not killed for memory, and its crash names no stage or a GPU one. Only a stream of 16 MP or less: a
+     * larger one runs memory-heavy CPU stages before the GPU context, where the low-memory killer can stop the worker; it takes the
+     * conservative retry instead. Adreno writes the early context's lines only when the merge takes the context (after the CRE,
+     * the alignment, Shasta and Bento), so a crash in those stages (named by WORKER CRASH) or a low-memory kill (signal 9) is not a
+     * GPU-init death: it goes to learnFromCrash (the step left out) and the conservative retry, as does a crash on the P364 GPU
+     * alignment's thread (LaGpuWorker names its stage "GPU align (F6)"). A crash on a thread without a stage of its own (a driver
+     * thread) names none and still counts as one.
+     */
+    static boolean gpuInitDeath(long pixels, String report) {
+        if (pixels > CLASSIC_INPUT_PIXELS || report == null || !report.contains("WORKER EXIT: signal") || report.contains("HYBRID GPU:"))
+            return false;
+        if (report.contains("WORKER EXIT: signal 9 ")) return false; // a low-memory kill: the ordinary retry
+        final String stage = crashStage(report);
+        return stage == null || STEP_GPU.equals(stepOf(stage));
+    }
+
+    /**
+     * P377 (review): the tuning lines of the same-result steps left out (the lab's re-merges: a burst recorded before the driver's
+     * crash was learned carries none, and its «now» run would die on the variant again).
+     */
+    static String sameResultTuning() {
+        StringBuilder t = new StringBuilder();
+        if (avoidedSteps.contains(STEP_CELLS)) t.append("cellsPlain 1\n");
+        if (avoidedSteps.contains(STEP_BLEND_STAGES)) t.append("blendStages 0\n");
+        if (avoidedSteps.contains(STEP_BLEND_LISTS)) t.append("blendLists 0\n");
+        if (avoidedSteps.contains(STEP_US_CACHE)) t.append("bentoUsCache 0\n");
+        if (avoidedSteps.contains(STEP_BAYER_SPLIT)) t.append("bayerSplit 0\n");
+        // P627: STEP_FAST no longer writes «fastMerge 0» (a «Быстрый» shot on the SCAM merge): merge() saves it as the base frame
+        return t.toString();
+    }
+
+    /** The preferences of the steps learned for good ({@link #SAME_RESULT_STEPS}) and the build they hold for. */
+    private static final String LEARNED_PREFS = "scam_gpu_learned", LEARNED_BUILD = "build", LEARNED_STEPS = "steps";
+    private static volatile boolean learnedLoaded;
+
+    /** The phone's and the app's build: a new driver (a system update) or new programs (an update of the app) try again. */
+    static String learnedBuild(android.content.Context context) {
+        long version = 0;
+        try {
+            version = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(
+                    context.getPackageManager().getPackageInfo(context.getPackageName(), 0));
+        } catch (Exception ignored) {
+        }
+        return android.os.Build.FINGERPRINT + "|" + version;
+    }
+
+    /** P377: the same-result steps learned on this build before (once a process; nothing when the build changed). */
+    static void loadLearned(android.content.Context context) {
+        if (learnedLoaded || context == null) return;
+        learnedLoaded = true;
+        try {
+            final android.content.SharedPreferences prefs = context.getSharedPreferences(LEARNED_PREFS, android.content.Context.MODE_PRIVATE);
+            if (!learnedBuild(context).equals(prefs.getString(LEARNED_BUILD, null))) return;
+            for (String step : prefs.getStringSet(LEARNED_STEPS, java.util.Collections.emptySet()))
+                if (KEPT_STEPS.contains(step) && avoidedSteps.add(step))
+                    Log.i("SCAM_HDR", "Hybrid: " + step + " off on this build (a driver crash learned before)");
+        } catch (RuntimeException e) {
+            Log.w("SCAM_HDR", "Hybrid: learned GPU steps not read: " + e);
+        }
+    }
+
+    /** P377: the same-result steps left out now, kept for this build. */
+    static void storeLearned(android.content.Context context) {
+        if (context == null) return;
+        final java.util.Set<String> keep = new java.util.HashSet<>();
+        for (String step : avoidedSteps) if (KEPT_STEPS.contains(step)) keep.add(step);
+        if (keep.isEmpty()) return;
+        try {
+            context.getSharedPreferences(LEARNED_PREFS, android.content.Context.MODE_PRIVATE).edit()
+                    .putString(LEARNED_BUILD, learnedBuild(context)).putStringSet(LEARNED_STEPS, keep).apply();
+        } catch (RuntimeException e) {
+            Log.w("SCAM_HDR", "Hybrid: learned GPU steps not kept: " + e);
+        }
+    }
+
+    /**
+     * P656 (owner's logs of 11-11 / 11-12, vivo V2419A / V2405A, Mali-G925: 21 tombstones of «libscamera_worker --gpu-prewarm»,
+     * SIGSEGV in the Mali compiler under HybridGpu::compile, three at each install (blocks 1, 2, 4) and one more at later process
+     * starts of the same install): a prewarm that died on a signal naming no step to leave out ({@link #learnFromPrewarm} false)
+     * dies the same way at every process start - nothing was kept. After {@link #PREWARM_DEATHS} such deaths of one colour block
+     * on this build (Build.FINGERPRINT + versionCode: a system or app update tries again) its prewarm is not run; the shot compiles
+     * what it uses itself (its program cache keeps them), as after a failed prewarm. scam_dev prewarm_give_up 0: always run.
+     */
+    static final int PREWARM_DEATHS = 2;
+    private static final String PREWARM_DIED_BUILD = "prewarm_died_build", PREWARM_DIED = "prewarm_died_";
+
+    /** P656: the prewarm of colour block {@code block} died {@link #PREWARM_DEATHS} times on this build. */
+    static boolean prewarmGivenUp(android.content.Context context, int block) {
+        if (context == null) return false;
+        try {
+            final android.content.SharedPreferences prefs = context.getSharedPreferences(LEARNED_PREFS, android.content.Context.MODE_PRIVATE);
+            return learnedBuild(context).equals(prefs.getString(PREWARM_DIED_BUILD, null))
+                    && prefs.getInt(PREWARM_DIED + block, 0) >= PREWARM_DEATHS;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** P656: one more death of the prewarm of {@code block} that taught nothing; true when its prewarm is given up now. */
+    static boolean notePrewarmDeath(android.content.Context context, int block) {
+        if (context == null) return false;
+        try {
+            final android.content.SharedPreferences prefs = context.getSharedPreferences(LEARNED_PREFS, android.content.Context.MODE_PRIVATE);
+            final String build = learnedBuild(context);
+            final android.content.SharedPreferences.Editor e = prefs.edit();
+            if (!build.equals(prefs.getString(PREWARM_DIED_BUILD, null))) {
+                for (int b : new int[]{1, 2, 4}) e.remove(PREWARM_DIED + b);
+                e.putString(PREWARM_DIED_BUILD, build);
+            }
+            final int deaths = (build.equals(prefs.getString(PREWARM_DIED_BUILD, null)) ? prefs.getInt(PREWARM_DIED + block, 0) : 0) + 1;
+            e.putInt(PREWARM_DIED + block, deaths).apply();
+            return deaths >= PREWARM_DEATHS;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * P377: the prewarm worker (ScamNeuralClient.prewarmHybridGpu) died: a same-result step it names is left out before the first
+     * shot needs it (the shot no longer pays the crash and the retry); anything else is the shot's to learn. True when learned.
+     */
+    static boolean learnFromPrewarm(android.content.Context context, String report) {
+        final String step = stepOf(crashStage(report));
+        if (step == null || !KEPT_STEPS.contains(step)) return false;
+        loadLearned(context);
+        final boolean added = avoidedSteps.add(step);
+        Log.w("SCAM_HDR", "Hybrid: the prewarm died in " + crashStage(report) + "; " + step + " off" + (added ? "" : " (already off)"));
+        storeLearned(context);
+        return added;
+    }
+
+    /**
+     * P500 (owner, 2026-11-04: Pixel 10 Pro XL, PowerVR GPU: «фото иногда получаются полностью черным»): the worker's merge came back
+     * all zero (its «SCAM RGB: mean=0.000000 max=0.000000» line, a readback the GPU handed back empty). Not a photo: the merge counts
+     * as failed, so the conservative retry and then the base frame alone (cpu-single) save the shot instead of a black JPEG.
+     */
+    static final String BLACK_RESULT = "the GPU merge returned an all-black image";
+    private static final java.util.regex.Pattern BLACK_LINE =
+            java.util.regex.Pattern.compile("SCAM RGB: mean=-?0(?:\\.0+)? max=-?0(?:\\.0+)?(?:\\s|$)");
+
+    static boolean blackResult(String report) {
+        // P500 (Pixel 10 log of build 31222: most strips zero after both re-reads, two with image - «max=2.0», mean 0.000016):
+        // a strip the worker could not read back as anything but zero is a broken result too
+        if (report == null) return false;
+        report = currentAttempt(report); // P501: not the carried first attempt's lines
+        if (BLACK_LINE.matcher(report).find()) return true;
+        // (a Pixel 7 strip of exact zeros in an ordinary merge, mean 0.042, is no failure: only a near-black whole counts)
+        if (!report.contains(": still zero")) return false;
+        final java.util.regex.Matcher m = MEAN_LINE.matcher(report);
+        double mean = Double.NaN;
+        while (m.find()) {
+            try { mean = Double.parseDouble(m.group(1)); } catch (NumberFormatException ignored) { }
+        }
+        // P514 (Pixel 10 Pro XL, build 31229: the even strips zero, the odd ones the buffers' uninitialised memory, «mean=7370149542.9»;
+        // the photo black and noise stripes): with zero strips a mean no merge reaches (or none at all) is a broken result too
+        return !(mean >= NEAR_BLACK_MEAN && mean <= GARBAGE_MEAN);
+    }
+    /** P514: the mean (base-frame units; a white wall ~1, the ultrashort headroom a few tens at most) above which it is garbage. */
+    static final double GARBAGE_MEAN = 1e3;
+    private static final java.util.regex.Pattern MEAN_LINE = java.util.regex.Pattern.compile("SCAM RGB: mean=(-?[0-9.]+)");
+    /** P500: the mean (base-frame units) below which a merge with zero strips is a broken result, not a dark scene. */
+    static final double NEAR_BLACK_MEAN = 1e-3;
+
+    /** Learns from a failed worker: true when this crash named a step the next attempt can leave out (or the GPU is unusable). */
+    private static boolean learnFromCrash(String report) {
+        final String stage = crashStage(report);
+        final String step = stepOf(stage);
+        if (step == null) return false;
+        if (STEP_GPU.equals(step)) {
+            gpuUnusable = "worker died in " + stage;
+            Log.w("SCAM_HDR", "Hybrid: worker died in " + stage + "; GPU merge off for this session");
+            return true;
+        }
+        final boolean added = avoidedSteps.add(step);
+        Log.w("SCAM_HDR", "Hybrid: worker died in " + stage + "; " + step + " off for this session" + (added ? "" : " (already off)"));
+        return added;
+    }
+    /** P190: frames of the last conservative retry that returned. */
+    static volatile int lastFallbackFrames;
+    /** P27: how the last hybrid shot was merged: "gpu", "gpu-conservative" or "cpu-single". */
+    public static volatile String lastMergeTier = "gpu";
+
+    /**
+     * Merges the frames in the worker; returns linear RGB float32 (w*h*3) in base-frame units, highlights above 1.0 from the
+     * ultrashort frame. P27: a failed merge never costs the photo. Tier 2 retries once conservatively (sensor grid, 16 N
+     * frames, round-5 passes off), unless the worker died at GPU init or timed out; tier 3 develops the base frame alone on the
+     * CPU (bilinear demosaic in the worker's units).
+     */
+    public static ByteBuffer process(Context context, List<ImageFrame> frames, Parameters p, boolean mergedDng) throws Exception {
+        loadLearned(context); // P377: before the first tuning text of the process
+        seriesNotice = null;
+        lastDngMosaic = 1;
+        lastStreamBlock = 1;
+        final ScamHybridBurst[] made = new ScamHybridBurst[1];
+        final ByteBuffer out;
+        try {
+            out = merge(context, frames, p, mergedDng, made);
+        } finally {
+            ScamDiagnostics.inputsDone(); // P371: the diagnostic preview of the base frame read it beside the merge
+        }
+        if (made[0] != null) lastStreamBlock = dngOnlyBlock(false, made[0].mosaicBlock, made[0].width, made[0].height);
+        seriesNotice = notice(made[0], ScamNeuralClient.lastJobReport, lastMergeTier);
+        // P238 (speed-ux D2): the thermal state at the merge's end (with the press's: GPU throttling or the merge itself, P200)
+        // P371 (speed): its binder calls on a thread of their own (the status only paces the viewfinder and the press notice);
+        // the note lands on this shot's timeline. scam_dev thermal_async 0: here, as before.
+        final Object shot = com.scamera.app.processing.ShotTimeline.processingShot();
+        final Runnable thermalSample = () -> {
+            final com.scamera.app.util.ThermalState.Sample thermal = com.scamera.app.util.ThermalState.now();
+            com.scamera.app.util.ThermalPolicy.observed(thermal);
+            Log.i("SCAM_HDR", "THERMAL at the merge end: " + thermal);
+            com.scamera.app.processing.ShotTimeline.noteOn(shot, "thermal_merge_end", thermal.toString());
+        };
+        if (com.scamera.app.settings.PreferenceKeys.scamDevSwitch("thermal_async", true)) {
+            try { THERMAL.execute(thermalSample); } catch (RuntimeException e) { thermalSample.run(); }
+        } else thermalSample.run();
+        lastNormals = seriesNormals(lastNormals, ScamNeuralClient.lastJobReport); // P212h: a series the worker cut
+        if (seriesNotice != null) Log.w("SCAM_HDR", "hybrid series notice: " + seriesNotice);
+        return out;
+    }
+
+    /** P371: the thermal sample at the merge's end (above). */
+    private static final java.util.concurrent.ExecutorService THERMAL = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        final Thread t = new Thread(r, "SCAMERA-thermal-sample");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** P190: the notice of the last merge (a FULLRES series it cut), taken once; null when there is none. */
+    private static volatile String seriesNotice;
+    public static String takeSeriesNotice() {
+        final String n = seriesNotice;
+        seriesNotice = null;
+        return n;
+    }
+
+    private static final java.util.regex.Pattern SERIES_LINE =
+            java.util.regex.Pattern.compile("HYBRID SERIES: merged (\\d+) of (\\d+) sent \\(N frames (\\d+) of (\\d+)\\)");
+
+    /**
+     * P190: what a FULLRES shot is told about its merge, or null: a fallback tier (the full merge failed: the conservative retry
+     * or the base frame alone), N frames of a series the worker left out (its «HYBRID SERIES» line; a dropped ultrashort is only
+     * logged), N frames the memory budget left out of an automatic 50 MP shot.
+     */
+    static String notice(ScamHybridBurst burst, String report, String tier) {
+        if (burst == null || burst.requested <= 0) return null;
+        if (!"gpu".equals(tier)) {
+            final int k = "cpu-single".equals(tier) ? 1 : lastFallbackFrames;
+            return Lang.t("Склейка не удалась целиком: сохранено с " + k + " кадрами (резервный режим)",
+                    "The full merge failed: saved with " + k + " frames (fallback)");
+        }
+        if (burst.series > 0 && report != null) {
+            java.util.regex.Matcher m = SERIES_LINE.matcher(report);
+            String kN = null, nN = null;
+            while (m.find()) { kN = m.group(3); nN = m.group(4); }
+            if (kN != null && Integer.parseInt(kN) < Integer.parseInt(nN)) {
+                // P609 (OnePlus 16 tele 50 MP, log 2026-11-10 19:39:41: «merged 4 of 8 sent (N frames 3 of 5)», «left out: 0 weak
+                // short, 2 other»): the fast merge leaves out normal frames of another exposure (the ZSL ring widened down to -0.5 EV
+                // over an AE ramp) - not the memory; the notice says which
+                final int other = fastMergeOther(report), missing = Integer.parseInt(nN) - Integer.parseInt(kN);
+                if (other > 0)
+                    return Lang.t("Склеено " + kN + " из " + nN + " обычных кадров: " + Math.min(other, missing)
+                                    + " с другой экспозицией (экспозиция менялась перед снимком) склейка не берёт",
+                            "Merged " + kN + " of " + nN + " normal frames: " + Math.min(other, missing)
+                                    + " of another exposure (it was changing before the shot) are left out of the merge");
+                return Lang.t("Склеено " + kN + " из " + nN + " обычных кадров: больше склейка не вместила",
+                        "Merged " + kN + " of " + nN + " normal frames: the merge held no more");
+            }
+        }
+        if (burst.budgetDropped > 0) {
+            final int kept = burst.frames.size();
+            return Lang.t("Склеено " + kept + " из " + (kept + burst.budgetDropped) + " кадров: не хватило памяти (задайте «Кадров в снимке»)",
+                    "Merged " + kept + " of " + (kept + burst.budgetDropped) + " frames: not enough memory (set “Frames per shot”)");
+        }
+        return null;
+    }
+
+    private static final java.util.regex.Pattern FAST_OTHER_LINE =
+            java.util.regex.Pattern.compile("HYBRID FAST MERGE: Sabre per-frame merge, .*?left out: \\d+ weak short, (\\d+) other");
+
+    /** P609: the frames the fast merge's last head line left out as «other» (normal frames of another exposure); 0 without one. */
+    static int fastMergeOther(String report) {
+        if (report == null) return 0;
+        final java.util.regex.Matcher m = FAST_OTHER_LINE.matcher(report);
+        int other = 0;
+        while (m.find()) other = Integer.parseInt(m.group(1));
+        return other;
+    }
+
+    private static final java.util.regex.Pattern MOSAIC_BINNED_LINE =
+            java.util.regex.Pattern.compile("HYBRID MOSAIC BINNED: block [24] without remosaic");
+    /** The heads of the worker's two mosaic merges: native (hybridReconstructMosaicNative) and the sub-frame split. */
+    private static final java.util.regex.Pattern MOSAIC_MERGE_LINE =
+            java.util.regex.Pattern.compile("HYBRID MOSAIC NATIVE: block ([24])[ ,]|HYBRID MOSAIC: block ([24]), \\d+ plain-Bayer sub-frames");
+
+    /**
+     * P214e: colour block of the image a merge returned (Parameters.mosaicBlock; above 1 WhyLumaSharpen sharpens the
+     * 3x3-smoothed luma, R1). 1 when the worker says the burst was binned into plain Bayer («HYBRID MOSAIC BINNED»); else the block of the worker's mosaic merge head (native or the sub-frame split), which also
+     * covers a block only the worker measured (the app sent 0); without a report (the CPU single-frame tier, which averages
+     * each colour over its blocks) or without such a line the block the app sent (2 or 4), otherwise 1.
+     */
+    static int mergedBlock(int block, String report) {
+        if (report != null) {
+            if (MOSAIC_BINNED_LINE.matcher(report).find()) return 1;
+            java.util.regex.Matcher m = MOSAIC_MERGE_LINE.matcher(report);
+            int found = 0;
+            while (m.find()) found = Integer.parseInt(m.group(1) != null ? m.group(1) : m.group(2));
+            if (found > 0) return found;
+        }
+        return block == 2 || block == 4 ? block : 1;
+    }
+
+    /** P212h (A5): the N frames of this burst (the base and the frames merged as N). */
+    int normalCount() {
+        int n = 0;
+        for (int role : roles) if (role == ROLE_NORMAL) n++;
+        return Math.max(1, n);
+    }
+
+    /**
+     * P212h (A5): the N frames a merge took - {@code normals}, or fewer when the report's last «HYBRID SERIES» line says the worker
+     * left N frames of a series out (P190).
+     */
+    static int seriesNormals(int normals, String report) {
+        if (report == null) return Math.max(1, normals);
+        final java.util.regex.Matcher m = SERIES_LINE.matcher(report);
+        int k = -1;
+        while (m.find()) {
+            try { k = Integer.parseInt(m.group(3)); } catch (NumberFormatException e) { k = -1; }
+        }
+        return Math.max(1, k > 0 ? Math.min(normals, k) : normals);
+    }
+
+    private static ByteBuffer merge(Context context, List<ImageFrame> frames, Parameters p, boolean mergedDng, ScamHybridBurst[] made) throws Exception {
+        lastNormals = 1;
+        ScamHybridBurst burst = new ScamHybridBurst(frames, p, false);
+        made[0] = burst;
+        // P214e: the block of the CPU tier; a worker merge sets it again from its report
+        p.mosaicBlock = mergedBlock(burst.mosaicBlock, null);
+        if ((long) burst.width * burst.height > HUGE_INPUT_PIXELS) releaseLeftOut(frames, burst.frames);
+        com.scamera.app.processing.ShotTimeline.mark("ctor_done");
+        burst.mergedDng = mergedDng || burst.dngMosaic > 1; // P267: the merged mosaic DNG is the shot
+        lastDngMosaic = burst.dngMosaic;
+        lastOutputSize = new android.graphics.Point(burst.outWidth, burst.outHeight);
+        lastFinalSize = new android.graphics.Point(burst.finalWidth, burst.finalHeight);
+        lastMergeTier = "gpu";
+        if (burst.diagnostics) {
+            ScamDiagnostics.begin(context, p, burst.base, ScamScene.fromReference(burst.base));
+            ScamDiagnostics.frames(burst.frames, burst.base);
+        }
+        // P627 (owner, 2026-11-11: «Every processing mode must ALWAYS stay on the mode the user selected»): the shot stays on its mode.
+        // A route that cannot run at all saves the base frame alone (routeCannotRun: its «HYBRID ROUTE» line), never another mode's merge.
+        final String mode = PreferenceKeys.processingMode();
+        if ("fast".equals(mode) && avoidedSteps.contains(STEP_FAST)) {
+            if (burst.strictTwoX) throw new IOException(Lang.t("SHDR: склейка 2× «Быстрого» недоступна на этом GPU",
+                    "SHDR: the «Fast» Sabre 2x merge is unavailable on this GPU"));
+            return routeCannotRun(burst, mode, "its GPU programs crashed this build's driver compiler (learned on this build of the phone and the app)");
+        }
+        if (gpuUnusable != null) {
+            if (burst.strictTwoX) throw new IOException(Lang.t("SHDR: склейка 2× на GPU недоступна (",
+                    "SHDR: Sabre 2x GPU merge is unavailable (") + gpuUnusable + ")");
+            return routeCannotRun(burst, mode, "GPU merge unusable in this session (" + gpuUnusable + ")");
+        }
+        try {
+            final ByteBuffer merged = ScamNeuralClient.processScamBurst(context, burst);
+            if (blackResult(ScamNeuralClient.lastJobReport)) throw new IOException(BLACK_RESULT);
+            p.mosaicBlock = mergedBlock(burst.mosaicBlock, ScamNeuralClient.lastJobReport);
+            lastNormals = burst.normalCount();
+            return merged;
+        } catch (Exception first) {
+            if (burst.strictTwoX) throw new IOException(Lang.t("SHDR: склейка 2× не завершена; замена на 1× или увеличение отключена",
+                    "SHDR: Sabre 2x merge failed; no sensor-grid or upscale fallback"), first);
+            final String report = ScamNeuralClient.lastJobReport;
+            final String why = String.valueOf(first.getMessage());
+            final boolean retry = conservativeRetry(first);
+            final boolean gpuInitDeath = gpuInitDeath((long) burst.width * burst.height, report);
+            Log.e("SCAM_HDR", "Hybrid merge failed (" + why + ")" + (gpuInitDeath ? ", worker died before the GPU context" : ""));
+            if (gpuInitDeath) {
+                gpuUnusable = "worker died at GPU init: " + lastLine(report, "WORKER EXIT:");
+            } else {
+                learnFromCrash(report);
+                storeLearned(context); // P377: a same-result variant the driver died on stays off on this build
+            }
+            if (gpuUnusable != null) return routeCannotRun(burst, mode, gpuUnusable);
+            if ("fast".equals(mode) && avoidedSteps.contains(STEP_FAST))
+                return routeCannotRun(burst, mode, "its GPU programs crashed the driver compiler (" + crashStage(report) + ")");
+            // P627: the retries of the same route: the conservative retry, once more while each crash names a further optional step
+            // to leave out (at most 3), a black merge twice ends it (the GPU merge off for the session)
+            final int attempts = retry ? 3 : 0;
+            if (!retry) Log.w("SCAM_HDR", "Hybrid conservative retry skipped (" + (first instanceof WorkerWatchdog.StalledException
+                    ? "the worker hung waiting for the GPU" : "the worker timed out") + ")");
+            String previous = report, previousWhy = why;
+            for (int attempt = 0; attempt < attempts; attempt++) {
+                try {
+                    ScamHybridBurst safe = new ScamHybridBurst(frames, p, true);
+                    safe.mergedDng = safe.dngMosaic > 1; // P267
+                    lastOutputSize = new android.graphics.Point(safe.outWidth, safe.outHeight);
+                    lastFinalSize = new android.graphics.Point(safe.finalWidth, safe.finalHeight);
+                    ScamNeuralClient.carryReport = "previous attempt: " + previousWhy + "\n" + (previous == null ? "" : tail(previous, 4000));
+                    ByteBuffer out = ScamNeuralClient.processScamBurst(context, safe);
+                    if (blackResult(ScamNeuralClient.lastJobReport)) throw new IOException(BLACK_RESULT);
+                    p.mosaicBlock = mergedBlock(safe.mosaicBlock, ScamNeuralClient.lastJobReport);
+                    lastNormals = safe.normalCount();
+                    lastMergeTier = "gpu-conservative";
+                    lastFallbackFrames = safe.frames.size();
+                    Log.w("SCAM_HDR", "Hybrid fallback=" + lastMergeTier + " after: " + why + " (the same mode: " + mode + ")"
+                            + (avoidedSteps.isEmpty() ? "" : " (left out: " + avoidedSteps + ")"));
+                    return out;
+                } catch (Exception second) {
+                    Log.e("SCAM_HDR", "Hybrid conservative merge failed too: " + second.getMessage());
+                    previous = ScamNeuralClient.lastJobReport;
+                    previousWhy = String.valueOf(second.getMessage());
+                    final boolean learned = learnFromCrash(previous);
+                    storeLearned(context);
+                    // P500: black twice (the full and the conservative merge): this GPU's merge is not used again this session
+                    if (BLACK_RESULT.equals(previousWhy)) { gpuUnusable = BLACK_RESULT; break; }
+                    if (!conservativeRetry(second) || !learned || gpuUnusable != null) break;
+                } finally {
+                    ScamNeuralClient.carryReport = null;
+                }
+            }
+            return routeCannotRun(burst, mode, previousWhy);
+        }
+    }
+
+    /** P627: the user's mode as the log names it. */
+    static String modeName(String mode) {
+        return "quality".equals(mode) ? "«Качество»" : "«Быстрый»";
+    }
+    /**
+     * P627 (owner, 2026-11-11: «If a route genuinely cannot run at all ... the shot must still be saved: say exactly what happens then
+     * and log it clearly»): the mode's route could not make this shot - the base frame alone (cpuSingle: its own CPU demosaic, the
+     * app's denoise after it), never another mode's merge.
+     */
+    static ByteBuffer routeCannotRun(ScamHybridBurst burst, String mode, String why) throws IOException {
+        Log.w("SCAM_HDR", "HYBRID ROUTE: " + modeName(mode) + " could not make this shot (" + why + "): saved as the base frame alone"
+                + " (no other mode's merge)");
+        Log.w("SCAM_HDR", "Hybrid fallback=cpu-single: " + why);
+        return cpuSingle(burst);
+    }
+
+    /**
+     * Whether a failed merge takes the conservative retry: not after the outer timeout (it would wait as long again), and P220 not
+     * after the watchdog stopped a worker that was waiting for the GPU (a hung GPU hangs the retry too: the base frame alone at once);
+     * a worker stopped elsewhere, a crash and the worker's 840 s alarm still do.
+     */
+    static boolean conservativeRetry(Exception failure) {
+        if (failure instanceof ScamNeuralClient.WorkerTimeoutException) return false;
+        // P509b / P627: a hang in the fast merge route is retried (the same route) even when it waited for the GPU
+        return !(failure instanceof WorkerWatchdog.StalledException && ((WorkerWatchdog.StalledException) failure).gpuFence
+                && !((WorkerWatchdog.StalledException) failure).fastPass);
+    }
+
+    /** P179: the frames of {@code all} but the first that are not in {@code merged} are freed (a retry skips them). */
+    static int releaseLeftOut(List<ImageFrame> all, List<ImageFrame> merged) {
+        int freed = 0;
+        for (int i = 1; i < all.size(); i++) {
+            ImageFrame f = all.get(i);
+            if (f == null || f.buffer == null || merged.contains(f)) continue;
+            f.close();
+            freed++;
+        }
+        if (freed > 0) Log.i("SCAM_HDR", "hybrid: " + freed + " frames left out of the merge freed before it");
+        return freed;
+    }
+
+    private static String lastLine(String report, String prefix) {
+        int at = report.lastIndexOf(prefix);
+        if (at < 0) return "";
+        int end = report.indexOf('\n', at);
+        return end < 0 ? report.substring(at) : report.substring(at, end);
+    }
+
+    private static String tail(String text, int chars) {
+        return text.length() <= chars ? text : text.substring(text.length() - chars);
+    }
+
+    /**
+     * P27 last tier: the base frame alone, demosaicked on the CPU into the worker's output (linear camera RGB float32 on the
+     * sensor grid, base units: (v - black) / (white - black), as sampleRaw in scam-hybrid.h). Noisier than a merge, but a
+     * photo. Bilinear on plain Bayer; on a Quad / Tetra stream each colour is averaged over its blocks within one block.
+     */
+    private static ByteBuffer cpuSingle(ScamHybridBurst burst) throws IOException {
+        final long start = android.os.SystemClock.elapsedRealtime();
+        final int w = burst.width, h = burst.height;
+        final long bytes = 12L * w * h;
+        if (bytes > Integer.MAX_VALUE) throw new IOException(Lang.t("SHDR: одиночный кадр ", "SHDR: the single frame ") + w + "x" + h
+                + Lang.t(" больше 2 ГБ", " is above 2 GB"));
+        ByteBuffer out = com.scamera.app.util.Allocator.allocate((int) bytes);
+        if (out == null) throw new IOException(Lang.t("SHDR: недостаточно памяти для одиночного кадра", "SHDR: not enough memory for the single frame"));
+        out.order(ByteOrder.nativeOrder());
+        final int block = Math.max(1, burst.mosaicBlock);
+        final int[] channel = cfaChannels(burst.cfa);
+        final float[] blackLevel = burst.black.clone();
+        final float[] inv = new float[4];
+        for (int i = 0; i < 4; i++) inv[i] = 1f / Math.max(1f, burst.white - blackLevel[i]);
+        final ShortBuffer raw = burst.base.buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+        final int radius = block;
+        final int threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+        final IOException[] failure = {null};
+        Thread[] workers = new Thread[threads];
+        for (int t = 0; t < threads; t++) {
+            final int y0 = (int) ((long) h * t / threads), y1 = (int) ((long) h * (t + 1) / threads);
+            workers[t] = new Thread(() -> {
+                try {
+                    final short[][] rows = new short[2 * radius + 1][w];
+                    final float[] row = new float[w * 3];
+                    final FloatBuffer view = out.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer();
+                    final ShortBuffer src = raw.duplicate();
+                    final double[] sum = new double[3], weight = new double[3];
+                    for (int y = y0; y < y1; y++) {
+                        for (int dy = -radius; dy <= radius; dy++) {
+                            src.position(reflect(y + dy, h) * w);
+                            src.get(rows[dy + radius], 0, w);
+                        }
+                        for (int x = 0; x < w; x++) {
+                            sum[0] = sum[1] = sum[2] = 0; weight[0] = weight[1] = weight[2] = 0;
+                            for (int dy = -radius; dy <= radius; dy++) {
+                                final int yy = reflect(y + dy, h);
+                                final short[] r = rows[dy + radius];
+                                final double wy = block == 1 && dy == 0 ? 2 : 1;
+                                for (int dx = -radius; dx <= radius; dx++) {
+                                    final int xx = reflect(x + dx, w);
+                                    final int phase = (((yy / block) & 1) << 1) | ((xx / block) & 1);
+                                    final float v = Math.max(-0.25f, Math.min(1f, ((r[xx] & 0xffff) - blackLevel[phase]) * inv[phase]));
+                                    final double wt = wy * (block == 1 && dx == 0 ? 2 : 1);
+                                    final int c = channel[phase];
+                                    sum[c] += v * wt; weight[c] += wt;
+                                }
+                            }
+                            final int own = channel[(((y / block) & 1) << 1) | ((x / block) & 1)];
+                            final float ownValue = Math.max(-0.25f, Math.min(1f, ((rows[radius][x] & 0xffff)
+                                    - blackLevel[(((y / block) & 1) << 1) | ((x / block) & 1)]) * inv[(((y / block) & 1) << 1) | ((x / block) & 1)]));
+                            for (int c = 0; c < 3; c++) {
+                                float v = block == 1 && c == own ? ownValue : weight[c] > 0 ? (float) (sum[c] / weight[c]) : 0f;
+                                row[x * 3 + c] = Math.max(0f, v);
+                            }
+                        }
+                        view.position(y * w * 3);
+                        view.put(row);
+                    }
+                } catch (RuntimeException e) {
+                    synchronized (failure) { failure[0] = new IOException(Lang.t("SHDR: одиночный кадр не проявлен: ", "SHDR: the single frame was not developed: ") + e, e); }
+                }
+            }, "hybrid-cpu-" + t);
+            workers[t].start();
+        }
+        for (Thread worker : workers) try { worker.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException(e); }
+        if (failure[0] != null) { com.scamera.app.util.Allocator.free(out); throw failure[0]; }
+        out.position(0);
+        // Nothing of an earlier shot may apply to this one: sensor-grid output, no Bento, no clip flags, no frame map.
+        lastOutputSize = new android.graphics.Point(w, h);
+        lastBentoApplied = false; lastBentoFactor = 1f; lastBentoUsClipped = 0f; lastNoiseFactor = 1f; lastNoiseDarkRead = 1f; lastRgbHalf = false;
+        lastDcgNoise = null;
+        lastMergeFrames = Double.NaN;
+        ScamRgb.dropClipFlags();
+        lastEffectiveFrames = null;
+        lastHlMask = null; // P480
+        lastEffectiveMedian = Float.NaN;
+        lastNormals = 1;
+        lastMergedDng = null;
+        lastMergeTier = "cpu-single";
+        Log.w("SCAM_HDR", "Hybrid fallback=cpu-single: base frame " + burst.base.number + " " + w + "x" + h + " block " + block
+                + " demosaicked on the CPU in " + (android.os.SystemClock.elapsedRealtime() - start) + " ms");
+        return out;
+    }
+
+    private static int reflect(int i, int n) {
+        if (i < 0) i = -i;
+        if (i >= n) i = 2 * (n - 1) - i;
+        return Math.max(0, Math.min(n - 1, i));
+    }
+
+    /** Colour (0 R, 1 G, 2 B) of each 2x2 phase ((y & 1) << 1 | (x & 1)) for CFA 0 RGGB, 1 GRBG, 2 GBRG, 3 BGGR. */
+    static int[] cfaChannels(int cfa) {
+        switch (cfa) {
+            case 1: return new int[]{1, 0, 2, 1};
+            case 2: return new int[]{1, 2, 0, 1};
+            case 3: return new int[]{2, 1, 1, 0};
+            default: return new int[]{0, 1, 1, 2};
+        }
+    }
+}

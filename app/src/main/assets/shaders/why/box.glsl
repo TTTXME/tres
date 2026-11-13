@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY tone (WhyFusion): separable box mean of the guided-filter statistics [fc_cl_source.cl:1291-1341
 // box_blur_h/v_f2/f4]: 2r+1 taps, clamp to edge (the count stays 2r+1). Statistics only - the box never
 // reconstructs image detail, it averages the weight field of the fusion at half the whyLow size.

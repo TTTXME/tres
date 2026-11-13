@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp image2D;
+precision highp float; precision highp int; precision highp image2D;
 // P145: the worker's half-float RGB (6 B a pixel, rows of 3 * width halves) into the RGBA16F input texture of ScamRgb, alpha
 // 1.0 - the repack the CPU did per row (ScamRgb.halfRgbToRgbaRows) as a compute pass over a band of rows. The band's bytes
 // are copied unchanged into the SSBO (little-endian: half i of a word is bits 16 * (i & 1)); every half is widened exactly

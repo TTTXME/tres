@@ -18,9 +18,7 @@
 // scamrgb's purpleFringe. Changes against the handoff text: the defines' comments sit on their own lines (GLInterface.readProgram
 // replaces a #define line that contains " NAME " anywhere, so "// MODE 4: ..." after "#define HUE_LO" took the MODE value) and
 // NO_FLIP (1 = the handoff's guard, always on there). Every define's default is the trained v3 setting.
-precision highp float;
-precision highp sampler2D;
-precision highp int;
+precision highp float; precision highp sampler2D; precision highp int;
 #define MODE 0
 #define CIN 16
 #define K 3

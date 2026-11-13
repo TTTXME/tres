@@ -33,7 +33,7 @@ import moderngl
 
 ROOT = Path(__file__).resolve().parents[1]
 SH = ROOT / 'app/src/main/assets/shaders'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline'
 LUMA = np.array([0.2126, 0.7152, 0.0722])
 W = 256
 CORE, R0, L, SKY = 6.0, 20, 45.0, 0.35
@@ -150,7 +150,7 @@ def check(report=False):
     level, _ = scene()
     java = (JAVA / 'WhyCombine.java').read_text(encoding='utf-8')
     tone = (JAVA / 'WhyTone.java').read_text(encoding='utf-8')
-    if 'glProg.setDefine("HL_MEASURED", 1);' not in java or 'fastShortFrames(report) <= 0' not in java:
+    if 'shaderProg.setDefine("HL_MEASURED", 1);' not in java or 'fastShortFrames(report) <= 0' not in java:
         failures.append('WhyCombine does not set HL_MEASURED from the fast merge\'s short frames')
     if 'value("hl_measured", 1f)' not in tone:
         failures.append('no scam_dev hybrid_why_hl_measured (default 1) in WhyTone')

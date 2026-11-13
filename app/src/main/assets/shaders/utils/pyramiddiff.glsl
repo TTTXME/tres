@@ -1,15 +1,11 @@
-precision highp float;
-precision highp sampler2D;
-uniform sampler2D target;
-uniform sampler2D base;
-uniform vec2 size;
-uniform ivec2 size2;
-out vec4 result;
-#import interpolation
+precision highp float; precision highp sampler2D;
+// One Laplacian band (GLUtils.createPyramid): the finer level minus the coarser one upsampled bilinearly at this texel.
+uniform sampler2D fineLevel;
+// 1 / the finer level's nominal size (the coarse level is sampled in its own normalised coordinates)
+uniform vec2 fineTexel;
+uniform sampler2D coarseLevel;
+out vec4 band;
 
 void main() {
-    //vec2 uv = gl_FragCoord.xy / vec2(size);
-    vec2 uv = vec2(gl_FragCoord.xy) * vec2(size);// + vec2(0.5) / vec2(size);
-    //result = textureBicubicHardware(target, uv) - textureBicubicHardware(base, uv);
-    result = texelFetch(target, ivec2(gl_FragCoord.xy),0) - texture(base, uv);
+    band = texelFetch(fineLevel, ivec2(gl_FragCoord.xy), 0) - texture(coarseLevel, vec2(gl_FragCoord.xy) * fineTexel);
 }

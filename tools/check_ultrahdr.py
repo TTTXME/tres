@@ -290,8 +290,8 @@ def self_test():
         raise SystemExit('self-test needs a JDK (javac, java) on PATH')
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / 'classes'
-        src = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/ultrahdr'
-        files = [src / 'UltraHdrContainer.java', src / 'GainMapComputer.java',
+        src = ROOT / 'app/src/main/java/com/scamera/app/processing/ultrahdr'
+        files = [src / 'UltraHdrContainer.java', src / 'XmpPacket.java', src / 'GainMapComputer.java',
                  ROOT / 'tools/java/ultrahdr-stubs/android/graphics/Bitmap.java', ROOT / 'tools/java/UltraHdrSample.java']
         subprocess.run([javac, '-encoding', 'UTF-8', '-d', str(out)] + [str(f) for f in files], check=True)
         samples = Path(tmp) / 'samples'

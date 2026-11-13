@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P378 (WhySky): the sky cells of whyLow for WhySkyMask.decide - one output pixel per cell of cellU x cellU whyLow px, sampled every
 // stepU px (at most 32 x 32 samples a cell; WhySkyMask.Cells.of is the same on the CPU). Y = the Rec.709 luminance, at least 1e-6;
 // a negative or non-finite channel counts as 0.

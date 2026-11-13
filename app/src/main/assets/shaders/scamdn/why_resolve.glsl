@@ -1,7 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp usampler2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp usampler2D;
 // Three full-output-grid a-trous passes; coordinates remain global on bounded-memory strips.
 uniform sampler2D InputBuffer;      // pass 0: linear RGB (signed allowed); passes 1, 2: the signed YUV of the pass before
 uniform usampler2D EffMap;          // the merge's effective-frame codes on this grid (useEffU 1; else a 1 x 1 placeholder)
@@ -18,6 +15,11 @@ uniform int passU;                  // 0, 1, 2 (dilation.z)
 uniform int stepU;                  // 1, 2, 4 px (dilation.xy x size)
 uniform vec4 noiseModelU;           // yuv_noise_model: (0.562 S, 0.25 S, 0.25 S, O)
 uniform float factorU;              // denoising_factor (0.4; < 0.001: bypass)
+uniform float flatNightU;           // P648c: the night's share of the flat-area smoothing (0, unset: none - bit for bit as before)
+uniform vec2 flatNoiseU;            // P648c: the merged image's measured luma noise, variance S y + O (finishSnr's block statistics)
+uniform float flatBoostU;           // P648c: the factor's multiplier on a flat pixel at flatNightU 1 (<= 1: none; the camera model's
+                                    // range under-reads the merged noise, so a flat pixel takes a wider one)
+uniform float flatGrainU;           // P648c: an even grain given back where the flat smoothing took it (x the pixel's noise sigma; 0: none)
 uniform float outlierU;             // outlier_sigma_multiplier (0.125)
 uniform float rejectRevertU;        // reject_luma_revert_factor (0.5)
 uniform float globalRevertU;        // global_luma_revert_factor (0.85)
@@ -52,6 +54,16 @@ vec3 SampleTexture(ivec2 p) {
     if (passU == 0) c = vec3(finite1(c.r), finite1(c.g), finite1(c.b));
     return c;
 }
+
+// P648c: the flatness pass 0 measured, carried to passes 1 and 2 in the intermediate's alpha
+float SampleFlat(ivec2 p) {
+    return texelFetch(InputBuffer, clamp(p - ivec2(0, inputOriginU), ivec2(0), textureSize(InputBuffer, 0) - 1), 0).a;
+}
+
+// P648c: flatness from the luma variance against the merged image's measured noise (r): 1 up to FLAT_LO (nothing but noise),
+// 0 from FLAT_HI (texture, an edge, a gradient)
+#define FLAT_LO 0.5
+#define FLAT_HI 0.8
 
 // Why's frame_border mirror of the -1 / +1 taps at texel centres: -i - 1 below 0, 2 size - 1 - i above the last texel
 int mirror(int i, int size) {
@@ -124,9 +136,35 @@ void main() {
 
     vec3 col = samples[4];
 
+    // P648c: the night's extra smoothing only where the picture is flat (sky, walls, skin, paint). Pass 0 measures r, the merged
+    // luma's 3 x 3 variance over its measured noise there, and carries it in the intermediate's alpha; pass 1 averages r over its 3 x 3
+    // at step 2 (a steadier estimate over ~ 7 x 7 pixels: flat = 1 below FLAT_LO, 0 from FLAT_HI) and carries the flatness; pass 2 takes
+    // min(own, its 3 x 3 mean at step 4) - a pixel next to texture or an edge gets less. Passes 1 and 2 smooth, only on pixels the
+    // frames merged on (a rejected moving subject as before)
+    float flat_px = 1.0, flat_m = 0.0;
+    if (flatNightU > 0.0) {
+        if (passU == 0) {
+            float m = 0.0, m2 = 0.0;
+            for (int i = 0; i < 9; ++i) { m += samples[i].x; m2 += samples[i].x * samples[i].x; }
+            m *= 1.0 / 9.0;
+            float var = max(m2 * (1.0 / 9.0) - m * m, 0.0) * (9.0 / 8.0);
+            float nv = max(flatNoiseU.x * max(m, 0.0) + flatNoiseU.y, 1.0e-12);
+            flat_px = min(var / nv, 64.0);   // r (pass 0 does not smooth more)
+        } else {
+            float sum = 0.0;
+            for (int j = -1; j <= 1; ++j)
+                for (int i = -1; i <= 1; ++i)
+                    sum += SampleFlat(ivec2(i < 0 ? x0 : i > 0 ? x2 : xy.x, j < 0 ? y0 : j > 0 ? y2 : xy.y));
+            flat_px = passU == 1 ? 1.0 - smoothstep(FLAT_LO, FLAT_HI, sum * (1.0 / 9.0)) : min(SampleFlat(xy), sum * (1.0 / 9.0));
+            float stillF = smoothstep(1.5, 3.0, num_merged_frames) * smoothstep(0.6, 0.95, num_merged_frames / max(framesU, 1.0));
+            flat_m = clamp(flatNightU, 0.0, 1.0) * flat_px * stillF;
+        }
+    }
+    float flatAlpha = flatNightU > 0.0 ? flat_px : 1.0;
+
     // zero denoiser bypass
     if (factorU < 0.001) {
-        Output = passU == 2 ? vec4(max(vec3(0.0), FromGcamYUV(col)), 1.0) : vec4(col, 1.0);
+        Output = passU == 2 ? vec4(max(vec3(0.0), FromGcamYUV(col)), 1.0) : vec4(col, flatAlpha);
         return;
     }
 
@@ -142,7 +180,9 @@ void main() {
     float vignette_dist_sq = dot(vignette_coords_shifted, vignette_coords_shifted);
     float vignette = clamp(vignette_dist_sq / 0.25 - 0.25, 0.0, 1.0);
     vignette = vignette * vignette * vignette;
-    bilateral_sigma *= max(0.001, factorU) * (1.0 + vignetteBoostU * vignette);
+    float factor = factorU;
+    if (flat_m > 0.0 && flatBoostU > 1.0) factor *= mix(1.0, flatBoostU, flat_m);
+    bilateral_sigma *= max(0.001, factor) * (1.0 + vignetteBoostU * vignette);
 
     // X-shaped prefilter of the key (pass 0, motion only)
     float prefilter_weight = blurry_weight * (passU == 0 ? 1.0 : 0.0);
@@ -204,16 +244,20 @@ void main() {
     // luma revert: global in static areas, reject on motion fallback
     float motion_mix = max(blurry_weight, fallback_weight);
     float luma_revert = mix(globalRevertU, rejectRevertU, motion_mix);
+    if (flat_m > 0.0) luma_revert *= 1.0 - flat_m;   // P648c: a flat pixel takes the denoised luma
     denoised.x = mix(denoised.x, col.x, luma_revert);
 
     // pass 2: the calibrated grain where few frames merged, back to linear RGB
     if (passU == 2) {
         float noise_magnitude = sqrt(max(0.0, noise_model_var) / num_merged_frames) * grainU * blurry_weight;
         float uniform_noise = hash(xy + sensorOriginU);
+        // P648c: the flat areas keep a fine, even grain (no wax): x the pixel's merged noise sigma, by the flat share
+        if (flat_m > 0.0 && flatGrainU > 0.0)
+            noise_magnitude += sqrt(max(flatNoiseU.x * max(denoised.x, 0.0) + flatNoiseU.y, 0.0)) * flatGrainU * flat_m;
         denoised.x = max(0.0, denoised.x + uniform_noise * noise_magnitude);
         Output = vec4(max(vec3(0.0), FromGcamYUV(denoised)), 1.0);
     } else {
         // intermediate passes: signed YUV
-        Output = vec4(denoised, 1.0);
+        Output = vec4(denoised, flatAlpha);
     }
 }

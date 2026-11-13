@@ -3,7 +3,6 @@ apply plugin: 'kotlin-android'
 apply from: rootProject.file('gradle/verify-apk.gradle')
 // P214b: scameraBuildIdentity (git SHA, dirty, CI/local) for the BuildConfig fields below
 apply from: rootProject.file('gradle/build-identity.gradle')
-//apply plugin: "io.github.wurensen.android-aspectjx"
 Properties versionProps = new Properties()
 // The SCAMERA release key is never in the repository: CI passes it in the environment, a local build
 // reads SCAMERA-PC/signing/signing.properties next to the project (key/README.md). Without either the build is signed
@@ -30,8 +29,14 @@ android {
             }
         }
     }
+    // version.properties: the local build number (VERSION_BUILD), bumped by every assemble; CI's SCAMERA_VERSION_CODE wins
     def versionPropsFile = file('version.properties')
-    def versionBuild
+    def readBuildNumber = {
+        if (!versionPropsFile.canRead()) throw new FileNotFoundException("Could not read version.properties!")
+        versionPropsFile.withInputStream { versionProps.load(it) }
+        versionProps['VERSION_BUILD'].toInteger()
+    }
+    def versionBuild = readBuildNumber()
 
     buildFeatures {
         dataBinding true
@@ -41,10 +46,11 @@ android {
         buildConfig true
     }
 
-    // NCNN weights are memory-mapped at runtime. Keeping them uncompressed also
-    // avoids AGP wrapping the 43 MB binary in a temporary single-entry JAR.
+    // P662: the .bin assets (film/*.bin, canet/canetp_v4.bin) are read as streams (AssetManager.open / getInputStream; nothing
+    // maps them through openFd), so they are compressed (-1.2 MB). NCNN (the reason for 'bin' / 'param') is gone; a .tflite
+    // would be mapped by the ML model binding, so it stays stored.
     androidResources {
-        noCompress += ['bin', 'param', 'tflite']
+        noCompress += ['tflite']
         ignoreAssetsPatterns.add('film-reference')
         // UI languages: English (default values/) and Russian (values-ru/); library translations for others are dropped.
         localeFilters += ['en', 'ru']
@@ -52,28 +58,16 @@ android {
 
     packagingOptions {
         jniLibs {
-            // Extracted to nativeLibraryDir: the SCAM/neural worker and its QNN
-            // runtime (added by tools/package_scam_neural.py) run from there without root.
+            // Extracted to nativeLibraryDir: the SCAM/neural worker (buildScamNeuralWorker) and its QNN
+            // runtime (added by tools/package_scam_neural.py) run from there, with or without root.
             useLegacyPackaging true
         }
     }
 
-    if (versionPropsFile.canRead()) {
-        versionProps.load(new FileInputStream(versionPropsFile))
-        versionBuild = versionProps['VERSION_BUILD'].toInteger()
-    } else {
-        throw new FileNotFoundException("Could not read version.properties!")
-    }
-
     ext.autoIncrementBuildNumber = {
-        if (versionPropsFile.canRead()) {
-            versionProps.load(new FileInputStream(versionPropsFile))
-            versionBuild = versionProps['VERSION_BUILD'].toInteger() + 1
-            versionProps['VERSION_BUILD'] = versionBuild.toString()
-            versionProps.store(versionPropsFile.newWriter(), null)
-        } else {
-            throw new FileNotFoundException("Could not read version.properties!")
-        }
+        versionBuild = readBuildNumber() + 1
+        versionProps['VERSION_BUILD'] = versionBuild.toString()
+        versionPropsFile.withWriter { versionProps.store(it, null) }
     }
 
     // CI supplies SCAMERA_VERSION_CODE = 30000 + commit count; local builds keep
@@ -107,7 +101,6 @@ android {
         buildConfigField 'String', 'GIT_SHA', "\"${scameraBuildIdentity.sha}\""
         buildConfigField 'boolean', 'GIT_DIRTY', "${scameraBuildIdentity.dirty}"
         buildConfigField 'boolean', 'CI_BUILD', "${scameraBuildIdentity.ci}"
-        proguardFiles
         if (System.getenv('SCAMERA_LOCAL_CMAKE_VERSION')) {
             // Only when substituting a newer local CMake (CI uses the SDK's
             // pinned 3.22.1 and never sets this env var): CMake 4 removed
@@ -121,67 +114,57 @@ android {
         }
     }
 
-    gradle.taskGraph.whenReady { taskGraph ->
-        if (taskGraph.hasTask(assembleDebug)) {
-            autoIncrementBuildNumber()
-        } else if (taskGraph.hasTask(assembleRelease)) {
-            autoIncrementBuildNumber()
-        }
+    gradle.taskGraph.whenReady { graph ->
+        if (graph.hasTask(assembleDebug) || graph.hasTask(assembleRelease)) autoIncrementBuildNumber()
     }
 
+    // P662: both build types are shrunk by R8 without renaming (proguard-rules.pro: -dontobfuscate; the keeps for reflection,
+    // JNI, GSON, the su launcher's main) and with unused resources removed (res/raw/keep.xml); unit tests still run on the
+    // javac classes. Native code is never debuggable, the APK is zip-aligned.
+    buildTypes.configureEach {
+        minifyEnabled = true
+        shrinkResources = true
+        proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
+        jniDebuggable = false
+        zipAlignEnabled = true
+    }
     buildTypes {
-        release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            jniDebuggable = false
-            zipAlignEnabled = true
-            signingConfig signingConfigs.debug
-        }
+        // The shipped variant (CI and local packaging use assembleDebug). Not debuggable: ART compiles the app instead of
+        // interpreting it, and the JNI libraries (RAW copy/convert, DNG writer) are built optimised - the Debug CMake type
+        // built them at -O0.
         debug {
-            // This is the shipped variant (CI and local packaging use assembleDebug).
-            // Not debuggable: ART compiles the app instead of interpreting it, and the
-            // JNI libraries (RAW copy/convert, DNG writer) are built optimised - the
-            // Debug CMake type built them at -O0.
-            debuggable false
-            minifyEnabled false
-            shrinkResources false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            jniDebuggable = false
-            zipAlignEnabled = true
-            externalNativeBuild {
-                cmake {
-                    arguments "-DCMAKE_BUILD_TYPE=Release"
-                }
+            debuggable = false
+            externalNativeBuild.cmake {
+                arguments '-DCMAKE_BUILD_TYPE=Release'
             }
         }
-    }
-
-    externalNativeBuild {
-        cmake {
-            version System.getenv('SCAMERA_LOCAL_CMAKE_VERSION') ?: "3.22.1"
-            path "src/main/cpp/CMakeLists.txt"
+        release {
+            signingConfig = signingConfigs.debug
         }
     }
 
+    // the JNI libraries (CMake: the SDK's pinned 3.22.1 unless a local build substitutes its own)
+    externalNativeBuild.cmake {
+        path = file('src/main/cpp/CMakeLists.txt')
+        version = System.getenv('SCAMERA_LOCAL_CMAKE_VERSION') ?: '3.22.1'
+    }
+
+    def javaLevel = JavaVersion.VERSION_17
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = javaLevel
+        targetCompatibility = javaLevel
     }
+    // Lint reports but never fails the build; the shipped debug variant is not debuggable, so lintVital is skipped on assemble.
     lint {
-        abortOnError false
-        // The shipped debug variant is not debuggable; skip lintVital on assemble.
-        checkReleaseBuilds false
+        abortOnError = false
+        checkReleaseBuilds = false
     }
-    namespace 'com.particlesdevs.photoncamera'
-    applicationVariants.all {
-        variant -> variant.outputs.all {
-            outputFileName = "SCAMERA-${versionName}-${variant.versionCode}-${variant.name}.apk"
-        }
+    namespace = 'com.scamera.app'
+    // APK name SCAMERA-<versionName>-<versionCode>-<variant>.apk; every assembled APK is checked (gradle/verify-apk.gradle)
+    applicationVariants.all { variant ->
+        variant.outputs.all { outputFileName = "SCAMERA-${versionName}-${variant.versionCode}-${variant.name}.apk" }
         variant.assembleProvider.configure {
-            doLast {
-                variant.outputs.each { output -> verifyApkCode(output.outputFile) }
-            }
+            doLast { variant.outputs.each { verifyApkCode(it.outputFile) } }
         }
     }
     testOptions {
@@ -199,76 +182,82 @@ android {
 }
 // This must be an executable launched with exec(), never a JNI shared object:
 // app_process/System.load creates an ART namespace that excludes FastRPC deps.
-def neuralAssets = layout.buildDirectory.dir('generated/scamNeuralAssets')
+// P662: it ships once, as lib/arm64-v8a/libscamera_worker.so (extracted to nativeLibraryDir: the app process and the su
+// launcher both run that file; the copy in assets/scam-neural is gone, -1.7 MB), linked without its static symbol table
+// (-s: 5.5 -> 3.6 MB; .dynsym stays, the crash handler's dladdr and the pc offsets are unchanged, the code is identical).
+def neuralLibs = layout.buildDirectory.dir('generated/scamNeuralLibs')
 def buildScamNeuralWorker = tasks.register('buildScamNeuralWorker', Exec) {
     inputs.files(fileTree('src/main/cpp') { include 'scam-neural-*', 'scam-*' })
     inputs.property('ndkVersion', '27.2.12479018')
-    outputs.file(neuralAssets.map { it.file('scam-neural/arm64-v8a/scam-neural-worker') })
+    outputs.file(neuralLibs.map { it.file('arm64-v8a/libscamera_worker.so') })
     doFirst {
         def host = System.getProperty('os.name').toLowerCase()
         def tag = host.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
         if (host.contains('windows')) throw new GradleException('Native worker build requires Linux or macOS')
         def clang = new File(android.sdkDirectory, "ndk/27.2.12479018/toolchains/llvm/prebuilt/${tag}/bin/aarch64-linux-android26-clang++")
-        def output = neuralAssets.get().file('scam-neural/arm64-v8a/scam-neural-worker').asFile
+        def output = neuralLibs.get().file('arm64-v8a/libscamera_worker.so').asFile
         output.parentFile.mkdirs()
         commandLine clang.absolutePath, '-std=c++17', '-O2', '-Wall', '-Wextra',
-                '-pthread', '-fPIE', '-pie', '-static-libstdc++', '-Wl,-z,max-page-size=16384',
+                '-pthread', '-fPIE', '-pie', '-static-libstdc++', '-Wl,-z,max-page-size=16384', '-s',
                 file('src/main/cpp/scam-neural-worker.cpp').absolutePath, '-ldl', '-lEGL', '-lGLESv3', '-o', output.absolutePath
     }
 }
-android.sourceSets.main.assets.srcDir(neuralAssets)
+android.sourceSets.main.jniLibs.srcDir(neuralLibs)
 
 tasks.configureEach {
-    if (name.startsWith('merge') && name.endsWith('Assets')) dependsOn(buildScamNeuralWorker)
+    if (name.startsWith('merge') && name.endsWith('JniLibFolders')) dependsOn(buildScamNeuralWorker)
 }
 
-dependencies {
+// The libraries, by role. Versions are pinned (offline CI cache).
+def appLibraries = [
+        // AndroidX UI and preferences
+        'androidx.appcompat:appcompat:1.7.1',
+        'androidx.constraintlayout:constraintlayout:2.2.1',
+        'androidx.preference:preference-ktx:1.2.1',
+        'androidx.recyclerview:recyclerview:1.4.0',
+        'androidx.core:core-ktx:1.18.0',
+        'androidx.navigation:navigation-fragment-ktx:2.9.7',
+        'androidx.navigation:navigation-ui-ktx:2.9.7',
+        'com.google.android.material:material:1.13.0',
+        // photos: EXIF, HEIC output (API 28+; the library's minSdk 28 is overridden in the manifest and every use is guarded),
+        // the gallery's decoding, zoomable viewer and storage access
+        'androidx.exifinterface:exifinterface:1.4.2',
+        'androidx.heifwriter:heifwriter:1.1.0',
+        'com.github.bumptech.glide:glide:5.0.5',
+        'com.davemorrissey.labs:subsampling-scale-image-view-androidx:3.10.0',
+        'com.anggrayudi:storage:2.2.0',
+        // P504 (owner, 2026-11-05: «Поиск должен искать текст на фото … копировать текст с фото на любом языке»): Tesseract 5 OCR
+        // (Apache-2.0) with the tessdata_fast models in assets/tessdata
+        'com.github.adaptech-cz.Tesseract4Android:tesseract4android-openmp:4.8.0',
+        // the rest
+        'com.github.mohammadatif:Animatoo:master',
+        'commons-io:commons-io:20030203.000550',
+        'com.google.code.gson:gson:2.13.2',
+        'org.jetbrains:annotations:26.1.0',
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version",
+]
+def hostTestLibraries = [
+        'junit:junit:4.13.2',
+        'org.junit.jupiter:junit-jupiter:6.0.3',
+        'org.mockito:mockito-core:5.23.0',
+        'org.robolectric:robolectric:4.17',
+]
+def deviceTestLibraries = [
+        'androidx.test:core:1.7.0',
+        'androidx.test:runner:1.6.2',
+        'androidx.test.ext:junit:1.3.0',
+        'org.testng:testng:7.12.0',
+]
 
+dependencies {
+    implementation project(':circularbarlib')
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation project(path: ':circularbarlib')
-    implementation 'de.hdodenhof:circleimageview:3.1.0'
-    implementation 'androidx.appcompat:appcompat:1.7.1'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
-    implementation 'androidx.preference:preference-ktx:1.2.1'
-    implementation 'org.jetbrains:annotations:26.1.0'
-    implementation 'androidx.exifinterface:exifinterface:1.4.2'
-    // HEIC photo output (API 28+; the library's minSdk 28 is overridden in the manifest and every use is guarded)
-    implementation 'androidx.heifwriter:heifwriter:1.1.0'
-    implementation 'androidx.recyclerview:recyclerview:1.4.0'
-    implementation 'com.github.mohammadatif:Animatoo:master'
-    implementation 'com.github.bumptech.glide:glide:5.0.5'
+    appLibraries.each { implementation it }
     annotationProcessor 'com.github.bumptech.glide:compiler:5.0.5'
-    implementation group: 'commons-io', name: 'commons-io', version: '20030203.000550'
-    implementation 'com.google.code.gson:gson:2.13.2'
-    // Navigation Component
-    implementation "androidx.navigation:navigation-fragment-ktx:2.9.7"
-    implementation "androidx.navigation:navigation-ui-ktx:2.9.7"
-    //Subsampling image view
-    implementation 'com.davemorrissey.labs:subsampling-scale-image-view-androidx:3.10.0'
-    //Google Material
-    implementation 'com.google.android.material:material:1.13.0'
-    implementation "androidx.core:core-ktx:1.18.0"
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation "com.anggrayudi:storage:2.2.0"
-    implementation 'me.zhanghai.android.libarchive:library:1.1.6'
-    // P504 (owner, 2026-11-05: «Поиск должен искать текст на фото … копировать текст с фото на любом языке»): Tesseract 5 OCR
-    // (Apache-2.0) with the tessdata_fast models in assets/tessdata
-    implementation 'com.github.adaptech-cz.Tesseract4Android:tesseract4android-openmp:4.8.0'
-    //implementation 'com.microsoft.onnxruntime:onnxruntime-android:latest.release'
-    //Leak Canary
-    //Use this lib to detect memory leaks when debugging
-    //debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.6'
-    //For Testing
-    testImplementation 'org.mockito:mockito-core:5.23.0'
-    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
-    testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.robolectric:robolectric:4.17'
+    hostTestLibraries.each { testImplementation it }
     // Robolectric delegates javax.* to the host loader; EGL context tests need these API classes there.
     testRuntimeOnly 'org.khronos:opengl-api:gl1.1-android-2.1_r1'
-    androidTestImplementation 'org.testng:testng:7.12.0'
-    androidTestImplementation 'androidx.test:runner:1.6.2'
-    androidTestImplementation 'androidx.test:core:1.7.0'
-    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+    deviceTestLibraries.each { androidTestImplementation it }
 }
 repositories {
     mavenCentral()

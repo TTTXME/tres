@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Highlights): the reference tone's hr_apply, one to one - a clipped channel (above 0.85 x the threshold, not all three) rebuilt from the others' cube roots plus the diffused chroma (bilinear), blended in by smoothstep(0.85 t, t, max) x u_hr_amount.
 uniform sampler2D u_tex_rgb;
 uniform sampler2D u_tex_diffused_hr;

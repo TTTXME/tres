@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY tone, step 1 (WhyStats): the G_CLEAN equivalent "whyLow" - the box mean (factorU x factorU output pixels) of the
 // linear Rec.709 scene, i.e. Google's ds_linear_rgb that the WhyCam / SCAM 9.6 photo tone reads (half the sensor:
 // factor 2 on the 1x grid, 4 on the Sabre 2x grid). Same colour chain as the former headroom/render.glsl

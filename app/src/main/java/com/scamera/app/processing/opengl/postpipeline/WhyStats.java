@@ -1,0 +1,362 @@
+package com.scamera.app.processing.opengl.postpipeline;
+
+import android.graphics.Point;
+import android.hardware.camera2.CameraCharacteristics;
+
+import com.scamera.app.capture.CaptureController;
+import com.scamera.app.processing.opengl.GLFormat;
+import com.scamera.app.processing.opengl.GLTexture;
+import com.scamera.app.processing.opengl.nodes.Node;
+import com.scamera.app.settings.PreferenceKeys;
+import com.scamera.app.util.Allocator;
+import com.scamera.app.util.BufferUtils;
+import com.scamera.app.util.Log;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
+import static android.opengl.GLES20.GL_CLAMP_TO_EDGE;
+import static android.opengl.GLES20.GL_LINEAR;
+import static android.opengl.GLES20.GL_NEAREST;
+
+/**
+ * WHY tone, step 1 (tone_port.md 2.1 / 7.2): builds "whyLow", the equivalent of Google's ds_linear_rgb (G_CLEAN) that
+ * the WhyCam / SCAM 9.6 photo tone reads - the box mean at half the sensor grid of the linear Rec.709 scene with the
+ * full lens shading and no clip (Bento content above 1 stays) - reads it back once and runs the Smart-HDR statistics
+ * and auto exposure of the mod on it (WhyAe). The ceiling clip comes from the data (max of whyLow, at most 4), the
+ * night factor from the ISO of the reference frame (a ZSL frame at the preview exposure, as the mod's preview ISO)
+ * against SENSOR_MAX_ANALOG_SENSITIVITY. The image passes through unchanged.
+ * <p>
+ * P145: the statistics are counted on the GPU (WhyAeGpu, compute why/aestats) and only the histograms come back; the
+ * read-back and the CPU count stay for the old model (post_ab), the diagnostics dump and a GPU result that fails its check.
+ */
+public final class WhyStats extends Node {
+    public WhyStats() { super("", "WhyStats"); }
+    @Override public void bindShader() {}
+
+    /**
+     * W1.6: the WHY sharpening of this pipeline (null without it). In the G_CLEAN domain it needs nothing of the AE, so its
+     * GPU passes are issued right after the whyLow read-back and run while the CPU computes the Smart-HDR statistics; the
+     * passes and their inputs are the same, only issued earlier (the old model of post_ab keeps the node order).
+     */
+    WhyLumaSharpen earlySharpen;
+
+    /** GL_HALF_FLOAT_OES (EXT_color_buffer_half_float): the same IEEE halves as GL_HALF_FLOAT. */
+    private static final int GL_HALF_FLOAT_OES = 0x8D61;
+
+    /**
+     * The half-float read type of the bound read framebuffer when the implementation reads an RGBA16F target natively as
+     * RGBA halves (GL_IMPLEMENTATION_COLOR_READ_FORMAT / _TYPE), else 0.
+     */
+    static int halfReadType() {
+        int[] v = new int[2];
+        android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_IMPLEMENTATION_COLOR_READ_FORMAT, v, 0);
+        android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_IMPLEMENTATION_COLOR_READ_TYPE, v, 1);
+        android.opengl.GLES30.glGetError();
+        return v[0] == android.opengl.GLES30.GL_RGBA && (v[1] == android.opengl.GLES30.GL_HALF_FLOAT || v[1] == GL_HALF_FLOAT_OES) ? v[1] : 0;
+    }
+
+    /** W1.6: 1 = the half read-back gives the old model's floats on this driver, -1 = it does not, 0 = not checked yet. */
+    private static volatile int halfReadbackState;
+
+    /**
+     * W1.6: the half read-back is used only where it gives the floats of the old GL_FLOAT read-back for every half the
+     * target can hold. ES lets a driver flush 16-bit denormals when it converts them, so the exact widening of
+     * {@link HalfFloat#TABLE} is not by itself the driver's conversion; a 128x128 RGBA16F texture with every half pattern is
+     * read back both ways once per process and compared ({@link #firstHalfMismatch}). Any GL error counts as a mismatch.
+     */
+    /** P662: whether {@link #halfReadbackExact} has run in this process (the idle warm-up runs it first: PostChecks). */
+    static boolean halfReadbackChecked() {
+        return halfReadbackState != 0;
+    }
+
+    static boolean halfReadbackExact(int halfType) {
+        final int state = halfReadbackState;
+        if (state != 0) return state > 0;
+        final long started = System.nanoTime();
+        int mismatch;
+        String failure = null;
+        try {
+            mismatch = probeHalfReadback(halfType);
+        } catch (RuntimeException | OutOfMemoryError e) {
+            mismatch = 0x10000;
+            failure = e.toString();
+        }
+        halfReadbackState = mismatch < 0 ? 1 : -1;
+        Log.i("SCAM_PIPELINE", "WHY half read-back check: " + (mismatch < 0 ? "exact for all 65536 halves"
+                : failure != null ? "failed (" + failure + "), float read-back kept"
+                : mismatch > 0xffff ? "GL error, float read-back kept"
+                : "half 0x" + Integer.toHexString(mismatch) + " differs, float read-back kept")
+                + " ms=" + (System.nanoTime() - started) / 1_000_000);
+        return mismatch < 0;
+    }
+
+    /** Uploads every half pattern, reads it back as halves and as floats; the first mismatch, -1 for none, 0x10000 on a GL error. */
+    private static int probeHalfReadback(int halfType) {
+        final int w = 128, h = 128;                                      // 16384 RGBA texels: each of the 65536 halves once
+        final ByteBuffer upload = ByteBuffer.allocateDirect(w * h * 8).order(ByteOrder.nativeOrder());
+        for (int i = 0; i < 65536; i++) upload.putShort(i * 2, (short) i);
+        final ByteBuffer halves = ByteBuffer.allocateDirect(w * h * 8).order(ByteOrder.nativeOrder());
+        final ByteBuffer floats = ByteBuffer.allocateDirect(w * h * 16).order(ByteOrder.nativeOrder());
+        final int[] texture = new int[1], framebuffer = new int[1], oldRead = new int[1], oldTexture = new int[1];
+        android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
+        android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_TEXTURE_BINDING_2D, oldTexture, 0);
+        for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {
+            // drain: only the calls below decide
+        }
+        try {
+            android.opengl.GLES30.glGenTextures(1, texture, 0);
+            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, texture[0]);
+            android.opengl.GLES30.glTexStorage2D(android.opengl.GLES30.GL_TEXTURE_2D, 1, android.opengl.GLES30.GL_RGBA16F, w, h);
+            android.opengl.GLES30.glTexSubImage2D(android.opengl.GLES30.GL_TEXTURE_2D, 0, 0, 0, w, h, android.opengl.GLES30.GL_RGBA,
+                    android.opengl.GLES30.GL_HALF_FLOAT, upload);
+            android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
+            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
+            android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
+                    android.opengl.GLES30.GL_TEXTURE_2D, texture[0], 0);
+            android.opengl.GLES30.glReadPixels(0, 0, w, h, android.opengl.GLES30.GL_RGBA, halfType, halves);
+            android.opengl.GLES30.glReadPixels(0, 0, w, h, android.opengl.GLES30.GL_RGBA, android.opengl.GLES30.GL_FLOAT, floats);
+            if (android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR) return 0x10000;
+            return firstHalfMismatch(halves.asShortBuffer(), floats.asFloatBuffer());
+        } finally {
+            // The pipeline's bindings come back (read framebuffer, the active unit's texture) before the probe objects go.
+            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, oldRead[0]);
+            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, oldTexture[0]);
+            if (framebuffer[0] != 0) android.opengl.GLES30.glDeleteFramebuffers(1, framebuffer, 0);
+            if (texture[0] != 0) android.opengl.GLES30.glDeleteTextures(1, texture, 0);
+        }
+    }
+
+    /**
+     * The first half pattern h (0..65535, uploaded at index h) whose read-backs do not give the old model's float, -1 when
+     * none: the half read-back must return h itself and the float read-back the exact widening of h, bit for bit; a NaN
+     * only has to stay a NaN both ways (Smart-HDR treats every NaN alike).
+     */
+    static int firstHalfMismatch(java.nio.ShortBuffer halves, java.nio.FloatBuffer floats) {
+        final float[] table = HalfFloat.TABLE;
+        for (int h = 0; h < 65536; h++) {
+            final int back = halves.get(h) & 0xffff;
+            final float f = floats.get(h);
+            if (Float.isNaN(table[h])) {
+                if (!Float.isNaN(table[back]) || !Float.isNaN(f)) return h;
+            } else if (back != h || Float.floatToRawIntBits(f) != Float.floatToRawIntBits(table[h])) {
+                return h;
+            }
+        }
+        return -1;
+    }
+
+    /** SENSOR_MAX_ANALOG_SENSITIVITY of the shot's camera ({@code p}'s; the open one without it); the mod uses 10000 without it. */
+    static int maxAnalogIso(com.scamera.app.processing.render.Parameters p) {
+        try {
+            CameraCharacteristics c = p != null ? p.camera() : CaptureController.mCameraCharacteristics;
+            Integer v = c == null ? null : c.get(CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY);
+            return v != null && v > 0 ? v : 10000;
+        } catch (RuntimeException e) {
+            return 10000;
+        }
+    }
+
+    /** P479b: whether the chained statistics already queued WhyLumaSharpen's early passes (Run). */
+    private boolean earlyIssued;
+
+    /**
+     * The WHY AE's settings of this shot: metering, face, noise clamp, night rule, DCG, CCM saturation. P487: also the film
+     * simulation's exposure (ReferenceFilm meters the same scene before it replaces the tone). clampLine[0] = the clamp's log line.
+     */
+    static WhyAe.Settings aeSettings(PostPipeline pipeline, int width, int height, float inScale, String[] clampLine) {
+        final boolean legacy = com.scamera.app.processing.opengl.PostGlMode.legacy();
+        WhyAe.Settings settings = WhyTone.settings();
+        settings.portraitFace = pipeline.shotParams.portraitEnabled && pipeline.shotParams.portraitFaceDetected;
+        if (settings.portraitFace) WhyTone.portraitOffsets(settings);   // P513
+        settings.noiseS = pipeline.noiseS;
+        settings.noiseO = pipeline.noiseO;
+        // P501: the press's «Движение» ceiling or the camera's post-RAW gain of the shot (RawBoost), the larger
+        settings.motionGain = Math.max(com.scamera.app.settings.MotionMode.underGain(), pipeline.shotParams.postRawBoost);
+        // P442: the EV100 of base white for the night rule (NaN without the shot's exposure: the rule stays off)
+        settings.evWhite = WhySkyMask.evOffset(pipeline.shotParams.iso, pipeline.shotParams.exposureTime, pipeline.shotParams.fNumber, inScale);
+        // P320: a DCG frame keeps its captured exposure and its night factor reads ISO / dcgIsoScale (the clamp's model is
+        // its measured zones: PostPipeline.computeNoise); the old run of post_ab keeps the plain rules
+        settings.dcg = pipeline.shotParams.dcgShot && !legacy;
+        settings.dcgIsoScale = settings.dcg && pipeline.shotParams.dcgIsoScale > 1f ? pipeline.shotParams.dcgIsoScale : 1f;
+        // P212h (A5 = M5): the gain clamp sees the merged image's noise (N_eff of the merge's frame map), the denoisers keep theirs
+        // P277: a lab fragment takes the whole frame's scale (LabFrame), a lab shot records it
+        final LabFrame frozen = pipeline.frozen;
+        if (frozen != null && Float.isFinite(frozen.noiseScale)) {
+            settings.noiseS *= frozen.noiseScale;
+            settings.noiseO *= frozen.noiseScale;
+            clampLine[0] = "AE noise clamp: the whole frame's scale x" + frozen.noiseScale + " (lab fragment)";
+        } else {
+            clampLine[0] = WhyNoiseClamp.apply(settings, pipeline.shotParams.fullResRequested > 0, legacy,
+                    ScamHybridBurst.lastEffectiveFrames, width, height, ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals);
+        }
+        // applied by WhyAe.finish after an AgX look preset (which sets its own saturation)
+        settings.ccmSat = WhyTone.ccmSatComp(pipeline.shotParams);
+        return settings;
+    }
+
+    @Override
+    public void runPass() {
+        PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
+        long started = System.currentTimeMillis();
+        // A state left by a failed earlier shot is dropped, not closed: GLTexture.closeAll() already deleted its
+        // textures and their ids may belong to live textures now.
+        WhyTone.State st = new WhyTone.State();
+        pipeline.why = st;
+        st.factor = WhyTone.lowFactor(pipeline.shotParams);
+        st.inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
+        Point lowSize = WhyTone.reduced(passOut.size, st.factor);
+        GLTexture gainMap = pipeline.GainMap;
+        GLTexture fallback = null;
+        if (gainMap == null) {
+            fallback = new GLTexture(new Point(1, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 4),
+                    BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+            gainMap = fallback;
+        }
+        ByteBuffer pixels = null;
+        earlyIssued = false;
+        try {
+            st.low = new GLTexture(lowSize, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+            shaderProg.useAssetProgram("why/low", false);
+            shaderProg.setTexture("InputBuffer", passOut);
+            WhyTone.setColour(shaderProg, pipeline, gainMap, st.inScale);
+            shaderProg.setVar("factorU", st.factor);
+            shaderProg.drawBlocks(st.low);
+            com.scamera.app.processing.opengl.PostGlMode.lap("why low");
+            shaderProg.closed = true;
+            st.low.renderInto();
+            final boolean legacy = com.scamera.app.processing.opengl.PostGlMode.legacy();
+            int iso = pipeline.shotParams.iso, maxIso = maxAnalogIso(pipeline.shotParams);
+            final String[] clampLine = new String[1];
+            WhyAe.Settings settings = aeSettings(pipeline, passOut.size.x, passOut.size.y, st.inScale, clampLine);
+            // P512: the faces' skin is measured whenever a face is found - its luminance leads «Приоритет лиц в AE», its colour Face AWB
+            // and the face mask; the skin-tone correction itself stays with «Естественный цвет кожи»
+            if (settings.portraitFace) {
+                st.portrait = PortraitGpu.measure(shaderProg, st.low, pipeline.shotParams.portraitFaces);
+                if (st.portrait != null && !pipeline.shotParams.portraitSkinWarmth) java.util.Arrays.fill(st.portrait.adjust, 0f);
+                Log.i("SCAM_PIPELINE", "Portrait: face protection, skin faces=" + (st.portrait == null ? 0 : st.portrait.count));
+            }
+            final String dcgLog = settings.dcg ? " dcg(isoScale=" + settings.dcgIsoScale + ")" : "";
+            final LabFrame frozen = pipeline.frozen, record = pipeline.record;
+            final double noiseS0 = pipeline.noiseS, noiseO0 = pipeline.noiseO;
+            final String clamp = clampLine[0];
+            if (clamp != null) Log.i("SCAM_PIPELINE", clamp);
+            // P391: the fusion's noise (the noise-bound deep floor, the bands' noise cap): the one-frame model over N_eff^0.8 of the
+            // merge's frame map on every shot (not only FULLRES, as the clamp), times the worker's measured correction of the model
+            // (ScamDenoise's; never on a DCG shot's measured zones); a lab fragment takes the whole frame's. P391 (review): a DCG
+            // shot with measured zones takes its deep shadows' zone (high gain), not the clamp's mid grey (low gain)
+            st.noiseS = Float.isFinite(pipeline.fusionNoiseS) && pipeline.fusionNoiseS > 0f ? pipeline.fusionNoiseS : (float) noiseS0;
+            st.noiseO = Float.isFinite(pipeline.fusionNoiseO) && pipeline.fusionNoiseO > 0f ? pipeline.fusionNoiseO : (float) noiseO0;
+            if (frozen != null) {
+                st.noiseMerged = Float.isFinite(frozen.fusionNoise) && frozen.fusionNoise > 0f ? frozen.fusionNoise : WhyTone.expectedMerged();
+            } else if (!legacy) {
+                final float neff = WhyNoiseClamp.fusionFrames(ScamHybridBurst.lastEffectiveFrames, passOut.size.x,
+                        passOut.size.y, ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals);
+                final boolean zones = pipeline.shotParams.dcgShot
+                        && com.scamera.app.processing.render.NoiseModeler.dcgZones(pipeline.shotParams.dcgNoise) != null;
+                final float k = zones ? 1f : ScamHybridBurst.lastNoiseFactor;
+                st.noiseMerged = (float) (k * WhyNoiseClamp.modelScale(neff));
+                Log.i("SCAM_PIPELINE", String.format(java.util.Locale.ROOT, "WHY fusion noise: S=%.4g O=%.4g Neff=%.2f model x%.3g -> x%.4g",
+                        st.noiseS, st.noiseO, neff, k, st.noiseMerged));
+            }
+            if (record != null) {
+                record.fusionNoise = st.noiseMerged;
+                record.noiseScale = (float) (noiseS0 > 0 ? settings.noiseS / noiseS0 : noiseO0 > 0 ? settings.noiseO / noiseO0 : 1.0);
+                record.inScale = st.inScale;
+                record.lowWidth = lowSize.x;
+                record.lowHeight = lowSize.y;
+            }
+            final WhyAe.Stats fixed = frozen == null ? null : frozen.stats(settings.metering);
+            // a lab side with another «Масштаб входа, EV» than the frame was measured at: the whole frame's statistics at its gain
+            final float rescale = fixed != null && frozen.inScale > 0f ? st.inScale / frozen.inScale : 1f;
+            // P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): the two statistics passes chained on the GPU (no read-back
+            // between them) and flushed, the early sharpening queued behind them, then their read-back - the CPU waits for the
+            // statistics only, and the GPU is busy with the sharpening while the Smart-HDR maths runs. Not for a lab shot (it
+            // records every metering), the old GL model, the diagnostics dump or scam_dev.txt "ae_gpu_chain 0": as before
+            boolean sharpenIssued = false;
+            WhyAe.Stats gpu = null;
+            WhyAeGpu.Pending chained = fixed == null && record == null && !legacy && !ScamDiagnostics.active()
+                    && PreferenceKeys.scamDevSwitch("ae_gpu_chain", true) ? WhyAeGpu.begin(shaderProg, st.low, settings.metering) : null;
+            shaderProg.closed = true;
+            if (chained != null) {
+                android.opengl.GLES30.glFlush();
+                sharpenIssued = true;
+                earlyIssued = earlySharpen != null && earlySharpen.runEarly(pipeline, passOut);
+                shaderProg.closed = true;
+                gpu = WhyAeGpu.end(chained);
+            } else {
+                gpu = fixed != null ? LabFrame.scaled(fixed, rescale)
+                        : legacy || ScamDiagnostics.active() ? null : WhyAeGpu.stats(shaderProg, st.low, settings.metering);
+            }
+            shaderProg.closed = true;
+            if (fixed != null) Log.i("SCAM_PIPELINE", "WHY stats: the whole frame's (lab fragment, metering " + settings.metering
+                    + (rescale != 1f ? ", input scale x" + rescale : "") + ")");
+            if (record != null && fixed == null && gpu != null && settings.metering >= 0 && settings.metering < LabFrame.MODES) {
+                // every metering mode, so a lab side with another metering decides from the whole frame too (three small passes)
+                record.stats[settings.metering] = gpu;
+                for (int m = 0; m < LabFrame.MODES; m++) {
+                    if (m == settings.metering) continue;
+                    record.stats[m] = WhyAeGpu.stats(shaderProg, st.low, m);
+                    shaderProg.closed = true;
+                }
+            }
+            if (gpu != null) {
+                final boolean early = sharpenIssued ? earlyIssued : earlySharpen != null && earlySharpen.runEarly(pipeline, passOut);
+                WhyAe.Result r = WhyAe.finish(gpu, settings, iso, maxIso);
+                WhyTone.facePriority(r, st.portrait);   // P512
+                st.ae = r;
+                pipeline.linearDisplayGain = r.ae;
+                Log.i("SCAM_PIPELINE", "WHY SMART_HDR_STAT " + r.describe() + " iso=" + iso + " maxIso=" + maxIso
+                        + " inScale=" + st.inScale + " low=" + lowSize.x + "x" + lowSize.y + " factor=" + st.factor
+                        + " ms=" + (System.currentTimeMillis() - started) + " stats=gpu" + (early ? " sharpen=early" : "") + dcgLog);
+                return;
+            }
+            // W1.6: whyLow read back as the IEEE halves it holds (8 B/pixel: 25 MB at 2048x1536) and widened exactly on the
+            // CPU, instead of the driver's conversion into a 50 MB float buffer. The diagnostics dump and the old model read
+            // floats as before, and so does a driver whose native read type is not RGBA / HALF_FLOAT or whose float
+            // conversion is not the exact widening (halfReadbackExact).
+            if (sharpenIssued) st.low.renderInto(); // P479b: the early passes bound their own targets; the read-back below reads whyLow
+            final int halfType = legacy || ScamDiagnostics.active() ? 0 : halfReadType();
+            boolean half = halfType != 0 && halfReadbackExact(halfType);
+            if (half) {
+                int bytes = lowSize.x * lowSize.y * 8;
+                pixels = Allocator.allocate(bytes);
+                if (pixels != null) {
+                    pixels.order(ByteOrder.nativeOrder());
+                    android.opengl.GLES30.glReadPixels(0, 0, lowSize.x, lowSize.y, android.opengl.GLES30.GL_RGBA, halfType, pixels);
+                    if (android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR) {
+                        Allocator.free(pixels);
+                        pixels = null;
+                    }
+                }
+                half = pixels != null;
+            }
+            if (!half) {
+                // One read-back of whyLow (RGBA float, 16 B/pixel: 50 MB at 2048x1536) into native memory.
+                int bytes = lowSize.x * lowSize.y * 16;
+                pixels = Allocator.allocate(bytes);
+                if (pixels == null) throw new IllegalStateException("whyLow read-back allocation of " + bytes + " B failed");
+                pixels.order(ByteOrder.nativeOrder());
+                st.low.textureBuffer(new GLFormat(GLFormat.DataType.FLOAT_16, 4), pixels);
+            }
+            pixels.rewind();
+            if (!half) ScamDiagnostics.buffer("02-WhyLow", pixels, lowSize.x, lowSize.y, 4, true);
+            final boolean early = sharpenIssued ? earlyIssued : !legacy && earlySharpen != null && earlySharpen.runEarly(pipeline, passOut);
+            WhyAe.Result r = half ? WhyAe.smartHdrHalf(pixels.asShortBuffer(), 4, lowSize.x, lowSize.y, settings, iso, maxIso)
+                    : WhyAe.smartHdr(pixels.asFloatBuffer(), 4, lowSize.x, lowSize.y, settings, iso, maxIso);
+            WhyTone.facePriority(r, st.portrait);   // P512
+            st.ae = r;
+            // Ultra HDR and anything else downstream that reads the display gain: the mod's exposure.
+            pipeline.linearDisplayGain = r.ae;
+            Log.i("SCAM_PIPELINE", "WHY SMART_HDR_STAT " + r.describe() + " iso=" + iso + " maxIso=" + maxIso
+                    + " inScale=" + st.inScale + " low=" + lowSize.x + "x" + lowSize.y + " factor=" + st.factor
+                    + " ms=" + (System.currentTimeMillis() - started) + " readback=" + (half ? "half" : "float")
+                    + (early ? " sharpen=early" : "") + dcgLog);
+        } finally {
+            if (pixels != null) Allocator.free(pixels);
+            if (fallback != null) fallback.close();
+        }
+    }
+}

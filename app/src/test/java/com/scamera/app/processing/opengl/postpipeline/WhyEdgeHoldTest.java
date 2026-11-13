@@ -1,0 +1,49 @@
+package com.scamera.app.processing.opengl.postpipeline;
+
+import static org.junit.Assert.assertTrue;
+
+import org.junit.Test;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+
+/**
+ * P394 (owner, 2026-10-29: «нам нужно сделать грань максимально гладкой без зубчиков»): why/combine's edge hold - at a strong edge
+ * the sharpened luma averaged along the edge and held within the full-size merge's 3 x 3 range. On by default in the photo
+ * (WhyTone.edgeHold 1, scam_dev hybrid_why_edge_hold), only with the full-size merge and the sharpened luma, off (bit for bit) when
+ * the uniform is unset (the viewfinder, the host checks).
+ */
+public class WhyEdgeHoldTest {
+    private static String read(String path) throws IOException {
+        File f = new File(path);
+        if (!f.isFile()) f = new File("app/" + path);
+        return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).replace("\r\n", "\n");
+    }
+
+    @Test public void thePhotoHoldsItsStrongEdges() throws IOException {
+        final String glsl = read("src/main/assets/shaders/why/combine.glsl");
+        assertTrue(glsl.contains("#if EDGE_HOLD == 1\nuniform float edgeHoldU;"));
+        assertTrue("off without the full-size merge or the uniform",
+                glsl.contains("if (fullInputU != 1 || edgeHoldU <= 0.0) return yD;"));
+        assertTrue("the sharpened luma only", glsl.contains("if (sharpU == 1 && bounded) yS = edgeHold(yS, xy, size, refDomain);"));
+        final String src = "src/main/java/com/scamera/app/processing/opengl/postpipeline/";
+        final String why = read(src + "WhyCombine.java");
+        assertTrue("its define only with the full-size merge and without a full-strength film",
+                why.contains("if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) shaderProg.setDefine(\"EDGE_HOLD\", 1);"));
+        assertTrue("the guard is this shot's ready film, not the current settings",
+                why.contains("final boolean filmOnly = scene != null && film.strength >= 1f;"));
+        assertTrue(why.contains("shaderProg.setVar(\"edgeHoldU\", WhyTone.edgeHold());"));
+        assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold\", 1f)"));
+        // P623 round 7: the hold only at an edge against light (the bright side at the bound); 0 = every strong edge, as before
+        assertTrue(glsl.contains("#if EDGE_HOLD == 1\nuniform float edgeHoldU;"));
+        assertTrue(glsl.contains("uniform float edgeHoldLightU;"));
+        assertTrue(glsl.contains("float wAlong = edgeHoldLightU > 0.0 ? mix(1.0, smoothstep(0.6, 0.9, hi), min(edgeHoldLightU, 1.0)) : 1.0;"));
+        assertTrue("the hold within the 3 x 3 range stays at every strong edge", glsl.contains("ys = mix(yD, sum / sw, wAlong);"));
+        assertTrue(why.contains("shaderProg.setVar(\"edgeHoldLightU\", WhyTone.edgeHoldLight());"));
+        assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold_light\", 1f)"));
+        assertTrue(read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"hybrid_why_edge_hold_light\", \"1\""));
+        assertTrue("the dev line", read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"hybrid_why_edge_hold\", \"1.0\""));
+    }
+}

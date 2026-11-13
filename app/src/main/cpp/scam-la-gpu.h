@@ -41,10 +41,7 @@
 namespace scam {
 
 static const char* kLaGlslCommon = R"(
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp image2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp image2D;
 )";
 
 // gray of one canonical quad (laGrayRow): the quad's four sites normalised by black / white of each phase and clamped to [0, 1],
@@ -758,6 +755,7 @@ class LaGpu {
         const char* sources[]={"#version 310 es\n",defs,kLaGlslCommon,body};
         const std::string file=cacheFile(std::string(sources[0])+sources[1]+sources[2]+sources[3]);
         if(!file.empty())if(GLuint cached=loadBinary(file))return cached;
+        scamGlslDump("la",std::string(sources[0])+sources[1]+sources[2]+sources[3]); // P662
         GLuint shader=glCreateShader(GL_COMPUTE_SHADER);
         glShaderSource(shader,4,sources,nullptr);
         glCompileShader(shader);

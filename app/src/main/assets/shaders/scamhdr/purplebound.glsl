@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P479 (speed): for scamhdr/scamrgb's purpleFringe, per 8 x 8 block of the input the largest luminance its taps can see - the
 // same tap value (non-finite zeroed, max(0), / white point, Rec.709) over every pixel of the block. A pixel whose taps' blocks
 // all stay under 0.59 of the base white has a weight of exactly 0 there (smoothstep(0.6, 0.95, yb / white)), so scamrgb skips

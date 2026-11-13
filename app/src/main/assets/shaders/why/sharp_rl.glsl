@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY luma sharpening (WhyLumaSharpen): one Richardson-Lucy stage of WhyCam 1.23 [helper 0x7a844; fc_cl_source.cl:
 // 690-876; why_sharpen.md 3.2; reference why_sharpen_ref.py rl_pass] - est = Lobs; per iteration
 // ratio = clamp(Lobs / max(PSF * est, 1e-4), 0.05, 10), est = max(0, est * (PSF * ratio)); the last iteration also

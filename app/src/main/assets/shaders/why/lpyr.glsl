@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY tone (WhyFusion), P333 (owner, 2026-10-25: «замени блок локального тонмапинга с гуидед фильтра на пирамиду Лапласа»,
 // after bartwronski.com/2022/02/28/exposure-fusion-local-tonemapping-for-real-time-rendering and Mertens et al.): the exposure
 // fusion of the luminance as a Laplacian pyramid blend instead of the guided filter of the weights. The synthetic exposures, their

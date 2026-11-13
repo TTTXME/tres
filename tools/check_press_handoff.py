@@ -2,7 +2,7 @@
 """P554: every ImageSaver a shot is saved with gets the press's white balance routes (manual and Quad / Tetra) together."""
 import pathlib, re, sys
 src = (pathlib.Path(__file__).resolve().parent.parent
-       / 'app/src/main/java/com/particlesdevs/photoncamera/capture/CaptureController.java').read_text(encoding='utf-8')
+       / 'app/src/main/java/com/scamera/app/capture/CaptureController.java').read_text(encoding='utf-8')
 fails = []
 for m in re.finditer(r'(\w+)\.manualWbAtPress = mShutterManualWb;', src):
     var = m.group(1)

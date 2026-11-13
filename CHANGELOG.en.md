@@ -2,6 +2,38 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-13 — Code cleanup
+
+- The camera code is cleaned up and reorganised.
+- Fixed a crash on cameras that report no sensor size.
+
+## 2026-11-13 — Merge and noise reduction
+
+- The behaviour of «Kernel size on textures (Base)», «Kernel size in bokeh (Blurred)» and «Texture / bokeh transition threshold» changed.
+- The behaviour of «Resolve denoise» and «Raw detail retention» changed.
+- «Quality»: fewer colour streaks on fine detail of moving subjects.
+- «Fast»: on flat and dark scenes all frames are merged again (at 50 MP one could be left).
+
+## 2026-11-13 — Sharpening
+
+- The behaviour of «Halo micro-texture margin» changed: at zero there is no margin.
+- The description of «Sharpening strength» is fixed.
+
+## 2026-11-13 — Xiaomi 17 Ultra
+
+- 50 MP on the main, tele and ultra wide: the viewfinder without a pink cast, autofocus works. Waits for a check on the phone.
+
+## 2026-11-13 — Lens settings
+
+- «Sensor mode» and the camera keys (vendor tags) are now at the top of the lens settings.
+
+## 2026-11-13 — Fixes and cleanup
+
+- The camera is rewritten and faster: quicker start and lens switching, a smoother viewfinder, faster 50 and 200 MP processing, less memory.
+- The APK is cleaned of unused code and resources and is noticeably smaller.
+- YUV merge: «Frames in the series» is no longer greyed out; the ScamMaster viewfinder is smoother.
+- On Mali a crashing merge preparation at camera start is no longer repeated.
+
 ## 2026-11-13 — ScamMaster
 
 - The ScamMaster viewfinder no longer turns green.
@@ -137,7 +169,7 @@ English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), f
 - The gallery no longer waits for the whole media library before it opens: the photo list is read in the background, and a second open without new photos reads nothing again.
 - Text search on photos no longer slows the gallery: reading starts a few seconds later, waits while you scroll, while a shot is processed and while the phone is hot, and pauses between photos.
 - A photo whose text reading was cut short is no longer stored as empty — it is read again.
-- DNG and photos: no PhotonCamera leftovers in the shot data — the capture time with milliseconds and time zone, the lens and 35 mm focal length of the camera used, SCAMERA as the software. Photos and DNGs now carry an embedded preview, so the gallery shows them faster.
+- DNG and photos: updated shot data: the capture time with milliseconds and time zone, the lens and 35 mm focal length of the camera used, SCAMERA as the software. Photos and DNGs now carry an embedded preview, so the gallery shows them faster.
 - Gallery editor: a new «LUT» tab — the camera's LUTs and film simulations (print, format, grain, exposure, contrast) on the finished photo, with previews on the cards; saved as a copy like the other edits.
 - Gallery thumbnails load faster, most of all for 50 and 200 MP photos and RAWs: the grid never decodes a full photo, a RAW is read in place and only the rows it needs, thumbnails are prepared ahead of the scroll and no longer pushed out of the cache, and an opened photo shows its thumbnail at once while the full picture loads.
 - Gallery: three views to choose from («⋮» → «View»): «Grid» as before, «List» — rows with the thumbnail, name, date, size and RAW / HEIC / 50 MP / SHDR tags, folders as rows with a cover and a count of new files, and «Timeline» — edge-to-edge tiles by month that pinch out to months and years; switching is animated and keeps your place.

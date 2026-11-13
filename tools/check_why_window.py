@@ -25,8 +25,8 @@ import check_why_pyramid as cwp  # noqa: E402
 import check_why_pyramid_bands as cwb  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-FUSION_JAVA = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyFusion.java').read_text()
-TONE_JAVA = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text()
+FUSION_JAVA = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyFusion.java').read_text()
+TONE_JAVA = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text()
 FAIL = []
 
 

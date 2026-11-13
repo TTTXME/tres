@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P662: the resource shrinker (shrinkResources on the shipped variant). Safe mode: a resource whose name appears in a string of
+     the code stays too. Every resource the code reaches is an R reference (no getIdentifier); Icons reads its colour icons' names
+     from @array/kb_icons and compares them with getResourceEntryName of an R id, so the array stays whole. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:shrinkMode="safe"
+    tools:keep="@array/kb_icons" />

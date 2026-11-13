@@ -279,9 +279,9 @@ bool runOne(const Lookup &l, Obj &ownerClass, std::vector<Obj *> &paramClasses) 
             for (size_t i = 0; i < l.params; i++) array->elements.push_back(paramClasses[i % paramClasses.size()]);
             types = reinterpret_cast<jobjectArray>(makeRef(array, false));
         }
-        result = Java_com_particlesdevs_photoncamera_api_NativeEngine_nativeGetCameraMethod(&fakeEnv, nullptr, cls, name, types);
+        result = Java_com_scamera_app_api_NativeEngine_hiddenMethod(&fakeEnv, nullptr, cls, name, types);
     } else {
-        result = Java_com_particlesdevs_photoncamera_api_NativeEngine_nativeGetCameraField(&fakeEnv, nullptr, cls, name);
+        result = Java_com_scamera_app_api_NativeEngine_hiddenField(&fakeEnv, nullptr, cls, name);
     }
     bool ok = true;
     if (pendingException) { fail("exception left pending for the Java caller: " + l.name); ok = false; }

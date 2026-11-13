@@ -59,7 +59,7 @@ bool scamAhbFreeView(const void* ptr) {
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_allocate(JNIEnv*, jclass, jlong bytes) {
+Java_com_scamera_app_util_HardwareRgb_allocate(JNIEnv*, jclass, jlong bytes) {
     if (bytes <= 0 || bytes > jlong(INT32_MAX)) return 0;
     AHardwareBuffer_Desc d{};
     d.width = uint32_t(bytes); d.height = 1; d.layers = 1; d.format = AHARDWAREBUFFER_FORMAT_BLOB;
@@ -70,13 +70,13 @@ Java_com_particlesdevs_photoncamera_util_HardwareRgb_allocate(JNIEnv*, jclass, j
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_send(JNIEnv*, jclass, jlong handle, jint socketFd) {
+Java_com_scamera_app_util_HardwareRgb_send(JNIEnv*, jclass, jlong handle, jint socketFd) {
     auto* h = reinterpret_cast<AHardwareBuffer*>(intptr_t(handle));
     return h && socketFd >= 0 && AHardwareBuffer_sendHandleToUnixSocket(h, socketFd) == 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_release(JNIEnv*, jclass, jlong handle) {
+Java_com_scamera_app_util_HardwareRgb_release(JNIEnv*, jclass, jlong handle) {
     auto* h = reinterpret_cast<AHardwareBuffer*>(intptr_t(handle));
     if (h) AHardwareBuffer_release(h);
 }
@@ -84,7 +84,7 @@ Java_com_particlesdevs_photoncamera_util_HardwareRgb_release(JNIEnv*, jclass, jl
 // The buffer locked for CPU reads as a direct ByteBuffer of `bytes` (the view owns the handle from here: Allocator.free releases
 // it); null: not locked (the caller still owns the handle).
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_view(JNIEnv* env, jclass, jlong handle, jint bytes) {
+Java_com_scamera_app_util_HardwareRgb_view(JNIEnv* env, jclass, jlong handle, jint bytes) {
     auto* h = reinterpret_cast<AHardwareBuffer*>(intptr_t(handle));
     if (!h || bytes <= 0) return nullptr;
     AHardwareBuffer_Desc d{};
@@ -100,7 +100,7 @@ Java_com_particlesdevs_photoncamera_util_HardwareRgb_view(JNIEnv* env, jclass, j
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_isView(JNIEnv* env, jclass, jobject buffer) {
+Java_com_scamera_app_util_HardwareRgb_isView(JNIEnv* env, jclass, jobject buffer) {
     void* p = buffer ? env->GetDirectBufferAddress(buffer) : nullptr;
     if (!p) return JNI_FALSE;
     std::lock_guard<std::mutex> lock(viewLock);
@@ -110,7 +110,7 @@ Java_com_particlesdevs_photoncamera_util_HardwareRgb_isView(JNIEnv* env, jclass,
 // The view's buffer as the storage of a new GL buffer object in the calling thread's current context (EXT_external_buffer with
 // EGL_ANDROID_get_native_client_buffer); the GL name, 0 when refused (no context, no extension, a GL error).
 extern "C" JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_importGl(JNIEnv* env, jclass, jobject buffer) {
+Java_com_scamera_app_util_HardwareRgb_importGl(JNIEnv* env, jclass, jobject buffer) {
     void* p = buffer ? env->GetDirectBufferAddress(buffer) : nullptr;
     if (!p || eglGetCurrentContext() == EGL_NO_CONTEXT) return 0;
     AHardwareBuffer* h = nullptr; size_t bytes = 0;
@@ -148,7 +148,7 @@ Java_com_particlesdevs_photoncamera_util_HardwareRgb_importGl(JNIEnv* env, jclas
 // An EGL fence after the calling thread's GL reads of the view: its free waits for it (off this thread). false: no fence (the
 // caller then finishes the GL work itself before the view may go).
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_util_HardwareRgb_fence(JNIEnv* env, jclass, jobject buffer) {
+Java_com_scamera_app_util_HardwareRgb_fence(JNIEnv* env, jclass, jobject buffer) {
     void* p = buffer ? env->GetDirectBufferAddress(buffer) : nullptr;
     const EGLDisplay display = eglGetCurrentDisplay();
     if (!p || display == EGL_NO_DISPLAY || !createSync()) return JNI_FALSE;

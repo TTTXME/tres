@@ -76,3 +76,9 @@ For every speed candidate, replay identical real bursts with identical tuning an
 Owner: «Сокращай всегда логи по максимуму». The changelog sections that are posted to Telegram (`CHANGELOG.md`,
 `CHANGELOG.en.md`) must be as short as possible: a title and at most a few one-line bullets per delivery, user-facing only
 (what the user gets; no internals, no parameter lists). The details go to `research/handoff/PLAN.md`.
+
+# Result rule for rework (owner, 2026-11-13)
+Owner: «после изменения, доработки или переработки результат может отличаться, но только если итог будет лучше. Если результат
+хуже, тогда не принимается». A change, rework or rewrite may change the output (photos, viewfinder, UI) only when the result is
+measurably better (before/after numbers and crops on the owner's bursts); a change that makes anything worse is not accepted.
+Otherwise the output stays bit-identical.

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P145: the per-pixel part of the WHY Smart-HDR auto exposure (WhyAe.stats) on the GPU instead of a read-back of whyLow
 // and two single-threaded CPU passes. Compute, an 8x8 group per 64x64 tile of whyLow (each invocation 8x8 pixels).
 // PASS 1: the largest finite sample of r, g, b as an order-preserving uint key (WhyAe.maxKey) -> aeMax[0] (atomicMax).

@@ -125,7 +125,6 @@
     <string name="shade_scrim">Опустить шторку</string>
 
     <!-- Tiles, rows, toasts -->
-    <string name="shade_pinned">Закреплено</string>
     <string name="shade_add">Добавить</string>
     <string name="shade_add_description">Добавить в шторку</string>
     <string name="shade_toast_value">%1$s: %2$s</string>
@@ -149,7 +148,6 @@
     <string name="shade_catalog_row_add">Добавить в шторку: %1$s</string>
     <string name="shade_catalog_row_pinned">В шторке, убрать: %1$s</string>
     <string name="shade_more">Другие настройки</string>
-    <string name="shade_more_summary">Любую настройку — в шторку (всего %1$d)</string>
 
     <!-- Edit mode, reorder -->
     <string name="shade_edit">Изменить</string>
@@ -162,10 +160,8 @@
     <string name="shade_remove_description">Убрать %1$s</string>
 
     <!-- Viewfinder chrome -->
-    <string name="shade_badge_route">Склейка %1$s</string>
     <!-- Карточка группы в верхней панели: значки склейки и формата. -->
     <string name="bottom_pro">Про</string>
-    <string name="bottom_more">Ещё</string>
     <string name="ev_sun_description">Яркость: потяните вверх или вниз</string>
     <string name="first_run_hint">Нажмите на кадр — фокус, солнце — яркость</string>
     <string name="shade_quick_title">Быстрые настройки</string>
@@ -183,14 +179,11 @@
         <item>200 Мп</item>
     </string-array>
     <string name="topbar_group">Формат и размер фото</string>
-    <string name="topbar_torch">Фонарик</string>
     <string name="topbar_motion">Спорт</string>
     <string name="topbar_format">Формат %1$s</string>
     <string name="shade_shutter">Снимок</string>
     <string name="shade_flip_camera">Фронтальная / основная камера</string>
     <string name="shade_gallery">Галерея</string>
-    <string name="shade_all_settings_summary">Фото, съёмка, цвет, SHDR, камеры</string>
-    <string name="shade_hint">Свайп вверх — шторка\nЗажми плитку — переставить</string>
 
     <!-- Why a tile is dimmed -->
     <string name="shade_reason_no_flash">У этого объектива нет вспышки</string>

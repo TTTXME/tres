@@ -6,7 +6,7 @@ import re
 import struct
 
 ROOT = Path(__file__).resolve().parents[1]
-JAVA = ROOT / "app/src/main/java/com/particlesdevs/photoncamera/processing/color"
+JAVA = ROOT / "app/src/main/java/com/scamera/app/processing/color"
 CPP = ROOT / "app/src/main/cpp"
 
 

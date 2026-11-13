@@ -1,6 +1,4 @@
-precision highp float;
-precision highp sampler2D;
-precision highp sampler3D;
+precision highp float; precision highp sampler2D; precision highp sampler3D;
 // P286 / P289: the reference model's grain (FilmGrain) on the finished picture (display encoded): per film layer an independent
 // Gaussian density noise (the particle model's variance, FilmSpectral.grainSigma) blurred by the reference app's 11.8 um
 // (film/noise.glsl, film/blur.glsl: Noise), seen through the print and the scan: out += GrainLut(out) / pixel size x noise.

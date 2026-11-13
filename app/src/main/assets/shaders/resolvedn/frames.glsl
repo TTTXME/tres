@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp usampler2D;
+precision highp float; precision highp int; precision highp usampler2D;
 uniform usampler2D EffMap;
 uniform float effScaleU;
 uniform float framesU;

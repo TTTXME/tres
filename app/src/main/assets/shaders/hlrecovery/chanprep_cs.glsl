@@ -1,8 +1,6 @@
 #define LAYOUT //
 LAYOUT
-precision highp float;
-precision highp sampler2D;
-precision highp image2D;
+precision highp float; precision highp sampler2D; precision highp image2D;
 // Per-channel highlight recovery (SCAM Hybrid), statistics: per block of output pixels, the white-balanced colour of the
 // pixels that are bright but unclipped (the light around a clipped highlight) and their weight.
 // rgba = (sum of weight * colour, sum of weight), both divided by the number of samples: rgb/a is their mean colour,

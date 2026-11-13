@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 precision highp int;    // P317: as film/noise.glsl (only small loop indices are converted here, exact either way)
 // P286: the reference model's in-emulsion scatter (FilmHalation, linear light, before the halation), one axis per pass:
 // per channel (1 - w) G(core) + w Exp(tail), the exponential as the reference's three-Gaussian fit (amplitudes 0.1633,

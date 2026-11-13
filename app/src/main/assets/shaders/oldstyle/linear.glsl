@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P630b «Oldstyle» (OldstyleTone): the frame the owner's tone-port module takes, as int16 samples of its 12-bit scale (4095 =
 // white of the merge's exposure x uScale), read back strip by strip. The colour chain of why/v2_clean (our white balance, lens
 // shading; the colour matrix unless PRE_CCM: V1's finish_raw27_rgb applies our CCM itself), without its clamp at 0 (the module

@@ -1,104 +1,87 @@
-precision highp sampler2D;
-precision highp int;
-precision highp float;
+precision highp sampler2D; precision highp int; precision highp float;
+// Per-channel histograms (scripts/GLHistogram): every SCALE-th texel of inTexture, scaled by `binScale` (bins - 1 per unit),
+// counted into HISTSIZE bins - first in the work group's shared counters, then added to the channel's buffer.
 // P317: memoryBarrierShared() with every barrier() (ESSL 3.10 8.14, as why/aestats.glsl).
+uniform vec4 binScale;
 uniform sampler2D inTexture;
-uniform vec4 exposure;
-uniform float input1;
-uniform float input2;
 #define COL_R 1
 #define COL_G 1
 #define COL_B 1
 #define COL_A 1
-#define COL_CUSTOM 0
 #define HISTSIZE 256
-//#define HISTMPY 255.0
 #define SCALE 1
-#define HISTSTEPS uint(HISTSIZE/64)
+// bins each of the group's 64 invocations clears and flushes
+#define PER_INVOCATION uint(HISTSIZE/64)
 
 #if COL_R == 1
-layout(std430, binding = 1) buffer histogramRed {
-    uint reds[];
-};
-shared uint localRed[HISTSIZE];
+layout(std430, binding = 1) buffer histogramRed { uint countR[]; };
+shared uint groupR[HISTSIZE];
 #endif
 #if COL_G == 1
-layout(std430, binding = 2) buffer histogramGreen {
-    uint greens[];
-};
-shared uint localGreen[HISTSIZE];
+layout(std430, binding = 2) buffer histogramGreen { uint countG[]; };
+shared uint groupG[HISTSIZE];
 #endif
 #if COL_B == 1
-layout(std430, binding = 3) buffer histogramBlue {
-    uint blues[];
-};
-shared uint localBlue[HISTSIZE];
+layout(std430, binding = 3) buffer histogramBlue { uint countB[]; };
+shared uint groupB[HISTSIZE];
 #endif
 #if COL_A == 1
-layout(std430, binding = 4) buffer histogramAlpha {
-    uint alphas[];
-};
-shared uint localAlpha[HISTSIZE];
+layout(std430, binding = 4) buffer histogramAlpha { uint countA[]; };
+shared uint groupA[HISTSIZE];
 #endif
 
-#define CUSTOM_PROGRAM //
-#import median
 #define LAYOUT //
 LAYOUT
 
 void main() {
-    ivec2 storePos = ivec2(gl_GlobalInvocationID.xy)*SCALE;
-    ivec2 imgsize = textureSize(inTexture,0).xy;
-    uint index = uint(gl_LocalInvocationIndex) * HISTSTEPS; // 0 - 64 * HISTSTEPS
-    for (uint i = 0u; i < HISTSTEPS; i++) {
+    uint first = uint(gl_LocalInvocationIndex) * PER_INVOCATION;
+    for (uint k = first; k < first + PER_INVOCATION; k++) {
         #if COL_R == 1
-        localRed[index + i] = 0u;
+        groupR[k] = 0u;
         #endif
         #if COL_G == 1
-        localGreen[index + i] = 0u;
+        groupG[k] = 0u;
         #endif
         #if COL_B == 1
-        localBlue[index + i] = 0u;
+        groupB[k] = 0u;
         #endif
         #if COL_A == 1
-        localAlpha[index + i] = 0u;
+        groupA[k] = 0u;
         #endif
     }
     memoryBarrierShared(); barrier();
 
-    if (storePos.x < imgsize.x && storePos.y < imgsize.y) {
-        vec4 texColor = texture(inTexture,(vec2(storePos) + 0.5)/vec2(imgsize));
-        uvec4 texColorUint = clamp(uvec4(exposure * texColor), uvec4(0), uvec4(HISTSIZE - 1));
-        #if COL_CUSTOM == 1
-            CUSTOM_PROGRAM;
-        #endif
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy) * SCALE;
+    ivec2 size = textureSize(inTexture, 0).xy;
+    if (all(lessThan(at, size))) {
+        uvec4 bin = clamp(uvec4(binScale * texture(inTexture, (vec2(at) + 0.5) / vec2(size))), uvec4(0), uvec4(HISTSIZE - 1));
         #if COL_R == 1
-        atomicAdd(localRed[texColorUint.r], 1u);
+        atomicAdd(groupR[bin.r], 1u);
         #endif
         #if COL_G == 1
-        atomicAdd(localGreen[texColorUint.g], 1u);
+        atomicAdd(groupG[bin.g], 1u);
         #endif
         #if COL_B == 1
-        atomicAdd(localBlue[texColorUint.b], 1u);
+        atomicAdd(groupB[bin.b], 1u);
         #endif
         #if COL_A == 1
-        atomicAdd(localAlpha[texColorUint.a], 1u);
+        atomicAdd(groupA[bin.a], 1u);
         #endif
     }
     memoryBarrierShared(); barrier();
 
-    for (uint i = 0u; i < HISTSTEPS; i++) {
+    for (uint k = first; k < first + PER_INVOCATION; k++) {
         #if COL_R == 1
-        atomicAdd(reds[index + i], localRed[index + i]);
+        atomicAdd(countR[k], groupR[k]);
         #endif
         #if COL_G == 1
-        atomicAdd(greens[index + i], localGreen[index + i]);
+        atomicAdd(countG[k], groupG[k]);
         #endif
         #if COL_B == 1
-        atomicAdd(blues[index + i], localBlue[index + i]);
+        atomicAdd(countB[k], groupB[k]);
         #endif
         #if COL_A == 1
-        atomicAdd(alphas[index + i], localAlpha[index + i]);
+        atomicAdd(countA[k], groupA[k]);
         #endif
     }
 }

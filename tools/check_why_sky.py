@@ -47,7 +47,7 @@ import moderngl
 
 ROOT = Path(__file__).resolve().parents[1]
 SH = ROOT / 'app/src/main/assets/shaders'
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhySkyMask.java'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhySkyMask.java'
 sys.path.insert(0, str(ROOT / 'tools'))
 import check_why_pyramid as cwp  # noqa: E402  (Gl, read_program, levels_for, guided)
 import check_why_pyramid_bands as cwb  # noqa: E402  (P391: the photo's fusion since the edge-aware bands)
@@ -65,7 +65,7 @@ P341_SHAPE = (0.45, 0.75, 0.002, 0.008)
 def shipped():
     """WhyTone's defaults of the sky term (skyTone: gain, macro, room x; SKY_GLOW), read from the source so the check renders them."""
     import re
-    src = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
+    src = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
     tone = tuple(float(re.search(r'value\("%s", ([\d.]+)f\)' % k, src).group(1)) for k in ('sky_gain', 'sky_macro', 'sky_top'))
     return tone, float(re.search(r'SKY_GLOW = ([\d.]+)f;', src).group(1)), float(re.search(r'SKY_VIBRANCE = ([\d.]+)f;', src).group(1))
 
@@ -73,7 +73,7 @@ def shipped():
 SKY_TONE, SKY_GLOW, SKY_VIBRANCE = shipped()
 
 DRIVER = r'''
-package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+package com.scamera.app.processing.opengl.postpipeline;
 import java.nio.*;
 import java.nio.file.*;
 /** args: w h evOffset top ceiling low.f32 (RGB) mode0.f32 mode1.f32 out.f32 -> the decision on the GPU cells, the CPU cells' gap. */
@@ -127,7 +127,7 @@ class Java:
     def __init__(self):
         self.dir = tempfile.mkdtemp(prefix='check_why_sky_')
         src = Path(self.dir) / 'src'
-        pkg = src / 'com/particlesdevs/photoncamera/processing/opengl/postpipeline'
+        pkg = src / 'com/scamera/app/processing/opengl/postpipeline'
         pkg.mkdir(parents=True)
         (pkg / 'SkyDrv.java').write_text(DRIVER)
         shutil.copy(JAVA, pkg / 'WhySkyMask.java')
@@ -143,7 +143,7 @@ class Java:
         np.ascontiguousarray(mode0, '<f4').tofile(d / 'm0.f32')
         np.ascontiguousarray(mode1, '<f4').tofile(d / 'm1.f32')
         h, w = low.shape[:2]
-        return self.parse(['java', '-cp', str(d / 'classes'), 'com.particlesdevs.photoncamera.processing.opengl.postpipeline.SkyDrv',
+        return self.parse(['java', '-cp', str(d / 'classes'), 'com.scamera.app.processing.opengl.postpipeline.SkyDrv',
                            str(w), str(h), repr(float(ev)), str(top), repr(float(ceiling)), str(d / 'low.f32'), str(d / 'm0.f32'),
                            str(d / 'm1.f32'), str(d / 'out.f32')])
 
@@ -151,7 +151,7 @@ class Java:
         """The viewfinder's decision (LiveWhyTone.decideSky) on the meter's quads (my x mx x 12 floats)."""
         d = Path(self.dir)
         np.ascontiguousarray(quads, '<f4').tofile(d / 'q.f32')
-        return self.parse(['java', '-cp', str(d / 'classes'), 'com.particlesdevs.photoncamera.processing.opengl.postpipeline.SkyDrv',
+        return self.parse(['java', '-cp', str(d / 'classes'), 'com.scamera.app.processing.opengl.postpipeline.SkyDrv',
                            'quads', str(mx), str(my), repr(float(ev)), str(top), repr(float(ceiling)), str(d / 'q.f32'), str(d / 'out.f32')])
 
     def parse(self, cmd):
@@ -870,7 +870,7 @@ def ab(path, out_dir, ev, rotation):
     if drv and drv.is_dir():
         with tempfile.NamedTemporaryFile(suffix='.f32', delete=False) as f:
             f.write(np.ascontiguousarray(lw, '<f4').tobytes())
-        r = subprocess.run(['java', '-cp', str(drv), 'com.particlesdevs.photoncamera.processing.opengl.postpipeline.AeDrv', f.name,
+        r = subprocess.run(['java', '-cp', str(drv), 'com.scamera.app.processing.opengl.postpipeline.AeDrv', f.name,
                             str(lw.shape[1]), str(lw.shape[0]), '100', '6400', 'bento'], capture_output=True, text=True)
         os.unlink(f.name)
         v = [float(t) for t in r.stdout.split()]

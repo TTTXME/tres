@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Mid-frequency local contrast (texture): the Laplacian levels of the display luminance that hold
 // structures of about 2-16 pixels are scaled up where their local amplitude is clearly above the
 // noise floor of the band (flat areas keep their noise level), with less gain on strong edges (no

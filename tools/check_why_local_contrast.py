@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_why_pyramid_bands as cwb  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-TONE = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
-COMB = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyCombine.java').read_text(encoding='utf-8')
+TONE = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
+COMB = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyCombine.java').read_text(encoding='utf-8')
 fails = []
 
 
@@ -31,7 +31,7 @@ k = re.search(r'LOCAL_CONTRAST_SIGMA = ([\d.]+)f, LOCAL_CONTRAST_T = ([\d.]+)f;'
 check(m is not None and k is not None, 'WhyTone: localContrast default, sigma, t')
 C, SIGMA_FULL, T = float(m.group(1)), float(k.group(1)), float(k.group(2))
 check(0.0 < C <= 0.5, 'the default strength %.2f in (0, 0.5]' % C)
-check('glProg.setTexture("WhyFused", fusedLc != null ? fusedLc : st.fused);' in COMB and 'if (lc > 0f && !filmOnly)' in COMB,
+check('shaderProg.setTexture("WhyFused", fusedLc != null ? fusedLc : st.fused);' in COMB and 'if (lc > 0f && !filmOnly)' in COMB,
       'WhyCombine binds the local-contrast luma, only with a strength (0 = the fused luma as before)')
 SIGMA = SIGMA_FULL / 2.0   # whyLow of factor 2
 

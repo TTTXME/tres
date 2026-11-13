@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P378 (WhySky): the sky mask - the cells' weights of WhySkyMask.decide (SkyCells, bilinear: r the sky, g the clear sky, b the local
 // sky level as log2 Y) times the pixel's own gate (utils/import_skygate.glsl skyFine: its luminance from 1.75 stops under the local
 // sky level (none) to 1 stop under it (all), so branches, wires, a roof's edge and the facades below a skyline - darker than the

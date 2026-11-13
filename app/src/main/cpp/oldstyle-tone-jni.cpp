@@ -59,7 +59,7 @@ extern "C" {
  * ES 3 driver supports) into the planar int16 frame at row {@code y0}.
  */
 JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_deinterleave(JNIEnv* env, jclass, jobject strip,
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_deinterleave(JNIEnv* env, jclass, jobject strip,
         jobject planar, jint width, jint height, jint y0, jint rows) {
     auto* s = static_cast<const int32_t*>(env->GetDirectBufferAddress(strip));
     auto* p = static_cast<int16_t*>(env->GetDirectBufferAddress(planar));
@@ -83,7 +83,7 @@ Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_deinterle
 
 /** P636: the same from RGBA int16 pixels (the frame read as GL_RGBA_INTEGER / GL_SHORT where the driver names that pair). */
 JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_deinterleave16(JNIEnv* env, jclass, jobject strip,
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_deinterleave16(JNIEnv* env, jclass, jobject strip,
         jobject planar, jint width, jint height, jint y0, jint rows) {
     auto* s = static_cast<const int16_t*>(env->GetDirectBufferAddress(strip));
     auto* p = static_cast<int16_t*>(env->GetDirectBufferAddress(planar));
@@ -107,7 +107,7 @@ Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_deinterle
 
 /** P636: the threads of the module's and the stages' row loops (1: the single-thread path of P630e; 0 or less: the cores, at most 8). Returns the count in use. */
 JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_setThreads(JNIEnv*, jclass, jint count) {
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_setThreads(JNIEnv*, jclass, jint count) {
     tone::set_threads(count);
     return tone::threads();
 }
@@ -118,7 +118,7 @@ Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_setThread
  * max 8 x forgiveness 1.4; EV 0, no TET bounds) + raw_hdr_gains_31. Without HDR gS = gL = the gains of S and L as they are.
  */
 JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_plan(JNIEnv* env, jclass, jint profile, jfloat shortCandidate,
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_plan(JNIEnv* env, jclass, jint profile, jfloat shortCandidate,
         jfloat longCandidate, jfloat fractionLong, jfloat actualShortTet, jfloat maxGain, jfloatArray outArray) {
     if (!outArray || env->GetArrayLength(outArray) < 6 || !(shortCandidate > 0.f) || !(longCandidate > 0.f) || !(actualShortTet > 0.f)) {
         raise(env, "Oldstyle plan: bad arguments");
@@ -151,7 +151,7 @@ Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_plan(JNIE
  * Returns 0, or throws on a module error.
  */
 JNIEXPORT jint JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_render(JNIEnv* env, jclass, jint version,
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_render(JNIEnv* env, jclass, jint version,
         jobject planar, jint width, jint height, jfloatArray ccmArray, jfloat gainShort, jfloat gainLong, jboolean hdr,
         jboolean postview, jfloat saturation, jfloatArray postArray, jfloatArray shadingArray, jint shadingW, jint shadingH,
         jfloatArray infoArray, jobject out) {
@@ -224,13 +224,13 @@ static void preview_lut(JNIEnv* env, jint version, float mid, float contrast, jb
 }
 
 JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_previewLut(JNIEnv* env, jclass, jint version, jbyteArray outArray) {
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_previewLut(JNIEnv* env, jclass, jint version, jbyteArray outArray) {
     preview_lut(env, version, 0.f, 0.f, outArray);
 }
 
 /** P630h: previewLut with the tone curve shaped as the shot's (Post entries 13, 14). */
 JNIEXPORT void JNICALL
-Java_com_particlesdevs_photoncamera_processing_oldstyle_OldstyleNative_previewLutCurve(JNIEnv* env, jclass, jint version, jfloat mid,
+Java_com_scamera_app_processing_oldstyle_OldstyleNative_previewLutCurve(JNIEnv* env, jclass, jint version, jfloat mid,
         jfloat contrast, jbyteArray outArray) {
     preview_lut(env, version, mid == mid ? mid : 0.f, contrast == contrast ? contrast : 0.f, outArray);
 }

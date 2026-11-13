@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // SCAM chroma noise reduction, one pass of one pyramid level (the reference ChromaDenoise / v11 chroma_denoise.cl,
 // BilateralFilterChroma3x3): the 3x3 neighbours at stride s, with 1-2-1 x 1-2-1 spatial weights (4 at the centre),
 // are compared with the centre through d^2 = dY^2 + (uvs.x dU)^2 + (uvs.y dV)^2 (U, V brought to the noise scale of

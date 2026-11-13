@@ -1,0 +1,229 @@
+package com.scamera.app.processing;
+
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Typeface;
+
+import androidx.annotation.Nullable;
+
+import com.scamera.app.util.Log;
+
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * «Отметка ES / L на фото» (owner, 2026-10-28: «при её активации в углу сверху справа на фото писало использовался ли
+ * сверхкороткий и длинный кадры на итоговом, если не сработал должна быть написана причина. Причина должна быть очень коротко
+ * написана чтобы поняли только мы с тобой»): two lines in the photo's top right corner, «ES ✓3» / «ES ✗ code» for the
+ * ultrashort frames (Bento) and «L ✓3» / «L ✓1/3 code» / «L ✗ code» for the long ones (Shasta). From the shot's plan (its
+ * description: what was not asked for and why), the frames the burst handed to the merge, and the worker's report.
+ * <p>
+ * Codes. Not asked for: off (switched off), nc 0.04% (the ring frame clipped too little for ES), floor (the sensor cannot go
+ * short enough), dcg (a DCG shot takes no L), r9.0 / r1.1 (L's ratio above the limit / below 1.2), ring (Motion mode or a mode
+ * without a series: ring frames only). Asked for: lost (none came), hal (they came back at the N exposure). In the merge, ES:
+ * nclip (too little clipping), hole (a large inpainting hole), usclip (the ES frame itself clipped), mv12% (motion in the mask),
+ * nshort (not the shortest), tune (off in the tuning), align (not aligned); L: sh28% (the sharpest share of the base below the
+ * gate), tet (the exposure ratio above the limit), mv (motion), align. nomrg: no merge for this photo; ?: the report says
+ * nothing. P377: a third line «ETTR +1.0» / «ETTR ✗ code» with ETTR on ({@link #ettrLine}).
+ */
+public final class MergeStamp {
+    /** The switch (Система → Диагностика); a debug key: one for every lens (ModuleProfiles.isLocal). */
+    public static final String KEY = "pref_debug_merge_stamp";
+
+    private MergeStamp() {}
+
+    /** Whether the stamp is on (the lab's renders read it off: ScamLabRun.basePrefs). */
+    public static boolean on() {
+        try {
+            final Object v = com.scamera.app.settings.PreferenceValue.get(
+                    com.scamera.app.app.ScameraApp.getSettingsManagerStatic().getDefaultPreferences(), KEY);
+            return v instanceof Boolean ? (Boolean) v : "1".equals(String.valueOf(v)) || "true".equals(String.valueOf(v));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Both lines of a shot: its plan's description, the burst's ES / L frames captured and sent (-1: no merge), the report; P377 a
+     * third with ETTR on ({@link #ettrLine}).
+     */
+    public static String[] lines(@Nullable String plan, int esCaptured, int esSent, int longCaptured, int longSent, @Nullable String report) {
+        final String es = esLine(plan, esCaptured, esSent, report), l = longLine(plan, longCaptured, longSent, report);
+        final String ettr = ettrLine(plan);
+        return ettr == null ? new String[]{es, l} : new String[]{es, l, ettr};
+    }
+
+    /**
+     * P377 (owner, 2026-10-28: «ETTR вообще не работает»): the shot's ETTR from its plan (CaptureController writes " | ETTR +1.0"
+     * or " | ETTR ✗ code"), null with the switch off. Codes: man (the shutter set by hand), mm («Движение»), nae / sdk / stab (the
+     * own native AE, a vivo SDK session, the forced stabilisation), room (the shutter at one ring frame or the HAL's motion-safe
+     * one), clip (the brightest quads clipped: from the AE again), hi (they are at the target already), band (the mains half
+     * periods leave no whole step), wait (not metered yet).
+     */
+    @Nullable
+    static String ettrLine(@Nullable String plan) {
+        final int at = plan == null ? -1 : plan.indexOf(" | ETTR ");
+        if (at < 0) return null;
+        final String[] words = plan.substring(at + " | ETTR ".length()).trim().split("\\s+");
+        if (words.length == 0 || words[0].isEmpty()) return "ETTR ?";
+        return words[0].equals("✗") ? "ETTR ✗ " + (words.length > 1 ? words[1] : "?") : "ETTR " + words[0];
+    }
+
+    /** The ES line: {@code plan} the plan's description (null: none), {@code captured} / {@code sent} the burst's ES frames. */
+    static String esLine(@Nullable String plan, int captured, int sent, @Nullable String report) {
+        if (sent < 0 || report == null) return "ES ✗ nomrg";
+        if (sent == 0) return "ES ✗ " + (captured > 0 ? "hal" : notAsked(plan, true));
+        if (report.contains("HYBRID BENTO: applied")) return "ES ✓" + sent;
+        // P497: the fast merge reports its short frames on its own lines (no Bento line: every fast shot read «ES ✗ align»)
+        final int fast = report.indexOf("HYBRID FAST MERGE HIGHLIGHT: accumulated validity of ");
+        if (fast >= 0) return "ES ✓" + Math.round(number(report.substring(fast), "accumulated validity of ", sent));
+        if (report.contains("HYBRID FAST MERGE HIGHLIGHT: every short frame rejected")) return "ES ✗ align";
+        if (report.contains("-> highlight path off")) return "ES ✗ nclip";
+        if (report.contains("HYBRID BENTO: disabled")) return "ES ✗ tune";
+        final int at = report.indexOf("HYBRID BENTO: not applied (");
+        if (at < 0) return "ES ✗ align";
+        final String why = report.substring(at + "HYBRID BENTO: not applied (".length());
+        if (why.startsWith("not enough clipping")) return "ES ✗ nclip";
+        if (why.startsWith("large inpainting hole")) return "ES ✗ hole";
+        if (why.startsWith("high clipping ratio")) return "ES ✗ usclip";
+        if (why.startsWith("ultrashort frame is not the shortest")) return "ES ✗ nshort";
+        if (why.startsWith("motion: ")) return "ES ✗ mv" + Math.round(number(why, "motion: ", 0)) + "%";
+        return "ES ✗ ?";
+    }
+
+    /** The L line, as {@link #esLine}. */
+    static String longLine(@Nullable String plan, int captured, int sent, @Nullable String report) {
+        if (sent < 0 || report == null) return "L ✗ nomrg";
+        if (sent == 0) return "L ✗ " + (captured > 0 ? "hal" : notAsked(plan, false));
+        final int stages = report.indexOf("HYBRID STAGES ms:");
+        if (stages < 0) return "L ✗ ?";
+        final int dropped = Math.max(0, Math.min(sent, (int) Math.round(number(report.substring(stages), "droppedBracketed=", 0))));
+        if (dropped == 0) return "L ✓" + sent;
+        final String why;
+        if (report.contains("HYBRID SHASTA: TET ratio")) why = "tet";
+        else if (Pattern.compile("HYBRID SHASTA motion[^\\n]*: dropped\\)").matcher(report).find()) why = "mv";
+        else {
+            // the aligned frames have a sharpness line each; the lowest share of the base is what the gate refused
+            final Matcher m = Pattern.compile("HYBRID SHASTA sharpness frame=\\d+[^\\n]*\\(([0-9.]+) % of base\\)").matcher(report);
+            int lines = 0;
+            double lowest = Double.MAX_VALUE;
+            while (m.find()) {
+                lines++;
+                lowest = Math.min(lowest, Double.parseDouble(m.group(1)));
+            }
+            why = lines < sent ? "align" : String.format(Locale.ROOT, "sh%d%%", Math.round(lowest));
+        }
+        return dropped >= sent ? "L ✗ " + why : "L ✓" + (sent - dropped) + "/" + sent + " " + why;
+    }
+
+    /** Why the plan asked for no ES ({@code ultrashort}) or L frames: the reasons HybridPlan writes into its description. */
+    static String notAsked(@Nullable String plan, boolean ultrashort) {
+        if (plan == null) return "?";
+        if (plan.contains("ring frames only")) return "ring";
+        if (ultrashort) {
+            if (plan.contains(" bento off")) return "off";
+            if (plan.contains(" us skipped (sensor floor)")) return "floor";
+            if (plan.contains(" no clipping (")) return String.format(Locale.ROOT, "nc %.2f%%", 100 * number(plan, " no clipping (", 0));
+            return plan.contains("EXTRA_SHORT") ? "lost" : "?";
+        }
+        if (plan.contains(" shasta off")) return "off";
+        if (plan.contains(" DCG: no shasta")) return "dcg";
+        if (plan.contains(" brackets skipped (ratio ")) return String.format(Locale.ROOT, "r%.1f", number(plan, " brackets skipped (ratio ", 0));
+        return plan.contains("LONG") ? "lost" : "?";
+    }
+
+    /** The number right after {@code key} in {@code text}, {@code fallback} without one. */
+    static double number(String text, String key, double fallback) {
+        final int at = text.indexOf(key);
+        if (at < 0) return fallback;
+        final Matcher m = Pattern.compile("-?[0-9]+(\\.[0-9]+)?").matcher(text);
+        if (!m.find(at + key.length()) || m.start() != at + key.length()) return fallback;
+        try {
+            return Double.parseDouble(m.group());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /**
+     * The two lines drawn into the top right corner of {@code img} (the upright photo): white monospace on a dark plate, about
+     * 3.5 % of the short side high. A bitmap that cannot be drawn into is copied; null or nothing drawable: {@code img} as is.
+     */
+    public static Bitmap draw(Bitmap img, String... lines) {
+        if (img == null || lines == null || lines.length == 0) return img;
+        try {
+            final Bitmap out = img.isMutable() ? img : img.copy(img.getConfig(), true);
+            if (out == null) return img;
+            final Canvas canvas = new Canvas(out);
+            final float size = size(out.getWidth(), out.getHeight());
+            final Paint text = text(size);
+            final float pad = size * .45f, line = size * 1.25f;
+            final RectF plate = plate(out.getWidth(), text, size, lines);
+            final Paint back = new Paint(Paint.ANTI_ALIAS_FLAG);
+            back.setColor(0xA0000000);
+            canvas.drawRoundRect(plate, pad, pad, back);
+            for (int i = 0; i < lines.length; i++)
+                canvas.drawText(lines[i], plate.right - pad - text.measureText(lines[i]), plate.top + pad + size * .82f + i * line, text);
+            return out;
+        } catch (RuntimeException e) {
+            Log.w("MergeStamp", "not drawn: " + e);
+            return img;
+        }
+    }
+
+    /** The stamp's text size on a {@code width} x {@code height} photo. */
+    private static float size(int width, int height) {
+        return Math.max(16f, Math.min(width, height) * .035f);
+    }
+
+    private static Paint text(float size) {
+        final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+        text.setTextSize(size);
+        text.setColor(0xFFFFFFFF);
+        return text;
+    }
+
+    /** The stamp's plate on a photo {@code width} wide. */
+    private static RectF plate(int width, Paint text, float size, String... lines) {
+        float w = 0;
+        for (String l : lines) w = Math.max(w, text.measureText(l));
+        final float pad = size * .45f, line = size * 1.25f, margin = size * .6f;
+        return new RectF(width - margin - w - 2 * pad, margin, width - margin, margin + 2 * pad + line * lines.length - (line - size));
+    }
+
+    /**
+     * P642: {@link #draw} for a photo that has no bitmap (the streamed JPEG's rows): {@link #draw} itself on a window of the rows
+     * (RgbaRows.window: a bitmap of the photo's size holding the photo only in the plate's rectangle grown by the text's size -
+     * the text sits inside the plate), the rectangle written back: the bytes the bitmap route's bitmap gets. Returns how to take
+     * it back; null: nothing drawn (no lines). Throws what went wrong, the rows as they were.
+     */
+    @Nullable
+    public static com.scamera.app.processing.watermark.RgbaRows.Undo drawInto(
+            com.scamera.app.processing.watermark.RgbaRows photo, String... lines) {
+        if (photo == null || lines == null || lines.length == 0) return null;
+        final float size = size(photo.width, photo.height);
+        final RectF plate = plate(photo.width, text(size), size, lines);
+        final android.graphics.Rect box = new android.graphics.Rect((int) Math.floor(plate.left - size), (int) Math.floor(plate.top - size),
+                (int) Math.ceil(plate.right + size), (int) Math.ceil(plate.bottom + size));
+        if (!box.intersect(0, 0, photo.width, photo.height)) return null;
+        final byte[] before = photo.bytes(box);
+        final Bitmap window = photo.window();
+        try {
+            photo.load(window, box);
+            if (draw(window, lines) != window) throw new IllegalStateException("the stamp was drawn on a copy of the window");
+            try {
+                photo.store(window, box);
+            } catch (RuntimeException e) {
+                photo.write(box, before);
+                throw e;
+            }
+            return photo.undo(box, before);
+        } finally {
+            window.recycle();
+        }
+    }
+}

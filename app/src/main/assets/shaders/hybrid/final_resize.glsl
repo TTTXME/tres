@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // SCAM HDR hybrid: final resize of the display-encoded image (after sharpening) on the GPU, so the 50 MP Sabre 2x
 // grid never reaches the readback / JPEG stage. Filtering runs in linear light (sRGB decode/encode) like the CPU
 // ScamPostDownscale. kernel: 0 Lanczos-3, 1 bicubic (Lanczos-2), 2 area (box of the scale ratio, partial coverage),

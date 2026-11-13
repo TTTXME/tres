@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY tone (WhyFusion): exposure fusion of the luminance on a fast guided filter, as run_ef_pyramid_luma of
 // libfc_suppressor.so [code 0x78a5c; fc_cl_source.cl:1227-1289 gf_prepare_weights, 2317-2391 downsample/upsample_2x,
 // 1374-1395 gf_compute_q_and_blend]. Per whyLow pixel: lin = max(rgb, 0) * ae, guide I = max(Y709, max/2); four

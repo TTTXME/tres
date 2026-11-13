@@ -40,7 +40,7 @@ import check_why_pyramid_bands as cwb  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = '--report' in sys.argv
-JAVA = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/FusedCurve.java'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/FusedCurve.java'
 PROBE = '''precision highp float;
 precision highp sampler2D;
 uniform sampler2D InputBuffer;
@@ -62,7 +62,7 @@ BASE = {'aeU': 1.0, 'smoothU': 0.25, 'gammaInvU': 1 / 2.2, 'toeU': 0.05, 'monoU'
         'satLevelU': (0.0, 0.0), 'warmU': (0.0, 0.0), 'deepFloorU': 2.0}
 # noise of the guide I (x AE): variance S I + O - a night shot (SNR 7 at I 0.01) and daylight (SNR 30)
 MODELS = {'night': (2e-4, 1e-7), 'day': (1e-5, 1e-9)}
-WHY = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/opengl/postpipeline/WhyTone.java'
+WHY = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java'
 
 
 def tau_default():
@@ -119,7 +119,7 @@ class Probe:
 
 
 DRIVER = r'''
-package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+package com.scamera.app.processing.opengl.postpipeline;
 /** args: floor tau S O center smooth gammaInv toe em0..3 lw0..3 I...: FusedCurve.fusedAt of each I, one a line (%.9e). */
 public class NoiseDrv {
     public static void main(String[] a) {
@@ -142,7 +142,7 @@ public class NoiseDrv {
 class Java:
     def __init__(self):
         self.dir = tempfile.mkdtemp(prefix='check_why_noise_')
-        pkg = Path(self.dir) / 'src/com/particlesdevs/photoncamera/processing/opengl/postpipeline'
+        pkg = Path(self.dir) / 'src/com/scamera/app/processing/opengl/postpipeline'
         pkg.mkdir(parents=True)
         (pkg / 'NoiseDrv.java').write_text(DRIVER)
         shutil.copy(JAVA, pkg / 'FusedCurve.java')
@@ -155,7 +155,7 @@ class Java:
     def fused(self, I, u, floor, tau, S, O):
         args = [repr(float(floor)), repr(float(tau)), repr(float(S)), repr(float(O)), repr(u['centerU']), repr(u['smoothU']),
                 repr(u['gammaInvU']), repr(u['toeU'])] + [repr(float(x)) for x in u['expU']] + [repr(float(x)) for x in u['layerU']]
-        r = subprocess.run(['java', '-cp', str(Path(self.dir) / 'classes'), 'com.particlesdevs.photoncamera.processing.opengl.postpipeline.NoiseDrv']
+        r = subprocess.run(['java', '-cp', str(Path(self.dir) / 'classes'), 'com.scamera.app.processing.opengl.postpipeline.NoiseDrv']
                            + args + ['%.9e' % float(x) for x in np.float32(I)], check=True, capture_output=True, text=True)
         return np.array([float(x) for x in r.stdout.split()])
 

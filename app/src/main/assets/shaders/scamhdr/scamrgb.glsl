@@ -1,9 +1,8 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 uniform sampler2D InputBuffer;
+uniform vec3 clipLevel;
 uniform sampler2D GainMap;
 uniform vec3 whitePoint;
-uniform vec3 clipLevel;
 uniform vec2 inverseSize;
 uniform ivec2 cropOffset;
 // Per-channel highlight recovery (SCAM Hybrid). Unset uniforms read 0 = the legacy neutralisation at clipLevel below.

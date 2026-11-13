@@ -16,12 +16,12 @@ public:
 };
 static jboolean resampleBitmaps(JNIEnv* env,jobject source,jobject destination,jint lobes,bool up);
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_ml_ScamPostDownscale_nativeResize(
+Java_com_scamera_app_processing_ml_ScamPostDownscale_nativeResize(
         JNIEnv* env,jclass,jobject source,jobject destination,jint lobes) {
     return resampleBitmaps(env,source,destination,lobes,false);
 }
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_ml_ScamPostDownscale_nativeResample(
+Java_com_scamera_app_processing_ml_ScamPostDownscale_nativeResample(
         JNIEnv* env,jclass,jobject source,jobject destination,jint lobes) {
     return resampleBitmaps(env,source,destination,lobes,true);
 }
@@ -44,7 +44,7 @@ static jboolean resampleBitmaps(JNIEnv* env,jobject source,jobject destination,j
 // bitmap comes reconfigured to the crop (w x h, rows of w * bpp bytes); stride, width, height and bytes describe its pixels as they
 // still lie in the buffer (ScamPostDownscale.cropInPlace).
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_particlesdevs_photoncamera_processing_ml_ScamPostDownscale_nativeCropInPlace(
+Java_com_scamera_app_processing_ml_ScamPostDownscale_nativeCropInPlace(
         JNIEnv* env,jclass,jobject bitmap,jint stride,jint width,jint height,jlong bytes,jint x,jint y,jint w,jint h,jint bpp) {
     AndroidBitmapInfo info{};
     if (bpp<=0 || stride<=0 || bytes<=0 || AndroidBitmap_getInfo(env,bitmap,&info)!=ANDROID_BITMAP_RESULT_SUCCESS

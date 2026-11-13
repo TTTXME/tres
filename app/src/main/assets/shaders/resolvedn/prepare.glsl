@@ -1,11 +1,10 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 #import interpolation
 uniform sampler2D InputBuffer;
-uniform sampler2D GainMap;
 uniform mat3 toRenderU;
 uniform vec3 neutralU;
 uniform int originDstU;
+uniform sampler2D GainMap;
 out vec4 Output;
 
 void main() {

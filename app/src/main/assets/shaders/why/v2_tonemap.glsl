@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P614 «Why тон» V2, the last step (WhyV2Tone): the reference tone's tonemap_final (v2.07), one to one - the 3x3 guided regression of
 // the fused display luma on the clean luma and its dark gate, the ACES inversion to the per-pixel gain (with its asymptote cap and
 // the dark-scene AE hold in HDR), the OKLab macro contrast, skin mask, vibrance and skin tuning, the max-channel Reinhard shoulder

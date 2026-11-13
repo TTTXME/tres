@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Isolated dark or bright dots (defective or half-dead quad groups that stay put through the
 // whole burst, so the merge keeps them): a pixel whose luminance is far from the ring of
 // pixels four away, while that ring is itself homogeneous, is scaled back to the ring level.

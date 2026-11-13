@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = 'com/particlesdevs/photoncamera/'
+BASE = 'com/scamera/app/'
 STUBS = {
 'android/util/Range.java': 'package android.util; public class Range<T> { T lo,hi; public Range(T a,T b){lo=a;hi=b;} public T getLower(){return lo;} public T getUpper(){return hi;} }',
 'android/util/SizeF.java': 'package android.util; public class SizeF { public float getWidth(){return 10;} }',
@@ -11,29 +11,29 @@ STUBS = {
 'android/os/Build.java': 'package android.os; public class Build { public static class VERSION {public static int SDK_INT=35;} public static class VERSION_CODES {public static int R=30;} }',
 'android/hardware/camera2/CameraMetadata.java': 'package android.hardware.camera2; public class CameraMetadata {public static final int LENS_OPTICAL_STABILIZATION_MODE_ON=1;}',
 'android/hardware/camera2/params/TonemapCurve.java': 'package android.hardware.camera2.params; public class TonemapCurve { public TonemapCurve(float[] a,float[] b,float[] c){} }',
-BASE+'util/Log.java': 'package com.particlesdevs.photoncamera.util; public class Log { public static void i(String a,String b){} public static void v(String a,String b){} public static void d(String a,String b){} public static void w(String a,String b){} }',
-BASE+'api/CameraMode.java': 'package com.particlesdevs.photoncamera.api; public enum CameraMode {PHOTO,NIGHT,MOTION,RAWVIDEO}',
-BASE+'capture/CaptureController.java': '''package com.particlesdevs.photoncamera.capture; import android.hardware.camera2.*;
+BASE+'util/Log.java': 'package com.scamera.app.util; public class Log { public static void i(String a,String b){} public static void v(String a,String b){} public static void d(String a,String b){} public static void w(String a,String b){} }',
+BASE+'api/CameraMode.java': 'package com.scamera.app.api; public enum CameraMode {PHOTO,NIGHT,MOTION,RAWVIDEO}',
+BASE+'capture/CaptureController.java': '''package com.scamera.app.capture; import android.hardware.camera2.*;
 public class CaptureController { public static CameraCharacteristics mCameraCharacteristics=new CameraCharacteristics(); public static CaptureResult mPreviewCaptureResult=new CaptureResult(); public long mPreviewExposureTime=8333326; public int mPreviewIso=547,oisMode=0;
-public Param getParamController(){return new Param();} public static class Param {public double getCurrentExposureValue(){return 0;} public double getCurrentISOValue(){return 0;}} }''',
-BASE+'app/ScameraApp.java': '''package com.particlesdevs.photoncamera.app; import com.particlesdevs.photoncamera.api.CameraMode; import com.particlesdevs.photoncamera.capture.CaptureController;
+public Param getParamController(){return new Param();} public static class Param {public double shutterValueNs(){return 0;} public double isoSetting(){return 0;}} }''',
+BASE+'app/ScameraApp.java': '''package com.scamera.app.app; import com.scamera.app.api.CameraMode; import com.scamera.app.capture.CaptureController;
 public class ScameraApp {public static Settings getSettings(){return new Settings();} public static Gyro getGyro(){return new Gyro();} public static CaptureController getCaptureController(){return new CaptureController();} public static class Settings {public float exposureCompensation=4;public CameraMode selectedMode=CameraMode.NIGHT;public boolean eisPhoto=false;} public static class Gyro {public boolean getTripod(){return false;}public int getFilteredShakiness(){return 400;}}}''',
-BASE+'settings/PreferenceKeys.java': '''package com.particlesdevs.photoncamera.settings; public class PreferenceKeys {
+BASE+'settings/PreferenceKeys.java': '''package com.scamera.app.settings; public class PreferenceKeys {
 public static boolean scam=true,poison=true;public static int ev=4;
 public static boolean isScamEnabled(){return scam;}
 static void legacy(){if(poison)throw new AssertionError("SCAM read legacy capture tuning");}
 public static float getMaxHdrRatio(){legacy();return 9.8f;}public static boolean isTetModelEnabled(){legacy();return false;}public static float getLongFrameShutterCapPeriods(){legacy();return 2;}
 public static int getShortExposureEvValue(){return ev;} public static int getLongExposureEvValue(){return ev;} public static int getLongFrameCountValue(){return 1;}public static int getShortFrameCountValue(){return 1;}public static int getHighlightSuppressionValue(){legacy();return 100;}public static int getBracketingMode(){legacy();return 2;}public static int getAntibandingHz(){legacy();return 60;}
 }''',
-BASE+'processing/parameters/ExposureIndex.java': 'package com.particlesdevs.photoncamera.processing.parameters; public class ExposureIndex {public static final long sec=1000000000; public static double time2sec(long x){return x/1e9;} public static long sec2time(double x){return (long)(x*1e9);}public static String sec2string(double x){return ""+x;}}',
-'Check.java': '''import com.particlesdevs.photoncamera.processing.parameters.*;import com.particlesdevs.photoncamera.capture.*;import com.particlesdevs.photoncamera.settings.*;import android.hardware.camera2.*;
+BASE+'processing/parameters/ExposureIndex.java': 'package com.scamera.app.processing.parameters; public class ExposureIndex {public static final long sec=1000000000; public static double time2sec(long x){return x/1e9;} public static long sec2time(double x){return (long)(x*1e9);}public static String sec2string(double x){return ""+x;}}',
+'Check.java': '''import com.scamera.app.processing.parameters.*;import com.scamera.app.capture.*;import com.scamera.app.settings.*;import android.hardware.camera2.*;
 public class Check {
 static void check(boolean x){if(!x)throw new AssertionError();}
 static double product(CaptureRequest.Builder b){return (double)b.get(CaptureRequest.SENSOR_EXPOSURE_TIME)*b.get(CaptureRequest.SENSOR_SENSITIVITY);}
 public static void main(String[] a){
 var cc=new CaptureController();var b=new CaptureRequest.Builder(); double ref=(double)cc.mPreviewExposureTime*cc.mPreviewIso;
-IsoExpoSelector.HDR=true;
-for(int step=0;step<4;step++){var p=IsoExpoSelector.GenerateExpoPair(step,cc);check(p.iso==547 && p.exposure==8333326);}
+IsoExpoSelector.bracketing=true;
+for(int step=0;step<4;step++){var p=IsoExpoSelector.meteredPair(step,cc);check(p.iso==547 && p.timeNs==8333326);}
 System.out.println("PASS: production IsoExpoSelector: the metered exposure for every step, poisoned legacy settings never read");}}
 '''
 }

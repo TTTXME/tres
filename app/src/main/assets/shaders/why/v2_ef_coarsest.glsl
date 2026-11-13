@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Fusion): the reference tone's ef_pyr_coarsest, one to one - the coarsest level's fused luma, the lumas
 // weighted by their weights.
 uniform sampler2D u_tex_G;

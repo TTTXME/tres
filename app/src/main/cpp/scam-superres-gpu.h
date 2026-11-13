@@ -7,6 +7,7 @@
 // holds the full ~0.5 GB burst. Robustness stays on the CPU (it is cheap and its
 // 3x3 erosion needs whole-cell neighbourhoods).
 #include "scam-homography.h"
+#include "scam-glsl-guard.h" // P662 SCAM_GLSL_DUMP
 #include <EGL/egl.h>
 #include <fstream>
 #include <functional>
@@ -811,6 +812,7 @@ class SuperResGpu {
     }
     GLuint compile(const char* body,bool helpers=false){
         GLuint shader=glCreateShader(GL_COMPUTE_SHADER);const char* sources[]={kCommonShader,helpers?kSrHelpers:"",body};
+        scamGlslDump("superres",std::string(sources[0])+sources[1]+sources[2]); // P662
         glShaderSource(shader,3,sources,nullptr);glCompileShader(shader);
         GLint ok=0;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);
         if(!ok){char msg[2048]{};glGetShaderInfoLog(shader,sizeof(msg),nullptr,msg);glDeleteShader(shader);throw std::runtime_error(std::string("SCAM GPU shader: ")+msg);}

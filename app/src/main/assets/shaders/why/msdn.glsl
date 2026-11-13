@@ -1,6 +1,4 @@
-precision highp float;
-precision highp sampler2D;
-precision highp int;
+precision highp float; precision highp sampler2D; precision highp int;
 // P402 «Пирамидальный шумодав» (WhyMsDenoise; the reference app's ms denoise: pyr_downsample, pyr_laplace_filter_msdenoise,
 // pyr_base_filter, pyr_reconstruct): the merge in OKLab of its render's linear sRGB, a Laplacian pyramid of 3 levels and a base;
 // each level's luminance detail soft-thresholded (edges kept), its colour detail pulled towards a luminance-guided mean and, off the

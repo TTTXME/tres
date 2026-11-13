@@ -1,0 +1,2659 @@
+package com.scamera.app.settings;
+
+import android.app.Application;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.view.ContextThemeWrapper;
+import android.view.LayoutInflater;
+import androidx.preference.*;
+import com.scamera.app.R;
+import com.scamera.app.app.ScameraApp;
+import com.scamera.app.settings.annotations.Tunable;
+import org.junit.*;
+import org.junit.runner.RunWith;
+import org.mockito.MockedStatic;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Config;
+import java.lang.reflect.Field;
+import java.util.*;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk=35, application=Application.class, qualifiers="w400dp-h880dp-mdpi")
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+public class SettingsMenuTest {
+    private Context context;
+    private SettingsManager manager;
+    private SharedPreferences prefs;
+    private MockedStatic<ScameraApp> camera;
+    @Before public void setUp(){
+        // SCAM HDR and its settings exist only on the Snapdragon 8 Elite; these tests cover both routes.
+        org.robolectric.shadows.ShadowBuild.setSystemOnChipModel("SM8750");
+        context=new ContextThemeWrapper(RuntimeEnvironment.getApplication(),R.style.Theme_Scamera_SettingsActivity);
+        manager=new SettingsManager(context); prefs=manager.getDefaultPreferences();prefs.edit().clear().commit();
+        camera=mockStatic(ScameraApp.class);
+        camera.when(ScameraApp::getAppContext).thenReturn(context);
+        camera.when(ScameraApp::getResourcesStatic).thenReturn(context.getResources());
+        camera.when(()->ScameraApp.getStringStatic(anyInt())).thenAnswer(inv->context.getString(inv.getArgument(0)));
+        PreferenceKeys.initialise(manager);
+        camera.when(ScameraApp::getSettingsManagerStatic).thenReturn(manager);
+        ScameraApp app=mock(ScameraApp.class,RETURNS_DEEP_STUBS);when(app.getSettingsManager()).thenReturn(manager);
+        camera.when(()->ScameraApp.getInstance(any(Context.class))).thenReturn(app);
+    }
+    @Test public void oneWhyToneForBothRoutes() {
+        PreferenceScreen screen=inflate();
+        // P10: the SCAMERA tone (AgX / Exposure Fusion / headroom) is gone; WhyCore and its sharpening serve both routes.
+        for(String old:new String[]{"agx_screen","scam_hybrid_scamera_tone_screen","pref_scam_hybrid_why_tone","pref_scamroute_gamma",
+                "pref_scamhdr_soft_tone","pref_scamhdr_fusion_enabled","pref_scamold_ae_mid","pref_expocompensation_seekbar_key"})
+            assertNull(old,screen.findPreference(old));
+        for(String kept:new String[]{"scam_hybrid_why_tone_screen","pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_sharp_gain"})
+            assertNotNull(kept,screen.findPreference(kept));
+        // P64: the «Hybrid curves» presets are gone (owner, 2026-10-09)
+        for(String old:new String[]{"scam_curves_screen","pref_scam_tone_curve","pref_scam_tone_curve_strength","pref_scam_gamma_curve",
+                "pref_scam_gamma_curve_strength"})
+            assertNull(old,screen.findPreference(old));
+        // P129: SHDR is the only merge: its rows act whatever route was stored
+        java.util.Map<String,Object> values=new java.util.HashMap<>();values.put(PreferenceKeys.ROUTE_KEY,"scamhdr");
+        values.put("pref_scam_hybrid_processing","quality");   // P629: the SCAM merge's rows (cdm) act with «Качество»
+        SettingsAvailability shdr=new SettingsAvailability(values);
+        assertNull(shdr.reason("pref_scam_hybrid_why_ae_target"));assertNull(shdr.reason("pref_scam_hybrid_why_sharp_gain"));
+        assertNull(shdr.reason("pref_scam_hybrid_cdm"));
+        prefs.edit().putString("pref_agx_contrast","20").putString("pref_scamroute_gamma","1.2").putBoolean("pref_scam_hybrid_why_tone",false)
+                .putString("pref_scam_hybrid_why_ae_target","0.2").commit();
+        assertTrue(SettingsMigration.removeObsolete(prefs));
+        assertFalse(prefs.contains("pref_agx_contrast"));assertFalse(prefs.contains("pref_scamroute_gamma"));
+        assertFalse(prefs.contains("pref_scam_hybrid_why_tone"));assertEquals("0.2",prefs.getString("pref_scam_hybrid_why_ae_target",""));
+    }
+    @Test public void scamHdrControlsPersistAndEveryRouteIsAScamRoute() {
+        PreferenceScreen screen=inflate();
+        assertNull("P129: SCAM HDR is gone",screen.findPreference("scam_hdr_screen"));
+        // SHDR takes every shot: no state without the scam route
+        assertTrue(PreferenceKeys.isScamHdrEnabled());
+        manager.set("default_scope",PreferenceKeys.ROUTE_KEY,"scamhdr");
+        assertTrue(PreferenceKeys.isScamHdrEnabled());assertTrue(PreferenceKeys.isScamHybridEnabled());
+        // P4: the extra RGB luma / chroma denoise and sharpen rows are gone, SCAM HDR keeps its own SCAM controls
+        for(String control:new String[]{"luma","chroma","sharpen"}) assertNull(screen.findPreference("pref_scamroute_"+control));
+        // the removed legacy switches no longer take a shot off the vivo routes
+        manager.set("default_scope","pref_raw_mfsr_enabled_key",true);
+        manager.set("default_scope","pref_remosaic_enabled_key",true);
+        assertTrue(PreferenceKeys.isScamHdrEnabled());
+        manager.set("default_scope",PreferenceKeys.ROUTE_KEY,"hybrid");
+        assertTrue(PreferenceKeys.isScamHdrEnabled());assertTrue(PreferenceKeys.isScamHybridEnabled());
+    }
+    @After public void tearDown(){if(camera!=null)camera.close();}
+    private PreferenceScreen inflate(){
+        SettingsMigration.prepare(context,prefs);
+        PreferenceManager pm=new PreferenceManager(context);
+        PreferenceScreen screen=pm.inflateFromResource(context,R.xml.preferences,null);pm.setPreferences(screen);
+        for(Class<?> type:TunableRegistry.OWNERS)TunablePreferenceGenerator.registerTunableClass(type);
+        TunablePreferenceGenerator.generatePreferences(context,screen);
+        com.scamera.app.ui.settings.SettingsStyle.apply(screen); // the rows bind with the P6b layouts
+        return screen;
+    }
+    @Test public void legacyCaptureControlsAreGoneAndTheZslRingIsUpgradedOnce() {
+        PreferenceScreen root=inflate();
+        for(String old:new String[]{"pref_raw_mfsr_enabled_key","pref_mfsr_source_key","pref_remosaic_enabled_key",
+                "pref_frame_count_key","pref_zsl_merge_algorithm_key","pref_binning_key","mfsr_settings_screen"})
+            assertNull(old,root.findPreference(old));
+        assertNotNull(root.findPreference("pref_zsl_buffer_count_key"));
+        prefs.edit().clear().putString("pref_mfsr_k_detail_key","0.8").putBoolean("pref_mfsr_calibrate_key",true).commit();
+        SettingsMigration.migrateMultiFrame(prefs);
+        assertEquals("50",prefs.getString("pref_zsl_buffer_count_key",""));
+        prefs.edit().putString("pref_zsl_buffer_count_key","20").commit();
+        SettingsMigration.migrateMultiFrame(prefs);
+        assertEquals("20",prefs.getString("pref_zsl_buffer_count_key",""));
+        SettingsMigration.removeObsolete(prefs);
+        assertFalse(prefs.contains("pref_mfsr_k_detail_key"));assertFalse(prefs.contains("pref_mfsr_calibrate_key"));
+    }
+    private void visit(PreferenceGroup group,Set<String> seen,List<String> pages){
+        for(int i=0;i<group.getPreferenceCount();i++){
+            Preference p=group.getPreference(i);
+            if(p.getKey()!=null)assertTrue("duplicate key "+p.getKey(),seen.add(p.getKey()));
+            if(p instanceof PreferenceScreen)pages.add(p.getKey());
+            if(p instanceof PreferenceGroup)visit((PreferenceGroup)p,seen,pages);
+            else {
+                // Binding calls the actual widget and summary code, not just the XML parser.
+                android.view.View row=LayoutInflater.from(context).inflate(p.getLayoutResource(),null,false);
+                PreferenceViewHolder holder=PreferenceViewHolder.createInstanceForTests(row);
+                p.onBindViewHolder(holder);
+                com.scamera.app.ui.settings.SettingsStyle.bind(holder,p);
+                p.getSummary();
+                if(p instanceof ListPreference && !(p instanceof com.scamera.app.ui.settings.custompreferences.RestorePreference)){
+                    ListPreference l=(ListPreference)p;
+                    assertNotNull(p.getKey(),l.getEntries());assertNotNull(p.getKey(),l.getEntryValues());
+                    assertEquals(p.getKey(),l.getEntries().length,l.getEntryValues().length);
+                }
+            }
+        }
+    }
+    @Test public void allPagesAndRegisteredTunablesAreReachableAndBind(){
+        PreferenceScreen screen=inflate();Set<String> seen=new HashSet<>();List<String> pages=new ArrayList<>();visit(screen,seen,pages);
+        assertTrue(seen.size()>300);assertTrue(pages.size()>25);
+        for(Class<?> c:TunableRegistry.OWNERS)for(Field f:c.getDeclaredFields())if(f.isAnnotationPresent(Tunable.class)){
+            String key="pref_tunable_"+c.getSimpleName().toLowerCase(Locale.ROOT)+"_"+f.getName().toLowerCase(Locale.ROOT);
+            assertNotNull("Missing registered control "+key,screen.findPreference(key));
+        }
+        for(String page:pages){PreferenceScreen root=inflate();PreferenceScreen nested=root.findPreference(page);assertNotNull(page,nested);root.getPreferenceManager().setPreferences(nested);assertEquals(page,nested.getKey());}
+    }
+    @Test public void mixedTypeMigrationAndRebindPreservePreciseValues(){
+        prefs.edit().putInt("pref_scam_hybrid_mosaic_native_clamp",1).putBoolean("pref_tunable_parameters_usedynamicwhitelevel",false)
+                .putString("pref_film_lut_strength","37.12345")
+                .putInt("pref_scam_hybrid_denoise",1).putString("pref_scam_hybrid_cdm","0.18973").commit();
+        PreferenceScreen screen=inflate();
+        assertEquals("1",prefs.getString("pref_scam_hybrid_mosaic_native_clamp",""));assertTrue(prefs.getBoolean("pref_scam_hybrid_denoise",false));
+        visit(screen,new HashSet<>(),new ArrayList<>());
+        assertEquals("0.18973",prefs.getString("pref_scam_hybrid_cdm",""));assertEquals("37.12345",prefs.getString("pref_film_lut_strength",""));
+        assertFalse(PreferenceNumber.bool(prefs.getAll().get("pref_tunable_parameters_usedynamicwhitelevel"),true));
+    }
+    /** P193: the old per-camera JSON (written once, at the first camera start) no longer takes over a module without a profile. */
+    @Test public void perLensRestoreKeepsTheCurrentSettingsOverTheOldPerCameraJson(){
+        prefs.edit().putString(PreferenceKeys.Key.KEY_THEME.mValue,"keep").putBoolean("pref_scam_hybrid_denoise",false)
+                .putFloat("pref_film_lut_strength",12.5f).commit();
+        manager.set(PreferenceKeys.Key.PER_LENS_FILE_NAME.mValue,"settings_for_camera_audit",
+                "{\"pref_scam_hybrid_denoise\":true,\"pref_scam_hybrid_mosaic_native_clamp\":1,\"pref_film_lut_strength\":37.125,\"ignored_null\":null,\""+PreferenceKeys.Key.KEY_THEME.mValue+"\":\"replace\"}");
+        PreferenceKeys.profiles();
+        prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();
+        PreferenceKeys.profiles().changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
+        PreferenceKeys.loadSettingsForCamera("audit");
+        assertEquals("audit",PreferenceKeys.profiles().editing());
+        assertFalse(prefs.getBoolean("pref_scam_hybrid_denoise",true));
+        assertFalse(prefs.contains("pref_scam_hybrid_mosaic_native_clamp"));
+        assertEquals(12.5f,prefs.getFloat("pref_film_lut_strength",0),0);
+        assertFalse(prefs.contains("ignored_null"));assertEquals("keep",prefs.getString(PreferenceKeys.Key.KEY_THEME.mValue,""));
+        manager.openPreferences(PreferenceKeys.Key.PER_LENS_FILE_NAME.mValue).edit().clear().commit();
+    }
+
+    @Test public void portraitSwitchesHaveIndependentDefaultsAndResetWithTheirPage(){
+        assertFalse(PreferenceKeys.isPortraitEnabled());
+        assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        PreferenceScreen root=inflate();root.onAttached();
+        PreferenceScreen page=root.findPreference("portrait_screen");
+        assertEquals("root_colour",page.getParent().getKey());
+        // P512: the face-found settings, the portrait curve and «Маска лица» after the two switches
+        assertEquals(Arrays.asList("pref_portrait_enabled","pref_portrait_skin_warmth","portrait_face_category","portrait_curve_category",
+                "portrait_mask_screen"),keys(page));
+        TwoStatePreference enabled=page.findPreference("pref_portrait_enabled"),warmth=page.findPreference("pref_portrait_skin_warmth");
+        assertNotNull(page.getIcon());assertNotNull(enabled.getIcon());assertNotNull(warmth.getIcon());
+        assertFalse(enabled.isChecked());assertTrue(warmth.isChecked());assertFalse(warmth.isEnabled());
+        assertEquals("pref_portrait_enabled",warmth.getDependency());
+        enabled.setChecked(true);
+        assertTrue(warmth.isEnabled());assertTrue(PreferenceKeys.isPortraitEnabled());assertTrue(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        warmth.setChecked(false);
+        assertTrue(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        prefs.edit().putString("pref_scam_hybrid_why_macro_contrast","1.3").commit();
+        assertEquals(2,com.scamera.app.ui.settings.PageReset.reset(context,page));
+        assertFalse(enabled.isChecked());assertTrue(warmth.isChecked());assertFalse(warmth.isEnabled());
+        assertFalse(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        assertEquals("1.3",prefs.getString("pref_scam_hybrid_why_macro_contrast",""));
+        prefs.edit().putString("pref_portrait_enabled","1").putString("pref_portrait_skin_warmth","0").commit();
+        assertTrue(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+    }
+
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void portraitPageKeepsRequestedNameAndSearchesInBothLanguages(){
+        PreferenceScreen root=inflate(),page=root.findPreference("portrait_screen");
+        assertEquals("Портрет",String.valueOf(page.getTitle()));
+        android.content.res.Configuration en=new android.content.res.Configuration(context.getResources().getConfiguration());
+        en.setLocale(Locale.ENGLISH);
+        assertEquals("Portrait",context.createConfigurationContext(en).getString(R.string.prefs_portrait_title));
+        var index=com.scamera.app.ui.settings.SettingsSearchFragment.index(root);
+        var words=com.scamera.app.ui.settings.SettingsSearchFragment.searchWords(context,index);
+        for(String key:new String[]{"portrait_screen","pref_portrait_enabled","pref_portrait_skin_warmth"}){
+            var entry=index.stream().filter(e->e.key.equals(key)).findFirst().orElseThrow();
+            assertEquals("portrait_screen",entry.page);
+            assertTrue(entry.matches("портрет",words.get(key)));assertTrue(entry.matches("portrait",words.get(key)));
+            assertTrue(key,pagesAbove(root.findPreference(key))<=1);
+        }
+    }
+
+    @Test public void portraitValuesFollowModuleProfilesAndCopySelection(){
+        for(String key:new String[]{"pref_portrait_enabled","pref_portrait_skin_warmth"}){
+            assertTrue(key,ModuleProfiles.isLocal(key));assertFalse(key,ModuleProfiles.isGlobal(key));
+        }
+        prefs.edit().putBoolean("pref_portrait_enabled",true).putBoolean("pref_portrait_skin_warmth",false).commit();
+        ModuleProfiles profiles=PreferenceKeys.profiles();
+        prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();
+        profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);profiles.activate("back0");
+        prefs.edit().putBoolean("pref_portrait_enabled",false).putBoolean("pref_portrait_skin_warmth",true).commit();
+        profiles.activate("back1");
+        assertTrue(PreferenceKeys.isPortraitEnabled());assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+        profiles.copy("back0",Collections.singletonList("back1"),Collections.singleton("pref_portrait_enabled"));
+        assertFalse(PreferenceKeys.isPortraitEnabled());assertFalse(prefs.getBoolean("pref_portrait_skin_warmth",true));
+        profiles.copy("back0",Collections.singletonList("back1"),Collections.singleton("pref_portrait_skin_warmth"));
+        assertTrue(prefs.getBoolean("pref_portrait_skin_warmth",false));
+        assertFalse(PreferenceKeys.isPortraitSkinWarmthEnabled());
+    }
+
+    @Test public void moduleProfilesKeepTypedValuesAndCopyOnlySelection(){
+        prefs.edit().putFloat("pref_film_lut_strength",37.125f).putBoolean("pref_scam_hybrid_denoise",true)
+                .putString("pref_tunable_test","1.234567").putString("pref_sensorconfig_test","hardware").commit();
+        ModuleProfiles profiles=PreferenceKeys.profiles();
+        prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();
+        profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
+        profiles.activate("back0");
+        prefs.edit().putFloat("pref_film_lut_strength",12.25f).putBoolean("pref_scam_hybrid_denoise",false).commit();
+        profiles.activate("back1");
+        assertEquals(37.125f,prefs.getFloat("pref_film_lut_strength",0),0);
+        prefs.edit().putString("pref_tunable_test","destination").commit();
+        profiles.copy("back0",Arrays.asList("back1"),new HashSet<>(Arrays.asList("pref_film_lut_strength","pref_sensorconfig_test")));
+        assertEquals(12.25f,prefs.getFloat("pref_film_lut_strength",0),0);
+        assertEquals("destination",prefs.getString("pref_tunable_test",""));
+        assertTrue(prefs.getBoolean("pref_scam_hybrid_denoise",false));
+        assertEquals("hardware",prefs.getString("pref_sensorconfig_test",""));
+        profiles.activate("back0");assertFalse(prefs.getBoolean("pref_scam_hybrid_denoise",true));
+        prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,false).commit();profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
+        assertEquals(37.125f,prefs.getFloat("pref_film_lut_strength",0),0);
+        prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();profiles.changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
+        profiles.activate("back0");assertEquals(12.25f,prefs.getFloat("pref_film_lut_strength",0),0);
+    }
+    @Test public void removedScamUpscaleSettingsAreGoneAndTheirStoredValuesCleared() {
+        PreferenceScreen screen=inflate();
+        for (String key:Arrays.asList("raisr_settings_screen","pref_raisr_enabled_key","pref_scam_upscale_backend_key",
+                "pref_scam_downscale_kernel_key","pref_scam_downscale_size_key","softpqe_sr_only_info","scam_downscale_explanation"))
+            assertNull(key,screen.findPreference(key));
+        android.content.SharedPreferences prefs=androidx.preference.PreferenceManager.getDefaultSharedPreferences(
+                org.robolectric.RuntimeEnvironment.getApplication());
+        prefs.edit().putBoolean("pref_raisr_enabled_key",true).putString("pref_scam_upscale_backend_key","vsr")
+                .putString("pref_scam_downscale_kernel_key","3").putString("pref_scam_hybrid_cdm","0.2").commit();
+        assertTrue(SettingsMigration.removeObsolete(prefs));
+        assertFalse(prefs.contains("pref_raisr_enabled_key"));assertFalse(prefs.contains("pref_scam_upscale_backend_key"));
+        assertFalse(prefs.contains("pref_scam_downscale_kernel_key"));assertEquals("0.2",prefs.getString("pref_scam_hybrid_cdm",""));
+        assertFalse(SettingsMigration.removeObsolete(prefs));
+    }
+    @Test public void legacyPostProcessingSettingsAreGoneAndTheirStoredValuesCleared() {
+        PreferenceScreen screen=inflate();
+        for (String key:Arrays.asList("rt_denoise_screen","gcam_finish_screen","aces_group_screen","capture_one_group_screen",
+                "scamera_darktable_screen","optical_correction_screen","expert_raw_screen","expert_noise_screen","expert_detail_screen",
+                "expert_tone_screen","pref_tunable_postpipeline_tonepipeline","pref_tunable_postpipeline_demosaicingmethod",
+                "pref_saturation_seekbar_key","pref_contrast_seekbar_key","pref_sensor_sharpening_enabled","pref_noise_iso_curve_key",
+                "sharp_settings_screen")) // P118: the RawTherapee sharpening is gone too (only the WHY sharpening stays)
+            assertNull(key,screen.findPreference(key));
+        for (String key:Arrays.asList("pref_noise_model_profile_key","pref_dcp_profile_key"))
+            assertNotNull(key,screen.findPreference(key));
+        android.content.SharedPreferences prefs=androidx.preference.PreferenceManager.getDefaultSharedPreferences(
+                org.robolectric.RuntimeEnvironment.getApplication());
+        prefs.edit().putString("rt512_luma","10").putBoolean("pref_aces_enabled_key",true).putString("pref_tunable_initial_gammax1","7")
+                .putString("pref_noise_iso_manual_key","800").putString("pref_noise_model_profile_key","auto").commit();
+        assertTrue(SettingsMigration.removeObsolete(prefs));
+        for (String key:Arrays.asList("rt512_luma","pref_aces_enabled_key","pref_tunable_initial_gammax1","pref_noise_iso_manual_key"))
+            assertFalse(key,prefs.contains(key));
+        assertEquals("auto",prefs.getString("pref_noise_model_profile_key",""));
+    }
+    @Test public void configScreenKeepsOnlyOutputBackupAndReset() {
+        PreferenceScreen screen=inflate();
+        androidx.preference.PreferenceGroup config=screen.findPreference("root_photo");assertNotNull(config);
+        // RAW mode stays a quick bar setting; DNG crop and the tunable reset page are gone.
+        for (String key:Arrays.asList("pref_save_raw_key","expert_output_screen","pref_tunable_submenu","pref_tunable_imagesaversettings_croptype"))
+            assertNull(key,screen.findPreference(key));
+        // SIMPLE_UI §4: «Файл и размер» (Формат файла, Размер фото, HDR, 16:9, watermark, name); the backup is «Приложение → Профили»
+        for (String key:Arrays.asList("pref_jpeg_quality","pref_ultrahdr_key","pref_wide169_key","pref_show_watermark_key","pref_watermark_text",
+                "pref_scam_hybrid_output","pref_dng_lossless","pref_file_name_pattern"))
+            assertNotNull(key,config.findPreference(key));
+        // 2026-10-27: how the merge is scaled down (and Auto 2×) is a fine setting; P406: on «Размер фото»
+        assertNotNull(((PreferenceScreen)screen.findPreference("photo_size_screen")).findPreference("pref_scam_hybrid_downsampler"));
+        for (int i=0;i<config.getPreferenceCount();i++)
+            assertNotEquals("pref_scam_hybrid_downsampler",config.getPreference(i).getKey());
+        PreferenceScreen backup=screen.findPreference("backup_settings_screen");assertNotNull(backup);
+        // P406: the profiles with the image settings, as the reference app's configs in its image settings
+        assertNotNull(((androidx.preference.PreferenceGroup)screen.findPreference("root_colour")).findPreference("backup_settings_screen"));
+        for (String key:Arrays.asList("pref_backup_preferences_key","pref_restore_preferences_key","pref_reset_preferences_key"))
+            assertNotNull(key,backup.findPreference(key));
+        // The remaining dynamic page is still filled without pref_tunable_submenu. «Кнопки видоискателя» held only the
+        // Quad toggle's tunable; the toggle is gone (P25), so are the page and the tunable.
+        PreferenceScreen page=screen.findPreference("expert_sensor_screen");assertNotNull(page);assertTrue(page.getPreferenceCount()>0);
+        assertNull(screen.findPreference("expert_viewfinder_screen"));
+        assertNull(screen.findPreference("pref_tunable_camerauiviewimpl_enablequadres"));
+        android.content.SharedPreferences prefs=androidx.preference.PreferenceManager.getDefaultSharedPreferences(
+                org.robolectric.RuntimeEnvironment.getApplication());
+        prefs.edit().putBoolean("pref_tunable_imagesaversettings_croptype",true).putString("pref_save_raw_key","1").commit();
+        assertTrue(SettingsMigration.removeObsolete(prefs));
+        assertFalse(prefs.contains("pref_tunable_imagesaversettings_croptype"));assertEquals("1",prefs.getString("pref_save_raw_key",""));
+    }
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void configXmlKeepsTypesAndAppliesModuleProfilesOnlyOnTheSamePhone() throws Exception {
+        configXmlKeepsTypesAndAppliesModuleProfilesOnlyOnTheSamePhone("Загружено: ","Загружены общие настройки");
+    }
+    /** The same on an English system: the import messages are English (i18n). */
+    @Test public void configXmlKeepsTypesAndAppliesModuleProfilesOnlyOnTheSamePhoneInEnglish() throws Exception {
+        configXmlKeepsTypesAndAppliesModuleProfilesOnlyOnTheSamePhone("Imported: ","Imported the shared settings");
+    }
+    private void configXmlKeepsTypesAndAppliesModuleProfilesOnlyOnTheSamePhone(String samePhone,String otherPhone) throws Exception {
+        android.content.Context app=org.robolectric.RuntimeEnvironment.getApplication();
+        android.content.SharedPreferences main=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        android.content.SharedPreferences meta=app.getSharedPreferences(BackupRestoreUtil.META,0);
+        android.content.SharedPreferences main1=app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"main1",0);
+        main.edit().clear().putString("pref_scam_hybrid_cdm","0.2").putBoolean("pref_wide169_key",true).putInt("pref_scam_hybrid_frames_x",7)
+                .putLong("scamera_long",1L<<40).putFloat("pref_scam_hybrid_gamma_x",7.18973f)
+                .putStringSet("hidden_camera_ids",new HashSet<>(Arrays.asList("2","5"))).putString("pref_watermark_text","<SHOT & \"ON\">").commit();
+        meta.edit().clear().putBoolean("exists_main1",true).putString("active","main1").commit();
+        main1.edit().clear().putString("pref_scam_hybrid_cdm","0.3").commit();
+        java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
+        ConfigXml.write(out,BackupRestoreUtil.header(app),BackupRestoreUtil.collect(app));
+        ConfigXml.Config config=ConfigXml.read(new java.io.ByteArrayInputStream(out.toByteArray()));
+        assertEquals(BackupRestoreUtil.device(),config.attributes.get("device"));
+        assertEquals(new HashMap<>(main.getAll()),new HashMap<>(config.files.get(ConfigXml.MAIN)));
+        assertEquals("0.3",config.files.get(BackupRestoreUtil.PROFILE_PREFIX+"main1").get("pref_scam_hybrid_cdm"));
+        // same phone: everything comes back, including the module profile
+        main.edit().clear().putString("stale","x").commit();main1.edit().clear().commit();
+        assertEquals(samePhone,BackupRestoreUtil.apply(app,config));
+        assertFalse(main.contains("stale"));assertEquals(1L<<40,main.getLong("scamera_long",0));
+        assertEquals(7.18973f,main.getFloat("pref_scam_hybrid_gamma_x",0),0f);assertEquals(7,main.getInt("pref_scam_hybrid_frames_x",0));
+        assertEquals(new HashSet<>(Arrays.asList("2","5")),main.getStringSet("hidden_camera_ids",null));
+        assertEquals("<SHOT & \"ON\">",main.getString("pref_watermark_text",""));
+        assertEquals("0.3",main1.getString("pref_scam_hybrid_cdm",""));
+        // another phone: main settings only, module profiles stay as they are
+        config.attributes.put("device","oppo/op627cl1");main1.edit().clear().putString("pref_scam_hybrid_cdm","0.5").commit();
+        assertTrue(BackupRestoreUtil.apply(app,config).startsWith(otherPhone));
+        assertEquals("0.5",main1.getString("pref_scam_hybrid_cdm",""));assertEquals("0.2",main.getString("pref_scam_hybrid_cdm",""));
+        // an old plain shared_prefs XML reads as the main settings
+        ConfigXml.Config legacy=ConfigXml.read(new java.io.ByteArrayInputStream(("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n"
+                +"<map><boolean name=\"pref_wide169_key\" value=\"false\" /><string name=\"pref_save_raw_key\">1</string></map>").getBytes("UTF-8")));
+        assertTrue(legacy.legacyMap);assertEquals(false,legacy.files.get(ConfigXml.MAIN).get("pref_wide169_key"));
+    }
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void configFromAnotherPhoneMapsModuleProfilesOntoThisPhonesLenses() throws Exception {
+        configFromAnotherPhoneMapsModuleProfilesOntoThisPhonesLenses(
+                "Загружено с oppo/op627cl1. Модули: 1× ← 1×, 3× ← 3×, Фронт ← общие; не перенесены: 0.6×","общие настройки на все модули");
+    }
+    /** The same on an English system («Фронт» is the module's own label, user data). */
+    @Test public void configFromAnotherPhoneMapsModuleProfilesOntoThisPhonesLensesInEnglish() throws Exception {
+        configFromAnotherPhoneMapsModuleProfilesOntoThisPhonesLenses(
+                "Imported from oppo/op627cl1. Modules: 1× ← 1×, 3× ← 3×, Фронт ← shared; not applied: 0.6×","shared settings for all modules");
+    }
+    private void configFromAnotherPhoneMapsModuleProfilesOntoThisPhonesLenses(String mapped,String allModules) throws Exception {
+        android.content.Context app=org.robolectric.RuntimeEnvironment.getApplication();
+        android.content.SharedPreferences main=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        // this phone: 1x and 3x on the back, a front camera (no camera service here: focal = 26 mm x zoom)
+        main.edit().clear().putString("module_auto_back0","0").putBoolean("module_visible_back0",true).putString("module_label_back0","1×")
+                .putString("module_auto_back1","2").putBoolean("module_visible_back1",true).putString("module_label_back1","3×")
+                .putString("module_auto_front0","1").putBoolean("module_visible_front0",true).putString("module_label_front0","Фронт")
+                .putString("module_active","back1").putString("pref_scam_hybrid_cdm","0.9").commit();
+        ConfigXml.Config config=new ConfigXml.Config();
+        config.attributes.put("device","oppo/op627cl1");
+        java.util.Map<String,Object> srcMain=new java.util.HashMap<>();
+        srcMain.put("pref_scam_hybrid_cdm","0.2");srcMain.put("module_auto_back0","9");srcMain.put("pref_save_per_lens_settings",true);
+        config.files.put(ConfigXml.MAIN,srcMain);
+        java.util.Map<String,Object> meta=new java.util.HashMap<>();meta.put("active","back1");meta.put("exists_back0",true);
+        config.files.put(BackupRestoreUtil.META,meta);
+        java.util.Map<String,Object> p0=new java.util.HashMap<>();p0.put("pref_scam_hybrid_cdm","0.5");p0.put("module_auto_back0","7");
+        config.files.put(BackupRestoreUtil.PROFILE_PREFIX+"back0",p0);
+        java.util.Map<String,Object> common=new java.util.HashMap<>();common.put("pref_scam_hybrid_cdm","0.1");
+        config.files.put(BackupRestoreUtil.PROFILE_PREFIX+"common",common);
+        java.util.Map<String,Object> lenses=new java.util.LinkedHashMap<>();
+        String[][] src={{"back0","14","0.6","0.6×"},{"back1","23","1","1×"},{"back2","70","3","3×"}};
+        for(String[] l:src){lenses.put(l[0]+".facing","back");lenses.put(l[0]+".focal",Float.parseFloat(l[1]));
+            lenses.put(l[0]+".zoom",Float.parseFloat(l[2]));lenses.put(l[0]+".crop",false);lenses.put(l[0]+".label",l[3]);}
+        config.files.put(BackupRestoreUtil.LENSES,lenses);
+        String message=BackupRestoreUtil.apply(app,config);
+        assertTrue(message,message.startsWith(mapped));
+        // 1x <- the source's active 1x (its values are in the source's main settings); 3x <- the source's 3x, which had no
+        // saved profile: the baseline; the front has no source lens: the baseline
+        assertEquals("0.2",app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"back0",0).getString("pref_scam_hybrid_cdm",""));
+        assertEquals("0.1",app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"back1",0).getString("pref_scam_hybrid_cdm",""));
+        assertEquals("0.1",app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"front0",0).getString("pref_scam_hybrid_cdm",""));
+        assertFalse(app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"back0",0).contains("module_auto_back0"));
+        android.content.SharedPreferences m=app.getSharedPreferences(BackupRestoreUtil.META,0);
+        assertTrue(m.getBoolean("exists_back1",false));assertTrue(m.getBoolean("exists_front0",false));assertEquals("back1",m.getString("active",""));
+        // this phone's slots stay; the active slot (3x) is in the main settings; the source's global settings came over
+        assertEquals("0",main.getString("module_auto_back0",""));assertEquals("0.1",main.getString("pref_scam_hybrid_cdm",""));
+        assertTrue(main.getBoolean("pref_save_per_lens_settings",false));
+        // the file this phone saves carries its own lens passports
+        java.util.Map<String,?> own=BackupRestoreUtil.collect(app).get(BackupRestoreUtil.LENSES);
+        assertNotNull(own);assertEquals("front",own.get("front0.facing"));assertEquals(78f,(Float)own.get("back1.focal"),0.01f);
+        // per-lens settings off on the source: its main settings go to every module
+        srcMain.put("pref_save_per_lens_settings",false);
+        message=BackupRestoreUtil.apply(app,config);
+        assertTrue(message,message.contains(allModules));
+        for(String slot:new String[]{"back0","back1","front0"})
+            assertEquals(slot,"0.2",app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+slot,0).getString("pref_scam_hybrid_cdm",""));
+        assertEquals("0.2",main.getString("pref_scam_hybrid_cdm",""));
+    }
+    /** P141: an import on the same phone that changes the active module keeps the config's values in the main settings. */
+    @Test public void sameDeviceImportIsNotOverwrittenByTheProfileListener() throws Exception {
+        android.content.Context app=org.robolectric.RuntimeEnvironment.getApplication();
+        android.content.SharedPreferences main=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        android.content.SharedPreferences meta=app.getSharedPreferences(BackupRestoreUtil.META,0);
+        main.edit().clear().putString("module_auto_back0","0").putBoolean("module_visible_back0",true)
+                .putString("module_auto_back1","2").putBoolean("module_visible_back1",true).putString("module_active","back0")
+                .putString(PreferenceKeys.Key.CAMERA_ID.mValue,"0").putBoolean("pref_save_per_lens_settings",true)
+                .putString("pref_scam_hybrid_cdm","0.9").commit();
+        meta.edit().clear().putBoolean("baseline",true).putBoolean("exists_back0",true).putBoolean("exists_back1",true).putString("active","back0").commit();
+        app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"back1",0).edit().clear().putString("pref_scam_hybrid_cdm","0.5").commit();
+        // the config: saved with the 3x module (back1) active, its value 0.3
+        ConfigXml.Config config=new ConfigXml.Config();
+        config.attributes.put("device",BackupRestoreUtil.device());
+        java.util.Map<String,Object> srcMain=new java.util.HashMap<>(main.getAll());
+        srcMain.put("module_active","back1");srcMain.put(PreferenceKeys.Key.CAMERA_ID.mValue,"2");srcMain.put("pref_scam_hybrid_cdm","0.3");
+        config.files.put(ConfigXml.MAIN,srcMain);
+        java.util.Map<String,Object> srcMeta=new java.util.HashMap<>();srcMeta.put("baseline",true);srcMeta.put("exists_back0",true);
+        srcMeta.put("exists_back1",true);srcMeta.put("active","back1");
+        config.files.put(BackupRestoreUtil.META,srcMeta);
+        java.util.Map<String,Object> p0=new java.util.HashMap<>();p0.put("pref_scam_hybrid_cdm","0.7");
+        config.files.put(BackupRestoreUtil.PROFILE_PREFIX+"back0",p0);
+        java.util.Map<String,Object> p1=new java.util.HashMap<>();p1.put("pref_scam_hybrid_cdm","0.3");
+        config.files.put(BackupRestoreUtil.PROFILE_PREFIX+"back1",p1);
+        camera.when(ScameraApp::getSettings).thenReturn(mock(com.scamera.app.api.Settings.class));
+        manager.addListener(PreferenceKeys.PROFILE_LISTENER); // as CameraActivity's setDefaults (this test's manager only)
+        assertEquals("Imported: ",BackupRestoreUtil.apply(app,config));
+        assertEquals("the config's value of its active module, not this phone's old profile of it","0.3",main.getString("pref_scam_hybrid_cdm",""));
+        assertEquals("0.7",app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"back0",0).getString("pref_scam_hybrid_cdm",""));
+        assertEquals("0.3",app.getSharedPreferences(BackupRestoreUtil.PROFILE_PREFIX+"back1",0).getString("pref_scam_hybrid_cdm",""));
+        assertEquals("back1",meta.getString("active",""));
+    }
+    /**
+     * P141: a file without the phone's name is this phone's only when every Camera ID of its module slots exists here;
+     * otherwise this phone keeps its own slots. On the same phone the automatic module offers already made stay made.
+     */
+    @Test public void aConfigWithoutTheDeviceNameIsThisPhonesOnlyWhenItsCamerasExistAndOffersStay() throws Exception {
+        android.content.Context app=org.robolectric.RuntimeEnvironment.getApplication();
+        android.content.SharedPreferences main=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        main.edit().clear().putString("module_auto_back0","0").putBoolean("module_visible_back0",true).putString("module_label_back0","1×")
+                .putBoolean("module_isz_offered_back0",true).putString("pref_scam_hybrid_cdm","0.9").commit();
+        ConfigXml.Config config=new ConfigXml.Config();
+        java.util.Map<String,Object> srcMain=new java.util.HashMap<>();
+        srcMain.put("module_auto_back0","9");srcMain.put("module_visible_back0",true);srcMain.put("pref_scam_hybrid_cdm","0.2");
+        config.files.put(ConfigXml.MAIN,srcMain);
+        // no camera 9 here: another phone's file, this phone's slot stays
+        String message=BackupRestoreUtil.apply(app,config);
+        assertTrue(message,message.contains("an unknown phone"));
+        assertEquals("0",main.getString("module_auto_back0",""));assertEquals("0.2",main.getString("pref_scam_hybrid_cdm",""));
+        // with camera 9 present it is this phone's file: everything as written, the offer already made kept
+        org.robolectric.Shadows.shadowOf(app.getSystemService(android.hardware.camera2.CameraManager.class))
+                .addCamera("9",org.robolectric.shadows.ShadowCameraCharacteristics.newCameraCharacteristics());
+        main.edit().putBoolean("module_isz_offered_back0",true).commit();
+        assertEquals("Imported: ",BackupRestoreUtil.apply(app,config));
+        assertEquals("9",main.getString("module_auto_back0",""));
+        assertTrue("the offer made on this phone stays made",main.getBoolean("module_isz_offered_back0",false));
+    }
+    /** P141: this phone's hidden modules lose their old profiles on an import from another phone (back to the baseline). */
+    @Test public void anImportFromAnotherPhoneResetsTheProfilesOfHiddenModules() throws Exception {
+        android.content.Context app=org.robolectric.RuntimeEnvironment.getApplication();
+        android.content.SharedPreferences main=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        main.edit().clear().putString("module_auto_back0","0").putBoolean("module_visible_back0",true).putString("module_label_back0","1×")
+                .putString("module_auto_back1","2").putBoolean("module_visible_back1",false).putString("module_label_back1","3×")
+                .putString("module_active","back0").commit();
+        android.content.SharedPreferences meta=app.getSharedPreferences(BackupRestoreUtil.META,0);
+        meta.edit().clear().putBoolean("exists_back0",true).putBoolean("exists_back1",true).commit();
+        ConfigXml.Config config=new ConfigXml.Config();
+        config.attributes.put("device","oppo/op627cl1");
+        java.util.Map<String,Object> srcMain=new java.util.HashMap<>();srcMain.put("pref_scam_hybrid_cdm","0.2");
+        config.files.put(ConfigXml.MAIN,srcMain);
+        java.util.Map<String,Object> lenses=new java.util.LinkedHashMap<>();
+        lenses.put("back0.facing","back");lenses.put("back0.focal",23f);lenses.put("back0.zoom",1f);lenses.put("back0.crop",false);lenses.put("back0.label","1×");
+        config.files.put(BackupRestoreUtil.LENSES,lenses);
+        BackupRestoreUtil.apply(app,config);
+        assertTrue(meta.getBoolean("exists_back0",false));
+        assertFalse("the hidden 3x keeps no profile from before the import",meta.contains("exists_back1"));
+    }
+    /** P141 / P148: the passport of a «1.3×» copy of 1x reads 1.3 x the lens's focal length, also with the 1x button hidden. */
+    @Test public void thePassportOfACroppedCopyUsesTheLensFocalLength() {
+        android.content.Context app=org.robolectric.RuntimeEnvironment.getApplication();
+        android.hardware.camera2.CameraCharacteristics c=org.robolectric.shadows.ShadowCameraCharacteristics.newCameraCharacteristics();
+        org.robolectric.shadows.ShadowCameraCharacteristics sc=org.robolectric.Shadows.shadowOf(c);
+        sc.set(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS,new float[]{7.1f});
+        sc.set(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE,new android.util.SizeF(9.8f,7.35f));
+        org.robolectric.Shadows.shadowOf(app.getSystemService(android.hardware.camera2.CameraManager.class)).addCamera("0",c);
+        android.content.SharedPreferences main=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        main.edit().clear().putString("module_auto_back0","0").putBoolean("module_visible_back0",false).putString("module_label_back0","1×")
+                .putString("module_auto_back1","0").putBoolean("module_visible_back1",true).putString("module_label_back1","1.3×")
+                .putString("module_zoom_back1","1.3").putString("module_crop_back1","1.3").commit();
+        java.util.Map<String,Object> passports=BackupRestoreUtil.lensPassports(app);
+        assertEquals(36f/9.8f*7.1f*1.3f,(Float)passports.get("back1.focal"),0.05f);
+        assertFalse(passports.containsKey("back0.focal"));
+    }
+    @Test public void moduleCopyCatalogContainsDynamicProcessingAndSupportsDrilldown(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();
+            var copy=new com.scamera.app.ui.settings.ModuleCopyFragment();
+            fm.beginTransaction().replace(R.id.settings_container,copy).commitNow();
+            // SIMPLE_UI §4: the root's groups are the copy catalog's groups («Снимок» holds the everyday sliders and the colour
+            // pages; 2026-10-27: the camera's colour profile moved to «Для опытных › Другие тонкие настройки»)
+            assertNull("P384: no group of the module cards",copy.requireView().findViewWithTag("group_root_modules"));
+            android.view.View picture=copy.requireView().findViewWithTag("group_root_colour");
+            assertNotNull(tags(copy.requireView()),picture);assertTrue(picture.performClick());
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_scam_hybrid_colour_warmth"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_portrait_enabled"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_portrait_skin_warmth"));
+            activity.getOnBackPressedDispatcher().onBackPressed();
+            // P406: «Модули камеры и линзы» holds the camera's colour profile (the DCP profile) and the modules' sensor settings,
+            // copied from «Сенсор по модулям» (the module cards hold no value), as the reference app's lens settings
+            android.view.View lenses=copy.requireView().findViewWithTag("group_root_lenses");
+            assertNotNull(tags(copy.requireView()),lenses);assertTrue(lenses.performClick());
+            // P413: the lens page's rows (the reference app's lens settings): its RAW, colour matrix and the sensor
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_raw_stream_format"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_scam_hybrid_why_ccm_profile"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_pref_dcp_profile_key"));
+            assertNotNull(tags(copy.requireView()),copy.requireView().findViewWithTag("parameter_sensor_copy_blackleveloverride"));
+            assertTrue(shownText(copy.requireView(),context.getString(R.string.module_sensor_copy_title)));
+        }
+    }
+
+    private static String tags(android.view.View view) {
+        StringBuilder out=new StringBuilder();
+        java.util.ArrayDeque<android.view.View> queue=new java.util.ArrayDeque<>();queue.add(view);
+        while(!queue.isEmpty()){android.view.View v=queue.poll();if(v.getTag()!=null)out.append(v.getTag()).append(' ');
+            if(v instanceof android.view.ViewGroup)for(int i=0;i<((android.view.ViewGroup)v).getChildCount();i++)queue.add(((android.view.ViewGroup)v).getChildAt(i));}
+        return out.toString();
+    }
+    /** P390: «Камеры и модули», opened by its row on the main page. */
+    private static com.scamera.app.ui.settings.SettingsActivity.SettingsFragment modulesPage(com.scamera.app.ui.settings.SettingsActivity activity){
+        var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+        ((Preference)root.findPreference("modules_screen")).performClick();
+        fm.executePendingTransactions();org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        var page=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+        assertEquals("modules_screen",page.requireArguments().getString(androidx.preference.PreferenceFragmentCompat.ARG_PREFERENCE_ROOT));
+        return page;
+    }
+
+    private void renderPage(android.view.View view,String name) throws Exception {
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        int exact=android.view.View.MeasureSpec.EXACTLY;
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(400,exact),android.view.View.MeasureSpec.makeMeasureSpec(880,exact));view.layout(0,0,400,880);
+        // P574: the concept's header - a bar with the 40dp back disc, then the large title column (scrolling with the list)
+        // (a settings page holds the bar itself and the titles in its scrolling top; a module page the whole header: bar, titles)
+        android.view.ViewGroup first=(android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(0);
+        boolean whole=!(first.getChildAt(0) instanceof android.widget.ImageView);
+        android.view.ViewGroup row=whole?(android.view.ViewGroup)first.getChildAt(0):first;
+        // P582: the activity is at the concept's density (UiFixedScale: 400 px = 390dp here), so 40dp is 40 x that density
+        int disc=Math.round(40*view.getResources().getDisplayMetrics().density);
+        assertTrue("Header must hold the 40dp back disc",row.getHeight()>=disc);
+        assertEquals(android.view.View.VISIBLE,row.getChildAt(0).getVisibility());
+        assertEquals(disc,row.getChildAt(0).getWidth());
+        android.view.ViewGroup titles=whole?(android.view.ViewGroup)first.getChildAt(1)
+                :(android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)((android.view.ViewGroup)view).getChildAt(1)).getChildAt(0)).getChildAt(0)).getChildAt(0);
+        if(titles.getChildAt(1).getVisibility()==android.view.View.VISIBLE)assertTrue(titles.getChildAt(1).getTop()>=titles.getChildAt(0).getBottom());
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(400,880,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+        java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+        try(var out=new java.io.FileOutputStream(new java.io.File(dir,name+".png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+    }
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void conceptSelectionCopiesOnlyChosenValuesAndAccentSurvivesModuleSwitch() throws Exception {
+        conceptSelectionCopiesOnlyChosenValuesAndAccentSurvivesModuleSwitch("Копировать настройки между модулями","Настройки по модулям","частично","");
+    }
+    /** The same on an English system: the row titles and the partial-selection hint are English. */
+    @Test public void conceptSelectionCopiesOnlyChosenValuesAndAccentSurvivesModuleSwitchInEnglish() throws Exception {
+        conceptSelectionCopiesOnlyChosenValuesAndAccentSurvivesModuleSwitch("Copy settings between modules","Settings per module","partly selected","-en");
+    }
+    private void conceptSelectionCopiesOnlyChosenValuesAndAccentSurvivesModuleSwitch(String copyRow,String groupRow,String partly,String png) throws Exception {
+        for(int i=0;i<3;i++)prefs.edit().putString("module_auto_back"+i,""+(3+i)).putString("module_label_back"+i,new String[]{"1×","0.4×","2.4×"}[i]).putBoolean("module_visible_back"+i,true).commit();
+        prefs.edit().putString("module_active","back0").putBoolean("pref_dng_lossless",true).commit();
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();
+            fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            renderPage(root.requireView(),"modules"+png);
+            assertEquals(android.view.View.GONE,activity.findViewById(R.id.settings_toolbar).getVisibility());
+            // P384 (owner, 2026-10-28: «Переместить эту группу настроек на главный экран»): copying settings between modules is a row
+            // under the module cards of the main page (was «Камеры и модули»; the module profiles still in one place only)
+            Preference copyRowPreference=root.findPreference("module_copy_settings");
+            assertNotNull(copyRowPreference);assertEquals(copyRow,String.valueOf(copyRowPreference.getTitle()));
+            assertSame(root.findPreference("module_actions"),copyRowPreference.getParent());
+            copyRowPreference.performClick();fm.executePendingTransactions();
+            assertEquals("module_copy",fm.getBackStackEntryAt(fm.getBackStackEntryCount()-1).getName());
+            var copy=(com.scamera.app.ui.settings.ModuleCopyFragment)fm.findFragmentById(R.id.settings_container);renderPage(copy.requireView(),"copy"+png);
+            assertEquals(android.view.View.GONE,activity.findViewById(R.id.settings_toolbar).getVisibility());
+            copy.requireView().findViewWithTag("clear_selection").performClick();assertFalse(copy.requireView().findViewWithTag("primary_action").isEnabled());
+            // one row of «Фото» (SIMPLE_UI §4: the root's groups are the copy catalog's; the DNG compression is under «Фото»)
+            copy.requireView().findViewWithTag("group_root_photo").performClick();
+            copy.requireView().findViewWithTag("parameter_pref_dng_lossless").performClick();renderPage(copy.requireView(),"noise"+png);
+            copy.requireView().findViewWithTag("primary_action").performClick();
+            var check=copy.requireView().findViewWithTag("group_check_root_photo");assertTrue(check.getContentDescription().toString(),check.getContentDescription().toString().contains(partly));
+            copy.requireView().findViewWithTag("target_back2").performClick();copy.requireView().findViewWithTag("primary_action").performClick();
+            assertEquals(Boolean.TRUE,PreferenceKeys.profiles().snapshot("back1").get("pref_dng_lossless"));
+            assertFalse(context.getSharedPreferences("module_profiles_meta",0).getBoolean("exists_back2",false));
+            var dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestDialog();if(dialog!=null)dialog.dismiss();
+            var accent=new com.scamera.app.ui.settings.AccentSettingsFragment();fm.beginTransaction().replace(R.id.settings_container,accent).commitNow();renderPage(accent.requireView(),"accent"+png);
+            accent.requireView().findViewWithTag("accent_blue").performClick();
+            assertEquals("blue",prefs.getString(com.scamera.app.circularbarlib.ui.AccentPalette.KEY,""));
+            assertFalse(ModuleProfiles.isLocal(com.scamera.app.circularbarlib.ui.AccentPalette.KEY));
+            prefs.edit().putBoolean(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue,true).commit();PreferenceKeys.profiles().changed(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue);
+            PreferenceKeys.profiles().activate("back1");
+            assertEquals(0xFF90C7FF,com.scamera.app.circularbarlib.ui.AccentPalette.camera(context));
+        }
+    }
+
+    @Test public void openingPagesDoesNotRewriteGalleryOrThemeSwitches(){
+        prefs.edit().putString(PreferenceKeys.Key.KEY_HIDE_GALLERY_ICON.mValue,"0").commit();
+        inflate(); org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        Map<String,?> before=prefs.getAll();
+        java.util.List<String> changed=new ArrayList<>();
+        SharedPreferences.OnSharedPreferenceChangeListener observer=(p,k)->changed.add(k);
+        prefs.registerOnSharedPreferenceChangeListener(observer);
+        for(int i=0;i<5;i++)inflate();
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        prefs.unregisterOnSharedPreferenceChangeListener(observer);
+        assertFalse(changed.toString(),changed.contains(PreferenceKeys.Key.KEY_HIDE_GALLERY_ICON.mValue));
+        assertEquals(before.get(PreferenceKeys.Key.KEY_HIDE_GALLERY_ICON.mValue),prefs.getAll().get(PreferenceKeys.Key.KEY_HIDE_GALLERY_ICON.mValue));
+    }
+
+    @Test public void nestedWhyTonePageOpensWithoutParentDependency() {
+        try(var controller=org.robolectric.Robolectric.buildActivity(
+                com.scamera.app.ui.settings.SettingsActivity.class)) {
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();
+            fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            // 2026-10-27: the brightness, now a row of «Снимок» on the root, is not greyed by a page above it either
+            assertTrue(root.findPreference("pref_scam_hybrid_why_ae_target").isEnabled());
+            // P403: the metering on «Экспозиция (AE)»
+            PreferenceScreen tone=root.findPreference("scam_hybrid_why_ae_screen");
+            activity.onPreferenceStartScreen(root,tone);fm.executePendingTransactions();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var page=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            assertEquals("scam_hybrid_why_ae_screen",page.getPreferenceScreen().getKey());
+            // 2026-10-27: the brightness moved to «Снимок»; the metering stays on this page
+            assertTrue(page.findPreference("pref_scam_hybrid_why_metering").isEnabled());
+            assertTrue(PreferenceKeys.isScamHdrEnabled());
+            camera.verify(()->ScameraApp.restartApp(any(android.content.Context.class)),never());
+        }
+    }
+
+    /** P140: long press on the launcher icon offers «Настройки»; it opens the settings with the camera's set-up done. */
+    @Test public void launcherShortcutOpensTheSettings() throws Exception {
+        android.content.pm.ActivityInfo splash=context.getPackageManager().getActivityInfo(
+                new android.content.ComponentName(context,com.scamera.app.ui.SplashActivity.class),
+                android.content.pm.PackageManager.GET_META_DATA);
+        assertEquals(R.xml.shortcuts,splash.metaData.getInt("android.app.shortcuts"));
+        String id=null,target=null,pkg=null,action=null;int shortLabel=0,longLabel=0,icon=0;
+        try(android.content.res.XmlResourceParser xml=context.getResources().getXml(R.xml.shortcuts)){
+            String ns="http://schemas.android.com/apk/res/android";
+            for(int e=xml.next();e!=org.xmlpull.v1.XmlPullParser.END_DOCUMENT;e=xml.next()){
+                if(e!=org.xmlpull.v1.XmlPullParser.START_TAG)continue;
+                if("shortcut".equals(xml.getName())){id=xml.getAttributeValue(ns,"shortcutId");
+                    shortLabel=xml.getAttributeResourceValue(ns,"shortcutShortLabel",0);longLabel=xml.getAttributeResourceValue(ns,"shortcutLongLabel",0);
+                    icon=xml.getAttributeResourceValue(ns,"icon",0);}
+                // P183: the package is the build's own (a string the launcher resolves, as here), not a fixed name
+                if("intent".equals(xml.getName())){target=xml.getAttributeValue(ns,"targetClass");int ref=xml.getAttributeResourceValue(ns,"targetPackage",0);
+                    pkg=ref!=0?context.getString(ref):xml.getAttributeValue(ns,"targetPackage");
+                    action=xml.getAttributeValue(ns,"action");}
+            }
+        }
+        assertEquals("settings",id);
+        assertEquals(com.scamera.app.ui.settings.SettingsActivity.class.getName(),target);
+        assertEquals(context.getPackageName(),pkg);
+        assertEquals(com.scamera.app.ui.settings.SettingsActivity.ACTION_SHORTCUT,action);
+        assertEquals(R.string.shortcut_settings_short,shortLabel);assertEquals(R.string.shortcut_settings_long,longLabel);
+        assertEquals(R.drawable.shortcut_settings,icon);
+        assertTrue(context.getString(shortLabel).length()<=10); // the launcher's short-label limit
+        // the icon is the camera's own gear (it follows the P136 restyle)
+        assertTrue(context.getDrawable(icon) instanceof android.graphics.drawable.AdaptiveIconDrawable);
+        // From the shortcut: the camera's defaults and one module-profile listener, however often it is set up
+        com.scamera.app.api.Settings cache=mock(com.scamera.app.api.Settings.class);
+        camera.when(ScameraApp::getSettings).thenReturn(cache);
+        android.content.Intent intent=new android.content.Intent(com.scamera.app.ui.settings.SettingsActivity.ACTION_SHORTCUT)
+                .setClass(context,com.scamera.app.ui.settings.SettingsActivity.class);
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class,intent)){
+            controller.setup();
+            assertNotNull(controller.get().getSupportFragmentManager().findFragmentById(R.id.settings_container));
+        }
+        verify(cache,atLeastOnce()).loadCache(); // and again by the profile listener on the defaults it writes
+        PreferenceKeys.setDefaults(context);PreferenceKeys.setDefaults(context);
+        Field listeners=SettingsManager.class.getDeclaredField("watchers");listeners.setAccessible(true);
+        assertEquals(1,java.util.Collections.frequency((java.util.Collection<?>)listeners.get(manager),PreferenceKeys.PROFILE_LISTENER));
+        assertEquals("0",String.valueOf(prefs.getAll().get(PreferenceKeys.Key.KEY_COUNTDOWN_TIMER.mValue)));
+    }
+
+    @Test public void settingsBackPopsOnePageWithoutRestart(){
+        try(org.robolectric.android.controller.ActivityController<com.scamera.app.ui.settings.SettingsActivity> controller=
+                org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)) {
+            controller.setup();
+            com.scamera.app.ui.settings.SettingsActivity activity=controller.get();
+            androidx.fragment.app.FragmentManager fm=activity.getSupportFragmentManager();
+            fm.executePendingTransactions();
+            com.scamera.app.ui.settings.SettingsActivity.SettingsFragment root=
+                    (com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            PreferenceScreen first=root.findPreference("scam_hybrid_hdr_screen");
+            assertNotNull(first);activity.onPreferenceStartScreen(root,first);fm.executePendingTransactions();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertEquals(1,fm.getBackStackEntryCount());
+            activity.getOnBackPressedDispatcher().onBackPressed();fm.executePendingTransactions();
+            assertEquals(0,fm.getBackStackEntryCount());assertFalse(activity.isFinishing());
+            assertSame(root,fm.findFragmentById(R.id.settings_container));
+            camera.verify(()->ScameraApp.restartApp(any(android.content.Context.class)),never());
+        }
+    }
+
+    private static <T extends android.view.View> T descendant(android.view.View view, Class<T> type) {
+        if (type.isInstance(view)) return type.cast(view);
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group=(android.view.ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++) {
+                T found=descendant(group.getChildAt(i),type);if(found!=null)return found;
+            }
+        }
+        return null;
+    }
+    @Test public void searchOpensRealSettingAndRetainsQueryOnBack() {
+        try(org.robolectric.android.controller.ActivityController<com.scamera.app.ui.settings.SettingsActivity> controller=
+                org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)) {
+            controller.setup();
+            var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            // P6b: search is the button of the page header (the toolbar stays hidden)
+            assertEquals(android.view.View.GONE,activity.findViewById(R.id.settings_toolbar).getVisibility());
+            fm.findFragmentById(R.id.settings_container).requireView().findViewWithTag("settings_search").performClick();fm.executePendingTransactions();
+            var search=fm.findFragmentById(R.id.settings_container);
+            assertTrue(search instanceof com.scamera.app.ui.settings.SettingsSearchFragment);
+            android.widget.EditText input=descendant(search.requireView(),android.widget.EditText.class);
+            input.setText("pref_film_lut_strength");
+            var list=descendant(search.requireView(),androidx.recyclerview.widget.RecyclerView.class);
+            assertEquals(1,list.getAdapter().getItemCount());
+            list.measure(android.view.View.MeasureSpec.makeMeasureSpec(400,1073741824),android.view.View.MeasureSpec.makeMeasureSpec(600,1073741824));list.layout(0,0,400,600);
+            assertNotNull(list.findViewHolderForAdapterPosition(0));
+            list.findViewHolderForAdapterPosition(0).itemView.performClick();fm.executePendingTransactions();
+            var page=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            assertNotNull(page.findPreference("pref_film_lut_strength"));
+            activity.getOnBackPressedDispatcher().onBackPressed();fm.executePendingTransactions();
+            input=descendant(fm.findFragmentById(R.id.settings_container).requireView(),android.widget.EditText.class);
+            assertEquals("pref_film_lut_strength",input.getText().toString());
+            camera.verify(()->ScameraApp.restartApp(any(android.content.Context.class)),never());
+        }
+    }
+
+
+    /** P6a: no Russian «гибрид»; P55: no old names («LMC», «NICE»); P129: the merge is «SHDR». */
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void noOldNamesOrRussianHybridInTheSettingsTexts(){
+        checkNoOldNames();
+    }
+    /** The same check over the English texts. */
+    @Test public void noOldNamesOrRussianHybridInTheSettingsTextsInEnglish(){
+        checkNoOldNames();
+    }
+    private void checkNoOldNames(){
+        PreferenceScreen screen=inflate();SensorConfigPreferenceGenerator.generatePreferences(context,screen);
+        List<String> found=new ArrayList<>();int checked=0;
+        java.util.ArrayDeque<Preference> queue=new java.util.ArrayDeque<>();queue.add(screen);
+        while(!queue.isEmpty()){
+            Preference p=queue.poll();
+            if(p instanceof PreferenceGroup)for(int i=0;i<((PreferenceGroup)p).getPreferenceCount();i++)queue.add(((PreferenceGroup)p).getPreference(i));
+            List<CharSequence> texts=new ArrayList<>(Arrays.asList(p.getTitle(),p.getSummary()));
+            if(p instanceof ListPreference&&((ListPreference)p).getEntries()!=null)texts.addAll(Arrays.asList(((ListPreference)p).getEntries()));
+            if(p instanceof DialogPreference)texts.add(((DialogPreference)p).getDialogTitle());
+            for(CharSequence t:texts){
+                if(t==null)continue;checked++;
+                String s=t.toString();
+                if(oldName(s))found.add(p.getKey()+": "+s);
+            }
+        }
+        assertTrue(found.toString(),found.isEmpty());assertTrue(checked>500);
+        // P129: and in every string and string array of the APK (the shade, the gallery, dialogs), not only the settings rows
+        for(Field f:R.string.class.getFields())try{String s=context.getString(f.getInt(null));if(oldName(s))found.add(f.getName()+": "+s);}catch(Exception ignored){}
+        for(Field f:R.array.class.getFields())try{for(String s:context.getResources().getStringArray(f.getInt(null)))if(s!=null&&oldName(s))found.add(f.getName()+": "+s);}catch(Exception ignored){}
+        assertTrue(found.toString(),found.isEmpty());
+        // P406: no SHDR wrapper page; the merge pages carry the reference app's names
+        assertNull(screen.findPreference("scam_hybrid_screen"));
+    }
+
+    /**
+     * P138 (owner's screenshot: «Кадры теней: EV над N» at its minimum 1.00 with half a thumb): at both ends of the range the
+     * slider's thumb is drawn whole - no view between it and the card clips it - in rows with and without an icon.
+     */
+    @Test public void sliderThumbIsNeverClipped(){
+        PreferenceScreen screen=inflate();
+        int checked=0;
+        for(String key:new String[]{"pref_scam_hybrid_shasta_ev","pref_scam_hybrid_why_dn_factor","pref_scam_hybrid_why_dn_grain"}){
+            Preference p=screen.findPreference(key);assertNotNull(key,p);
+            android.view.View card=row(p);
+            // P574: the settings' slider (IosSlider): its knob rests inside the slider at both ends (inset by its 14dp radius); held,
+            // it widens and the rubber band stretches past the slider, so no view between the slider and the row clips
+            com.scamera.app.ui.controls.IosSlider bar=card.findViewById(R.id.seekbar);
+            assertNotNull(key,bar);
+            int w=Math.round(400*context.getResources().getDisplayMetrics().density);
+            float d=context.getResources().getDisplayMetrics().density;
+            for(float progress:new float[]{bar.getMin(),bar.getMax()}){
+                bar.setValueNow(progress);
+                card.measure(android.view.View.MeasureSpec.makeMeasureSpec(w,android.view.View.MeasureSpec.EXACTLY),
+                        android.view.View.MeasureSpec.makeMeasureSpec(0,android.view.View.MeasureSpec.UNSPECIFIED));
+                card.layout(0,0,w,card.getMeasuredHeight());
+                float k=bar.getMax()>bar.getMin()?(progress-bar.getMin())/(bar.getMax()-bar.getMin()):0;
+                float travel=bar.getWidth()-bar.getPaddingLeft()-bar.getPaddingRight()-28*d;
+                float cx=bar.getPaddingLeft()+14*d+k*travel;
+                assertTrue(key+"@"+progress+": the knob inside the slider",cx-14*d>=-0.5f&&cx+14*d<=bar.getWidth()+0.5f);
+                assertTrue(key+" laid out",bar.getWidth()>0&&bar.getHeight()>=Math.round(28*d));
+                android.view.View child=bar;
+                while(child!=card){
+                    android.view.ViewGroup parent=(android.view.ViewGroup)child.getParent();
+                    assertFalse(key+": "+parent+" clips the held knob",parent.getClipChildren());
+                    child=parent;
+                }
+                checked++;
+            }
+        }
+        assertEquals(6,checked);
+    }
+
+    /**
+     * P137: a slider's exact-value editor is a sheet in the camera's style (no stock dialog): the value typed in place,
+     * «Применить»; and «В шторку» on the title line of every value editor pins the setting in the shade and takes it out.
+     */
+    @Test public void valueEditorsAreSheetsAndPinToTheShade(){
+        ShadeCatalog.reset();
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();
+            final float[] saved={Float.NaN};
+            String key="pref_scam_hybrid_shasta_ev";
+            com.google.android.material.bottomsheet.BottomSheetDialog d=com.scamera.app.ui.controls.PrecisionEditor.show(
+                    activity,key,"Кадры теней: EV над N",1,4,1.5,1,true,v->saved[0]=v);
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.view.View root=d.getWindow().getDecorView();
+            assertNull("no stock dialog",org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+            android.widget.TextView value=root.findViewWithTag("precision_value");assertEquals("1.5",value.getText().toString());
+            value.performClick();
+            android.widget.EditText field=root.findViewWithTag("precision_field");
+            assertEquals(android.view.View.VISIBLE,field.getVisibility());
+            field.setText("2,5");
+            root.findViewWithTag("sheet_save").performClick();
+            assertEquals(2.5f,saved[0],1e-6f);assertFalse(d.isShowing());
+            // out of range: the sheet stays, nothing is saved
+            saved[0]=Float.NaN;
+            d=com.scamera.app.ui.controls.PrecisionEditor.show(activity,key,"x",1,4,1.5,1,true,v->saved[0]=v);
+            root=d.getWindow().getDecorView();
+            ((android.widget.TextView)root.findViewWithTag("precision_value")).performClick();
+            ((android.widget.EditText)root.findViewWithTag("precision_field")).setText("9");
+            root.findViewWithTag("sheet_save").performClick();
+            assertTrue(Float.isNaN(saved[0]));assertTrue(d.isShowing());
+            // P574 «Плитка в шторке» (the shared switch in the editor's card): pinned at the end of the shade, then out again
+            com.scamera.app.ui.controls.IosSwitch pin=root.findViewWithTag("sheet_pin");assertNotNull(pin);
+            assertFalse(ShadeTiles.isPinned(prefs,key));assertFalse(pin.isChecked());
+            pin.performClick();
+            assertTrue(ShadeTiles.isPinned(prefs,key));assertEquals(key,ShadeTiles.stored(prefs).get(ShadeTiles.stored(prefs).size()-1));
+            assertTrue(pin.isChecked());
+            ((android.view.View)root.findViewWithTag("precision_pin_row")).performClick();   // the row toggles it too
+            assertFalse(ShadeTiles.isPinned(prefs,key));assertFalse(pin.isChecked());
+            // P574: the stepper moves by the setting's own step, the reset line puts the default back, «Отмена» saves nothing
+            ((android.widget.EditText)root.findViewWithTag("precision_field")).setText("2");
+            ((android.view.View)root.findViewWithTag("precision_plus")).performClick();
+            assertEquals("2.1",((android.widget.TextView)root.findViewWithTag("precision_value")).getText().toString());
+            android.widget.TextView reset=root.findViewWithTag("precision_reset");
+            assertTrue(reset.getText().toString(),reset.getText().toString().endsWith(" 1.0"));assertTrue(reset.isEnabled());
+            reset.performClick();
+            assertEquals("1.0",((android.widget.TextView)root.findViewWithTag("precision_value")).getText().toString());
+            assertFalse(reset.isEnabled());
+            root.findViewWithTag("sheet_cancel").performClick();
+            assertTrue(Float.isNaN(saved[0]));assertFalse(d.isShowing());
+            // P167: no limit - a shade of 30 tiles takes one more
+            java.util.List<String> many=new java.util.ArrayList<>();for(int i=0;i<30;i++)many.add("tile"+i);
+            ShadeTiles.save(prefs,many);
+            assertTrue(ShadeTiles.toggle(prefs,key));assertEquals(31,ShadeTiles.stored(prefs).size());
+            ShadeTiles.save(prefs,new java.util.ArrayList<>(ShadeCatalog.defaultTiles()));
+            // the list picker of a setting has the pin too; a key the shade cannot show has none
+            ListPreference output=new ListPreference(activity);output.setKey("pref_scam_hybrid_output");output.setTitle("x");
+            output.setEntries(new CharSequence[]{"a"});output.setEntryValues(new CharSequence[]{"sensor"});
+            assertTrue(com.scamera.app.ui.settings.SettingsStyle.showDialog(activity,output));
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertNotNull(latestSheet().findViewWithTag("sheet_pin"));
+            assertNull(com.scamera.app.ui.controls.PrecisionEditor.show(activity,"no_such_key","x",0,1,0,0,false,v->{})
+                    .getWindow().getDecorView().findViewWithTag("sheet_pin"));
+        }
+        ShadeCatalog.reset();
+    }
+
+    private static android.view.View latestSheet(){
+        android.app.Dialog d=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertTrue(String.valueOf(d),d instanceof com.google.android.material.bottomsheet.BottomSheetDialog);
+        return d.getWindow().getDecorView();
+    }
+
+    /** P134: a grading zone's hue acts only with its strength; the AgX saturation only with the «Custom» AgX look. */
+    @Test public void colourRowsSayWhenTheyAct(){
+        java.util.Map<String,Object> v=new java.util.HashMap<>();
+        assertNotNull(new SettingsAvailability(v).reason("pref_scam_hybrid_colour_grade_highlights_hue"));
+        v.put("pref_scam_hybrid_colour_grade_highlights_str","30");
+        assertNull(new SettingsAvailability(v).reason("pref_scam_hybrid_colour_grade_highlights_hue"));
+        assertNotNull(new SettingsAvailability(v).reason("pref_scam_hybrid_colour_grade_shadows_hue"));
+        assertNull(new SettingsAvailability(v).reason("pref_scam_hybrid_why_agx_sat"));
+        v.put("pref_scam_hybrid_why_agx_look","1");
+        assertNotNull(new SettingsAvailability(v).reason("pref_scam_hybrid_why_agx_sat"));
+        for(String k:new String[]{"pref_scam_hybrid_colour_warmth","pref_scam_hybrid_colour_mix_red_hue","pref_scam_hybrid_why_vibrance_hl_str",
+                "pref_scam_hybrid_colour_grade_mids_hue","pref_scam_hybrid_colour_grade_blend"})
+            assertNotNull(k+" needs numeric bounds",SettingsNumericRules.bounds(k));
+    }
+
+    /** P139: in every kind of row the title (medium, larger) and its description (smaller, dimmer) look different. */
+    /** The vendor tag editor is a sheet like the other editors, and the key type Session (X300 Ultra forceSensorMode) is a choice. */
+    @Test public void vendorTagEditorIsASheetWithTheSessionType(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();
+            String sensor="t_vendor";
+            TunableKeyManager.saveKeys(activity,sensor,new java.util.ArrayList<>());
+            final int[] done={0};
+            var d=com.scamera.app.ui.settings.custompreferences.TunableKeyDialog.show(activity,sensor,-1,()->done[0]++);
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertNotNull(d);assertNull("no stock dialog",org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+            android.view.View root=d.getWindow().getDecorView();
+            assertNotNull(root.findViewWithTag("vendor_type_CaptureRequest"));
+            android.view.View session=root.findViewWithTag("vendor_type_Session");assertNotNull(session);
+            assertTrue("a new key goes into every request",root.findViewWithTag("vendor_type_CaptureRequest").isSelected());
+            session.performClick();assertTrue(session.isSelected());
+            ((android.widget.EditText)root.findViewWithTag("vendor_name")).setText("vivo.control.forceSensorMode");
+            ((android.widget.EditText)root.findViewWithTag("vendor_value")).setText("six");
+            root.findViewWithTag("sheet_save").performClick();
+            assertTrue("a value that does not fit Integer keeps the sheet",d.isShowing());assertEquals(0,done[0]);
+            ((android.widget.EditText)root.findViewWithTag("vendor_value")).setText("6");
+            root.findViewWithTag("sheet_save").performClick();
+            assertFalse(d.isShowing());assertEquals(1,done[0]);
+            java.util.List<com.scamera.app.api.VendorTagUtils.TunableKey> keys=TunableKeyManager.loadKeys(activity,sensor);
+            assertEquals(1,keys.size());
+            assertEquals(com.scamera.app.api.VendorTagUtils.TunableKey.TYPE_SESSION,keys.get(0).kind);
+            assertEquals("Integer",keys.get(0).typeName);assertEquals("6",keys.get(0).text);
+            // editing keeps the type and offers deleting
+            d=com.scamera.app.ui.settings.custompreferences.TunableKeyDialog.show(activity,sensor,0,()->done[0]++);
+            root=d.getWindow().getDecorView();
+            assertTrue(root.findViewWithTag("vendor_type_Session").isSelected());
+            root.findViewWithTag("vendor_delete").performClick();
+            assertTrue(TunableKeyManager.loadKeys(activity,sensor).isEmpty());
+        }
+    }
+    /**
+     * P144: «Кривая AgX и ACES» - AgX, then ACES, Uchimura and the own curve, each switched on in its own group that holds only
+     * its own settings; one operator at a time; AgX's rows say which one works instead.
+     */
+    @Test public void toneOperatorsInTheirOwnGroups(){
+        PreferenceScreen root=inflate();
+        androidx.preference.PreferenceGroup screen=root.findPreference("scam_hybrid_why_curves_screen");
+        assertNotNull(screen);
+        // P406: the reference app's order - AgX, its gamma and deep black, ACES, Uchimura, the own curve and its modifiers
+        String[] order={"scam_hybrid_why_agx_category","scam_hybrid_why_curves_category","scam_hybrid_why_aces_category","scam_hybrid_why_uchi_category",
+                "scam_hybrid_why_curve_category","scam_hybrid_why_curve_mod_category"};
+        for(int i=0;i<order.length;i++)assertEquals(order[i],screen.getPreference(i).getKey());
+        String[][] groups={{"scam_hybrid_why_aces_category","pref_scam_hybrid_why_aces_on","pref_scam_hybrid_why_aces_"},
+                {"scam_hybrid_why_uchi_category","pref_scam_hybrid_why_uchi_on","pref_scam_hybrid_why_uchi_"},
+                {"scam_hybrid_why_curve_category","pref_scam_hybrid_why_curve_on","pref_scam_hybrid_why_curve_"}};
+        for(String[] g:groups){
+            androidx.preference.PreferenceGroup cat=root.findPreference(g[0]);
+            assertTrue(g[0]+" starts with its switch",cat.getPreference(0) instanceof androidx.preference.TwoStatePreference);
+            assertEquals(g[1],cat.getPreference(0).getKey());
+            // P405: the own curve is the default operator (the owner's reference config), ACES and Uchimura are off
+            assertEquals(g[1]+" by default",g[1].endsWith("curve_on"),((androidx.preference.TwoStatePreference)cat.getPreference(0)).isChecked());
+            for(int i=0;i<cat.getPreferenceCount();i++)
+                assertTrue("only its own settings in "+g[0]+": "+cat.getPreference(i).getKey(),cat.getPreference(i).getKey().startsWith(g[2]));
+        }
+        assertEquals("pref_scam_hybrid_why_aces_on",root.findPreference("pref_scam_hybrid_why_aces_a").getDependency());
+        assertEquals("pref_scam_hybrid_why_uchi_on",root.findPreference("pref_scam_hybrid_why_uchi_m").getDependency());
+        assertTrue(root.findPreference("pref_scam_hybrid_why_curve_points") instanceof com.scamera.app.ui.settings.custompreferences.ToneCurvePreference);
+        assertEquals("pref_scam_hybrid_why_curve_on",root.findPreference("pref_scam_hybrid_why_curve_points").getDependency());
+        // AgX's rows tell which operator works instead
+        java.util.Map<String,Object> values=new java.util.HashMap<>();
+        assertNull(new SettingsAvailability(values).reason("pref_scam_hybrid_why_agx_look"));
+        values.put("pref_scam_hybrid_why_uchi_on",true);
+        String why=new SettingsAvailability(values).reason("pref_scam_hybrid_why_agx_look");
+        assertNotNull(why);assertTrue(why,why.contains("Uchimura"));
+    }
+
+    /** P144: one tone operator at a time - switching one on in the settings turns the other two off. */
+    @Test public void oneToneOperatorAtATime(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();
+            SharedPreferences sp=prefs; // the settings' own store (SettingsManager), which the screen listens to
+            sp.edit().putBoolean("pref_scam_hybrid_why_uchi_on",true).commit();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            sp.edit().putBoolean("pref_scam_hybrid_why_aces_on",true).commit();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue(sp.getBoolean("pref_scam_hybrid_why_aces_on",false));
+            assertFalse("Uchimura went off",sp.getBoolean("pref_scam_hybrid_why_uchi_on",true));
+            sp.edit().putBoolean("pref_scam_hybrid_why_curve_on",true).commit();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertFalse("ACES went off",sp.getBoolean("pref_scam_hybrid_why_aces_on",true));
+            assertTrue(sp.getBoolean("pref_scam_hybrid_why_curve_on",false));
+        }
+    }
+
+    /**
+     * P144: the own curve's graph - a tap adds a point, a drag moves it, «Прямая» / «S-кривая» reset it; stored as x:y pairs. The
+     * touched point stays selected: its «Яркость» slider and its typed «Экспозиция» move it, ‹ › step, «Удалить» removes it.
+     */
+    @Test public void ownCurveIsEditedOnItsGraph(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();
+            PreferenceManager pm=new PreferenceManager(activity);PreferenceScreen screen=pm.createPreferenceScreen(activity);
+            var pref=new com.scamera.app.ui.settings.custompreferences.ToneCurvePreference(activity);
+            pref.setKey("pref_scam_hybrid_why_curve_points");screen.addPreference(pref);
+            android.view.View row=android.view.LayoutInflater.from(activity).inflate(R.layout.preference_tone_curve,null);
+            androidx.preference.PreferenceViewHolder holder=androidx.preference.PreferenceViewHolder.createInstanceForTests(row);
+            pref.onBindViewHolder(holder);
+            var graph=(com.scamera.app.ui.settings.custompreferences.ToneCurveView)row.findViewWithTag("tone_curve_view");
+            assertNotNull(graph);
+            int w=600;row.measure(android.view.View.MeasureSpec.makeMeasureSpec(w,android.view.View.MeasureSpec.EXACTLY),android.view.View.MeasureSpec.makeMeasureSpec(0,android.view.View.MeasureSpec.UNSPECIFIED));
+            row.layout(0,0,w,row.getMeasuredHeight());
+            // P405: unset, the reference config's 17 points; «S-кривая» puts WhyCam's S in
+            assertEquals("the reference config's curve",com.scamera.app.processing.color.ToneCurve.SETTING_POINTS,pref.points());
+            assertEquals(17,graph.curve().size());
+            row.findViewWithTag("tone_curve_default").performClick();
+            assertEquals("the S",5,graph.curve().size());
+            // a tap on an empty spot of the graph (x 0.6, y 0.3 of the plot) adds a point there, a drag moves it
+            float x=graph.getLeft()+graph.getWidth()*0.6f,y=graph.getHeight()*0.62f;
+            long t=android.os.SystemClock.uptimeMillis();
+            graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,graph.getWidth()*0.6f,y,0));
+            graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+50,android.view.MotionEvent.ACTION_MOVE,graph.getWidth()*0.6f,y-40,0));
+            graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+80,android.view.MotionEvent.ACTION_UP,graph.getWidth()*0.6f,y-40,0));
+            assertEquals("a sixth point",6,graph.curve().size());
+            String stored=pref.points();
+            assertEquals(6,stored.split(",").length);
+            assertEquals(stored,com.scamera.app.processing.color.ToneCurve.parse(stored).serialize());
+            // the new point is the selected one
+            int sel=graph.selected();
+            assertTrue("an inner point",sel>0&&sel<graph.curve().size()-1);
+            assertEquals("Point "+(sel+1)+" of 6",((android.widget.TextView)row.findViewWithTag("tone_curve_point_label")).getText().toString());
+            // the brightness slider dragged to its end: the point goes to 100 %
+            android.widget.SeekBar yBar=row.findViewWithTag("tone_curve_y");
+            assertTrue(yBar.isEnabled());
+            t+=500;
+            yBar.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,yBar.getWidth()*0.5f,yBar.getHeight()/2f,0));
+            yBar.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+40,android.view.MotionEvent.ACTION_MOVE,yBar.getWidth()-1f,yBar.getHeight()/2f,0));
+            yBar.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+80,android.view.MotionEvent.ACTION_UP,yBar.getWidth()-1f,yBar.getHeight()/2f,0));
+            assertEquals(1f,graph.curve().get(sel).y,1e-4f);
+            assertEquals("100.0 %",((android.widget.TextView)row.findViewWithTag("tone_curve_y_value")).getText().toString());
+            assertEquals("stored when the finger lifts",1f,com.scamera.app.processing.color.ToneCurve.parse(pref.points()).get(sel).y,1e-4f);
+            // the exposure typed in: +1.5 EV (x 0.65), between its neighbours
+            row.findViewWithTag("tone_curve_x_value").performClick();
+            android.app.Dialog sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotNull(sheet);
+            android.view.View sv=sheet.getWindow().getDecorView();
+            ((android.widget.TextView)sv.findViewWithTag("precision_value")).performClick();
+            ((android.widget.EditText)sv.findViewWithTag("precision_field")).setText("1,5");
+            sv.findViewWithTag("sheet_save").performClick();
+            assertFalse(sheet.isShowing());
+            assertEquals(0.65f,graph.curve().get(sel).x,1e-4f);
+            assertEquals("+1.50 EV",((android.widget.TextView)row.findViewWithTag("tone_curve_x_value")).getText().toString());
+            assertEquals(0.65f,com.scamera.app.processing.color.ToneCurve.parse(pref.points()).get(sel).x,1e-4f);
+            // past a neighbour: refused, the sheet stays
+            row.findViewWithTag("tone_curve_x_value").performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();sv=sheet.getWindow().getDecorView();
+            ((android.widget.TextView)sv.findViewWithTag("precision_value")).performClick();
+            ((android.widget.EditText)sv.findViewWithTag("precision_field")).setText("4");
+            sv.findViewWithTag("sheet_save").performClick();
+            assertTrue(sheet.isShowing());sheet.dismiss();
+            assertEquals(0.65f,graph.curve().get(sel).x,1e-4f);
+            // ‹ steps back; the black end keeps its exposure and cannot go
+            row.findViewWithTag("tone_curve_prev").performClick();
+            assertEquals(sel-1,graph.selected());
+            graph.select(0);
+            assertFalse(row.findViewWithTag("tone_curve_x").isEnabled());
+            assertFalse(row.findViewWithTag("tone_curve_delete").isEnabled());
+            assertFalse(row.findViewWithTag("tone_curve_prev").isEnabled());
+            // «Удалить» removes an inner point
+            graph.select(sel);
+            row.findViewWithTag("tone_curve_delete").performClick();
+            assertEquals(5,graph.curve().size());
+            assertEquals(5,pref.points().split(",").length);
+            row.findViewWithTag("tone_curve_identity").performClick();
+            assertEquals("0.0000:0.0000,1.0000:1.0000",pref.points());
+            row.findViewWithTag("tone_curve_default").performClick();
+            assertEquals(com.scamera.app.processing.color.ToneCurve.DEFAULT_POINTS,pref.points());
+            // P178: ↶ walks back through the shortcuts and the deletion, ↷ forth again, each step stored
+            row.findViewWithTag("tone_curve_undo").performClick();
+            assertEquals("0.0000:0.0000,1.0000:1.0000",pref.points());
+            row.findViewWithTag("tone_curve_undo").performClick();
+            assertEquals("the curve before the straight line",5,pref.points().split(",").length);
+            row.findViewWithTag("tone_curve_redo").performClick();
+            row.findViewWithTag("tone_curve_redo").performClick();
+            assertEquals(com.scamera.app.processing.color.ToneCurve.DEFAULT_POINTS,pref.points());
+            assertFalse("nothing further",row.findViewWithTag("tone_curve_redo").isEnabled());
+        }
+    }
+
+    /**
+     * The full reset (owner, 2026-10-16: «кнопка сброса должна полностью все настройки сбрасывать на дефолтные», «Полный сброс
+     * не должен удалять конфиги»): every preferences file empty - also the copies Android keeps in memory, so a write while
+     * the camera still runs brings nothing old back - the developer switches set aside, the saved configs untouched.
+     */
+    @Test public void resetClearsEverySettingAndKeepsTheConfigs() throws Exception {
+        Context app=RuntimeEnvironment.getApplication();
+        SharedPreferences def=androidx.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        def.edit().putString("pref_jpeg_quality","90").putBoolean("pref_scam_hybrid_why_curve_on",true).commit();
+        SharedPreferences module=app.getSharedPreferences("module_profile_v2_back0",0);
+        module.edit().putFloat("pref_scam_hybrid_why_aces_a",3f).commit();
+        prefs.edit().putBoolean("pref_scam_hybrid_why_uchi_on",true).commit();
+        java.io.File dev=ScamDevFile.file(app);dev.getParentFile().mkdirs();
+        java.nio.file.Files.write(dev.toPath(),"hybrid 1\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        java.io.File configs=new java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),"SCAMERA/XML");
+        configs.mkdirs();java.io.File saved=new java.io.File(configs,"Day.xml");
+        java.nio.file.Files.write(saved.toPath(),"<config/>".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertTrue(BackupRestoreUtil.resetPreferences(app));
+        assertTrue("default file empty in memory: "+def.getAll(),def.getAll().isEmpty());
+        assertTrue("module profile empty: "+module.getAll(),module.getAll().isEmpty());
+        assertTrue("the settings' own store empty: "+prefs.getAll(),prefs.getAll().isEmpty());
+        // a write right after (the camera runs until the restart) brings nothing old back
+        def.edit().putInt("zoom_last",2).commit();
+        assertEquals(java.util.Set.of("zoom_last"),app.getSharedPreferences(app.getPackageName()+"_preferences",0).getAll().keySet());
+        assertFalse("developer switches set aside",dev.isFile());
+        assertTrue(new java.io.File(dev.getParentFile(),"scam_dev.txt.bak").isFile());
+        assertTrue("the saved config stays",saved.isFile());
+        // the folder grant: Download/SCAMERA (or Download) reaches XML and ToneCurves, other folders do not
+        assertTrue(com.scamera.app.util.ScameraFolder.covers("primary:Download/SCAMERA","primary:Download/SCAMERA/XML"));
+        assertTrue(com.scamera.app.util.ScameraFolder.covers("primary:Download","primary:Download/SCAMERA/ToneCurves"));
+        assertTrue(com.scamera.app.util.ScameraFolder.covers("primary:","primary:Download/SCAMERA/XML"));
+        assertTrue(com.scamera.app.util.ScameraFolder.covers("primary:Download/SCAMERA/XML","primary:Download/SCAMERA/XML"));
+        assertFalse(com.scamera.app.util.ScameraFolder.covers("primary:Download/SCAM","primary:Download/SCAMERA/XML"));
+        assertFalse(com.scamera.app.util.ScameraFolder.covers("primary:DCIM","primary:Download/SCAMERA/XML"));
+        assertEquals("primary:Download/SCAMERA/XML",com.scamera.app.util.ScameraFolder.CONFIGS.documentId());
+        // P246: any case, and a folder picked under the system's «Загрузки» root (its ids are paths)
+        assertTrue(com.scamera.app.util.ScameraFolder.covers("primary:download/Scamera","primary:Download/SCAMERA/XML"));
+        assertTrue(com.scamera.app.util.ScameraFolder.covers(com.scamera.app.util.ScameraFolderAccess.primaryId(
+                "com.android.providers.downloads.documents","raw:/storage/emulated/0/Download/SCAMERA"),"primary:Download/SCAMERA/XML"));
+        assertNull(com.scamera.app.util.ScameraFolderAccess.primaryId("com.android.providers.downloads.documents","msf:123"));
+        assertNull(com.scamera.app.util.ScameraFolderAccess.primaryId("com.example.cloud","primary:Download/SCAMERA"));
+        assertEquals("raw:/storage/emulated/0/Download/SCAMERA/XML",com.scamera.app.util.ScameraFolderAccess.idUnder(
+                com.scamera.app.util.ScameraFolder.CONFIGS,"com.android.providers.downloads.documents"));
+    }
+
+    /** An in-memory Download/SCAMERA/ToneCurves for the curve tests. */
+    static final class MemoryCurves implements com.scamera.app.ui.settings.custompreferences.ToneCurvePreference.Files {
+        final java.util.TreeMap<String,String> files=new java.util.TreeMap<>();
+        @Override public String[] list(){return files.keySet().toArray(new String[0]);}
+        @Override public String read(String name)throws java.io.IOException{String t=files.get(name);if(t==null)throw new java.io.IOException(name);return t;}
+        @Override public String save(String name,String text){files.put(name,text);return folder()+"/"+name;}
+        @Override public boolean delete(String name){return files.remove(name)!=null;}
+        @Override public String folder(){return com.scamera.app.util.ScameraFolder.CURVES.relative;}
+    }
+
+    /**
+     * P144: own curves saved to and loaded from their own folder (Download/SCAMERA/ToneCurves, apart from the configs' XML):
+     * «Сохранить» names the file, «Загрузить» lists them with a preview, a tap loads one, the bin deletes it after a second tap,
+     * «Из файла…» hands over to the settings screen's picker.
+     */
+    @Test public void ownCurvesAreSavedAndLoaded(){
+        assertEquals("Download/SCAMERA/ToneCurves",com.scamera.app.util.ScameraFolder.CURVES.relative);
+        assertEquals("Download/SCAMERA/XML",com.scamera.app.util.ConfigFolder.RELATIVE);
+        assertTrue(com.scamera.app.util.ScameraFolder.CURVES.accepts("Night.txt"));
+        assertFalse(com.scamera.app.util.ScameraFolder.CURVES.accepts("Night.xml"));
+        assertEquals("My_film_look",com.scamera.app.util.ScameraFolder.CURVES.baseName("  My film/look.txt "));
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();
+            PreferenceManager pm=new PreferenceManager(activity);PreferenceScreen screen=pm.createPreferenceScreen(activity);
+            var pref=new com.scamera.app.ui.settings.custompreferences.ToneCurvePreference(activity);
+            pref.setKey(com.scamera.app.ui.settings.custompreferences.ToneCurvePreference.KEY);screen.addPreference(pref);
+            MemoryCurves folder=new MemoryCurves();pref.setFiles(folder);
+            final int[] picks={0};pref.setImporter(()->picks[0]++);
+            android.view.View row=android.view.LayoutInflater.from(activity).inflate(R.layout.preference_tone_curve,null);
+            pref.onBindViewHolder(androidx.preference.PreferenceViewHolder.createInstanceForTests(row));
+            var graph=(com.scamera.app.ui.settings.custompreferences.ToneCurveView)row.findViewWithTag("tone_curve_view");
+            // save the straight line as «Linear»
+            row.findViewWithTag("tone_curve_identity").performClick();
+            row.findViewWithTag("tone_curve_save").performClick();
+            android.app.Dialog sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();android.view.View sv=sheet.getWindow().getDecorView();
+            android.widget.EditText name=sv.findViewWithTag("curve_name");
+            assertEquals("a free name offered","Curve_1",name.getText().toString());
+            assertTrue(((android.widget.TextView)sv.findViewWithTag("curve_folder")).getText().toString().contains("Download/SCAMERA/ToneCurves"));
+            name.setText("Linear");sv.findViewWithTag("sheet_save").performClick();
+            assertFalse(sheet.isShowing());
+            assertEquals(com.scamera.app.processing.color.ToneCurve.identity().toFileText(),folder.files.get("Linear.txt"));
+            // an empty name is refused
+            row.findViewWithTag("tone_curve_save").performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();sv=sheet.getWindow().getDecorView();
+            assertEquals("Curve_1",((android.widget.EditText)sv.findViewWithTag("curve_name")).getText().toString());
+            ((android.widget.EditText)sv.findViewWithTag("curve_name")).setText("  ");sv.findViewWithTag("sheet_save").performClick();
+            assertTrue(sheet.isShowing());sheet.dismiss();
+            assertEquals(1,folder.files.size());
+            // another curve in the folder, a file that is no curve (not listed)
+            folder.files.put("Soft.txt",com.scamera.app.processing.color.ToneCurve.parse("0:0.05,0.5:0.5,1:0.95").toFileText());
+            folder.files.put("notes.txt","hello");
+            row.findViewWithTag("tone_curve_load").performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();sv=sheet.getWindow().getDecorView();
+            assertNotNull(sv.findViewWithTag("curve_row_Linear.txt"));
+            assertNotNull(sv.findViewWithTag("curve_row_Soft.txt"));
+            assertNull("not a curve",sv.findViewWithTag("curve_row_notes.txt"));
+            sv.findViewWithTag("curve_row_Soft.txt").performClick();
+            assertFalse(sheet.isShowing());
+            assertEquals(3,graph.curve().size());
+            assertEquals(0.05f,graph.curve().get(0).y,1e-4f);
+            assertEquals("loaded and stored",graph.curve().serialize(),pref.points());
+            // the bin: the first tap asks, the second deletes the file and folds the row out
+            row.findViewWithTag("tone_curve_load").performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();sv=sheet.getWindow().getDecorView();
+            sv.findViewWithTag("curve_bin_Linear.txt").performClick();
+            assertTrue(folder.files.containsKey("Linear.txt"));
+            android.view.View confirm=sv.findViewWithTag("curve_delete_Linear.txt");
+            assertEquals(android.view.View.VISIBLE,confirm.getVisibility());
+            confirm.performClick();
+            assertFalse(folder.files.containsKey("Linear.txt"));
+            assertNull(sv.findViewWithTag("curve_row_Linear.txt"));
+            assertTrue(sheet.isShowing());
+            // «Из файла…»: the picker of the settings screen
+            sv.findViewWithTag("curve_import").performClick();
+            assertEquals(1,picks[0]);assertFalse(sheet.isShowing());
+            // a picked file goes through the same reading
+            var picked=new java.io.ByteArrayInputStream("0:0,0.3:0.2,0.7:0.8,1:1".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            com.scamera.app.processing.color.ToneCurve read=null;
+            try{read=com.scamera.app.ui.settings.custompreferences.ToneCurvePreference.readCurve(picked);}catch(java.io.IOException e){fail(e.toString());}
+            pref.load(read);
+            assertEquals(4,graph.curve().size());assertEquals(read.serialize(),pref.points());
+            assertEquals("the middle point selected",2,graph.selected());
+            // empty folder: the hint names it
+            folder.files.clear();
+            row.findViewWithTag("tone_curve_load").performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();sv=sheet.getWindow().getDecorView();
+            assertTrue(((android.widget.TextView)sv.findViewWithTag("curve_empty")).getText().toString().contains("Download/SCAMERA/ToneCurves"));
+            sheet.dismiss();
+        }
+    }
+
+    /**
+     * P144: the curves page as the phone shows it (400 x 880 dp, xhdpi), kept in build/reports/tone-curve for a look - the own
+     * curve's group, a new point being dragged, an edited curve with more points, then the ACES and Uchimura groups.
+     */
+    @Test @Config(qualifiers="ru-w400dp-h880dp-xhdpi") public void toneCurvePageRenderedForReview() throws Exception {
+        // the edits below start from WhyCam's S (P405: the default is the reference config's 17 points)
+        prefs.edit().putBoolean("pref_scam_hybrid_why_curve_on",true)
+                .putString("pref_scam_hybrid_why_curve_points",com.scamera.app.processing.color.ToneCurve.DEFAULT_POINTS).commit();
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            // P403: «Глобальный тонмап» is a page of SHDR itself
+            // P406: «Глобальный тонмап» is a row of «Настройки изображения» on the main page
+            activity.onPreferenceStartScreen(root,root.findPreference("scam_hybrid_why_curves_screen"));fm.executePendingTransactions();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var page=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            assertEquals("scam_hybrid_why_curves_screen",page.getPreferenceScreen().getKey());
+            float density=activity.getResources().getDisplayMetrics().density;
+            int w=Math.round(400*density),h=Math.round(880*density);
+            android.view.View view=page.requireView();
+            frame(view,w,h);
+            var list=page.getListView();
+            int curvePos=((androidx.preference.PreferenceGroup.PreferencePositionCallback)list.getAdapter()).getPreferenceAdapterPosition("scam_hybrid_why_curve_category");
+            ((androidx.recyclerview.widget.LinearLayoutManager)list.getLayoutManager()).scrollToPositionWithOffset(curvePos,Math.round(8*density));
+            frame(view,w,h);
+            var graph=(com.scamera.app.ui.settings.custompreferences.ToneCurveView)list.findViewWithTag("tone_curve_view");
+            assertNotNull("the graph is on screen",graph);
+            assertTrue("on when its switch is on",graph.isEnabled());
+            shot(view,w,h,"1-own-curve");
+            // a tap on an empty spot adds a point; it shows filled while the finger drags it
+            // the plot inside the graph: 14 dp around, 22 dp under it for the EV labels (ToneCurveView.onSizeChanged)
+            float pad=14*density,gw=graph.getWidth(),gh=graph.getHeight();
+            java.util.function.BiFunction<Float,Float,float[]> at=(x,y)->new float[]{pad+x*(gw-2*pad),gh-22*density-y*(gh-36*density)};
+            long t=android.os.SystemClock.uptimeMillis();
+            float[] a=at.apply(0.62f,0.66f),b=at.apply(0.62f,0.74f);
+            graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,a[0],a[1],0));
+            graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+60,android.view.MotionEvent.ACTION_MOVE,b[0],b[1],0));
+            shot(view,w,h,"2-drag-new-point");
+            graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+90,android.view.MotionEvent.ACTION_UP,b[0],b[1],0));
+            assertEquals(6,graph.curve().size());
+            // more points: as many as wanted
+            float[][] taps={{0.12f,0.05f},{0.375f,0.30f},{0.88f,0.95f}};
+            for(float[] p:taps){
+                t+=500;float[] q=at.apply(p[0],p[1]);
+                graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,q[0],q[1],0));
+                graph.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+40,android.view.MotionEvent.ACTION_UP,q[0],q[1],0));
+            }
+            assertEquals(9,graph.curve().size());
+            assertEquals(9,prefs.getString("pref_scam_hybrid_why_curve_points","").split(",").length);
+            shot(view,w,h,"3-more-points");
+            // the selected point's sliders: the point at +2.5 EV raised by its brightness slider
+            graph.select(6);
+            list.scrollBy(0,Math.round(330*density));frame(view,w,h);
+            android.widget.SeekBar yBar=list.findViewWithTag("tone_curve_y");
+            assertNotNull(yBar);
+            float cy=yBar.getHeight()/2f,track=yBar.getWidth()-yBar.getPaddingLeft()-yBar.getPaddingRight();
+            float from=yBar.getPaddingLeft()+track*graph.curve().get(6).y,to=yBar.getPaddingLeft()+track*0.90f;
+            t+=500;
+            yBar.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,from,cy,0));
+            yBar.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+40,android.view.MotionEvent.ACTION_MOVE,to,cy,0));
+            yBar.dispatchTouchEvent(android.view.MotionEvent.obtain(t,t+80,android.view.MotionEvent.ACTION_UP,to,cy,0));
+            assertEquals(0.90f,graph.curve().get(6).y,0.01f);
+            frame(view,w,h);
+            shot(view,w,h,"4-point-sliders");
+            // a value typed in: the exposure's sheet
+            list.findViewWithTag("tone_curve_x_value").performClick();
+            android.app.Dialog sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.view.View sv=sheet.getWindow().getDecorView();
+            ((android.widget.TextView)sv.findViewWithTag("precision_value")).performClick();
+            ((android.widget.EditText)sv.findViewWithTag("precision_field")).setText("2.8");
+            frame(sv,w,h);
+            android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);view.draw(canvas);canvas.drawColor(0x99000000);sv.draw(canvas);
+            java.io.File dir=new java.io.File("build/reports/tone-curve");dir.mkdirs();
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"5-type-value.png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+            sv.findViewWithTag("sheet_save").performClick();
+            assertEquals(0.78f,graph.curve().get(6).x,1e-4f);
+            // «Загрузить»: the saved curves of Download/SCAMERA/ToneCurves with their previews
+            var curvePref=(com.scamera.app.ui.settings.custompreferences.ToneCurvePreference)page.findPreference(
+                    com.scamera.app.ui.settings.custompreferences.ToneCurvePreference.KEY);
+            MemoryCurves folder=new MemoryCurves();curvePref.setFiles(folder);
+            folder.files.put("Плёнка_мягкая.txt",com.scamera.app.processing.color.ToneCurve.parse("0:0.04,0.3:0.22,0.5:0.5,0.75:0.8,1:0.96").toFileText());
+            folder.files.put("Контраст.txt",com.scamera.app.processing.color.ToneCurve.parse("0:0,0.25:0.1,0.5:0.5,0.75:0.92,1:1").toFileText());
+            folder.files.put("Прямая.txt",com.scamera.app.processing.color.ToneCurve.identity().toFileText());
+            folder.files.put("Ночь_тени.txt",com.scamera.app.processing.color.ToneCurve.parse("0:0,0.2:0.16,0.45:0.5,0.8:0.86,1:1").toFileText());
+            list.scrollBy(0,Math.round(400*density));frame(view,w,h);
+            android.view.View loadChip=list.findViewWithTag("tone_curve_load");
+            assertNotNull("«Загрузить» on screen",loadChip);
+            shot(view,w,h,"6-save-load-buttons");
+            loadChip.performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            sv=sheet.getWindow().getDecorView();
+            sv.findViewWithTag("curve_bin_Прямая.txt").performClick();
+            frame(sv,w,h);
+            bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888);
+            canvas=new android.graphics.Canvas(bitmap);view.draw(canvas);canvas.drawColor(0x99000000);sv.draw(canvas);
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"7-load-curve.png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+            sheet.dismiss();
+            // «Сохранить»: the name sheet
+            loadChip=list.findViewWithTag("tone_curve_save");
+            loadChip.performClick();
+            sheet=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            sv=sheet.getWindow().getDecorView();
+            ((android.widget.EditText)sv.findViewWithTag("curve_name")).setText("Мой_закат");
+            frame(sv,w,h);
+            bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888);
+            canvas=new android.graphics.Canvas(bitmap);view.draw(canvas);canvas.drawColor(0x99000000);sv.draw(canvas);
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"8-save-curve.png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+            sv.findViewWithTag("sheet_save").performClick();
+            assertTrue(folder.files.containsKey("Мой_закат.txt"));
+            // ACES and Uchimura in their own groups (the jump without the item animator: a finger scroll binds the rows plainly,
+            // while a jump in the same pass as the rows the curve's save changed would fade them in at full alpha)
+            list.setItemAnimator(null);
+            int acesPos=((androidx.preference.PreferenceGroup.PreferencePositionCallback)list.getAdapter()).getPreferenceAdapterPosition("scam_hybrid_why_aces_category");
+            ((androidx.recyclerview.widget.LinearLayoutManager)list.getLayoutManager()).scrollToPositionWithOffset(acesPos,Math.round(8*density));
+            frame(view,w,h);
+            shot(view,w,h,"9-aces-uchimura");
+        }
+    }
+    private void frame(android.view.View view,int w,int h){
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        int exact=android.view.View.MeasureSpec.EXACTLY;
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(w,exact),android.view.View.MeasureSpec.makeMeasureSpec(h,exact));view.layout(0,0,w,h);
+        // the list's item animations (a jump in the same pass as a changed row fades the new rows in) run to their end
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
+    }
+    private void shot(android.view.View view,int w,int h,String name) throws Exception {
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+        java.io.File dir=new java.io.File("build/reports/tone-curve");dir.mkdirs();
+        try(var out=new java.io.FileOutputStream(new java.io.File(dir,name+".png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+    }
+
+    /** «Кривая AgX и ACES» is the first row of «Тон WHY» (owner, 2026-10-15). */
+    @Test public void curvesOpenTheWhyTonePage(){
+        PreferenceScreen root=inflate();
+        // P403 / P406: the curves page («Глобальный тонмап») after «Экспозиция (AE)», before «Локальный тонмап»; P629b: the first rows
+        // of «Настройки тона»
+        androidx.preference.PreferenceGroup shdr=root.findPreference("tone_settings_screen");
+        List<String> rows=keys(shdr);
+        int ae=rows.indexOf("scam_hybrid_why_ae_screen");
+        assertEquals(rows.toString(),3,ae);   // P629c: after the three everyday tone sliders
+        assertEquals("scam_hybrid_why_curves_screen",rows.get(ae+1));
+        assertEquals("scam_hybrid_why_tone_screen",rows.get(ae+2));
+        assertNotNull(root.findPreference("pref_scam_hybrid_why_agx_look"));assertNotNull(root.findPreference("pref_scam_hybrid_why_aces_toe"));
+    }
+    /** Every page of the settings root has its own icon («Цвет» and «Интерфейс» both showed the palette, 2026-10-15). */
+    @Test public void rootPagesHaveTheirOwnIcons() throws Exception{
+        String xml;
+        try(java.io.InputStream in=new java.io.FileInputStream("src/main/res/xml/preferences.xml")){xml=new String(in.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);}
+        java.util.Map<String,String> byIcon=new java.util.HashMap<>();
+        // SIMPLE_UI §4: the pages of the root's groups (one level under the root's categories)
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?m)^    <PreferenceScreen [^>]*>").matcher(xml);
+        int pages=0;
+        while(m.find()){
+            String tag=m.group();
+            java.util.regex.Matcher key=java.util.regex.Pattern.compile("android:key=\"([^\"]+)\"").matcher(tag);
+            java.util.regex.Matcher icon=java.util.regex.Pattern.compile("android:icon=\"([^\"]+)\"").matcher(tag);
+            assertTrue(tag,key.find());assertTrue("root page without an icon: "+key.group(1),icon.find());
+            String before=byIcon.put(icon.group(1),key.group(1));
+            assertNull(icon.group(1)+" on both "+before+" and "+key.group(1),before);
+            pages++;
+        }
+        assertTrue("root pages found: "+pages,pages>=7);
+        assertEquals("@drawable/cs_ic_ui",byIcon.entrySet().stream().filter(e->e.getValue().equals("interface_settings_screen")).findFirst().get().getKey());
+    }
+    /**
+     * P592 (owner, 2026-11-10: «Убираем все описания у параметров, оставляем подробное описание только по зажатию»): a switch, a
+     * list, a slider and a page row show their semibold white title and no description line; the description is the long press.
+     */
+    @Test public void rowsShowTheirTitleWithoutADescription(){
+        PreferenceScreen screen=inflate();
+        // a switch, a list, a slider and a page row
+        for(String key:new String[]{"pref_scam_hybrid_shasta","pref_scam_hybrid_output","pref_scam_hybrid_shasta_ev","scam_hybrid_hdr_screen"}){
+            Preference p=screen.findPreference(key);assertNotNull(key,p);
+            assertFalse(key+" has a description for its long press",android.text.TextUtils.isEmpty(
+                    com.scamera.app.ui.settings.SettingHelp.text(context,p)));
+            android.view.View r=row(p);
+            android.widget.TextView title=r.findViewById(android.R.id.title),summary=r.findViewById(android.R.id.summary);
+            assertNotNull(key,title);
+            assertTrue(key+": no description under the title",summary==null||summary.getVisibility()!=android.view.View.VISIBLE);
+            assertEquals(key,com.scamera.app.ui.settings.SettingsStyle.ROW_TITLE,title.getCurrentTextColor());
+            assertNotNull(key+": the title's face",title.getTypeface());
+        }
+    }
+
+    /**
+     * P128 (settings audit): one topic in one place - the highlight / shadow frames each in their category of one page, the
+     * highlight denoise rows and the dark-colour rows side by side on the noise page, every diagnostics row in «Система ›
+     * Диагностика»; and no row title written straight into the XML (each is a translated string).
+     */
+    @Test public void oneTopicInOnePlaceAndNoLiteralTitles() throws Exception {
+        PreferenceScreen screen=inflate();
+        for(String k:new String[]{"pref_scam_hybrid_bento","pref_scam_hybrid_bento_sigma",
+                "pref_scam_hybrid_bento_chroma_sigma","pref_scam_hybrid_bento_scam"})
+            assertEquals(k,"scam_hybrid_capture_category",screen.findPreference(k).getParent().getKey());
+        for(String k:new String[]{"pref_scam_hybrid_shasta","pref_scam_hybrid_shasta_sharpness","pref_scam_hybrid_shasta_max_ratio",
+                "pref_scam_hybrid_lut_sigma"})
+            assertEquals(k,"scam_hybrid_shasta_category",screen.findPreference(k).getParent().getKey());
+        assertNull(screen.findPreference("scam_hybrid_frames_screen"));assertNull(screen.findPreference("scam_hybrid_diag_category"));
+        PreferenceGroup noise=screen.findPreference("scam_hybrid_nr_merge_category");
+        java.util.List<String> order=new java.util.ArrayList<>();
+        for(int i=0;i<noise.getPreferenceCount();i++)order.add(noise.getPreference(i).getKey());
+        // P443: the switches, the engine and the Resolve rows (the SCAM 9.6 tuning left the menu; its strength is the everyday slider)
+        // P648: «Подстройка под свет (SNR)» right under «Все шумодавы»
+        assertEquals(Arrays.asList("pref_scam_hybrid_denoise","pref_scam_hybrid_post_snr",
+                "pref_scam_hybrid_why_dn_luma_revert","pref_scam_hybrid_why_dn_motion_revert","pref_scam_hybrid_why_dn_grain"),order);
+        // P403 / P406: the short frames' denoise was with the highlight frames on «Настройки HDR», as the reference app; P629b: it is the
+        // tone's (WhyFusion / WhyV2Stats bracket_denoise), with the tone's highlight passes in «Настройки тона»
+        assertEquals("scam_hybrid_why_highlights_category",screen.findPreference("pref_scam_hybrid_why_bracket_denoise").getParent().getKey());
+        for(String k:new String[]{"pref_scam_hybrid_diagnostics","pref_scam_hybrid_profile","pref_scam_hybrid_dev_note",
+                "shdr_capture_report","scamera_full_debug"})
+            assertEquals(k,"scam_diagnostics_screen",screen.findPreference(k).getParent().getKey());
+        String xml;
+        try(java.io.InputStream in=new java.io.FileInputStream("src/main/res/xml/preferences.xml")){xml=new String(in.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);}
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("android:title=\"([^\"@][^\"]*)\"").matcher(xml);
+        java.util.List<String> literal=new java.util.ArrayList<>();while(m.find())if(!m.group(1).equals("SHDR"))literal.add(m.group(1));
+        assertTrue(literal.toString(),literal.isEmpty());
+    }
+
+    /** P129: the merge is SHDR; the borrowed code names (LMC, AGC, Sabre, Bento, Shasta, Mochi, GCam, SCAM HDR) are ours now. */
+    private static boolean oldName(String s){
+        for(String old:new String[]{"LMC","NICE","Nice","Hybrid","Bento","Shasta","Sabre","Mochi","GCam","AGC","SCAM HDR","WhyCore","Sabre 6.1","round 4","раунда 4"})
+            if(s.contains(old))return true;
+        return s.toLowerCase(Locale.ROOT).contains("гибрид");
+    }
+
+    private android.view.View row(Preference p){
+        android.widget.FrameLayout parent=new android.widget.FrameLayout(context);
+        android.view.View row=LayoutInflater.from(context).inflate(p.getLayoutResource(),parent,false);
+        android.view.ViewGroup widget=row.findViewById(android.R.id.widget_frame);
+        if(widget!=null&&p.getWidgetLayoutResource()!=0)LayoutInflater.from(context).inflate(p.getWidgetLayoutResource(),widget);
+        PreferenceViewHolder holder=PreferenceViewHolder.createInstanceForTests(row);
+        p.onBindViewHolder(holder);com.scamera.app.ui.settings.SettingsStyle.bind(holder,p);
+        return row;
+    }
+
+    /**
+     * P592 (owner, 2026-11-10: «Убираем все описания у параметров, оставляем подробное описание только по зажатию на параметре»):
+     * every row of preferences.xml and of the generated tunables binds without a description line - only a state may stand under
+     * its title (the log's size, the version, the credits) - and every keyed row has a non-empty text for its long press.
+     */
+    @Test public void noRowShowsADescriptionAndEveryRowHasItsHelp(){
+        PreferenceScreen screen=inflate();
+        List<Preference> all=new ArrayList<>();collectAll(screen,all);
+        int rows=0;
+        for(Preference p:all){
+            if(p.getKey()==null||p instanceof PreferenceCategory)continue;
+            rows++;
+            CharSequence help=com.scamera.app.ui.settings.SettingHelp.text(context,p);
+            assertFalse(p.getKey()+" has a long-press description",help==null||help.toString().trim().isEmpty());
+            assertFalse(p.getKey()+": no placeholder in its help: "+help,help.toString().contains("%s"));
+            android.view.View row=LayoutInflater.from(context).inflate(p.getLayoutResource(),null,false);
+            PreferenceViewHolder holder=PreferenceViewHolder.createInstanceForTests(row);
+            p.onBindViewHolder(holder);
+            com.scamera.app.ui.settings.SettingsStyle.bind(holder,p);
+            android.widget.TextView summary=row.findViewById(android.R.id.summary);
+            if(summary==null||summary.getVisibility()!=android.view.View.VISIBLE)continue;
+            CharSequence state=com.scamera.app.ui.settings.SettingHelp.stateLine(p);
+            assertNotNull(p.getKey()+" shows a description under its title: "+summary.getText(),state);
+            assertTrue(p.getKey()+": only its state under the title: "+summary.getText(),
+                    state.toString().startsWith(summary.getText().toString().replaceAll("…$","")));
+        }
+        assertTrue("rows checked: "+rows,rows>400);
+    }
+    private static void collectAll(PreferenceGroup g,List<Preference> out){
+        for(int i=0;i<g.getPreferenceCount();i++){Preference p=g.getPreference(i);out.add(p);if(p instanceof PreferenceGroup)collectAll((PreferenceGroup)p,out);}
+    }
+
+    /**
+     * P592: the long press's sheet in the look of the camera's sheets - the #2C2C2E card with 30dp top corners and the grabber, the
+     * title 18dp semibold white, the text in white at 70 %, then «Now» in the accent, «Default» and «Range» of a slider; a slider
+     * off its default offers «Back to the default».
+     */
+    @Test public void theHelpSheetHasTheCameraSheetsLook(){
+        PreferenceScreen screen=inflate();
+        androidx.appcompat.app.AppCompatActivity activity=org.robolectric.Robolectric.buildActivity(androidx.appcompat.app.AppCompatActivity.class).setup().get();
+        activity.setTheme(R.style.Theme_Scamera_SettingsActivity);
+        com.scamera.app.ui.settings.custompreferences.UniversalSeekBarPreference brightness=screen.findPreference("pref_scam_hybrid_why_ae_target");
+        assertNotNull(brightness);
+        float density=context.getResources().getDisplayMetrics().density;
+        com.google.android.material.bottomsheet.BottomSheetDialog d=com.scamera.app.ui.settings.SettingHelp.show(activity,brightness);
+        android.view.View sheet=d.getWindow().getDecorView().findViewWithTag("setting_help");
+        assertNotNull("the help sheet",sheet);
+        android.graphics.drawable.GradientDrawable card=(android.graphics.drawable.GradientDrawable)sheet.getBackground();
+        assertEquals(0xFF2C2C2E,card.getColor().getDefaultColor());
+        assertEquals(30*density,card.getCornerRadii()[0],.5f);
+        assertEquals("square bottom corners",0f,card.getCornerRadii()[4],0f);
+        assertNotNull("the grabber",sheet.findViewWithTag("help_grabber"));
+        android.widget.TextView title=sheet.findViewWithTag("help_title"),text=sheet.findViewWithTag("help_text");
+        assertEquals(brightness.getTitle().toString(),title.getText().toString());
+        assertEquals(18*density,title.getTextSize(),.5f);
+        assertEquals(0xFFFFFFFF,title.getCurrentTextColor());
+        assertEquals(com.scamera.app.ui.style.Fonts.of(context,com.scamera.app.ui.style.Fonts.SEMIBOLD),title.getTypeface());
+        assertEquals(0xB3FFFFFF,text.getCurrentTextColor());
+        assertEquals(context.getString(R.string.help_brightness),text.getText().toString());
+        android.view.ViewGroup facts=sheet.findViewWithTag("help_facts");
+        assertNotNull("now / default / range",facts);
+        assertEquals(3,facts.getChildCount());
+        assertEquals("Default: 0.15",String.valueOf(facts.getChildAt(1).getContentDescription()));
+        assertEquals("Range: 0.02 … 0.50",String.valueOf(facts.getChildAt(2).getContentDescription()));
+        android.widget.TextView now=sheet.findViewWithTag("help_now");
+        assertEquals(com.scamera.app.circularbarlib.ui.AccentPalette.camera(context),now.getCurrentTextColor());
+        assertNull("at its default: no reset",sheet.findViewWithTag("help_reset"));
+        d.dismiss();
+        // off its default: the sheet puts it back
+        brightness.setNumber(0.3f);
+        d=com.scamera.app.ui.settings.SettingHelp.show(activity,brightness);
+        sheet=d.getWindow().getDecorView().findViewWithTag("setting_help");
+        assertEquals("0.30",((android.widget.TextView)sheet.findViewWithTag("help_now")).getText().toString());
+        sheet.findViewWithTag("help_reset").performClick();
+        assertFalse("the reset closes the sheet",d.isShowing());
+        assertFalse(brightness.isChanged());
+        // a switch: its state and its XML default
+        SwitchPreferenceCompat shadows=screen.findPreference("pref_scam_hybrid_shasta");
+        d=com.scamera.app.ui.settings.SettingHelp.show(activity,shadows);
+        facts=d.getWindow().getDecorView().findViewWithTag("help_facts");
+        assertTrue(String.valueOf(facts.getChildAt(facts.getChildCount()-1).getContentDescription()).startsWith("Default: "));
+        d.dismiss();
+    }
+
+    /**
+     * P248 (owner, 2026-10-18: «Режим автофокуса», «Кадры светов: число», «Разрешение» - the title and the description one word
+     * a line beside a long value): a long value goes under the title, a short one stays on the right.
+     */
+    @Test public void aLongValueGoesUnderTheTitle(){
+        PreferenceManager pm=new PreferenceManager(context);PreferenceScreen screen=pm.createPreferenceScreen(context);
+        ListPreference list=new ListPreference(context);list.setKey("t_af");list.setTitle("Режим автофокуса");
+        list.setSummary("Как держится фокус: непрерывно (фото — быстрее, видео — плавнее) или один раз (Авто).");
+        // P584: the concept's value takes up to 130dp on the right: a value past that goes under the title
+        list.setEntries(new CharSequence[]{"Непрерывный (фото и видео)","Авто"});list.setEntryValues(new CharSequence[]{"c","a"});
+        screen.addPreference(list);list.setValue("c");
+        com.scamera.app.ui.settings.SettingsStyle.apply(screen);
+        android.view.View row=row(list);
+        android.widget.TextView right=row.findViewById(R.id.settings_value),below=row.findViewById(R.id.settings_value_below);
+        assertEquals(android.view.View.GONE,right.getVisibility());
+        assertEquals(android.view.View.VISIBLE,below.getVisibility());
+        assertEquals("Непрерывный (фото и видео)",below.getText().toString());
+        list.setValue("a");
+        row=row(list);
+        right=row.findViewById(R.id.settings_value);below=row.findViewById(R.id.settings_value_below);
+        assertEquals(android.view.View.VISIBLE,right.getVisibility());
+        assertEquals("Авто",right.getText().toString());
+        assertEquals(android.view.View.GONE,below.getVisibility());
+        // the right-hand value never takes more than its share of the row's text
+        int share=com.scamera.app.ui.settings.SettingsStyle.valueShare(context);
+        assertEquals(share,right.getMaxWidth());
+        float text=400-(16*2+14*2+36+12+24);
+        assertEquals(Math.min(130,Math.round(0.5f*text)),share);   // P584: the concept's max-width of the value
+    }
+
+    /** P6b: one row of each preference type renders as a card in the user's accent, with the expected widgets. */
+    @Test public void everyRowTypeRendersInTheModuleCardStyle(){
+        prefs.edit().putString(com.scamera.app.circularbarlib.ui.AccentPalette.KEY,"blue").commit();
+        int accent=com.scamera.app.circularbarlib.ui.AccentPalette.color(context);
+        PreferenceManager pm=new PreferenceManager(context);PreferenceScreen screen=pm.createPreferenceScreen(context);
+        PreferenceScreen page=pm.createPreferenceScreen(context);page.setKey("t_page");page.setTitle("Страница");screen.addPreference(page);
+        PreferenceCategory category=new PreferenceCategory(context);category.setKey("t_cat");category.setTitle("Группа");screen.addPreference(category);
+        SwitchPreferenceCompat sw=new SwitchPreferenceCompat(context);sw.setKey("t_switch");sw.setTitle("Переключатель");sw.setWidgetLayoutResource(androidx.preference.R.layout.preference_widget_switch_compat); // what the fragment theme gives it
+        category.addPreference(sw);sw.setChecked(true);
+        ListPreference list=new ListPreference(context);list.setKey("t_list");list.setTitle("Список");list.setSummary("%s. Описание");
+        list.setEntries(new CharSequence[]{"Первый","Второй"});list.setEntryValues(new CharSequence[]{"a","b"});category.addPreference(list);list.setValue("b");
+        EditTextPreference edit=new EditTextPreference(context);edit.setKey("t_edit");edit.setTitle("Поле");category.addPreference(edit);edit.setText("42");
+        com.scamera.app.ui.settings.custompreferences.UniversalSeekBarPreference seek=
+                new com.scamera.app.ui.settings.custompreferences.UniversalSeekBarPreference(context);
+        seek.setKey("t_seek");seek.setTitle("Ползунок");category.addPreference(seek);
+        Preference info=new Preference(context);info.setKey("t_info");info.setSelectable(false);info.setSummary("Пояснение");category.addPreference(info);
+        Preference action=new Preference(context);action.setKey("t_action");action.setTitle("Действие");category.addPreference(action);
+        Preference tile=new Preference(context);tile.setKey("pref_reset_preferences_key");tile.setTitle("Сбросить всё");tile.setIcon(R.drawable.settings_ic_reset);category.addPreference(tile);
+        com.scamera.app.ui.settings.SettingsStyle.apply(screen);
+        for(Preference p:new Preference[]{page,sw,list,edit,seek,action,tile}){
+            android.view.View r=row(p);
+            assertTrue(p.getKey()+" is a card",r.getBackground() instanceof android.graphics.drawable.RippleDrawable);
+            android.widget.ImageView icon=r.findViewById(android.R.id.icon);
+            assertNotNull(p.getKey(),icon);assertNotNull(p.getKey()+" has an icon",icon.getDrawable());
+            // P574: every icon is drawn in the light tone of its hue on a tile of its dark tone (the reset tile in the red pair)
+            assertNotNull(p.getKey()+" toned",icon.getColorFilter());
+            android.view.View t=r.findViewById(R.id.settings_icon_tile);
+            assertEquals(p.getKey()+" has its tile",android.view.View.VISIBLE,t.getVisibility());
+            if(p==tile)assertEquals(com.scamera.app.ui.settings.SettingsTiles.RED[0],((android.graphics.drawable.GradientDrawable)t.getBackground()).getColor().getDefaultColor());
+        }
+        assertNotNull("pages end in a chevron",row(page).findViewById(R.id.settings_chevron));
+        android.widget.TextView label=row(category).findViewById(android.R.id.title);
+        assertEquals("P574: a group's title in white at 55 %",com.scamera.app.ui.settings.SettingsStyle.SECTION,label.getCurrentTextColor());
+        assertNotNull("P574: a list ends in the up / down chevron",row(list).findViewById(R.id.settings_updown));
+        android.view.View lr=row(list);android.widget.TextView value=lr.findViewById(R.id.settings_value);
+        assertEquals("Второй",value.getText().toString());assertEquals("P574: the value on the right, white at 55 %",com.scamera.app.ui.settings.SettingsStyle.VALUE,value.getCurrentTextColor());
+        // P592: the value on the right, its description only on the long press
+        assertNotEquals("P592: no description under the title",android.view.View.VISIBLE,lr.findViewById(android.R.id.summary).getVisibility());
+        assertEquals("Описание",String.valueOf(com.scamera.app.ui.settings.SettingHelp.text(context,list)));
+        assertEquals("42",((android.widget.TextView)row(edit).findViewById(R.id.settings_value)).getText().toString());
+        android.view.View sr=row(seek);
+        assertTrue("P574: the settings' slider",sr.findViewById(R.id.seekbar) instanceof com.scamera.app.ui.controls.IosSlider);
+        assertEquals(accent,((android.widget.TextView)sr.findViewById(R.id.seekbar_value)).getCurrentTextColor());
+        android.view.ViewGroup holder=new android.widget.FrameLayout(context);
+        android.view.View swr=LayoutInflater.from(context).inflate(sw.getLayoutResource(),holder,false);
+        LayoutInflater.from(context).inflate(sw.getWidgetLayoutResource(),(android.view.ViewGroup)swr.findViewById(android.R.id.widget_frame));
+        PreferenceViewHolder h=PreferenceViewHolder.createInstanceForTests(swr);sw.onBindViewHolder(h);
+        com.scamera.app.ui.settings.SettingsStyle.bind(h,sw);
+        // P574: the settings' switch, on as the preference
+        com.scamera.app.ui.controls.IosSwitch toggle=swr.findViewById(androidx.preference.R.id.switchWidget);
+        assertNotNull(toggle);assertTrue(toggle.isChecked());
+        toggle.performClick();assertFalse("a tap on the switch goes through the preference",sw.isChecked());
+        assertNotNull("info rows are notes",row(info).findViewById(R.id.settings_info_icon));
+        assertNull("notes are not cards",row(info).getBackground());
+        assertEquals("SIMPLE_UI §4: the profile actions are rows, as the concept",R.layout.preference_card,tile.getLayoutResource());
+        assertEquals(com.scamera.app.ui.settings.SettingsStyle.WARN,((android.widget.TextView)row(tile).findViewById(android.R.id.title)).getCurrentTextColor());
+        assertEquals("actions are written in the accent",accent,((android.widget.TextView)row(action).findViewById(android.R.id.title)).getCurrentTextColor());
+        list.setEnabled(false);assertEquals(.45f,row(list).getAlpha(),1e-3);
+    }
+
+    /** The keys of {@code group}'s rows, in their order. */
+    private static List<String> keys(androidx.preference.PreferenceGroup group){
+        List<String> out=new ArrayList<>();for(int i=0;i<group.getPreferenceCount();i++)out.add(group.getPreference(i).getKey());return out;
+    }
+    /**
+     * SIMPLE_UI §4: the root holds the concept's seven groups, without a route row or chip; 2026-10-27 (owner, supersedes
+     * P319's order with «Для опытных» first): Снимок, Файл и размер, Съёмка, Экран камеры, Приложение, Для опытных,
+     * О приложении.
+     */
+    @Test public void rootGroupsForOrdinaryUsers(){
+        PreferenceScreen screen=inflate();
+        // 2026-10-27 (owner: «Упрости так чтобы даже тупой человек смог разобраться в настройках и настроить камеру сам»; this
+        // order supersedes P319's): the picture first, then the file, the shooting, the camera screen, the app, the experts, about
+        // P384 (owner, 2026-10-28: «Переместить эту группу настроек на главный экран»): «Модули камеры» after «Съёмка»; P390 (owner,
+        // the same day: «Положи эти настройки в одну группу чтобы они все разом не были на главном экране настроек»): the module
+        // cards, Camera IDs and sensors on one page «Камеры и модули», the first row of «Съёмка»
+        // P406 (owner, 2026-10-29: «Перегрупируй полностью всё меню настроек максимально схоже с Why, не только группу SHDR»; this
+        // order supersedes the 2026-10-27 one): the reference app's settings - the modules and lenses, saving and formats, the
+        // general settings, then its image settings (style, the everyday sliders, the processing categories), the lab, the logs, about
+        // P490 (owner, 2026-11-03): the processing mode first, at the very top, as left-to-right segments
+        // P493 (owner, 2026-11-03): «Подавление аберраций» right under it, the same segments, and its net's page (shown with «Нейросеть»)
+        // P614 (owner, 2026-11-11): «Why тон» V1 / V2 beside them, the same segments; V2's settings live in «Настройки изображения»
+        // with V1's (the page of their own is gone: «повторяющиеся настройки/группу настроек с главного меню убери полностью»)
+        // P629 (owner, 2026-11-11: «Группу шумоподавление и склейка перемести под выбор склейки Быстро/Качество/Статика»): the former
+        // pages «Шумоподавление» and «Склейка» as one group right under the processing mode
+        // P629b (owner, 2026-11-11: «У нас под V1/V2 должна находиться группа настроек для тонмапинга»): «Настройки тона» under «Why тон»
+        // P630 (owner, 2026-11-11): «Oldstyle Тон» (the «Oldstyle» mode's tone) right under «Настройки тона»
+        String[] order={"pref_scam_hybrid_processing","scam_hybrid_dnmerge_screen","pref_scam_hybrid_fringe_method","fringe_net_screen",
+                "pref_scam_hybrid_tone_version","tone_settings_screen","oldstyle_tone_screen",
+                "root_lenses","root_photo","root_shoot",
+                "root_colour","root_lab","root_logs","root_about"};
+        assertEquals(order.length,screen.getPreferenceCount());
+        for(int i=0;i<order.length;i++)assertEquals(order[i],screen.getPreference(i).getKey());
+        // «Модули камеры и линзы»: the modules (P384: built in code, empty in the XML; P390: one page). P413 (owner, 2026-10-30:
+        // «Сделай настройки линз аналогично Why, убедись что настройки нигде не дублируются»): each module's lens page (the reference
+        // app's sections) holds its sensor, RAW, levels, colour matrix and noise model - the former «RAW и сенсор», «Цвет камеры»,
+        // «Camera ID модулей» and «Сенсор по модулям» are gone (their rows live there or in the module's card)
+        assertEquals(Arrays.asList("modules_screen","pref_xiaomi_smooth_zoom"),keys(screen.findPreference("root_lenses")));
+        assertEquals(Arrays.asList("root_modules","lens_screen"),keys(screen.findPreference("modules_screen")));
+        // the module's generated sensor rows go to RAW / levels / «Управление ISP и оптикой» on the page (LensPage); P654: its sensor mode
+        // and camera keys (vendor tags) first
+        assertEquals(Arrays.asList("expert_module_sensor","lens_raw_category","lens_levels_category","lens_colour_category","lens_noise_category",
+                "lens_isp_category"),keys(screen.findPreference("lens_screen")));
+        for(String group:new String[]{"root_modules","expert_module_sensor","lens_isp_category"})
+            assertEquals(group,0,((androidx.preference.PreferenceGroup)screen.findPreference(group)).getPreferenceCount());
+        assertEquals(Arrays.asList("pref_fullres_hw_remosaic","pref_raw_stream_format","pref_cfa_key","raw_crop_screen"),keys(screen.findPreference("lens_raw_category")));
+        assertEquals(Arrays.asList("pref_raw_black_from_data","pref_raw_lsc_mode","expert_sensor_screen"),keys(screen.findPreference("lens_levels_category")));
+        assertEquals(Arrays.asList("pref_color_method_key","pref_dcp_profile_key","pref_scam_hybrid_why_ccm_profile","pref_scam_hybrid_why_ccm_override",
+                "pref_scam_hybrid_why_ccm_matrix","pref_scam_hybrid_why_cct_sat","pref_scam_hybrid_why_cct_gain_r","pref_scam_hybrid_why_cct_gain_g",
+                "pref_scam_hybrid_why_cct_gain_b","pref_scam_hybrid_why_ccm_sat","colour_calibration_screen","pref_scam_hybrid_colour_gamut",
+                "pref_scam_hybrid_why_dynamic_cct","pref_scam_hybrid_why_dynamic_cct_strength",
+                "pref_mosaic_wb_corrections","pref_scam_hybrid_mosaic_wb_mode"),keys(screen.findPreference("lens_colour_category")));
+        assertEquals(Arrays.asList("pref_scam_hybrid_noise_photon","pref_scam_hybrid_noise_readout","pref_noise_model_profile_key",
+                "pref_noise_model_import_key","pref_noise_model_export_key","noise_model_note"),keys(screen.findPreference("lens_noise_category")));
+        for(String gone:new String[]{"capture_settings_screen","colour_expert_category","expert_module_ids","noise_model_screen","capture_raw_levels_category"})
+            assertNull(gone,screen.findPreference(gone));
+        // the image tone rows of the former «Цвет камеры» with the image settings
+        // P520 (owner, 2026-11-06: «Я не вижу у нас настроек насыщенности и тд для ccm»): the matrix's saturation, gains, calibration
+        // and gamut on the lens page's matrix section (P413's «Цвет» category gone)
+        assertNull(screen.findPreference("colour_ccm_category"));
+        // P629b: the tone's highlight softness / white with the tone («Настройки тона › Света в тоне»)
+        for(String key:new String[]{"pref_scam_hybrid_why_hl_soft","pref_scam_hybrid_why_hl_white"})
+            assertNotNull(key,((androidx.preference.PreferenceGroup)screen.findPreference("scam_hybrid_why_highlights_category")).findPreference(key));
+        // «Сохранение и форматы фото»; the 2× grid and downscaling with the size after the merge
+        assertEquals(Arrays.asList("output_settings_screen","photo_size_screen","pref_wide169_key","watermark_screen","pref_file_name_pattern"),
+                keys(screen.findPreference("root_photo")));
+        assertEquals(Arrays.asList("pref_scam_hybrid_output","pref_scam_hybrid_resize","pref_scam_hybrid_resize_mp","pref_scam_hybrid_resize_px",
+                "pref_crop_upscale"),keys(screen.findPreference("photo_size_expert")));
+        assertEquals(Arrays.asList("pref_scam_hybrid_auto2x","pref_scam_hybrid_downsampler"),keys(screen.findPreference("adv_output")));
+        assertEquals("photo_size_screen",((Preference)screen.findPreference("adv_output")).getParent().getKey());
+        // «Основные настройки»: the reference app's rows (gallery, sounds, flicker, the viewfinder's brightness), then our pages; the
+        // mirror row is appended by TunablePreferenceGenerator
+        List<String> general=keys(screen.findPreference("root_shoot"));
+        assertEquals(Arrays.asList("interface_settings_screen","pref_camera_sounds_all","pref_camera_sounds_key","pref_timer_sound_key",
+                "pref_antibanding_hz_key","pref_low_light_boost","viewfinder_screen","shooting_screen","appearance_screen"),general.subList(0,9));
+        assertEquals(ShadeCatalog.MIRROR,general.get(9));assertEquals(10,general.size());
+        assertEquals(Arrays.asList("pref_show_roundedge_key","pref_show_grid_key","pref_horizon","pref_show_afdata_key","pref_live_viewfinder_raw_key"),
+                keys(screen.findPreference("viewfinder_screen")));
+        assertEquals(Arrays.asList("pref_motion_mode","pref_hdr_frames","pref_ettr","focus_screen"),keys(screen.findPreference("shooting_screen")));
+        assertEquals(Arrays.asList("pref_af_mode_key","pref_face_detect_mode","pref_tracking_af_mode","pref_split_af_ae","pref_peak_method_key"),
+                keys(screen.findPreference("focus_screen")));
+        assertEquals(Arrays.asList("pref_theme_accent_key","shade_transparency_screen","settings_layout_editor"),keys(screen.findPreference("appearance_screen")));
+        // «Настройки изображения»: the style page, its three everyday sliders (P629c: brightness, contrast, saturation in «Настройки тона»), the processing categories in the reference app's order,
+        // the profiles (its configs)
+        assertEquals(Arrays.asList("photo_style_screen","pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor",
+                "portrait_screen","photo_processing_screen",
+                "scam_hybrid_why_sharp_screen","scam_hybrid_why_rl_screen",
+                "scam_hybrid_hdr_screen","scam_hybrid_artifacts_screen","backup_settings_screen"),keys(screen.findPreference("root_colour")));
+        // P629b: «Настройки тона» under «Why тон» - the reference app's three tone pages, the shoulder above white, the tone's highlight
+        // passes with the short frames' denoise, V1's detail / colour combine; none of them left in «Настройки изображения»
+        assertEquals(Arrays.asList("pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat",
+                "scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen","scam_hybrid_hdr_shoulder_category","scam_hybrid_why_highlights_category","scam_hybrid_why_artifacts_category"),
+                keys(screen.findPreference("tone_settings_screen")));
+        assertEquals("prefscreen",((Preference)screen.findPreference("tone_settings_screen")).getParent().getKey());
+        assertEquals(Arrays.asList("pref_scam_hybrid_why_hl_soft","pref_scam_hybrid_why_hl_white","pref_scam_hybrid_why_v2_hr_amount",
+                "pref_scam_hybrid_why_bracket_denoise"),keys(screen.findPreference("scam_hybrid_why_highlights_category")));
+        for(String moved:new String[]{"scam_hybrid_why_ae_screen","scam_hybrid_why_curves_screen","scam_hybrid_why_tone_screen",
+                "scam_hybrid_hdr_shoulder_category","scam_hybrid_why_artifacts_category","pref_scam_hybrid_why_hl_soft","pref_scam_hybrid_why_bracket_denoise"})
+            assertNull(moved,((androidx.preference.PreferenceGroup)screen.findPreference("root_colour")).findPreference(moved));
+        // P629: the denoise and merge pages left «Настройки изображения» (their group is under the processing mode)
+        for(String gone:new String[]{"scam_hybrid_photo_screen","scam_hybrid_merge_screen"})assertNull(gone,screen.findPreference(gone));
+        // «Стиль и плёнка»: the style, the B&W filter, and the film pages together (the LUT link that only opened its page is gone)
+        PreferenceScreen style=screen.findPreference("photo_style_screen");
+        for(String key:new String[]{"photo_style","pref_scam_hybrid_colour_mono","film_lut_screen","pref_film_lut","film_sim_screen",
+                "pref_film_sim_stock","lens_filter_screen","pref_lens_filter"})assertNotNull(key,style.findPreference(key));
+        assertEquals(Arrays.asList("film_lut_screen","film_sim_screen","lens_filter_screen"),keys(screen.findPreference("photo_style_film_category")));
+        // «Цвет» in the reference app's order - vibrance, skin tones, the matrix, colour adaptation; our mixer and grading after
+        PreferenceScreen fine=screen.findPreference("photo_processing_screen");
+        assertEquals(Arrays.asList("colour_sat_category","colour_skin_category","colour_wb_category","colour_mixer_screen",
+                "colour_grading_screen"),keys(fine));
+        // P408 / P413: the reference app's matrix saturation and gains here, its matrix profile, own 3x3 matrix, Dynamic CCT and the
+        // Quad / Tetra white balance on each lens's page; the colour gamut of the former «Цвет камеры» at the end
+        assertNull(((androidx.preference.PreferenceGroup)screen.findPreference("colour_wb_category")).findPreference("pref_scam_hybrid_mosaic_wb_mode"));
+        for(String key:new String[]{"pref_scam_hybrid_colour_tint","pref_scam_hybrid_colour_keep_warm","pref_scam_hybrid_colour_keep_cool",
+                "pref_scam_hybrid_why_vibrance","pref_scam_hybrid_why_vibrance_sky","pref_scam_hybrid_why_vibrance_hl_str","colour_mixer_screen",
+                "pref_scam_hybrid_colour_mix_blue_sat","colour_grading_screen","pref_scam_hybrid_colour_grade_highlights_hue"})
+            assertNotNull(key,fine.findPreference(key));
+        // P404 / P406: the skin's hue, saturation, mask; the two skin protections sit with the vibrance they hold back
+        assertEquals(Arrays.asList("pref_scam_hybrid_colour_skin_hue","pref_scam_hybrid_why_skin_sat_shift","pref_scam_hybrid_why_skin_hue_shift","pref_scam_hybrid_why_skin_hue_center",
+                "pref_scam_hybrid_why_v2_skin_hue_center","pref_scam_hybrid_why_skin_luma_min","pref_scam_hybrid_colour_skin_even"),
+                keys(screen.findPreference("colour_skin_category")));
+        // P419: the reference app's eight vibrance rows in its order - one light-tone, one shadow row, one skin protection
+        assertEquals(Arrays.asList("pref_scam_hybrid_why_vibrance","pref_scam_hybrid_why_vibrance_saturated","pref_scam_hybrid_why_vibrance_sky",
+                "pref_scam_hybrid_why_vibrance_green","pref_scam_hybrid_why_vibrance_hl_str","pref_scam_hybrid_why_vibrance_mid",
+                "pref_scam_hybrid_why_vibrance_shadows","pref_scam_hybrid_why_skin_protect"),keys(screen.findPreference("colour_sat_category")));
+        // the merge: the burst's frames lead «Склейка», as the reference app's frame count
+        assertEquals(Arrays.asList("pref_scam_hybrid_zsl_frames","pref_scam_hybrid_fullres50_frames","pref_scam_hybrid_fullres50_zsl",
+                "pref_scam_hybrid_fullres200_frames","pref_zsl_buffer_count_key","scam_hybrid_motion_screen"),
+                keys(screen.findPreference("scam_hybrid_merge_frames_category")));
+        // P629: «Шумоподавление и склейка» - the denoise groups of the former «Шумоподавление», then the merge groups of the former
+        // «Склейка», each in its order (P644: «Статика»'s group after the frames is gone with the route)
+        assertEquals(Arrays.asList("scam_hybrid_nr_merge_category","scam_hybrid_resolve_optics_category",
+                "scam_hybrid_ms_general_category","scam_hybrid_ms_luma_category","scam_hybrid_ms_chroma_category",
+                "scam_hybrid_merge_frames_category","scam_hybrid_yuv_category","scam_hybrid_merge_align_category","scam_hybrid_merge_reject_category",
+                "scam_hybrid_merge_kernel_category","scam_hybrid_merge_quad_category","scam_hybrid_merge_final_category"),
+                keys(screen.findPreference("scam_hybrid_dnmerge_screen")));
+        assertEquals("prefscreen",((Preference)screen.findPreference("scam_hybrid_dnmerge_screen")).getParent().getKey());
+        assertNull(screen.findPreference("scam_hybrid_static_category"));
+        assertEquals(Arrays.asList("scam_hybrid_capture_category","scam_hybrid_shasta_category"),   // P629b: the shoulder went to the tone
+                keys(screen.findPreference("scam_hybrid_hdr_screen")));
+        assertEquals(Arrays.asList("scam_hybrid_defringe_category","scam_hybrid_recovery_category"),keys(screen.findPreference("scam_hybrid_artifacts_screen")));
+        assertEquals(Arrays.asList("pref_scam_hybrid_highlight_recovery","pref_scam_hybrid_highlight_chroma"),keys(screen.findPreference("scam_hybrid_recovery_category")));
+        // «Лаборатория» (P277: a row that opens ScamLabFragment, no page of its own), «Логи», «О приложении»
+        assertEquals(Arrays.asList("scam_lab_screen"),keys(screen.findPreference("root_lab")));
+        assertEquals(0,((PreferenceScreen)screen.findPreference("scam_lab_screen")).getPreferenceCount());
+        assertEquals(Arrays.asList("scam_diagnostics_screen","camera_package_spoof_screen","developer_settings_screen","pref_root_enabled"),
+                keys(screen.findPreference("root_logs")));
+        // rows removed: the module hub (P384), the LUT link, empty containers; P406: the SHDR wrapper, «Другие тонкие настройки» and the
+        // groups the reference app does not have
+        for(String key:new String[]{"module_profiles_screen","photo_style_lut","scam_hybrid_why_rl_category","adv_processing","scam_hybrid_screen",
+                "advanced_screen","adv_cameras","adv_view","adv_system","root_view","root_app","root_expert"})
+            assertNull(key,screen.findPreference(key));
+        assertNull(screen.findPreference(PreferenceKeys.ROUTE_KEY));
+        assertNull(screen.findPreference("camera_settings_screen"));assertNull(screen.findPreference("pref_sensor_config_submenu"));
+        androidx.preference.PreferenceGroup ui=screen.findPreference("root_shoot");
+        for(String key:new String[]{"pref_theme_key","pref_theme_accent_key","pref_hide_gallery_icon_key","pref_shade_transparency"})
+            assertNotNull(key,ui.findPreference(key));
+        androidx.preference.PreferenceGroup noise=screen.findPreference("lens_noise_category");   // P413: the lens page's noise model
+        // P310 settings cleanup: the merge follows the profile itself, no separate source switch next to it
+        assertNotNull(noise.findPreference("pref_noise_model_profile_key"));
+        org.junit.Assert.assertNull("the SHDR noise source duplicated the profile",noise.findPreference("pref_scam_hybrid_noise_source"));
+    }
+
+    /**
+     * 2026-10-27 (owner: settings simple enough to set up the camera alone, nothing lost): a row the page's code hides (the two
+     * sound switches behind «Звуки») stays hidden when the availability is applied again - after the set-up, after a change of a
+     * setting and after pause/resume - and the search does not find it; «Звуки» stays shown and found. Before the fix
+     * applyAvailability showed every row it did not hide itself.
+     */
+    @Test public void codeHiddenRowsStayHidden(){
+        try(org.robolectric.android.controller.ActivityController<com.scamera.app.ui.settings.SettingsActivity> controller=
+                org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)) {
+            controller.setup();
+            var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            String shutter=PreferenceKeys.Key.KEY_CAMERA_SOUNDS.mValue,timer=PreferenceKeys.Key.KEY_TIMER_SOUND.mValue;
+            for(String step:new String[]{"set-up","a change","pause/resume"}){
+                if("a change".equals(step))prefs.edit().putBoolean("pref_scam_hybrid_denoise",!prefs.getBoolean("pref_scam_hybrid_denoise",true)).commit();
+                if("pause/resume".equals(step))controller.pause().resume();
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+                Set<String> indexed=new HashSet<>();
+                for(var e:com.scamera.app.ui.settings.SettingsSearchFragment.index(root.getPreferenceScreen()))indexed.add(e.key);
+                for(String key:new String[]{shutter,timer}){
+                    assertFalse(step+": "+key+" shown",root.findPreference(key).isVisible());
+                    assertFalse(step+": "+key+" found by the search",indexed.contains(key));
+                }
+                assertTrue(step+": «Звуки» hidden",root.findPreference("pref_camera_sounds_all").isVisible());
+                assertTrue(step+": «Звуки» not found by the search",indexed.contains("pref_camera_sounds_all"));
+            }
+        }
+    }
+
+    /** The pages between the settings root and {@code p} (the root itself is no tap). */
+    private static int pagesAbove(Preference p){
+        int pages=0;
+        for(androidx.preference.PreferenceGroup g=p.getParent();g!=null&&g.getParent()!=null;g=g.getParent())if(g instanceof PreferenceScreen)pages++;
+        return pages;
+    }
+
+    /**
+     * 2026-10-27 (owner: «Упрости так чтобы даже тупой человек смог разобраться в настройках и настроить камеру сам»): what an
+     * ordinary user sets - the picture's brightness, contrast, saturation, warmth, sharpness and noise reduction, the style and
+     * the film looks, the format and size, sounds, the grid, focus, white balance tint, ETTR, the reset - is at most two pages
+     * from the settings root, and the search finds the brightness by its everyday word.
+     */
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void everydayRowsWithinTwoTaps(){
+        PreferenceScreen screen=inflate();
+        for(String key:new String[]{"pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat",
+                "pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor","photo_style","pref_film_lut",
+                "pref_film_sim_stock","pref_lens_filter","pref_photo_format","photo_size_choice","pref_camera_sounds_all","pref_show_grid_key",
+                "pref_af_mode_key","pref_face_detect_mode","pref_scam_hybrid_colour_tint","pref_ettr","pref_reset_preferences_key"}){
+            Preference p=screen.findPreference(key);assertNotNull(key,p);
+            assertTrue(key+": "+pagesAbove(p)+" pages deep",pagesAbove(p)<=2);
+        }
+        // the warmth, sharpness and noise reduction sliders sit on the root page itself, in «Настройки изображения»
+        for(String key:new String[]{"pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor"}){
+            assertEquals(key,0,pagesAbove(screen.findPreference(key)));
+            assertEquals(key,"root_colour",((Preference)screen.findPreference(key)).getParent().getKey());
+        }
+        // P629c (owner, 2026-11-11: «Ползунки перенеси в настройки тона»; supersedes 2026-10-27 / P406 for these three): brightness,
+        // contrast and saturation are the first three rows of «Настройки тона», one page under the root, itself a root row
+        PreferenceScreen tone=screen.findPreference("tone_settings_screen");
+        assertEquals("prefscreen",tone.getParent().getKey());
+        String[] toneSliders={"pref_scam_hybrid_why_ae_target","pref_scam_hybrid_why_macro_contrast","pref_scam_hybrid_why_agx_sat"};
+        for(int i=0;i<toneSliders.length;i++){
+            assertEquals(toneSliders[i],tone.getPreference(i).getKey());
+            assertEquals(toneSliders[i],1,pagesAbove(screen.findPreference(toneSliders[i])));
+            assertTrue(toneSliders[i],tone.getPreference(i) instanceof com.scamera.app.ui.settings.custompreferences.UniversalSeekBarPreference);
+        }
+        List<String> found=new ArrayList<>();
+        for(var e:com.scamera.app.ui.settings.SettingsSearchFragment.index(screen))if(e.matches("яркость"))found.add(e.key);
+        assertTrue(found.toString(),found.contains("pref_scam_hybrid_why_ae_target"));
+        // ...the moved rows by their former names (their help names them), and «Звуки» by the timer's sound
+        var index=com.scamera.app.ui.settings.SettingsSearchFragment.index(screen);
+        var words=com.scamera.app.ui.settings.SettingsSearchFragment.searchWords(context,index);
+        String[][] former={{"базовая экспозиция","pref_scam_hybrid_why_ae_target"},{"macro contrast","pref_scam_hybrid_why_macro_contrast"},
+                {"сила детали резкости","pref_scam_hybrid_why_sharp_gain"},{"многомасштабный шумодав яркость","pref_scam_hybrid_why_dn_factor"},
+                {"экспозиция вправо","pref_ettr"},{"звук таймера","pref_camera_sounds_all"}};
+        for(String[] q:former){
+            List<String> hits=new ArrayList<>();
+            for(var e:index)if(e.matches(q[0],words.get(e.key)))hits.add(e.key);
+            assertTrue(q[0]+": "+hits,hits.contains(q[1]));
+        }
+    }
+
+    /**
+     * 2026-10-27: the technical rows live on pages; P406 (the reference app's menu): no SHDR value is a row of the main page itself
+     * but the six everyday sliders of «Настройки изображения»; the groups of the main page show at most 10 rows, «Настройки
+     * изображения» its style, sliders, the reference app's 10 processing categories and the profiles.
+     */
+    @Test public void technicalRowsOnlyUnderExperts(){
+        PreferenceScreen screen=inflate();
+        // P629c: brightness, contrast and saturation moved into «Настройки тона» (a page: not counted here)
+        Set<String> everyday=new HashSet<>(Arrays.asList("pref_scam_hybrid_colour_warmth","pref_scam_hybrid_why_sharp_gain","pref_scam_hybrid_why_dn_factor",
+                "pref_scam_hybrid_colour_mono","pref_scam_hybrid_output","pref_scam_hybrid_processing","pref_scam_hybrid_fringe_method",
+                "pref_scam_hybrid_tone_version"));
+        List<String> stray=new ArrayList<>();
+        int checked=0;
+        for(int i=0;i<screen.getPreferenceCount();i++){
+            Preference top=screen.getPreference(i);
+            if(top instanceof PreferenceScreen)continue; // P493: the fringe net's page at the root is a page of its own
+            if(!(top instanceof androidx.preference.PreferenceGroup)){ // P490: the processing mode at the root
+                if(top.getKey()!=null&&top.getKey().startsWith("pref_scam_hybrid_")){checked++;if(!everyday.contains(top.getKey()))stray.add(top.getKey());}
+                continue;
+            }
+            androidx.preference.PreferenceGroup g=(androidx.preference.PreferenceGroup)top;
+            for(int j=0;j<g.getPreferenceCount();j++){
+                Preference p=g.getPreference(j);
+                if(p instanceof androidx.preference.PreferenceGroup||p.getKey()==null||!p.getKey().startsWith("pref_scam_hybrid_"))continue;
+                checked++;
+                if(!everyday.contains(p.getKey()))stray.add(p.getKey());
+            }
+        }
+        assertEquals("the three everyday sliders left (P629c), P474 «Режим обработки», P493 «Подавление аберраций» and P614 «Why тон»",6,checked);
+        assertTrue("technical rows on the main page: "+stray,stray.isEmpty());
+        // the rows shown by the settings page itself (it hides the two sound switches behind «Звуки» and what the phone lacks);
+        // P384: «Модули камеры» with three modules: three cards and the actions under them
+        for(int i=0;i<3;i++)prefs.edit().putString("module_auto_back"+i,""+(3+i)).putString("module_label_back"+i,new String[]{"1×","0.6×","3×"}[i]).putBoolean("module_visible_back"+i,true).commit();
+        prefs.edit().putString("module_active","back0").commit();
+        try(org.robolectric.android.controller.ActivityController<com.scamera.app.ui.settings.SettingsActivity> controller=
+                org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)) {
+            controller.setup();
+            var fm=controller.get().getSupportFragmentManager();fm.executePendingTransactions();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            for(String group:new String[]{"root_lenses","root_photo","root_shoot","root_colour","root_lab","root_logs","root_about"}){
+                androidx.preference.PreferenceGroup g=root.findPreference(group);assertNotNull(group,g);
+                List<String> shown=new ArrayList<>();
+                for(int i=0;i<g.getPreferenceCount();i++)if(g.getPreference(i).isVisible())shown.add(g.getPreference(i).getKey());
+                assertTrue(group+" shows "+shown,shown.size()<=(group.equals("root_colour")?19:10)&&!shown.isEmpty());
+            }
+            // P390: the main page shows one row of the modules, their page the cards
+            androidx.preference.PreferenceGroupAdapter rootAdapter=(androidx.preference.PreferenceGroupAdapter)root.getListView().getAdapter();
+            List<String> rootKeys=new ArrayList<>();
+            for(int i=0;i<rootAdapter.getItemCount();i++)rootKeys.add(rootAdapter.getItem(i).getKey());
+            assertTrue(rootKeys.toString(),rootKeys.contains("modules_screen"));
+            for(String group:new String[]{"root_modules","expert_module_ids","expert_module_sensor"})assertFalse(group,rootKeys.contains(group));
+            root=modulesPage(controller.get());
+            assertEquals(Arrays.asList("module_card_back1","module_card_back0","module_card_back2","module_actions"),
+                    visibleKeys((androidx.preference.PreferenceGroup)root.findPreference("root_modules")));
+            // no module card is open at the start: the list holds none of a card's rows
+            androidx.preference.PreferenceGroupAdapter adapter=(androidx.preference.PreferenceGroupAdapter)root.getListView().getAdapter();
+            for(int i=0;i<adapter.getItemCount();i++){
+                String key=adapter.getItem(i).getKey();
+                for(String row:new String[]{"module_row_name_","module_row_zoom_","module_row_button_","module_row_crop_","module_row_copy_",
+                        "module_row_delete_","module_row_profile_","module_row_trials_"})
+                    assertFalse("an open card's row at the start: "+key,key!=null&&key.startsWith(row));
+            }
+        }
+    }
+
+    private static List<String> visibleKeys(androidx.preference.PreferenceGroup group){
+        List<String> out=new ArrayList<>();for(int i=0;i<group.getPreferenceCount();i++)if(group.getPreference(i).isVisible())out.add(group.getPreference(i).getKey());return out;
+    }
+
+    /**
+     * 2026-10-27: the tip on the two gestures, «Удерживайте пункт…» and the double tap of a slider. P592 (owner's review: the
+     * hints under the search go): no tip line on any page; the first opening of the settings says it once, as a toast.
+     */
+    @Test public void gestureTipOnceAndOnNoPage(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            assertNull("no tip line under the search",root.requireView().findViewWithTag("settings_tips"));
+            String toast=org.robolectric.shadows.ShadowToast.getTextOfLatestToast();
+            assertTrue(String.valueOf(toast),toast!=null&&toast.contains("Hold a row"));
+            // the next time: no tip
+            org.robolectric.shadows.ShadowToast.reset();
+            com.scamera.app.ui.settings.SettingsActivity.SettingsFragment.tipOnce(activity);
+            assertNull("said once",org.robolectric.shadows.ShadowToast.getLatestToast());
+            activity.onPreferenceStartScreen(root,root.findPreference("photo_style_screen"));fm.executePendingTransactions();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var page=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            assertEquals("photo_style_screen",page.getPreferenceScreen().getKey());
+            assertNull("no tip on an inner page",page.requireView().findViewWithTag("settings_tips"));
+        }
+    }
+
+    /**
+     * 2026-10-27 (the root's tip: «Удерживайте пункт, чтобы узнать, что он делает»): a held press on a slider row («Яркость» of
+     * «Снимок») opens its help, through real touches - the row's touches are DoubleTapReset's (P357), so the view's own
+     * long-press detection never ran and the help could only open from performLongClick. Its end is no tap (no value dialog);
+     * a quick tap still opens the precise value.
+     */
+    @Test public void holdingASliderRowOpensItsHelp(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            float density=activity.getResources().getDisplayMetrics().density;
+            int w=Math.round(400*density),h=Math.round(1400*density);
+            android.view.View view=root.requireView();frame(view,w,h);
+            var list=root.getListView();
+            int pos=((androidx.preference.PreferenceGroup.PreferencePositionCallback)list.getAdapter()).getPreferenceAdapterPosition("pref_scam_hybrid_colour_warmth");   // P629c: a slider of the root
+            assertTrue(pos>=0);
+            ((androidx.recyclerview.widget.LinearLayoutManager)list.getLayoutManager()).scrollToPositionWithOffset(pos,0);
+            frame(view,w,h);
+            var holder=list.findViewHolderForAdapterPosition(pos);assertNotNull("the row is laid out",holder);
+            android.view.View row=holder.itemView;
+            float x=6*density,y=6*density; // the row's corner: no slider or value there
+            java.util.function.LongConsumer press=hold->{
+                long t=android.os.SystemClock.uptimeMillis();
+                android.view.MotionEvent down=android.view.MotionEvent.obtain(t,t,android.view.MotionEvent.ACTION_DOWN,x,y,0);
+                row.dispatchTouchEvent(down);down.recycle();
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(hold));
+                long u=android.os.SystemClock.uptimeMillis();
+                android.view.MotionEvent up=android.view.MotionEvent.obtain(t,u,android.view.MotionEvent.ACTION_UP,x,y,0);
+                row.dispatchTouchEvent(up);up.recycle();
+                // past the double-tap time: a single tap has run by then
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
+                        java.time.Duration.ofMillis(android.view.ViewConfiguration.getDoubleTapTimeout()+100));
+            };
+            java.util.function.Function<android.app.Dialog,Boolean> isHelp=d->d!=null&&d.getWindow()!=null
+                    &&d.getWindow().getDecorView().findViewWithTag("setting_help")!=null;
+            // a quick tap: the precise value, no help
+            press.accept(40);
+            android.app.Dialog tapped=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotNull("a tap opens the precise value",tapped);
+            assertFalse("a tap opens no help",isHelp.apply(tapped));
+            tapped.dismiss();
+            // a held press: the help, and nothing after it
+            press.accept(android.view.ViewConfiguration.getLongPressTimeout()+100);
+            android.app.Dialog held=org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertTrue("a held press opens the help: "+held,isHelp.apply(held));
+            assertTrue(held.isShowing());
+        }
+    }
+
+    /** P6b: inner pages (sliders, lists, tiles) render at 360 dp; the PNGs are kept for a look (build/reports/module-concept). */
+    @Test public void innerPagesRenderAsCards() throws Exception {
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            {   // SIMPLE_UI §4: the root as the concept draws it (groups of card rows)
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                android.view.View view=fm.findFragmentById(R.id.settings_container).requireView();int exact=android.view.View.MeasureSpec.EXACTLY;
+                view.measure(android.view.View.MeasureSpec.makeMeasureSpec(360,exact),android.view.View.MeasureSpec.makeMeasureSpec(2400,exact));view.layout(0,0,360,2400);
+                android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(360,2400,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+                java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+                try(var out=new java.io.FileOutputStream(new java.io.File(dir,"page-root.png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+            }
+            for(String key:new String[]{"photo_processing_screen","scam_hybrid_hdr_screen","output_settings_screen","scam_hybrid_why_sharp_screen","viewfinder_screen","interface_settings_screen","photo_style_screen","shade_transparency_screen","backup_settings_screen","photo_size_screen","focus_screen","photo_processing_screen"}){
+                var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+                PreferenceScreen target=root.findPreference(key);if(target==null){fm.popBackStackImmediate(null,androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE);
+                    root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);target=root.findPreference(key);}
+                assertNotNull(key,target);activity.onPreferenceStartScreen(root,target);fm.executePendingTransactions();
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                android.view.View view=fm.findFragmentById(R.id.settings_container).requireView();int exact=android.view.View.MeasureSpec.EXACTLY;
+                view.measure(android.view.View.MeasureSpec.makeMeasureSpec(360,exact),android.view.View.MeasureSpec.makeMeasureSpec(1800,exact));view.layout(0,0,360,1800);
+                android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(360,1800,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+                java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+                try(var out=new java.io.FileOutputStream(new java.io.File(dir,"page-"+key+".png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+                fm.popBackStackImmediate(null,androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE);
+            }
+        }
+    }
+
+    /** P6b pickers: a list opens a bottom sheet with radio rows, a text field a sheet with the same validation. */
+    @Test public void listAndTextPickersAreBottomSheets(){
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();
+            PreferenceManager pm=new PreferenceManager(activity);PreferenceScreen screen=pm.createPreferenceScreen(activity);
+            ListPreference list=new ListPreference(activity);list.setKey("t_sheet_list");list.setTitle("Список");
+            list.setEntries(new CharSequence[]{"Первый","Второй"});list.setEntryValues(new CharSequence[]{"a","b"});screen.addPreference(list);list.setValue("a");
+            assertTrue(com.scamera.app.ui.settings.SettingsStyle.showDialog(activity,list));
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var sheet=(com.google.android.material.bottomsheet.BottomSheetDialog)org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotNull(sheet);
+            // the list scrolls by nested scrolling: a plain ScrollView let the sheet take the drag; landscape fits by listCap.
+            // P412: the list is the sheet's only nested scroller - inside a second one the sheet took every downward drag of
+            // the list (it scrolled only down, a drag up closed the sheet: owner's «Режим сенсора» video, 2026-10-30)
+            assertTrue(sheet.findViewById(android.R.id.content).findViewWithTag("option_list") instanceof androidx.core.widget.NestedScrollView);
+            assertNull(sheet.findViewById(android.R.id.content).findViewWithTag("sheet_scroll"));
+            assertEquals("portrait: 60 % of the screen",1900,com.scamera.app.ui.settings.SettingsStyle.listCap(3168,380,1900,3.5f));
+            assertEquals("landscape: what the window leaves under the title",1440-380-252,com.scamera.app.ui.settings.SettingsStyle.listCap(1440,380,1300,3.5f));
+            assertEquals("never under two rows",364,com.scamera.app.ui.settings.SettingsStyle.listCap(600,380,864,3.5f));
+            assertEquals("no window yet",864,com.scamera.app.ui.settings.SettingsStyle.listCap(0,380,864,3.5f));
+            sheet.findViewById(android.R.id.content).findViewWithTag("option_b").performClick();
+            assertEquals("b",list.getValue());assertFalse(sheet.isShowing());
+            EditTextPreference edit=new EditTextPreference(activity);edit.setKey("t_sheet_edit");edit.setTitle("Поле");screen.addPreference(edit);edit.setText("1");
+            edit.setOnBindEditTextListener(field->field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER));
+            edit.setOnPreferenceChangeListener((p,v)->!v.toString().isEmpty());
+            assertTrue(com.scamera.app.ui.settings.SettingsStyle.showDialog(activity,edit));
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            sheet=(com.google.android.material.bottomsheet.BottomSheetDialog)org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            android.widget.EditText field=sheet.findViewById(android.R.id.content).findViewWithTag("sheet_field");
+            assertEquals(android.text.InputType.TYPE_CLASS_NUMBER,field.getInputType());
+            field.setText("");sheet.findViewById(android.R.id.content).findViewWithTag("sheet_save").performClick();
+            assertEquals("a rejected value keeps the sheet open","1",edit.getText());assertTrue(sheet.isShowing());
+            field.setText("7");sheet.findViewById(android.R.id.content).findViewWithTag("sheet_save").performClick();
+            assertEquals("7",edit.getText());assertFalse(sheet.isShowing());
+        }
+    }
+
+    @Test public void sensorOverridesMigrateToIndependentSlotsAndResetDoesNotRestoreLegacy(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","3")
+            .putString("module_active","back0").putString("pref_sensorconfig_3_blackleveloverride","64").commit();
+        ModuleSensorSettings.ensure("back0");ModuleSensorSettings.ensure("back1");
+        assertEquals("64",prefs.getString("pref_sensorconfig_back0_blackleveloverride",""));
+        prefs.edit().putString("pref_sensorconfig_back0_blackleveloverride","80").commit();
+        assertEquals("64",prefs.getString("pref_sensorconfig_back1_blackleveloverride",""));
+        assertEquals("back0",ModuleSensorSettings.runtimeScope("3"));
+        assertEquals("4",ModuleSensorSettings.runtimeScope("4"));
+        ModuleSensorSettings.reset("back0");ModuleSensorSettings.ensure("back0");
+        assertFalse(prefs.contains("pref_sensorconfig_back0_blackleveloverride"));
+        assertEquals("64",prefs.getString("pref_sensorconfig_back1_blackleveloverride",""));
+    }
+    @Test public void sensorCopyMapsSelectedFieldsToTargetModule(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5").commit();
+        ModuleSensorSettings.ensure("back0");ModuleSensorSettings.ensure("back1");
+        prefs.edit().putString("pref_sensorconfig_back0_blackleveloverride","70")
+            .putString("pref_sensorconfig_back1_blackleveloverride","10")
+            .putString("pref_sensorconfig_back1_sessiontype","20").commit();
+        ModuleSensorSettings.copy("back0",Arrays.asList("back1"),new HashSet<>(Arrays.asList("sensor_copy_blackleveloverride")));
+        assertEquals("70",prefs.getString("pref_sensorconfig_back1_blackleveloverride",""));
+        assertEquals("20",prefs.getString("pref_sensorconfig_back1_sessiontype",""));
+    }
+    /**
+     * P384: «Сенсор по модулям» of the main page starts with no module shown (the page stays short); choosing one shows only its
+     * rows, choosing none hides them again; the camera keeps its module.
+     */
+    @Test public void sensorEditorStartsWithNoModuleAndDoesNotSwitchCamera(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5")
+            .putBoolean("module_visible_back0",true).putBoolean("module_visible_back1",true) // shown modules (hidden fillers are not listed)
+            .putString("module_active","back1").commit();
+        PreferenceScreen screen=inflate();
+        SensorConfigPreferenceGenerator.ModuleSelection selection=SensorConfigPreferenceGenerator.generatePreferences(context,screen);
+        assertNull("the module is picked by the chips, not by a row on the page",screen.findPreference("pref_sensor_config_selector"));
+        assertNull(selection.selected());
+        assertEquals(Arrays.asList("back0","back1"),selection.slots());
+        assertSame(screen.findPreference("expert_module_sensor"),((Preference)screen.findPreference("pref_category_sensor_back1")).getParent());
+        assertFalse(screen.findPreference("pref_category_sensor_back1").isVisible());
+        assertFalse(screen.findPreference("pref_category_sensor_back0").isVisible());
+        selection.select("back0");
+        assertEquals("back1",ModuleRegistry.active());
+        assertTrue(screen.findPreference("pref_category_sensor_back0").isVisible());
+        assertFalse(screen.findPreference("pref_category_sensor_back1").isVisible());
+        selection.select(null);
+        assertNull(selection.selected());
+        assertFalse(screen.findPreference("pref_category_sensor_back0").isVisible());
+        assertFalse(screen.findPreference("pref_category_sensor_back1").isVisible());
+    }
+    /**
+     * P384: a module's sensor rows (sensorPage: the main page with that module chosen) - the module chips of «Сенсор по модулям» pick
+     * another one (its rows only), the chosen chip again lets it go; the choice survives a recreate; the camera stays.
+     */
+    @Test public void sensorChipsPickTheModuleWithoutSwitchingTheCamera(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5").putString("module_auto_back2","7")
+            .putString("module_label_back0","1×").putString("module_label_back1","3×").putString("module_label_back2","6×")
+            .putBoolean("module_visible_back0",true).putBoolean("module_visible_back1",true).putBoolean("module_visible_back2",true)
+            .putString("module_active","back2").commit();
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var fm=controller.get().getSupportFragmentManager();
+            // P413: a module's sensor rows head its lens page (sensorPage: that module's lens page; no module chips there)
+            var page=com.scamera.app.ui.settings.SettingsActivity.SettingsFragment.sensorPage("back1");
+            fm.beginTransaction().replace(R.id.settings_container,page).commitNow();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertEquals("lens_screen",page.requireArguments().getString(androidx.preference.PreferenceFragmentCompat.ARG_PREFERENCE_ROOT));
+            assertNull(page.findPreference("pref_sensor_config_selector"));
+            assertTrue(page.findPreference("pref_category_sensor_back1").isVisible());
+            assertFalse(page.findPreference("pref_category_sensor_back0").isVisible());
+            assertFalse(page.findPreference("pref_category_sensor_back2").isVisible());
+            assertEquals("3× · ID 5",String.valueOf(((Preference)page.findPreference("pref_category_sensor_back1")).getTitle()).replace("\u200B",""));
+            Preference chips=page.findPreference("module_sensor_picker");
+            assertTrue("no module chips on a lens page",chips==null||!chips.isVisible());
+            assertNotNull("the lens page's sections",page.findPreference("lens_raw_category"));
+            assertEquals("the camera keeps its module","back2",ModuleRegistry.active());
+            controller.recreate();
+            var again=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)controller.get().getSupportFragmentManager().findFragmentById(R.id.settings_container);
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue("kept over a recreate",again.findPreference("pref_category_sensor_back1").isVisible());
+            assertFalse(again.findPreference("pref_category_sensor_back2").isVisible());
+            assertEquals("back2",ModuleRegistry.active());
+        }
+    }
+
+    /** The bound row of the module chips (the list scrolled to it). */
+    private static android.view.View chipsRow(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment page,Preference chips){
+        androidx.recyclerview.widget.RecyclerView list=page.getListView();
+        androidx.preference.PreferenceGroupAdapter adapter=(androidx.preference.PreferenceGroupAdapter)list.getAdapter();
+        int position=adapter.getPreferenceAdapterPosition(chips);
+        assertTrue(position>=0);
+        ((androidx.recyclerview.widget.LinearLayoutManager)list.getLayoutManager()).scrollToPositionWithOffset(position,0);
+        list.measure(android.view.View.MeasureSpec.makeMeasureSpec(400,1073741824),android.view.View.MeasureSpec.makeMeasureSpec(800,1073741824));list.layout(0,0,400,800);
+        androidx.recyclerview.widget.RecyclerView.ViewHolder holder=list.findViewHolderForAdapterPosition(position);
+        assertNotNull(holder);
+        return holder.itemView;
+    }
+
+    /**
+     * P156: on a page with per-module values the chip picks the module to edit: its profile comes into the main settings, the
+     * camera keeps its module; leaving the settings saves the edit into that module and brings the camera module's values back.
+     */
+    @Test public void moduleChipEditsAnotherModuleAndLeavingReturnsToTheCameraModule(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5")
+            .putString("module_label_back0","1×").putString("module_label_back1","3×")
+            .putBoolean("module_visible_back0",true).putBoolean("module_visible_back1",true)
+            .putString("module_active","back0").putBoolean("pref_save_per_lens_settings",true)
+            .putString("pref_scam_hybrid_cdm","0.9").commit();
+        context.getSharedPreferences("module_profiles_meta",0).edit().clear().putBoolean("baseline",true)
+            .putBoolean("exists_back0",true).putBoolean("exists_back1",true).putString("active","back0").commit();
+        context.getSharedPreferences("module_profile_v2_back1",0).edit().clear().putString("pref_scam_hybrid_cdm","0.5").commit();
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.widget.TextView chip=controller.get().findViewById(R.id.settings_container).findViewWithTag("settings_chip");
+            assertNotNull(chip);
+            assertTrue(chip.getText().toString(),chip.getText().toString().startsWith("Editing: 1× · ID 3")&&chip.getText().toString().endsWith("▾"));
+            chip.performClick();org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var sheet=(com.google.android.material.bottomsheet.BottomSheetDialog)org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotNull(sheet);
+            android.view.View row=sheet.findViewById(android.R.id.content).findViewWithTag("option_back0");
+            assertNotNull(row);
+            sheet.findViewById(android.R.id.content).findViewWithTag("option_back1").performClick();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertEquals("back1",PreferenceKeys.profiles().editing());
+            assertEquals("the 3x values to edit","0.5",prefs.getString("pref_scam_hybrid_cdm",""));
+            assertEquals("the camera keeps its module","back0",ModuleRegistry.active());
+            prefs.edit().putString("pref_scam_hybrid_cdm","0.4").commit();   // an edit of the 3x
+            controller.get().finish();
+            controller.pause();
+        }
+        assertEquals("back0",PreferenceKeys.profiles().editing());
+        assertEquals("the camera module's value back","0.9",prefs.getString("pref_scam_hybrid_cdm",""));
+        assertEquals("the edit kept in the 3x","0.4",context.getSharedPreferences("module_profile_v2_back1",0).getString("pref_scam_hybrid_cdm",""));
+    }
+    /** P156: a fresh start of the app opens on the back 1x module; a restored screen keeps its module; once per process. */
+    @Test public void aFreshStartOpensOnTheBackOneX(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5").putString("module_auto_front0","1")
+            .putString("module_label_back0","1×").putString("module_label_back1","3×").putString("module_label_front0","1×")
+            .putBoolean("module_visible_back0",true).putBoolean("module_visible_back1",true).putBoolean("module_visible_front0",true)
+            .putString("module_active","back1").commit();
+        ModuleRegistry.forgetHomeCheck();
+        assertNull("the system restored the screen: the module stays",ModuleRegistry.openHomeOnce(false));
+        assertEquals("back1",ModuleRegistry.active());
+        assertNull("checked once per process",ModuleRegistry.openHomeOnce(true));
+        ModuleRegistry.forgetHomeCheck();
+        prefs.edit().putString("module_active","front0").commit();
+        assertEquals("back0",ModuleRegistry.openHomeOnce(true));
+        assertEquals("back0",ModuleRegistry.active());
+        assertEquals("3",PreferenceKeys.getCameraID());
+        ModuleRegistry.forgetHomeCheck();
+    }
+    /** A module's sensor settings open at that module, even a hidden one; the rows keep one fixed order (P384: its reset last). */
+    @Test public void sensorPageOpensAtTheRequestedModuleInFixedRowOrder(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5")
+            .putBoolean("module_visible_back0",true).putBoolean("module_visible_back1",false)
+            .putString("module_active","back0").commit();
+        PreferenceScreen screen=inflate();
+        SensorConfigPreferenceGenerator.ModuleSelection selection=SensorConfigPreferenceGenerator.generatePreferences(context,screen,"back1");
+        assertEquals("back1",selection.selected());
+        assertEquals("back0",ModuleRegistry.active());
+        PreferenceCategory category=screen.findPreference("pref_category_sensor_back1");
+        assertTrue(category.isVisible());
+        List<String> keys=new ArrayList<>();
+        for(int i=0;i<category.getPreferenceCount();i++){String key=category.getPreference(i).getKey();keys.add(key.startsWith("pref_sensorconfig_back1_")?key.substring("pref_sensorconfig_back1_".length()):key);}
+        // Sensor rows, the module's live RAW AE controls, vendor keys, then its reset.
+        // P635: the full-resolution recipe's switch after them (off: the one row, no field); P646: «Склейка YUV» before it
+        keys.remove("oismode");
+        // P654: the sensor mode, the camera keys and «Добавить ключ» first (no sensor table here: no sensor mode row)
+        assertEquals(Arrays.asList("add_tunablekey","blackleveloverride","whiteleveloverride","sessiontype","ispsurface","rawfps","rawviewfinder",
+                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","yuvmerge","recipe","fpsprobe",
+                "pref_reset_sensor_config_settings_back1"),keys);
+        assertFalse(((androidx.preference.SwitchPreferenceCompat)category.findPreference("pref_sensorconfig_back1_recipe")).isChecked());
+        androidx.preference.ListPreference ae=category.findPreference("pref_sensorconfig_back1_ae_engine");
+        assertEquals("0",ae.getValue());
+        assertFalse(category.findPreference("pref_sensorconfig_back1_ae_min_iso").isEnabled());
+    }
+    /**
+     * P148: a copy of a module with a lens crop: «1.3×» of the 1× camera crops its frame 1.3x from the lens's uncropped zoom - also
+     * with the 1× button hidden -, its card shows and changes the crop; a copy of a sensor-cropped module crops that module's frame.
+     * P384 (owner, 2026-10-28: «Переместить эту группу настроек на главный экран»): the module cards of the main page (the untouched
+     * fillers a count, the modules' rows in their card: name, zoom, button, copying, its own settings; Camera ID and the sensor in
+     * their expert groups, not in the card).
+     */
+    @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void aModuleCopyWithItsOwnLensCrop() throws Exception {
+        for(int i=0;i<3;i++)prefs.edit().putString("module_auto_back"+i,""+(3+i)).putString("module_label_back"+i,new String[]{"1×","0.6×","2×"}[i]).putBoolean("module_visible_back"+i,true).commit();
+        for(int i=3;i<8;i++)prefs.edit().putString("module_auto_back"+i,"5").putString("module_label_back"+i,"2×").putBoolean("module_visible_back"+i,false).commit(); // the hidden filler slots
+        prefs.edit().putString("module_active","back0").putBoolean("module_sensorcrop_back2",true).commit();
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var root=modulesPage(activity);
+            for(String slot:new String[]{"back0","back1","back2"})assertNotNull(slot,root.findPreference("module_card_"+slot));
+            for(int i=3;i<8;i++)assertNull("untouched filler slots are a count, not modules",root.findPreference("module_card_back"+i));
+            assertTrue(String.valueOf(((Preference)root.findPreference("module_row_add_copy")).getSummary()),
+                    String.valueOf(((Preference)root.findPreference("module_row_add_copy")).getSummary()).contains("свободных мест: 5"));
+            renderPage(root.requireView(),"modules-p148");
+            var card=(com.scamera.app.ui.settings.custompreferences.ModuleSection)root.findPreference("module_card_back0");
+            card.performClick();org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            List<String> open=listed(root,"module_card_back0","module_card_back2");
+            // P413: the card is the reference app's lens button: its Camera ID and its lens page (the sensor, RAW, colour, noise)
+            assertEquals(Arrays.asList("module_row_name_back0","module_row_zoom_back0","module_row_card_id_back0","module_row_button_back0",
+                    "module_row_copy_back0","module_row_lens_back0","module_row_profile_back0"),open);
+            for(String key:open)assertFalse("no setting of the lens page in the card: "+key,key.startsWith("pref_"));
+            renderPage(root.requireView(),"module-page-p148");
+            ((Preference)root.findPreference("module_row_copy_back0")).performClick();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            var sheet=(com.google.android.material.bottomsheet.BottomSheetDialog)org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotNull(sheet);sheet.findViewById(android.R.id.content).findViewWithTag("option_crop_1.3").performClick();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();fm.executePendingTransactions();
+            String copy=null;for(String slot:ModuleRegistry.slots())if("back0".equals(ModuleRegistry.duplicateOf(slot)))copy=slot;
+            assertNotNull("a copy of the 1× module",copy);
+            assertEquals("1.3×",ModuleRegistry.label(copy));
+            assertEquals(1.3f,ModuleRegistry.zoom(copy),1e-4f);
+            assertEquals(1.3f,ModuleRegistry.crop(copy),1e-4f);
+            assertEquals("the lens's uncropped zoom: the camera crops 1.3x",1f,ModuleRegistry.nativeRatio(copy),1e-4f);
+            assertTrue(ModuleRegistry.visible(copy));
+            var copyCard=(com.scamera.app.ui.settings.custompreferences.ModuleSection)root.findPreference("module_card_"+copy);
+            assertNotNull("the copy's card",copyCard);
+            assertTrue("the new copy's card is open",copyCard.isExpanded());
+            assertFalse("one card open",card.isExpanded());
+            assertTrue(listed(root,"module_card_"+copy,null).contains("module_row_crop_"+copy));
+            assertTrue(listed(root,"module_card_"+copy,null).contains("module_row_delete_"+copy));
+            renderPage(root.requireView(),"module-copy-p148");
+            prefs.edit().putBoolean("module_visible_back0",false).commit();
+            assertEquals("the crop stays with the 1× button hidden",1f,ModuleRegistry.nativeRatio(copy),1e-4f);
+            // the crop of the copy changed in its card: 1.5x
+            ((Preference)root.findPreference("module_row_crop_"+copy)).performClick();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            sheet=(com.google.android.material.bottomsheet.BottomSheetDialog)org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            sheet.findViewById(android.R.id.content).findViewWithTag("option_crop_1.5").performClick();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertEquals(1.5f,ModuleRegistry.zoom(copy),1e-4f);
+            assertEquals(1.5f,ModuleRegistry.crop(copy),1e-4f);
+            assertEquals("1.5×",((com.scamera.app.ui.settings.custompreferences.ModuleSection)root.findPreference("module_card_"+copy)).badge().toString());
+            // a copy of the sensor-cropped 2× module: its frame is cropped 1.5x more (native = the 2× module's frame)
+            String isz=ModuleRegistry.duplicate("back2",1.5f);
+            assertNotNull(isz);
+            assertEquals(3f,ModuleRegistry.zoom(isz),1e-4f);
+            assertEquals(2f,ModuleRegistry.nativeRatio(isz),1e-4f);
+            assertEquals("the original modules are unchanged",1f,ModuleRegistry.crop("back0"),0f);
+            assertEquals(2f,ModuleRegistry.nativeRatio("back2"),1e-4f);
+        }
+    }
+
+    /** The keys the root's list holds between two rows (exclusive; {@code to} null: to the next card or the actions). */
+    private static List<String> listed(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment root,String from,String to){
+        androidx.preference.PreferenceGroupAdapter adapter=(androidx.preference.PreferenceGroupAdapter)root.getListView().getAdapter();
+        List<String> out=new ArrayList<>();boolean in=false;
+        for(int i=0;i<adapter.getItemCount();i++){
+            String key=adapter.getItem(i).getKey();
+            if(in&&(key==null||key.equals(to)||(to==null&&(key.startsWith("module_card_")||key.equals("module_actions")))))break;
+            if(in)out.add(key);
+            if(from.equals(key))in=true;
+        }
+        return out;
+    }
+
+    /**
+     * P134 / SIMPLE_UI §4c «Плёночный LUT» is its own page, as the concept: the before / after preview, three samples, the strip
+     * («Нет», our film looks, the folder's .cube files, «Импорт .cube»), the strength and «Что меняется»; a card is the choice.
+     */
+    @Test public void filmLutPageShowsTheStripPreviewAndChanges() throws Exception {
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            PreferenceScreen page=root.findPreference("film_lut_screen");
+            assertNotNull(page);
+            com.scamera.app.ui.settings.custompreferences.FilmLutPreference lut=page.findPreference(com.scamera.app.processing.color.FilmLut.KEY);
+            assertNotNull(lut);
+            assertNotNull("the strength on the page",page.findPreference(com.scamera.app.processing.color.FilmLut.STRENGTH_KEY));
+            assertNotNull("«Что меняется» on the page",page.findPreference("film_lut_changes"));
+            activity.onPreferenceStartScreen(root,page);fm.executePendingTransactions();
+            var shown=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            lut=shown.findPreference(com.scamera.app.processing.color.FilmLut.KEY);
+            lut.setFiles(c->new String[]{"Kodak 2383.cube"});
+            boolean[] imported={false};
+            lut.setImporter(()->imported[0]=true);
+            lut.choose("");
+            android.view.View view=layout(shown.requireView(),360,2000);
+            for(String tag:new String[]{"lut_compare","lut_sample_0","lut_sample_1","lut_sample_2","lut_card_","lut_card_scam:warm400",
+                    "lut_card_scam:mono400","lut_card_Kodak 2383.cube","lut_import","lut_changes"})
+                assertNotNull(tag,view.findViewWithTag(tag));
+            assertTrue("no LUT: the photo stays as it is",shownText(view.findViewWithTag("lut_changes"),com.scamera.app.util.Lang.t(activity,"Плёночный образ выключен","The film look is off")));
+            view.findViewWithTag("lut_import").performClick();
+            assertTrue("«Импорт .cube» opens the picker",imported[0]);
+            view.findViewWithTag("lut_card_scam:slide100").performClick();
+            assertEquals("scam:slide100",lut.chosen());
+            assertEquals("scam:slide100",prefs.getString(com.scamera.app.processing.color.FilmLut.KEY,""));
+            // the analysis runs off the main thread
+            android.view.View chips=null;
+            for(int i=0;i<100&&chips==null;i++){
+                Thread.sleep(30);org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+                chips=view.findViewWithTag("lut_chips");
+            }
+            assertNotNull("«Что меняется» shows the chips",chips);
+            assertTrue("a slide film is contrastier",shownText(chips,com.scamera.app.util.Lang.t(activity,"Контраст","Contrast")));
+            assertNotNull(view.findViewWithTag("lut_curve"));
+            assertNotNull(view.findViewWithTag("lut_swatches"));
+            assertTrue(shownText(view,com.scamera.app.util.Lang.t(activity,"Обращаемая плёнка","Slide film")));
+            prefs.edit().putString(com.scamera.app.processing.color.FilmLut.STRENGTH_KEY,"0").commit();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue("strength 0: nothing changes",shownText(layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000),com.scamera.app.util.Lang.t(activity,"Сила 0 %","Strength 0 %")));
+            prefs.edit().putString(com.scamera.app.processing.color.FilmLut.STRENGTH_KEY,"100").commit();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            Thread.sleep(300);org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+            android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(360,2000,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+            java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"page-film_lut_screen.png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+            view.findViewWithTag("lut_card_").performClick();
+            assertEquals("",lut.chosen());
+        }
+    }
+    /**
+     * P228 «Фильтр на объектив»: its own page next to the LUT's - the before / after preview, three samples, the strip of 5
+     * cards («Нет» + the reference's 4 diffusion filters, P287), «Сила» and the filter's own parameter; a card is the choice. Also draws the page and every
+     * filter on every sample (build/reports/module-concept/lens-filters-*.png).
+     */
+    @Test public void lensFilterPageShowsTheStripPreviewAndSliders() throws Exception {
+        String[] ids=com.scamera.app.processing.color.LensFilters.IDS;
+        try(var controller=org.robolectric.Robolectric.buildActivity(com.scamera.app.ui.settings.SettingsActivity.class)){
+            controller.setup();var activity=controller.get();var fm=activity.getSupportFragmentManager();fm.executePendingTransactions();
+            var root=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            PreferenceScreen page=root.findPreference("lens_filter_screen");
+            assertNotNull(page);
+            assertEquals("next to the film LUT",root.findPreference("film_lut_screen").getParent(),page.getParent());
+            activity.onPreferenceStartScreen(root,page);fm.executePendingTransactions();
+            var shown=(com.scamera.app.ui.settings.SettingsActivity.SettingsFragment)fm.findFragmentById(R.id.settings_container);
+            com.scamera.app.ui.settings.custompreferences.LensFilterPreference lf=shown.findPreference(com.scamera.app.processing.color.LensFilters.KEY);
+            assertNotNull(lf);
+            assertEquals("no filter by default","",lf.chosen());
+            android.view.View view=layout(shown.requireView(),360,2000);
+            for(String tag:new String[]{"lens_filter_compare","lens_filter_sample_0","lens_filter_sample_1","lens_filter_sample_2","lens_filter_"})
+                assertNotNull(tag,view.findViewWithTag(tag));
+            for(String id:ids)assertNotNull(id,view.findViewWithTag("lens_filter_"+id));
+            assertNull("no filter: no sliders",view.findViewWithTag("lens_filter_strength"));
+            view.findViewWithTag("lens_filter_glimmer").performClick();
+            assertEquals("glimmer",lf.chosen());
+            assertEquals("glimmer",prefs.getString(com.scamera.app.processing.color.LensFilters.KEY,""));
+            assertEquals("the photo uses it","glimmer",PreferenceKeys.lensFilter());
+            assertEquals(0.5f,PreferenceKeys.lensFilterStrength(),1e-4f);
+            view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+            assertNotNull("«Сила»",view.findViewWithTag("lens_filter_strength"));
+            assertNull("P287: no parameter of its own",view.findViewWithTag("lens_filter_param"));
+            // P592: the chosen filter's description is the page's long press, not a note under the controls
+            String described=com.scamera.app.processing.color.LensFilters.description(activity,"glimmer");
+            assertFalse(shownText(view,described));
+            assertTrue(String.valueOf(com.scamera.app.ui.settings.SettingHelp.text(activity,lf)).startsWith(described));
+            view.findViewWithTag("lens_filter_bpm").performClick();
+            view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+            assertNotNull(view.findViewWithTag("lens_filter_strength"));
+            assertNull("Black Pro-Mist has no parameter of its own",view.findViewWithTag("lens_filter_param"));
+            // the fine controls: all four for Black Pro-Mist, stored per filter, «Сбросить» brings the design back
+            for(int control:com.scamera.app.processing.color.LensFilters.CONTROLS)
+                assertNotNull("fine control "+control,view.findViewWithTag("lens_filter_tune_"+control));
+            android.view.View reset=view.findViewWithTag("lens_filter_reset");
+            assertNotNull(reset);
+            assertFalse("nothing to reset yet",reset.isEnabled());
+            prefs.edit().putString(com.scamera.app.processing.color.LensFilters.tuneKey("bpm"),"0,20,80,50,70").commit();
+            com.scamera.app.processing.color.LensFilters.Tune tune=PreferenceKeys.lensFilterTune("bpm");
+            assertEquals("the photo uses the filter's own tune",0.8f,tune.radius,1e-4f);
+            assertEquals(0.2f,tune.knee,1e-4f);
+            assertEquals("another filter keeps its own",0.5f,PreferenceKeys.lensFilterTune("fog").radius,0f);
+            view.findViewWithTag("lens_filter_glimmer").performClick();
+            view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+            for(int control:com.scamera.app.processing.color.LensFilters.CONTROLS)
+                assertNotNull("Glimmerglass: fine control "+control,view.findViewWithTag("lens_filter_tune_"+control));
+            view.findViewWithTag("lens_filter_bpm").performClick();
+            view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+            assertTrue("the tune is still there",view.findViewWithTag("lens_filter_reset").isEnabled());
+            assertEquals(80f,((com.scamera.app.ui.controls.IosSlider)view.findViewWithTag("lens_filter_tune_"+com.scamera.app.processing.color.LensFilters.T_RADIUS)).getValue(),0f);   // P574: the shared slider
+            view.findViewWithTag("lens_filter_reset").performClick();
+            assertTrue(PreferenceKeys.lensFilterTune("bpm").fineDefault());
+            prefs.edit().putString(com.scamera.app.processing.color.LensFilters.tuneKey("bpm"),"0,35,70,50,60").commit();
+            prefs.edit().putString(com.scamera.app.processing.color.LensFilters.STRENGTH_KEY,"80").commit();
+            assertEquals(0.8f,PreferenceKeys.lensFilterStrength(),1e-4f);
+            view.findViewWithTag("lens_filter_cinebloom").performClick();
+            view.findViewWithTag("lens_filter_bpm").performClick();
+            view.findViewWithTag("lens_filter_sample_0").performClick();
+            for(int i=0;i<20;i++){Thread.sleep(100);org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();}
+            view=layout(fm.findFragmentById(R.id.settings_container).requireView(),360,2000);
+            java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+            android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(360,2000,android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"page-lens_filter_screen.png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+            view.findViewWithTag("lens_filter_").performClick();
+            assertEquals("",lf.chosen());
+            assertEquals("",PreferenceKeys.lensFilter());
+        }
+        // every filter on every sample, as a grid of 4 x 4 tiles («Нет» first)
+        int tw=320,th=240,cols=4,label=22;
+        for(int s=0;s<com.scamera.app.ui.settings.custompreferences.LensFilterPreference.SAMPLES;s++){
+            android.graphics.Bitmap grid=android.graphics.Bitmap.createBitmap(cols*tw,4*(th+label),android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas c=new android.graphics.Canvas(grid);c.drawColor(0xFF101416);
+            android.graphics.Paint text=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);text.setColor(0xFFF4F3F7);text.setTextSize(16);
+            for(int k=0;k<=ids.length;k++){
+                String id=k==0?"":ids[k-1];
+                android.graphics.Bitmap tile=com.scamera.app.ui.settings.custompreferences.LensFilterPreference.render(s,tw,th,id,id.isEmpty()?0f:0.8f,
+                        com.scamera.app.processing.color.LensFilters.defaultParam(id));
+                int x=(k%cols)*tw,y=(k/cols)*(th+label);
+                c.drawBitmap(tile,x,y+label,null);
+                c.drawText(com.scamera.app.processing.color.LensFilters.name(context,id),x+6,y+16,text);
+            }
+            java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"lens-filters-"+s+".png"))){grid.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+        }
+        // the fine controls of Black Pro-Mist on the night sample: each row one control at 0 / 50 / 100
+        {
+            String[] rows={"Порог","Радиус","Дымка","Тон"};
+            android.graphics.Bitmap grid=android.graphics.Bitmap.createBitmap(3*tw,4*(th+label),android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas c=new android.graphics.Canvas(grid);c.drawColor(0xFF101416);
+            android.graphics.Paint text=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);text.setColor(0xFFF4F3F7);text.setTextSize(16);
+            for(int r=0;r<4;r++)for(int k=0;k<3;k++){
+                com.scamera.app.processing.color.LensFilters.Tune t=com.scamera.app.processing.color.LensFilters.Tune.defaults("bpm");
+                t.set(com.scamera.app.processing.color.LensFilters.CONTROLS[r],k*0.5f);
+                android.graphics.Bitmap tile=com.scamera.app.ui.settings.custompreferences.LensFilterPreference.render(0,tw,th,"bpm",1f,t);
+                int x=k*tw,y=r*(th+label);
+                c.drawBitmap(tile,x,y+label,null);
+                c.drawText("Black Pro-Mist · "+rows[r]+" "+(k*50)+" %",x+6,y+16,text);
+            }
+            java.io.File dir=new java.io.File("build/reports/module-concept");dir.mkdirs();
+            try(var out=new java.io.FileOutputStream(new java.io.File(dir,"lens-filters-tune.png"))){grid.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}
+        }
+    }
+    /** SIMPLE_UI §4 «Прозрачность шторки»: its own page - a preview and the slider (P574; were radio rows); the choice is the sheet's alpha. */
+    @Test public void shadeTransparencyPageStoresThePercentage(){
+        PreferenceScreen screen=inflate();
+        com.scamera.app.ui.settings.custompreferences.ShadeTransparencyPreference t=screen.findPreference("pref_shade_transparency");
+        assertNotNull(t);
+        // P583: the concept's sheet is opaque - 0 % by default; the steps below start from a stored 40 %
+        assertEquals(0,t.value());
+        prefs.edit().putString("pref_shade_transparency","40").commit();
+        assertEquals(40,t.value());
+        android.view.View row=LayoutInflater.from(context).inflate(t.getLayoutResource(),null,false);
+        t.onBindViewHolder(PreferenceViewHolder.createInstanceForTests(row));
+        assertNotNull(row.findViewWithTag("shade_transparency_preview"));
+        // P574: the six steps (0 / 20 / 30 / 40 / 50 / 60 %) are a slider now (were radio rows): one step down from 40 % is 30 %,
+        // two more 0 % ... 20 %; the pill shows the stored percentage
+        com.scamera.app.ui.controls.IosSlider bar=row.findViewWithTag("shade_transparency_slider");
+        assertNotNull(bar);assertEquals(0,bar.getMin(),0);assertEquals(5,bar.getMax(),0);assertEquals(3,bar.getValue(),0);
+        android.view.KeyEvent left=new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,android.view.KeyEvent.KEYCODE_DPAD_LEFT);
+        bar.onKeyDown(left.getKeyCode(),left);bar.onKeyDown(left.getKeyCode(),left);
+        assertEquals("20",prefs.getString("pref_shade_transparency",""));
+        assertEquals(.8f,com.scamera.app.ui.camera.views.settingsbar.ShadeStyle.sheetAlpha(context),1e-6f);
+        assertEquals("20 %",((android.widget.TextView)row.findViewWithTag("shade_transparency_value")).getText().toString());
+    }
+    /** SIMPLE_UI §4 «Профили и резервная копия»: the active profile, the saved ones (newest first) with load / delete in place. */
+    @Test public void profilesPageListsAndLoadsConfigs(){
+        PreferenceScreen screen=inflate();
+        com.scamera.app.ui.settings.custompreferences.ProfilesPreference profiles=screen.findPreference("profiles_page");
+        assertNotNull(profiles);
+        java.util.List<String> files=new ArrayList<>(Arrays.asList("Night.xml","Portrait.xml"));
+        String[] loaded={null};
+        android.view.View row=LayoutInflater.from(context).inflate(profiles.getLayoutResource(),null,false);
+        profiles.onBindViewHolder(PreferenceViewHolder.createInstanceForTests(row));
+        profiles.setActions(new com.scamera.app.ui.settings.custompreferences.ProfilesPreference.Actions(){
+            @Override public String[] saved(){return files.toArray(new String[0]);}
+            @Override public String load(String f){loaded[0]=f;return "ok";}
+            @Override public boolean delete(String f){return files.remove(f);}
+        });
+        assertNotNull(row.findViewWithTag("profile_active"));
+        android.view.ViewGroup saved=row.findViewWithTag("profiles_saved");
+        assertEquals("newest first","profile_Portrait",String.valueOf(saved.getChildAt(0).getTag()));
+        row.findViewWithTag("profile_Night").performClick();
+        android.view.View panel=row.findViewWithTag("profile_panel_Night");
+        assertEquals(android.view.View.VISIBLE,panel.getVisibility());
+        panel.findViewWithTag("profile_load").performClick();
+        assertEquals("Night.xml",loaded[0]);
+        panel.findViewWithTag("profile_delete").performClick();
+        assertEquals(Arrays.asList("Portrait.xml"),files);
+        assertNull(row.findViewWithTag("profile_Night"));
+        assertNull("the folder is open: no row for it",row.findViewWithTag("profiles_open_folder"));
+        // P246: without the folder grant the page offers to open it, and lists what is there once it is open
+        boolean[] open={false};int[] asked={0};
+        profiles.setActions(new com.scamera.app.ui.settings.custompreferences.ProfilesPreference.Actions(){
+            @Override public String[] saved(){return open[0]?new String[]{"Portrait.xml","FromPc.xml"}:files.toArray(new String[0]);}
+            @Override public String load(String f){return "ok";}
+            @Override public boolean delete(String f){return files.remove(f);}
+            @Override public boolean folderOpen(){return open[0];}
+        });
+        profiles.setFolderOpener(()->{asked[0]++;open[0]=true;profiles.refresh();});
+        row.findViewWithTag("profiles_open_folder").performClick();
+        assertEquals(1,asked[0]);
+        assertNotNull("the hand-copied config is listed",row.findViewWithTag("profile_FromPc"));
+        assertNull(row.findViewWithTag("profiles_open_folder"));
+    }
+    /** P226: «Увеличивать кадр с кропом» on «Размер фото» under «Для опытных», on by default, a per-module value. */
+    @Test public void cropUpscaleSwitchSitsOnThePhotoSizePage(){
+        PreferenceScreen screen=inflate();
+        PreferenceScreen size=screen.findPreference("photo_size_screen");
+        androidx.preference.TwoStatePreference sw=size.findPreference(PreferenceKeys.CROP_UPSCALE_KEY);
+        assertNotNull(sw);
+        assertTrue(sw.isChecked());
+        assertTrue(ModuleProfiles.isLocal(PreferenceKeys.CROP_UPSCALE_KEY));
+        assertTrue(PreferenceKeys.cropUpscale());
+    }
+    /**
+     * P223: «Поправки баланса белого» for FULLRES / ISZ, on by default; P320: «Свой баланс белого» under «Цвет и стиль» › «Тонкая
+     * настройка цвета» › «Для опытных» (a colour row, not a camera screen one). P266 (owner, 2026-10-19: no settings
+     * of one meaning twice): the global «ISP-превью в FULLRES и ISZ» is gone - the modules' «Поток ISP» (Auto / On / Off) holds
+     * it; a switched-off global becomes Off on the modules with a sensor mode of their own, the key goes.
+     */
+    @Test public void mosaicPreviewAndWhiteBalanceSwitchesSitOnTheCameraScreenGroup(){
+        PreferenceScreen screen=inflate();
+        androidx.preference.PreferenceGroup colour=screen.findPreference("lens_colour_category");   // P413: the lens page
+        androidx.preference.TwoStatePreference wb=colour.findPreference(PreferenceKeys.MOSAIC_WB_KEY);
+        assertNull(((androidx.preference.PreferenceGroup)screen.findPreference("viewfinder_screen")).findPreference(PreferenceKeys.MOSAIC_WB_KEY));
+        assertNotNull(wb);assertTrue(wb.isChecked());
+        assertNull("one setting for the ISP stream: the module's", screen.findPreference(PreferenceKeys.MOSAIC_ISP_PREVIEW_KEY));
+        prefs.edit().putBoolean(PreferenceKeys.MOSAIC_ISP_PREVIEW_KEY,true).commit();
+        assertTrue(SettingsMigration.migrateIspPreview(prefs));
+        assertFalse(prefs.contains(PreferenceKeys.MOSAIC_ISP_PREVIEW_KEY));
+        assertFalse(SettingsMigration.migrateIspPreview(prefs));
+        assertTrue(PreferenceKeys.mosaicWbCorrections());
+        prefs.edit().putBoolean(PreferenceKeys.MOSAIC_WB_KEY,false).commit();
+        assertFalse(PreferenceKeys.mosaicWbCorrections());
+        assertFalse("the OPPO native session's own estimate off with it",com.scamera.app.capture.OppoNativeWb.on());
+        assertFalse(com.scamera.app.processing.color.MosaicNeutralResolver.on());
+        prefs.edit().remove(PreferenceKeys.MOSAIC_WB_KEY).commit();
+    }
+    private static android.view.View layout(android.view.View view,int w,int h){
+        int exact=android.view.View.MeasureSpec.EXACTLY;
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(w,exact),android.view.View.MeasureSpec.makeMeasureSpec(h,exact));view.layout(0,0,w,h);
+        return view;
+    }
+    /** A TextView under {@code view} whose text contains {@code part}. */
+    private static boolean shownText(android.view.View view,String part){
+        if(view instanceof android.widget.TextView&&String.valueOf(((android.widget.TextView)view).getText()).contains(part))return true;
+        if(view instanceof android.view.ViewGroup)for(int i=0;i<((android.view.ViewGroup)view).getChildCount();i++)if(shownText(((android.view.ViewGroup)view).getChildAt(i),part))return true;
+        return false;
+    }
+    /** P149: the RAW level rows say «Авто» for -1, show the module's own levels and run over that module's RAW range. */
+    @Test public void rawLevelRowsShowAutoAndTheModulesOwnLevels(){
+        prefs.edit().putString("module_auto_back0","3").putString("module_auto_back1","5")
+            .putBoolean("module_visible_back0",true).putBoolean("module_visible_back1",true)
+            .putString("module_active","back0").putString("pref_sensorconfig_back1_whiteleveloverride","20000").commit();
+        java.util.function.BiFunction<android.content.Context,String,int[]> was=SensorConfigPreferenceGenerator.cameraLevels;
+        List<String> asked=new ArrayList<>();
+        SensorConfigPreferenceGenerator.cameraLevels=(c,id)->{asked.add(id);return "3".equals(id)?new int[]{64,1023,10}:"5".equals(id)?new int[]{256,4095,12}:null;};
+        try{
+            PreferenceScreen screen=inflate();
+            SensorConfigPreferenceGenerator.generatePreferences(context,screen,"back0");
+            com.scamera.app.ui.settings.custompreferences.TunableSeekBarPreference black=screen.findPreference("pref_sensorconfig_back0_blackleveloverride");
+            com.scamera.app.ui.settings.custompreferences.TunableSeekBarPreference white=screen.findPreference("pref_sensorconfig_back0_whiteleveloverride");
+            assertNotNull(black);assertNotNull(white);
+            assertTrue("the module's camera, by its physical id",asked.contains("3")&&asked.contains("5"));
+            assertEquals(com.scamera.app.util.Lang.t("Авто","Auto"),black.valueText(-1f));
+            assertEquals(com.scamera.app.util.Lang.t("Авто","Auto"),white.valueText(-1f));
+            assertEquals("64",black.valueText(64f));
+            assertEquals("black: a quarter of the 10-bit white",256f,black.maximum(),0f);
+            assertEquals("white: four bits above the declared 10",16383f,white.maximum(),0f);
+            assertEquals(-1f,black.getFloatValue(),0f);
+            String summary=String.valueOf(black.getSummary());
+            assertTrue(summary,summary.contains(String.format(java.util.Locale.ROOT,
+                com.scamera.app.util.Lang.t("Авто у этого модуля: чёрный %d, белый %d (%d бит)","Auto for this module: black %d, white %d (%d bit)"),64,1023,10)));
+            com.scamera.app.ui.settings.custompreferences.TunableSeekBarPreference white1=screen.findPreference("pref_sensorconfig_back1_whiteleveloverride");
+            assertEquals("12-bit module: up to 16 bits",65535f,white1.maximum(),0f);
+            assertEquals("a stored value beyond the range stays as the shot uses it",20000f,white1.getFloatValue(),0f);
+            // an unknown camera keeps the annotation's range, still «Авто»
+            SensorConfigPreferenceGenerator.cameraLevels=(c,id)->null;
+            PreferenceScreen plain=inflate();
+            SensorConfigPreferenceGenerator.generatePreferences(context,plain,"back0");
+            com.scamera.app.ui.settings.custompreferences.TunableSeekBarPreference fallback=plain.findPreference("pref_sensorconfig_back0_blackleveloverride");
+            assertEquals(8192f,fallback.maximum(),0f);
+            assertEquals(com.scamera.app.util.Lang.t("Авто","Auto"),fallback.valueText(-1f));
+        }finally{SensorConfigPreferenceGenerator.cameraLevels=was;}
+    }
+}

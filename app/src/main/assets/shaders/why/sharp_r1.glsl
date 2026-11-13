@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY luma sharpening (WhyLumaSharpen), P214e R1 (owner, 2026-10-18; PLAN "Research 2026-10-17"): on a mosaic shot (a Quad /
 // Tetra stream merged on the mosaic, Parameters.mosaicBlock > 1) the sharpening reads the 3x3-smoothed guide B(Ya) and only
 // its detail S(B(Ya)) - B(Ya) is added to Ya. The site lattice of the mosaic merge reaches the sharpening through B only at

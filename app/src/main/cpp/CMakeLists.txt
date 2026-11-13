@@ -1,35 +1,32 @@
+# SCAMERA's native libraries (arm64-v8a, NDK 27.2: app/build.gradle). Each library names the Java class that loads it.
 cmake_minimum_required(VERSION 3.6)
+project(scamera_native C CXX)
 
-project(dngCreator)
-
+# C++14 by default (the codecs, the film engine, the tone port and the YUV merge ask for 17), no GNU dialect, PIC throughout;
+# libraries aligned to 16 KB pages, which Android 15 devices with 16 KB pages require.
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 add_link_options("-Wl,-z,max-page-size=16384")
 
-file(READ ${CMAKE_CURRENT_SOURCE_DIR}/../../../version.properties ver)
-string(REGEX MATCH "VERSION_BUILD=([0-9]*)" _ ${ver})
-set(VERSION_BUILD ${CMAKE_MATCH_1})
-string(REGEX MATCH "VERSION_NAME=([0-9,.]*)" _ ${ver})
-set(VERSION_NAME ${CMAKE_MATCH_1})
-
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/deps/archive.h)
-    file(DOWNLOAD
-            https://raw.githubusercontent.com/libarchive/libarchive/master/libarchive/archive.h
-            ${CMAKE_CURRENT_SOURCE_DIR}/deps/archive.h)
-endif()
-
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/deps/archive_entry.h)
-    file(DOWNLOAD
-            https://raw.githubusercontent.com/libarchive/libarchive/master/libarchive/archive_entry.h
-            ${CMAKE_CURRENT_SOURCE_DIR}/deps/archive_entry.h)
-endif()
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/deps)
-
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The core three (P659: one block; the version defines nothing read went, so a version bump no longer rebuilds the DNG writer):
+#   dngCreator    - processing.DngCreator, the DNG writer (tiny_dng_writer in deps/)
+#   allocator     - util.Allocator / RawUnpack / WorkerSpawn / HardwareRgb: native frame memory, the merge worker's spawn,
+#                   P482 the merge RGB in the app's hardware buffer
+#   camera2native - api.NativeEngine
+foreach(core IN ITEMS dngCreator allocator camera2native)
+    add_library(${core} SHARED)
+    target_link_libraries(${core} PRIVATE log)
+endforeach()
+target_sources(dngCreator PRIVATE ${SRC_DIR}/dngCreator.cpp)
+target_include_directories(dngCreator PRIVATE ${SRC_DIR}/deps)
+target_link_libraries(dngCreator PRIVATE dl)
+target_sources(allocator PRIVATE ${SRC_DIR}/allocator.cpp ${SRC_DIR}/worker-spawn.cpp ${SRC_DIR}/scam-ahb.cpp)
+target_link_libraries(allocator PRIVATE dl android EGL GLESv3)
+target_sources(camera2native PRIVATE ${SRC_DIR}/native-engine.cpp)
 
 set(FILM_DIR ${SRC_DIR}/third_party/spektrafilm)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -65,41 +62,6 @@ target_link_options(scameraFilm PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections
     -Wl,--version-script=${SRC_DIR}/film-reference-exports.map)
 set_property(TARGET scameraFilm APPEND PROPERTY LINK_DEPENDS ${SRC_DIR}/film-reference-exports.map)
 target_link_libraries(scameraFilm PRIVATE vulkan dl log)
-
-add_library(${CMAKE_PROJECT_NAME} SHARED
-    ${SRC_DIR}/dngCreator.cpp
-)
-add_library(allocator SHARED
-    ${SRC_DIR}/allocator.cpp
-    ${SRC_DIR}/worker-spawn.cpp
-    ${SRC_DIR}/scam-ahb.cpp # P482: the merge RGB in the app's hardware buffer (HardwareRgb)
-)
-add_library(
-        camera2native SHARED ${SRC_DIR}/native-engine.cpp
-)
-
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-        VERSION_BUILD="${VERSION_BUILD}"
-        VERSION_NAME="${VERSION_NAME}"
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
-        log
-        dl
-)
-
-target_link_libraries(allocator PRIVATE
-        log
-        dl
-        android
-        EGL
-        GLESv3
-)
-
-target_link_libraries(
-        camera2native
-        log
-)
 
 # P129: scamAe (SCAM HDR's stock AE observer) and the scamProbe launch check went with SCAM HDR; scam-probe.cpp stays
 # (the worker includes it). P175: scamNeuralProbe (the neural remosaic's model probe, loaded by nothing) went with the

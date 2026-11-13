@@ -1,0 +1,182 @@
+package com.scamera.app.settings;
+
+import android.content.SharedPreferences;
+import java.util.*;
+
+/** Typed module snapshots; replacing a snapshot removes absent keys as well. */
+public final class ModuleProfiles {
+    private final SettingsManager manager;
+    private final SharedPreferences prefs, meta;
+    private boolean applying;
+    private String active;
+    public ModuleProfiles(SettingsManager manager) {
+        this.manager=manager; prefs=manager.getDefaultPreferences();
+        meta=manager.getContext().getSharedPreferences("module_profiles_meta",0);
+        active=meta.getString("active",ModuleRegistry.active());
+        if(!meta.getBoolean("baseline",false)){write(file("common"),current());meta.edit().putBoolean("baseline",true).apply();}
+    }
+    public boolean isApplying(){return applying||QUIET.get()>0;}
+    /** P156: the module whose profile the main settings hold now (the settings chip can edit another than the camera's). */
+    public synchronized String editing(){return active;}
+    /** P189: {@code id} has a profile of its own (a FULLRES profile never opened reads as its module's). */
+    public synchronized boolean stored(String id){return meta.getBoolean("exists_"+id,false);}
+    /**
+     * P141: a config being written into the prefs files: the profile listener stays quiet meanwhile (a CAMERA_ID or per-lens
+     * change in the new main settings loaded this phone's OLD profile of the module into them before the config's own
+     * profiles arrived, and kept it). The app restarts after an import, reading meta / profiles / main as written.
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger QUIET=new java.util.concurrent.atomic.AtomicInteger();
+    public static void quietly(Runnable body){QUIET.incrementAndGet();try{body.run();}finally{QUIET.decrementAndGet();}}
+    /**
+     * Settings shared by every lens (owner, 8 October 2026): never part of a module profile, whatever per-lens settings say.
+     * The one list behind {@link #isLocal}. Sounds, grid, the photo format with every
+     * format / quality option (JPEG, HEIC, HEIC 10 bit, WebP, AVIF, «Также сохранять JPEG», the RAW save mode, Ultra HDR), the
+     * watermark and its caption, Root, the camera package spoof, face detection and tracking AF, the gallery icon and theme,
+     * the flicker frequency and the merge route. Processing, tuning and sensor settings stay per module. «Сохранять RAW-серию»
+     * too (audit 2026-10-27: a module switch loaded a profile without it, and the series stopped there).
+     */
+    static final Set<String> GLOBAL_KEYS=Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            "pref_camera_sounds_key","pref_timer_sound_key","pref_show_grid_key",
+            "pref_save_raw_key","pref_ultrahdr_key","pref_show_watermark_key","pref_keep_raw_burst",
+            "pref_root_enabled","pref_camera_package_spoof_enabled","pref_oplus_spoof_package_key","pref_generic_spoof_package_key",
+            "pref_binder_spoof_package_key","pref_face_detect_mode","pref_tracking_af_mode","pref_hide_gallery_icon_key",
+            "pref_antibanding_hz_key","pref_file_name_pattern",ScamHybridKeys.ROUTE,MotionMode.PREF,
+            com.scamera.app.capture.HiddenFeatures.PREF_LOW_LIGHT_BOOST)));
+    /**
+     * Shared switches without a row in the settings tree: «Сохранять снимки для лаборатории» (the lab's own page; audit
+     * 2026-10-27: per module, lab shots silently stopped on the other lenses).
+     */
+    static final Set<String> GLOBAL_SWITCHES=Collections.unmodifiableSet(new HashSet<>(Collections.singletonList(
+            com.scamera.app.processing.opengl.postpipeline.ScamLab.PREF)));
+    /** Key prefixes of {@link #GLOBAL_KEYS}: the photo format rows (pref_photo_format, pref_photo_also_jpeg, the qualities, AVIF), the caption, the theme. */
+    static final String[] GLOBAL_PREFIXES={"pref_photo_","pref_jpeg_","pref_heic_","pref_webp_","pref_avif_","pref_watermark_","pref_theme"};
+    /** A setting shared by every lens ({@link #GLOBAL_KEYS}, {@link #GLOBAL_SWITCHES}). */
+    public static boolean isGlobal(String key){
+        if(key==null)return false;
+        if(GLOBAL_KEYS.contains(key)||GLOBAL_SWITCHES.contains(key))return true;
+        for(String prefix:GLOBAL_PREFIXES)if(key.startsWith(prefix))return true;
+        return false;
+    }
+    public static boolean isLocal(String key) {
+        if(key==null || key.equals("pref_zsl_buffer_count_key") || isGlobal(key))return false;
+        if(key.equals(PreferenceKeys.Key.CAMERA_ID.mValue)||key.equals(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue))return false;
+        if(key.startsWith("lens_")||key.startsWith("module_")||key.startsWith("pref_sensorconfig_")||key.startsWith("settings_")||key.startsWith("pref_theme")||key.contains("debug")||key.contains("folder")||key.contains("config_file"))return false;
+        if(key.equals("user_camera_ids")||key.equals("hidden_camera_ids")||key.equals(PreferenceKeys.Key.CAMERA_MODE.mValue))return false;
+        return key.startsWith("pref_") || key.startsWith("scamera_");
+    }
+    private SharedPreferences file(String id){
+        // P551: a profile read while its debounced save is pending gets the save first (save cancels the pending one: no loop)
+        if(pendingSaveId!=null&&pendingSaveId.equals(id)){pendingSaveId=null;saveHandler.removeCallbacks(pendingSave);save(id);}
+        return manager.getContext().getSharedPreferences("module_profile_v2_"+id,0);
+    }
+    public static void put(SharedPreferences.Editor e,String k,Object v){
+        if(v instanceof Boolean)e.putBoolean(k,(Boolean)v);
+        else if(v instanceof Integer)e.putInt(k,(Integer)v);
+        else if(v instanceof Long)e.putLong(k,(Long)v);
+        else if(v instanceof Float)e.putFloat(k,(Float)v);
+        else if(v instanceof Set)e.putStringSet(k,new HashSet<>((Set<String>)v));
+        else if(v!=null)e.putString(k,v.toString());
+    }
+    private Map<String,Object> current(){Map<String,Object> out=new HashMap<>();prefs.getAll().forEach((k,v)->{if(isLocal(k))out.put(k,v);});return out;}
+    private void save(String id){cancelPendingSave();write(file(id),current());meta.edit().putBoolean("exists_"+id,true).apply();}
+    /**
+     * P551: a local setting changed (a slider sends one per tick): the active profile is rewritten once the changes stop, not per
+     * tick (a getAll copy, a clear and a rewrite of the whole profile each time). Any other save (a module switch) writes it at once.
+     */
+    private final android.os.Handler saveHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private String pendingSaveId;
+    private final Runnable pendingSave=()->{synchronized(ModuleProfiles.this){if(pendingSaveId!=null){String id=pendingSaveId;pendingSaveId=null;save(id);}}};
+    private void saveSoon(String id){pendingSaveId=id;saveHandler.removeCallbacks(pendingSave);saveHandler.postDelayed(pendingSave,400);}
+    private void cancelPendingSave(){if(pendingSaveId!=null){pendingSaveId=null;saveHandler.removeCallbacks(pendingSave);}}
+    private void write(SharedPreferences target,Map<String,?> values){SharedPreferences.Editor e=target.edit().clear();values.forEach((k,v)->put(e,k,v));e.apply();}
+    public synchronized Map<String,?> snapshot(String id){
+        if(PreferenceKeys.isPerLensSettingsOn()&&id.equals(active))return current();
+        if(meta.getBoolean("exists_"+id,false))return new HashMap<>(file(id).getAll());
+        // P181: a FULLRES profile never opened is its module's (as snapshotStored)
+        if(FullResProfiles.isVariant(id))return snapshot(FullResProfiles.slotOf(id));
+        return meta.getBoolean("baseline",false)?new HashMap<>(file("common").getAll()):current();
+    }
+    /** P181: the FULLRES profiles of a module slot go (a deleted module: a new one in the slot starts from its own settings). */
+    public synchronized void dropFullRes(String slot){
+        final String prefix="exists_"+slot+FullResProfiles.SEP;
+        SharedPreferences.Editor e=meta.edit();
+        for(String key:new ArrayList<>(meta.getAll().keySet()))
+            if(key.startsWith(prefix)){e.remove(key);file(key.substring("exists_".length())).edit().clear().apply();}
+        e.apply();
+    }
+    private void restore(Map<String,?> values){
+        values=BrandMigration.map(values); // P55: a profile written before the SCAM rename
+        applying=true;
+        try {SharedPreferences.Editor e=prefs.edit();for(String k:prefs.getAll().keySet())if(isLocal(k))e.remove(k);values.forEach((k,v)->{if(isLocal(k))put(e,k,v);});e.apply();/* P551: apply - the memory is updated at once (the migrations below read it), the file write leaves the main thread */SettingsMigration.migrateMultiFrame(prefs);SettingsMigration.migrateScamHybrid(prefs,false);SettingsMigration.removeObsolete(prefs);}
+        finally{applying=false;}
+        if(com.scamera.app.app.ScameraApp.getSettings()!=null)com.scamera.app.app.ScameraApp.getSettings().loadCache();
+    }
+    public synchronized void changed(String key){
+        if(applying||QUIET.get()>0)return;
+        if(key.equals(PreferenceKeys.Key.KEY_SAVE_PER_LENS_SETTINGS.mValue)){
+            if(PreferenceKeys.isPerLensSettingsOn()){
+                Map<String,Object> now=current();
+                carry(file("common").getAll(),now);
+                write(file("common"),now);meta.edit().putBoolean("baseline",true).apply();
+                active=ModuleRegistry.active();restore(snapshotStored(active));save(active);
+            }else if(meta.getBoolean("baseline",false)){save(active);restore(file("common").getAll());}
+        }else if(PreferenceKeys.isPerLensSettingsOn()){
+            if(key.equals(PreferenceKeys.Key.CAMERA_ID.mValue)){
+                String next=ModuleRegistry.active();
+                if(!ModuleRegistry.camera(next).equals(PreferenceKeys.getCameraID())) next=PreferenceKeys.getCameraID();
+                else next=FullResProfiles.profileFor(next); // P181: the module's FULLRES profile while FULLRES is on for it
+                if(!next.equals(active)){save(active);active=next;restore(snapshotStored(next));save(next);}
+            }else if(isLocal(key))saveSoon(active);
+        }
+        meta.edit().putString("active",active).apply();
+    }
+    /**
+     * P193 (owner, 2026-10-17: «при изменении каких-либо настроек без включенного переключателя "Свои настройки для каждого
+     * модуля" все настройки должны копироваться по модулям при включении данного переключателя, а не сбрасываться на
+     * дефолтные»): turning per-module settings on, the per-module values changed in the common settings since they were last
+     * on ({@code before}: the common profile, which the main settings took back when they were turned off) go into every
+     * stored profile - hidden modules and FULLRES 50 / 200 MP profiles too. A profile's other values stay its own: what the
+     * owner set for a module and did not change in the common settings comes back with it. Modules without a profile start
+     * from the new common profile ({@link #snapshotStored}).
+     */
+    private void carry(Map<String,?> before,Map<String,Object> now){
+        Set<String> changed=new HashSet<>();
+        for(Map.Entry<String,Object> e:now.entrySet())if(!Objects.equals(e.getValue(),before.get(e.getKey())))changed.add(e.getKey());
+        for(String key:before.keySet())if(isLocal(key)&&!now.containsKey(key))changed.add(key);
+        if(changed.isEmpty())return;
+        for(Map.Entry<String,?> e:new ArrayList<>(meta.getAll().entrySet())){
+            if(!e.getKey().startsWith("exists_")||!Boolean.TRUE.equals(e.getValue()))continue;
+            SharedPreferences.Editor edit=file(e.getKey().substring("exists_".length())).edit();
+            for(String key:changed){if(now.containsKey(key))put(edit,key,now.get(key));else edit.remove(key);}
+            edit.apply();
+        }
+    }
+    private Map<String,?> snapshotStored(String id){
+        if(meta.getBoolean("exists_"+id,false))return file(id).getAll();
+        // P181: a module's FULLRES profile starts as a copy of the module's own
+        if(FullResProfiles.isVariant(id))return snapshotStored(FullResProfiles.slotOf(id));
+        // P193: a module without a profile starts from the common settings as they were when per-module settings were turned
+        // on. The per-camera JSON of the old per-lens storage (settings_for_camera_<id>) is not read any more: SCAMERA wrote it
+        // once, at the first camera start, so it held that start's defaults and turned the owner's settings back to them.
+        return new HashMap<>(file("common").getAll());
+    }
+    /**
+     * The main settings hold profile {@code id}. Not while the app is about to restart (P156, as ModuleRegistry.syncProfile;
+     * audit 2026-10-27: the restart waits for a shot now, and a lens switch meanwhile wrote the imported or reset main settings
+     * into the old module's profile file).
+     */
+    public synchronized void activate(String id){if(com.scamera.app.app.ScameraApp.restarting)return;
+        if(!PreferenceKeys.isPerLensSettingsOn()||id.equals(active))return;save(active);active=id;restore(snapshotStored(id));save(id);meta.edit().putString("active",id).apply();}
+    public synchronized void copy(String source, Collection<String> targets, Set<String> keys){
+        // P181: the sensor settings are the module's (a FULLRES profile shares its module's): copied between modules only
+        Set<String> sensorTargets=new LinkedHashSet<>();
+        for(String target:targets)if(!FullResProfiles.slotOf(target).equals(FullResProfiles.slotOf(source)))sensorTargets.add(FullResProfiles.slotOf(target));
+        ModuleSensorSettings.copy(FullResProfiles.slotOf(source),sensorTargets,keys);
+        Map<String,?> src=snapshot(source);
+        for(String target:targets){if(target.equals(source))continue;Map<String,Object> dst=new HashMap<>(snapshot(target));
+            for(String key:keys)if(isLocal(key)){if(src.containsKey(key))dst.put(key,src.get(key));else dst.remove(key);}
+            write(file(target),dst);meta.edit().putBoolean("exists_"+target,true).apply();
+            if(PreferenceKeys.isPerLensSettingsOn()&&target.equals(active))restore(dst);
+        }
+    }
+}

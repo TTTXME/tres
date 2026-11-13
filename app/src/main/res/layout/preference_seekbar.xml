@@ -115,7 +115,7 @@
             android:minWidth="18dp"
             android:textColor="@color/settings_range"
             android:textSize="12dp" />
-        <com.particlesdevs.photoncamera.ui.controls.IosSlider
+        <com.scamera.app.ui.controls.IosSlider
             android:id="@+id/seekbar"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 #define PASS 0
 #define RAW_KEYS 0
 #define LAYOUT //
