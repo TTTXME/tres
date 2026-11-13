@@ -429,21 +429,8 @@
 "zoom.ruler" = "Зум";
 "pro.manual_iso" = "Ручная ISO";
 "pro.manual_shutter" = "Ручная выдержка";
-// video mode, the gallery's video player, the viewfinder HUD
-"mode.video" = "Видео";
+// the gallery's video player, the viewfinder HUD
 "gallery.album.videos" = "Видео";
-"video.record" = "Начать запись";
-"video.stop" = "Остановить запись";
-"video.recording" = "Запись";
-"video.start_failed" = "Запись не началась";
-"video.stop_failed" = "Запись видео не остановилась";
-"video.stop_failed_removed" = "Запись видео не остановилась; файл удалён";
-"video.unavailable" = "Этот объектив не снимает видео";
-"video.resolution" = "Размер видео";
-"video.profile_note" = "H.264, звук AAC с микрофона, 30 к/с, стабилизация видео при записи; битрейт выбирает сам iPhone.";
-"video.now" = "Сейчас:";
-"video.fps_suffix" = "к/с";
-"video.no_mic" = "без звука (нет доступа к микрофону)";
 "video.play" = "Смотреть";
 "video.play_video" = "Смотреть видео";
 "video.pause" = "Пауза";

@@ -296,16 +296,6 @@ struct FormatSheet: View {
     let camera: CameraModel
     private var store: SettingsStore { SettingsStore.shared }
 
-    /// What the video records (H.264, AAC, 30 fps, the stabilisation) and, in the video mode, the lens's size now
-    private var videoNote: String {
-        var text = L("video.profile_note")
-        let v = camera.videoState
-        guard camera.video, v.width > 0 else { return text }
-        text += "\n" + L("video.now") + " \(v.width)×\(v.height), \(v.fps) " + L("video.fps_suffix")
-        if !v.audio { text += ", " + L("video.no_mic") }
-        return text
-    }
-
     var body: some View {
         NavigationStack {
             Form {
@@ -328,54 +318,11 @@ struct FormatSheet: View {
                         .disabled(!camera.supportsFullResolution)
                     Toggle("SHDR", isOn: Binding(get: { camera.shdr }, set: { camera.setShdr($0) }))
                 }
-                // the video mode's size (pref_video_resolution_key); the rest is the profile's (VideoSettings)
-                Section {
-                    Picker(L("video.resolution"), selection: Binding(get: { store.string(VideoSettings.resolutionKey, VideoSettings.defaultResolution) },
-                                                                    set: { v in
-                                                                        store.set(VideoSettings.resolutionKey, v)
-                                                                        Task { await camera.videoResolutionChanged() }
-                                                                    })) {
-                        ForEach(VideoSettings.resolutions, id: \.self) { Text(VideoSettings.name($0)).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(camera.recording)
-                } header: {
-                    Text(L("mode.video"))
-                } footer: {
-                    Text(videoNote)
-                }
             }
             .navigationTitle(L("top.format"))
             .navigationBarTitleDisplayMode(.inline)
         }
         .preferredColorScheme(.dark)
-    }
-}
-
-/// The shutter's centre in the video mode (unlimitedbutton: a grey disc with the accent's play triangle while ready, the accent's
-/// rounded square while recording)
-struct VideoShutterGlyph: View {
-    let recording: Bool
-
-    var body: some View {
-        ZStack {
-            Circle().fill(Color(white: 0.667)).frame(width: 70, height: 70)
-            if recording {
-                RoundedRectangle(cornerRadius: 3).fill(CameraStyle.accent).frame(width: 30, height: 30)
-            } else {
-                Path { p in
-                    // the drawable's triangle (24.15,17.45 .. 68.4,40.4 .. 24.15,63.3 on 80) at 70 pt
-                    let k: CGFloat = 70.0 / 80.0
-                    p.move(to: CGPoint(x: 24.15 * k, y: 15.5 * k))
-                    p.addLine(to: CGPoint(x: 69.5 * k, y: 40.4 * k))
-                    p.addLine(to: CGPoint(x: 24.15 * k, y: 65.3 * k))
-                    p.closeSubpath()
-                }
-                .fill(CameraStyle.accent)
-                .frame(width: 70, height: 70)
-            }
-        }
-        .animation(.easeOut(duration: 0.15), value: recording)
     }
 }
 

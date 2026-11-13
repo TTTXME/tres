@@ -429,21 +429,8 @@
 "zoom.ruler" = "Zoom";
 "pro.manual_iso" = "Manual ISO";
 "pro.manual_shutter" = "Manual shutter";
-// video mode, the gallery's video player, the viewfinder HUD
-"mode.video" = "Video";
+// the gallery's video player, the viewfinder HUD
 "gallery.album.videos" = "Videos";
-"video.record" = "Start recording";
-"video.stop" = "Stop recording";
-"video.recording" = "Recording";
-"video.start_failed" = "The recording did not start";
-"video.stop_failed" = "The recording did not stop";
-"video.stop_failed_removed" = "The recording did not stop; the video file was removed";
-"video.unavailable" = "This lens cannot record video";
-"video.resolution" = "Video size";
-"video.profile_note" = "H.264 with AAC sound from the microphone, 30 fps, the video stabilisation while recording; the bit rate is the iPhone's own.";
-"video.now" = "Now:";
-"video.fps_suffix" = "fps";
-"video.no_mic" = "no sound (no microphone access)";
 "video.play" = "Play";
 "video.play_video" = "Play the video";
 "video.pause" = "Pause";

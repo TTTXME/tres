@@ -1,7 +1,6 @@
 import AVFoundation
 import ImageIO
 import SwiftUI
-import UIKit
 import UniformTypeIdentifiers
 
 /// Observable state of the camera screen (AVCam CameraModel). Every AVFoundation call goes through CaptureService.
@@ -31,14 +30,6 @@ final class CameraModel {
     private(set) var toast: String?
     private var toastTask: Task<Void, Never>?
     private var lastSwitch = Date.distantPast
-    /// The video mode (CameraMode.VIDEO, pref_camera_mode_key 5): the shutter records (Video/MovieCapture)
-    private(set) var video = false
-    /// What the video mode records (the size, 30 fps, the microphone)
-    private(set) var videoState = CaptureService.VideoState()
-    /// A recording runs; its line (updateVideoRecordingInfo: «00:12  0.02/101.3 GB»)
-    private(set) var recording = false
-    private(set) var recordingInfo = ""
-    private var recordingTask: Task<Void, Never>?
     /// «Кадров для склейки» (pref_scam_hybrid_zsl_frames, Android default 20, 4–65)
     var burstFrames: Int {
         let stored = Int(SettingsStore.shared.string("pref_scam_hybrid_zsl_frames", "20")) ?? 20
@@ -60,10 +51,6 @@ final class CameraModel {
 
     func start() async {
         SessionLog.i("App", "start, RAW \(raw.rawValue), full resolution \(fullResolution)")
-        // CameraUIViewImpl.migrateMode: the camera opens in the photo mode
-        if SettingsStore.shared.string(VideoSettings.modeKey, "\(VideoSettings.photoOrdinal)") != "\(VideoSettings.photoOrdinal)" {
-            SettingsStore.shared.set(VideoSettings.modeKey, VideoSettings.photoOrdinal)
-        }
         guard await captureService.isAuthorized else {
             status = .unauthorized
             SessionLog.w("App", "camera access denied")
@@ -84,14 +71,9 @@ final class CameraModel {
     }
 
     func select(_ module: LensModule) async {
-        guard module.id != activeModuleID, activity == .idle, !recording else { return }
+        guard module.id != activeModuleID, activity == .idle else { return }
         do {
             apply(try await captureService.select(moduleID: module.id))
-            if video {
-                let (state, v) = await captureService.reapplyVideo()
-                apply(state)
-                videoState = v
-            }
             await captureService.applyManual(ManualSettings.load())
             defaults.set(module.id, forKey: "module_active")
         } catch {
@@ -125,14 +107,14 @@ final class CameraModel {
 
     /// pref_ae_mode_key (FlashMode, default 1 = off)
     var flashMode: FlashMode { FlashMode.normalize(Int(SettingsStore.shared.string(FlashMode.key, "1")) ?? 1) }
-    /// The mode the top row shows: as the open lens allows it (FlashMode.shown; the video: the torch only)
-    var flashShown: FlashMode { FlashMode.effective(flashMode, flashUnit: lens.hasFlash && !video) }
+    /// The mode the top row shows: as the open lens allows it (FlashMode.shown)
+    var flashShown: FlashMode { FlashMode.effective(flashMode, flashUnit: lens.hasFlash) }
     /// P507: the front lens's torch is the screen's light
     var screenLight: Bool { lens.isFront && flashShown == .torch }
 
     /// The top row's flash: the next mode of the cycle (FlashMode.tap), a toast with its name.
     func cycleFlash() async {
-        let mode = FlashMode.next(flashMode, flashUnit: lens.hasFlash && !video)
+        let mode = FlashMode.next(flashMode, flashUnit: lens.hasFlash)
         SettingsStore.shared.set(FlashMode.key, String(mode.rawValue))
         apply(await captureService.setFlash(mode))
         say(mode.label)
@@ -205,115 +187,12 @@ final class CameraModel {
         await captureService.applyManual(m)
     }
 
-    /// The top row's format badge: «Формат фото» and the size of the open lens (CameraFragment's format / size badges); in the
-    /// video mode the video's size and frame rate.
+    /// The top row's format badge: «Формат фото» and the size of the open lens (CameraFragment's format / size badges).
     var formatBadge: String {
-        if video { return videoState.width > 0 ? VideoSettings.name(width: videoState.width, height: videoState.height) : L("mode.video") }
         let photo = SettingsStore.shared.string("pref_photo_format", "jpeg") == "heic" ? "HEIC" : "JPEG"
         return raw == .off ? photo : photo + "+RAW"
     }
-    var sizeBadge: String {
-        if video { return "\(videoState.fps)" + L("video.fps_suffix") }
-        return fullResolution && supportsFullResolution ? "48M" : "12M"
-    }
-
-    // MARK: the video mode (CameraUIController VIDEO: the shutter starts / ends the recording)
-
-    /// Into the video mode (the microphone asked for first; without it the video has no sound) or back to the photo
-    func setVideo(_ on: Bool) async {
-        guard on != video, activity == .idle, !recording, status == .running else { return }
-        if on, AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
-            _ = await AVCaptureDevice.requestAccess(for: .audio)
-        }
-        let (state, v) = await captureService.setVideoMode(on)
-        apply(state)
-        video = v.on
-        videoState = v
-        SettingsStore.shared.set(VideoSettings.modeKey, video ? VideoSettings.videoOrdinal : VideoSettings.photoOrdinal)
-        await captureService.applyManual(ManualSettings.load())
-        if !video { await captureService.applyMode() }
-        apply(await captureService.setFlash(flashMode))
-        if on && !video { show(L("video.unavailable")) }
-        SessionLog.i("App", "video mode \(video)")
-    }
-
-    /// «Видео» size changed in the format sheet: the lens takes it at once in the video mode
-    func videoResolutionChanged() async {
-        guard video, !recording else { return }
-        let (state, v) = await captureService.reapplyVideo()
-        apply(state)
-        videoState = v
-        await captureService.applyManual(ManualSettings.load())
-    }
-
-    /// The shutter in the video mode: VideoStart, or VideoEnd while recording
-    func toggleRecording() async {
-        if recording {
-            await stopRecording()
-            return
-        }
-        guard video, activity == .idle, status == .running else { return }
-        do {
-            _ = try await captureService.startRecording()
-        } catch {
-            show(L("video.start_failed"))
-            return
-        }
-        recording = true
-        UIApplication.shared.isIdleTimerDisabled = true
-        let available = VideoSettings.availableBytes()
-        recordingInfo = VideoSettings.recordingInfo(seconds: 0, bytes: 0, available: available)
-        recordingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard let self, !Task.isCancelled else { return }
-                let p = await self.captureService.recordingProgress
-                if p.ended {
-                    // the system ended the recording (an interruption, a full disk): saved as it is
-                    await self.stopRecording()
-                    return
-                }
-                self.recordingInfo = VideoSettings.recordingInfo(seconds: p.seconds, bytes: p.bytes, available: available - p.bytes)
-            }
-        }
-    }
-
-    /// stopRecordingVideo: the file into the library («SCAMERA»), the gallery button's thumbnail from its first frame; a failed
-    /// stop removes the file (P214f's message)
-    func stopRecording() async {
-        guard recording else { return }
-        recording = false
-        recordingTask?.cancel()
-        recordingTask = nil
-        activity = .saving
-        defer { activity = .idle }
-        let result = await captureService.stopRecording()
-        UIApplication.shared.isIdleTimerDisabled = false
-        recordingInfo = ""
-        guard result.ok, FileManager.default.fileExists(atPath: result.url.path) else {
-            let existed = FileManager.default.fileExists(atPath: result.url.path)
-            if existed { try? FileManager.default.removeItem(at: result.url) }
-            SessionLog.e("Video", "recording failed: \(result.error ?? "?")")
-            show(L(existed ? "video.stop_failed_removed" : "video.stop_failed"))
-            return
-        }
-        if let poster = await Self.poster(of: result.url) { thumbnail = poster }
-        do {
-            try await mediaLibrary.saveVideo(result.url)
-            SessionLog.i("Video", "saved \(result.url.lastPathComponent): \(String(format: "%.1f", result.seconds)) s, \(result.bytes) bytes")
-        } catch {
-            SessionLog.e("Video", "save failed: \(error.localizedDescription)")
-            show(error.localizedDescription)
-        }
-    }
-
-    /// The video's first frame for the gallery button
-    nonisolated private static func poster(of url: URL) async -> CGImage? {
-        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 320, height: 320)
-        return try? await generator.image(at: .zero).image
-    }
+    var sizeBadge: String { fullResolution && supportsFullResolution ? "48M" : "12M" }
 
     /// flip_camera_button: the other side's first lens
     func flip() async {
@@ -327,7 +206,7 @@ final class CameraModel {
     }
 
     func capture() async {
-        guard activity == .idle, status == .running, !video else { return }
+        guard activity == .idle, status == .running else { return }
         activity = .capturing
         defer { activity = .idle }
         let started = Date()

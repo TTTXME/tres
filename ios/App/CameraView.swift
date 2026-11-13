@@ -67,17 +67,11 @@ struct CameraView: View {
             if scenePhase != .active {
                 chrome.cancelTimer()   // CameraUIController.onPause: the countdown stops, no shot
                 setScreenLight(false)
-                // CameraFragment.onPause closes the camera: a recording ends and is saved
-                if camera.recording { Task { await camera.stopRecording() } }
             } else {
                 setScreenLight(camera.screenLight)
             }
         }
-        .onDisappear {
-            chrome.cancelTimer()
-            setScreenLight(false)
-            if camera.recording { Task { await camera.stopRecording() } }
-        }
+        .onDisappear { chrome.cancelTimer(); setScreenLight(false) }
     }
 
     private var content: some View {
@@ -89,28 +83,12 @@ struct CameraView: View {
                               onLongPress: { longPress(at: $0) },
                               onPinch: { scale, began in pinch(scale, began: began) },
                               onHardwareShutter: { pressShutter() })
-                    // a new preview (and live-look view) when the video mode took the look's frames out of the session
-                    .id(camera.videoState.framesRemoved)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .overlay { ViewfinderOverlay(grid: chrome.gridType, horizon: chrome.horizon) }
                     .overlay {
                         // «Информация на экране» (pref_show_afdata_key)
                         let hudMode = Int(SettingsStore.shared.string("pref_show_afdata_key", "0")) ?? 0
                         if hudMode > 0 { CameraHudView(mode: hudMode, sample: CameraHud.shared.sample) }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        // video_recording_info: the elapsed time, the file's size and the free space while recording
-                        if camera.recording {
-                            HStack(spacing: 6) {
-                                Circle().fill(Color.red).frame(width: 8, height: 8)
-                                Text(camera.recordingInfo).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white)
-                            }
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(Color.black.opacity(0.53))
-                            .padding(.top, 12).padding(.trailing, 12)
-                            .allowsHitTesting(false)
-                            .accessibilityLabel(L("video.recording") + " " + camera.recordingInfo)
-                        }
                     }
                     .overlay { focusLayer(in: geometry.size) }
                     .overlay(alignment: .top) { topPills }
@@ -290,24 +268,21 @@ struct CameraView: View {
                 .background(Color.white.opacity(0.12), in: Capsule())
             }
             .accessibilityLabel(L("top.format"))
-            .disabled(camera.recording)
             Spacer(minLength: 4)
             // P590: off a bolt with a slash, auto a bolt with «A», on the filled bolt, the torch a flashlight
             topIcon(camera.flashShown.icon, active: camera.flashShown != .off) { Task { await camera.cycleFlash() } }
                 .accessibilityLabel(camera.flashShown.label)
-            if !camera.video {
-                ZStack(alignment: .topTrailing) {
-                    topIcon("cv_timer", active: chrome.timerSeconds > 0) {
-                        let seconds = chrome.cycleTimer()
-                        camera.say(seconds > 0 ? String(format: L("timer.seconds"), seconds) : L("timer.off"))
-                    }
-                    if chrome.timerSeconds > 0 {
-                        Text("\(chrome.timerSeconds)").font(.system(size: 9, weight: .bold)).padding(.horizontal, 3)
-                            .background(CameraStyle.accent, in: Capsule()).foregroundStyle(.black)
-                    }
+            ZStack(alignment: .topTrailing) {
+                topIcon("cv_timer", active: chrome.timerSeconds > 0) {
+                    let seconds = chrome.cycleTimer()
+                    camera.say(seconds > 0 ? String(format: L("timer.seconds"), seconds) : L("timer.off"))
                 }
-                .accessibilityLabel(L("top.timer"))
+                if chrome.timerSeconds > 0 {
+                    Text("\(chrome.timerSeconds)").font(.system(size: 9, weight: .bold)).padding(.horizontal, 3)
+                        .background(CameraStyle.accent, in: Capsule()).foregroundStyle(.black)
+                }
             }
+            .accessibilityLabel(L("top.timer"))
             topIcon("cv_grid", active: chrome.grid) { camera.say(L(chrome.toggleGrid() ? "grid.on" : "grid.off")) }
                 .accessibilityLabel(L("top.grid"))
             topIcon("cv_level", active: chrome.horizon) {
@@ -315,13 +290,11 @@ struct CameraView: View {
                 camera.say(L(chrome.horizon ? "level.on" : "level.off"))
             }
             .accessibilityLabel(L("top.level"))
-            if !camera.video {
-                topIcon("cv_sparkle", active: chrome.ultraHdr) {
-                    chrome.ultraHdr.toggle()
-                    camera.say(L(chrome.ultraHdr ? "uhdr.on" : "uhdr.off"))
-                }
-                .accessibilityLabel(L("top.uhdr"))
+            topIcon("cv_sparkle", active: chrome.ultraHdr) {
+                chrome.ultraHdr.toggle()
+                camera.say(L(chrome.ultraHdr ? "uhdr.on" : "uhdr.off"))
             }
+            .accessibilityLabel(L("top.uhdr"))
             Menu {
                 Button(L("log.share")) { sharing = SessionLog.shared.flushedFiles() }
                 Button(L("info.title")) { showingInfo = true }
@@ -358,7 +331,6 @@ struct CameraView: View {
                             .foregroundStyle(active ? Color.black : Color.white)
                     }
                     .accessibilityLabel(module.deviceName + " " + module.label)
-                    .disabled(camera.recording)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -367,14 +339,8 @@ struct CameraView: View {
 
     private var shutterEnabled: Bool { camera.activity == .idle && camera.status == .running }
 
-    /// The shutter button, and the volume buttons (CameraActivity.dispatchKeyEvent: a click of the shutter while it can be clicked);
-    /// in the video mode the recording starts / ends at once (CameraUIController VIDEO: no self-timer)
+    /// The shutter button, and the volume buttons (CameraActivity.dispatchKeyEvent: a click of the shutter while it can be clicked)
     private func pressShutter() {
-        if camera.video {
-            guard shutterEnabled else { return }
-            Task { await camera.toggleRecording() }
-            return
-        }
         guard shutterEnabled || chrome.counting else { return }
         chrome.shoot { await camera.capture() }
     }
@@ -395,7 +361,7 @@ struct CameraView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay { if camera.activity != .idle { ProgressView().tint(.white) } }
                 .contentShape(Rectangle())
-                .onTapGesture { if !camera.recording { showingGallery = true } }
+                .onTapGesture { showingGallery = true }
                 .accessibilityLabel(L("bottom.gallery"))
                 .accessibilityAddTraits(.isButton)
                 Spacer()
@@ -404,43 +370,33 @@ struct CameraView: View {
                 } label: {
                     ZStack {
                         Circle().stroke(Color(red: 0.957, green: 0.953, blue: 0.969), lineWidth: 3).frame(width: 86, height: 86)
-                        if camera.video {
-                            VideoShutterGlyph(recording: camera.recording)
-                        } else {
-                            Circle().fill(camera.activity == .idle && chrome.countdown == 0 ? Color(red: 0.957, green: 0.953, blue: 0.969) : Color(white: 0.85))
-                                .frame(width: 70, height: 70)
-                        }
+                        Circle().fill(camera.activity == .idle && chrome.countdown == 0 ? Color(red: 0.957, green: 0.953, blue: 0.969) : Color(white: 0.85))
+                            .frame(width: 70, height: 70)
                         if chrome.countdown > 0 { Text("\(chrome.countdown)").font(.title.bold()).foregroundStyle(.black) }
                     }
                 }
                 // a press while the timer counts stops it (CameraUIController: the hovered shutter resets the timer)
                 .disabled(!(shutterEnabled || chrome.counting))
-                .accessibilityLabel(camera.video ? L(camera.recording ? "video.stop" : "video.record") : L("capture.shutter"))
+                .accessibilityLabel(L("capture.shutter"))
                 Spacer()
                 Button { Task { await camera.flip() } } label: {
                     Image("cv_flip").renderingMode(.template).resizable().frame(width: 26, height: 26).foregroundStyle(.white)
                         .frame(width: 58, height: 58).background(Color.white.opacity(0.1), in: Circle())
                 }
                 .accessibilityLabel(L("bottom.flip"))
-                .disabled(camera.recording)
             }
             HStack {
                 Button { showingSettings = true } label: {
                     Image("cv_gear").renderingMode(.template).resizable().frame(width: 24, height: 24).frame(width: 50, height: 50)
                 }
                 .accessibilityLabel(L("settings.open"))
-                .disabled(camera.recording)
                 Spacer()
                 HStack(spacing: 4) {
                     modeButton("cv_run_m", .sport)
                     modeButton("cv_photo_m", .photo)
                     modeButton("cv_os_cassette", .oldstyle)
-                    // the Android mode switch offers no video (its VIDEO mode is not reachable from the interface): hidden the
-                    // same way; the stored switch pref_ios_video_mode (no settings row) brings the button back for tests
-                    if SettingsStore.shared.bool("pref_ios_video_mode", false) { videoModeButton }
                 }
                 .padding(4).background(Color.white.opacity(0.1), in: Capsule())
-                .disabled(camera.recording)
                 Spacer()
                 Button { showingPro = true } label: {
                     Image("cv_sliders").renderingMode(.template).resizable().frame(width: 22, height: 22).frame(width: 50, height: 50)
@@ -453,39 +409,18 @@ struct CameraView: View {
     }
 
     private func modeButton(_ icon: String, _ mode: CameraChrome.Mode) -> some View {
-        let chosen = chrome.mode == mode && !camera.video
-        return Button {
-            guard !chosen else { return }   // a tap on the chosen mode does nothing
-            let leavingVideo = camera.video
+        Button {
+            guard chrome.mode != mode else { return }   // a tap on the chosen mode does nothing
             chrome.mode = mode
             camera.say(mode.title)
-            Task {
-                if leavingVideo { await camera.setVideo(false) }
-                await camera.modeChanged()
-            }
+            Task { await camera.modeChanged() }
         } label: {
             Image(icon).renderingMode(.template).resizable().frame(width: 24, height: 24)
-                .foregroundStyle(chosen ? Color.black : Color.white)
+                .foregroundStyle(chrome.mode == mode ? Color.black : Color.white)
                 .frame(width: 44, height: 44)
-                .background(chosen ? CameraStyle.accent : Color.clear, in: Circle())
+                .background(chrome.mode == mode ? CameraStyle.accent : Color.clear, in: Circle())
         }
         .accessibilityLabel(mode.title)
-    }
-
-    /// CameraMode.VIDEO beside the photo modes (CameraUIController.onCameraModeChanged(VIDEO)): the shutter records
-    private var videoModeButton: some View {
-        Button {
-            guard !camera.video else { return }
-            chrome.cancelTimer()
-            camera.say(L("mode.video"))
-            Task { await camera.setVideo(true) }
-        } label: {
-            Image("kb_ui_ic_video_rest").renderingMode(.template).resizable().frame(width: 24, height: 24)
-                .foregroundStyle(camera.video ? Color.black : Color.white)
-                .frame(width: 44, height: 44)
-                .background(camera.video ? CameraStyle.accent : Color.clear, in: Circle())
-        }
-        .accessibilityLabel(L("mode.video"))
     }
 
     @ViewBuilder private var messageCard: some View {

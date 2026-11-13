@@ -445,26 +445,16 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Not done: split AF / AE (pref_split_af_ae), tracking AF, antibanding (no iPhone API), ETTR (pref_ettr: the Android viewfinder
   AE's boost from the ring's RAW metering). ES / L brackets: done («SHDR brackets and crop»). Swift / Metal not compiled here (ViewfinderLook.mm syntax-checked with clang).
 
-## Video mode, the gallery's video player, the viewfinder HUD (2026-11-13)
-- Android: CameraMode.VIDEO exists (CameraUIController: the shutter is VideoStart / VideoEnd, MediaRecorder from
-  CaptureController.setUpMediaRecorder: H.264 + AAC from the microphone, MPEG-4, VID_yyyyMMdd_HHmmss, CamcorderProfile of
-  pref_video_resolution_key 3840x2160 / 1920x1080 (default) / 1280x720 with its fps and bit rate, the video stabilisation ON while
-  recording when pref_eis_photo_key, no maximum length) but the current UI never enters it (CameraMode.userModes = Photo,
-  migrateMode stores Photo at start); pref_video_resolution_key has no settings row. The iPhone gets a «Видео» button beside
-  Спорт / Фото / Oldstyle (kb_ui_ic_video_rest; pref_camera_mode_key 5, Photo 2 again at start as migrateMode); the size is a
-  segmented row in the «Формат» sheet. `Video/VideoSettings` (format pick: exact size, 420v/420f, 30 fps, standard stabilisation
-  first, not >60 fps, not binned; resolveVideoProfile's fallback order), `Video/MovieCapture` (AVCaptureMovieFileOutput: H.264 via
-  setOutputSettings, connection stabilisation standard / previewOptimized / off, horizon-level rotation, unmirrored; microphone
-  input when allowed; a recording the system ends is saved as it is), `CaptureService.setVideoMode / reapplyVideo /
-  startRecording / stopRecording` (the movie output and the mic join the session; the lens takes the video format at 30 fps; off:
-  .photo preset and the module's photo format again; if the movie output cannot join the viewfinder's frames output, the frames
-  output leaves for the video mode and the preview view is recreated). The shutter: a grey disc with the accent triangle / square
-  (unlimitedbutton), no self-timer; the top-right line «00:12  0.02/101.3 GB» (updateVideoRecordingInfo), the flash cycle Выкл. <->
-  Фонарик, timer and Ultra HDR hidden; lens switches, gallery, settings, flip and modes locked while recording; leaving the app
-  ends and saves the recording. `MediaLibrary.saveVideo` (.video resource moved, SCAMERA album). Info.plist:
-  NSMicrophoneUsageDescription.
-- Not on the iPhone: the bit rate (the movie output takes none: the encoder's own), an MPEG-4 container (the movie output writes
-  QuickTime .mov), the live look on the recording (the movie output records the camera's frames).
+## The gallery's video player and the viewfinder HUD (2026-11-13; video recording removed)
+- Video recording removed per the owner (2026-11-13: «Видео наше приложение не снимает, только фото» - the app takes photos
+  only; Android's CameraMode.VIDEO is not reachable from its interface either). Gone: the video mode and its hidden button
+  (pref_ios_video_mode), `Video/MovieCapture`, `Video/VideoSettings` (pref_video_resolution_key, the format sheet's size row),
+  CaptureService's movie output / microphone input / frames-output removal, CameraModel's video / recording state and the
+  pref_camera_mode_key handling, the video shutter glyph and the recording line, `MediaLibrary.saveVideo`, the
+  NSMicrophoneUsageDescription and the recording strings. The camera screen is photo-only as before the video mode (shutter,
+  flash cycle, timer, Ultra HDR, lens / mode / settings buttons). Kept: the gallery's video items and player (Android's gallery
+  plays the library's videos) and the AF / AE HUD, moved to `Capture/CameraHud` (DeviceHudMonitor still hooked in
+  CaptureService.createRotationCoordinator).
 - Gallery: videos listed with the photos (photoOptions: image or video; the «Видео» album; search words видео / video), the grid
   cell's play mark, length and the watched part (VideoResume); the viewer's video page: the poster with a play disc, no
   «Изменить» / «Сравнить», details with the length; share writes the file with PHAssetResourceManager.writeData.
@@ -482,15 +472,14 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Not on the iPhone: HW / HW+ / SW decoders, the volume boost over 100 %, background play and picture-in-picture (need the
   audio background mode in Info.plist, not added), auto-rotate by the sensor, hidden quick buttons, a subtitle file beside the
   video (no folders in PhotoKit), the in-file text tracks read as cues (AVPlayer draws them itself).
-- HUD (pref_show_afdata_key, the settings row already exists): `Video/CameraHud` — DeviceHudMonitor key-value observes the open
+- HUD (pref_show_afdata_key, the settings row already exists): `Capture/CameraHud` — DeviceHudMonitor key-value observes the open
   lens (exposure duration, ISO, lens position, focus / exposure / white-balance modes and their adjusting flags, EV bias and
   metering offset, gains, zoom, points of interest, torch), publishes at most every 150 ms; mode 1/2 draws updateViewfinderHud's
   rows (shutter as ExposureIndex.sec2string, ISO, 35 mm-equivalent focal · f-number, AF-S / AF-C · SCAN / LOCK or MF · lens
   position, AWB / MWB · K from temperatureAndTintValues), mode 3 the frame data and green / yellow boxes at the focus / metering
   points. Not ported: the histogram of mode 2 (the viewfinder's frames belong to the live look; no second data output), OIS and
   tripod rows, the frame number, the LMT flags, the metering rectangles' size (the iPhone gives points), the HUD's rotation.
-- Swift not compiled here: the CI build and a phone check must confirm the movie output beside the photo / frames outputs
-  (log `Video` lines), the 4K format pick per lens, the player's gestures and the HUD values.
+- Swift not compiled here: the CI build and a phone check must confirm the player's gestures and the HUD values.
 
 ## SHDR brackets and crop (2026-11-13)
 - Capture (Capture/BayerBurst.swift, Engine/HybridPlan.swift): after the N frames (AE bracket at bias 0, as before) the same
