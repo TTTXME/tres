@@ -176,4 +176,77 @@ public class PedestalFloorTest {
             Thread.sleep(PedestalFloor.INTERVAL_NS / 1_000_000L + 20);
         }
     }
+
+    /**
+     * P669 (owner, 2026-11-13, vivo X200 Pro camera 2: «видоискатель становится розовым после снимка пока ты не сменишь модули
+     * туда-сюда»): a 4096 x 3072 RAW with its picture in 4000 x 3000 and zeros to the right (96) and below (72), {@code pedestal}
+     * plus ~2 DN of signal in its right half (next to the padding), noise 1.5 DN.
+     */
+    private static ByteBuffer padded(int pedestal, long seed) {
+        final int w = 4096, h = 3072;
+        Random random = new Random(seed);
+        ByteBuffer b = ByteBuffer.allocateDirect(w * h * 2).order(ByteOrder.nativeOrder());
+        ShortBuffer s = b.asShortBuffer();
+        final short[] row = new short[w];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                final boolean green = ((x ^ y) & 1) == 1;
+                final double signal = x >= w / 2 ? 2 : (green ? 120 : 60);   // the dark half next to the padding
+                final long v = Math.round(pedestal + signal + 1.5 * random.nextGaussian());
+                row[x] = x >= 4000 || y >= 3000 ? 0 : (short) Math.max(0, Math.min(1023, v));
+            }
+            s.position(y * w);
+            s.put(row);
+        }
+        b.clear();
+        return b;
+    }
+
+    /** P616: the frame the viewfinder draws while a shot is processed - one 2 x 2 quad of each 4 x 4, 2048 x 1536. */
+    private static ByteBuffer busyHalf(ByteBuffer full) {
+        return LiveRawFrame.halveBayer(full, 4096, 3072, 4096 * 2,
+                ByteBuffer.allocateDirect(2048 * 1536 * 2).order(ByteOrder.nativeOrder()));
+    }
+
+    private static float drift(ByteBuffer b, int w, int h) {
+        final float[] low = new float[1];
+        PedestalFloor.measure(b.duplicate().order(ByteOrder.nativeOrder()).asShortBuffer(), w, h, w, 1, 64f, 1023f, low);
+        return low[0];
+    }
+
+    /**
+     * P669: the after-shot sequence of one camera session - whole frames, halved frames while the shot is processed (P616), whole
+     * frames again. The halved frame's blocks at the picture's right edge hold half zeros (mean 32 + 3 standard errors 24 = 56: the
+     * log's «black 63.927002 -> 56.22714»), and the session's lowest drift stayed until a module switch: R x 2.46 and B x 1.79 of
+     * ~8 DN of the pedestal - a magenta viewfinder. The padding's zeros are no drifted black: the declared 64 is kept throughout.
+     */
+    @Test
+    public void theBusyHalfOfAPaddedFrameKeepsTheBlack() throws Exception {
+        final ByteBuffer full = padded(64, 31), half = busyHalf(full);
+        assertTrue("the whole frame's drift floor: " + drift(full, 4096, 3072), drift(full, 4096, 3072) > 63f);
+        assertTrue("the halved frame's drift floor is the picture's, not 56: " + drift(half, 2048, 1536),
+                drift(half, 2048, 1536) > 63f);
+        final float[] declared = {64, 64, 64, 64};
+        PedestalFloor p = new PedestalFloor();
+        final ByteBuffer[] frames = {full, full, half, half, half, full, full};
+        for (int i = 0; i < frames.length; i++) {
+            final boolean whole = frames[i] == full;
+            final float[] black = p.black(1, frames[i], whole ? 4096 : 2048, whole ? 3072 : 1536, (whole ? 4096 : 2048) * 2, 1,
+                    declared, 1023f);
+            for (int c = 0; c < 4; c++) assertEquals("frame " + i + " channel " + c + " keeps the declared black", 64f, black[c], 0f);
+            Thread.sleep(PedestalFloor.INTERVAL_NS / 1_000_000L + 20);
+        }
+    }
+
+    /** P669 with P557: a drifted black of the same padded stream is still followed on the halved frames - at the picture's level. */
+    @Test
+    public void aDriftedBlackOfAPaddedHalfIsFollowedAtThePicturesLevel() throws Exception {
+        final ByteBuffer half = busyHalf(padded(60, 41));
+        final float[] declared = {64, 64, 64, 64};
+        PedestalFloor p = new PedestalFloor();
+        assertEquals("one measurement is not enough", 64f, p.black(1, half, 2048, 1536, 4096, 1, declared, 1023f)[0], 0f);
+        Thread.sleep(PedestalFloor.INTERVAL_NS / 1_000_000L + 20);
+        final float b = p.black(1, half, 2048, 1536, 4096, 1, declared, 1023f)[0];
+        assertTrue("the drifted floor (~62 = 60 + the dark half's 2 DN), not the padding's edge (~54): " + b, b > 60f && b < 63f);
+    }
 }
