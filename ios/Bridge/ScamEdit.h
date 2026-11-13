@@ -11,6 +11,42 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) BOOL shrunk;
 @end
 
+/// P633 / P642: a photo's watermark record (Android WatermarkPatch / WatermarkStore; Editor/WatermarkPatch.hpp): the pixels the
+/// camera had under its watermark and the watermark's settings (WatermarkSpec JSON), kept at the very end of the photo's file in
+/// Android's format, so the editor can take the watermark off exactly («Убрать») or draw another one («Изменить»).
+@interface SCAMWatermarkRecord : NSObject
+/// the photo's stored size
+@property (nonatomic, readonly) NSInteger width;
+@property (nonatomic, readonly) NSInteger height;
+/// RGBA_1010102 pixels (an Android 10-bit HEIC's), else 8 bits a channel
+@property (nonatomic, readonly) BOOL tenBit;
+@property (nonatomic, readonly) BOOL displayP3;
+/// WatermarkSpec.toJson of the watermark drawn
+@property (nonatomic, readonly) NSString *spec;
+@property (nonatomic, readonly) NSInteger pieceCount;
+@property (nonatomic, readonly) long long pixels;
+@property (nonatomic, readonly) long long encodedBytes;
+/// WatermarkPatch.toString (logs)
+@property (nonatomic, readonly) NSString *summary;
+/// the record as stored (WatermarkPatch.toBytes)
+@property (nonatomic, readonly) NSData *bytes;
+
+/// WatermarkStore.read + WatermarkPatch.fromBytes: the record at the end of a photo's file; nil when there is none or the bytes are
+/// not one.
+- (nullable instancetype)initWithFile:(NSData *)file NS_SWIFT_NAME(init(file:));
+/// WatermarkPatch.capture: the pixels of rects (stored px, l, t, r, b after each other) of RGBA8 rows top-down (sRGB, or Display P3
+/// when displayP3; the fourth byte read as opaque) before the watermark is drawn, coded with the predictive code; spec: the
+/// watermark's WatermarkSpec JSON.
+- (nullable instancetype)initWithRows:(const uint8_t *)rows width:(NSInteger)width height:(NSInteger)height bytesPerRow:(NSInteger)bytesPerRow
+                                rects:(NSArray<NSNumber *> *)rects spec:(NSString *)spec displayP3:(BOOL)displayP3 error:(NSError **)error
+    NS_SWIFT_NAME(init(rows:width:height:bytesPerRow:rects:spec:displayP3:));
+/// whether every piece decodes and matches its CRC
+- (BOOL)verify;
+/// WatermarkStore.append: the photo's file with the record at its end in its container's form (a JPEG after its last EOI, a WebP's
+/// «SCWM» chunk, a HEIC / AVIF top-level «uuid» box); nil for a container it does not know.
++ (nullable NSData *)file:(NSData *)file appendingRecord:(NSData *)record NS_SWIFT_NAME(file(_:appending:));
+@end
+
 /// The Android photo editor (gallery/editor: EditRenderer, EditMath, CropMath, DngRaw) on the GPU (Editor/*.hpp on ScamGL): one
 /// photo's preview source and its own GL context. The state is EditState's JSON. Not thread safe: one queue per session.
 @interface SCAMEditSession : NSObject
@@ -54,6 +90,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable SCAMEditImage *)exportState:(NSString *)json dng:(NSData *)dng budget:(long long)budget outMax:(long long)outMax
                                progress:(nullable void (^)(float))progress error:(NSError **)error
     NS_SWIFT_NAME(exportState(_:dng:budget:outMax:progress:));
+
+/// P633: the photo's own watermark record (EditSource.readWatermark): kept when it is this picture's (its stored size, upright) and
+/// every piece reads back - then the preview with the pixels back is made, shown and exported whenever the state takes the
+/// watermark off (EditState.wmRemove), and the export's picture gets the pixels back too. NO (no record kept) for a RAW, nil or a
+/// record of another photo.
+- (BOOL)setWatermarkRecord:(nullable SCAMWatermarkRecord *)record NS_SWIFT_NAME(setWatermarkRecord(_:));
+@property (nonatomic, readonly) BOOL hasWatermarkRecord;
 
 /// EditExporter.outMax: the copy's pixel limit for budget bytes of free memory.
 + (long long)outMaxForBudget:(long long)budget NS_SWIFT_NAME(outMax(forBudget:));

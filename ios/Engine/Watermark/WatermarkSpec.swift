@@ -108,6 +108,120 @@ struct WatermarkSpec: Equatable {
     /// Whether the watermark switch is on (PreferenceKeys.isShowWatermarkOn: the stored value, else the default on).
     static func isOn(_ values: [String: Any]) -> Bool { bool(values, keyOn, defaultOn) }
 
+    // ───── P633: the spec as JSON (the watermark record's and EditState.wm's form) ─────
+
+    /// WatermarkSpec.toJson: org.json's JSONObject as Android writes it - the keys in this order, a whole number without «.0»
+    /// (JSONObject.numberToString), any other the double's shortest form (the float widened, «0.8500000238418579»), strings
+    /// escaped as JSONStringer does («/» as «\/», control characters as \uXXXX).
+    func toJson() -> String {
+        var o = "{"
+        func key(_ k: String) { o += (o.count > 1 ? "," : "") + Self.quote(k) + ":" }
+        key("layout"); o += Self.quote(layout.rawValue)
+        key("position"); o += Self.quote(position.rawValue)
+        key("showText"); o += showText ? "true" : "false"
+        key("text"); o += Self.quote(text)
+        key("device"); o += showDevice ? "true" : "false"
+        key("lens"); o += showLens ? "true" : "false"
+        key("aperture"); o += showAperture ? "true" : "false"
+        key("shutter"); o += showShutter ? "true" : "false"
+        key("iso"); o += showIso ? "true" : "false"
+        key("time"); o += showTime ? "true" : "false"
+        key("dateFormat"); o += Self.quote(dateFormat.rawValue)
+        key("logo"); o += logo ? "true" : "false"
+        key("font"); o += Self.quote(font.rawValue)
+        key("colour"); o += Self.quote(colour.rawValue)
+        key("size"); o += Self.number(Double(size))
+        key("opacity"); o += Self.number(Double(opacity))
+        key("margin"); o += Self.number(Double(margin))
+        return o + "}"
+    }
+
+    /// WatermarkSpec.fromJson: unknown values the defaults, the numbers clamped to the settings' ranges (NaN / infinite: the
+    /// default), the text cut at 4 x maxText UTF-16 units; nil for text that is not a JSON object.
+    static func fromJson(_ json: String?) -> WatermarkSpec? {
+        guard let json, !json.isEmpty, let data = json.data(using: .utf8),
+              let o = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) as? [String: Any] else { return nil }
+        var s = WatermarkSpec()
+        s.layout = Layout(rawValue: lower(optString(o["layout"], "text"))) ?? .text
+        s.position = Position(rawValue: lower(optString(o["position"], "bl"))) ?? .bottomLeft
+        s.showText = optBool(o["showText"], true)
+        var text = optString(o["text"], defaultText)
+        if text.utf16.count > 4 * maxText { text = String(decoding: Array(text.utf16.prefix(4 * maxText)), as: UTF16.self) }
+        s.text = text
+        s.showDevice = optBool(o["device"], false)
+        s.showLens = optBool(o["lens"], false)
+        s.showAperture = optBool(o["aperture"], false)
+        s.showShutter = optBool(o["shutter"], false)
+        s.showIso = optBool(o["iso"], false)
+        s.showTime = optBool(o["time"], false)
+        s.dateFormat = DateFormat(rawValue: lower(optString(o["dateFormat"], "datetime"))) ?? .dateTime
+        s.logo = optBool(o["logo"], true)
+        s.font = Font(rawValue: lower(optString(o["font"], "scam"))) ?? .scam
+        s.colour = Colour(rawValue: lower(optString(o["colour"], "auto"))) ?? .auto
+        s.size = clamp(Float(optDouble(o["size"], Double(defaultSize))), minSize, maxSize, defaultSize)
+        s.opacity = clamp(Float(optDouble(o["opacity"], Double(defaultOpacity / 100))), minOpacity / 100, 1, defaultOpacity / 100)
+        s.margin = clamp(Float(optDouble(o["margin"], Double(defaultMargin))), 0, maxMargin, defaultMargin)
+        return s
+    }
+
+    private static func clamp(_ v: Float, _ lo: Float, _ hi: Float, _ fallback: Float) -> Float {
+        if v.isNaN || v.isInfinite { return fallback }
+        return Swift.max(lo, Swift.min(hi, v))
+    }
+
+    /// JSONObject.optString: a string itself, another value as its text (a number, a Boolean), NULL / missing the fallback.
+    private static func optString(_ v: Any?, _ fallback: String) -> String {
+        switch v {
+        case let s as String: return s
+        case let n as NSNumber: return CFGetTypeID(n) == CFBooleanGetTypeID() ? (n.boolValue ? "true" : "false") : number(n.doubleValue)
+        default: return fallback
+        }
+    }
+
+    /// JSONObject.optBoolean: a Boolean, or «true» / «false» in any case; anything else the fallback.
+    private static func optBool(_ v: Any?, _ fallback: Bool) -> Bool {
+        if let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() { return n.boolValue }
+        if let s = v as? String {
+            if s.caseInsensitiveCompare("true") == .orderedSame { return true }
+            if s.caseInsensitiveCompare("false") == .orderedSame { return false }
+        }
+        return fallback
+    }
+
+    /// JSONObject.optDouble: a number, or a string that parses as one; anything else the fallback.
+    private static func optDouble(_ v: Any?, _ fallback: Double) -> Double {
+        if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.doubleValue }
+        if let s = v as? String, let d = Double(s.trimmingCharacters(in: .whitespaces)) { return d }
+        return fallback
+    }
+
+    /// JSONObject.numberToString: a whole value as a long, else Double.toString's shortest form.
+    static func number(_ d: Double) -> String {
+        if d == 0, d.sign == .minus { return "-0" }
+        if d.isFinite, d == d.rounded(.towardZero), abs(d) < 9.2e18 { return String(Int64(d)) }
+        return "\(d)"
+    }
+
+    /// JSONStringer.string: the quoted, escaped text.
+    static func quote(_ s: String) -> String {
+        var o = "\""
+        for u in s.unicodeScalars {
+            switch u {
+            case "\"": o += "\\\""
+            case "\\": o += "\\\\"
+            case "/": o += "\\/"
+            case "\t": o += "\\t"
+            case "\u{08}": o += "\\b"
+            case "\n": o += "\\n"
+            case "\r": o += "\\r"
+            case "\u{0C}": o += "\\f"
+            default:
+                if u.value <= 0x1F { o += String(format: "\\u%04x", u.value) } else { o.unicodeScalars.append(u) }
+            }
+        }
+        return o + "\""
+    }
+
     // ───── Android's preference reading (PreferenceValue / PreferenceNumber / SettingsNumericRules) ─────
 
     private static func str(_ values: [String: Any], _ key: String, _ fallback: String) -> String {

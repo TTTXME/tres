@@ -315,8 +315,44 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   context mocked so FilmSpectral reads the assets): the 6 old cases + «Тёплая 400» 70 %, Portra 400 80 % + grain 120 + «Кино 500»
   60 % on its print (16 mm, turned), HP5 grain 150 (Super 8), Velvia 100 format off + print EV / DIR, Vision3 500T on 2383 IMAX 70
   grain 60 x 3 sources: 132 frames, 0 differ.
-- Not done: «Знак» (watermark) in the editor; the full-resolution zoom regions (P367: the preview zooms as a picture); gallery albums / search / filters /
-  selection / compare / video; ScamGL editor output not compared with Mesa (needs the macOS runner).
+- 2026-11-13 «Знак» tab (P633, EditWatermarkPanel): `Gallery/EditWatermarkPanel.swift` - «Как есть» / «Убрать» (greyed without
+  the photo's record, a tap says why) / «Изменить» or «Добавить»; for a watermark drawn the camera's controls with the settings
+  page's own strings (android_settings.json: style, position, colour, font, size, opacity, margin, the fields with this photo's
+  EXIF values or «нет в EXIF» greyed, the own text, date format, «Как в настройках камеры»), long press = the setting's help.
+  EditState.wm / wmRemove as Android's JSON (WatermarkSpec.toJson / fromJson ported: org.json key order, numbers, escapes).
+  EditorModel: the record read from the file end on open (picture route, `SCAMEditSession.setWatermarkRecord`: fits = stored
+  size and orientation 1, every piece's CRC), the EXIF facts, the live overlay (the plan for the copy's size - outputSize of the
+  crop and outMax - drawn scaled into the picture rect; «Авто» from a 160 px thumbnail without the watermark, chooseInkScaled;
+  CoreGraphics shadows scale with the context's CTM, unchanged at scale 1), the copy: the watermark drawn by PhotoWatermark with
+  its record appended to the JPEG (EditExporter.writeCopy). ScamEdit: the clean preview (record painted into the preview,
+  uploaded when the state has wmRemove: view, histogram, thumbnails, the export's proxy) and the export picture restored.
+- Check (edit_check vs HostEditRender): the 11 picture cases of the LUT run with "wm":{"rm":true} - the C++ draws a stand-in
+  watermark over three rectangles, makes their record and renders through the clean preview / restored picture; Android renders
+  the clean picture (no record: «Убрать» changes nothing, its frames equal the cases without "wm"): 44 frames, 0 differ (without
+  the restore: 4 of 4 differ). The record itself: `edit_check --wm make DIR` / `android-host/run.sh HostEditRender.watermarkRecord
+  WM_DIR=DIR` / `edit_check --wm check DIR` - Android's 8-bit, 10-bit and over-4-MP (2 pieces) records read here word for word and
+  written again byte for byte, WatermarkStore.append of JPEG / WebP / HEIC byte for byte and read back, the iPhone's records in
+  the three containers and the 2-piece one read by Android (WatermarkStore.read, verify, wordsOf) word for word, the restore;
+  with zlib at level 6 the C++ records equal Android's byte for byte (the phone's deflate is Foundation's: other bytes, same
+  data): 21 checks, 0 differ.
+- 2026-11-13 gallery (Android gallery/ui): bottom tabs «Фото» / «Альбомы» / «Поиск» (GalleryTabBar); «Фото»: «Выбрать» and a
+  long press (SelectionBar: × · count, a tap selects all · «Сравнить» with exactly two · «Избранное» · «Поделиться» · «Удалить»;
+  a month's title selects its photos), «Вид» (order newest / oldest, 2..6 columns, pinch), «Фильтр» (format RAW / JPEG / HEIC,
+  favourites, years; the chip resets it), kept in defaults «gallery_ui»; AlbumsPage (Часто используемые: Все, Камера, Избранное,
+  RAW, Скриншоты; Другие альбомы: the library's albums, 9 until «Ещё»; Тип: RAW / HEIC / JPEG counts; Другое: the «Фото» tab's
+  folder; sections fold, remembered) and the album's grid; SearchPage (GallerySearch: file name, format, favourite, screenshot,
+  year / month ru+en / day / сегодня / вчера; recent queries, quick chips, albums); CompareView (ImageCompareFragment: two panes,
+  labels, tap = time · ISO, swap, «Зум и сдвиг вместе», share both as one picture), the viewer's «Сравнить» (with the next photo);
+  details as GallerySheets.details (album as the folder, 35 mm «экв.» as the lens, Ultra HDR, PhotoMore rows: taken, bias, WB,
+  flash, metering, digital zoom, colour space, rotation, location, software; the route note; the RGB histogram). Favourites are
+  PhotoKit's (Android keeps its own list only because MediaStore asks per file). Formats are read from PHAssetResource in the
+  background (GalleryLibrary.kinds).
+- Not done: the full-resolution zoom regions (P367: the preview zooms as a picture); ScamGL editor output not compared with Mesa
+  (needs the macOS runner); out of scope or not portable: the video player and video filters / «Записи экрана», «Недавно
+  удаленные» (PhotoKit hides the trash), the text read on photos (OCR, P504), day cards / list / timeline layouts (the grid
+  stays by month), undo of a delete (PhotoKit asks itself). Swift not compiled here (no Mac): the «Знак» tab, the gallery pages and
+  the record's Swift side need the CI build and a phone check; that Photos keeps the bytes after a JPEG's EOI / a HEIC's last box
+  (PHAssetResourceManager returns the original) is to be seen on the phone.
 
 ## Watermark (2026-11-13)
 - `Engine/Watermark/` ports `processing/watermark` (P628): `WatermarkSpec` (the Android keys and defaults from
@@ -340,6 +376,32 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   90 layouts (15 specs x 6 sizes) with every box and WatermarkArea's rectangles. `Tests/WatermarkTests.swift` checks the Swift
   port against them with the same fixed measures, plus CoreText drawing (corner, upright, «Авто», nothing outside the area),
   EXIF reading.
-- Not done: P633 / P642 (the record of the pixels under the watermark appended to the file, WatermarkPatch / WatermarkStore,
-  for the gallery editor's «Знак»), the editor's watermark tab; the preview names the phone «Apple iPhone» (iOS has no public
-  model name; the shot uses the EXIF Model).
+- 2026-11-13 P633 / P642 record: `Editor/WatermarkPatch.hpp` (WatermarkPatch + WatermarkStore in C++: the pieces of
+  WatermarkArea's rectangles split at 4 MP, the predictive code, CRC-32, toBytes / fromBytes, paint exact or scaled, the JPEG /
+  WebP / HEIC tails), `Bridge/ScamEdit` `SCAMWatermarkRecord` (Foundation's raw deflate, ImageIO for Android's lossless WebP pieces,
+  read only), `Engine/Watermark/WatermarkRecord.swift`. `PhotoWatermark.applyRecorded` cuts the record after «Авто» picks the ink
+  and before the drawing (WatermarkPainter.drawOn's hook); `BurstProcessor` appends it to the encoded JPEG / HEIC
+  (`appendRecord`). The iPhone writes 8-bit sRGB records with the predictive code (no WebP encoder); the rows' fourth byte is
+  recorded as 255 (Android's photo is opaque). Checked against Android: «Gallery and editor» above.
+- Not done: `ShotProcessor.process` (the upright CIRAWFilter route) still calls `apply` without the record (the file is outside
+  this port's files: switch it to `applyRecorded` + `appendRecord` as BurstProcessor); the preview names the phone «Apple iPhone»
+  (iOS has no public model name; the shot uses the EXIF Model).
+
+## Settings (2026-11-13)
+- `App/SettingsView.swift` renders `Resources/android_settings.json` (gen_settings_ui.py; it now also carries an `<intent>`'s
+  link as `url`); every custom preference and plain row has an iPhone counterpart in `App/Settings/`:
+  `ToneCurve` + `ToneCurveEditor` (ToneCurve.java / ToneCurvePreference / ToneCurveView: the "x:y" points with four decimals,
+  the monotone cubic, add / drag / hold-to-delete, undo / redo, S-curve / straight, the point's exposure / brightness sliders and
+  typed values, save / load in Documents/ToneCurves incl. WhyCam JSON and a camera's linear curve), `StyleSettings`
+  (PhotoStyle with its ui_style_last_* memory; LutChanges: LutLook's analysis, curve and key colours through
+  SCAMFilm.lookThumbnail), `CapturePages` (format and size cards: pref_photo_format and the camera's RAW / full resolution
+  through an optional `SettingsView(camera:)`; shade transparency; RawCrop's sketch with draggable edges), `Profiles`
+  (ConfigXml writer / reader in Android's element names, old JSON backups, ConfigState, Documents/XML, save / load / share /
+  delete, reset with scam.dev set aside), `SettingsPages` (PageReset in every page's header, «Сбросить ScamMaster», the lens
+  modules list, the SHDR report from the session log, log size / share, about), `SettingsAvailability` (the Android reasons that
+  depend on the stored values, the iPhone's device facts, and the rows an iPhone cannot serve: root, package spoofing, vendor
+  keys / sensor modes, the lab, scam_dev.txt, DCP, noise model files, the fringe net, RAW crop).
+- Not done: CameraView still opens `SettingsView()` without the camera (pass `SettingsView(camera: camera)` so the format / size
+  cards switch it); ToneCurveCompare (AgX / ACES / Uchimura references and templates need WhyTone's uniforms in Swift); the
+  «Для разработчика» page (DevKeys); config import runs no Android migrations (BrandMigration, SettingsMigration); clearing
+  today's log needs a SessionLog API; many capture / viewfinder rows are stored but not read by the iOS capture yet.

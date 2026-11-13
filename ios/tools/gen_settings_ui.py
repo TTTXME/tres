@@ -161,6 +161,8 @@ def node(el):
     intent = el.find('intent')
     if intent is not None:
         n['intent'] = intent.get(A + 'targetClass') or intent.get(A + 'action')
+        if intent.get(A + 'data'):
+            n['url'] = intent.get(A + 'data')
     return n
 
 

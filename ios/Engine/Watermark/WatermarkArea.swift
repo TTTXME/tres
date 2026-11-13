@@ -4,8 +4,8 @@ import Foundation
 /// text, the glyph, the badge's pill, the bar's band, the frame's four border strips - grown by what a draw spreads past its box
 /// (the shadow, a glyph's side bearings, antialiasing), on a grid of 16 px blocks (the JPEG 4:2:0 MCU) with every neighbouring
 /// block taken too (a lossy codec spreads a change past its block), merged into rectangles. Android keeps the original pixels
-/// of these rectangles in the photo's file so the gallery's editor can take the watermark off; the iOS shot uses them for its log
-/// (the record itself is not ported yet: ios/PLAN.md «Watermark»).
+/// of these rectangles in the photo's file so the gallery's editor can take the watermark off; so does the iPhone's shot
+/// (WatermarkPatch.capture, WatermarkStore).
 enum WatermarkArea {
     /// The grid (px).
     static let block = 16

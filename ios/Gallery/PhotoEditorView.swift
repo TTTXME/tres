@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// PhotoEditorFragment: the picture on black, the top bar (close, the name, undo, redo, «Ещё», «Сохранить копию»), the tools on
-/// the #1C1C1E sheet with 30pt top corners, the tab bar (Кадр, Стили, Свет, Цвет, Эффекты, Детали). A long press shows the
+/// the #1C1C1E sheet with 30pt top corners, the tab bar (Кадр, Стили, LUT, Свет, Цвет, Эффекты, Детали, Знак). A long press shows the
 /// original («Оригинал»); the crop tab shows the whole turned photo with the crop frame. The picture is EditorView's frame,
 /// rendered by the Android pipeline (SCAMEditSession).
 @MainActor
@@ -84,6 +84,14 @@ struct PhotoEditorView: View {
                 if let picture = model.picture {
                     Image(uiImage: picture).resizable().frame(width: geo.size.width, height: geo.size.height)
                 }
+                // P633: the watermark's live preview over the picture (WatermarkOverlayView)
+                if let overlay = model.watermarkOverlay {
+                    Image(uiImage: overlay).resizable()
+                        .frame(width: model.watermarkRect.width, height: model.watermarkRect.height)
+                        .position(x: model.watermarkRect.midX, y: model.watermarkRect.midY)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 if model.tab == .crop, !model.loading, model.failure == nil {
                     CropOverlay(model: model, size: geo.size)
                 }
@@ -97,7 +105,17 @@ struct PhotoEditorView: View {
                     }
                     .padding(12)
                     Spacer()
-                    if let note = model.note { GalleryPill(text: note).padding(.bottom, 12) }
+                    if let notice = model.notice {
+                        Text(notice).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).multilineTextAlignment(.center)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(GalleryStyle.bar, in: RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, 16).padding(.bottom, 12)
+                            .transition(.opacity)
+                            .task(id: notice) {
+                                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                                if model.notice == notice { model.notice = nil }
+                            }
+                    } else if let note = model.note { GalleryPill(text: note).padding(.bottom, 12) }
                 }
                 if model.loading { ProgressView().tint(.white).scaleEffect(1.4) }
                 if let f = model.failure {
@@ -134,9 +152,9 @@ struct PhotoEditorView: View {
 
     private var tabBar: some View {
         let icons = ["kb_ui_ic_crop_rest", "kb_ui_ic_styles_rest", "cs_ic_film", "kb_ui_ic_sun_rest", "kb_ui_ic_palette_rest",
-                     "kb_ui_ic_effects_rest", "kb_ui_ic_detail_rest"]
+                     "kb_ui_ic_effects_rest", "kb_ui_ic_detail_rest", "ui_ic_tag"]
         let names = [L("editor.tab.crop"), L("editor.tab.styles"), L("editor.tab.look"), L("editor.tab.light"), L("editor.tab.colour"),
-                     L("editor.tab.effects"), L("editor.tab.detail")]
+                     L("editor.tab.effects"), L("editor.tab.detail"), L("editor.tab.mark")]
         return HStack(spacing: 4) {
             ForEach(EditorModel.Tab.allCases, id: \.rawValue) { t in
                 let on = t == model.tab
@@ -204,6 +222,7 @@ private struct EditorPanels: View {
             case .detail:
                 params([.sharpen, .sharpenRadius, .lumaNr, .colorNr])
                 hint(L("editor.hint.detail"))
+            case .mark: EditWatermarkPanel(model: model)
             }
         }
     }
@@ -807,7 +826,7 @@ private struct CropOverlay: View {
 // ---------------------------------------------------------------- the histogram
 
 /// EditHistogramView: R, G, B square-root counts filled and added up, on the pill colour with 10pt corners.
-private struct HistogramView: View {
+struct HistogramView: View {
     let counts: [[Int]]
     var body: some View {
         Canvas { c, size in

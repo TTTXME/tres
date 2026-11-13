@@ -77,14 +77,18 @@ enum BurstProcessor {
         // P628: the watermark on the finished photo (upright, after every crop and resize) before its encoding; the Ultra HDR gain
         // map is left as the pipeline made it, as ScamProcessor does
         var rgba = photo.rgba
+        var watermarkRecord: SCAMWatermarkRecord?
         if PhotoWatermark.on() {
-            PhotoWatermark.apply(&rgba, width: photo.width, height: photo.height, metadata: metadata, dng: burst.dng, shotTime: started,
-                                 log: { log.append($0) })
+            // P633: the pixels under it kept (WatermarkPatch) for the gallery's editor to take it off
+            watermarkRecord = PhotoWatermark.applyRecorded(&rgba, width: photo.width, height: photo.height, metadata: metadata, dng: burst.dng,
+                                                           shotTime: started, log: { log.append($0) }).record
         }
         var encodeLog: [String] = []
-        let heic = try ShotProcessor.encode(rgba: rgba, width: photo.width, height: photo.height, metadata: metadata, format: format,
+        var heic = try ShotProcessor.encode(rgba: rgba, width: photo.width, height: photo.height, metadata: metadata, format: format,
                                             gainMap: ShotProcessor.GainMap(photo: photo), log: { encodeLog.append($0) })
         log += encodeLog
+        // P633: the record at the very end of the file (WatermarkStore), as PhotoOutput appends it to Android's files
+        if let watermarkRecord { heic = PhotoWatermark.appendRecord(watermarkRecord, to: heic, log: { log.append($0) }) }
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")
         return Result(heic: heic, uti: format.type.identifier, log: log)
     }

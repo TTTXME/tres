@@ -101,10 +101,16 @@ struct EditState: Equatable {
     var straighten: Float = 0
     var cropL: Float = 0, cropT: Float = 0, cropR: Float = 1, cropB: Float = 1
     var aspect: Float = EditState.aspectFree
-    // P619 / P633 parts the iPhone does not apply yet (kept so a state round-trips)
+    // P619 «LUT»
     var lut = "", film = "", filmPrint = "", filmFormat = "135"
+    /// P633 «Знак»: wmRemove - the photo's own watermark taken off (its record restores the pixels the camera had under it; only
+    /// offered with a record); wm - the watermark drawn on the copy (WatermarkSpec.toJson), "" for none. «Изменить» is both. Not
+    /// tone: the «before» view shows the photo as it is; paste takes the watermark, not the removal.
     var wmRemove = false
     var wm = ""
+
+    /// EditState.watermark: the watermark to draw on the copy, nil for none.
+    var watermark: WatermarkSpec? { WatermarkSpec.fromJson(wm) }
 
     subscript(p: EditParam) -> Float {
         get { values[p.rawValue] }
@@ -195,7 +201,9 @@ struct EditState: Equatable {
         }
         if let w = o["wm"] as? [String: Any] {
             s.wmRemove = (w["rm"] as? NSNumber)?.boolValue ?? false
-            if let spec = w["s"], let d = try? JSONSerialization.data(withJSONObject: spec), let t = String(data: d, encoding: .utf8) { s.wm = t }
+            // the spec as WatermarkSpec reads and writes it (EditState.fromJson: WatermarkSpec.fromJson(...).toJson())
+            if let spec = w["s"] as? [String: Any], let d = try? JSONSerialization.data(withJSONObject: spec),
+               let t = String(data: d, encoding: .utf8) { s.wm = WatermarkSpec.fromJson(t)?.toJson() ?? "" }
         }
         if let g = o["g"] as? [String: Any] {
             s.quarterTurns = (((g["q"] as? NSNumber)?.intValue ?? 0) % 4 + 4) % 4

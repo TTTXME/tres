@@ -32,7 +32,7 @@ struct CameraView: View {
             InfoView(camera: camera)
         }
         .fullScreenCover(isPresented: $showingSettings) {
-            SettingsView()
+            SettingsView(camera: camera)
         }
         .sheet(isPresented: $showingFormat) {
             FormatSheet(camera: camera).presentationDetents([.medium])

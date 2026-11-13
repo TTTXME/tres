@@ -140,7 +140,7 @@ final class EditEngine: @unchecked Sendable {
 @MainActor
 @Observable
 final class EditorModel {
-    enum Tab: Int, CaseIterable { case crop, styles, look, light, colour, effects, detail }
+    enum Tab: Int, CaseIterable { case crop, styles, look, light, colour, effects, detail, mark }
 
     let asset: PHAsset
     let editRaw: Bool
@@ -155,8 +155,8 @@ final class EditorModel {
     private(set) var savedMessage: String?
     var state = EditState()
     private(set) var history = EditHistory(EditState())
-    var tab: Tab = .light { didSet { requestRender() } }
-    var before = false { didSet { if oldValue != before { requestRender() } } }
+    var tab: Tab = .light { didSet { requestRender(); updateWatermark() } }
+    var before = false { didSet { if oldValue != before { requestRender(); updateWatermark() } } }
     var styleIndex = -1
     var styleAmount: Float = 1
     private var styleBase: EditState?
@@ -202,23 +202,28 @@ final class EditorModel {
         let raw = res.raw != nil && (resource == res.raw)
         let pictureInfo = raw ? nil : PhotoDecode.info(data)
         info = pictureInfo
+        // P633: the watermark's facts from the photo's own EXIF (an unknown one stays unknown)
+        watermarkInfo = WatermarkExif.info(WatermarkExif.properties(of: data) ?? [:])
         let engine = self.engine
-        let result: (SCAMEditSession?, String?) = await withCheckedContinuation { cont in
+        let result: (SCAMEditSession?, String?, SCAMWatermarkRecord?) = await withCheckedContinuation { cont in
             engine.queue.async {
                 var session: SCAMEditSession?
                 var why: String?
+                var record: SCAMWatermarkRecord?
                 do {
                     if raw {
                         session = try SCAMEditSession(dng: data, shaders: shaders)
                     } else if let i = pictureInfo, let p = PhotoDecode.decode(data, longSide: PhotoDecode.previewSide(i), p3: i.p3) {
                         session = try SCAMEditSession(preview: p.rgba, width: p.width, height: p.height, displayP3: p.p3,
                                                       orientation: i.orientation, fullWidth: i.width, fullHeight: i.height, shaders: shaders)
+                        // P633 EditSource.readWatermark: the record at the end of the file, kept when it is this photo's and reads back
+                        if let s = session, let r = WatermarkStore.read(data), s.setWatermarkRecord(r) { record = r }
                     }
                 } catch {
                     why = error.localizedDescription
                 }
                 engine.session = session
-                cont.resume(returning: (session, why))
+                cont.resume(returning: (session, why, record))
             }
         }
         loading = false
@@ -226,12 +231,17 @@ final class EditorModel {
             failure = L("editor.open_failed") + " " + (result.1 ?? "")
             return
         }
+        watermarkRecord = result.2
         isRaw = session.isRaw
         if session.quadHalf { note = L("editor.note.quad") }
         let w = Double(session.previewWidth), h = Double(session.previewHeight)
         orientedSize = CropMath.swapsSides(session.orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+        let fw = Double(session.fullWidth), fh = Double(session.fullHeight)
+        fullOriented = CropMath.swapsSides(session.orientation) ? CGSize(width: fh, height: fw) : CGSize(width: fw, height: fh)
+        watermarkOutMax = SCAMEditSession.outMax(forBudget: PhotoDecode.memoryBudget())
         history = EditHistory(state)
         requestRender()
+        updateWatermark()
     }
 
     func close() {
@@ -243,9 +253,11 @@ final class EditorModel {
 
     func setViewSize(_ size: CGSize, scale: CGFloat) {
         let px = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        displayScale = scale
         if px != viewPixels {
             viewPixels = px
             requestRender()
+            updateWatermark()
         }
     }
 
@@ -305,6 +317,7 @@ final class EditorModel {
     func changed(commit: Bool) {
         if !applyingStyle { styleBase = nil }
         requestRender()
+        updateWatermark()
         if commit { history.commit(state) }
     }
 
@@ -331,6 +344,7 @@ final class EditorModel {
         styleBase = nil
         styleIndex = -1
         requestRender()
+        updateWatermark()
     }
 
     func resetAll() {
@@ -458,6 +472,152 @@ final class EditorModel {
         }
     }
 
+    // ---------------------------------------------------------------- P633 «Знак»
+
+    /// EditWatermarkPanel's modes: the photo as it is, its own watermark taken off, a watermark drawn («Изменить» / «Добавить»).
+    enum WatermarkMode: Int { case keep, remove, draw }
+
+    /// The photo's own watermark record (EditSource.watermark), nil for none - an older photo, another app's, a re-encoded one.
+    private(set) var watermarkRecord: SCAMWatermarkRecord?
+    /// The watermark's facts of this photo from its own EXIF.
+    private(set) var watermarkInfo = WatermarkText.Info()
+    /// The live preview (WatermarkOverlayView): the state's watermark laid out for the copy's size, drawn into where the picture is
+    /// (`watermarkRect`, view points); nil when none is shown.
+    private(set) var watermarkOverlay: UIImage?
+    private(set) var watermarkRect = CGRect.zero
+    /// A line shown over the picture for a moment (GalleryToast), nil for none.
+    var notice: String?
+    private var fullOriented = CGSize(width: 1, height: 1)
+    private var watermarkOutMax: Int64 = 4_000_000
+    private var displayScale: CGFloat = 1
+    private var watermarkPlan: WatermarkPainter.Plan?
+    private var watermarkPlanKey = ""
+    private var inkPicture: (rgba: Data, width: Int, height: Int)?
+    private var inkKey: String?
+
+    var watermarkMode: WatermarkMode { !state.wm.isEmpty ? .draw : state.wmRemove ? .remove : .keep }
+
+    /// EditWatermarkPanel.pick: «Убрать» needs the record (greyed without: why, and the mode stays), «Изменить» takes the old one off
+    /// first.
+    func pickWatermarkMode(_ m: WatermarkMode) {
+        if m == .remove && watermarkRecord == nil {
+            notice = L("editor.wm.no_record")
+            return
+        }
+        if m == watermarkMode { return }
+        switch m {
+        case .keep:
+            state.wmRemove = false
+            state.wm = ""
+        case .remove:
+            state.wmRemove = true
+            state.wm = ""
+        case .draw:
+            state.wmRemove = watermarkRecord != nil
+            state.wm = initialWatermark().toJson()
+        }
+        changed(commit: true)
+    }
+
+    /// A new watermark starts as the photo's own (its record's spec) or as the camera's settings.
+    func initialWatermark() -> WatermarkSpec {
+        watermarkRecord.flatMap { WatermarkSpec.fromJson($0.spec) } ?? WatermarkSpec.stored()
+    }
+
+    /// The watermark the panel shows: the state's, else the one a new watermark would start as.
+    var watermarkSpec: WatermarkSpec { state.watermark ?? initialWatermark() }
+
+    func editWatermark(commit: Bool, _ change: (inout WatermarkSpec) -> Void) {
+        var s = watermarkSpec
+        change(&s)
+        state.wm = s.toJson()
+        changed(commit: commit)
+    }
+
+    /// «Как в настройках камеры»: the camera's watermark settings, as new photos get it.
+    func watermarkAsCamera() {
+        state.wm = WatermarkSpec.stored().toJson()
+        changed(commit: true)
+    }
+
+    /// EditExporter.outputSize: the copy's size for a crop of cropW x cropH px and the pixel limit.
+    static func outputSize(_ cropW: Double, _ cropH: Double, _ outMax: Int64) -> (Int, Int) {
+        let k = Swift.min(1.0, (Double(outMax) / Swift.max(1.0, cropW * cropH)).squareRoot())
+        return (Swift.max(1, Int((cropW * k + 0.5).rounded(.down))), Swift.max(1, Int((cropH * k + 0.5).rounded(.down))))
+    }
+
+    /// PhotoEditorFragment.updateWatermark: the state's watermark laid out for the copy's size, over the picture (not in «Кадр», not
+    /// while the long press shows the original); «Авто» from a small picture of the edited crop, asked again when it changed.
+    func updateWatermark() {
+        guard let spec = state.watermark, tab != .crop, !before, engine.session != nil, viewPixels.width > 0, viewPixels.height > 0 else {
+            watermarkOverlay = nil
+            return
+        }
+        let crop = CropMath.cropPixels(state, Double(fullOriented.width), Double(fullOriented.height))
+        let size = Self.outputSize(crop.0, crop.1, watermarkOutMax)
+        let key = spec.toJson() + "|\(size.0)x\(size.1)"
+        if key != watermarkPlanKey {
+            watermarkPlanKey = key
+            let plan = WatermarkPainter.plan(spec, WatermarkText.of(spec, watermarkInfo), width: size.0, height: size.1, fonts: WatermarkFonts.shared)
+            watermarkPlan = plan.empty ? nil : plan
+        }
+        guard var plan = watermarkPlan else {
+            watermarkOverlay = nil
+            return
+        }
+        if spec.colour == .auto {
+            var picture = state
+            picture.wm = ""
+            let k = picture.json
+            if k != inkKey {
+                inkKey = k
+                let engine = self.engine
+                engine.queue.async {
+                    guard let s = engine.session, let t = s.thumbnail(forState: k, side: 160) else { return }
+                    let shot = (rgba: t.rgba, width: t.width, height: t.height)
+                    Task { @MainActor in
+                        if self.inkKey == k {
+                            self.inkPicture = shot
+                            self.updateWatermark()
+                        }
+                    }
+                }
+            }
+            if var ink = inkPicture?.rgba, let w = inkPicture?.width, let h = inkPicture?.height {
+                ink.withUnsafeMutableBytes { raw in
+                    guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+                    WatermarkPainter.chooseInkScaled(&plan, spec, small: WatermarkRows(base: base, width: w, height: h, bytesPerRow: w * 4))
+                }
+            } else {
+                WatermarkPainter.chooseInkScaled(&plan, spec, small: nil)
+            }
+        } else {
+            WatermarkPainter.chooseInk(&plan, spec, rows: nil)
+        }
+        let margin = Double(Self.margin(false) * (viewPixels.width / Swift.max(1, viewSizePoints.width)))
+        let r = CropMath.canvas(Double(viewPixels.width), Double(viewPixels.height), margin, state, Double(orientedSize.width),
+                                Double(orientedSize.height), false)
+        let pw = Int(r.width.rounded()), ph = Int(r.height.rounded())
+        guard pw > 0, ph > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            watermarkOverlay = nil
+            return
+        }
+        ctx.clear(CGRect(x: 0, y: 0, width: pw, height: ph))
+        ctx.translateBy(x: 0, y: CGFloat(ph))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.scaleBy(x: CGFloat(pw) / CGFloat(plan.width), y: CGFloat(ph) / CGFloat(plan.height))
+        WatermarkPainter.draw(ctx, plan, spec, fonts: WatermarkFonts.shared)
+        guard let image = ctx.makeImage() else {
+            watermarkOverlay = nil
+            return
+        }
+        let k = Swift.max(displayScale, 1)
+        watermarkOverlay = UIImage(cgImage: image, scale: k, orientation: .up)
+        watermarkRect = CGRect(x: r.minX / k, y: r.minY / k, width: CGFloat(pw) / k, height: CGFloat(ph) / k)
+    }
+
     // ---------------------------------------------------------------- the copy
 
     /// «Сохранить копию»: EditExporter.export at full resolution, then a new JPEG in the library.
@@ -466,6 +626,8 @@ final class EditorModel {
         exporting = true
         exportProgress = 0
         let json = state.json, data = original, info = self.info, raw = isRaw, name = name
+        // P633: the «Знак» tab's watermark drawn on the finished copy with this photo's facts, its record kept
+        let wmSpec = state.watermark, wmInfo = watermarkInfo
         let cropFraction = max(1e-6, Double((state.cropR - state.cropL) * (state.cropB - state.cropT)))
         let budget = PhotoDecode.memoryBudget()
         let outMax = SCAMEditSession.outMax(forBudget: budget)
@@ -487,8 +649,18 @@ final class EditorModel {
                         copy = try s.exportState(json, picture: full.rgba, width: full.width, height: full.height, outMax: outMax,
                                                  progress: progress)
                     }
-                    guard let cg = PhotoDecode.cgImage(rgba: copy.rgba, width: copy.width, height: copy.height),
-                          let jpeg = PhotoDecode.jpeg(cg, original: data) else { throw NSError(domain: "SCAMEdit", code: 4) }
+                    // P633 EditExporter.drawWatermark: drawn as the camera draws it (upright, the chosen corner, on the short
+                    // side), the pixels under it kept so this copy's watermark can come off again
+                    var rgba = copy.rgba
+                    var record: SCAMWatermarkRecord?
+                    if let wmSpec {
+                        record = PhotoWatermark.drawRecorded(&rgba, width: copy.width, height: copy.height, spec: wmSpec, info: wmInfo,
+                                                             record: true, log: { NSLog("SCAMEdit %@", $0) }).record
+                    }
+                    guard let cg = PhotoDecode.cgImage(rgba: rgba, width: copy.width, height: copy.height),
+                          var jpeg = PhotoDecode.jpeg(cg, original: data) else { throw NSError(domain: "SCAMEdit", code: 4) }
+                    // EditExporter.writeCopy: the record at the end of the JPEG, after its EXIF (a copy without a watermark carries none)
+                    if let record { jpeg = PhotoWatermark.appendRecord(record, to: jpeg, log: { NSLog("SCAMEdit %@", $0) }) }
                     cont.resume(returning: .success((jpeg, copy)))
                 } catch {
                     cont.resume(returning: .failure(error))

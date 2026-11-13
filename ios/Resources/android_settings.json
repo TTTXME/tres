@@ -12229,7 +12229,8 @@
       "title": {
        "s": "prefs_unspektra_ae_credit_title"
       },
-      "type": "row"
+      "type": "row",
+      "url": "https://github.com/JohnTheFarm3r/Unspektrawesome-Releases"
      },
      {
       "icon": "cs_ic_list",

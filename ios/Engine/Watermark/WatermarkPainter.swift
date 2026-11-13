@@ -410,6 +410,18 @@ enum WatermarkPainter {
         }
     }
 
+    /// P633 chooseInkScaled: «Авто» of the editor's live preview from a small picture of the edited crop (`small`: RGBA8 rows of
+    /// that picture; nil: none - white), the plan's sample scaled onto it.
+    static func chooseInkScaled(_ plan: inout Plan, _ spec: WatermarkSpec, small: WatermarkRows?) {
+        guard spec.colour == .auto, let small, plan.width > 0, plan.height > 0 else {
+            chooseInk(&plan, spec, rows: nil)
+            return
+        }
+        let kx = Float(small.width) / Float(plan.width), ky = Float(small.height) / Float(plan.height)
+        let r = WatermarkRect(plan.sample.left * kx, plan.sample.top * ky, plan.sample.right * kx, plan.sample.bottom * ky)
+        plan.whiteInk = !(meanLuma(small, r) > bright)
+    }
+
     /// The mean sRGB luma (0..1) of the rows in `r`, on a grid of up to 16 x 8 points; 0 for an empty region.
     static func meanLuma(_ rows: WatermarkRows, _ r: WatermarkRect) -> Float {
         let x0 = Swift.max(0, javaInt(r.left)), y0 = Swift.max(0, javaInt(r.top))
@@ -520,10 +532,15 @@ enum WatermarkPainter {
     private static func shadow(_ context: CGContext, _ white: Bool, _ radius: Float, _ unit: Float, _ op: Float) {
         let r = white ? radius : radius * 0.8
         let blur = r > 0 ? 2 * (0.57735 * r + 0.5) : 0
+        // CoreGraphics takes a shadow in device space: a context drawn scaled (the editor's live preview, P633) scales it too;
+        // the photo's own rows are drawn at scale 1
+        let t = context.userSpaceToDeviceSpaceTransform
+        let k = CGFloat((Double(t.c) * Double(t.c) + Double(t.d) * Double(t.d)).squareRoot())
         if white {
-            context.setShadow(offset: CGSize(width: 0, height: -CGFloat(0.03 * unit)), blur: CGFloat(blur), color: cgColor(alpha(0x7300_0000, op)))
+            context.setShadow(offset: CGSize(width: 0, height: -CGFloat(0.03 * unit) * k), blur: CGFloat(blur) * k,
+                              color: cgColor(alpha(0x7300_0000, op)))
         } else {
-            context.setShadow(offset: .zero, blur: CGFloat(blur), color: cgColor(alpha(0x40FF_FFFF, op)))
+            context.setShadow(offset: .zero, blur: CGFloat(blur) * k, color: cgColor(alpha(0x40FF_FFFF, op)))
         }
     }
 
@@ -554,12 +571,15 @@ enum WatermarkPainter {
 
     /// Draws the watermark of `spec` / `text` into `rows` and returns the plan; nil when nothing was drawn.
     @discardableResult
-    static func drawOn(_ rows: WatermarkRows, _ spec: WatermarkSpec, _ text: WatermarkText, fonts: WatermarkFonts) -> Plan? {
+    static func drawOn(_ rows: WatermarkRows, _ spec: WatermarkSpec, _ text: WatermarkText, fonts: WatermarkFonts,
+                       beforeDrawing: ((Plan) -> Void)? = nil) -> Plan? {
         if !text.any && spec.layout != .frame { return nil }
         var plan = WatermarkPainter.plan(spec, text, width: rows.width, height: rows.height, fonts: fonts)
         if plan.empty { return nil }
         chooseInk(&plan, spec, rows: rows)
         guard let context = rows.context() else { return nil }
+        // P633: the pixels under it kept first (PhotoWatermark.draw: the record is cut after the ink is chosen, before the drawing)
+        beforeDrawing?(plan)
         draw(context, plan, spec, fonts: fonts)
         return plan
     }

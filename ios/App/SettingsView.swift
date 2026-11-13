@@ -21,10 +21,12 @@ struct SettingsNode: Decodable, Identifiable {
     let step: Double?
     let float: Bool?
     let children: [SettingsNode]?
+    /// The page a row opens (an <intent android:data> link)
+    let url: String?
     let id = UUID()
 
     enum CodingKeys: String, CodingKey {
-        case type, key, title, summary, dependency, icon, entries, values, segmented, min, max, step, float, children
+        case type, key, title, summary, dependency, icon, entries, values, segmented, min, max, step, float, children, url
         case defaultValue = "default"
     }
 
@@ -87,6 +89,11 @@ final class SettingsStore {
     func reset() {
         values = [:]
         UserDefaults.standard.removeObject(forKey: PostSettings.prefsKey)
+    }
+    /// Every value replaced at once (a config loaded: BackupRestoreUtil.replace)
+    func replaceAll(_ new: [String: Any]) {
+        values = new
+        UserDefaults.standard.set(new, forKey: PostSettings.prefsKey)
     }
 }
 
@@ -151,40 +158,66 @@ enum SliderGrid {
     }
 }
 
+
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    /// The camera the settings were opened from: the format and size cards switch it (nil: they show what is stored)
+    var camera: CameraModel? = nil
 
     var body: some View {
         NavigationStack {
             if let tree = SettingsCatalog.shared.tree {
-                SettingsScreen(node: tree)
+                SettingsScreen(node: tree, root: true)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("settings.done")) { dismiss() } } }
             } else {
                 Text(L("settings.missing")).padding()
             }
         }
+        .environment(\.settingsCamera, camera)
         .preferredColorScheme(.dark)
     }
 }
 
 struct SettingsScreen: View {
     let node: SettingsNode
+    var root = false
+    private var store: SettingsStore { SettingsStore.shared }
+    private var catalog: SettingsCatalog { SettingsCatalog.shared }
+
     var body: some View {
+        let availability = SettingsAvailability(store.values)
+        let shown = { (nodes: [SettingsNode]?) -> [SettingsNode] in (nodes ?? []).filter { !($0.key.map(availability.hidden) ?? false) } }
+        let children = shown(node.children)
         List {
-            let children = node.children ?? []
+            if let note = SettingsExtras.screenNote(node.key) {
+                Section { Text(note).font(.footnote).foregroundStyle(.secondary) }
+            }
             // rows before the first group stand in a group of their own
             let loose = children.filter { $0.type != "category" }
             if !loose.isEmpty {
                 Section { ForEach(loose) { SettingsRow(node: $0) } }
             }
             ForEach(children.filter { $0.type == "category" }) { category in
-                Section(SettingsCatalog.shared.text(category.title) ?? "") {
-                    ForEach(category.children ?? []) { SettingsRow(node: $0) }
+                // SettingsAvailability.groupReason: a group whose rows do not act now is greyed with its reason
+                let reason = category.key.flatMap { availability.groupReason($0) }
+                Section {
+                    ForEach(shown(category.children)) { SettingsRow(node: $0) }
+                    SettingsExtras.categoryContent(category.key)
+                } header: {
+                    Text(catalog.text(category.title) ?? "")
+                } footer: {
+                    if let reason { Text(reason) }
                 }
+                .disabled(reason != nil)
             }
         }
-        .navigationTitle(SettingsCatalog.shared.text(node.title) ?? "SCAMERA")
+        .navigationTitle(catalog.text(node.title) ?? "SCAMERA")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if !root { PageResetButton(node: node) }
+            }
+        }
     }
 }
 
@@ -193,9 +226,24 @@ struct SettingsRow: View {
     private var store: SettingsStore { SettingsStore.shared }
     private var catalog: SettingsCatalog { SettingsCatalog.shared }
 
-    private var enabled: Bool {
+    private var availability: SettingsAvailability { SettingsAvailability(store.values) }
+
+    /// SettingsAvailability: why the row (a group's: groupReason) does not act now
+    private var reason: String? {
+        guard let key = node.key else { return nil }
+        return node.type == "screen" || node.type == "category" ? availability.groupReason(key) : availability.reason(key)
+    }
+
+    private var dependencyOn: Bool {
         guard let dep = node.dependency else { return true }
         return store.bool(dep, true)
+    }
+
+    /// A page stays open to explain its inactive rows unless the iPhone cannot serve it at all
+    private var enabled: Bool {
+        guard dependencyOn else { return false }
+        if node.type == "screen" { return node.key.flatMap { availability.iPhoneReason($0) } == nil }
+        return reason == nil
     }
 
     var body: some View {
@@ -227,6 +275,8 @@ struct SettingsRow: View {
                             .textFieldStyle(.roundedBorder).font(.footnote.monospaced())
                     }
                 }
+            case "row":
+                plainRow
             case "custom:FilmSimPreference":
                 NavigationLink { FilmSimPage() } label: {
                     label(detail: FilmCatalog.stock(store.string("pref_film_sim_stock", "")).map { $0.brand + " " + $0.name } ?? L("film.off"))
@@ -240,25 +290,82 @@ struct SettingsRow: View {
                 }
             case "custom:WatermarkPreviewPreference":
                 WatermarkPreview()
+            case "custom:ToneCurvePreference":
+                if let key = node.key {
+                    VStack(alignment: .leading, spacing: 6) {
+                        label(detail: nil)
+                        ToneCurveEditor(key: key, defaultPoints: node.defaultValue?.text, enabled: enabled)
+                    }
+                }
+            case "custom:PhotoStylePreference":
+                PhotoStylePicker()
+            case "custom:LutChangesPreference":
+                LutChangesView()
+            case "custom:RawCropPreference":
+                VStack(alignment: .leading, spacing: 6) {
+                    label(detail: nil)
+                    RawCropCard(enabled: enabled)
+                }
+            case "custom:FormatPickerPreference":
+                VStack(alignment: .leading, spacing: 6) {
+                    label(detail: nil)
+                    FormatPickerCard()
+                }
+            case "custom:SizePickerPreference":
+                SizePickerCard()
+            case "custom:ShadeTransparencyPreference":
+                ShadeTransparencyCard()
+            case "custom:ProfilesPreference":
+                ProfilesCard()
+            case "custom:BackupPreferences":
+                BackupRow(label: label(detail: nil))
+            case "custom:RestorePreference":
+                RestoreRow(label: label(detail: nil))
             case "custom:ResetPreferences":
-                Button(role: .destructive) { store.reset() } label: { label(detail: nil) }
+                ResetRow(label: label(detail: nil))
             default:
-                // rows that open an Android-only page (camera modules, LUT files, ...) or tell something
-                label(detail: node.type.hasPrefix("custom:") ? L("settings.android_only") : nil).opacity(node.type == "row" ? 1 : 0.5)
+                label(detail: L("settings.android_only")).opacity(0.5)
             }
         }
         .disabled(!enabled)
+    }
+
+    /// A plain row: the rows Android opens a page or runs an action from, the about lines and the notes
+    @ViewBuilder private var plainRow: some View {
+        switch node.key ?? "" {
+        case "pref_oldstyle_tone_reset":
+            OldstyleResetRow(label: label(detail: nil))
+        case "shdr_capture_report":
+            NavigationLink { ShdrReportPage() } label: { label(detail: nil) }
+        case "scamera_log_clear":
+            LogClearRow(label: { label(detail: $0) })
+        case "scamera_log_share":
+            LogShareRow(label: label(detail: nil))
+        case "pref_app_key":
+            label(detail: "iOS")
+        case "pref_version_key":
+            label(detail: SettingsExtras.versionText)
+        default:
+            if let url = node.url.flatMap({ URL(string: $0) }) {
+                Link(destination: url) { label(detail: nil) }
+            } else {
+                label(detail: nil)
+            }
+        }
     }
 
     @ViewBuilder private func label(detail: String?) -> some View {
         HStack(spacing: 12) {
             if let icon = node.icon { Image(icon).resizable().frame(width: 22, height: 22) }
             VStack(alignment: .leading, spacing: 2) {
-                Text(catalog.text(node.title) ?? node.key ?? "")
+                // a note row has no title: its text alone
+                if let title = catalog.text(node.title), !title.isEmpty { Text(title) }
                 if let summary = catalog.text(node.summary), !summary.isEmpty {
-                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(node.title == nil ? nil : 4)
                 }
                 if let detail { Text(detail).font(.caption2).foregroundStyle(.tertiary) }
+                if let reason { Text(reason).font(.caption2).foregroundStyle(.orange) }
+                if let key = node.key, let note = availability.note(key) { Text(note).font(.caption2).foregroundStyle(.orange) }
             }
         }
     }

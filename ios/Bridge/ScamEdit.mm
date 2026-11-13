@@ -1,6 +1,10 @@
 #import "ScamEdit.h"
 
 #include "../Editor/EditExport.hpp"
+#include "../Editor/WatermarkPatch.hpp"
+
+#import <CoreGraphics/CoreGraphics.h>
+#import <ImageIO/ImageIO.h>
 
 #include <EGL/egl.h>
 
@@ -31,6 +35,139 @@ static SCAMEditImage *imageOf(std::vector<uint8_t> &&rgba, int w, int h, bool sh
     return i;
 }
 
+
+// ───── P633: the watermark's record ─────
+
+/// The record's raw DEFLATE (Foundation's zlib: RFC 1951 data without header or checksum, WatermarkPatch.hpp wraps it) and
+/// Android's lossless WebP pieces through ImageIO (8 bits, sRGB, as BitmapFactory decodes them; the pieces' CRC checks the words).
+static const scam_edit::wm::Codec &appleCodec() {
+    static const scam_edit::wm::Codec codec = [] {
+        scam_edit::wm::Codec c;
+        c.deflateRaw = [](const uint8_t *p, size_t n) {
+            @autoreleasepool {
+                NSData *in = [NSData dataWithBytesNoCopy:const_cast<uint8_t *>(p) length:n freeWhenDone:NO];
+                NSError *error = nil;
+                NSData *out = [in compressedDataUsingAlgorithm:NSDataCompressionAlgorithmZlib error:&error];
+                if (!out) throw std::runtime_error("the watermark record's deflate failed");
+                const uint8_t *b = static_cast<const uint8_t *>(out.bytes);
+                return std::vector<uint8_t>(b, b + out.length);
+            }
+        };
+        c.inflateRaw = [](const uint8_t *p, size_t n, uint8_t *out, size_t outLen) {
+            @autoreleasepool {
+                NSData *in = [NSData dataWithBytesNoCopy:const_cast<uint8_t *>(p) length:n freeWhenDone:NO];
+                NSError *error = nil;
+                NSData *plain = [in decompressedDataUsingAlgorithm:NSDataCompressionAlgorithmZlib error:&error];
+                if (!plain || plain.length < outLen) return false;
+                std::memcpy(out, plain.bytes, outLen);
+                return true;
+            }
+        };
+        c.decodeWebp = [](const uint8_t *p, size_t n, int w, int h, std::vector<uint32_t> &words) {
+            @autoreleasepool {
+                NSData *data = [NSData dataWithBytesNoCopy:const_cast<uint8_t *>(p) length:n freeWhenDone:NO];
+                CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)data, nullptr);
+                if (!src) return false;
+                CGImageRef image = CGImageSourceCreateImageAtIndex(src, 0, nullptr);
+                CFRelease(src);
+                if (!image) return false;
+                bool ok = int(CGImageGetWidth(image)) == w && int(CGImageGetHeight(image)) == h;
+                std::vector<uint8_t> px(size_t(w) * size_t(h) * 4);
+                CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+                CGContextRef ctx = ok ? CGBitmapContextCreate(px.data(), size_t(w), size_t(h), 8, size_t(w) * 4, space,
+                                                              kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big) : nullptr;
+                if (ctx) {
+                    CGContextSetBlendMode(ctx, kCGBlendModeCopy);
+                    CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), image);
+                    CGContextRelease(ctx);
+                } else {
+                    ok = false;
+                }
+                CGColorSpaceRelease(space);
+                CGImageRelease(image);
+                if (!ok) return false;
+                words.resize(size_t(w) * size_t(h));
+                for (size_t i = 0; i < words.size(); i++)
+                    words[i] = uint32_t(px[4 * i]) | uint32_t(px[4 * i + 1]) << 8 | uint32_t(px[4 * i + 2]) << 16 | uint32_t(px[4 * i + 3]) << 24;
+                return true;
+            }
+        };
+        return c;
+    }();
+    return codec;
+}
+
+@interface SCAMWatermarkRecord ()
+- (const scam_edit::wm::Patch &)patch;
+@end
+
+@implementation SCAMWatermarkRecord {
+    std::shared_ptr<scam_edit::wm::Patch> _patch;
+}
+
+- (const scam_edit::wm::Patch &)patch { return *_patch; }
+
+- (nullable instancetype)initWithFile:(NSData *)file {
+    if (!(self = [super init])) return nil;
+    const auto bytes = scam_edit::wm::store::read(static_cast<const uint8_t *>(file.bytes), file.length);
+    if (!bytes) return nil;
+    try {
+        _patch = std::make_shared<scam_edit::wm::Patch>(scam_edit::wm::Patch::fromBytes(bytes->data(), bytes->size()));
+    } catch (const std::exception &e) {
+        NSLog(@"SCAMEdit watermark record not read: %s", e.what());
+        return nil;
+    }
+    return self;
+}
+
+- (nullable instancetype)initWithRows:(const uint8_t *)rows width:(NSInteger)width height:(NSInteger)height bytesPerRow:(NSInteger)bytesPerRow
+                                rects:(NSArray<NSNumber *> *)rects spec:(NSString *)spec displayP3:(BOOL)displayP3 error:(NSError **)error {
+    if (!(self = [super init])) return nil;
+    if (width <= 0 || height <= 0 || bytesPerRow < width * 4 || rects.count % 4 != 0) {
+        if (error) *error = editError("no watermark record of these rows");
+        return nil;
+    }
+    std::vector<scam_edit::wm::Rect> list;
+    for (NSUInteger i = 0; i + 3 < rects.count; i += 4)
+        list.push_back(scam_edit::wm::Rect{rects[i].intValue, rects[i + 1].intValue, rects[i + 2].intValue, rects[i + 3].intValue});
+    try {
+        _patch = std::make_shared<scam_edit::wm::Patch>(scam_edit::wm::capture(rows, int(width), int(height), size_t(bytesPerRow), list,
+                                                                                spec.UTF8String ?: "",
+                                                                                displayP3 ? scam_edit::wm::SPACE_P3 : scam_edit::wm::SPACE_SRGB,
+                                                                                true, appleCodec()));
+    } catch (const std::exception &e) {
+        if (error) *error = editError(e.what());
+        return nil;
+    }
+    return self;
+}
+
+- (NSInteger)width { return _patch->width; }
+- (NSInteger)height { return _patch->height; }
+- (BOOL)tenBit { return _patch->format == scam_edit::wm::FORMAT_1010102; }
+- (BOOL)displayP3 { return _patch->colourSpace == scam_edit::wm::SPACE_P3; }
+- (NSString *)spec { return [[NSString alloc] initWithBytes:_patch->spec.data() length:_patch->spec.size() encoding:NSUTF8StringEncoding] ?: @""; }
+- (NSInteger)pieceCount { return NSInteger(_patch->pieces.size()); }
+- (long long)pixels { return _patch->pixels(); }
+- (long long)encodedBytes { return _patch->encodedBytes(); }
+- (NSString *)summary { return [NSString stringWithUTF8String:_patch->describe().c_str()] ?: @""; }
+
+- (NSData *)bytes {
+    const std::vector<uint8_t> b = _patch->toBytes();
+    return [NSData dataWithBytes:b.data() length:b.size()];
+}
+
+- (BOOL)verify { return _patch->verify(appleCodec()); }
+
++ (nullable NSData *)file:(NSData *)file appendingRecord:(NSData *)record {
+    const uint8_t *f = static_cast<const uint8_t *>(file.bytes), *r = static_cast<const uint8_t *>(record.bytes);
+    std::vector<uint8_t> out(f, f + file.length);
+    if (!scam_edit::wm::store::append(out, std::vector<uint8_t>(r, r + record.length))) return nil;
+    return [NSData dataWithBytes:out.data() length:out.size()];
+}
+
+@end
+
 @implementation SCAMEditSession {
     EGLDisplay _display;
     EGLSurface _surface;
@@ -41,6 +178,10 @@ static SCAMEditImage *imageOf(std::vector<uint8_t> &&rgba, int w, int h, bool sh
     BOOL _ownTex;
     std::string _shaders;
     scam_edit::EditRenderer::Target _view;
+    // P633: the photo's own watermark record, the preview as decoded and with the record's pixels back, which one is uploaded
+    std::shared_ptr<scam_edit::wm::Patch> _record;
+    std::vector<uint8_t> _dirtyPreview, _cleanPreview;
+    BOOL _shownClean;
 }
 
 - (BOOL)makeContext:(NSString *)shaders error:(NSError **)error {
@@ -76,6 +217,9 @@ static SCAMEditImage *imageOf(std::vector<uint8_t> &&rgba, int w, int h, bool sh
 
 /// EditorView: the preview's texture and the proxy (once a source)
 - (void)uploadSource {
+    if (_ownTex && _sourceTex) scam_edit::EditGl::deleteTexture(_sourceTex);
+    _sourceTex = 0;
+    _ownTex = NO;
     bool owned = false;
     _sourceTex = _source.upload(*_renderer, owned);
     _ownTex = owned;
@@ -149,6 +293,45 @@ static SCAMEditImage *imageOf(std::vector<uint8_t> &&rgba, int w, int h, bool sh
 - (NSInteger)orientation { return _source.orientation; }
 - (BOOL)quadHalf { return _source.raw && _source.raw->info.cell == 2; }
 
+- (BOOL)setWatermarkRecord:(nullable SCAMWatermarkRecord *)record {
+    if (_record && _shownClean && [self current]) {
+        _source.rgba = _dirtyPreview;
+        [self uploadSource];
+    }
+    _record.reset();
+    _dirtyPreview.clear();
+    _cleanPreview.clear();
+    _shownClean = NO;
+    if (!record || _source.raw) return NO;
+    const scam_edit::wm::Patch &p = record.patch;
+    if (!scam_edit::wm::recordFits(p, _source.fullW, _source.fullH, _source.orientation) || !p.verify(appleCodec())) {
+        NSLog(@"SCAMEdit watermark record does not fit the photo (%s on %dx%d, orientation %d): not offered", p.describe().c_str(),
+              _source.fullW, _source.fullH, _source.orientation);
+        return NO;
+    }
+    try {
+        _cleanPreview = scam_edit::wm::cleanPreview(_source, p, appleCodec());
+    } catch (const std::exception &e) {
+        NSLog(@"SCAMEdit watermark record: %s", e.what());
+        _cleanPreview.clear();
+        return NO;
+    }
+    _dirtyPreview = _source.rgba;
+    _record = std::make_shared<scam_edit::wm::Patch>(p);
+    return YES;
+}
+
+- (BOOL)hasWatermarkRecord { return _record != nullptr; }
+
+/// EditorView.onDrawFrame / EditExporter: the preview with the photo's own watermark taken off (EditSource.cleanFor) or as it is
+- (void)showClean:(bool)clean {
+    clean = clean && _record;
+    if (bool(_shownClean) == clean) return;
+    _source.rgba = clean ? _cleanPreview : _dirtyPreview;
+    [self uploadSource];
+    _shownClean = clean;
+}
+
 static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
     scam_edit::EditState s;
     if (!scam_edit::EditState::fromJson(json.UTF8String ?: "", s)) return false;
@@ -173,6 +356,7 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
     if (!parseState(json, false, st) || width <= 0 || height <= 0 || ![self current]) return nil;
     tone = before ? st.withNeutralTone() : st;
     try {
+        [self showClean:st.wmRemove];
         const auto u = [self prepare:tone];
         const auto o = _source.oriented();
         float bg[3] = {0, 0, 0};
@@ -201,6 +385,7 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
     if (!parseState(json, false, st) || ![self current]) return nil;
     tone = before ? st.withNeutralTone() : st;
     try {
+        [self showClean:st.wmRemove];
         const auto u = [self prepare:tone];
         const auto o = _source.oriented();
         const auto px = scam_edit::CropMath::cropPixels(st, o[0], o[1]);
@@ -232,6 +417,7 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
     scam_edit::EditState st;
     if (!parseState(json, false, st) || ![self current] || side <= 0) return nil;
     try {
+        [self showClean:st.wmRemove];
         const auto u = [self prepare:st];
         const auto o = _source.oriented();
         const auto px = scam_edit::CropMath::cropPixels(st, o[0], o[1]);
@@ -279,6 +465,8 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
         return nil;
     }
     try {
+        // P633: the proxy from the preview the state shows (EditExporter: source.previewFor(source.cleanFor(state)))
+        [self showClean:st.wmRemove];
         // a renderer of its own (EditExporter's): the preview keeps its cached stages
         scam_edit::EditRenderer r;
         r.init(_shaders);
@@ -299,6 +487,20 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
     if ((NSInteger)rgba.length < width * height * 4 || width <= 0 || height <= 0) {
         if (error) *error = editError("the picture is incomplete");
         return nil;
+    }
+    // P633: «Убрать» / «Изменить»: the pixels under the photo's own watermark back (EditSource reader.restoreWatermark)
+    scam_edit::EditState st;
+    if (_record && parseState(json, false, st) && st.wmRemove) {
+        try {
+            const uint8_t *p = static_cast<const uint8_t *>(rgba.bytes);
+            std::vector<uint8_t> restored(p, p + size_t(width) * size_t(height) * 4);
+            scam_edit::wm::restorePicture(restored, int(width), int(height), *_record, appleCodec());
+            scam_edit::PictureReader reader(restored.data(), int(width), int(height), _source.p3);
+            return [self runExport:json reader:reader outMax:outMax progress:progress error:error];
+        } catch (const std::exception &e) {
+            if (error) *error = editError(e.what());
+            return nil;
+        }
     }
     scam_edit::PictureReader reader(static_cast<const uint8_t *>(rgba.bytes), int(width), int(height), _source.p3);
     return [self runExport:json reader:reader outMax:outMax progress:progress error:error];

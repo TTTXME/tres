@@ -115,6 +115,22 @@ enum WatermarkExif {
         return Int64((parsed.timeIntervalSince1970 * 1000).rounded())
     }
 
+    /// P633: the facts a field shows (WatermarkExif.Field); TEXT (the own text) is always there.
+    enum Field { case text, device, lens, aperture, shutter, iso, time }
+
+    /// WatermarkExif.has: whether `info` knows what `field` shows (the editor greys a field a photo's EXIF lacks).
+    static func has(_ info: WatermarkText.Info, _ field: Field) -> Bool {
+        switch field {
+        case .device: return !(info.device ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        case .lens: return !WatermarkText.focal(info).isEmpty
+        case .aperture: return !WatermarkText.aperture(info.fNumber).isEmpty
+        case .shutter: return !WatermarkText.shutter(info.exposureTime).isEmpty
+        case .iso: return info.iso > 0
+        case .time: return info.timeMs > 0
+        case .text: return true
+        }
+    }
+
     /// The properties of the first image of `data` (a DNG, a HEIC); nil when ImageIO cannot read it.
     static func properties(of data: Data) -> [String: Any]? {
         guard !data.isEmpty, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }

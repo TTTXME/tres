@@ -56,6 +56,7 @@ public class HostEditRender {
 
     @Test public void render() throws Exception {
         org.robolectric.shadows.ShadowLog.stream = System.out;
+        if (System.getenv("SCAM_HOST_EDIT_IN") == null && System.getenv("SCAM_HOST_WM_DIR") != null) return; // the record's check alone
         final File in = new File(env("SCAM_HOST_EDIT_IN")), out = new File(env("SCAM_HOST_EDIT_OUT"));
         out.mkdirs();
         final long outMaxSmall = Long.parseLong(System.getenv().getOrDefault("SCAM_HOST_EDIT_OUTMAX", "1000000"));
@@ -275,6 +276,113 @@ public class HostEditRender {
         }
         tile.release();
         dump(new File(out, tag + "_export.rgba"), image, W, H);
+    }
+
+    /**
+     * P633: the watermark's record (processing/watermark WatermarkPatch / WatermarkStore) against the iPhone's (ios/Editor/
+     * WatermarkPatch.hpp). SCAM_HOST_WM_DIR: what `edit_check --wm make` wrote (picture.rgba, rects.txt, spec.txt, the containers'
+     * bases, the iPhone's cpp.jpg / .webp / .heic and cpp_big.rec). Writes Android's records of the same pixels (java.rec 8-bit,
+     * java10.rec 10-bit, java_big.rec over the piece limit; the predictive code, as WatermarkPatch codes them without WebP) and
+     * java.jpg / .webp / .heic (WatermarkStore.append), and android_<name>.words: the iPhone's records as WatermarkStore.read,
+     * verify and wordsOf give them (pieces, then each piece's rect and words). `edit_check --wm check` compares.
+     */
+    @Test public void watermarkRecord() throws Exception {
+        final String dirName = System.getenv("SCAM_HOST_WM_DIR");
+        if (dirName == null || dirName.isEmpty()) return;
+        final File dir = new File(dirName);
+        final Class<?> patch = Class.forName("com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch");
+        final Class<?> piece = Class.forName("com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch$Piece");
+        final java.lang.reflect.Method split = patch.getDeclaredMethod("split", List.class);
+        final java.lang.reflect.Method crc = patch.getDeclaredMethod("crc", int[].class);
+        final java.lang.reflect.Method med = patch.getDeclaredMethod("med", int[].class, int.class, int.class, int.class);
+        final java.lang.reflect.Method wordsOf = patch.getDeclaredMethod("wordsOf", int.class);
+        final java.lang.reflect.Constructor<?> newPiece = piece.getDeclaredConstructor(android.graphics.Rect.class, int.class, int.class, byte[].class);
+        final java.lang.reflect.Constructor<?> newPatch = patch.getDeclaredConstructor(int.class, int.class, int.class, int.class, String.class, List.class);
+        for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[]{split, crc, med, wordsOf, newPiece, newPatch})
+            o.setAccessible(true);
+        final java.lang.reflect.Field piecesField = patch.getDeclaredField("pieces");
+        final java.lang.reflect.Field rectField = piece.getDeclaredField("rect");
+        piecesField.setAccessible(true);
+        rectField.setAccessible(true);
+        final String spec = new String(Files.readAllBytes(new File(dir, "spec.txt").toPath()), StandardCharsets.UTF_8);
+
+        // the picture (RGBA8 after a 16-byte header) and the synthetic wide one, as R-in-the-low-byte words
+        byte[] pic = Files.readAllBytes(new File(dir, "picture.rgba").toPath());
+        ByteBuffer hdr = ByteBuffer.wrap(pic, 0, 16).order(ByteOrder.LITTLE_ENDIAN);
+        hdr.getInt();
+        final int pw = hdr.getInt(), ph = hdr.getInt();
+        final int[] picWords = new int[pw * ph], pic10 = new int[pw * ph];
+        for (int i = 0; i < pw * ph; i++) {
+            int r = pic[16 + 4 * i] & 255, g = pic[17 + 4 * i] & 255, b = pic[18 + 4 * i] & 255;
+            picWords[i] = r | g << 8 | b << 16 | 0xFF000000;
+            pic10[i] = ten(r) | ten(g) << 10 | ten(b) << 20 | 3 << 30;
+        }
+        final int bw = 4160, bh = 1040;
+        final int[] bigWords = new int[bw * bh];
+        for (int y = 0; y < bh; y++)
+            for (int x = 0; x < bw; x++)
+                bigWords[y * bw + x] = ((x * 7 + y * 3) & 255) | ((x ^ y) & 255) << 8 | (((x * y) >> 4) & 255) << 16 | 0xFF000000;
+        List<android.graphics.Rect> rects = new java.util.ArrayList<>();
+        for (String line : Files.readAllLines(new File(dir, "rects.txt").toPath(), StandardCharsets.UTF_8)) {
+            String[] v = line.trim().split(" ");
+            if (v.length == 4) rects.add(new android.graphics.Rect(Integer.parseInt(v[0]), Integer.parseInt(v[1]), Integer.parseInt(v[2]), Integer.parseInt(v[3])));
+        }
+        List<android.graphics.Rect> wide = java.util.Collections.singletonList(new android.graphics.Rect(0, 0, bw, bh));
+        Object[][] made = {{"java.rec", picWords, pw, ph, 0, 0, rects}, {"java10.rec", pic10, pw, ph, 1, 0, rects},
+                {"java_big.rec", bigWords, bw, bh, 0, 1, wide}};
+        byte[] javaRec = null;
+        for (Object[] m : made) {
+            int[] words = (int[]) m[1];
+            int w = (Integer) m[2], h = (Integer) m[3], format = (Integer) m[4];
+            List<Object> pieces = new java.util.ArrayList<>();
+            @SuppressWarnings("unchecked") List<android.graphics.Rect> parts = (List<android.graphics.Rect>) split.invoke(null, m[6]);
+            for (android.graphics.Rect r : parts) {
+                int[] part = new int[r.width() * r.height()];
+                for (int y = 0; y < r.height(); y++) System.arraycopy(words, (r.top + y) * w + r.left, part, y * r.width(), r.width());
+                pieces.add(newPiece.newInstance(new android.graphics.Rect(r), 0, (Integer) crc.invoke(null, (Object) part),
+                        (byte[]) med.invoke(null, part, r.width(), r.height(), format)));
+            }
+            Object p = newPatch.newInstance(w, h, format, (Integer) m[5], spec, pieces);
+            byte[] bytes = (byte[]) patch.getMethod("toBytes").invoke(p);
+            Files.write(new File(dir, (String) m[0]).toPath(), bytes);
+            System.out.println("Android record " + m[0] + ": " + p);
+            if (javaRec == null) javaRec = bytes;
+        }
+        for (String kind : new String[]{"jpg", "webp", "heic"}) {
+            File f = new File(dir, "java." + kind);
+            Files.copy(new File(dir, "base." + kind).toPath(), f.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            if (!com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.append(f, javaRec))
+                throw new IOException("not appended to " + kind);
+        }
+        // the iPhone's records as Android reads them
+        for (String name : new String[]{"cpp.jpg", "cpp.webp", "cpp.heic", "cpp_big.rec"}) {
+            File f = new File(dir, name);
+            Object p;
+            if (name.endsWith(".rec")) p = patch.getMethod("fromBytes", byte[].class).invoke(null, (Object) Files.readAllBytes(f.toPath()));
+            else p = com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.read(f);
+            if (p == null) throw new IOException(name + ": no record read");
+            if (!(Boolean) patch.getMethod("verify").invoke(p)) throw new IOException(name + ": the record does not verify");
+            if (!spec.equals(patch.getField("spec").get(p))) throw new IOException(name + ": another spec");
+            System.out.println("iPhone record " + name + ": " + p);
+            List<?> pieces = (List<?>) piecesField.get(p);
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            ByteBuffer n = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(pieces.size());
+            bytes.write(n.array());
+            for (int i = 0; i < pieces.size(); i++) {
+                android.graphics.Rect r = (android.graphics.Rect) rectField.get(pieces.get(i));
+                int[] words = (int[]) wordsOf.invoke(p, i);
+                ByteBuffer b = ByteBuffer.allocate(16 + 4 * words.length).order(ByteOrder.LITTLE_ENDIAN);
+                b.putInt(r.left).putInt(r.top).putInt(r.right).putInt(r.bottom);
+                for (int v : words) b.putInt(v);
+                bytes.write(b.array());
+            }
+            Files.write(new File(dir, "android_" + name + ".words").toPath(), bytes.toByteArray());
+        }
+    }
+
+    /** An 8-bit value as 10 bits (the high bits repeated), as edit_check --wm makes them. */
+    private static int ten(int v) {
+        return (v << 2) | (v >> 6);
     }
 
     private static byte[] read(int w, int h) {
