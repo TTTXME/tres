@@ -36,10 +36,13 @@ public class WhyJbuOwnerTest {
     @Test
     public void offByDefault() throws IOException {
         final String tone = read(SRC + "WhyTone.java");
-        for (String key : new String[]{"fusion_jbu_sigma", "v2_jbu_sigma"}) {
-            Matcher m = Pattern.compile("value\\(\"" + key + "\", ([\\d.]+)f\\)").matcher(tone);
-            assertTrue(key, m.find());
-            assertEquals(key + " default", 0f, Float.parseFloat(m.group(1)), 0f);
+        // P673c: V1 off, V2 on at the owner's 0.1
+        String[] keys = {"fusion_jbu_sigma", "v2_jbu_sigma"};
+        float[] defaults = {0f, 0.1f};
+        for (int i = 0; i < keys.length; i++) {
+            Matcher m = Pattern.compile("value\\(\"" + keys[i] + "\", ([\\d.]+)f\\)").matcher(tone);
+            assertTrue(keys[i], m.find());
+            assertEquals(keys[i] + " default", defaults[i], Float.parseFloat(m.group(1)), 0f);
         }
         assertTrue(read(SH + "lpyr.glsl").contains("\n#define JBU 0\n"));
         assertTrue(read(SH + "v2_ef_collapse.glsl").contains("\n#define JBU 0\n"));

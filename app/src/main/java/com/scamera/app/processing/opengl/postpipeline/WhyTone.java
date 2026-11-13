@@ -301,9 +301,13 @@ public final class WhyTone {
         return Math.max(0f, value("fusion_jbu_sigma", 0f));
     }
 
-    /** P673: {@link #jbuSigma()} of the V2 tone (WhyV2Fusion, why/v2_ef_collapse JBU: texture()'s 4 bilinear texels); 0: off. */
+    /**
+     * P673: {@link #jbuSigma()} of the V2 tone (WhyV2Fusion, why/v2_ef_collapse JBU: texture()'s 4 bilinear texels); 0: off.
+     * P673c (owner, 2026-11-13, the pool burst's sky glow along the beam: «Включай для V2»): on by default at 0.1 - on the final JPEG
+     * the glow next to dark objects (+7.7 codes, +15.8 at shadows / highlights 5) goes to about +1; V1 has no such glow and stays off.
+     */
     static float jbuSigmaV2() {
-        return Math.max(0f, value("v2_jbu_sigma", 0f));
+        return Math.max(0f, value("v2_jbu_sigma", 0.1f));
     }
 
     /**

@@ -181,9 +181,9 @@ def name_of(spec):
 
 def main():
     src = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java').read_text(encoding='utf-8')
-    for key in ('fusion_jbu_sigma', 'v2_jbu_sigma'):
+    for key, want in (('fusion_jbu_sigma', 0.0), ('v2_jbu_sigma', 0.1)):  # P673c: V2 on at the owner's 0.1, V1 off
         m = re.search(r'value\("%s", ([\d.]+)f\)' % key, src)
-        check(m is not None and float(m.group(1)) == 0.0, 'WhyTone: hybrid_why_%s off by default (0)' % key)
+        check(m is not None and float(m.group(1)) == want, 'WhyTone: hybrid_why_%s default %g' % (key, want))
     for name, h in PINNED.items():
         text = (SH / name).read_text(encoding='utf-8')
         got = code_hash(text, name)
