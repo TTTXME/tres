@@ -538,6 +538,31 @@ public final class WhyTone {
     }
 
     /**
+     * P676 (owner, 2026-11-13: «Да, сделай жёлтый в V1 как в V2. Причём не только в этой сцене, а везде»; the pool burst's yellow slide
+     * hue 73.5 / chroma 63 in V1 against V2's 79.2 / 68): why/combine V2_COLOUR - V1's colour after the tone by «Why тон» V2's rule
+     * (tonemap_final: the hue lock on blues only, the per-channel clip before and after the detail, the pixel's own colour clamped at
+     * 0 as its clean input, the colour of a lightness as its tone renders it), V1's luminance (its AE, fusion, curve, local contrast,
+     * detail) as it is (host: |dL*| 0.01 - 0.11 mean on six bursts). Host replay at equal lightness against V2: mean hue error 1.9 ->
+     * 0.3 deg, chroma -1.1 -> +0.8 %; the pool's yellow slide -6.4 -> -0.6 deg. With it V1's colour stages that V2 has no
+     * counterpart of are off: P395 YELLOW_HUE, P398 HL_NEUTRAL, P506 LIGHT_WARM, P393 LIGHT_CHROMA, the path to white of saturated
+     * light («Путь к белому», hl_white) and the darkening detail's chroma (delta_chroma). scam_dev.txt "hybrid_why_v2_colour 0" = V1's
+     * own colour as before P676 (every one of those back at its own key). The photo and the viewfinder alike.
+     */
+    public static boolean v2Colour() {
+        return value("v2_colour", 1f) >= 0.5f;
+    }
+
+    /** P676: why/combine hlWhiteU - the path to white (hl_white), 0 with {@link #v2Colour}. */
+    static float hlWhite() {
+        return v2Colour() ? 0f : Math.max(0f, Math.min(1f, value("hl_white", 0.15f)));
+    }
+
+    /** P676: why/combine deltaChromaU - the darkening detail's chroma scale (delta_chroma), 0 with {@link #v2Colour}. */
+    static float deltaChroma() {
+        return v2Colour() ? 0f : Math.max(0f, Math.min(1f, value("delta_chroma", 1f)));
+    }
+
+    /**
      * P395 (owner, 2026-10-29: the yellow «Лента» facade and sunlit birches orange-ochre beside WhyCam's yellow): why/combine
      * yellowHueU - the saturated orange-yellow scene hues (OKLab 74 .. 88 deg, fading out at 64 / 100; C / L from 0.10) turned up to
      * 8 deg towards yellow, the photo and the RAW viewfinder alike. scam_dev hybrid_why_yellow_hue 0..1 (0 = off, as before).
@@ -546,6 +571,7 @@ public final class WhyTone {
      * blue clipped. On by default on vivo only.
      */
     static float yellowHue() {
+        if (v2Colour()) return 0f;   // P676: V1-only (no V2 counterpart)
         return Math.max(0f, Math.min(1f, value("yellow_hue", "vivo".equalsIgnoreCase(android.os.Build.MANUFACTURER) ? 1f : 0f)));
     }
 
@@ -555,6 +581,7 @@ public final class WhyTone {
      * viewfinder alike. scam_dev hybrid_why_hl_neutral 0..1 (0 = off, as before).
      */
     static float hlNeutral() {
+        if (v2Colour()) return 0f;   // P676: V1-only (no V2 counterpart)
         return Math.max(0f, Math.min(1f, value("hl_neutral", 1f)));
     }
 
@@ -565,7 +592,8 @@ public final class WhyTone {
      * 0..1 (0 = off, the shader as before), hybrid_why_light_warm_chroma.
      */
     static float[] lightWarm() {
-        return new float[]{Math.max(0f, Math.min(1f, value("light_warm", 1f))), 0.6f, 0.9f,
+        // P676: V1-only (V2_COLOUR's hue lock leaves the warm light tones the curve's hue anyway)
+        return new float[]{v2Colour() ? 0f : Math.max(0f, Math.min(1f, value("light_warm", 1f))), 0.6f, 0.9f,
                 Math.max(0f, Math.min(1f, value("light_warm_chroma", 0.5f)))};
     }
 
@@ -781,6 +809,7 @@ public final class WhyTone {
      * shoulder's chroma and the hue lock as before (scam_dev hybrid_why_light_chroma 0).
      */
     static float lightChroma() {
+        if (v2Colour()) return 0f;   // P676: V1-only (no V2 counterpart)
         return Math.max(0f, Math.min(1f, value("light_chroma", 1f)));
     }
 

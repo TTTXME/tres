@@ -27,6 +27,7 @@ public final class DeviceAvailability {
                 .oppoTunedColor(com.scamera.app.processing.render.OppoTunedColor.applies())
                 .mosaicStreams(com.scamera.app.processing.MosaicBlockStore.anyMosaic())
                 .bentoBlend(bentoBlend())
+                .v1V2Colour(v1V2Colour())
                 .dcg(dcgOn())
                 .yuvMerge(com.scamera.app.capture.YuvMergeRoute.activeOn(values)); // P646: the current module's lens
     }
@@ -40,6 +41,15 @@ public final class DeviceAvailability {
             return com.scamera.app.processing.RawLevels.dcgFrames();
         } catch (RuntimeException unknown) {
             return false;
+        }
+    }
+
+    /** P676: «Why тон» V1 renders its colour by V2's rule (WhyTone.v2Colour: scam_dev.txt "hybrid_why_v2_colour", 1 by default). */
+    static boolean v1V2Colour() {
+        try {
+            return PreferenceKeys.hybridValue("why_v2_colour", 1f) >= 0.5f;
+        } catch (RuntimeException unknown) {
+            return true;
         }
     }
 

@@ -239,6 +239,8 @@ public final class LiveWhyTone {
     private float yellowHue;
     /** P398: a pale light tone towards white (hlNeutralU), as WhyCombine sets it. */
     private float hlNeutral;
+    /** P676: the colour after the tone as «Why тон» V2's (V2_COLOUR), as WhyCombine sets it. */
+    private boolean v2Colour;
     /** P402: the reference fusion layout's base of the tone (WHY_BASE), as WhyCombine sets it. */
     private boolean whyBase;
     /** P402: the AgX inset's strength (AGX_INSET below 1), as WhyCombine sets it. */
@@ -578,9 +580,9 @@ public final class LiveWhyTone {
         inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
         macro = WhyTone.value("macro_contrast", 1.1f);
         vib = new float[]{WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f)};
-        hlWhite = Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f)));
+        hlWhite = WhyTone.hlWhite();   // P676: 0 with V2's colour, as the photo
         filmToe = WhyTone.value("film_toe", 0f);
-        deltaChroma = Math.max(0f, Math.min(1f, WhyTone.value("delta_chroma", 1f)));
+        deltaChroma = WhyTone.deltaChroma();   // P676: 0 with V2's colour, as the photo
         clarity = WhyTone.value("clarity", 0f);
         flatProtect = WhyTone.value("flat_protect", 0f);
         vibHlShape = WhyTone.vibranceHlShape();
@@ -589,6 +591,7 @@ public final class LiveWhyTone {
         lightWarm = WhyTone.lightWarm();
         yellowHue = WhyTone.yellowHue();
         hlNeutral = WhyTone.hlNeutral();
+        v2Colour = WhyTone.v2Colour();
         whyBase = WhyTone.whyLayout();
         inset = WhyTone.insetStrength();
         gammaType = WhyTone.gammaType();
@@ -1076,7 +1079,7 @@ public final class LiveWhyTone {
             GLES20.glUniform2f(loc(p, "fusedCurveU"), FusedCurve.LOG2_MIN, FusedCurve.PER_EV);
         }
         set(p, "signedColourU", 0);
-        set(p, "signedHueU", WhyTone.signedHue() ? 1 : 0); // P370 (B2): the photo's hue of a colour outside sRGB
+        set(p, "signedHueU", WhyTone.signedHue() && !v2Colour ? 1 : 0); // P370 (B2): the photo's hue of a colour outside sRGB (P676: not with V2's colour)
         set(p, "aeU", aeNow);
         set(p, "clipU", shown.clip); // P383: the shown (eased) values, as aeNow
         set(p, "toeU", toe);
@@ -1244,6 +1247,7 @@ public final class LiveWhyTone {
         // P393: the light tones of a saturated colour keep its mid-tone chroma, as the photo (AgX only)
         if (toneOp == ToneCurve.AGX && lightChroma > 0f) defs.add(new String[]{"LIGHT_CHROMA", "1"});
         if (toneOp != ToneCurve.AGX && lightWarm != null && lightWarm[0] > 0f) defs.add(new String[]{"LIGHT_WARM", "1"});   // P506
+        if (v2Colour) defs.add(new String[]{"V2_COLOUR", "1"});   // P676, as the photo
         if (yellowHue > 0f) defs.add(new String[]{"YELLOW_HUE", "1"});   // P395, as the photo
         if (hlNeutral > 0f) defs.add(new String[]{"HL_NEUTRAL", "1"});   // P398, as the photo
         if (whyBase) defs.add(new String[]{"WHY_BASE", "1"});   // P402, as the photo

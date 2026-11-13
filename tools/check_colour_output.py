@@ -455,7 +455,11 @@ def shader_part(strict: bool) -> None:
                 # P672b: the detail into the photo as V2's, with the own curve's slope and with the sky / edge hold paths
                 ('TONE_OP 1 + DETAIL_SPLIT 1 + SKY 1 + EDGE_HOLD 1 + RIM_SMOOTH 1',
                  {'TONE_OP': '1', 'DETAIL_SPLIT': '1', 'SKY': '1', 'EDGE_HOLD': '1', 'RIM_SMOOTH': '1'}),
-                ('DETAIL_SPLIT 1', {'DETAIL_SPLIT': '1'}))
+                ('DETAIL_SPLIT 1', {'DETAIL_SPLIT': '1'}),
+                # P676: V1's colour after the tone as V2's, with the own curve, AgX, the P3 output, the colour look, the viewfinder
+                ('TONE_OP 1 + V2_COLOUR 1', {'TONE_OP': '1', 'V2_COLOUR': '1'}), ('V2_COLOUR 1 (AgX)', {'V2_COLOUR': '1'}),
+                ('TONE_OP 1 + V2_COLOUR 1 + P3_OUT 1 + COLOUR_LOOK 1', {'TONE_OP': '1', 'V2_COLOUR': '1', 'P3_OUT': '1', 'COLOUR_LOOK': '1'}),
+                ('TONE_OP 1 + V2_COLOUR 1 + POINT_FUSED 1 + SKY 1', {'TONE_OP': '1', 'V2_COLOUR': '1', 'POINT_FUSED': '1', 'SKY': '1'}))
     for label, defines in variants:
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / 'combine.frag'

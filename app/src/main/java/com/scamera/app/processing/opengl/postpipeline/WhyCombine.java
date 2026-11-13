@@ -392,6 +392,7 @@ public final class WhyCombine extends Node {
             if (WhyTone.macroToe()) shaderProg.setDefine("MACRO_TOE", 1);
             // P393: a saturated colour's light tones under the AgX white keep its mid-tone chroma (0: the shader before, token for token)
             if (lightChroma > 0f) shaderProg.setDefine("LIGHT_CHROMA", 1);
+            if (WhyTone.v2Colour()) shaderProg.setDefine("V2_COLOUR", 1);   // P676: the colour after the tone as V2's
             if (WhyTone.yellowHue() > 0f) shaderProg.setDefine("YELLOW_HUE", 1);   // P395
             if (WhyTone.hlNeutral() > 0f) shaderProg.setDefine("HL_NEUTRAL", 1);   // P398
             // P506: the own curve's light orange-yellows leave the hue lock (AgX has LIGHT_CHROMA for that)
@@ -527,7 +528,7 @@ public final class WhyCombine extends Node {
             shaderProg.setVar("fU", st.factor);
             shaderProg.setVar("colourFU", colourFactor);
             shaderProg.setVar("signedColourU", pipeline.signedRgb ? 1 : 0);
-            shaderProg.setVar("signedHueU", WhyTone.signedHue() ? 1 : 0);   // P370 (B2): a colour outside sRGB keeps its hue
+            shaderProg.setVar("signedHueU", WhyTone.signedHue() && !WhyTone.v2Colour() ? 1 : 0);   // P370 (B2): a colour outside sRGB keeps its hue (P676: not with V2's colour, clamped at 0 there)
             shaderProg.setVar("aeU", r.ae);
             shaderProg.setVar("clipU", r.clip);
             if (WhyTone.insetStrength() < 0.999f) shaderProg.setVar("insetU", WhyTone.insetStrength());   // P402
@@ -563,7 +564,7 @@ public final class WhyCombine extends Node {
             }
             // P11: the Bento ceiling / roll-off only with real headroom; saturated light fades towards white in the shoulder.
             shaderProg.setVar("headroomU", ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f ? 1 : 0);
-            shaderProg.setVar("hlWhiteU", Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f))));
+            shaderProg.setVar("hlWhiteU", WhyTone.hlWhite());   // P676: 0 with V2's colour
             if (lightChroma > 0f) shaderProg.setVar("lightChromaU", lightChroma);
             // P154 «Мягкость засветов»: the landing of blown light on the white point starts this far below the ceiling
             if (hlB != null) shaderProg.setVar("hlSoftU", hlSoft);
@@ -595,7 +596,7 @@ public final class WhyCombine extends Node {
             shaderProg.setVar("detailGainU", detail);
             // P672b: the detail carried as V2 carries it (WhyTone.detailSplit)
             shaderProg.setVar("detailSplitU", split);
-            shaderProg.setVar("deltaChromaU", Math.max(0f, Math.min(1f, WhyTone.value("delta_chroma", 1f))));
+            shaderProg.setVar("deltaChromaU", WhyTone.deltaChroma());   // P676: 0 with V2's colour
             shaderProg.setVar("filmToeU", WhyTone.value("film_toe", 0f));
             shaderProg.setVar("agxAU", r.slope, r.sp, r.tp, r.sat);
             shaderProg.setVar("agxBU", r.minEv, r.maxEv, r.ev,
@@ -661,7 +662,7 @@ public final class WhyCombine extends Node {
             if (oppShare != null) oppShare.close();
         }
         Log.i("SCAM_PIPELINE", "WHY combine ae=" + r.ae + " clip=" + r.clip + (r.hr > 0f ? " hr=" + r.hr : "") + (measured > 0f ? " measured=" + measured + " gmax=" + r.gmax : "") + " headroom=" + (ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f)
-                + " hlWhite=" + WhyTone.value("hl_white", 0.15f) + " hlSoft=" + WhyTone.value("hl_soft", 0.7f)
+                + (WhyTone.v2Colour() ? " v2Colour" : "") + " hlWhite=" + WhyTone.hlWhite() + " hlSoft=" + WhyTone.value("hl_soft", 0.7f)
                 + (lightChroma > 0f ? " lightChroma=" + lightChroma : "") + " grid=" + input.size.x + "x" + input.size.y
                 + " lowFactor=" + st.factor + (st.factor > 2 ? " colour=whyMid" : " colour=whyLow") + " detail=" + detail
                 + (sharp ? " (WhyLumaS, mul " + sharpMul + ")" : " (Sabre Y, bounded ref)")
