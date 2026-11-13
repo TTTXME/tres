@@ -160,6 +160,8 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
 - (scam_edit::EditMath::Uniforms)prepare:(const scam_edit::EditState &)tone {
     const scam_edit::EditMath::Uniforms u = scam_edit::EditMath::Uniforms::of(tone, *_source.colour);
     _renderer->updateProxy(u);
+    // P619: the «LUT» tab's look (EditorView: the tables EditLook loaded for the state; the cache keeps them per key)
+    _renderer->setLook(scam_edit::EditLook::on(tone) ? scam_edit::EditLook::applied(tone, scam_edit::EditLook::blocking(tone)) : std::nullopt);
     _renderer->renderSource(_sourceTex, _source.width, _source.height, float(std::max(_source.width, _source.height)),
                             scam_edit::CropMath::Affine(), u, true);
     return u;

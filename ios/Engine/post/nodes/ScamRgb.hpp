@@ -31,7 +31,7 @@ inline unsigned hardwareThreads() { return std::max(1u, std::thread::hardware_co
 
 namespace WhyCombineHelpers {
 inline float hlSoft() { return std::max(0.f, std::min(0.9f, WhyTone::value("hl_soft", 0.7f))); }
-inline bool landingDrawn(PostPipeline& p) { return hlSoft() > 0.f && p.film == nullptr; }
+inline bool landingDrawn(PostPipeline& p) { return hlSoft() > 0.f && !(p.film && p.film->strength >= 1.f); }
 }
 
 class ScamRgb : public Node {

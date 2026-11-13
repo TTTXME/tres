@@ -7,11 +7,13 @@
 #include "Parameters.hpp"
 #include "Settings.hpp"
 #include "color/ColourLook.hpp"
+#include "color/FilmLut.hpp"
 
 #include <array>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -114,7 +116,22 @@ public:
     std::vector<uint8_t> scamRgb;
     bool scamRgbHalf = false;
     std::vector<float> scamRgbDecimated;
-    void* film = nullptr;                   // FilmSim.Settings of the shot: no film on iOS yet (null)
+    // P369: the shot's film snapshot (PostPipeline.takeFilm: FilmSim.current, null without a stock or at strength 0) and the chosen
+    // LUT with its strength, taken once per shot
+    std::shared_ptr<const FilmSettings> film;
+    bool filmTaken = false;
+    std::string filmUserLut;
+    float filmUserStrength = 0.f;
+    // the reference film route (ReferenceFilm / ReferenceFilmMix): the engine's picture, its settings and the LUT on its print
+    Texture referenceFilmTexture;
+    std::shared_ptr<const FilmSettings> referenceFilmSettings;
+    FilmLutP referenceFilmUserLut;
+    bool referenceFilmApplied = false, referenceFilmNativeP3 = false;
+    std::set<const Node*> referenceFilmEffects, referenceFilmTone;
+    /// PostPipeline.skipNode: with the engine's picture, the film's own effects and (at strength 1) the tone it replaced
+    bool skipNode(const Node* node) const {
+        return referenceFilmApplied && (referenceFilmEffects.count(node) || (referenceFilmSettings->strength >= 1.f && referenceFilmTone.count(node)));
+    }
 
     Texture getMain() {
         if (texnum == 1) {
@@ -188,6 +205,12 @@ public:
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &bound);
         for (size_t i = 0; i < Nodes.size(); ++i) {
             Node& node = *Nodes[i];
+            if (skipNode(&node)) {
+                if (!node.previousNode) throw std::runtime_error("Cannot skip the first post node");
+                node.WorkingTexture = node.previousNode->WorkingTexture;
+                glProg->closed = true;
+                continue;
+            }
             node.BeforeCompile();
             node.Compile();
             node.BeforeRun();

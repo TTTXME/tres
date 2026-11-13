@@ -20,6 +20,21 @@ g++ -shared -fPIC -O2 -std=c++17 -I"$root/tools/host-include" -I"$jni" -I"$jni/l
 tp="$root/app/src/main/cpp/third_party/tone_port"
 g++ -shared -fPIC -O3 -std=c++17 -fexceptions -ffp-contract=off -fvisibility=hidden -pthread -I"$root/app/src/main/cpp" -I"$tp/include" \
     -I"$jni" -I"$jni/linux" "$root/app/src/main/cpp/oldstyle-tone-jni.cpp" "$tp"/src/*.cpp -o "$out/lib/libscameraTone.so"
+# the spectral film engine (libscameraFilm: the app's JNI and spektrafilm's Vulkan renderer, ReferenceFilm's route) only with
+# SCAM_HOST_FILM=1 on a host with a Vulkan driver (Mesa lavapipe) and the Vulkan headers; without it FilmReferenceEngine is
+# unavailable, as on a phone without the library (the old film route). film_host_bridge.cpp adds the C++ port's entry point.
+rm -f "$out/lib/libscameraFilm.so"
+if [ "${SCAM_HOST_FILM:-0}" = 1 ]; then
+    film="$root/app/src/main/cpp/third_party/spektrafilm"
+    glslc="${GLSLC:-$ANDROID_HOME/ndk/27.2.12479018/shader-tools/linux-x86_64/glslc}"
+    mkdir -p "$out/film-gen"
+    python3 "$root/tools/embed_film_reference.py" --compiler "$glslc" --shaders "$film/shaders" \
+        --floats "$root/app/src/main/assets/film-reference" --output "$out/film-gen" > /dev/null
+    g++ -shared -fPIC -O2 -std=c++17 -DSCAMERA_EMBEDDED_FILM=1 -I"$film" -I"$root/app/src/main/cpp" -I"$out/film-gen" -I"$jni" -I"$jni/linux" \
+        "$root/app/src/main/cpp/film-reference-jni.cpp" "$root/app/src/main/cpp/film-reference-resources.cpp" "$out/film-gen/embedded_film_data.cpp" \
+        "$film/SpektraVulkanRenderer.cpp" "$film/SpektraGeneratedProfileCurves.cpp" "$here/film_host_bridge.cpp" \
+        -o "$out/lib/libscameraFilm.so" -lvulkan -ldl
+fi
 filter="$1"; shift
 for kv in "$@"; do export "SCAM_HOST_$kv"; done
 export SCAM_HOST_DIR="$here" SCAM_HOST_GEN="$out/gen" SCAM_HOST_LIB="$out/lib" SCAM_HOST_OUT="$out"

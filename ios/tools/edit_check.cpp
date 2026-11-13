@@ -100,6 +100,8 @@ static void preview(EditRenderer& r, const PreviewSource& s, const EditState& st
     const EditMath::Uniforms u = EditMath::Uniforms::of(st, *s.colour);
     const auto o = s.oriented();
     r.updateProxy(u);
+    // P619: the «LUT» tab's look (EditorView: the tables EditLook loaded for the state)
+    r.setLook(EditLook::on(st) ? EditLook::applied(st, EditLook::blocking(st)) : std::nullopt);
     r.renderSource(srcTex, s.width, s.height, float(std::max(s.width, s.height)), CropMath::Affine(), u, true);
     EditRenderer::Target view;
     for (int mode = 0; mode < 2; mode++) {

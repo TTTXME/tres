@@ -133,10 +133,10 @@ struct PhotoEditorView: View {
     }
 
     private var tabBar: some View {
-        let icons = ["kb_ui_ic_crop_rest", "kb_ui_ic_styles_rest", "kb_ui_ic_sun_rest", "kb_ui_ic_palette_rest", "kb_ui_ic_effects_rest",
-                     "kb_ui_ic_detail_rest"]
-        let names = [L("editor.tab.crop"), L("editor.tab.styles"), L("editor.tab.light"), L("editor.tab.colour"), L("editor.tab.effects"),
-                     L("editor.tab.detail")]
+        let icons = ["kb_ui_ic_crop_rest", "kb_ui_ic_styles_rest", "cs_ic_film", "kb_ui_ic_sun_rest", "kb_ui_ic_palette_rest",
+                     "kb_ui_ic_effects_rest", "kb_ui_ic_detail_rest"]
+        let names = [L("editor.tab.crop"), L("editor.tab.styles"), L("editor.tab.look"), L("editor.tab.light"), L("editor.tab.colour"),
+                     L("editor.tab.effects"), L("editor.tab.detail")]
         return HStack(spacing: 4) {
             ForEach(EditorModel.Tab.allCases, id: \.rawValue) { t in
                 let on = t == model.tab
@@ -183,6 +183,7 @@ private struct EditorPanels: View {
     @State private var colourSection = 0
     @State private var hslBand = 0
     @State private var gradeWheel = 0
+    @State private var lookSection = 0
 
     static let bandColours: [Color] = [0xE5484D, 0xF08A24, 0xE8C531, 0x3FB950, 0x2EC4C4, 0x3B7BF6, 0x8E5BE8, 0xD94BC4].map { EditorPanels.rgb($0) }
     static let hueGradient: [Color] = [0xFF0000, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0xFF00FF, 0xFF0000].map { EditorPanels.rgb($0) }
@@ -196,6 +197,7 @@ private struct EditorPanels: View {
             switch model.tab {
             case .crop: crop
             case .styles: styles
+            case .look: look
             case .light: light
             case .colour: colour
             case .effects: params([.texture, .clarity, .dehaze, .vignette, .vignetteMid, .grain, .grainSize])
@@ -240,6 +242,12 @@ private struct EditorPanels: View {
         case .curveSplit3: return L("editor.param.split_highlights")
         case .gradeBlend: return L("editor.param.blending")
         case .gradeBalance: return L("editor.param.balance")
+        case .lutAmount, .filmAmount: return L("editor.param.strength")
+        case .filmGrain: return L("editor.param.grain")
+        case .filmExposure: return L("editor.param.exposure")
+        case .filmContrast: return L("editor.param.contrast")
+        case .filmDir: return L("editor.param.film_dir")
+        case .filmPrintEv: return L("editor.param.film_print_ev")
         default: return p.key
         }
     }
@@ -272,6 +280,9 @@ private struct EditorPanels: View {
         case .temperature, .tint: format = { [model] v in model.wbText(p, v) }
         case .gradeShHue, .gradeMidHue, .gradeHiHue, .gradeAllHue: format = { v in "\(EditParam.javaRound(v))°" }
         case .sharpenRadius: format = { v in Self.decimal(v, 1) }
+        case .filmExposure: format = { v in (v > 0 ? "+" : "") + Self.decimal(v, 1) + " EV" }
+        case .filmPrintEv: format = { v in (v > 0 ? "+" : "") + Self.decimal(v, 2) + " EV" }
+        case .lutAmount, .filmAmount, .filmGrain, .filmDir: format = { v in "\(EditParam.javaRound(v)) %" }
         default: break
         }
         let hue = [EditParam.gradeShHue, .gradeMidHue, .gradeHiHue, .gradeAllHue].contains(p)
@@ -366,6 +377,76 @@ private struct EditorPanels: View {
             }
             hint(L("editor.hint.styles"))
         }
+    }
+
+    // ---------------------------------------------------------------- P619 «LUT»
+
+    /// EditPanels.look: the camera's LUTs and its film stocks as cards with the photo through each, under the segmented control;
+    /// the strength, and for a film its print, format, grain, exposure, contrast, couplers and print exposure (only what acts on it)
+    private var look: some View {
+        let luts = FilmCatalog.luts(), stocks = [""] + FilmCatalog.stocks.map(\.id)
+        return VStack(spacing: 0) {
+            GallerySegments(names: ["LUT", L("editor.look.film")], selected: lookSection) { lookSection = $0 }
+            if lookSection == 0 {
+                lookCards(luts.map { v -> (String, String, String, Bool) in (v, FilmCatalog.lutName(v), "lut|" + v, v == model.state.lut) }) {
+                    model.setLut($0)
+                }
+                slider(.lutAmount)
+                hint(L("editor.hint.lut"))
+            } else {
+                lookCards(stocks.map { id -> (String, String, String, Bool) in
+                    (id, FilmCatalog.stock(id)?.name ?? L("editor.look.no_film"), "film|" + id, id == model.state.film)
+                }) { model.setFilm($0) }
+                if let st = FilmCatalog.stock(model.state.film) { filmParams(st) }
+                hint(L("editor.hint.film"))
+            }
+        }
+        .onAppear { model.loadLookThumbs(luts: luts, stocks: stocks) }
+    }
+
+    private func lookCards(_ cards: [(String, String, String, Bool)], pick: @escaping (String) -> Void) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(cards, id: \.0) { card in
+                    Button { pick(card.0) } label: {
+                        VStack(spacing: 4) {
+                            ZStack {
+                                Color.black
+                                if let image = model.lookThumbs[card.2] { Image(uiImage: image).resizable().scaledToFill() }
+                            }
+                            .frame(width: 53, height: 53).clipShape(RoundedRectangle(cornerRadius: 14))
+                            Text(card.1).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
+                                .multilineTextAlignment(.center).frame(width: 64)
+                        }
+                        .padding(5)
+                        .background(card.3 ? Self.rgb(0x3A3A3C) : Color.clear, in: RoundedRectangle(cornerRadius: 18))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(card.1)
+                }
+            }
+            .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 6)
+        }
+    }
+
+    /// EditPanels.filmParams: the chosen stock's controls (LutTray.filmParams)
+    @ViewBuilder private func filmParams(_ st: FilmCatalog.Stock) -> some View {
+        slider(.filmAmount)
+        if !st.reversal {
+            GallerySection(text: L("editor.look.print"))
+            let on = SCAMFilm.print(stored: model.state.filmPrint, stock: st.id)
+            chipRow(FilmCatalog.prints.map { p -> (String, Bool, () -> Void) in (p.name, p.id == on, { model.setFilmPrint(p.id) }) })
+        }
+        GallerySection(text: L("editor.look.format"))
+        let format = SCAMFilm.format(stored: model.state.filmFormat)
+        chipRow(FilmCatalog.formats.map { f -> (String, Bool, () -> Void) in (FilmCatalog.formatName(f), f.id == format, { model.setFilmFormat(f.id) }) })
+        slider(.filmGrain)
+        slider(.filmExposure)
+        if st.measured {
+            slider(.filmContrast)
+            slider(.filmDir)
+        }
+        if st.type != 2 && st.type != 4 { slider(.filmPrintEv) }
     }
 
     // ---------------------------------------------------------------- Свет

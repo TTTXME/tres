@@ -194,7 +194,33 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     CGImageDestinationAddAuxiliaryDataInfo(kCGImageAuxiliaryDataTypeISOGainMap) on iOS 18 (data + description: width, height, bytes
     per row, OneComponent8; metadata: the hdrgm XMP of UltraHdrContainer / IsoGainMap); iOS 17 saves SDR. Not checked on a device:
     whether ImageIO takes the ISO metadata from the hdrgm XMP of the auxiliary info.
-  - Not ported yet (they throw): DCG noise zones, film, lens filters, Portrait.
+  - 2026-11-13: film simulation, «Плёночный LUT» and lens filters. color/FilmSim.hpp (FilmSim: stocks / prints / formats,
+    Settings, current(), lutKey, our B&W Model, FilmAdvanced's halation / LUT-token parts; FilmSpectral: the SFD1 arrays of
+    assets/film, Film / Paper / Scan / Engine, double maths as the Java), color/FilmLut.hpp (FilmLut .cube parse + 3D RGB16F upload,
+    FilmLooks, FilmSim.lut / lutScene / grainLut, FilmChain current / lut / scene / compose, FinishedLook), color/LensFilters.hpp
+    (LensFilters ids / Tune / Choice.now, DiffusionModel, DiffusionGauss.plan), nodes/LensFilter.hpp (lens filter + FilmDiffusion),
+    FilmHalation.hpp, FilmGrain.hpp, ReferenceFilm.hpp (ReferenceFilm, ReferenceFilmMix, FilmReferenceParameters, the engine as a
+    hook); WhyCombine FILM_SIM / FILM_LUT / filmOnly gates / detailGain, WhyTone cctAmount, WhyLumaSharpen filmShare / neutral
+    guide, WhyV2Tone FILM_LUT, ScamRgb landingDrawn, PostPipelineRun takeFilm / lightNodes / routes / tail grain / skipNode /
+    gainMapWanted. GLProg.setTexture3D; ScamGL glTexImage3D / glTexSubImage3D and sampler3D binding (Metal, not run here).
+    Lenta variants against the Android reference on Mesa (post_node_check full), each 0 of 37748736 values differ: Portra 400 with
+    grain (grain_sf), halation 150 + softness (scatter), Ultra HDR asked (off with a film: no map on both); V2 chosen + Velvia 100
+    at 60 % with «Кино 500» at 70 % on its print, 645, exposure / contrast / DIR (V1 used); Tri-X 400 (our B&W model, classic grain +
+    MTF blur, 16 mm); Oldstyle V2 + Vision3 250D on Vision Premier 2393, format off, print EV / M / Y (the Why tone used); Black
+    Pro-Mist 60 % with its tune alone; Gold 200 with its Pro-Mist 2.0 diffusion + CineBloom lens filter + halation (Super 35);
+    «Тёплая 400» at 70 % on V1, «Слайд 100» on V2. Baselines still 0: lenta, texture, v2, os2, uhdr (map 0 of 50331648).
+    The reference film route needs spektrafilm's Vulkan renderer (libscameraFilm): with android-host/run.sh SCAM_HOST_FILM=1
+    (Mesa lavapipe, film_host_bridge.cpp) and post_node_check SCAM_FILM_LIB=<that library, built the same way>: Portra 400 at 100 % on V1 (grain,
+    halation, softness; engine 180 passes / 22 tiles) 0 of 37748736; Velvia 100 at 70 % on V2 with «Кино 500» 60 % (reference_mix
+    FILM_LUT) 0 of 37748736; without the engine the C++ differs (PSNR 24.9 dB), so the check discriminates. On the iPhone there is
+    no Vulkan driver: FilmReferenceEngine::renderer is unset, ReferenceFilm.supported false and every film takes the old route
+    (Android's behaviour without libscameraFilm). The Android phone takes the reference route for the 20 measured stocks, so their
+    look on iOS is the old route's until the renderer runs on Metal (its compute shaders on ScamGL, or MoltenVK).
+    Settings: App/FilmSettings.swift (FilmSimPage: film / print / format / effects, FilmLutPage with «Импорт .cube» into
+    Documents/LUT, LensFilterPage with the tune) behind SettingsRow's custom rows; Bridge/ScamFilm.{h,mm} (the catalogues, the LUT
+    folder, the cards' CPU look). project.yml bundles app/src/main/assets/film as "film".
+  - Not ported yet (they throw): DCG noise zones, Portrait. Not on iOS: the film's EXIF recipe (Parameters.filmRecipe), the live
+    viewfinder's film / LUT / lens filter.
     Transport: the base frame is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the
     DNG profile scaled by ISO.
   - The iOS settings screen writes the Android keys (Engine/PostSettings.swift, UserDefaults "scam.prefs"); unset keys take
@@ -248,8 +274,16 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   копию», «Оригинал» on long press, histogram, crop frame, tabs Кадр / Стили / Свет / Цвет / Эффекты / Детали with the Android
   sliders, ranges, defaults, curves, mixer, grading, B&W, styles), the copy saved as a new JPEG (q95, EXIF kept, orientation 1)
   into the album. MediaLibrary adds new shots to the album when the app has full library access.
-- Not done: the «LUT» tab (EditLook: camera LUTs / film simulation - FilmSim, FilmLut, FinishedLook not ported) and «Знак»
-  (watermark); the full-resolution zoom regions (P367: the preview zooms as a picture); gallery albums / search / filters /
+- 2026-11-13 «LUT» tab (P619): Editor/EditLook.hpp (EditLook.film / key / grain / overlap / applied / blocking on
+  Engine/post/color's FilmSim and FinishedLook), EditRenderer.renderLook (editor/look.glsl, then film/noise + film/blur +
+  film/grain_sf or film/grain; mipmaps), EditExport tiles with the look and its overlap; ScamEdit applies the state's look; Swift:
+  the tab after «Стили» (LUT / Плёнка segments, cards with the photo through each look (SCAMFilm.lookThumbnail), strength, print,
+  format, grain, exposure, contrast, DIR, print exposure as the Android tab). Without the Vulkan engine a film is FinishedLook's
+  first-phase table (FilmSim.lut), as on Android without it. edit_check against HostEditRender (now with the look; ScameraApp's
+  context mocked so FilmSpectral reads the assets): the 6 old cases + «Тёплая 400» 70 %, Portra 400 80 % + grain 120 + «Кино 500»
+  60 % on its print (16 mm, turned), HP5 grain 150 (Super 8), Velvia 100 format off + print EV / DIR, Vision3 500T on 2383 IMAX 70
+  grain 60 x 3 sources: 132 frames, 0 differ.
+- Not done: «Знак» (watermark) in the editor; the full-resolution zoom regions (P367: the preview zooms as a picture); gallery albums / search / filters /
   selection / compare / video; ScamGL editor output not compared with Mesa (needs the macOS runner).
 
 ## Watermark (2026-11-13)

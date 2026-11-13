@@ -1,11 +1,13 @@
 // EditRenderer + EditGl (gallery/editor) one to one: the photo editor's GPU pipeline on OpenGL ES 3 - the Android GLSL of
 // assets/shaders/editor unchanged (Mesa on the host, ScamGL on the iPhone). Passes: demosaic (RAW), the 512 px proxy (area
 // downscale, moments, two guided-filter rounds), nr, develop, gauss2 x2, main (mipmapped), finish (geometry, vignette, grain).
-// Stages are cached by their inputs for the preview, as on Android. The «LUT» tab's look (EditLook: the camera's LUTs and film
-// simulation) is not ported: the main pass's picture goes to finish.
+// Stages are cached by their inputs for the preview, as on Android. P619 the «LUT» tab's look (EditLook: the camera's LUTs and film
+// simulation): the display table (editor/look.glsl), then the film's grain with the camera's FilmGrain shaders (film/noise, film/blur,
+// film/grain_sf or film/grain), mipmapped; finish reads it.
 #pragma once
 
 #include "CropMath.hpp"
+#include "EditLook.hpp"
 #include "EditMath.hpp"
 
 #include <GLES3/gl31.h>
@@ -14,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -57,9 +60,12 @@ inline GLuint shader(GLenum type, const std::string& src, const std::string& nam
     return s;
 }
 
-inline GLuint program(const std::string& root, const std::string& fragment) {
+/// EditGl.filmSource: the camera's film shader (assets/shaders/film) with the version line
+inline std::string filmSource(const std::string& root, const std::string& name) { return "#version 300 es\n" + readFile(root + "/film/" + name); }
+
+inline GLuint link(const std::string& root, const std::string& fragmentSource, const std::string& fragment) {
     const GLuint vs = shader(GL_VERTEX_SHADER, "#version 300 es\n" + readFile(root + "/editor/quad.vert"), "quad.vert");
-    const GLuint fs = shader(GL_FRAGMENT_SHADER, fragmentSource(root, fragment), fragment);
+    const GLuint fs = shader(GL_FRAGMENT_SHADER, fragmentSource, fragment);
     const GLuint p = glCreateProgram();
     glAttachShader(p, vs);
     glAttachShader(p, fs);
@@ -76,6 +82,9 @@ inline GLuint program(const std::string& root, const std::string& fragment) {
     }
     return p;
 }
+inline GLuint program(const std::string& root, const std::string& fragment) { return link(root, fragmentSource(root, fragment), fragment); }
+/// EditGl.filmProgram
+inline GLuint filmProgram(const std::string& root, const std::string& name) { return link(root, filmSource(root, name), "film/" + name); }
 
 inline void params(bool linear, bool mip) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? (mip ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR) : GL_NEAREST);
@@ -215,6 +224,8 @@ public:
     ~EditRenderer() = default;
 
     void init(const std::string& shadersRoot) {
+        root_ = shadersRoot;
+        if (scam_post::filmAssetsRoot().empty()) scam_post::filmAssetsRoot() = shadersRoot + "/../film";
         pDemosaic = EditGl::program(shadersRoot, "demosaic.glsl");
         pNr = EditGl::program(shadersRoot, "nr.glsl");
         pDevelop = EditGl::program(shadersRoot, "develop.glsl");
@@ -388,10 +399,14 @@ public:
         if (!haveMain || k4 != kMain) {
             kMain = k4;
             haveMain = true;
+            haveLook = false;
             renderMain(w, h, texToProxy, u);
         }
-        outTex = main.tex; // renderLook without a look
+        renderLook(w, h, longSide, texToProxy);
     }
+
+    /// P619: the LUT / film to apply in the next renderSource (none: nothing)
+    void setLook(const std::optional<EditLook::Applied>& a) { lookApplied = a; }
 
     GLuint mainTexture() const { return outTex != 0 ? outTex : main.tex; }
     int mainWidth() const { return main.w; }
@@ -431,17 +446,24 @@ public:
 
     void releaseTargets() {
         for (Target* t : {&raw, &proxySrc, &pm, &pmTmp, &pmBlur, &ab, &abTmp, &abMid, &lm, &lmTmp, &lmBlur, &lab, &labTmp, &abLarge, &nr,
-                          &dev, &blurTmp, &blur, &main, &hist})
+                          &dev, &blurTmp, &blur, &main, &hist, &lookTmp, &look, &noiseA, &noiseB})
             t->release();
         outTex = 0;
+        haveLook = false;
         invalidate();
     }
 
     void release() {
         releaseTargets();
-        for (GLuint p : {pDemosaic, pNr, pDevelop, pArea, pProxy, pDown4, pGauss4, pGauss2, pGuided, pMain, pFinish})
+        for (GLuint p : {pDemosaic, pNr, pDevelop, pArea, pProxy, pDown4, pGauss4, pGauss2, pGuided, pMain, pFinish, pLook, pNoise, pBlur,
+                         pGrainSf, pGrainBw})
             if (p) glDeleteProgram(p);
         pDemosaic = pNr = pDevelop = pArea = pProxy = pDown4 = pGauss4 = pGauss2 = pGuided = pMain = pFinish = 0;
+        pLook = pNoise = pBlur = pGrainSf = pGrainBw = 0;
+        EditGl::deleteTexture(lookLutTex);
+        EditGl::deleteTexture(grainLutTex);
+        lookLutTex = grainLutTex = 0;
+        lookLutUp = grainLutUp = nullptr;
         EditGl::deleteTexture(lutTex);
         EditGl::deleteTexture(pointsTex);
         lutTex = pointsTex = 0;
@@ -455,6 +477,132 @@ private:
            pFinish = 0;
     GLuint lutTex = 0, pointsTex = 0;
     GLuint outTex = 0;
+    // P619: the look's programs (compiled on first use), its targets, its uploaded tables and what its output was made of
+    std::string root_;
+    GLuint pLook = 0, pNoise = 0, pBlur = 0, pGrainSf = 0, pGrainBw = 0;
+    GLuint lookLutTex = 0, grainLutTex = 0;
+    EditLook::FilmLutP lookLutUp, grainLutUp;
+    Target lookTmp, look, noiseA, noiseB;
+    std::optional<EditLook::Applied> lookApplied;
+    std::string kLook;
+    bool haveLook = false;
+
+    void lookPrograms(bool reference, bool classic) {
+        if (pLook == 0) pLook = EditGl::program(root_, "look.glsl");
+        if (reference && pGrainSf == 0) {
+            pNoise = EditGl::filmProgram(root_, "noise.glsl");
+            pBlur = EditGl::filmProgram(root_, "blur.glsl");
+            pGrainSf = EditGl::filmProgram(root_, "grain_sf.glsl");
+        }
+        if (classic && pGrainBw == 0) pGrainBw = EditGl::filmProgram(root_, "grain.glsl");
+    }
+
+    static void tex3d(GLuint p, const char* name, int unit, GLuint tex) {
+        glActiveTexture(GLenum(GL_TEXTURE0 + unit));
+        glBindTexture(GL_TEXTURE_3D, tex);
+        glUniform1i(loc(p, name), unit);
+    }
+
+    void filmBlur(Target& in, Target& out, float dx, float dy, float sigma) {
+        bind(out.fbo, out.w, out.h);
+        glUseProgram(pBlur);
+        texU(pBlur, "InputBuffer", 0, in.tex);
+        glUniform2f(loc(pBlur, "dir"), dx, dy);
+        glUniform1f(loc(pBlur, "sigma"), sigma);
+        draw();
+    }
+
+    /// EditRenderer.renderLook: the display table, then the film's grain - the noise hashed on the photo's pixel position (this
+    /// texture's corner from texToProxy), its blur and the grain sized for longSide, the whole photo's long side in its pixels
+    void renderLook(int w, int h, float longSide, const CropMath::Affine& texToProxy) {
+        if (!lookApplied) {
+            outTex = main.tex;
+            haveLook = false;
+            return;
+        }
+        const EditLook::Applied& a = *lookApplied;
+        const int ox = int(std::floor(texToProxy.c * w / texToProxy.a + 0.5)), oy = int(std::floor(texToProxy.f * h / texToProxy.e + 0.5));
+        const std::optional<EditLook::Grain> g = EditLook::grain(a.film.get(), longSide);
+        const bool grainOn = g && (!g->reference || a.grainLut);
+        std::string k = kMain + "|" + a.key + "|" + std::to_string(ox) + "," + std::to_string(oy) + "|";
+        put(k, longSide);
+        k += std::to_string(reinterpret_cast<uintptr_t>(a.lut.get())) + "," + std::to_string(reinterpret_cast<uintptr_t>(a.grainLut.get()))
+             + (grainOn ? "1" : "0");
+        if (haveLook && k == kLook && look.tex != 0 && look.w == w && look.h == h) {
+            outTex = look.tex;
+            return;
+        }
+        try {
+            lookPrograms(grainOn && g->reference, grainOn && !g->reference);
+        } catch (const std::exception&) {
+            outTex = main.tex;
+            haveLook = false;
+            lookApplied.reset();
+            return;
+        }
+        kLook = k;
+        haveLook = true;
+        if (a.lut != lookLutUp) {
+            EditGl::deleteTexture(lookLutTex);
+            lookLutTex = a.lut->upload();
+            lookLutUp = a.lut;
+        }
+        const int levels = EditGl::levelsFor(w, h);
+        look.ensure(w, h, GL_RGBA8, true, levels);
+        Target& colour = grainOn ? lookTmp : look;
+        if (grainOn) lookTmp.ensure(w, h, GL_RGBA8, false, 1);
+        bind(colour.fbo, w, h);
+        glUseProgram(pLook);
+        texU(pLook, "uImg", 0, main.tex);
+        tex3d(pLook, "uLut", 1, lookLutTex);
+        glUniform1f(loc(pLook, "uLutStrength"), a.strength);
+        glUniform1f(loc(pLook, "uLutSize"), float(a.lut->size));
+        glUniform3f(loc(pLook, "uLutMin"), a.lut->domainMin[0], a.lut->domainMin[1], a.lut->domainMin[2]);
+        glUniform3f(loc(pLook, "uLutScale"), 1.f / (a.lut->domainMax[0] - a.lut->domainMin[0]), 1.f / (a.lut->domainMax[1] - a.lut->domainMin[1]),
+                    1.f / (a.lut->domainMax[2] - a.lut->domainMin[2]));
+        draw();
+        if (grainOn) {
+            if (g->reference) {
+                if (a.grainLut != grainLutUp) {
+                    EditGl::deleteTexture(grainLutTex);
+                    grainLutTex = a.grainLut->upload();
+                    grainLutUp = a.grainLut;
+                }
+                noiseA.ensure(w, h, GL_RGBA16F, false, 1);
+                noiseB.ensure(w, h, GL_RGBA16F, false, 1);
+                bind(noiseA.fbo, w, h);
+                glUseProgram(pNoise);
+                glUniform1f(loc(pNoise, "seed"), g->seed);
+                glUniform2i(loc(pNoise, "originU"), ox, oy);
+                draw();
+                filmBlur(noiseA, noiseB, 1.f, 0.f, g->blurPx);
+                filmBlur(noiseB, noiseA, 0.f, 1.f, g->blurPx);
+                bind(look.fbo, w, h);
+                glUseProgram(pGrainSf);
+                texU(pGrainSf, "InputBuffer", 0, lookTmp.tex);
+                texU(pGrainSf, "Noise", 1, noiseA.tex);
+                tex3d(pGrainSf, "GrainLut", 2, grainLutTex);
+                glUniform1f(loc(pGrainSf, "scale"), g->scale);
+                glUniform1f(loc(pGrainSf, "lutSize"), float(a.grainLut->size));
+                draw();
+            } else {
+                bind(look.fbo, w, h);
+                glUseProgram(pGrainBw);
+                texU(pGrainBw, "InputBuffer", 0, lookTmp.tex);
+                glUniform3f(loc(pGrainBw, "sigma"), g->sigma, g->sigma, g->sigma * 1.25f);
+                glUniform3f(loc(pGrainBw, "cell"), g->cell, g->cell, g->cell * 1.4f);
+                glUniform1f(loc(pGrainBw, "sharedPart"), g->sharedPart);
+                glUniform1i(loc(pGrainBw, "slide"), g->slide ? 1 : 0);
+                glUniform1i(loc(pGrainBw, "mono"), g->mono ? 1 : 0);
+                glUniform1f(loc(pGrainBw, "seed"), g->seed);
+                glUniform2f(loc(pGrainBw, "originU"), float(ox), float(oy));
+                draw();
+            }
+        }
+        glBindTexture(GL_TEXTURE_2D, look.tex);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        outTex = look.tex;
+    }
     GLenum momentFormat = GL_RGBA16F;
     Target raw, proxySrc;
     Target pm, pmTmp, pmBlur, ab, abTmp, abMid;

@@ -61,6 +61,10 @@ public class HostEditRender {
         final long outMaxSmall = Long.parseLong(System.getenv().getOrDefault("SCAM_HOST_EDIT_OUTMAX", "1000000"));
         final List<String> cases = Files.readAllLines(new File(in, "cases.txt").toPath(), StandardCharsets.UTF_8);
         final Context context = RuntimeEnvironment.getApplication();
+        // P619: the film's arrays are the app's assets (FilmSpectral reads them through ScameraApp's context, as on the phone)
+        final org.mockito.MockedStatic<com.particlesdevs.photoncamera.app.ScameraApp> app =
+                org.mockito.Mockito.mockStatic(com.particlesdevs.photoncamera.app.ScameraApp.class);
+        app.when(com.particlesdevs.photoncamera.app.ScameraApp::getAppContext).thenReturn(context);
         GLContext gl = new GLContext(1, 1);
         try {
             EditRenderer r = new EditRenderer();
@@ -84,6 +88,7 @@ public class HostEditRender {
             r.release();
         } finally {
             gl.close();
+            app.close();
         }
     }
 
@@ -155,7 +160,8 @@ public class HostEditRender {
         }
         r.setProxySource(srcTex, s.w, s.h);
         EditMath.Uniforms u = EditMath.Uniforms.of(st, s.colour);
-        r.setLook(null);
+        // P619: the «LUT» tab's look as EditorView applies it (the tables of the state, EditLook.blocking as the export takes them)
+        r.setLook(EditLook.on(st) ? EditLook.applied(st, EditLook.blocking(RuntimeEnvironment.getApplication(), st, null, 0)) : null);
         double[] o = CropMath.swapsSides(s.orientation) ? new double[]{s.h, s.w} : new double[]{s.w, s.h};
         r.updateProxy(u);
         r.renderSource(srcTex, s.w, s.h, Math.max(s.w, s.h), CropMath.Affine.IDENTITY, u, true);
@@ -218,7 +224,8 @@ public class HostEditRender {
         final CropMath.Affine outToBase = plan.outToBase, baseToImg = plan.baseToImg, imgToSrcUv = plan.imgToSrcUv;
         final CropMath.Affine outToSrcPx = plan.outToSrcPx;
         int overlap = EditLook.overlap(st, Math.max(sw, sh)) + 2;
-        r.setLook(null);
+        // EditExporter.export: the look from the tables the preview ended at (EditorViewModel: EditLook.blocking)
+        r.setLook(EditLook.on(st) ? EditLook.applied(st, EditLook.blocking(RuntimeEnvironment.getApplication(), st, null, 0)) : null);
         EditRenderer.Target tile = new EditRenderer.Target();
         final int TILE = EditExporter.TILE;
         ByteBuffer pixels = ByteBuffer.allocateDirect(TILE * TILE * 4).order(ByteOrder.LITTLE_ENDIAN);

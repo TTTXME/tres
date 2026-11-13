@@ -666,7 +666,7 @@ void bindResources(Context& c, Program& p, id<MTLComputeCommandEncoder> ce, id<M
         }
         case scamgl::Resource::Sampled: {
             const int unit = p.samplerUnit[size_t(sampled++)] & 31;
-            const GLuint name = r.arrayed ? c.tex2DArray[unit] : c.tex2D[unit];
+            const GLuint name = r.volume ? c.tex3D[unit] : r.arrayed ? c.tex2DArray[unit] : c.tex2D[unit];
             auto t = gTextures.find(name);
             if (t == gTextures.end() || !t->second.mtl) { note("texture unit " + std::to_string(unit) + " empty"); break; }
             setTexture(t->second.mtl, r.mslIndex);
@@ -984,7 +984,9 @@ static void storage(GLenum target, GLsizei levels, GLenum internal, GLsizei widt
     d.depth = target == GL_TEXTURE_3D ? NSUInteger(depth) : 1;
     d.arrayLength = target == GL_TEXTURE_2D_ARRAY ? NSUInteger(depth) : 1;
     d.mipmapLevelCount = NSUInteger(std::max(1, int(levels)));
-    d.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView | MTLTextureUsageRenderTarget;
+    // a 3D texture (the film's LUTs) is only sampled
+    d.usage = target == GL_TEXTURE_3D ? MTLTextureUsageShaderRead
+                                      : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView | MTLTextureUsageRenderTarget;
     d.storageMode = MTLStorageModeShared;
     t->mtl = [metalDevice() newTextureWithDescriptor:d];
     if (!t->mtl) { fail(GL_OUT_OF_MEMORY); return; }
@@ -1036,6 +1038,43 @@ void glTexSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei width
         [e copyFromBuffer:staging sourceOffset:0 sourceBytesPerRow:row sourceBytesPerImage:row * size_t(height)
                sourceSize:MTLSizeMake(NSUInteger(width), NSUInteger(height), 1) toTexture:dst destinationSlice:0
          destinationLevel:NSUInteger(level) destinationOrigin:MTLOriginMake(NSUInteger(x), NSUInteger(y), 0)];
+    });
+}
+// The film's 3D LUTs (FilmLut.upload: glTexImage3D of RGB float rows, red fastest, one slice per blue step): stored as RGBA16Float
+// (Metal has no 3-channel formats), every slice converted as glTexSubImage2D converts its rows.
+void glTexImage3D(GLenum target, GLint level, GLint internal, GLsizei width, GLsizei height, GLsizei depth, GLint, GLenum format, GLenum type,
+                  const void* pixels) {
+    if (level == 0) storage(target, 1, GLenum(internal), width, height, depth);
+    if (pixels) glTexSubImage3D(target, level, 0, 0, 0, width, height, depth, format, type, pixels);
+}
+void glTexSubImage3D(GLenum target, GLint level, GLint x, GLint y, GLint z, GLsizei width, GLsizei height, GLsizei depth, GLenum format,
+                     GLenum type, const void* pixels) {
+    Guard g(gLock);
+    Context* c = ctx();
+    Texture* t = c ? boundTexture(*c, target) : nullptr;
+    if (!t || !t->mtl) { fail(GL_INVALID_OPERATION); return; }
+    const int bpp = componentsOf(format) * typeBytes(type);
+    const uint8_t* src = static_cast<const uint8_t*>(pixels);
+    if (Buffer* unpack = bufferBound(*c, GL_PIXEL_UNPACK_BUFFER)) src = static_cast<const uint8_t*>(unpack->mtl.contents) + reinterpret_cast<uintptr_t>(pixels);
+    if (!src || width <= 0 || height <= 0 || depth <= 0) return;
+    size_t row = rowBytes(width, bpp, c->unpackRowLength, c->unpackAlignment);
+    id<MTLBuffer> staging;
+    if (bpp != formatOf(t->internal).bytes) {
+        const Layout to = storageLayout(t->mtl.pixelFormat), from = clientLayout(format, type);
+        if (!to.components || !from.components) { note("glTexSubImage3D: conversion not supported"); fail(GL_INVALID_OPERATION); return; }
+        const std::vector<uint8_t> converted = convertRows(src, row, width, height * depth, from, to, false);
+        row = size_t(to.size()) * size_t(width);
+        staging = [metalDevice() newBufferWithBytes:converted.data() length:converted.size() options:MTLResourceStorageModeShared];
+    } else {
+        const size_t bytes = row * size_t(height) * size_t(depth);
+        staging = [metalDevice() newBufferWithBytes:src length:bytes options:MTLResourceStorageModeShared];
+    }
+    id<MTLTexture> dst = t->mtl;
+    const size_t image = row * size_t(height);
+    blit(*c, ^(id<MTLBlitCommandEncoder> e) {
+        [e copyFromBuffer:staging sourceOffset:0 sourceBytesPerRow:row sourceBytesPerImage:image
+               sourceSize:MTLSizeMake(NSUInteger(width), NSUInteger(height), NSUInteger(depth)) toTexture:dst destinationSlice:0
+         destinationLevel:NSUInteger(level) destinationOrigin:MTLOriginMake(NSUInteger(x), NSUInteger(y), NSUInteger(z))];
     });
 }
 // The photo editor's mipmapped picture (EditRenderer: main / look, sampled with GL_LINEAR_MIPMAP_LINEAR by finish): the levels
@@ -1391,7 +1430,7 @@ void glGetActiveUniform(GLuint program, GLuint index, GLsizei bufSize, GLsizei* 
         if (!found) { fail(GL_INVALID_VALUE); return; }
         n = found->name;
         if (size) *size = 1;
-        if (type) *type = found->arrayed ? GL_SAMPLER_2D_ARRAY : GL_SAMPLER_2D;
+        if (type) *type = found->volume ? GL_SAMPLER_3D : found->arrayed ? GL_SAMPLER_2D_ARRAY : GL_SAMPLER_2D;
     }
     const size_t len = bufSize > 0 ? std::min(n.size(), size_t(bufSize - 1)) : 0;
     if (name && bufSize > 0) { std::memcpy(name, n.data(), len); name[len] = 0; }

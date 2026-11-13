@@ -317,8 +317,12 @@ inline std::array<float, 2> sunBloomGate(PostPipeline& p) {
 inline bool dynamicCctOn() { return prefs().hybridSwitch("why_dynamic_cct", false); }
 inline float dynamicCctStrength() { return std::max(0.f, std::min(1.f, value("dynamic_cct_strength", 0.6f))); }
 constexpr float CCT_SAT = 1.1f;
-/// cctAmount without a film (the film's share is not ported: no film on iOS)
-inline float cctAmount(float v, float /*neutral*/) { return v; }
+/// WhyTone.cctAmount: camera calibration and the chosen white balance stay; only our extra CCT look gives way to the film
+inline float cctAmount(float value, float neutral, const FilmSettings* film) {
+    if (!film || film->strength <= 0.f) return value;
+    if (film->strength >= 1.f) return neutral;
+    return neutral + (value - neutral) * (1.f - film->strength);
+}
 inline float gain(const std::string& key) { return std::max(0.7f, std::min(1.3f, value(key, 1.f))); }
 
 inline OptMat3 cctGain(std::array<float, 3> g, const OptMat3& white) {
@@ -334,9 +338,10 @@ inline OptMat3 cctSat(float k, const OptMat3& white) {
         for (int j = 0; j < 3; j++) sat[size_t(i * 3 + j)] = (i == j ? k : 0.f) + (1.f - k) * luma[j];
     return white ? ColourLook::mul(sat, *white) : sat;
 }
-inline OptMat3 withCctSat(const OptMat3& white) {
-    return cctGain({cctAmount(gain("cct_gain_r"), 1.f), cctAmount(gain("cct_gain_g"), 1.f), cctAmount(gain("cct_gain_b"), 1.f)},
-                   cctSat(cctAmount(std::max(0.f, std::min(2.f, value("cct_sat", CCT_SAT))), 1.f), white));
+inline OptMat3 withCctSat(const OptMat3& white, const FilmSettings* film = nullptr) {
+    if (film && film->strength >= 1.f) return white;
+    return cctGain({cctAmount(gain("cct_gain_r"), 1.f, film), cctAmount(gain("cct_gain_g"), 1.f, film), cctAmount(gain("cct_gain_b"), 1.f, film)},
+                   cctSat(cctAmount(std::max(0.f, std::min(2.f, value("cct_sat", CCT_SAT))), 1.f, film), white));
 }
 
 inline Mat3 intermediateToSRGB(const Parameters& p) {
@@ -345,11 +350,11 @@ inline Mat3 intermediateToSRGB(const Parameters& p) {
     return m;
 }
 
-inline Mat3 colourMatrixOf(const Parameters& p, const OptMat3& white) {
+inline Mat3 colourMatrixOf(const Parameters& p, const OptMat3& white, const FilmSettings* film = nullptr) {
     Mat3 m = intermediateToSRGB(p);
     if (white) m = ColourLook::mul(*white, m);
-    if (dynamicCctOn()) m = dynamicCct(m, p.iso, cctAmount(dynamicCctStrength(), 0.f));
-    const OptMat3 look = withCctSat(std::nullopt);
+    if (dynamicCctOn()) m = dynamicCct(m, p.iso, cctAmount(dynamicCctStrength(), 0.f, film));
+    const OptMat3 look = withCctSat(std::nullopt, film);
     return look ? ColourLook::mul(*look, m) : m;
 }
 
@@ -357,7 +362,7 @@ inline Mat3 colourMatrix(PostPipeline& pipeline) {
     if (pipeline.why && pipeline.why->colourMatrix) return *pipeline.why->colourMatrix;
     const Parameters& p = pipeline.mParameters;
     const OptMat3 white = colourLook().whiteMatrix(p.sceneCct);
-    const Mat3 m = colourMatrixOf(p, white);
+    const Mat3 m = colourMatrixOf(p, white, pipeline.film.get());
     if (white) {
         std::string w;
         for (size_t i = 0; i < 9; i++) w += (i ? ", " : "[") + javaFloatString((*white)[i]);

@@ -227,6 +227,19 @@ struct SettingsRow: View {
                             .textFieldStyle(.roundedBorder).font(.footnote.monospaced())
                     }
                 }
+            case "custom:FilmSimPreference":
+                NavigationLink { FilmSimPage() } label: {
+                    label(detail: FilmCatalog.stock(store.string("pref_film_sim_stock", "")).map { $0.brand + " " + $0.name } ?? L("film.off"))
+                }
+            case "custom:FilmLutPreference":
+                NavigationLink { FilmLutPage() } label: { label(detail: FilmCatalog.lutName(store.string("pref_film_lut", ""))) }
+            case "custom:LensFilterPreference":
+                NavigationLink { LensFilterPage() } label: {
+                    let id = store.string("pref_lens_filter", "")
+                    label(detail: FilmCatalog.lensName(SCAMFilm.lensFilters().contains(id) ? id : ""))
+                }
+            case "custom:WatermarkPreviewPreference":
+                WatermarkPreview()
             case "custom:ResetPreferences":
                 Button(role: .destructive) { store.reset() } label: { label(detail: nil) }
             default:

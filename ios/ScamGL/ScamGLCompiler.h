@@ -16,6 +16,7 @@ struct Resource {
     int mslIndex = 0;     // [[buffer(n)]] or [[texture(n)]]
     int mslSampler = -1;  // [[sampler(n)]] for Sampled
     bool arrayed = false; // 2D array texture / image
+    bool volume = false;  // a 3D texture (sampler3D: the film's LUTs)
     std::string name;
 };
 

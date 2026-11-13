@@ -79,6 +79,14 @@ public class HostPostRender {
         PreferenceKeys.initialise(manager);
         settings = new com.particlesdevs.photoncamera.api.Settings();
         camera.when(ScameraApp::getSettings).thenReturn(settings);
+        // run.sh SCAM_HOST_FILM=1 (the spectral film engine built for the host): ReferenceFilm's memory headroom as a phone's (its
+        // budget then 3 GB, as the C++ port's)
+        if ("1".equals(System.getenv("SCAM_HOST_FILM"))) {
+            final android.app.ActivityManager.MemoryInfo memory = new android.app.ActivityManager.MemoryInfo();
+            memory.availMem = 16L << 30;
+            memory.totalMem = 16L << 30;
+            org.robolectric.Shadows.shadowOf((android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE)).setMemoryInfo(memory);
+        }
     }
 
     @After public void tearDown() {

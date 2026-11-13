@@ -5,6 +5,8 @@
 //   post_node_check <shaders root> <shot dir> <reference dir> <nodes> [--inject] [--save <dir>]
 //   <nodes>: comma separated, e.g. ScamRgb
 // "full" also compares the Ultra HDR gain map (the shot's pref_ultrahdr_key) with the reference's gainmap.rgba / gainmap.txt.
+// The reference film route (ReferenceFilm): with SCAM_FILM_LIB = the host's libscameraFilm.so (android-host/run.sh SCAM_HOST_FILM=1)
+// the spectral film engine is that library's (dlopen, scam_film_host_render), as the reference's; unset, it is unavailable.
 // «Oldstyle» needs the owner's tone-port module: build with -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include
 // (without them the tool builds as before and an Oldstyle shot stops at its tone).
 #include "../Engine/post/WorkerOutput.hpp"
@@ -14,6 +16,8 @@
 #include "../Engine/post/nodes/WhyMsDenoise.hpp"
 #include "../Engine/post/nodes/WhyLumaSharpen.hpp"
 #include "../Engine/post/PostPipelineRun.hpp"
+#include <dlfcn.h>
+#include <sys/stat.h>
 #if __has_include("tone_port.h") && __has_include("oldstyle-tone-core.h")
 #include "../Engine/post/oldstyle/ToneUnity.hpp"
 #else
@@ -139,6 +143,24 @@ int main(int argc, char** argv) {
         const bool effectiveMap = (flags & 16) == 0, clipFlags = (flags & 4) != 0;
         const bool highlightMask = settings.scamDevSwitch("why_hl_dezipper", true);
 
+        if (const char* lib = std::getenv("SCAM_FILM_LIB")) {
+            void* handle = dlopen(lib, RTLD_NOW);
+            if (!handle) throw std::runtime_error(std::string("SCAM_FILM_LIB: ") + dlerror());
+            using RenderFn = int (*)(const char*, const void*, void*, const uint8_t*, int, int, int, long long, int);
+            const auto render = reinterpret_cast<RenderFn>(dlsym(handle, "scam_film_host_render"));
+            const auto report = reinterpret_cast<const char* (*)()>(dlsym(handle, "scam_film_host_report"));
+            if (!render || !report) throw std::runtime_error("SCAM_FILM_LIB: no scam_film_host_render");
+            static std::string cache = refDir + "/film-cache";
+            mkdir(cache.c_str(), 0755);
+            // FilmReferenceEngine.queuePolicy: scam_dev film_vk_queue_policy (0 legacy, else 1)
+            const int policy = settings.scamDevNumber("film_vk_queue_policy", 1.f) == 0.f ? 0 : 1;
+            FilmReferenceEngine::renderer() = [render, report, policy](const uint16_t* in, uint16_t* out, const FilmReferenceParameters& params,
+                                                                       int w, int h, int64_t budget) {
+                if (render(cache.c_str(), in, out, params.data.data(), FilmReferenceParameters::BYTES, w, h, budget, policy) != 0)
+                    throw std::runtime_error(report());
+                return std::string(report());
+            };
+        }
         GLProg prog(shaders);
         PostPipeline p;
         p.glProg = &prog;
@@ -162,7 +184,8 @@ int main(int argc, char** argv) {
             std::snprintf(prefix, sizeof prefix, "%02d-", i);
             for (const char* name : {"ScamRgb", "ScamHdrDenoise", "WhyHlDezipper", "WhyMsDenoise", "WhyStats", "WhyFusion", "WhyLumaSharpen",
                                      "WhyFused", "WhyLumaS", "WhyCombine", "WhyV2Stats", "WhyV2Highlights", "WhyV2Fusion",
-                                     "WhyV2Tone", "ScamLocalContrast", "FinalResize", "OldstyleTone", "OldstyleStyle"}) {
+                                     "WhyV2Tone", "ScamLocalContrast", "FinalResize", "OldstyleTone", "OldstyleStyle", "LensFilter", "FilmDiffusion",
+                                     "FilmHalation", "FilmGrain"}) {
                 const std::string path = refDir + "/dump/" + prefix + name + ".f32";
                 if (std::ifstream(path).good()) dumps.push_back(path);
             }

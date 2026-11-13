@@ -3,3 +3,4 @@
 #import "ScamMerge.h"
 #import "ScamShot.h"
 #import "ScamEdit.h"
+#import "ScamFilm.h"

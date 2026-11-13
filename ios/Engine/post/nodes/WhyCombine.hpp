@@ -1,8 +1,8 @@
 // WhyCombine.java one to one (the default GL model): the WHY tone's final pass - the highlight landing mask, the fused luma's
 // local contrast, the rim support tiles, the sun bloom and the opposed landing of ScamRgb, the sky, the colour look and the
 // tone curve - into the next main; with Ultra HDR the sky term's ratio for the gain map (skyHdrRatio). Not ported (they throw or
-// stay off): Portrait faces, the film simulation and its LUT, the scene luma cache (the reference renders without it: the original
-// colour evaluation).
+// stay off): Portrait faces, the scene luma cache (the reference renders without it: the original colour evaluation). The film
+// simulation's scene table (FILM_SIM) and «Плёночный LUT» (FILM_LUT) as the Java.
 #pragma once
 
 #include "WhyFusion.hpp"
@@ -40,7 +40,20 @@ public:
         const float v = Settings::current().hybridValue("why_night_detail", NIGHT_DETAIL);
         return std::isnan(v) ? NIGHT_DETAIL : std::max(0.f, std::min(2.f, v));
     }
-    static float detailGain(float sharpGain, float snr) { return sharpGain * detailBoost(snr, nightDetail()); }
+    /// with a film the gain and boost only on the share the simulation's strength leaves
+    static float detailGain(float sharpGain, float snr, const FilmSettings* film) {
+        const float boost = detailBoost(snr, nightDetail());
+        if (!film) return sharpGain * boost;
+        return 1.f + (sharpGain * boost - 1.f) * (1.f - film->strength);
+    }
+    /// WhyAe.filmAe: the meter before the highlight overflow's cut, within the noise clamp and the x9 cap
+    static float filmAe(const WhyAe::Result& r) {
+        float a = r.ae * r.deficit;
+        if (r.maxGainByNoise > 0.f) a = std::min(a, std::max(r.ae, r.maxGainByNoise));
+        return std::min(a, std::max(r.ae, 9.f));
+    }
+    /// P378: the highlight landing can be drawn: «Мягкость засветов» on and no film at 100 %
+    static bool landingDrawn(float soft, const FilmSettings* film) { return soft > 0.f && !(film && film->strength >= 1.f); }
     static float hlSoft() { return std::max(0.f, std::min(0.9f, WhyTone::value("hl_soft", 0.7f))); }
     static int fastShortFrames(const std::string& report) {
         static const std::regex re("HYBRID FAST MERGE HIGHLIGHT: accumulated validity of (\\d+) valid short frame");
@@ -175,11 +188,23 @@ public:
         }
         const bool sharp = st.lumaS != nullptr;
         const float sharpMul = st.sharpMul;
-        const float detail = sharp ? detailGain(WhyTone::value("sharp_gain", 1.0f), pipeline.mParameters.finishSnr) : 2.0f;
+        const FilmSettings* film = pipeline.film.get();
+        const float detail = sharp ? detailGain(WhyTone::value("sharp_gain", 1.0f), pipeline.mParameters.finishSnr, film) : 2.0f;
         const ColourLook look = WhyTone::colourLook();
         const int toneOp = WhyTone::toneOperator();
         const bool colourOn = WhyTone::colourLookOn(look, toneOp, r.sat);
         const float lightChroma = toneOp == ToneCurve::AGX ? WhyTone::lightChroma() : 0.f;
+        // P369: with a film the scene-referred table (FILM_SIM); a film whose data cannot be read gives the photo no film
+        const std::optional<FilmChain::Scene> scene = !film ? std::nullopt : FilmChain::scene(*film, pipeline.filmUserLut, pipeline.filmUserStrength);
+        const bool filmOnly = scene && film->strength >= 1.f;
+        const float filmExp = filmAe(r) / std::max(r.ae, 1e-6f) * FilmSim::METER_TO_FILM;
+        // P134 «Плёночный LUT» (FILM_LUT) without a film only
+        const std::optional<FilmChain::State> chain = scene ? std::nullopt
+                                                            : std::optional<FilmChain::State>(FilmChain::current(nullptr, pipeline.filmUserLut, pipeline.filmUserStrength));
+        const float lutStrength = chain ? chain->strength : 0.f;
+        const std::string lutName = chain ? chain->key : "";
+        const FilmLutP lut = lutStrength > 0.f && !lutName.empty() ? FilmChain::lut(lutName) : nullptr;
+        GLuint lutTexture = 0;
         Texture hlA, hlB, sunBloom, oppShare, fusedLc;
         std::unique_ptr<GLBuffer> rimTiles;
         GLint rimBindings[2] = {0, 0};
@@ -204,7 +229,7 @@ public:
         const bool realClip = pipeline.merge.lastRealClip || pipeline.merge.lastBentoUsClipped > 0.f;
         measured = measuredShoulder(r, realClip, pipeline.merge.lastReport, WhyTone::hlMeasured());
         const float measCeil = measuredCeiling(r, measured, WhyTone::hlMeasuredMax());
-        if (soft > 0.f && realClip) {
+        if (soft > 0.f && realClip && !filmOnly) {
             const Point hlSize = st.low->mSize;
             hlA = makeTexture(hlSize, GLFormat(DataType::FLOAT_16, 1), nullptr, GL_LINEAR, GL_CLAMP_TO_EDGE);
             hlB = makeTexture(hlSize, GLFormat(DataType::FLOAT_16, 1), nullptr, GL_LINEAR, GL_CLAMP_TO_EDGE);
@@ -231,7 +256,7 @@ public:
             hlA = nullptr;
         }
         const float lc = WhyTone::localContrast();
-        if (lc > 0.f) {
+        if (lc > 0.f && !filmOnly) {
             const GLFormat one16(DataType::FLOAT_16, 1);
             GLTexture lcA(st.fused->mSize, one16, nullptr, GL_NEAREST, GL_CLAMP_TO_EDGE);
             GLTexture lcB(st.fused->mSize, one16, nullptr, GL_NEAREST, GL_CLAMP_TO_EDGE);
@@ -265,12 +290,14 @@ public:
         const bool oppOn = oppShare != nullptr;
         if (colourOn) prog.setDefine("COLOUR_LOOK", 1);
         if (toneOp != ToneCurve::AGX) prog.setDefine("TONE_OP", 1);
+        if (lut) prog.setDefine("FILM_LUT", 1);
+        if (scene) prog.setDefine("FILM_SIM", 1);
         if (r.hr > 0.f) prog.setDefine("HEADROOM_WIDE", 1);
         if (measured > 0.f) prog.setDefine("HL_MEASURED", 1);
         sunBloom = pipeline.sunBloom;
         pipeline.sunBloom = nullptr;
         const auto bloomSize = pipeline.sunBloomSize;
-        if (sunBloom && (!bloomSize || bloomSize->x * input->mSize.y != bloomSize->y * input->mSize.x)) { sunBloom->close(); sunBloom = nullptr; }
+        if (sunBloom && (filmOnly || !bloomSize || bloomSize->x * input->mSize.y != bloomSize->y * input->mSize.x)) { sunBloom->close(); sunBloom = nullptr; }
         if (sunBloom) prog.setDefine("SUN_BLOOM", 1);
         const bool sunBloomOn = sunBloom != nullptr;
         if (st.sky) prog.setDefine("SKY", 1);
@@ -293,7 +320,7 @@ public:
         if (whyVib) prog.setDefine("WHY_VIB", 1);
         const bool whyVibrance = WhyTone::whyVibranceOn();
         if (whyVibrance) prog.setDefine("WHY_VIBRANCE", 1);
-        if (WhyTone::edgeHold() > 0.f && !st.inputReleased) prog.setDefine("EDGE_HOLD", 1);
+        if (WhyTone::edgeHold() > 0.f && !st.inputReleased && !filmOnly) prog.setDefine("EDGE_HOLD", 1);
         if (WhyTone::rimSmooth()) prog.setDefine("RIM_SMOOTH", 1);
         prog.setDefine("DITHER_TPDF", 1);
         if (st.sky) {
@@ -303,7 +330,7 @@ public:
         // P378 review: Ultra HDR keeps the sky term's change - the combine at whyLow with and without it (skyHdrRatio), its targets
         // made before the combine's samplers are bound: RGBA8, none above 100 MP (ScamRgb.earlyRelease)
         Texture skyWith, skyWithout;
-        if (st.sky && st.skyMask->keep > 0.f && pipeline.captureDemosaic) {
+        if (st.sky && st.skyMask->keep > 0.f && pipeline.captureDemosaic && !filmOnly) {
             const bool earlyRelease = int64_t(input->mSize.x) * input->mSize.y > 100000000LL
                                       || Settings::current().scamDevSwitch("early_release", false);
             if (earlyRelease) skyLog += " hdrSkyRatio=skipped (over 100 MP)";
@@ -336,6 +363,22 @@ public:
             prog.setTexture("OppShare", oppShare);
             prog.setVar("oppGridU", float(oppSize->x) / float(oppShare->mSize.x * block), float(oppSize->y) / float(oppShare->mSize.y * block));
         }
+        if (lut) {
+            lutTexture = lut->upload();
+            prog.setTexture3D("FilmLut", lutTexture);
+            prog.setVar("lutU", lutStrength, float(lut->size));
+            prog.setVar("lutMinU", lut->domainMin[0], lut->domainMin[1], lut->domainMin[2]);
+            prog.setVar("lutScaleU", 1.f / (lut->domainMax[0] - lut->domainMin[0]), 1.f / (lut->domainMax[1] - lut->domainMin[1]),
+                        1.f / (lut->domainMax[2] - lut->domainMin[2]));
+        }
+        if (scene) {
+            // P369: the film's exposure is the meter's before the highlight overflow's cut (ae x deficit)
+            lutTexture = scene->lut->upload();
+            prog.setTexture3D("FilmLut", lutTexture);
+            prog.setVar("lutU", scene->strength, float(scene->lut->size));
+            prog.setVar("filmExpU", filmExp);
+            prog.setVar("filmLogU", FilmSim::LOG_LO, FilmSim::LOG_SPAN);
+        }
         prog.setTexture("InputBuffer", st.inputReleased ? st.lumaS : input);
         WhyTone::setColour(prog, pipeline, *gainMap, st.inScale);
         prog.setTexture("WhyLow", st.low);
@@ -356,7 +399,7 @@ public:
         }
         prog.setVar("sharpU", sharp ? 1 : 0);
         prog.setVar("fullInputU", st.inputReleased ? 0 : 1);
-        if (WhyTone::edgeHold() > 0.f && !st.inputReleased) {
+        if (WhyTone::edgeHold() > 0.f && !st.inputReleased && !filmOnly) {
             prog.setVar("edgeHoldU", WhyTone::edgeHold());
             prog.setVar("edgeHoldLightU", WhyTone::edgeHoldLight());
         }
@@ -468,12 +511,17 @@ public:
         }
         st.closeTextures();
         for (Texture* t : {&fallback, &hlA, &hlB, &fusedLc, &sunBloom, &oppShare}) if (*t) (*t)->close();
+        if (lutTexture) glDeleteTextures(1, &lutTexture);
         logI("SCAM_PIPELINE", "WHY combine ae=" + javaFloatString(r.ae) + " clip=" + javaFloatString(r.clip) + " headroom=" + (realClip ? "true" : "false")
              + " hlWhite=" + javaFloatString(WhyTone::value("hl_white", 0.15f)) + " hlSoft=" + javaFloatString(WhyTone::value("hl_soft", 0.7f))
              + (lightChroma > 0.f ? " lightChroma=" + javaFloatString(lightChroma) : "") + " grid=" + std::to_string(input->mSize.x) + "x" + std::to_string(input->mSize.y)
              + " lowFactor=" + std::to_string(st.factor) + " detail=" + javaFloatString(detail) + (sharp ? " (WhyLumaS, mul " + javaFloatString(sharpMul) + ")" : "")
              + (sunBloomOn ? " sunBloom=" + javaFloatString(WhyTone::sunBloom()[0]) + "@" + javaFloatString(WhyTone::sunBloom()[1]) : "")
-             + (oppOn ? " opposedLanding" : "") + skyLog + (colourOn ? " colourLook" : ""));
+             + (oppOn ? " opposedLanding" : "") + skyLog + (colourOn ? " colourLook" : "")
+             + (lut ? " filmLut=" + lutName + " " + std::to_string(lut->size) + "^3 x" + javaFloatString(lutStrength)
+                    : lutStrength > 0.f && !lutName.empty() ? " filmLut=" + lutName + " unreadable" : "")
+             + (scene ? " filmSim=" + scene->key + " x" + javaFloatString(scene->strength) + " exp=" + javaFloatString(filmExp) + (filmOnly ? " (film only)" : "")
+                      : film ? " filmSim=" + film->lutKey() + " film data unreadable: no film" : ""));
     }
 };
 

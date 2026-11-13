@@ -258,7 +258,10 @@ inline ExportResult renderCopy(EditRenderer& r, const PreviewSource& preview, Re
     res.H = plan.H;
     res.shrunk = k < 0.999;
     res.rgba.assign(size_t(plan.W) * size_t(plan.H) * 4, 0);
-    const int overlap = EditMath::overlapPx(float(std::max(sw, sh))) + 2; // EditLook.overlap without a look + 2
+    // P619: the «LUT» tab's look on every tile, from the state's tables (EditorViewModel: EditLook.blocking); the overlap also
+    // covers the reference grain's blur
+    const int overlap = EditLook::overlap(state, float(std::max(sw, sh))) + 2;
+    r.setLook(EditLook::on(state) ? EditLook::applied(state, EditLook::blocking(state)) : std::nullopt);
     EditRenderer::Target tile;
     std::vector<uint8_t> pixels(size_t(TILE) * TILE * 4);
     const int tilesX = (plan.W + TILE - 1) / TILE, tilesY = (plan.H + TILE - 1) / TILE;
@@ -297,6 +300,7 @@ inline ExportResult renderCopy(EditRenderer& r, const PreviewSource& preview, Re
         }
     }
     tile.release();
+    r.setLook(std::nullopt);
     return res;
 }
 

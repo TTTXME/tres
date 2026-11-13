@@ -2,7 +2,7 @@
 // clean RGB with the fused luma of WhyV2Fusion and our sharpened luminance (WhyLumaSharpen) as its detail luma, into the
 // pipeline's main texture (the display-encoded photo). The own curve: 1024 samples (WhyV2Curve) in an R16F 1024 x 1 texture,
 // LINEAR. The port's output is the RGBA8 photo (runAllToRgba), so QUANT8 is always on (the Java's tenBitOutput off); as in
-// WhyCombine's port there is no Display P3 output (P3_OUT) and no «Плёночный LUT» (FILM_LUT): no film on iOS yet.
+// WhyCombine's port there is no Display P3 output (P3_OUT). «Плёночный LUT» (FILM_LUT) as the Java (never a film on this route).
 #pragma once
 
 #include "WhyV2Stats.hpp"
@@ -36,9 +36,16 @@ public:
         if (pipeline.opposedShare) { pipeline.opposedShare->close(); pipeline.opposedShare = nullptr; }
         pipeline.skyHdrRatio.reset();
         pipeline.skyHdrRatioSize.reset();
+        // our LUT (never with a film on this route: PostPipeline takes V1 for a film of the old route)
+        const FilmChain::State chain = FilmChain::current(nullptr, pipeline.filmUserLut, pipeline.filmUserStrength);
+        const float lutStrength = chain.strength;
+        const std::string lutName = chain.key;
+        const FilmLutP lut = lutStrength > 0.f && !lutName.empty() ? FilmChain::lut(lutName) : nullptr;
+        GLuint lutTexture = 0;
         Texture curve;
         auto cleanup = [&] {
             if (curve) curve->close();
+            if (lutTexture) glDeleteTextures(1, &lutTexture);
             v2->close();
             st->closeTextures();
             pipeline.whyV2 = nullptr;
@@ -50,6 +57,7 @@ public:
             WorkingTexture = pipeline.getMain();
             const bool p3Output = false, tenBitOutput = false;
             if (p3Output) prog.setDefine("P3_OUT", 1);
+            if (lut) prog.setDefine("FILM_LUT", 1);
             if (v2->fusedScale > 1) prog.setDefine("EF_SCALED", 1);
             if (!tenBitOutput) prog.setDefine("QUANT8", 1);
             prog.useAssetProgram("why/v2_tonemap", false);
@@ -57,6 +65,11 @@ public:
             prog.setTexture("u_tex_accum_ef", v2->fused);
             prog.setTexture("u_tex_hires_luma", st->lumaS);
             prog.setTexture("u_tex_custom_curve", curve);
+            if (lut) {
+                lutTexture = lut->upload();
+                prog.setTexture3D("FilmLut", lutTexture);
+                prog.setVar("lutU", lutStrength, float(lut->size));
+            }
             prog.setVar("u_width", size.x);
             prog.setVar("u_height", size.y);
             prog.setVar("u_auto_exposure", r.ae);
@@ -116,7 +129,8 @@ public:
         cleanup();
         logI("SCAM_PIPELINE", "WHY V2 tone ae=" + javaFloatString(r.ae) + " clip=" + javaFloatString(r.clip) + " op=" + std::to_string(p.toneOperator)
              + " cb=" + javaFloatString(r.contrastBoost) + " macro=" + javaFloatString(r.macroContrast) + " grid=" + std::to_string(size.x) + "x"
-             + std::to_string(size.y) + (v2->fusedScale > 1 ? " fused=half" : "") + " quant8");
+             + std::to_string(size.y) + (v2->fusedScale > 1 ? " fused=half" : "") + " quant8"
+             + (lut ? " filmLut=" + lutName + " " + std::to_string(lut->size) + "^3 x" + javaFloatString(lutStrength) : ""));
     }
 };
 

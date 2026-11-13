@@ -1,6 +1,6 @@
 // WhyLumaSharpen.java one to one: the WHY sharpening of the luminance (guided-filter local contrast, USM / bilateral, three
 // Richardson-Lucy stages, the R1 / lattice source split), issued early by WhyStats in the G_CLEAN domain. Not ported (throws):
-// the film's neutral guide, the image's early release above 100 MP.
+// the image's early release above 100 MP.
 #pragma once
 
 #include "WhyStats.hpp"
@@ -25,7 +25,10 @@ public:
         const double t = std::log(double(snr / LOW_LIGHT_START)) / std::log(double(LOW_LIGHT_FULL / LOW_LIGHT_START));
         return float(double(LOW_LIGHT_MIN) + double(1 - LOW_LIGHT_MIN) * t);
     }
-    static bool cleanDomain(float configured) { return javaRound(configured) >= 1; }
+    /// an amount of our sharpening under a film: x (1 - the simulation's strength), none at 100 %; without a film the amount itself
+    static float filmShare(float amount, const FilmSettings* film) { return !film ? amount : amount * (1.f - film->strength); }
+    static bool cleanDomain(float configured, const FilmSettings* film) { return (film && film->strength > 0.f) || javaRound(configured) >= 1; }
+    static bool neutralFilmGuide(const FilmSettings* film) { return film && film->strength >= 1.f; }
     static bool quadSwitch() { return Settings::current().scamDevSwitch("sharpen_quad", true); }
     static bool quadOnLattice(int block, bool enabled) { return block == 2 && enabled; }
     static bool r1Fits(int w, int h) { return int64_t(w) * h <= HUGE_GF_PIXELS; }
@@ -137,7 +140,7 @@ public:
     }
 
     bool runEarly(PostPipeline& pipeline, const Texture& input) override {
-        if (!cleanDomain(WhyTone::value("sharp_domain", 1.f)) || !pipeline.why || !input) return false;
+        if (!cleanDomain(WhyTone::value("sharp_domain", 1.f), pipeline.film.get()) || !pipeline.why || !input) return false;
         issue(pipeline, input, true);
         earlyInput_ = input;
         return true;
@@ -182,7 +185,8 @@ private:
         GLProg& prog = *glProg;
         auto st = pipeline.why;
         const Point size = input->mSize;
-        const bool gClean = cleanDomain(WhyTone::value("sharp_domain", 1.f));
+        const FilmSettings* film = pipeline.film.get();
+        const bool gClean = cleanDomain(WhyTone::value("sharp_domain", 1.f), film);
         const float mul = gClean ? 1.f : st->ae->ae;
         const float scaleSetting = WhyTone::value("sharp_scale", 0.f);
         const float s = scaleSetting > 0.f ? std::min(scaleSetting, 4.f) : float(std::max(1, javaRound(pipeline.mParameters.outputScale)));
@@ -190,30 +194,30 @@ private:
         const int nb = std::max(1, javaRound(s));
         const float lowLight = lowLightFactor(pipeline.mParameters.finishSnr);
         const float usmRadius = WhyTone::value("sharp_usm_radius", 0.1f);
-        const float usmAmount = WhyTone::value("sharp_usm_amount", 0.5f) * lowLight;
+        const float usmAmount = filmShare(WhyTone::value("sharp_usm_amount", 0.5f) * lowLight, film);
         const float usmThresh = WhyTone::value("sharp_usm_thresh", 0.f) / 255.f;
         const float bilRadius = WhyTone::value("sharp_bilateral_radius", 0.f);
-        const float bilAmount = WhyTone::value("sharp_bilateral_amount", 1.f) * lowLight;
+        const float bilAmount = filmShare(WhyTone::value("sharp_bilateral_amount", 1.f) * lowLight, film);
         const float bilColor = std::max(WhyTone::value("sharp_bilateral_color", 10.f) / 100.f, 0.001f);
         const float halo = clamp01(WhyTone::value("sharp_halo_control", 100.f) / 100.f);
         const float protectShadows = clamp01(WhyTone::value("sharp_protect_shadows", 0.f) / 100.f);
         const float protectHighlights = clamp01(WhyTone::value("sharp_protect_highlights", 100.f) / 100.f);
         const int gfRadius = javaRound(WhyTone::value("sharp_gf_radius", 8.f));
         const float gfEps = std::max(WhyTone::value("sharp_gf_eps_e3", 10.f) * 0.001f, 1e-6f);
-        const float gfLc = WhyTone::value("sharp_gf_lc", 0.f) * lowLight;
-        const float grain = WhyTone::value("sharp_film_grain", 0.f) / 255.f;
-        const float sobelAmount = WhyTone::value("sharp_sobel_amount", 0.f) * lowLight, sobelThresh = WhyTone::value("sharp_sobel_thresh", 0.f) / 255.f;
-        const float thin = WhyTone::value("sharp_edge_thinning", 0.f);
+        const float gfLc = filmShare(WhyTone::value("sharp_gf_lc", 0.f) * lowLight, film);
+        const float grain = filmShare(WhyTone::value("sharp_film_grain", 0.f) / 255.f, film);
+        const float sobelAmount = filmShare(WhyTone::value("sharp_sobel_amount", 0.f) * lowLight, film), sobelThresh = WhyTone::value("sharp_sobel_thresh", 0.f) / 255.f;
+        const float thin = filmShare(WhyTone::value("sharp_edge_thinning", 0.f), film);
         const float rlHalo = clamp01(WhyTone::value("sharp_rl_halo_control", 100.f) / 100.f);
         const float rlMargin = WhyTone::value("sharp_rl_halo_margin", 0.15f);
         const float rlMacro = WhyTone::value("sharp_rl_halo_macro", 0.4f);
         const float rlEdgeGuard = WhyTone::rlEdgeGuard();
         float rl[3][5] = {
-            {WhyTone::value("sharp_rl1_kernel", 2.f), WhyTone::value("sharp_rl1_rad", 1.f), WhyTone::value("sharp_rl1_amount", 1.f) * lowLight,
+            {WhyTone::value("sharp_rl1_kernel", 2.f), WhyTone::value("sharp_rl1_rad", 1.f), filmShare(WhyTone::value("sharp_rl1_amount", 1.f) * lowLight, film),
              WhyTone::value("sharp_rl1_iters", 3.f), WhyTone::value("sharp_rl1_damping", 0.f)},
-            {WhyTone::value("sharp_rl2_kernel", 1.f), WhyTone::value("sharp_rl2_rad", 0.f), WhyTone::value("sharp_rl2_amount", 0.f) * lowLight,
+            {WhyTone::value("sharp_rl2_kernel", 1.f), WhyTone::value("sharp_rl2_rad", 0.f), filmShare(WhyTone::value("sharp_rl2_amount", 0.f) * lowLight, film),
              WhyTone::value("sharp_rl2_iters", 0.f), WhyTone::value("sharp_rl2_damping", 0.f)},
-            {WhyTone::value("sharp_rl3_kernel", 0.f), WhyTone::value("sharp_rl3_rad", 0.5f), WhyTone::value("sharp_rl3_amount", 1.5f) * lowLight,
+            {WhyTone::value("sharp_rl3_kernel", 0.f), WhyTone::value("sharp_rl3_rad", 0.5f), filmShare(WhyTone::value("sharp_rl3_amount", 1.5f) * lowLight, film),
              WhyTone::value("sharp_rl3_iters", 3.f), WhyTone::value("sharp_rl3_damping", 0.f)}};
         Texture gainMap = pipeline.GainMap, fallback;
         if (!gainMap) {
@@ -234,6 +238,14 @@ private:
         if (int64_t(size.x) * size.y > 100000000LL || Settings::current().scamDevSwitch("early_release", false))
             throw std::runtime_error("post port: the image's early release (above 100 MP) is not ported");
         if (fallback) fallback->close();
+        if (neutralFilmGuide(film)) {
+            st->lumaS = ya;
+            st->sharpMul = mul;
+            prog.closed = true;
+            logI("SCAM_PIPELINE", "WHY luma sharpen film neutral guide grid=" + std::to_string(size.x) + "x" + std::to_string(size.y)
+                 + " domain=G_CLEAN mul=" + javaFloatString(mul) + (early ? " (issued before the AE)" : ""));
+            return;
+        }
         const int block = pipeline.mParameters.mosaicBlock;
         const bool r1 = smoothedSource(block, size.x, size.y);
         const bool lattice = !r1 && latticeSource(block, size.x, size.y);

@@ -46,6 +46,11 @@ targets:
       - path: ../app/src/main/assets/shaders
         type: folder
         buildPhase: resources
+      # the film simulation's arrays (FilmSpectral: spektrafilm's film / paper profiles, assets/film/*.bin with their licences),
+      # read beside the shaders as the Android app reads its assets
+      - path: ../app/src/main/assets/film
+        type: folder
+        buildPhase: resources
     info:
       path: App/Info.plist
       properties:

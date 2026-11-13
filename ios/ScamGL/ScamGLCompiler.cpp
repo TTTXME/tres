@@ -209,6 +209,7 @@ Compiled compile(const std::string& source, Stage stage, bool iosPlatform) {
             res.mslIndex = nextTexture++;
             res.mslSampler = nextSampler++;
             res.arrayed = msl.get_type(r.type_id).image.arrayed;
+            res.volume = msl.get_type(r.type_id).image.dim == spv::Dim3D;
             spirv_cross::MSLResourceBinding b;
             b.stage = exec;
             b.desc_set = 0;

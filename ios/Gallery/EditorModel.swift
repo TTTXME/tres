@@ -140,7 +140,7 @@ final class EditEngine: @unchecked Sendable {
 @MainActor
 @Observable
 final class EditorModel {
-    enum Tab: Int, CaseIterable { case crop, styles, light, colour, effects, detail }
+    enum Tab: Int, CaseIterable { case crop, styles, look, light, colour, effects, detail }
 
     let asset: PHAsset
     let editRaw: Bool
@@ -406,6 +406,56 @@ final class EditorModel {
     func setCurve(_ channel: Int, _ points: [Float]?, done: Bool) {
         state.curves[channel] = points
         changed(commit: done)
+    }
+
+    // ---------------------------------------------------------------- P619 «LUT»
+
+    /// EditPanels.lutPage: a LUT card chosen (its strength 100 when it was 0)
+    func setLut(_ value: String) {
+        state.lut = value
+        if !value.isEmpty && state[.lutAmount] <= 0 { state[.lutAmount] = 100 }
+        changed(commit: true)
+    }
+
+    /// EditPanels.filmPage: a film card chosen (its strength 100 when it was 0)
+    func setFilm(_ id: String) {
+        state.film = id
+        if !id.isEmpty && state[.filmAmount] <= 0 { state[.filmAmount] = 100 }
+        changed(commit: true)
+    }
+
+    func setFilmPrint(_ id: String) {
+        state.filmPrint = id
+        changed(commit: true)
+    }
+
+    func setFilmFormat(_ id: String) {
+        state.filmFormat = id
+        changed(commit: true)
+    }
+
+    /// EditLookThumbs: the cards' pictures - the photo's picture as edited without the look (EditorView.thumbnail, 160 px), through
+    /// each LUT / stock at full strength; keyed "lut|value" / "film|id"
+    private(set) var lookThumbs: [String: UIImage] = [:]
+    private var lookThumbsVersion = 0
+
+    func loadLookThumbs(luts: [String], stocks: [String]) {
+        guard engine.session != nil else { return }
+        lookThumbsVersion += 1
+        let version = lookThumbsVersion, json = state.json, engine = self.engine
+        engine.queue.async {
+            guard let s = engine.session, let base = s.thumbnail(forState: json, side: 160) else { return }
+            let jobs = luts.map { ("lut|" + $0, $0, "") } + stocks.map { ("film|" + $0, "", $0) }
+            for (key, lut, film) in jobs {
+                let data = lut.isEmpty && film.isEmpty ? base.rgba
+                    : SCAMFilm.lookThumbnail(base.rgba, width: base.width, height: base.height, lut: lut, film: film) ?? base.rgba
+                guard let cg = PhotoDecode.cgImage(rgba: data, width: base.width, height: base.height) else { continue }
+                let image = UIImage(cgImage: cg)
+                Task { @MainActor in
+                    if version == self.lookThumbsVersion { self.lookThumbs[key] = image }
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- the copy

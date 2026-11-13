@@ -414,6 +414,16 @@ public:
         const_cast<GLTexture&>(tex).bind(GL_TEXTURE0 + GLenum(unit));
     }
     void setTexture(const std::string& var, const Texture& tex) { setTexture(var, *tex); }
+    /// P134 setTexture3D: a 3D texture (sampler3D) by its GL name, on a unit of its own like setTexture
+    void setTexture3D(const std::string& var, GLuint textureName) {
+        int unit;
+        auto it = textureBinds_.find(var);
+        if (it != textureBinds_.end()) unit = it->second;
+        else { unit = newTextureId_; textureBinds_[var] = unit; newTextureId_ += 2; }
+        setVar(var, unit);
+        glActiveTexture(GL_TEXTURE0 + GLenum(unit));
+        glBindTexture(GL_TEXTURE_3D, textureName);
+    }
 
     void setBufferCompute(const std::string& var, GLBuffer& buff, GLenum type = GL_SHADER_STORAGE_BUFFER) {
         auto it = layouts_.find(var);
