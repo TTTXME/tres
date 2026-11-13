@@ -2,6 +2,11 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-13 — Gallery developer
+
+- The gallery editor has a new «Develop» tab: a DNG taken with this SCAMERA version is developed as the camera does it, and every processing setting (tone, highlights, sharpness, noise reduction, colour, film, LUT) can be changed right in the gallery.
+- The film simulation in the developer is the camera's own: with halation, print and frame format.
+
 ## 2026-11-13 — Code cleanup
 
 - The camera code is cleaned up and reorganised.

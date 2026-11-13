@@ -179,7 +179,7 @@ public final class EditExporter {
         // short side), its record kept so this copy's watermark can come off again
         com.scamera.app.processing.watermark.WatermarkPatch record = drawWatermark(c, source, state, out);
         try {
-            Result res = save(c, source, out, lookLine(state, look), record, progress);
+            Result res = save(c, source, out, describe(source, state, lookLine(state, look)), record, progress);
             res.note = shrink;
             return res;
         } finally {
@@ -300,6 +300,24 @@ public final class EditExporter {
         com.scamera.app.processing.color.FilmSim.Settings f = EditLook.film(state);
         if (f != null) b.append(lut.isEmpty() ? "" : ";").append(" film ").append(f.recipe()).append("; on the finished colour");
         return b.toString();
+    }
+
+    /**
+     * P665: the copy's description lines: "Developed by the camera's pipeline" (a developed DNG: the settings changed over the
+     * shot's, by key) before the look's line.
+     */
+    @Nullable
+    static String describe(EditSource source, EditState state, @Nullable String lookLine) {
+        if (source.route != EditSource.Route.DEVELOP) return lookLine;
+        StringBuilder b = new StringBuilder("Developed by the camera's pipeline");
+        b.append(state.devChanges.isEmpty() ? " with the shot's settings" : "; changed: ");
+        boolean first = true;
+        for (java.util.Map.Entry<String, Object> e : state.devChanges.entrySet()) {
+            if (!first) b.append(", ");
+            first = false;
+            b.append(e.getKey()).append('=').append(e.getValue());
+        }
+        return lookLine == null ? b.toString() : b + "; " + lookLine;
     }
 
     static Result save(Context c, EditSource source, Bitmap out, Progress progress) throws IOException {
