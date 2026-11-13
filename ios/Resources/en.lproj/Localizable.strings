@@ -22,3 +22,7 @@
 "why.title" = "Why";
 "why.hint" = "«Why» tone on the GPU from the RAW";
 "shdr.hint" = "SHDR: a RAW series merged on the GPU";
+"settings.open" = "Settings";
+"settings.done" = "Done";
+"settings.missing" = "The settings description is missing from the app.";
+"settings.android_only" = "On Android only for now";

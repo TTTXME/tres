@@ -5,6 +5,7 @@ struct CameraView: View {
     let camera: CameraModel
     @State private var sharing: [URL]?
     @State private var showingInfo = false
+    @State private var showingSettings = false
 
     var body: some View {
         ZStack {
@@ -25,6 +26,9 @@ struct CameraView: View {
         }
         .sheet(isPresented: $showingInfo) {
             InfoView(camera: camera)
+        }
+        .fullScreenCover(isPresented: $showingSettings) {
+            SettingsView()
         }
     }
 
@@ -91,6 +95,8 @@ struct CameraView: View {
             .accessibilityLabel(L("log.share"))
             Button { showingInfo = true } label: { Image(systemName: "info.circle").font(.title3) }
                 .accessibilityLabel(L("info.title"))
+            Button { showingSettings = true } label: { Image(systemName: "gearshape").font(.title3) }
+                .accessibilityLabel(L("settings.open"))
         }
         .foregroundStyle(.white)
         .padding(.top, 8)

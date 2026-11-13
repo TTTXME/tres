@@ -22,3 +22,7 @@
 "why.title" = "Why";
 "why.hint" = "Тон «Why» на GPU из RAW";
 "shdr.hint" = "SHDR: серия RAW, склейка на GPU";
+"settings.open" = "Настройки";
+"settings.done" = "Готово";
+"settings.missing" = "В приложении нет описания настроек.";
+"settings.android_only" = "Пока только на Android";

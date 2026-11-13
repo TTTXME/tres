@@ -20,7 +20,11 @@ final class CameraModel {
     private(set) var whyTone: Bool
     /// SHDR: a Bayer series merged by the Android merge (ScamGL), then «Why» V2.
     private(set) var shdr: Bool
-    private(set) var burstFrames: Int
+    /// «Кадров для склейки» (pref_scam_hybrid_zsl_frames, Android default 20, 4–65)
+    var burstFrames: Int {
+        let stored = Int(SettingsStore.shared.string("pref_scam_hybrid_zsl_frames", "20")) ?? 20
+        return min(max(stored, 4), 65)
+    }
 
     private let captureService = CaptureService()
     private let mediaLibrary = MediaLibrary()
@@ -33,8 +37,6 @@ final class CameraModel {
         fullResolution = UserDefaults.standard.object(forKey: "full_resolution") as? Bool ?? true
         whyTone = UserDefaults.standard.object(forKey: "why_tone") as? Bool ?? true
         shdr = UserDefaults.standard.object(forKey: "shdr") as? Bool ?? true
-        let frames = UserDefaults.standard.integer(forKey: "burst_frames")
-        burstFrames = frames > 0 ? frames : 8
     }
 
     func start() async {
