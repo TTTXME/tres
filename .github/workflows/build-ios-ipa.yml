@@ -27,6 +27,7 @@ jobs:
         run: |
           python3 ios/tools/gen_settings_tables.py --check
           python3 ios/tools/gen_parameters.py --check
+          python3 ios/tools/gen_ccm_presets.py --check
       - name: Bursts
         run: |
           git fetch -q --depth 1 origin replay/p335
