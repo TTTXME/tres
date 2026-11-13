@@ -8,6 +8,8 @@
 #include "../Settings.hpp"
 
 #include <array>
+#include <cstdio>
+#include <functional>
 #include <cmath>
 #include <optional>
 #include <sstream>

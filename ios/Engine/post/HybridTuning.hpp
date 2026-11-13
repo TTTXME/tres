@@ -7,6 +7,7 @@
 #include "Settings.hpp"
 
 #include <cmath>
+#include <cstdio>
 #include <optional>
 #include <string>
 

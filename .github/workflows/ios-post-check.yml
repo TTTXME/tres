@@ -6,7 +6,7 @@ name: iOS post pipeline vs Android
 on:
   push:
     branches: [ 'claude/ios-camera-app-port-idgljn' ]
-    paths: [ 'ios/Engine/**', 'ios/ScamGL/**', 'ios/tools/android-host/**', 'ios/tools/post_node_check.cpp', 'ios/tools/shot_params_check.cpp', 'ios/tools/make_test_dng.py', 'ios/tools/hybrid_replay.cpp',
+    paths: [ 'ios/Engine/**', 'ios/ScamGL/**', 'ios/tools/android-host/**', 'ios/tools/post_node_check.cpp', 'ios/tools/shot_params_check.cpp', 'ios/tools/make_test_dng.py', 'ios/tools/shot_run_check.cpp', 'ios/tools/hybrid_replay.cpp',
              'app/src/main/assets/shaders/**', '.github/workflows/ios-post-check.yml' ]
   workflow_dispatch:
 
@@ -71,6 +71,18 @@ jobs:
           { echo '### iOS post port vs the Android pipeline (Mesa)'; echo '```'; grep "^photo" "$RUNNER_TEMP/reference/mesa.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           head -c 128 "$RUNNER_TEMP/shot/burst.nch" > "$RUNNER_TEMP/reference/burst.nch"
           cp "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/reference/meta.json"
+      - name: The app's whole shot on Mesa (transport, merge, DNG parameters, post)
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          g++ -pthread -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp ios/tools/shot_run_check.cpp -ldl -lEGL -lGLESv2 \
+            -o "$RUNNER_TEMP/shot_run_check"
+          cp "$RUNNER_TEMP/shot/burst.nch" "$RUNNER_TEMP/app-burst.nch"
+          "$RUNNER_TEMP/shot_run_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/app-burst.nch" "$RUNNER_TEMP/shot.dng" \
+            "$RUNNER_TEMP/reference/photo.rgba" 2>&1 | grep -v "^SCAM_PIPELINE\|^PostPipeline" | tee "$RUNNER_TEMP/reference/app-shot.txt" | tail -6
+          grep -q "^shot:" "$RUNNER_TEMP/reference/app-shot.txt"
+          rm -f "$RUNNER_TEMP/app-burst.nch"
       - uses: actions/upload-artifact@v4
         with:
           name: post-reference
