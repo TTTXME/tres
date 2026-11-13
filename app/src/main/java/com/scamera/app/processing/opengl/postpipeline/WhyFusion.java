@@ -131,12 +131,23 @@ public final class WhyFusion extends Node {
     }
 
     /**
-     * P320: the strength of bracket_denoise for this shot: the setting's, 0 for a DCG frame without Bento (its Y > 0.95 range
-     * is the frame's own highlight data - clouds, snow - not a gained ultrashort, and the fused high/low-gain reads are clean
-     * there); the old run of post_ab keeps the setting's.
+     * P672 (owner, 2026-11-13: «Убедись что шумодавы при переключении тонмапинга остаются одинаковыми», «если он отличается, то у
+     * V1 сделай его таким же как у V2»): the strength bracket_denoise runs at on this shot ({@code setting}: «Шумодав кадров светов»,
+     * 0 with «Все шумодавы» off) - V2's rule (WhyV2Highlights.bracketOn: the data ceiling {@code clip} above 1.05 and the strength
+     * above 0.001), 0 otherwise. P320's exception (none on a DCG frame without Bento) is gone: V2 has none.
      */
-    static float bracketStrength(float setting, boolean dcg, boolean bentoApplied, boolean legacy) {
-        return dcg && !bentoApplied && !legacy ? 0f : setting;
+    static float bracketDenoise(float clip, float setting) {
+        return WhyV2Highlights.bracketOn(clip, setting) ? setting : 0f;
+    }
+
+    /**
+     * P672: whether the fusion reads the frame's noise model (P391: the noise-bound deep floor, the fine bands' noise cap, the edges'
+     * noise taken out) - off by default: V2's fusion (the reference's exposure fusion) has no noise terms, so V1's takes none either
+     * (host replay of the owner's night burst and the simulated nights: <= 3 codes on <= 8 % of the pixels). scam_dev.txt
+     * "hybrid_why_fusion_noise_model 1": P391's terms as before.
+     */
+    static boolean noiseModel() {
+        return WhyTone.fusionNoiseModel();
     }
 
     @Override
@@ -150,10 +161,9 @@ public final class WhyFusion extends Node {
         WhyAe.Result r = st.ae;
         Point lowSize = st.low.size;
         float strength = whyDenoise(hostPipeline.shotParams) ? WhyTone.value("bracket_denoise", 0f) : 0f;
-        strength = bracketStrength(strength, hostPipeline.shotParams != null && hostPipeline.shotParams.dcgShot,
-                ScamHybridBurst.lastBentoApplied, com.scamera.app.processing.opengl.PostGlMode.legacy());
+        strength = bracketDenoise(r.clip, strength);   // P672: V2's rule (the same setting, the same test; no DCG exception)
         st.lowDn = st.low;
-        if (r.clip > 1.05f && strength > 0.001f) {
+        if (strength > 0f) {
             st.lowDn = new GLTexture(lowSize, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
             shaderProg.useAssetProgram("why/bracket_dn", false);
             shaderProg.setTexture("InputBuffer", st.low);
@@ -164,9 +174,9 @@ public final class WhyFusion extends Node {
         float[] em = why ? exposures207(r) : WhyAe.exposures(r, headroomExposure(WhyAe.darkestExposure(r), r.ae, r.clip, r.hr));
         float[] lw = WhyTone.layerWeights();
         // P391: the noise model of the fusion's guide (the noise-bound deep floor, the bands' noise cap); the old run of post_ab
-        // keeps the fusion before P391
+        // keeps the fusion before P391; P672: none by default, as V2's fusion (noiseModel)
         final boolean legacy = com.scamera.app.processing.opengl.PostGlMode.legacy();
-        final float[] noiseI = legacy ? null : guideNoise(st.noiseS, st.noiseO, st.noiseMerged, r.ae, st.inScale, WhyTone.noiseScale());
+        final float[] noiseI = legacy || !noiseModel() ? null : guideNoise(st.noiseS, st.noiseO, st.noiseMerged, r.ae, st.inScale, WhyTone.noiseScale());
         final float tau = noiseI == null ? 0f : WhyTone.deepNoise();
         deepNoise[0] = tau;
         deepNoise[1] = tau > 0f ? noiseI[0] : 0f;

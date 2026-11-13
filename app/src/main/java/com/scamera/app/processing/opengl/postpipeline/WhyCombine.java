@@ -58,8 +58,16 @@ public final class WhyCombine extends Node {
         return detailBoost(snr, NIGHT_DETAIL);
     }
 
-    /** P443: the night floor's top (scam_dev "hybrid_why_night_detail"; 1 or below = the P340 rule alone, as before). */
-    static final float NIGHT_DETAIL = 1.3f;
+    /**
+     * P443: the night floor's top (scam_dev "hybrid_why_night_detail"; 1 or below = the P340 rule alone). P672 (owner, 2026-11-13:
+     * «Убедись что шумодавы при переключении тонмапинга остаются одинаковыми», «у V1 сделай его таким же как у V2»): 1 - the floor
+     * is off by default. It lifted the small deltas - the grain the denoise leaves as much as texture - x1.3 on every shot from SNR 15
+     * to 47, where V2 transfers the sharpened luma at x1 (its tonemap_final's detail transfer); now V1 takes x1 up to SNR 20 as
+     * V2, the P340 ramp above (daylight detail, the shot's noise far below it). Host replay through the app chain (flat areas,
+     * display luma high-pass, codes): the simulated nights at SNR 16 / 13 2.40 / 3.33 -> 1.93 / 2.81 (V2 1.86 / 2.44), the day
+     * burst hc 3.08 -> 2.68; the 1 - 2 px detail of the textures -3 %. "1.3": P443 as before.
+     */
+    static final float NIGHT_DETAIL = 1f;
 
     static float detailBoost(float snr, float night) {
         final float day;
