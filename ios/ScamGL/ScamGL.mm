@@ -913,6 +913,14 @@ void glGetProgramiv(GLuint name, GLenum pname, GLint* value) {
     if (pname == GL_LINK_STATUS) *value = it->second.linked ? GL_TRUE : GL_FALSE;
     else if (pname == GL_INFO_LOG_LENGTH) *value = GLint(it->second.log.size() + 1);
     else if (pname == GL_PROGRAM_BINARY_LENGTH) *value = 0;
+    else if (pname == GL_ACTIVE_UNIFORMS && it->second.code) {
+        *value = GLint(it->second.code->compiled.members.size() + it->second.samplerUnit.size());
+    } else if (pname == GL_ACTIVE_UNIFORM_MAX_LENGTH && it->second.code) {
+        size_t n = 0;
+        for (const auto& m : it->second.code->compiled.members) n = std::max(n, m.name.size() + 4);
+        for (const auto& r : it->second.code->compiled.resources) n = std::max(n, r.name.size() + 1);
+        *value = GLint(n);
+    }
     else if (pname == GL_COMPUTE_WORK_GROUP_SIZE && it->second.code) {
         for (int i = 0; i < 3; ++i) value[i] = GLint(it->second.code->compiled.local[i]);
     } else *value = 0;
@@ -945,6 +953,63 @@ GLint glGetUniformLocation(GLuint program, const GLchar* name) {
     return loc == it->second.byName.end() ? -1 : loc->second;
 }
 
+static GLenum glTypeOf(const scamgl::Member& m) {
+    if (m.columns == 4 && m.vecsize == 4) return GL_FLOAT_MAT4;
+    if (m.columns == 3 && m.vecsize == 3) return GL_FLOAT_MAT3;
+    static const GLenum floats[] = {GL_FLOAT, GL_FLOAT_VEC2, GL_FLOAT_VEC3, GL_FLOAT_VEC4};
+    static const GLenum ints[] = {GL_INT, GL_INT_VEC2, GL_INT_VEC3, GL_INT_VEC4};
+    static const GLenum uints[] = {GL_UNSIGNED_INT, GL_UNSIGNED_INT_VEC2, GL_UNSIGNED_INT_VEC3, GL_UNSIGNED_INT_VEC4};
+    static const GLenum bools[] = {GL_BOOL, GL_BOOL_VEC2, GL_BOOL_VEC3, GL_BOOL_VEC4};
+    const int i = int(std::min<uint32_t>(std::max<uint32_t>(m.vecsize, 1), 4)) - 1;
+    return m.baseType == 1 ? ints[i] : m.baseType == 2 ? uints[i] : m.baseType == 3 ? bools[i] : floats[i];
+}
+void glGetActiveUniform(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLint* size, GLenum* type, GLchar* name) {
+    Guard g(gLock);
+    auto it = gPrograms.find(program);
+    if (it == gPrograms.end() || !it->second.code) { fail(GL_INVALID_VALUE); return; }
+    const auto& c = it->second.code->compiled;
+    std::string n;
+    if (index < c.members.size()) {
+        const auto& m = c.members[index];
+        n = m.arrayStride ? m.name + "[0]" : m.name;
+        if (size) *size = GLint(m.count);
+        if (type) *type = glTypeOf(m);
+    } else {
+        size_t k = index - c.members.size();
+        const scamgl::Resource* found = nullptr;
+        for (const auto& r : c.resources) if (r.type == scamgl::Resource::Sampled && k-- == 0) { found = &r; break; }
+        if (!found) { fail(GL_INVALID_VALUE); return; }
+        n = found->name;
+        if (size) *size = 1;
+        if (type) *type = found->arrayed ? GL_SAMPLER_2D_ARRAY : GL_SAMPLER_2D;
+    }
+    const size_t len = bufSize > 0 ? std::min(n.size(), size_t(bufSize - 1)) : 0;
+    if (name && bufSize > 0) { std::memcpy(name, n.data(), len); name[len] = 0; }
+    if (length) *length = GLsizei(len);
+}
+template <typename T>
+static void readUniform(GLuint program, GLint location, T* out) {
+    Guard g(gLock);
+    auto it = gPrograms.find(program);
+    if (location < 0 || it == gPrograms.end() || !it->second.linked || location >= GLint(it->second.locations.size())) {
+        fail(GL_INVALID_OPERATION);
+        return;
+    }
+    const Program& p = it->second;
+    const Location loc = p.locations[size_t(location)];
+    if (loc.sampler >= 0) { out[0] = T(p.samplerUnit[size_t(loc.sampler)]); return; }
+    const auto& m = p.code->compiled.members[size_t(loc.member)];
+    const uint8_t* src = p.block.data() + m.offset + uint32_t(loc.element) * (m.arrayStride ? m.arrayStride : m.size);
+    const uint32_t n = m.vecsize * std::max<uint32_t>(m.columns, 1);
+    for (uint32_t k = 0; k < n; ++k) {
+        if (m.baseType == 0) { float f; std::memcpy(&f, src + 4 * k, 4); out[k] = T(f); }
+        else if (m.baseType == 1) { int32_t x; std::memcpy(&x, src + 4 * k, 4); out[k] = T(x); }
+        else { uint32_t x; std::memcpy(&x, src + 4 * k, 4); out[k] = T(x); }
+    }
+}
+void glGetUniformfv(GLuint program, GLint location, GLfloat* params) { readUniform(program, location, params); }
+void glGetUniformiv(GLuint program, GLint location, GLint* params) { readUniform(program, location, params); }
+
 static GLuint currentProgram() { Context* c = ctx(); return c ? c->program : 0; }
 
 void glUniform1i(GLint l, GLint a) { writeUniform(currentProgram(), l, 1, 1, &a, 1); }
@@ -956,6 +1021,10 @@ void glUniform3f(GLint l, GLfloat a, GLfloat b, GLfloat c) { const GLfloat v[] =
 void glUniform4f(GLint l, GLfloat a, GLfloat b, GLfloat c, GLfloat d) { const GLfloat v[] = {a, b, c, d}; writeUniform(currentProgram(), l, 4, 1, v, 0); }
 void glUniform1fv(GLint l, GLsizei n, const GLfloat* v) { writeUniform(currentProgram(), l, 1, n, v, 0); }
 void glUniform4fv(GLint l, GLsizei n, const GLfloat* v) { writeUniform(currentProgram(), l, 4, n, v, 0); }
+void glUniform2fv(GLint l, GLsizei n, const GLfloat* v) { writeUniform(currentProgram(), l, 2, n, v, 0); }
+void glUniform3fv(GLint l, GLsizei n, const GLfloat* v) { writeUniform(currentProgram(), l, 3, n, v, 0); }
+void glUniform3iv(GLint l, GLsizei n, const GLint* v) { writeUniform(currentProgram(), l, 3, n, v, 1); }
+void glUniform4iv(GLint l, GLsizei n, const GLint* v) { writeUniform(currentProgram(), l, 4, n, v, 1); }
 void glUniform1iv(GLint l, GLsizei n, const GLint* v) { writeUniform(currentProgram(), l, 1, n, v, 1); }
 void glUniform2iv(GLint l, GLsizei n, const GLint* v) { writeUniform(currentProgram(), l, 2, n, v, 1); }
 void glUniform1uiv(GLint l, GLsizei n, const GLuint* v) { writeUniform(currentProgram(), l, 1, n, v, 2); }

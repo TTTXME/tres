@@ -63,13 +63,19 @@ jobs:
           for f in $(git ls-tree --name-only FETCH_HEAD research/replay-bursts/ | grep '\.nch\.xz$'); do
             git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/bursts/$(basename "$f")"
           done
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: deps
         with:
           path: ${{ runner.temp }}/deps/macos
           key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
       - name: Shader translators (glslang, SPIRV-Cross)
-        run: |
-          [ -f "$RUNNER_TEMP/deps/macos/lib/libglslang.a" ] || ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
       - name: Build the replay on Metal (ScamGL)
         run: |
           D="$RUNNER_TEMP/deps/macos"
@@ -77,7 +83,8 @@ jobs:
             ios/tools/hybrid_replay.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
             -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
             -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
-            -o "$RUNNER_TEMP/hybrid_replay" 2>&1 | grep -E "error|warning: .*ScamGL" || true
+            -o "$RUNNER_TEMP/hybrid_replay" > "$RUNNER_TEMP/build.log" 2>&1 || true
+          grep -E "error|Undefined|ld: |^  \"_|referenced from" "$RUNNER_TEMP/build.log" | head -80 || true
           test -x "$RUNNER_TEMP/hybrid_replay"
       - name: Merge
         run: |
