@@ -20,6 +20,7 @@ final class CameraModel {
     private(set) var whyTone: Bool
     /// SHDR: a Bayer series merged by the Android merge (ScamGL), then «Why» V2.
     private(set) var shdr: Bool
+    private(set) var torch = false
     /// «Кадров для склейки» (pref_scam_hybrid_zsl_frames, Android default 20, 4–65)
     var burstFrames: Int {
         let stored = Int(SettingsStore.shared.string("pref_scam_hybrid_zsl_frames", "20")) ?? 20
@@ -92,6 +93,28 @@ final class CameraModel {
         SessionLog.i("App", "SHDR \(enabled)")
     }
 
+    /// The top row's format badge: «Формат фото» and the size of the open lens (CameraFragment's format / size badges).
+    var formatBadge: String {
+        let photo = SettingsStore.shared.string("pref_photo_format", "jpeg") == "heic" ? "HEIC" : "JPEG"
+        return raw == .off ? photo : photo + "+RAW"
+    }
+    var sizeBadge: String { fullResolution && supportsFullResolution ? "48M" : "12M" }
+
+    func toggleTorch() async {
+        torch = await captureService.setTorch(!torch)
+    }
+
+    /// flip_camera_button: the other side's first lens
+    func flip() async {
+        guard let active = modules.first(where: { $0.id == activeModuleID }),
+              let other = modules.first(where: { $0.isFront != active.isFront }) else { return }
+        await select(other)
+    }
+
+    func applyManual(_ m: ManualSettings) async {
+        await captureService.applyManual(m)
+    }
+
     func capture() async {
         guard activity == .idle, status == .running else { return }
         activity = .capturing
@@ -122,14 +145,14 @@ final class CameraModel {
         do {
             let burst = try await captureService.captureBayerBurst(count: burstFrames)
             activity = .saving
-            let result: (heic: Data?, log: [String], error: String?) = await Task.detached(priority: .userInitiated) {
+            let result: (heic: Data?, uti: String, log: [String], error: String?) = await Task.detached(priority: .userInitiated) {
                 let metadata = burst.processed.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
                     .flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [String: Any] } ?? [:]
                 do {
                     let r = try BurstProcessor.process(burst, metadata: metadata)
-                    return (r.heic, r.log, nil)
+                    return (r.heic, r.uti, r.log, nil)
                 } catch {
-                    return (nil, burst.report, error.localizedDescription)
+                    return (nil, UTType.heic.identifier, burst.report, error.localizedDescription)
                 }
             }.value
             result.log.forEach { SessionLog.i("SHDR", $0) }
@@ -144,7 +167,9 @@ final class CameraModel {
             }
             let heic = result.heic ?? burst.processed
             if let heic { thumbnail = MediaLibrary.thumbnail(of: heic) }
-            try await mediaLibrary.save(CapturedPhoto(processed: heic, processedUTI: UTType.heic.identifier, rawFile: rawFile, report: []))
+            let saveRaw = raw != .off ? rawFile : nil
+            try await mediaLibrary.save(CapturedPhoto(processed: heic, processedUTI: result.heic != nil ? result.uti : UTType.heic.identifier,
+                                                      rawFile: saveRaw, report: []))
             SessionLog.i("SHDR", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(memoryFootprint())")
         } catch {
             SessionLog.e("SHDR", "failed: \(error.localizedDescription)")

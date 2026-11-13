@@ -6,6 +6,9 @@ struct CameraView: View {
     @State private var sharing: [URL]?
     @State private var showingInfo = false
     @State private var showingSettings = false
+    @State private var showingFormat = false
+    @State private var showingPro = false
+    @State private var chrome = CameraChrome()
 
     var body: some View {
         ZStack {
@@ -30,6 +33,12 @@ struct CameraView: View {
         .fullScreenCover(isPresented: $showingSettings) {
             SettingsView()
         }
+        .sheet(isPresented: $showingFormat) {
+            FormatSheet(camera: camera).presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingPro) {
+            ProSheet(camera: camera).presentationDetents([.medium])
+        }
     }
 
     private var content: some View {
@@ -41,6 +50,7 @@ struct CameraView: View {
                         Task { await camera.focus(at: point) }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
+                    .overlay { ViewfinderOverlay(grid: chrome.grid, horizon: chrome.horizon) }
                     .overlay(alignment: .bottom) { messageCard }
                     .overlay {
                         if camera.status == .interrupted {
@@ -56,50 +66,47 @@ struct CameraView: View {
         .padding(.bottom, 8)
     }
 
+    // layout_main_topbar: format badge, flash, timer, grid, level, Ultra HDR (the Android top row)
     private var topBar: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 6) {
+            Button { showingFormat = true } label: {
+                HStack(spacing: 4) {
+                    Text(camera.formatBadge).font(.system(size: 13, weight: .bold))
+                    Text(camera.sizeBadge).font(.system(size: 11, weight: .semibold)).opacity(0.7)
+                }
+                .padding(.horizontal, 10).frame(height: 32)
+                .background(Color.white.opacity(0.12), in: Capsule())
+            }
+            .accessibilityLabel(L("top.format"))
+            Spacer(minLength: 4)
+            topIcon("cv_bolt", active: camera.torch) { Task { await camera.toggleTorch() } }
+                .accessibilityLabel(L("top.flash"))
+            ZStack(alignment: .topTrailing) {
+                topIcon("cv_timer", active: chrome.timerSeconds > 0) { chrome.cycleTimer() }
+                if chrome.timerSeconds > 0 {
+                    Text("\(chrome.timerSeconds)").font(.system(size: 9, weight: .bold)).padding(.horizontal, 3)
+                        .background(Color.yellow, in: Capsule()).foregroundStyle(.black)
+                }
+            }
+            .accessibilityLabel(L("top.timer"))
+            topIcon("cv_grid", active: chrome.grid) { chrome.grid.toggle() }.accessibilityLabel(L("top.grid"))
+            topIcon("cv_level", active: chrome.horizon) { chrome.horizon.toggle() }.accessibilityLabel(L("top.level"))
+            topIcon("cv_sparkle", active: chrome.ultraHdr) { chrome.ultraHdr.toggle() }.accessibilityLabel(L("top.uhdr"))
             Menu {
-                Picker(L("raw.title"), selection: Binding(get: { camera.raw }, set: { camera.setRaw($0) })) {
-                    ForEach(RawChoice.allCases) { Text($0.title).tag($0) }
-                }
-            } label: {
-                pill(camera.raw == .off ? L("raw.short_off") : camera.raw.title, active: camera.raw != .off)
-            }
-            Button {
-                camera.setShdr(!camera.shdr)
-            } label: {
-                pill("SHDR", active: camera.shdr)
-            }
-            .accessibilityLabel(L("shdr.hint"))
-            if camera.raw != .off && !camera.shdr {
-                Button {
-                    camera.setWhyTone(!camera.whyTone)
-                } label: {
-                    pill(L("why.title"), active: camera.whyTone)
-                }
-                .accessibilityLabel(L("why.hint"))
-            }
-            if camera.supportsFullResolution || camera.fullResolution {
-                Button {
-                    Task { await camera.setFullResolution(!camera.fullResolution) }
-                } label: {
-                    pill(L("fullres.title"), active: camera.fullResolution && camera.supportsFullResolution)
-                }
-            }
-            Spacer()
-            Button {
-                sharing = SessionLog.shared.flushedFiles()
-            } label: {
-                Image(systemName: "doc.text").font(.title3)
-            }
-            .accessibilityLabel(L("log.share"))
-            Button { showingInfo = true } label: { Image(systemName: "info.circle").font(.title3) }
-                .accessibilityLabel(L("info.title"))
-            Button { showingSettings = true } label: { Image(systemName: "gearshape").font(.title3) }
-                .accessibilityLabel(L("settings.open"))
+                Button(L("log.share")) { sharing = SessionLog.shared.flushedFiles() }
+                Button(L("info.title")) { showingInfo = true }
+            } label: { Image(systemName: "ellipsis").frame(width: 32, height: 40) }
         }
         .foregroundStyle(.white)
-        .padding(.top, 8)
+        .frame(height: 64)
+    }
+
+    private func topIcon(_ name: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(name).renderingMode(.template).resizable().frame(width: 22, height: 22)
+                .foregroundStyle(active ? Color.yellow : Color.white)
+                .frame(width: 40, height: 40)
+        }
     }
 
     private var moduleRow: some View {
@@ -123,32 +130,73 @@ struct CameraView: View {
         }
     }
 
+    // layout_bottombuttons: gallery, shutter, flip; then settings, the mode switch (Спорт / Фото / Oldstyle) and «Про»
     private var bottomBar: some View {
-        HStack {
-            Group {
-                if let thumbnail = camera.thumbnail {
-                    Image(decorative: thumbnail, scale: 1).resizable().scaledToFill()
-                } else {
-                    Color.white.opacity(0.1)
+        VStack(spacing: 14) {
+            HStack {
+                Group {
+                    if let thumbnail = camera.thumbnail {
+                        Image(decorative: thumbnail, scale: 1).resizable().scaledToFill()
+                    } else {
+                        Image("ic_shade_jpeg").renderingMode(.template).resizable().frame(width: 26, height: 26).foregroundStyle(.white.opacity(0.6))
+                    }
                 }
-            }
-            .frame(width: 56, height: 56)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            Spacer()
-            Button {
-                Task { await camera.capture() }
-            } label: {
-                ZStack {
-                    Circle().stroke(.white, lineWidth: 4).frame(width: 76, height: 76)
-                    Circle().fill(camera.activity == .idle ? Color.white : Color.gray).frame(width: 62, height: 62)
-                    if camera.activity != .idle { ProgressView().tint(.black) }
+                .frame(width: 58, height: 58)
+                .background(Color.white.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay { if camera.activity != .idle { ProgressView().tint(.white) } }
+                .accessibilityLabel(L("bottom.gallery"))
+                Spacer()
+                Button {
+                    chrome.shoot { await camera.capture() }
+                } label: {
+                    ZStack {
+                        Circle().stroke(Color(red: 0.957, green: 0.953, blue: 0.969), lineWidth: 3).frame(width: 86, height: 86)
+                        Circle().fill(camera.activity == .idle && chrome.countdown == 0 ? Color(red: 0.957, green: 0.953, blue: 0.969) : Color(white: 0.85))
+                            .frame(width: 70, height: 70)
+                        if chrome.countdown > 0 { Text("\(chrome.countdown)").font(.title.bold()).foregroundStyle(.black) }
+                    }
                 }
+                .disabled(camera.activity != .idle || camera.status != .running || chrome.countdown > 0)
+                .accessibilityLabel(L("capture.shutter"))
+                Spacer()
+                Button { Task { await camera.flip() } } label: {
+                    Image("cv_flip").renderingMode(.template).resizable().frame(width: 26, height: 26).foregroundStyle(.white)
+                        .frame(width: 58, height: 58).background(Color.white.opacity(0.1), in: Circle())
+                }
+                .accessibilityLabel(L("bottom.flip"))
             }
-            .disabled(camera.activity != .idle || camera.status != .running)
-            .accessibilityLabel(L("capture.shutter"))
-            Spacer()
-            Color.clear.frame(width: 56, height: 56)
+            HStack {
+                Button { showingSettings = true } label: {
+                    Image("cv_gear").renderingMode(.template).resizable().frame(width: 24, height: 24).frame(width: 50, height: 50)
+                }
+                .accessibilityLabel(L("settings.open"))
+                Spacer()
+                HStack(spacing: 4) {
+                    modeButton("cv_run_m", .sport)
+                    modeButton("cv_photo_m", .photo)
+                    modeButton("cv_os_cassette", .oldstyle)
+                }
+                .padding(4).background(Color.white.opacity(0.1), in: Capsule())
+                Spacer()
+                Button { showingPro = true } label: {
+                    Image("cv_sliders").renderingMode(.template).resizable().frame(width: 22, height: 22).frame(width: 50, height: 50)
+                        .background(Color.white.opacity(0.1), in: Circle())
+                }
+                .accessibilityLabel(L("bottom.pro"))
+            }
+            .foregroundStyle(.white)
         }
+    }
+
+    private func modeButton(_ icon: String, _ mode: CameraChrome.Mode) -> some View {
+        Button { chrome.mode = mode } label: {
+            Image(icon).renderingMode(.template).resizable().frame(width: 24, height: 24)
+                .foregroundStyle(chrome.mode == mode ? Color.black : Color.white)
+                .frame(width: 44, height: 44)
+                .background(chrome.mode == mode ? Color.yellow : Color.clear, in: Circle())
+        }
+        .accessibilityLabel(mode.title)
     }
 
     @ViewBuilder private var messageCard: some View {

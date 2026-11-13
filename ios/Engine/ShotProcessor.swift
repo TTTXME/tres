@@ -60,7 +60,17 @@ enum ShotProcessor {
     }
 
     /// RGBA8 sRGB rows top-down (the pipeline's photo) → HEIC with the camera's EXIF.
-    static func encode(rgba bytes: Data, width w: Int, height h: Int, metadata: [String: Any], orientation: Int = 1) throws -> Data {
+    /// «Формат фото» (pref_photo_format, Android default jpeg) and its quality (pref_jpeg_quality 98, pref_heic_quality 90).
+    static var photoFormat: (type: UTType, quality: Double) {
+        let store = SettingsStore.shared
+        if store.string("pref_photo_format", "jpeg") == "heic" {
+            return (.heic, Double(Int(store.string("pref_heic_quality", "90")) ?? 90) / 100)
+        }
+        return (.jpeg, Double(Int(store.string("pref_jpeg_quality", "98")) ?? 98) / 100)
+    }
+
+    static func encode(rgba bytes: Data, width w: Int, height h: Int, metadata: [String: Any], orientation: Int = 1,
+                       format: (type: UTType, quality: Double) = (.heic, 0.92)) throws -> Data {
         let rowBytes = w * 4
         guard let provider = CGDataProvider(data: bytes as CFData),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -70,7 +80,7 @@ enum ShotProcessor {
             throw EngineError.encode("CGImage")
         }
         let out = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(out, UTType.heic.identifier as CFString, 1, nil) else {
+        guard let destination = CGImageDestinationCreateWithData(out, format.type.identifier as CFString, 1, nil) else {
             throw EngineError.encode("HEIC destination")
         }
         var properties = metadata
@@ -86,7 +96,7 @@ enum ShotProcessor {
         tiff[kCGImagePropertyTIFFOrientation as String] = orientation
         tiff[kCGImagePropertyTIFFSoftware as String] = "SCAMERA iOS \(BuildInfo.version)"
         properties[kCGImagePropertyTIFFDictionary as String] = tiff
-        properties[kCGImageDestinationLossyCompressionQuality as String] = 0.92
+        properties[kCGImageDestinationLossyCompressionQuality as String] = format.quality
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw EngineError.encode("HEIC finalize") }
         return out as Data

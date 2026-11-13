@@ -150,6 +150,54 @@ actor CaptureService {
         return try await photoCapture.captureBayerBurst(count: count, device: device)
     }
 
+    // MARK: the top row's flash and «Про» (CameraUIController torch_button, the manual panel)
+
+    func setTorch(_ on: Bool) -> Bool {
+        guard let device = activeInput?.device, device.hasTorch, device.isTorchModeSupported(on ? .on : .off) else { return false }
+        do {
+            try device.lockForConfiguration()
+            device.torchMode = on ? .on : .off
+            device.unlockForConfiguration()
+            return on
+        } catch {
+            return false
+        }
+    }
+
+    func applyManual(_ m: ManualSettings) {
+        guard let device = activeInput?.device else { return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            if m.exposureOn, device.isExposureModeSupported(.custom) {
+                let f = device.activeFormat
+                let iso = Float(min(max(m.iso, Double(f.minISO)), Double(f.maxISO)))
+                let seconds = min(max(pow(2, m.shutter), f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
+                device.setExposureModeCustom(duration: CMTime(seconds: seconds, preferredTimescale: 1_000_000), iso: iso)
+            } else {
+                if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                device.setExposureTargetBias(Float(min(max(m.bias, Double(device.minExposureTargetBias)), Double(device.maxExposureTargetBias))))
+            }
+            if m.focusOn, device.isFocusModeSupported(.locked) {
+                device.setFocusModeLocked(lensPosition: Float(m.focus))
+            } else if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            if m.wbOn, device.isWhiteBalanceModeSupported(.locked) {
+                var gains = device.deviceWhiteBalanceGains(for: AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(m.kelvin), tint: 0))
+                let maxGain = device.maxWhiteBalanceGain
+                gains.redGain = min(max(gains.redGain, 1), maxGain)
+                gains.greenGain = min(max(gains.greenGain, 1), maxGain)
+                gains.blueGain = min(max(gains.blueGain, 1), maxGain)
+                device.setWhiteBalanceModeLocked(with: gains)
+            } else if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+        } catch {
+            SessionLog.e("Capture", "manual settings: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: focus and rotation (AVCam)
 
     private var previewLayer: AVCaptureVideoPreviewLayer? {

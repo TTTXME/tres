@@ -7,7 +7,8 @@ import simd
 /// merge → the post pipeline («Why тон», the Android nodes and shaders) with the shot's parameters from its DNG → HEIC.
 enum BurstProcessor {
     struct Result {
-        let heic: Data
+        let heic: Data          // the photo in «Формат фото» (JPEG or HEIC)
+        let uti: String
         let log: [String]
     }
 
@@ -63,8 +64,9 @@ enum BurstProcessor {
         }
         log += photo.log
         log.append("merge \(Int(photo.mergeMilliseconds)) ms, post \(Int(photo.postMilliseconds)) ms, photo \(photo.width)x\(photo.height), \(memoryFootprint())")
-        let heic = try ShotProcessor.encode(rgba: photo.rgba, width: photo.width, height: photo.height, metadata: metadata)
+        let format = ShotProcessor.photoFormat
+        let heic = try ShotProcessor.encode(rgba: photo.rgba, width: photo.width, height: photo.height, metadata: metadata, format: format)
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")
-        return Result(heic: heic, log: log)
+        return Result(heic: heic, uti: format.type.identifier, log: log)
     }
 }
