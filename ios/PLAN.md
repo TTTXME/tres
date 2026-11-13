@@ -137,9 +137,26 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     PSNR 42.8 dB to the lab photo - the shot's own tuning lines (usSceneEv, wbR / wbB) change the merge as on a live Android
     shot. ScamGL fixes found by it: fragment outputs padded to the target, glReadPixels missing components 0 / alpha 1,
     glClearBufferuiv / iv.
-  - Not ported yet (they throw): «Why тон» V2 route, Oldstyle, «Текстура» (ScamLocalContrast), HybridFinalResize
-    («Уменьшить до» / 1.5x / 2x output), DCG noise zones, film, lens filters, Ultra HDR, Portrait. Transport: the base frame
-    is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the DNG profile scaled by ISO.
+  - 2026-11-13: the tail of PostPipeline.tail and the Sabre output modes. nodes/ScamLocalContrast.hpp («Текстура»; GLUtils.hpp:
+    createPyramid / gaussianDownsample / pyramiddiff, the 96x72 noise-floor read-back), nodes/HybridFinalResize.hpp (the four
+    downsamplers), PostPipelineRun.hpp builds them as tail() does. HybridOutput.hpp: ScamHybridBurst.sabreSize / resizeTarget /
+    megapixelSize / sabreWords / sabre2xFits / transportHalf, PreferenceKeys.hybridFinalSize and the constructor's output plan
+    (outWidth / outHeight, finalWidth / finalHeight, strictTwoX); Settings.hpp: routeInternalValue, hybridOutputMode,
+    hybridDownsampler, hybridResizeMode / Custom. ShotRun.hpp writes header flags 8 / 16 of the merged size, word 13 (grid) and
+    words 15 / 16 (the 1.5x size), the burst's "grid 2 / auto2x 0" lines for 2x, the rgb-half marker of transportHalf, and
+    Parameters.outputScale / hybridFinalSize as ScamProcessor sets them. Lenta variants against the Android reference on Mesa
+    (post_node_check full): «Текстура» 0 of 37748736 values differ; «Уменьшить до» 8 MP (3264x2448) with lanczos / bicubic /
+    area / bilinear each 0 of 23970816; Sabre 1.5x (6144x4608, «Текстура» on the 2x pyramid, e = 1) 0 of 84934656;
+    Sabre 2x strict (8192x6144 merge, «Текстура» e = 1, «Уменьшить до» 12 MP: lanczos 8192x6144 -> 4096x3072) 0 of 37748736;
+    Lenta itself still 0 of 37748736. The app's whole shot (shot_run_check, Sabre 1.5x + «Текстура»): header words 13 / 15 / 16
+    = 2 / 6144 / 4608 as Android, photo 4608x6144, PSNR 42.0 dB to the lab photo (the shot's own tuning lines).
+    Host harness: HostPostRender reads the worker output at header words 15 / 16 (as ScamNeuralClient reads
+    ScamHybridBurst.outputWidth; ScamLabBurst takes width x grid, so the Android lab cannot replay a 1.5x burst), and
+    ShadowTileBlitter takes the tile readback above 16 MP (Robolectric's legacy Canvas left those photos black). post_node_check
+    takes words 15 / 16 too and the nodes ScamLocalContrast / FinalResize.
+  - Not ported yet (they throw): «Why тон» V2 route, Oldstyle, DCG noise zones, film, lens filters, Ultra HDR, Portrait.
+    Transport: the base frame is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the
+    DNG profile scaled by ISO.
   - The iOS settings screen writes the Android keys (Engine/PostSettings.swift, UserDefaults "scam.prefs"); unset keys take
     the Android defaults.
 

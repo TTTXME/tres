@@ -45,12 +45,14 @@ import java.util.Map;
  * ScamNeuralClient reads the worker's; then PostPipeline.Run on the host GPU. Inputs (environment): SCAM_HOST_SHOT = a lab
  * shot folder (meta.json, burst.nch), SCAM_HOST_REPLAY = the hybrid_replay binary, SCAM_HOST_RESULT = the output folder.
  * Output: tuning.txt, report.txt, merge.f32 (SCRG float RGB), photo.rgba (SCR8 header + RGBA8 rows); with SCAM_HOST_DUMP each
- * node's output (ShadowScamDiagnostics).
+ * node's output (ShadowScamDiagnostics). Photos above 16 MP come through the tile readback (ShadowTileBlitter).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, shadows = {scam.host.ShadowGLES20.class, scam.host.ShadowGLES30.class,
-        scam.host.ShadowGLES31.class, scam.host.ShadowGLES32.class, scam.host.ShadowEGL14.class, scam.host.ShadowScamDiagnostics.class},
-        instrumentedPackages = "com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDiagnostics")
+        scam.host.ShadowGLES31.class, scam.host.ShadowGLES32.class, scam.host.ShadowEGL14.class, scam.host.ShadowScamDiagnostics.class,
+        scam.host.ShadowTileBlitter.class},
+        instrumentedPackages = {"com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDiagnostics",
+                "com.particlesdevs.photoncamera.processing.opengl.GLCoreBlockProcessing"})
 public class HostPostRender {
     private MockedStatic<ScameraApp> camera;
     private SettingsManager manager;
@@ -145,7 +147,10 @@ public class HostPostRender {
 
     /** ScamNeuralClient.processScamBurst's read of the worker output: the RGB, the trailers and the report's numbers. */
     private static ByteBuffer readWorkerOutput(ScamLabBurst burst, File file, String rep) throws IOException {
-        final int ow = burst.outputWidth(), oh = burst.outputHeight();
+        // P501 Sabre 1.5x: the worker returns the size of header words 15 / 16 (ScamHybridBurst.sabreWords), as the app's
+        // ScamNeuralClient reads it (ScamHybridBurst.outputWidth); ScamLabBurst's own size is the whole grid's
+        final int[] sabre = sabreWords(burst.file);
+        final int ow = sabre[0] > 0 ? sabre[0] : burst.outputWidth(), oh = sabre[0] > 0 ? sabre[1] : burst.outputHeight();
         final boolean rgbHalf = burst.rgbHalfTransport();
         final long rgbBytes = (long) ow * oh * (rgbHalf ? 6 : 12);
         final long outputBytes = file.length();
@@ -201,6 +206,12 @@ public class HostPostRender {
         System.out.println("HOST POST: worker output " + outputBytes + " B: RGB " + rgbBytes + (rgbHalf ? " (halves)" : "") + ", effective map "
                 + effBytes + ", clip flags " + clipBytes + ", highlight mask " + (hlMask != null ? layout[3] : 0) + ", median frames " + effMedian);
         return result;
+    }
+
+    /** Header words 15 / 16 of an NCH burst (0, 0: the result is the grid's own size). */
+    private static int[] sabreWords(File burst) throws IOException {
+        final ByteBuffer h = read(burst, 0, ScamLabBurst.HEADER).order(ByteOrder.LITTLE_ENDIAN);
+        return new int[]{h.getInt(60), h.getInt(64)};
     }
 
     private static ByteBuffer read(File file, long at, int bytes) throws IOException {

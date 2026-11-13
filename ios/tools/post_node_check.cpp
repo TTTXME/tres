@@ -116,7 +116,11 @@ int main(int argc, char** argv) {
         std::memcpy(&hw, head.data() + 8, 4); std::memcpy(&hh, head.data() + 12, 4);
         std::memcpy(&flags, head.data() + 44, 4); std::memcpy(&grid, head.data() + 52, 4);
         grid = std::max(1, grid);
-        const int outW = hw * grid, outH = hh * grid;
+        // the RGB the worker returns: the grid's size, or the Sabre 1.5x size of header words 15 / 16 (ScamHybridBurst.sabreWords;
+        // HostPostRender reads the worker output at the same size)
+        int32_t sabreW = 0, sabreH = 0;
+        std::memcpy(&sabreW, head.data() + 60, 4); std::memcpy(&sabreH, head.data() + 64, 4);
+        const int outW = sabreW > 0 ? sabreW : hw * grid, outH = sabreW > 0 ? sabreH : hh * grid;
         const bool rgbHalf = settings.scamDevSwitch("hybrid_rgb_half", true) || int64_t(outW) * outH > 2147483647LL / 12;
         const bool effectiveMap = (flags & 16) == 0, clipFlags = (flags & 4) != 0;
         const bool highlightMask = settings.scamDevSwitch("why_hl_dezipper", true);
@@ -143,7 +147,7 @@ int main(int argc, char** argv) {
             char prefix[8];
             std::snprintf(prefix, sizeof prefix, "%02d-", i);
             for (const char* name : {"ScamRgb", "ScamHdrDenoise", "WhyHlDezipper", "WhyMsDenoise", "WhyStats", "WhyFusion", "WhyLumaSharpen",
-                                     "WhyFused", "WhyLumaS", "WhyCombine"}) {
+                                     "WhyFused", "WhyLumaS", "WhyCombine", "ScamLocalContrast", "FinalResize"}) {
                 const std::string path = refDir + "/dump/" + prefix + name + ".f32";
                 if (std::ifstream(path).good()) dumps.push_back(path);
             }
@@ -163,6 +167,13 @@ int main(int argc, char** argv) {
             else if (name == "WhyLumaSharpen") p.add(std::make_unique<WhyLumaSharpen>());
             else if (name == "WhyFusion") p.add(std::make_unique<WhyFusion>());
             else if (name == "WhyCombine") p.add(std::make_unique<WhyCombine>());
+            else if (name == "ScamLocalContrast") p.add(std::make_unique<ScamLocalContrast>());
+            else if (name == "FinalResize") {
+                if (!p.mParameters.hybridFinalSize) throw std::runtime_error("FinalResize: the shot has no hybridFinalSize");
+                p.finalSize = *p.mParameters.hybridFinalSize;
+                p.cropSize = *p.finalSize;
+                p.add(std::make_unique<HybridFinalResize>(*p.finalSize, settings.hybridDownsampler()));
+            }
             else if (name == "full") {}
             else throw std::runtime_error("node " + name + " is not ported yet");
         }

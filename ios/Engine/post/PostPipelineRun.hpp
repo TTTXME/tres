@@ -1,9 +1,12 @@
 // PostPipeline.Run + BuildDefaultPipeline (the photo route of an SHDR shot, «Why тон» V1) one to one for what an iPhone shot
 // takes: no film simulation, no lens filter, no Oldstyle, no Ultra HDR. V2 and the other routes throw until they are ported.
+// The tail (PostPipeline.tail): «Текстура» (ScamLocalContrast), the final size (HybridFinalResize), the rotation.
 #pragma once
 
+#include "nodes/HybridFinalResize.hpp"
 #include "nodes/RotateWatermark.hpp"
 #include "nodes/ScamHdrDenoise.hpp"
+#include "nodes/ScamLocalContrast.hpp"
 #include "nodes/ScamRgb.hpp"
 #include "nodes/WhyCombine.hpp"
 #include "nodes/WhyFusion.hpp"
@@ -35,8 +38,11 @@ inline void buildDefaultPipeline(PostPipeline& p) {
     p.add(std::make_unique<WhyFusion>());
     p.add(std::move(sharpen));
     p.add(std::make_unique<WhyCombine>());
-    if (prefs.hybridSwitch("why_texture", false)) throw std::runtime_error("post port: «Текстура» (ScamLocalContrast) is not ported yet");
-    if (p.finalSize) throw std::runtime_error("post port: HybridFinalResize is not ported yet");
+    // PostPipeline.tail: texture on request (not with a film), the final size, the rotation (no film grain without a film)
+    const bool texture = prefs.hybridSwitch("why_texture", false);
+    logI("SCAM_PIPELINE", std::string("WHY tail: sharpen=why (WhyLumaSharpen) texture=") + (texture ? "true" : "false"));
+    if (texture && p.film == nullptr) p.add(std::make_unique<ScamLocalContrast>());
+    if (p.finalSize) p.add(std::make_unique<HybridFinalResize>(*p.finalSize, prefs.hybridDownsampler()));
     p.add(std::make_unique<RotateWatermark>(p.getRotation()));
 }
 
@@ -47,6 +53,7 @@ inline PostOutput runPostPipeline(PostPipeline& p) {
     p.computeNoise();
     p.cropSize = *p.mParameters.rawSize;
     p.finalSize.reset();
+    p.finalResized = false;
     if (p.mParameters.hybridFinalSize && p.mParameters.hybridFinalSize->x < p.mParameters.rawSize->x
         && p.mParameters.hybridFinalSize->y < p.mParameters.rawSize->y) {
         p.finalSize = *p.mParameters.hybridFinalSize;

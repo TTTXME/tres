@@ -310,6 +310,51 @@ public:
         return listValue(full, getString(full, ""), fallback);
     }
 
+    /// routeInternalValue: a hybrid shot reads pref_scam_hybrid_<key> (scam_dev "hybrid_<key>", then "<key>"), a SCAM HDR shot
+    /// pref_scamhdr_<key> (scam_dev "<key>"); keys starting with "hybrid_" always name a hybrid setting
+    float routeInternalValue(const std::string& key, float fallback, bool hybridShot = true) const {
+        if (key.rfind("hybrid_", 0) == 0) return hybridValue(key.substr(7), fallback);
+        if (hybridShot) {
+            if (auto o = scamDevValue("hybrid_" + key)) return *o;
+            if (auto o = scamDevValue(key)) return *o;
+            return hybridStored(key, fallback);
+        }
+        if (auto o = scamDevValue(key)) return *o;
+        const std::string full = "pref_scamhdr_" + key;
+        return float(value(full, Pref::string(getString(full, Pref::javaFloat(fallback))), fallback));
+    }
+
+    /// P501: a stored output value as the current modes (the old 12 MP is the sensor size, 16 / 20 MP the 1.5x grid)
+    static std::string outputMode(const std::string& stored) {
+        if (stored == "2x") return "2x";
+        return stored == "1.5x" || stored == "16" || stored == "20" ? "1.5x" : "sensor";
+    }
+    /// hybridOutputMode (pref_scam_hybrid_output; scam_dev "hybrid_output 0|1.5|2"): "sensor", "1.5x" or "2x"
+    std::string hybridOutputMode() const {
+        if (auto dev = scamDevValue("hybrid_output")) {
+            const float v = *dev;
+            return v == 2.f ? "2x" : v == 1.5f || v == 16.f || v == 20.f ? "1.5x" : "sensor";
+        }
+        return outputMode(hybridString("output", "sensor"));
+    }
+    /// hybridDownsampler (pref_scam_hybrid_downsampler; scam_dev "hybrid_downsampler 0..3")
+    std::string hybridDownsampler() const {
+        if (auto dev = scamDevValue("hybrid_downsampler")) {
+            const long v = javaRound(*dev);
+            return v == 1 ? "bicubic" : v == 2 ? "area" : v == 3 ? "bilinear" : "lanczos";
+        }
+        return hybridString("downsampler", "lanczos");
+    }
+    /// P503 «Уменьшить до» (pref_scam_hybrid_resize): "off", "12", "16", "20", "mp" or "px"
+    std::string hybridResizeMode() const { return hybridString("resize", "off"); }
+    /// the own value of the «Уменьшить до» mode (pref_scam_hybrid_resize_mp / _px), none for the presets
+    std::optional<std::string> hybridResizeCustom() const {
+        const std::string mode = hybridResizeMode();
+        if (mode == "mp") return hybridString("resize_mp", "24");
+        if (mode == "px") return hybridString("resize_px", "4000x3000");
+        return std::nullopt;
+    }
+
     static std::string trim(const std::string& s) {
         const size_t a = s.find_first_not_of(" \t\n\r"), b = s.find_last_not_of(" \t\n\r");
         return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
