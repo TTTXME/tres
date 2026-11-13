@@ -6,7 +6,7 @@ name: Build SCAMERA test APK
 on:
   push:
     branches: [ main ]
-    paths-ignore: [ '**/*.md', 'docs/**', 'research/**', 'ios/**', '.github/workflows/build-ios-ipa.yml' ]
+    paths-ignore: [ '**/*.md', 'docs/**', 'research/**', 'ios/**', '.github/workflows/build-ios-ipa.yml', '.github/workflows/ios-burst-replay.yml' ]
   workflow_dispatch:
 
 concurrency:

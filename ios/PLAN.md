@@ -73,6 +73,19 @@ C++ code, bit-exact hashes required).
   film LUT, P3 output. Output 8-bit (QUANT8), HEIC q 0.92 with the camera's EXIF, orientation 1.
 - Log: `Engine` lines `decode …`, `WHY V2 stats …`, `WHY V2 fusion …`, `WHY V2 tone …`, `encode HEIC … total ms= memory`.
 
+## The merge on Metal: ScamGL (2026-11-13)
+The SHDR merge is the Android C++ as is (`app/src/main/cpp/scam-*.h`): its GLES 3.1 compute runs on Metal through
+`ios/ScamGL` (EGL / GLES subset over Metal command buffers; GLSL → glslang (Vulkan relaxed rules, shifted binding spaces)
+→ SPIRV-Cross MSL at link time, fast math off; user functions prefixed, `level` & co. renamed). The only shared-C++
+change: `scam-crash.h` keeps only the stage marks on Apple.
+- Check: `ios/tools/hybrid_replay.cpp` (the worker's `hybridReconstruct` call, cre-off) on the 5 burst crops of
+  `replay/p335`, Mesa llvmpipe vs ScamGL on the macOS runner's GPU (CI jobs merge-reference / merge-metal, limit 80 dB):
+  d101423a 104.95 dB, d101423b 103.58, e193420 109.43, n124513a 92.66, n124513b 97.49 (max |Δ| ≤ 0.6 % of p99.9,
+  mean ~1e-6) — float rounding. Before the `level` rename the GPU alignment did not build (fallback to the corner
+  tracker): 27–37 dB, so the replay catches path differences.
+- Full bursts: `ios/tools/full_bursts.txt` (owner's Drive, BURSTS_ALL) → `.github/workflows/ios-burst-replay.yml`.
+- Not yet: render programs (the «Быстрый» route's fragment passes with blending), program binaries (always compiled).
+
 ## Stages (estimates are working sessions)
 1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
    Next in stage 1 (2–3): Metal engine (MTLDevice, compute pipelines from `Engine/*.metal`, RGBA16F textures);

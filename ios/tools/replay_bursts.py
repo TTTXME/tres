@@ -50,8 +50,10 @@ def run(binary, bursts, out, extra):
     failed = 0
     for path in sorted(list(bursts.glob('*.nch')) + list(bursts.glob('*.nch.xz'))):
         name = path.name.split('.')[0]
-        nch = out / (name + '.nch')
-        nch.write_bytes(unpack(path))
+        packed = path.suffix == '.xz'
+        nch = out / (name + '.nch') if packed else path
+        if packed:
+            nch.write_bytes(unpack(path))
         job = out / ('job_' + name)
         job.mkdir(exist_ok=True)
         (job / 'hybrid_tuning.txt').write_text(tuning)
@@ -59,7 +61,8 @@ def run(binary, bursts, out, extra):
         p = subprocess.run([str(binary), str(job), str(nch), str(out / (name + '.f32'))], capture_output=True, text=True,
                            errors='replace', timeout=1800)
         (out / (name + '.log')).write_text(p.stdout + '\n--- stderr\n' + p.stderr)
-        nch.unlink()
+        if packed:
+            nch.unlink()
         ok = p.returncode == 0
         failed += not ok
         print(f'{name}: rc={p.returncode} {time.time() - started:.1f}s', p.stderr.strip().splitlines()[-1:] if not ok else '')

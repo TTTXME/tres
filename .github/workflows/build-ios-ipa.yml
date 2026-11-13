@@ -97,7 +97,7 @@ jobs:
       - name: Compare with Mesa
         run: |
           set -o pipefail
-          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" | tee "$RUNNER_TEMP/compare.txt"
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 80 | tee "$RUNNER_TEMP/compare.txt"
           { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
