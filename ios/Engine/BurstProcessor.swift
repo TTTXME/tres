@@ -55,9 +55,18 @@ enum BurstProcessor {
         guard let shaders = Bundle.main.url(forResource: "shaders", withExtension: nil) else {
             throw EngineError.decode("the pipeline's shaders are missing from the app")
         }
+        // «Портрет»: the faces for the post pipeline (Android: Camera2's face detection, Parameters.portraitFaces)
+        var faces = PortraitFaces.Faces()
+        if PortraitFaces.enabled {
+            let faceStarted = Date()
+            faces = PortraitFaces.detect(burst, dngOrientation: info.orientation, black: blackMean, white: info.white)
+            log.append("portrait: \(faces.note) in \(ms(since: faceStarted)) ms")
+        }
         let photo: SCAMPhoto
         do {
-            photo = try SCAMShot.processBurst(atPath: nch.path, dng: burst.dng, settings: PostSettings.json(), shaders: shaders.path)
+            photo = try SCAMShot.processBurst(atPath: nch.path, dng: burst.dng, settings: PostSettings.json(),
+                                              faces: faces.boxes.map { NSNumber(value: $0) }, facesDetected: faces.detected,
+                                              shaders: shaders.path)
         } catch let error as NSError {
             log += (error.userInfo["log"] as? [String]) ?? []
             throw error

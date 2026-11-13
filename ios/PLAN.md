@@ -229,7 +229,26 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     Settings: App/FilmSettings.swift (FilmSimPage: film / print / format / effects, FilmLutPage with «Импорт .cube» into
     Documents/LUT, LensFilterPage with the tune) behind SettingsRow's custom rows; Bridge/ScamFilm.{h,mm} (the catalogues, the LUT
     folder, the cards' CPU look). project.yml bundles app/src/main/assets/film as "film".
-  - Not ported yet (they throw): DCG noise zones, Portrait. Not on iOS: the film's EXIF recipe (Parameters.filmRecipe), the live
+  - 2026-11-13: «Портрет» (pref_portrait_enabled / pref_portrait_skin_warmth; Parameters.portraitFaceDetected / portraitFaces).
+    portrait/PortraitSkin.hpp (PortraitSkin.measure / shift / sceneNeutral / faceLuma / faceAwb, PortraitFaces.crop / append; Java
+    float semantics, JDK toDegrees / toRadians), portrait/PortraitGpu.hpp (portrait/sample.glsl 192 px sample, RGBA32F read-back;
+    measureScene with CAMERA_SOURCE for ReferenceFilm); WhyStats: portraitOffsets (AE target +0.05, dark pixels +0.5), the skin
+    measure on whyLow (adjust zeroed without skin warmth), facePriority («Приоритет лиц в AE»); WhyCombine: PORTRAIT
+    (portraitFacesU / AdjustU / MapU), «Маска лица» (why/facemask MODE 0 + two cross-bilateral passes, FACE_MASK) and Face AWB
+    (FACE_AWB). V2 / Oldstyle read no portrait field (as Android). App: Engine/PortraitFaces.swift (Vision VNDetectFaceRectanglesRequest
+    on the burst's processed HEIC at 1024 px, its EXIF orientation, frames of another aspect refused; fallback a grey of RAW frame 0;
+    confidence >= 0.5, the five largest; boxes turned into the RAW buffer by the DNG orientation) → BurstProcessor (only with
+    «Защита лиц» on) → SCAMShot faces / facesDetected → ShotRun ShotFaces → Parameters (PortraitFaces.crop to the frame).
+    Lenta variants (faces in sensor orientation in meta.json params, ScamLabParams.fromJson reads them) against the Android
+    reference on Mesa (post_node_check full), each 0 of 37748736 values differ, the skin logs identical: V1 three faces (soil
+    mound: hue 8.5, turn 10, shift +0.0325; dry grass hue 65.5; a 3-sample face unmeasured) 0; skin warmth off 0 (67701 values
+    differ from warmth on); «Маска лица» all seven sliders + portrait_awb 0.7 0; detected without boxes 0; one face with Face
+    AWB -0.0110 / +0.0233, mask size 125 / skin 60 / shown, AE 1.4621 -> 2.9243 0; a yellow car (turn -4.66, AE priority 0.8:
+    1.4621 -> 1.8035, Face AWB +0.0291 / -0.0074) 0; V2 with faces 0 (= V2); Ultra HDR + mask photo 0, gain map 0 of 50331648;
+    Oldstyle V2 + faces 0. Baselines still 0: lenta, v2, os2, uhdr (map 0). Not ported: ReferenceFilm's skin warmth (the
+    spectral film with a face and skin warmth still throws in ReferenceFilm.hpp; PortraitGpu::measureScene is its measure);
+    Vision's boxes are not Camera2's (tighter, from the lens-corrected HEIC): not checked on a device.
+  - Not ported yet (they throw): DCG noise zones, the spectral film's skin warmth (Portrait). Not on iOS: the film's EXIF recipe (Parameters.filmRecipe), the live
     viewfinder's film / LUT / lens filter.
     Transport: the base frame is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the
     DNG profile scaled by ISO.

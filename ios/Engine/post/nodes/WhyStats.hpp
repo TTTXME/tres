@@ -1,11 +1,13 @@
-// WhyStats.java one to one (the default GL model): whyLow (the box mean of the linear Rec.709 scene at half the grid), the
-// Smart-HDR statistics chained on the GPU with WhyLumaSharpen's early passes queued behind them, then WhyAe.finish. The image
-// passes through. Not ported (they throw): the faces' skin measure (Portrait with a detected face), a lab fragment's frozen stats.
+// WhyStats.java one to one (the default GL model): whyLow (the box mean of the linear Rec.709 scene at half the grid), the faces'
+// skin measure of «Портрет» (PortraitGpu on whyLow, a face found), the Smart-HDR statistics chained on the GPU with WhyLumaSharpen's
+// early passes queued behind them, then WhyAe.finish and the face priority. The image passes through. Not ported (it throws): a lab
+// fragment's frozen stats.
 #pragma once
 
 #include "../why/WhyAeGpu.hpp"
 #include "../why/WhyNoiseClamp.hpp"
 #include "../why/WhyToneCore.hpp"
+#include "../portrait/PortraitGpu.hpp"
 
 namespace scam_post {
 
@@ -24,7 +26,7 @@ public:
     static WhyAe::AeSettings aeSettings(PostPipeline& pipeline, int width, int height, float inScale, std::optional<std::string>& clampLine) {
         WhyAe::AeSettings settings = WhyTone::settings(pipeline);
         settings.portraitFace = pipeline.mParameters.portraitEnabled && pipeline.mParameters.portraitFaceDetected;
-        if (settings.portraitFace) throw std::runtime_error("post port: the faces' skin measure (Portrait) is not ported");
+        if (settings.portraitFace) WhyTone::portraitOffsets(settings);   // P513
         settings.noiseS = pipeline.noiseS;
         settings.noiseO = pipeline.noiseO;
         settings.motionGain = std::max(1.f, pipeline.mParameters.postRawBoost);
@@ -65,6 +67,13 @@ public:
         const int iso = pipeline.mParameters.iso, maxIso = 10000;
         std::optional<std::string> clampLine;
         WhyAe::AeSettings settings = aeSettings(pipeline, WorkingTexture->mSize.x, WorkingTexture->mSize.y, st->inScale, clampLine);
+        // P512: the faces' skin is measured whenever a face is found - its luminance leads «Приоритет лиц в AE», its colour Face AWB
+        // and the face mask; the skin-tone correction itself stays with «Естественный цвет кожи»
+        if (settings.portraitFace) {
+            st->portrait = PortraitGpu::measure(prog, st->low, pipeline.mParameters.portraitFaces ? *pipeline.mParameters.portraitFaces : std::vector<float>());
+            if (st->portrait && !pipeline.mParameters.portraitSkinWarmth) std::fill(st->portrait->adjust.begin(), st->portrait->adjust.end(), 0.f);
+            logI("SCAM_PIPELINE", "Portrait: face protection, skin faces=" + std::to_string(st->portrait ? st->portrait->count : 0));
+        }
         if (clampLine) logI("SCAM_PIPELINE", *clampLine);
         const double noiseS0 = pipeline.noiseS, noiseO0 = pipeline.noiseO;
         st->noiseS = std::isfinite(pipeline.fusionNoiseS) && pipeline.fusionNoiseS > 0.f ? pipeline.fusionNoiseS : float(noiseS0);
@@ -92,7 +101,8 @@ public:
             throw std::runtime_error("post port: the statistics with the read-back between the passes (ae_gpu_chain 0) are not ported");
         }
         WhyAe::Stats stats = gpu ? *gpu : WhyAeGpu::cpuStats(*st->low, settings.metering);
-        const WhyAe::Result r = WhyAe::finish(stats, settings, iso, maxIso);
+        WhyAe::Result r = WhyAe::finish(stats, settings, iso, maxIso);
+        WhyTone::facePriority(r, st->portrait);   // P512
         st->ae = r;
         pipeline.linearDisplayGain = r.ae;
         logI("SCAM_PIPELINE", "WHY SMART_HDR_STAT " + r.describe() + " iso=" + std::to_string(iso) + " maxIso=" + std::to_string(maxIso) + " inScale="

@@ -10,6 +10,7 @@
 #include "HybridTuning.hpp"
 #include "PostPipelineRun.hpp"
 #include "WorkerOutput.hpp"
+#include "portrait/PortraitSkin.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -25,14 +26,22 @@ struct ShotOutput {
     double mergeMs = 0, postMs = 0;
 };
 
+/// «Портрет»: the faces of the shot as Parameters.FillDynamicParameters takes them from PortraitFaces.fromResult - whether a face
+/// was found, and its boxes (normalised left, top, right, bottom in the unrotated RAW buffer, the merged RGB's sensor orientation;
+/// empty when a face was found but its place in the RAW is unknown). The iOS app finds them with Vision (BurstProcessor).
+struct ShotFaces {
+    bool detected = false;
+    std::vector<float> boxes;
+};
+
 /// settings: the app's (Settings::current()); nchPath: the burst written by the app, its header flags set here; jobDir: an empty
 /// directory for the worker's job; shaders: the app's shader assets.
 /// makeContext: makes the post pipeline's GL context current, after the merge (its GPU engines end their display: eglTerminate).
 /// gpuMaxSide: GLLimits.maxSide of the GPU (the smallest of the texture, renderbuffer and viewport limits; 16384 on the
-/// iPhone's Metal and on Mesa llvmpipe).
+/// iPhone's Metal and on Mesa llvmpipe). faces: the shot's faces (ShotFaces), read only with «Портрет» on.
 inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>& dngBytes, const std::string& jobDir, const std::string& shaders,
                           const std::function<void(const std::string&)>& log, const std::function<void()>& makeContext,
-                          int gpuMaxSide = 16384) {
+                          int gpuMaxSide = 16384, const ShotFaces& faces = {}) {
     Settings& s = Settings::current();
     const DngShot dng = readDng(dngBytes.data(), dngBytes.size());
     // the burst's header as ScamHybridBurst.header writes it: clip flags (4), strict Sabre 2x (8), no effective map above 100 MP of
@@ -99,6 +108,19 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     p.mParameters.hybridFinalSize = plan.hybridFinalSize();
     p.mParameters.portraitEnabled = s.getBoolean("pref_portrait_enabled", false);
     p.mParameters.portraitSkinWarmth = p.mParameters.portraitEnabled && s.getBoolean("pref_portrait_skin_warmth", true);
+    // Parameters.FillDynamicParameters: the faces only with «Портрет» on (the shot has no RAW crop: the boxes as found, kept to the
+    // frame and to PortraitFaces.MAX_FACES as PortraitFaces.append keeps them)
+    p.mParameters.portraitFaceDetected = false;
+    p.mParameters.portraitFaces = std::vector<float>();
+    if (p.mParameters.portraitEnabled) {
+        p.mParameters.portraitFaceDetected = faces.detected;
+        p.mParameters.portraitFaces = PortraitFaces::crop(faces.boxes, 0.f, 0.f, 1.f, 1.f);
+        if (faces.detected) {
+            std::string boxes;
+            for (float v : *p.mParameters.portraitFaces) boxes += (boxes.empty() ? "" : ", ") + javaFloatString(v);
+            log("portrait: face found, boxes [" + boxes + "]");
+        }
+    }
     int normals = 0;
     {
         std::ifstream f(nchPath, std::ios::binary);

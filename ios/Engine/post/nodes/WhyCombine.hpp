@@ -1,8 +1,9 @@
 // WhyCombine.java one to one (the default GL model): the WHY tone's final pass - the highlight landing mask, the fused luma's
 // local contrast, the rim support tiles, the sun bloom and the opposed landing of ScamRgb, the sky, the colour look and the
-// tone curve - into the next main; with Ultra HDR the sky term's ratio for the gain map (skyHdrRatio). Not ported (they throw or
-// stay off): Portrait faces, the scene luma cache (the reference renders without it: the original colour evaluation). The film
-// simulation's scene table (FILM_SIM) and «Плёночный LUT» (FILM_LUT) as the Java.
+// tone curve - into the next main; with Ultra HDR the sky term's ratio for the gain map (skyHdrRatio). «Портрет» as the Java: the
+// skin-tone correction (PORTRAIT), «Маска лица» (FACE_MASK, why/facemask on the whyLow grid) and Face AWB (FACE_AWB). Not ported
+// (stays off): the scene luma cache (the reference renders without it: the original colour evaluation). The film simulation's
+// scene table (FILM_SIM) and «Плёночный LUT» (FILM_LUT) as the Java.
 #pragma once
 
 #include "WhyFusion.hpp"
@@ -171,6 +172,55 @@ public:
         ratio->close();
     }
 
+    /// P512 «Маска лица»: why/facemask.glsl on the whyLow grid - the raw mask (the faces' ellipses times their skin colour within
+    /// each face's spread) and two cross-bilateral passes along x and y (sigma 0.4 % of the width, at least 2 texels); none when a
+    /// pass fails (the photo is made without the mask)
+    static Texture faceMaskTexture(GLProg& prog, const Texture& low, const PortraitSkinResult& p, float size, float follow) {
+        const int n = PortraitSkin::MAX_FACES;
+        std::vector<float> skin(size_t(n) * 4, 0.f), light(size_t(n), 0.f);
+        for (int i = 0; i < p.count; i++) {
+            const size_t k = size_t(i);
+            const bool measured = std::isfinite(p.a[k]) && std::isfinite(p.b[k]);
+            skin[k * 4] = measured ? p.a[k] : 0.f;
+            skin[k * 4 + 1] = measured ? p.b[k] : 0.f;
+            skin[k * 4 + 2] = measured ? 1.f : 0.f;
+            skin[k * 4 + 3] = measured && std::isfinite(p.spread[k]) ? p.spread[k] : 0.02f;
+            light[k] = measured && std::isfinite(p.luma[k]) && p.luma[k] > 0.f ? float(std::cbrt(double(p.luma[k]))) : 0.f;
+        }
+        const GLFormat rg(DataType::FLOAT_16, 2);
+        Texture a, b;
+        try {
+            a = makeTexture(low->mSize, rg, nullptr, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            b = makeTexture(low->mSize, rg, nullptr, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            prog.setDefine("MODE", 0);
+            prog.useAssetProgram("why/facemask", false);
+            prog.setTexture("InputBuffer", low);
+            prog.setVar("faceCountU", p.count);
+            prog.setVarVec4s("faceBoxU", p.faces);
+            prog.setVarVec4s("faceSkinU", skin);
+            prog.setVarFloats("faceLightU", light);
+            prog.setVar("faceMaskU", size, follow);
+            prog.drawBlocks(a);
+            const float sigma = std::max(2.f, 0.004f * float(low->mSize.x));
+            for (int pass = 0; pass < 2; pass++) {
+                prog.setDefine("MODE", 1);
+                prog.useAssetProgram("why/facemask", false);
+                prog.setTexture("InputBuffer", pass == 0 ? a : b);
+                prog.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+                prog.setVar("sigmaU", sigma);
+                prog.drawBlocks(pass == 0 ? b : a);
+            }
+            prog.closed = true;
+            b->close();
+            return a;
+        } catch (const std::exception& e) {
+            logI("SCAM_PIPELINE", std::string("Portrait: face mask skipped: ") + e.what());
+            if (a) a->close();
+            if (b) b->close();
+            return nullptr;
+        }
+    }
+
     void Run() override {
         PostPipeline& pipeline = *basePipeline;
         GLProg& prog = *glProg;
@@ -205,7 +255,7 @@ public:
         const std::string lutName = chain ? chain->key : "";
         const FilmLutP lut = lutStrength > 0.f && !lutName.empty() ? FilmChain::lut(lutName) : nullptr;
         GLuint lutTexture = 0;
-        Texture hlA, hlB, sunBloom, oppShare, fusedLc;
+        Texture hlA, hlB, sunBloom, oppShare, fusedLc, faceTex;
         std::unique_ptr<GLBuffer> rimTiles;
         GLint rimBindings[2] = {0, 0};
         bool rimBound = false;
@@ -277,7 +327,10 @@ public:
             prog.setVar("lcU", lc, WhyTone::LOCAL_CONTRAST_T);
             prog.drawBlocks(fusedLc);
         }
-        if (r.portraitFace) throw std::runtime_error("post port: Portrait faces are not ported");
+        // P512: «Маска лица» of «Портрет» (a face found and its skin measured) on the whyLow grid, before the combine's defines
+        const bool faceShot = r.portraitFace && st.portrait && st.portrait->count > 0;
+        const std::optional<std::array<float, 10>> faceMask = faceShot ? WhyTone::faceMask() : std::nullopt;
+        if (faceMask) faceTex = faceMaskTexture(prog, st.low, *st.portrait, (*faceMask)[8], (*faceMask)[9]);
         if (WhyTone::rimSmooth() && st.factor > 1 && detail != 0.f && st.detailRef && st.low->mSize == st.detailRef->mSize
             && Settings::current().hybridSwitch("why_rim_support", true))
             rimTiles = rimSupport(prog, *st.low, r.ae, sharp, sharp ? r.ae / std::max(st.sharpMul, 1e-6f) : 1.f);
@@ -289,6 +342,25 @@ public:
         if (oppShare) prog.setDefine("HL_OPPOSED", 1);
         const bool oppOn = oppShare != nullptr;
         if (colourOn) prog.setDefine("COLOUR_LOOK", 1);
+        const bool portraitOn = st.portrait && st.portrait->corrected();
+        if (portraitOn) prog.setDefine("PORTRAIT", 1);
+        // P512: «Маска лица» and Face AWB of «Портрет» (a face found and its skin measured); P577: Face AWB's default 1
+        if (faceTex) prog.setDefine("FACE_MASK", 1);
+        std::optional<std::array<float, 2>> faceAwb;
+        if (faceShot) faceAwb = PortraitSkin::faceAwb(&*st.portrait, std::max(0.f, std::min(1.f, WhyTone::value("portrait_awb", 1.f))));
+        if (faceAwb && (*faceAwb)[0] == 0.f && (*faceAwb)[1] == 0.f) faceAwb.reset();
+        if (faceAwb) prog.setDefine("FACE_AWB", 1);
+        if (faceShot) {
+            std::string mask = "off";
+            if (faceMask) {
+                mask = "[";
+                for (size_t i = 0; i < faceMask->size(); i++) mask += (i ? ", " : "") + javaFloatString((*faceMask)[i]);
+                mask += "]";
+            }
+            char awb[64] = "none";
+            if (faceAwb) std::snprintf(awb, sizeof awb, "%+.4f %+.4f", double((*faceAwb)[0]), double((*faceAwb)[1]));
+            logI("SCAM_PIPELINE", "Portrait: mask " + mask + ", Face AWB " + awb);
+        }
         if (toneOp != ToneCurve::AGX) prog.setDefine("TONE_OP", 1);
         if (lut) prog.setDefine("FILM_LUT", 1);
         if (scene) prog.setDefine("FILM_SIM", 1);
@@ -445,6 +517,18 @@ public:
         prog.setVar("toeU", WhyTone::value("aces_toe", 0.05f));
         prog.setVar("gammaInvU", 1.f / WhyTone::gamma());
         prog.setVar("macroU", r.portraitFace ? 1.f : WhyTone::value("macro_contrast", 1.1f));
+        if (portraitOn) {
+            prog.setVar("portraitCountU", st.portrait->count);
+            prog.setVarVec4s("portraitFacesU", st.portrait->faces);
+            prog.setVarVec4s("portraitAdjustU", st.portrait->adjust);
+            prog.setVar("portraitMapU", std::vector<float>{1, 0, 0, 0, 1, 0, 0, 0, 1});
+        }
+        if (faceTex) {   // P512
+            prog.setTexture("FaceMask", faceTex);
+            prog.setVar("faceAU", (*faceMask)[0], (*faceMask)[1], (*faceMask)[2], (*faceMask)[3]);
+            prog.setVar("faceBU", (*faceMask)[4], (*faceMask)[5], (*faceMask)[6], (*faceMask)[7]);
+        }
+        if (faceAwb) prog.setVar("faceAwbU", (*faceAwb)[0], (*faceAwb)[1]);   // P512
         prog.setVar("vibU", WhyTone::value("vibrance", 0.f), WhyTone::value("vibrance_sky", 0.25f), WhyTone::value("vibrance_green", 0.05f));
         prog.setVar("vibHlU", WhyTone::vibranceHl());
         const auto shape = WhyTone::vibranceHlShape();
@@ -510,7 +594,7 @@ public:
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, GLuint(rimBindings[0]));
         }
         st.closeTextures();
-        for (Texture* t : {&fallback, &hlA, &hlB, &fusedLc, &sunBloom, &oppShare}) if (*t) (*t)->close();
+        for (Texture* t : {&fallback, &hlA, &hlB, &fusedLc, &sunBloom, &oppShare, &faceTex}) if (*t) (*t)->close();
         if (lutTexture) glDeleteTextures(1, &lutTexture);
         logI("SCAM_PIPELINE", "WHY combine ae=" + javaFloatString(r.ae) + " clip=" + javaFloatString(r.clip) + " headroom=" + (realClip ? "true" : "false")
              + " hlWhite=" + javaFloatString(WhyTone::value("hl_white", 0.15f)) + " hlSoft=" + javaFloatString(WhyTone::value("hl_soft", 0.7f))

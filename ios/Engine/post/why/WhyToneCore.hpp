@@ -5,15 +5,17 @@
 #include "../Pipeline.hpp"
 #include "../color/ToneCurve.hpp"
 #include "WhyAe.hpp"
+#include "../portrait/PortraitSkin.hpp"
 
 namespace scam_post {
 
 struct WhySkyMaskResult;
-struct PortraitSkinResult;
 
 /// WhyTone.State: what WhyStats hands on to WhyFusion, WhyLumaSharpen and WhyCombine
 struct WhyToneState {
     std::optional<WhyAe::Result> ae;
+    /// «Портрет»: the faces' skin measured on whyLow (PortraitGpu.measure), none without a face or a measure
+    std::optional<PortraitSkinResult> portrait;
     Texture low, lowDn, mid, fused, detailRef, lumaS, sky;
     int factor = 2;
     float inScale = 1.f;
@@ -252,6 +254,34 @@ inline std::optional<std::array<float, 10>> faceMask() {
     for (int i = 0; i < 7; i++) any |= std::fabs(m[size_t(i)]) > 1e-4f;
     if (!any) return std::nullopt;
     return m;
+}
+/// P513: with a face found the AE target +0.05 and the dark-pixel threshold +0.5 (scam_dev hybrid_why_portrait_off_*)
+inline void portraitOffsets(WhyAe::AeSettings& s) {
+    s.aeTarget += value("portrait_off_ae_target", 0.05f);
+    s.darkPixelThresh += value("portrait_off_dark_pixel", 0.5f);
+}
+/// P512: the band of skin luminance (after the exposure) «Приоритет лиц в AE» leaves alone
+constexpr float FACE_LO = 0.09f, FACE_HI = 0.20f;
+/// P512: the exposure factor: (the band's nearest edge / (skin x ae)) ^ priority within 1/2 .. 2; 1 inside the band
+inline float faceFactor(float ae, float face, float priority) {
+    const float now = PortraitSkin::detail::jmax(face * ae, 1e-6f), target = PortraitSkin::detail::jmax(FACE_LO, PortraitSkin::detail::jmin(FACE_HI, now));
+    return float(std::max(0.5, std::min(2.0, std::pow(double(target / now), double(priority)))));
+}
+/// P512 «Приоритет лиц в AE»: with a face found the exposure moves priority of the way (in stops) towards the one that puts the
+/// measured skin into FACE_LO .. FACE_HI, at most one stop either way and never past the noise limit the scene's exposure respected
+inline void facePriority(WhyAe::Result& r, const std::optional<PortraitSkinResult>& p) {
+    if (!r.portraitFace || !p) return;
+    const float priority = PortraitSkin::detail::jmax(0.f, PortraitSkin::detail::jmin(1.f, value("portrait_ae", 1.f)));
+    const float face = PortraitSkin::faceLuma(&*p);
+    if (priority <= 0.f || !(face > 0.f) || !(r.ae > 0.f)) return;
+    const float factor = faceFactor(r.ae, face, priority);
+    float ae = r.ae * factor;
+    if (factor > 1.f && r.maxGainByNoise > 0.f) ae = PortraitSkin::detail::jmin(ae, PortraitSkin::detail::jmax(r.ae, r.maxGainByNoise));
+    char buf[192];
+    std::snprintf(buf, sizeof buf, "Portrait AE: skin %.4f x ae %.4f -> %.4f (priority %.2f, ae %.4f -> %.4f)", double(face), double(r.ae),
+                  double(face * ae), double(priority), double(r.ae), double(ae));
+    logI("SCAM_PIPELINE", buf);
+    r.ae = ae;
 }
 constexpr const char* PORTRAIT_POINTS = "0.0000:0.0000,0.0625:0.0147,0.1250:0.0349,0.1875:0.0642,0.2500:0.1108,0.3125:0.1870,0.3750:0.2822,0.4375:0.3900,0.5000:0.5100,0.5625:0.6362,0.6250:0.7587,0.6875:0.8677,0.7500:0.9524,0.8125:0.9996,0.8750:1.0000,0.9375:1.0000,1.0000:1.0000";
 constexpr float CURVE_B[17] = {0, 0, 4, 50, 178, 401, 674, 906, 1000, 906, 674, 401, 178, 50, 4, 0, 0},

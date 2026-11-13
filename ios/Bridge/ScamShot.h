@@ -24,9 +24,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// The Android photo route of an SHDR shot (Engine/post/ShotRun.hpp): the merge and the post pipeline on the GPU (ScamGL).
 @interface SCAMShot : NSObject
 /// burst: the NCH file of the frames; dng: the first frame's DNG; settings: the app's preferences as the lab json's
-/// {"prefs": {key: [type, value]}, "dev": {key: number}}; shaders: the folder of the app's shader assets.
+/// {"prefs": {key: [type, value]}, "dev": {key: number}}; faces: «Портрет»'s face boxes as Android's Parameters.portraitFaces
+/// (left, top, right, bottom, normalised, in the unrotated RAW buffer; four numbers a face, at most five faces), facesDetected:
+/// whether a face was found (also with no boxes: its place in the RAW unknown); shaders: the folder of the app's shader assets.
 + (nullable SCAMPhoto *)processBurstAtPath:(NSString *)burst dng:(NSData *)dng settings:(NSString *)settings
-                                    shaders:(NSString *)shaders error:(NSError **)error;
+                                     faces:(NSArray<NSNumber *> *)faces facesDetected:(BOOL)facesDetected
+                                   shaders:(NSString *)shaders error:(NSError **)error;
 @end
 
 NS_ASSUME_NONNULL_END
