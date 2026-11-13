@@ -1,10 +1,11 @@
 // The merged and final photo sizes of a hybrid shot one to one: ScamHybridBurst.sabreSize / resizeTarget / megapixelSize /
 // sabreWords / sabre2xFits / transportHalf and PreferenceKeys.hybridSabreSize / hybridFinalSize (P501 Sabre 1.5x / 2x, P503
-// «Уменьшить до»), and the output decisions of the ScamHybridBurst constructor for a plain Bayer burst (no crop window, no
-// conservative retry, no mosaic DNG).
+// «Уменьшить до»), and the output decisions of the ScamHybridBurst constructor for a plain Bayer burst (with or without the crop
+// window of SabreCrop, P576; no conservative retry, no mosaic DNG).
 #pragma once
 
 #include "GLCore.hpp"
+#include "SabreCrop.hpp"
 #include "Settings.hpp"
 
 #include <array>
@@ -123,28 +124,32 @@ struct Plan {
     }
 };
 
-/// mosaicBlock: the stream's colour block (1 Bayer); keepCrop: «Увеличивать кадр с кропом» off on a crop shot (iPhone: false)
-inline Plan plan(const Settings& s, int width, int height, int gpuMaxSide, int mosaicBlock = 1, bool keepCrop = false) {
+/// mosaicBlock: the stream's colour block (1 Bayer); keepCrop: «Увеличивать кадр с кропом» off on a crop shot (P226); window: the
+/// crop window the frames were cut to (SabreCrop.Plan, P576: merged on the plan's own grid, never strict 2x, its photo size after
+/// the pipeline), width x height then the window's
+inline Plan plan(const Settings& s, int width, int height, int gpuMaxSide, int mosaicBlock = 1, bool keepCrop = false,
+                 const SabreCrop::Plan* window = nullptr) {
     Plan p;
     p.width = width;
     p.height = height;
     const Point fin = keepCrop ? Point{width, height} : hybridFinalSize(s, width, height);
     p.outputMode = s.hybridOutputMode();
     const int dngMosaic = 1; // a Bayer stream (dngOnlyBlock: a Quad / Tetra stream without the remosaic is no iPhone burst)
-    p.strictTwoX = !keepCrop && dngMosaic == 1 && p.outputMode == "2x";
-    const bool outputMode2x = !keepCrop && dngMosaic == 1 && p.outputMode != "sensor";
+    p.strictTwoX = !window && !keepCrop && dngMosaic == 1 && p.outputMode == "2x";
+    const bool outputMode2x = !keepCrop && dngMosaic == 1 && (window ? window->sabre() : p.outputMode != "sensor");
     const bool wants2x = outputMode2x && mosaicBlock <= 4;
     if (p.strictTwoX && !wants2x) throw std::runtime_error("SHDR: Sabre 2x is unavailable for colour block " + std::to_string(mosaicBlock));
     p.twoX = wants2x && sabre2xFits(width, height, gpuMaxSide);
     if (p.strictTwoX && !p.twoX)
         throw std::runtime_error("SHDR: Sabre 2x " + std::to_string(2LL * width) + "x" + std::to_string(2LL * height) + " exceeds GPU side "
                                  + std::to_string(gpuMaxSide) + " or one FP16 RGB buffer (2 GB)");
-    const Point sabre = sabreSize(width, height, p.outputMode);
+    const Point sabre = window ? Point{window->outWidth, window->outHeight} : sabreSize(width, height, p.outputMode);
     p.outWidth = p.twoX ? sabre.x : width;
     p.outHeight = p.twoX ? sabre.y : height;
     p.rgbHalf = transportHalf(p.outWidth, p.outHeight, s.scamDevSwitch("hybrid_rgb_half", true));
-    p.finalWidth = fin.x;
-    p.finalHeight = fin.y;
+    // P576: the window's photo size comes after the pipeline (the remaining crop, then the photo's size)
+    p.finalWidth = window ? p.outWidth : fin.x;
+    p.finalHeight = window ? p.outHeight : fin.y;
     return p;
 }
 

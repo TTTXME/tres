@@ -28,6 +28,7 @@ targets:
       - path: Editor
       - path: ScamGL
       - path: Gallery
+      - path: Video
       - path: Support
       - path: Resources
       - path: LICENSE-AVCam.txt
@@ -104,6 +105,7 @@ targets:
         NSCameraUsageDescription: SCAMERA uses the camera to take photos.
         NSPhotoLibraryAddUsageDescription: SCAMERA saves the photos you take to your library.
         NSPhotoLibraryUsageDescription: SCAMERA shows your photos in its gallery and saves edited copies.
+        NSMicrophoneUsageDescription: SCAMERA records the sound of the videos you take.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios

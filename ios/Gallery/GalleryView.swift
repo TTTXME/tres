@@ -7,7 +7,8 @@ import UIKit
 /// month with its «Выбрать» (multi-select: compare two, favourites, share, delete), «Вид» (order, columns) and «Фильтр» (format,
 /// favourites, years) sheets, AlbumsPage, SearchPage - ImageViewerFragment's viewer with its chrome (share, edit, compare, delete,
 /// details, favourite), the compare screen and the photo editor; over the photos the app saved («SCAMERA» album) or the whole
-/// library. The entry point of the camera screen's gallery button. Videos (the Android video player) are not ported.
+/// library. The entry point of the camera screen's gallery button. Videos are listed with the photos; a video page opens the
+/// gallery's player (Video/VideoPlayerView, Android VideoPlayerActivity).
 @MainActor
 struct GalleryView: View {
     @State private var library = GalleryLibrary()
@@ -371,8 +372,25 @@ struct GalleryThumb: View {
                 if let image { Image(uiImage: image).resizable().scaledToFill() }
             }
             .clipped()
+            .overlay(alignment: .bottom) {
+                // ThumbGrid: the part of a video watched (VideoResume)
+                if asset.mediaType == .video {
+                    let watched = VideoResume.progress(asset.localIdentifier)
+                    if watched >= 0 {
+                        GeometryReader { g in
+                            Rectangle().fill(GalleryStyle.accent).frame(width: g.size.width * CGFloat(watched), height: 3)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+                    }
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 HStack(spacing: 4) {
+                    if asset.mediaType == .video {
+                        GalleryIcon(name: "ui_ic_play", size: 14)
+                        Text(VideoResume.clock(Int64(asset.duration * 1000))).font(.system(size: 10, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(.white).shadow(color: .black, radius: 1)
+                    }
                     if asset.isFavorite { GalleryIcon(name: "ui_ic_heart_on", size: 14) }
                     if library.kinds[asset.localIdentifier]?.raw ?? false {
                         Text("RAW").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
@@ -507,9 +525,12 @@ struct PhotoViewer: View {
     @State private var editor: EditorStart?
     @State private var compare: GalleryView.CompareStart?
     @State private var toast: String?
+    @State private var video: VideoStart?
     @Environment(\.dismiss) private var dismiss
 
     struct EditorStart: Identifiable { let id = UUID(); let asset: PHAsset; let raw: Bool }
+    /// The player on the list's videos (previous / next), at the shown one
+    struct VideoStart: Identifiable { let id = UUID(); let items: [PHAsset]; let index: Int }
 
     init(library: GalleryLibrary, start: GalleryView.ViewerStart) {
         self.library = library
@@ -525,7 +546,7 @@ struct PhotoViewer: View {
             Color.black.ignoresSafeArea()
             TabView(selection: $index) {
                 ForEach(Array(items.enumerated()), id: \.element.localIdentifier) { i, a in
-                    ViewerPage(library: library, asset: a) { withAnimation(.easeOut(duration: 0.2)) { chrome.toggle() } }
+                    ViewerPage(library: library, asset: a, play: { playVideo(a) }) { withAnimation(.easeOut(duration: 0.2)) { chrome.toggle() } }
                         .tag(i)
                 }
             }
@@ -549,6 +570,7 @@ struct PhotoViewer: View {
         .sheet(item: $share) { s in ActivitySheet(items: s.urls) }
         .fullScreenCover(item: $editor) { e in PhotoEditorView(asset: e.asset, raw: e.raw) }
         .fullScreenCover(item: $compare) { c in CompareView(library: library, first: c.first, second: c.second) }
+        .fullScreenCover(item: $video) { v in VideoPlayerView(library: library, items: v.items, index: v.index) }
         .confirmationDialog(L("gallery.delete_title"), isPresented: $confirmDelete, titleVisibility: .visible) {
             Button(L("gallery.delete"), role: .destructive) { delete() }
             Button(L("gallery.cancel"), role: .cancel) {}
@@ -592,8 +614,12 @@ struct PhotoViewer: View {
                         Task { await library.toggleFavourite(a) }
                     }
                     Menu {
-                        Button(L("gallery.edit")) { editor = EditorStart(asset: a, raw: false) }
-                        if GalleryLibrary.resources(a).raw != nil, GalleryLibrary.resources(a).photo != nil {
+                        if a.mediaType == .video {
+                            Button(L("video.play")) { playVideo(a) }
+                        } else {
+                            Button(L("gallery.edit")) { editor = EditorStart(asset: a, raw: false) }
+                        }
+                        if a.mediaType != .video, GalleryLibrary.resources(a).raw != nil, GalleryLibrary.resources(a).photo != nil {
                             Button(L("gallery.edit_raw")) { editor = EditorStart(asset: a, raw: true) }
                         }
                         Button(L("gallery.share")) { shareCurrent() }
@@ -613,10 +639,13 @@ struct PhotoViewer: View {
             Spacer()
             HStack(spacing: 0) {
                 barButton("kb_ui_ic_share_rest", L("gallery.share")) { shareCurrent() }
-                barButton("kb_ui_ic_edit_rest", L("gallery.edit")) {
-                    if let a = asset { editor = EditorStart(asset: a, raw: GalleryLibrary.resources(a).photo == nil) }
+                // ViewerChrome.setVideo: a video page has no «Изменить» (the editor takes photos)
+                if asset?.mediaType != .video {
+                    barButton("kb_ui_ic_edit_rest", L("gallery.edit")) {
+                        if let a = asset { editor = EditorStart(asset: a, raw: GalleryLibrary.resources(a).photo == nil) }
+                    }
                 }
-                barButton("kb_ui_ic_compare_rest", L("gallery.compare"), enabled: items.count > 1) { compareWithNext() }
+                barButton("kb_ui_ic_compare_rest", L("gallery.compare"), enabled: items.count > 1 && asset?.mediaType != .video) { compareWithNext() }
                 barButton("kb_ui_ic_trash_rest", L("gallery.delete"), color: GalleryStyle.warn) { confirmDelete = true }
                 barButton("kb_ui_ic_info_rest", L("gallery.details")) { showDetails() }
             }
@@ -638,6 +667,13 @@ struct PhotoViewer: View {
         .opacity(enabled ? 1 : 0.35)
         .disabled(!enabled)
         .accessibilityLabel(label)
+    }
+
+    /// ImageViewerFragment.openVideo: the shown video in the gallery's player; the other videos of the list are its previous / next
+    private func playVideo(_ a: PHAsset) {
+        let videos = items.filter { $0.mediaType == .video }
+        guard let i = videos.firstIndex(where: { $0.localIdentifier == a.localIdentifier }) else { return }
+        video = VideoStart(items: videos, index: i)
     }
 
     /// ViewerChrome «Сравнить»: this photo with the next one (the previous one for the last).
@@ -674,6 +710,7 @@ struct PhotoViewer: View {
 private struct ViewerPage: View {
     let library: GalleryLibrary
     let asset: PHAsset
+    var play: () -> Void = {}
     let tap: () -> Void
     @State private var image: UIImage?
     @Environment(\.displayScale) private var scale
@@ -682,6 +719,18 @@ private struct ViewerPage: View {
         GeometryReader { geo in
             ZoomImage(image: image, tap: tap)
                 .frame(width: geo.size.width, height: geo.size.height)
+                .overlay {
+                    // P498: a video page is its poster frame with the play button
+                    if asset.mediaType == .video {
+                        Button(action: play) {
+                            GalleryIcon(name: "ui_ic_play", size: 34)
+                                .frame(width: 76, height: 76)
+                                .background(GalleryStyle.bar, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(L("video.play_video"))
+                    }
+                }
                 .task(id: asset.localIdentifier) {
                     image = await library.display(asset, side: max(geo.size.width, geo.size.height) * scale * 1.5)
                 }
@@ -779,6 +828,19 @@ struct PhotoDetails: Identifiable {
 
     @MainActor static func of(_ asset: PHAsset) async -> PhotoDetails {
         var d = PhotoDetails()
+        // P498: a video has no photo EXIF; its length in the shutter's place
+        if asset.mediaType == .video {
+            let r = GalleryLibrary.videoResource(asset)
+            d.fileName = r?.originalFilename ?? ""
+            d.width = asset.pixelWidth
+            d.height = asset.pixelHeight
+            if let date = asset.creationDate { d.when = dayTime(date, now: Date()) }
+            d.folder = GalleryLibrary.albumTitles(of: asset).first
+            if let r, let size = r.value(forKey: "fileSize") as? NSNumber { d.bytes = size.int64Value }
+            d.format = (d.fileName as NSString).pathExtension.uppercased()
+            d.shutter = VideoResume.clock(Int64(asset.duration * 1000))
+            return d
+        }
         let res = GalleryLibrary.resources(asset)
         let r = res.photo ?? res.raw
         d.fileName = r?.originalFilename ?? ""

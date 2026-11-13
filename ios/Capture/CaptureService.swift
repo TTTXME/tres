@@ -206,10 +206,14 @@ actor CaptureService {
         return try await photoCapture.capture(request, device: device)
     }
 
-    /// A Bayer RAW series of one exposure for the SHDR merge.
+    /// The SHDR series: `count` N frames, then the plan's ultrashort / bracketed frames (HybridPlan). It carries the press's digital
+    /// zoom (ZoomController's residual: SabreCrop's window and the photo's crop, BurstProcessor).
     func captureBayerBurst(count: Int) async throws -> BayerBurst {
         guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
-        return try await photoCapture.captureBayerBurst(count: count, device: device)
+        let zoom = residual
+        var burst = try await photoCapture.captureBayerBurst(count: count, device: device)
+        burst.zoom = zoom
+        return burst
     }
 
     // MARK: the top row's flash, the zoom and «Про» (CameraUIController torch_button, ZoomController, the manual panel)
@@ -309,7 +313,10 @@ actor CaptureService {
     /// The flash shot's one Bayer frame (nil: refused, the camera's own flash photo then)
     func captureFlashFrame() async throws -> BayerBurst? {
         guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
-        return try await photoCapture.captureFlashFrame(device: device, flash: .on)
+        let zoom = residual
+        var burst = try await photoCapture.captureFlashFrame(device: device, flash: .on)
+        burst?.zoom = zoom
+        return burst
     }
 
     func applyManual(_ m: ManualSettings) {
@@ -449,6 +456,8 @@ actor CaptureService {
         let disableMirror = ["1", "true", "1.0"].contains(StoredPrefs.string("pref_tunable_parameters_disablemirror", "0"))
         ViewfinderRenderer.shared.configure(rotation: previewAngle, mirrored: front)
         photoCapture.setMirrored(front && !disableMirror)
+        // «Информация на экране» (pref_show_afdata_key): the HUD follows this lens (Video/CameraHud)
+        hudMonitor.observe(device, layer: layer)
         rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: .new) { [weak self] _, change in
             guard let self, let angle = change.newValue else { return }
             Task { await self.updateCaptureRotation(angle) }
@@ -468,4 +477,146 @@ actor CaptureService {
             }
         }
     }
+
+    // MARK: the video mode (CaptureController VideoStart / VideoEnd / setUpMediaRecorder; Video/MovieCapture, Video/VideoSettings)
+
+    /// The open lens's key-value observer for the viewfinder's HUD
+    private let hudMonitor = DeviceHudMonitor()
+    private let movieCapture = MovieCapture()
+    private var videoMode = false
+    /// The viewfinder's frames output taken out of the session because the movie output could not join it
+    private var framesRemoved = false
+    private var videoPick: (width: Int32, height: Int32)?
+
+    struct VideoState: Sendable {
+        var on = false
+        var width: Int32 = 0
+        var height: Int32 = 0
+        var fps: Int32 = VideoSettings.frameRate
+        var audio = false
+        var framesRemoved = false
+        var label: String { width > 0 ? VideoSettings.name(width: width, height: height) + " · \(fps)" : "" }
+    }
+
+    var videoState: VideoState {
+        var v = VideoState()
+        v.on = videoMode
+        v.width = videoPick?.width ?? 0
+        v.height = videoPick?.height ?? 0
+        v.audio = movieCapture.audioInput != nil
+        v.framesRemoved = framesRemoved
+        return v
+    }
+
+    /// The video mode on (the movie output and the microphone join the session, the lens takes the video format) or off (they leave,
+    /// the lens's photo format again). The photo output stays; the microphone only when the app may use it.
+    func setVideoMode(_ on: Bool) -> (State, VideoState) {
+        guard on != videoMode else { return (state, videoState) }
+        let movie = movieCapture.output
+        let frames = ViewfinderRenderer.shared.output
+        session.beginConfiguration()
+        if on {
+            videoMode = true
+            applyVideoFormat()
+            if !session.outputs.contains(movie) {
+                if !session.canAddOutput(movie), session.outputs.contains(frames) {
+                    session.removeOutput(frames)
+                    framesRemoved = true
+                    SessionLog.w("Video", "the movie output does not join the viewfinder's frames output: the plain preview while in video")
+                }
+                if session.canAddOutput(movie) {
+                    session.addOutput(movie)
+                } else {
+                    SessionLog.e("Video", "movie output refused")
+                    videoMode = false
+                }
+            }
+            if videoMode, movieCapture.audioInput == nil, let mic = movieCapture.makeAudioInput() {
+                if session.canAddInput(mic) {
+                    session.addInput(mic)
+                    movieCapture.audioInput = mic
+                } else {
+                    SessionLog.w("Video", "microphone input refused: video without sound")
+                }
+            }
+        }
+        if !videoMode {
+            // off, or the movie output was refused: the photo session as before
+            if session.outputs.contains(movie) { session.removeOutput(movie) }
+            if let mic = movieCapture.audioInput {
+                session.removeInput(mic)
+                movieCapture.audioInput = nil
+            }
+            if framesRemoved {
+                if session.canAddOutput(frames) { session.addOutput(frames) }
+                framesRemoved = false
+            }
+            videoPick = nil
+            if session.canSetSessionPreset(.photo) { session.sessionPreset = .photo }
+            if let module = activeModule {
+                do { try apply(module) } catch { SessionLog.e("Video", "photo format back: \(error.localizedDescription)") }
+            }
+        }
+        session.commitConfiguration()
+        if let device = activeInput?.device { createRotationCoordinator(for: device) }
+        SessionLog.i("Video", "video mode \(videoMode): \(videoState.label), audio \(movieCapture.audioInput != nil), frames output removed \(framesRemoved)")
+        return (state, videoState)
+    }
+
+    /// Another lens or another size in the video mode: the video format again
+    func reapplyVideo() -> (State, VideoState) {
+        if videoMode {
+            session.beginConfiguration()
+            applyVideoFormat()
+            session.commitConfiguration()
+        }
+        return (state, videoState)
+    }
+
+    /// The open lens at the stored size and 30 fps (resolveVideoProfile's order), its module's zoom kept
+    private func applyVideoFormat() {
+        guard let device = activeInput?.device, let module = activeModule else { return }
+        guard let pick = VideoSettings.pick(for: device, resolution: VideoSettings.resolution) else {
+            SessionLog.w("Video", "module \(module.id): no 420 format at 30 fps of \(VideoSettings.resolution) or its fallbacks")
+            return
+        }
+        do {
+            try device.lockForConfiguration()
+            if device.activeFormat != pick.format { device.activeFormat = pick.format }
+            let frame = CMTime(value: 1, timescale: VideoSettings.frameRate)
+            device.activeVideoMinFrameDuration = frame
+            device.activeVideoMaxFrameDuration = frame
+            device.videoZoomFactor = min(max(CGFloat(module.deviceZoom), device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.unlockForConfiguration()
+        } catch {
+            SessionLog.e("Video", "video format: \(error.localizedDescription)")
+            return
+        }
+        residual = 1
+        photoCapture.updateConfiguration(for: device, fullResolution: fullResolution)
+        videoPick = (pick.width, pick.height)
+        SessionLog.i("Video", "module \(module.id): \(pick.width)x\(pick.height) at \(VideoSettings.frameRate) fps, "
+                     + "\(CMFormatDescriptionGetMediaSubType(pick.format.formatDescription).fourCC), "
+                     + "stabilisation \(VideoSettings.stabilizationName(VideoSettings.stabilization(for: pick.format)))")
+    }
+
+    /// VideoStart: the recording into a new file; returns its URL
+    func startRecording() throws -> URL {
+        guard videoMode, let device = activeInput?.device, session.outputs.contains(movieCapture.output) else { throw CameraError.setupFailed }
+        guard !movieCapture.output.isRecording else { throw CameraError.setupFailed }
+        let url = VideoSettings.newFileURL()
+        try? FileManager.default.removeItem(at: url)
+        let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
+        let notes = movieCapture.configure(rotation: angle, stabilization: VideoSettings.stabilization(for: device.activeFormat))
+        SessionLog.i("Video", "record \(url.lastPathComponent): \(videoState.label), " + notes.joined(separator: ", "))
+        movieCapture.start(to: url)
+        return url
+    }
+
+    /// VideoEnd: the recording's file (also a recording the system ended)
+    func stopRecording() async -> MovieCapture.Finished {
+        await movieCapture.stop()
+    }
+
+    var recordingProgress: MovieCapture.Progress { movieCapture.progress }
 }

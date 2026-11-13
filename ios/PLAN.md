@@ -90,10 +90,12 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - In the app: `Bridge/ScamMerge.mm` (`SCAMMerge`) runs `Engine/ScamMergeCore.hpp` on ScamGL; XCTest `MergeTests` merges the
   n124513b crop on the simulator's GPU: 97.49 dB against Mesa (CI bundles the crop and its Mesa merge).
 - Capture (`Capture/BayerBurst.swift`): `AVCapturePhotoBracketSettings` of up to `maxBracketedCapturePhotoCount` Bayer
-  frames at bias 0, repeated to N (default 8); frames copied from the 14-bit Bayer pixel buffers (CFA from the format).
-- `Engine/NchWriter.swift`: the burst as NCH v11 (Android's transport) in Documents/Bursts/last.nch (Files app) — the
-  same file replays on a PC against the Android merge. Noise: DNG NoiseProfile, else estimated from frames 0 / 1 (green
-  sites, 32 px tiles, lower half of the variances), scaled by ISO per frame as Android's fallback.
+  frames at bias 0, repeated to N (default 8), then the ultrashort / bracketed frames of the plan (see «SHDR brackets and crop»
+  below); frames copied from the 14-bit Bayer pixel buffers (CFA from the format).
+- `Engine/NchWriter.swift`: the burst as NCH v12 (Android's transport, every plane on its own page, capture order) in
+  Documents/Bursts/last.nch (Files app) with its capture facts (last.nch.json) — the same file replays on a PC against the
+  Android merge. Noise: DNG NoiseProfile, else estimated from the first two N frames (green sites, 32 px tiles, lower half of
+  the variances), at each frame's ISO.
 - Colour after the merge (`Engine/DngColor.swift`, `Camera.metal`): AsShotNeutral white balance, ForwardMatrix (else
   inverted ColorMatrix + Bradford) interpolated by CCT → linear sRGB → «Why» V2 → HEIC with the sensor orientation.
   Not Android's colour chain yet (ScamRgb, CCT matrix, lens shading, highlight recovery): the next port.
@@ -253,8 +255,8 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     Vision's boxes are not Camera2's (tighter, from the lens-corrected HEIC): not checked on a device.
   - Not ported yet (they throw): DCG noise zones, the spectral film's skin warmth (Portrait). Not on iOS: the film's EXIF recipe (Parameters.filmRecipe), the live
     viewfinder's film / LUT / lens filter.
-    Transport: the base frame is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the
-    DNG profile scaled by ISO.
+    Transport: the ScamHybridBurst frame rules in C++ (Engine/post/HybridSelect.hpp, see «SHDR brackets and crop»), per-frame
+    noise from the DNG profile at the frame's ISO.
   - The iOS settings screen writes the Android keys (Engine/PostSettings.swift, UserDefaults "scam.prefs"); unset keys take
     the Android defaults.
 
@@ -348,7 +350,7 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   PhotoKit's (Android keeps its own list only because MediaStore asks per file). Formats are read from PHAssetResource in the
   background (GalleryLibrary.kinds).
 - Not done: the full-resolution zoom regions (P367: the preview zooms as a picture); ScamGL editor output not compared with Mesa
-  (needs the macOS runner); out of scope or not portable: the video player and video filters / «Записи экрана», «Недавно
+  (needs the macOS runner); out of scope or not portable: the video filters / «Записи экрана», «Недавно
   удаленные» (PhotoKit hides the trash), the text read on photos (OCR, P504), day cards / list / timeline layouts (the grid
   stays by month), undo of a delete (PhotoKit asks itself). Swift not compiled here (no Mac): the «Знак» tab, the gallery pages and
   the record's Swift side need the CI build and a phone check; that Photos keeps the bytes after a JPEG's EOI / a HEIC's last box
@@ -438,6 +440,103 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   ShotProcessor.
 - Needs Engine changes (not made here): ShotProcessor.encode overwrites TIFF Software with "SCAMERA iOS <version>" (keep the
   metadata's when present, ShotExif.software); the SHDR photo of the front lens is not mirrored (Parameters.mirror for a front
-  DNG); the digital zoom and 16:9 (pref_wide169_key) need the centre crop of the merged photo before the watermark.
-- Not done: the AF / AE HUD (pref_show_afdata_key), split AF / AE (pref_split_af_ae), tracking AF, antibanding (no iPhone API),
-  ES / L brackets (pref_hdr_frames, pref_ettr). Swift / Metal not compiled here (ViewfinderLook.mm syntax-checked with clang).
+  DNG). The digital zoom and 16:9 (pref_wide169_key) of SHDR: done (Engine/post/SabreCrop.hpp, «SHDR brackets and crop»); the
+  camera model still keeps SHDR's zoom on the modules (CameraModel.zoom(to:)).
+- Not done: split AF / AE (pref_split_af_ae), tracking AF, antibanding (no iPhone API), ETTR (pref_ettr: the Android viewfinder
+  AE's boost from the ring's RAW metering). ES / L brackets: done («SHDR brackets and crop»). Swift / Metal not compiled here (ViewfinderLook.mm syntax-checked with clang).
+
+## Video mode, the gallery's video player, the viewfinder HUD (2026-11-13)
+- Android: CameraMode.VIDEO exists (CameraUIController: the shutter is VideoStart / VideoEnd, MediaRecorder from
+  CaptureController.setUpMediaRecorder: H.264 + AAC from the microphone, MPEG-4, VID_yyyyMMdd_HHmmss, CamcorderProfile of
+  pref_video_resolution_key 3840x2160 / 1920x1080 (default) / 1280x720 with its fps and bit rate, the video stabilisation ON while
+  recording when pref_eis_photo_key, no maximum length) but the current UI never enters it (CameraMode.userModes = Photo,
+  migrateMode stores Photo at start); pref_video_resolution_key has no settings row. The iPhone gets a «Видео» button beside
+  Спорт / Фото / Oldstyle (kb_ui_ic_video_rest; pref_camera_mode_key 5, Photo 2 again at start as migrateMode); the size is a
+  segmented row in the «Формат» sheet. `Video/VideoSettings` (format pick: exact size, 420v/420f, 30 fps, standard stabilisation
+  first, not >60 fps, not binned; resolveVideoProfile's fallback order), `Video/MovieCapture` (AVCaptureMovieFileOutput: H.264 via
+  setOutputSettings, connection stabilisation standard / previewOptimized / off, horizon-level rotation, unmirrored; microphone
+  input when allowed; a recording the system ends is saved as it is), `CaptureService.setVideoMode / reapplyVideo /
+  startRecording / stopRecording` (the movie output and the mic join the session; the lens takes the video format at 30 fps; off:
+  .photo preset and the module's photo format again; if the movie output cannot join the viewfinder's frames output, the frames
+  output leaves for the video mode and the preview view is recreated). The shutter: a grey disc with the accent triangle / square
+  (unlimitedbutton), no self-timer; the top-right line «00:12  0.02/101.3 GB» (updateVideoRecordingInfo), the flash cycle Выкл. <->
+  Фонарик, timer and Ultra HDR hidden; lens switches, gallery, settings, flip and modes locked while recording; leaving the app
+  ends and saves the recording. `MediaLibrary.saveVideo` (.video resource moved, SCAMERA album). Info.plist:
+  NSMicrophoneUsageDescription.
+- Not on the iPhone: the bit rate (the movie output takes none: the encoder's own), an MPEG-4 container (the movie output writes
+  QuickTime .mov), the live look on the recording (the movie output records the camera's frames).
+- Gallery: videos listed with the photos (photoOptions: image or video; the «Видео» album; search words видео / video), the grid
+  cell's play mark, length and the watched part (VideoResume); the viewer's video page: the poster with a play disc, no
+  «Изменить» / «Сравнить», details with the length; share writes the file with PHAssetResourceManager.writeData.
+  `Video/VideoPlayerView` + `VideoPlayerModel` + `VideoSurface` (VideoPlayerActivity on AVPlayer): previous / play / next over the
+  list's videos, seek bar (time / length, a tap: what remains), speed 0.25x..4x (0.05 steps, presets, reset), mute, repeat
+  off / all / one (prefs «video_player»), fit Вписать / Заполнить / Растянуть / 100 % / 16:9 / 4:3 (VideoLayout.size) with pinch
+  zoom 0.5..4 and pan, rotation by the video / landscape / portrait (the player turns its own picture: the app is portrait),
+  screen lock, sleep timer 15..90 min / end of video, screenshot (exact frame, JPEG into SCAMERA), subtitles (the file's legible
+  options drawn by AVPlayerLayer, the first on by itself; picked .srt / .vtt via `Video/Subtitles`, a port of Subtitles.java incl.
+  Windows-1251; sizes 16 / 20 / 26), the sound track (audible options, «Выключить звук»), resume (`Video/VideoResume`, the
+  Android rules: not in the first / last 3 s, 300 kept, «Продолжено с … · С начала»), details (file, size, date, length, size /
+  fps / codec, bit rate, sound tracks), share, delete; gestures: double tap ∓step at the sides (adds up, step 5..60 s in
+  «Настройки плеера»), pause in the middle, sideways drag seeks (≤ 90 s across), vertical drag brightness (left) / volume
+  (right), long press 2x.
+- Not on the iPhone: HW / HW+ / SW decoders, the volume boost over 100 %, background play and picture-in-picture (need the
+  audio background mode in Info.plist, not added), auto-rotate by the sensor, hidden quick buttons, a subtitle file beside the
+  video (no folders in PhotoKit), the in-file text tracks read as cues (AVPlayer draws them itself).
+- HUD (pref_show_afdata_key, the settings row already exists): `Video/CameraHud` — DeviceHudMonitor key-value observes the open
+  lens (exposure duration, ISO, lens position, focus / exposure / white-balance modes and their adjusting flags, EV bias and
+  metering offset, gains, zoom, points of interest, torch), publishes at most every 150 ms; mode 1/2 draws updateViewfinderHud's
+  rows (shutter as ExposureIndex.sec2string, ISO, 35 mm-equivalent focal · f-number, AF-S / AF-C · SCAN / LOCK or MF · lens
+  position, AWB / MWB · K from temperatureAndTintValues), mode 3 the frame data and green / yellow boxes at the focus / metering
+  points. Not ported: the histogram of mode 2 (the viewfinder's frames belong to the live look; no second data output), OIS and
+  tripod rows, the frame number, the LMT flags, the metering rectangles' size (the iPhone gives points), the HUD's rotation.
+- Swift not compiled here: the CI build and a phone check must confirm the movie output beside the photo / frames outputs
+  (log `Video` lines), the 4K format pick per lens, the player's gestures and the HUD values.
+
+## SHDR brackets and crop (2026-11-13)
+- Capture (Capture/BayerBurst.swift, Engine/HybridPlan.swift): after the N frames (AE bracket at bias 0, as before) the same
+  series takes the plan's extra frames as manual exposure brackets (AVCaptureManualExposureBracketedStillImageSettings, RAW only,
+  `maxBracketedCapturePhotoCount` a request, ultrashort first): HybridPlan.build as buildNormalBack takes it (the iPhone has no ZSL
+  ring, so its N frames are all after the press and the plan adds only Bento / Shasta). N exposure = the newest N frame's measured
+  ExposureTime x ISO; Bento «Всегда» (bento 2) or «Авто» (clip share of the newest N frame above bento_trigger, CaptureController
+  .zslClipFraction ported as FrameMeasure), `bento_frames` at N / `bento_factor` (gain first, then shutter, skipped at x0.5 and up);
+  Shasta 1–3 frames (P410 count by the shadow share, P409 +2 EV shutter-first under deep shadows) at N x 2^`shasta_ev`, gain first,
+  shutter only past the ISO range (cap 1/8 s), skipped below x1.2 or above `shasta_max_ratio` unless «Всегда»; none in «Движение»,
+  with «HDR кадры» off or in «Oldstyle». Each delivered extra keeps its role within 0.4 EV of the plan, else the role its measured
+  exposure gives (HybridPlan.classify). A refused extra request leaves the N frames (P27).
+- Transport: Swift writes every frame in capture order (NCH v12 pages) and the facts (last.nch.json: role, exposureNs, ISO,
+  timestampNs, noise at the frame's ISO, the zoom, the 16:9 cut). ShotRun (C++) applies the ScamHybridBurst constructor's rules
+  (Engine/post/HybridSelect.hpp): base = sharpest (RawFrameQuality) of the newest 4 N within 205 ms, N newest first without the
+  P331 blurred donors, the N limit, bracketed only above x1.2 of the base (else N within normalBand, else dropped), ultrashort =
+  the closest to base / bento_factor plus up to bento_frames within x1.3 (x0.75 and up: N or dropped), ratios = exposure x ISO over
+  the base's (dropped outside x1/512..x512), orderMs to the newest N, noiseFor (noise_photon / noise_readout); ROLE_NORMAL 1 /
+  ROLE_BRACKETED 3 / ROLE_ULTRASHORT 5; usSceneEv from the base frame; Parameters.mosaicBlock = ScamHybridBurst.mergedBlock. The
+  frame table is rewritten in place over the v12 pages (no plane moved).
+- Crop (Engine/post/SabreCrop.hpp, ShotTransport.hpp, ShotRun.hpp): SabreCrop P576 (the zoom's window of whole colour periods,
+  cut before the merge and merged on the grid the photo needs: 2x zoom on a 12 MP frame = the 2x Sabre merge of the 3 MP window),
+  HybridOutput.plan with the window (never strict 2x, final size = merged), RawCrop.cropGainMap of the window, PortraitFaces.crop of
+  the faces, filmFrameScale; after the pipeline ScamProcessor's tail (cropRect remaining crop, the photo size by the downsampler /
+  Lanczos-2 upscale, else ZoomController.crop + scaleTo); «Увеличивать кадр с кропом» off (pref_crop_upscale): the window on the
+  sensor grid, the crop keeps its pixels. «16:9» (pref_wide169_key, Wide169 P118): the frames' centred rows are cut at capture
+  (BayerBurst), ShotRun cuts the DNG's lens shading map to them (Wide169.cropGainMap).
+- Checks (host): tools/shot_run_check --select: the frame rules against the Java ScamHybridBurst constructor on 400 random bursts
+  (N / L / ES mixes, missed exposures, invalid noise, bento_frames 1–3, bento_factor, sharp_select, noise multipliers; dumped by a
+  Robolectric run of the Java): 4497 table lines, 0 differ (roles, exposures, ISO, noise, orderMs, EV100 bit for bit). RawFrameQuality
+  .score on the 26 Lenta frames identical to the Java (plain JVM). SabreCrop.plan / cropRect / target / uncroppedPhoto on 3000 random
+  cases and RawCrop / Wide169.cropGainMap on Lenta's map against the Java sources (plain JVM): 0 differ. The app's whole shot
+  (shot_run_check, Lenta + its DNG, SCAM_SHOT_LAB_PARAMS=1 for the vivo values its DNG cannot carry, the lab meta's tuningBurst =
+  the app's burst lines) against the Android lab (HostPostRender) on variant shots whose bursts were cut independently (Python) and
+  whose params carry the Java's crop values: no crop 0 of 37748736 values differ (it was 48.4 dB: Parameters.mosaicBlock was not
+  set), zoom 2 (window 2048x1536 on the 2x grid) 0 of 37748736, zoom 1.5 (window 2736x2048 at 4104x3072) 0 of 37822464 and after
+  the tail (4 px crop to 4096x3072, the Java cropRect) 0 of 37748736, «16:9» (4096x2304) 0 of 28311552.
+- Not on the iPhone / not bit for bit: no ZSL ring (the N frames follow the press, no «Движение» moment base, no P641d overflow
+  pairs); one DNG per series (the other frames' noise is its profile at their ISO, Camera2 gives each frame its own); the manual
+  brackets come as separate requests after the N (a gap of a request's latency; the iPhone may round the exposure: classify);
+  «Авто» antibanding has no mains measurement (no snapping, 100 / 120 set by hand snap as Android); the HAL motion cap, DCG,
+  learned exposure limits, NoiseModelProfile (pref_noise_model_profile_key) are Android's; the Bayer RAW is assumed to be the whole
+  frame at any videoZoomFactor (check on the phone: the log's «burst frame 0: WxH»); the saved DNG stays the whole 4:3 frame with
+  «16:9»; the Ultra HDR map follows the crops by a bilinear resample (Skia's filtered draws on Android) and «area» / «bilinear»
+  downsampler steps after the pipeline use the bicubic kernel. Swift is not compiled here.
+- To do in the camera model (ios/App/CameraModel.swift, not edited here): SHDR keeps its zoom on the modules (`zoom(to:)`:
+  `let residual = shdr && !video ? 1 : max(1, target / pick.zoom)`, `zoomRange`, setShdr's reset): with the residual kept for SHDR
+  the burst carries it (CaptureService.captureBayerBurst sets BayerBurst.zoom) and `BurstProcessor.process(burst, metadata:
+  metadata, zoom: burst.zoom)` crops as Android.

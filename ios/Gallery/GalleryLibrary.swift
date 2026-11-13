@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 /// every photo of the library; what the «Фото» tab shows of them (GalleryView: the order, the format filter, favourites only, the
 /// years, the columns), the albums (AlbumsPage), the search (GallerySearch), thumbnails, favourites, deletion, the original's data
 /// for the viewer and the editor, the edited copy. Favourites are PhotoKit's own (Android keeps its own list because MediaStore
-/// asks the user per photo of another app; PhotoKit does not). Videos are not shown (the video player is not ported).
+/// asks the user per photo of another app; PhotoKit does not). Videos are listed with the photos (Android's gallery shows both);
+/// a video opens in the gallery's player (Video/VideoPlayerView).
 @MainActor
 @Observable
 final class GalleryLibrary {
@@ -65,11 +66,12 @@ final class GalleryLibrary {
         return PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: options).firstObject
     }
 
-    /// Photos only, in the chosen order (GalleryView.oldestFirst).
+    /// Photos and videos, in the chosen order (GalleryView.oldestFirst).
     func photoOptions() -> PHFetchOptions {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: prefs.oldestFirst)]
-        options.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
+        options.predicate = NSPredicate(format: "mediaType = %d || mediaType = %d", PHAssetMediaType.image.rawValue,
+                                        PHAssetMediaType.video.rawValue)
         return options
     }
 
@@ -172,6 +174,9 @@ final class GalleryLibrary {
     }
 
     nonisolated static func kind(of asset: PHAsset) -> AssetKind {
+        if asset.mediaType == .video {
+            return AssetKind(fileName: videoResource(asset)?.originalFilename ?? "", format: .other, raw: false)
+        }
         let res = resources(asset)
         let r = res.photo ?? res.raw
         let name = r?.originalFilename ?? ""
@@ -232,6 +237,7 @@ final class GalleryLibrary {
         add(&frequent, "raw", "RAW", "kb_ui_ic_raw_rest", all.filter { kinds[$0.localIdentifier]?.raw ?? false })
         add(&frequent, "screenshots", L("gallery.album.screenshots"), "kb_ui_ic_screenshot_rest",
             all.filter { $0.mediaSubtypes.contains(.photoScreenshot) })
+        add(&frequent, "videos", L("gallery.album.videos"), "kb_ui_ic_video_rest", all.filter { $0.mediaType == .video })
         var others: [Album] = []
         let user = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
         user.enumerateObjects { c, _, _ in
@@ -299,6 +305,27 @@ final class GalleryLibrary {
         return (photo, raw)
     }
 
+    /// A video's file (the edited version first, else the original)
+    nonisolated static func videoResource(_ asset: PHAsset) -> PHAssetResource? {
+        let all = PHAssetResource.assetResources(for: asset)
+        return all.first { $0.type == .fullSizeVideo } ?? all.first { $0.type == .video }
+    }
+
+    /// A video's file written to the temporary folder (not read into memory), nil when it could not be read
+    nonisolated static func exportVideo(_ asset: PHAsset) async -> URL? {
+        guard let r = videoResource(asset) else { return nil }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("share/\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(r.originalFilename.isEmpty ? "SCAMERA.mov" : r.originalFilename)
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        return await withCheckedContinuation { (c: CheckedContinuation<URL?, Never>) in
+            PHAssetResourceManager.default().writeData(for: r, toFile: url, options: options) { error in
+                c.resume(returning: error == nil ? url : nil)
+            }
+        }
+    }
+
     nonisolated static func data(of resource: PHAssetResource) async throws -> Data {
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
@@ -318,6 +345,10 @@ final class GalleryLibrary {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("share", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for (i, a) in assets.enumerated() {
+            if a.mediaType == .video {
+                if let url = await exportVideo(a) { urls.append(url) }
+                continue
+            }
             let res = resources(a)
             guard let r = res.photo ?? res.raw, let data = try? await data(of: r) else { continue }
             let name = r.originalFilename.isEmpty ? "SCAMERA_\(i).jpg" : r.originalFilename
@@ -489,7 +520,7 @@ enum GallerySearch {
             if k.format == .heic { b += "heic heif " }
             if k.format == .jpeg { b += "jpeg jpg " }
         }
-        b += "фото photo снимок "
+        b += asset.mediaType == .video ? "видео video ролик " : "фото photo снимок "
         if asset.isFavorite { b += "избранное избранные favourite favorite " }
         if let d = asset.creationDate {
             let cal = Calendar.current

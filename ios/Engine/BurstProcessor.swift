@@ -19,38 +19,55 @@ enum BurstProcessor {
         return folder.appendingPathComponent("last.nch")
     }
 
-    static func process(_ burst: BayerBurst, metadata: [String: Any]) throws -> Result {
+    /// The facts beside the last burst (NchWriter.writeFacts: the frames' capture roles and exposures, the zoom, the 16:9 cut)
+    static var lastFactsURL: URL { lastBurstURL.appendingPathExtension("json") }
+
+    /// zoom: the press's digital zoom over the module's own (ZoomController.processingResidual; nil: the burst's, BayerBurst.zoom) -
+    /// SabreCrop's window of the frames before the merge and the photo's crop after the pipeline (Engine/post/ShotRun.hpp).
+    static func process(_ burst: BayerBurst, metadata: [String: Any], zoom: Double? = nil) throws -> Result {
         guard MetalEngine.shared != nil else { throw EngineError.noDevice }
         guard burst.frames.count >= 1, burst.width >= 64, burst.height >= 64 else { throw EngineError.decode("empty burst") }
         var log = burst.report
         let started = Date()
         let info = DngInfo(dng: burst.dng)
         log += info.notes.map { "dng: " + $0 }
-        var frames = BurstOrder.arrange(burst.frames, width: burst.width, height: burst.height, log: &log)
+        var frames = burst.frames
         let blackMean = info.black.reduce(0, +) / 4
-        var source = "DNG NoiseProfile"
+        // the frame the DNG is (the series' first); the noise of the others is its profile at their ISO (Camera2 gives each frame its
+        // own SENSOR_NOISE_PROFILE; the iPhone's DNG profile is the first frame's)
+        let iso0 = Float(max(frames[0].iso, 1))
+        var source = "DNG NoiseProfile at each frame's ISO"
         var noise = info.noise
-        if noise == nil, frames.count >= 2,
-           let estimate = NoiseEstimate.fromPair(frames[0].raw, frames[1].raw, width: burst.width, height: burst.height, cfa: burst.cfa,
-                                                 black: blackMean, white: info.white) {
-            noise = estimate
-            source = "estimated from frames 0 / 1"
+        let normals = frames.indices.filter { frames[$0].role == NchWriter.roleNormal }
+        if noise == nil, normals.count >= 2,
+           let estimate = NoiseEstimate.fromPair(frames[normals[0]].raw, frames[normals[1]].raw, width: burst.width, height: burst.height,
+                                                 cfa: burst.cfa, black: blackMean, white: info.white) {
+            // the pair's ISO is the first N frame's: scaled to the DNG frame's
+            let k = iso0 / Float(max(frames[normals[0]].iso, 1))
+            noise = (estimate.0 * k, estimate.1 * k * k)
+            source = "estimated from N frames \(normals[0]) / \(normals[1])"
         }
         let (slope, offset) = noise ?? (1e-4, 1e-6)
         if noise == nil { source = "fallback (no profile, one frame)" }
-        let iso0 = Float(max(frames[0].iso, 1))
         for i in frames.indices {
             let k = Float(frames[i].iso) / iso0
             frames[i].noiseSlope = slope * k
             frames[i].noiseOffset = offset * k * k
         }
-        log.append("burst \(burst.width)x\(burst.height) cfa=\(burst.cfa) frames=\(frames.count) black=\(info.black) white=\(info.white)"
-                   + " noise \(source): S=\(slope) O=\(offset) neutral=\(info.neutral) orientation=\(info.orientation)")
+        let shotZoom = max(1, zoom ?? burst.zoom)
+        let roles = frames.map(\.role)
+        log.append("burst \(burst.width)x\(burst.height) cfa=\(burst.cfa) frames=\(frames.count) (N \(roles.filter { $0 == NchWriter.roleNormal }.count),"
+                   + " bracketed \(roles.filter { $0 == NchWriter.roleBracketed }.count), ultrashort \(roles.filter { $0 == NchWriter.roleUltrashort }.count))"
+                   + " black=\(info.black) white=\(info.white) noise \(source): S=\(slope) O=\(offset) neutral=\(info.neutral)"
+                   + " orientation=\(info.orientation) zoom=\(String(format: "%.3f", shotZoom))")
 
         let nch = lastBurstURL
         let writeStarted = Date()
+        // the frames in capture order; the merge's frame table (the base, roles, ratios, noise, orderMs: ScamHybridBurst's rules) and
+        // the zoom's window are ShotRun's (Engine/post/HybridSelect.hpp, SabreCrop.hpp), from these facts
         try NchWriter.write(to: nch, width: burst.width, height: burst.height, cfa: burst.cfa, white: info.white, black: info.black,
                             frames: frames)
+        try NchWriter.writeFacts(to: lastFactsURL, frames: frames, zoom: shotZoom, fullHeight: burst.fullHeight, firstRow: burst.firstRow)
         log.append("burst written to \(nch.lastPathComponent) in \(ms(since: writeStarted)) ms")
         guard let shaders = Bundle.main.url(forResource: "shaders", withExtension: nil) else {
             throw EngineError.decode("the pipeline's shaders are missing from the app")
