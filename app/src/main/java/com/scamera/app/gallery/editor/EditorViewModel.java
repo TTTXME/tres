@@ -50,6 +50,23 @@ public final class EditorViewModel extends AndroidViewModel {
     @Nullable private EditSource opened;
     private boolean cleared, exporting;
 
+    /**
+     * P665 «Проявка»: the camera's develop of the photo (a DNG of ours with its record; null: none offered), the last developed
+     * picture (posted when a develop ends) and the develop's status line (null when idle). Develops run one at a time on their own
+     * thread; a request the next one overtook before it started is skipped.
+     */
+    @Nullable volatile EditDevelop develop;
+    final MutableLiveData<EditSource> developed = new MutableLiveData<>();
+    final MutableLiveData<String> developStatus = new MutableLiveData<>();
+    private final java.util.concurrent.ExecutorService developer = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "EditorDevelop");
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        return t;
+    });
+    @Nullable private volatile String developWanted;
+    /** The changes' key the posted picture was developed with. */
+    @Nullable volatile String developedKey;
+
     public EditorViewModel(@NonNull Application app) {
         super(app);
     }
@@ -65,6 +82,7 @@ public final class EditorViewModel extends AndroidViewModel {
             try {
                 EditSource s = EditSource.open(getApplication(), uri, name, mime);
                 s.absolutePath = path;
+                develop = EditDevelop.open(s); // P665: our DNG's develop record, if it has one
                 boolean drop;
                 synchronized (lock) {
                     drop = cleared;
@@ -82,6 +100,39 @@ public final class EditorViewModel extends AndroidViewModel {
         t.start();
     }
 
+    /**
+     * P665: develops the preview with {@code s}'s camera settings unless the picture posted or the develop running is already
+     * that one. The new picture comes in {@link #developed}.
+     */
+    void requestDevelop(EditState s) {
+        final EditDevelop d = develop;
+        final EditSource raw = source.getValue();
+        if (d == null || raw == null || !s.develop) return;
+        final java.util.TreeMap<String, Object> changes = new java.util.TreeMap<>(s.devChanges);
+        final String key = EditDevelop.key(changes);
+        if (key.equals(developWanted)) return;
+        developWanted = key;
+        developStatus.setValue(com.scamera.app.util.Lang.t("Проявляю конвейером камеры…", "Developing with the camera's pipeline…"));
+        developer.execute(() -> {
+            if (!key.equals(developWanted)) return; // overtaken
+            try {
+                final android.graphics.Bitmap b = d.preview(changes);
+                final double k = d.scale();
+                final EditSource pic = EditSource.developed(raw, b, (int) Math.round(b.getWidth() * k), (int) Math.round(b.getHeight() * k),
+                        () -> d.full(changes));
+                if (!key.equals(developWanted)) return;
+                developedKey = key;
+                developed.postValue(pic);
+                developStatus.postValue(null);
+            } catch (Exception | OutOfMemoryError e) {
+                Log.e(TAG, "develop: " + e);
+                if (key.equals(developWanted)) developWanted = null; // the same settings may be tried again
+                developStatus.postValue(com.scamera.app.util.Lang.t("Проявка не удалась: ", "Develop failed: ")
+                        + (e.getMessage() != null ? e.getMessage() : e.toString()));
+            }
+        });
+    }
+
     boolean exporting() {
         synchronized (lock) {
             return exporting;
@@ -93,7 +144,11 @@ public final class EditorViewModel extends AndroidViewModel {
      * done - its memory is the export's - or {@link #READY_WAIT_S} passed.
      */
     void export(EditState s, @Nullable Future<?> ready) {
-        EditSource src = source.getValue();
+        export(s, ready, source.getValue());
+    }
+
+    /** P665: the export of {@code src} (the photo, or its developed picture with the copy's full-size develop). */
+    void export(EditState s, @Nullable Future<?> ready, @Nullable EditSource src) {
         synchronized (lock) {
             if (src == null || exporting || cleared) return;
             exporting = true;
@@ -121,11 +176,14 @@ public final class EditorViewModel extends AndroidViewModel {
                 exportError.postValue(e.getMessage() != null ? e.getMessage() : e.toString());
             } finally {
                 boolean close;
+                EditSource own;
                 synchronized (lock) {
                     exporting = false;
                     close = cleared;
+                    own = opened;
                 }
-                if (close) src.close(); // the editor was cleared while this export read the source
+                // the editor was cleared while this export read the source (P665: the photo's, a developed picture owns nothing)
+                if (close && own != null) own.close();
             }
         }, "EditorExport");
         t.setPriority(Thread.NORM_PRIORITY - 1);
@@ -135,6 +193,10 @@ public final class EditorViewModel extends AndroidViewModel {
     @Override
     protected void onCleared() {
         lookLoader.shutdown();
+        developWanted = null;
+        developer.shutdown();
+        EditDevelop d = develop;
+        if (d != null) d.release();
         EditSource s;
         synchronized (lock) {
             cleared = true;

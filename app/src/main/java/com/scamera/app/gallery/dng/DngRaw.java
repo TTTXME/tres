@@ -65,6 +65,11 @@ public final class DngRaw {
         public java.io.Closeable owner;
         /** P352: a line for the editor («Quad: половина разрешения»...), null for none. */
         public String note;
+        /**
+         * P665: {@link #decodeLinear}'s samples instead of {@link #data}: the same cells as floats, 1.0 = the white level, not
+         * clamped above (null for a fixed-point decode).
+         */
+        public float[] linear;
 
         public void close() {
             if (owner != null) {
@@ -95,6 +100,10 @@ public final class DngRaw {
     private int outW, outH, bin, spp = 1, step;
     private ShortBuffer out;
     private float inv;
+    /** P665: decode into {@link #fout} (floats, 1 = white) instead of {@link #out}. */
+    private boolean linearOut;
+    private float[] fout;
+    private float finv;
 
     private DngRaw(DngPreview p, DngPreview.Ifd f) {
         this.p = p;
@@ -109,6 +118,16 @@ public final class DngRaw {
     /** Decodes the raw with {@code bin} (1, 2, 4...: same-colour samples averaged in bin x bin). */
     public static Image decode(ByteBuffer buffer, int bin) throws IOException {
         DngRaw r = open(buffer);
+        return r.run(Math.max(1, bin));
+    }
+
+    /**
+     * P665: {@link #decode} into floats (Image.linear; data null): the DNG's whole precision (a 16-bit merged DNG over its headroom
+     * keeps 4x the fixed point's codes under the N frames' white), nothing clamped above white. The same cells, phase and info.
+     */
+    public static Image decodeLinear(ByteBuffer buffer, int bin) throws IOException {
+        DngRaw r = open(buffer);
+        r.linearOut = true;
         return r.run(Math.max(1, bin));
     }
 
@@ -311,8 +330,13 @@ public final class DngRaw {
         int channels = info.kind == KIND_RGB ? 3 : 1;
         long n = (long) outW * outH * channels;
         if (n > Integer.MAX_VALUE / 2) throw new IOException("DNG: raw too large to decode");
-        out = ByteBuffer.allocateDirect((int) n * 2).order(ByteOrder.nativeOrder()).asShortBuffer();
         int perOut = info.kind == KIND_RGB ? bin * bin : info.cell * info.cell * bin * bin;
+        if (linearOut) {
+            fout = new float[(int) n];
+            finv = 1f / perOut;
+        } else {
+            out = ByteBuffer.allocateDirect((int) n * 2).order(ByteOrder.nativeOrder()).asShortBuffer();
+        }
         inv = FIXED_ONE / perOut;
         if (f.compression == 1) uncompressed();
         else lossless();
@@ -324,7 +348,8 @@ public final class DngRaw {
         img.phase = info.kind == KIND_BAYER ? phase() : 0;
         if (info.kind == KIND_BAYER && img.phase < 0) throw new IOException("DNG: CFA phase is not a Bayer");
         img.data = out;
-        img.autoLiftStops = autoLift(img);
+        img.linear = fout;
+        img.autoLiftStops = out != null ? autoLift(img) : 0f;
         return img;
     }
 
@@ -359,6 +384,10 @@ public final class DngRaw {
         }
         if (s <= 0) return;
         int i = (oy * outW + ox) * (info.kind == KIND_RGB ? 3 : 1) + (info.kind == KIND_RGB ? ch : 0);
+        if (fout != null) {
+            fout[i] += (float) s * finv;
+            return;
+        }
         int acc = (out.get(i) & 0xFFFF) + (int) Math.round(s * inv);
         out.put(i, (short) Math.min(65535, acc));
     }

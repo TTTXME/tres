@@ -771,6 +771,10 @@ public class ScamProcessor extends ProcessorBase {
         Log.d(TAG, "Alignment elapsed:" + (System.currentTimeMillis() - startTime) + " ms");
         // P620: the DNG that gets the developed photo as its preview once the photo is saved (null: none)
         Path dngPreviewTarget = null;
+        // P665: the merged DNG that gets the gallery developer's record once the photo is saved (null: none) and its size
+        Path developTarget = null;
+        int developDngW = 0, developDngH = 0;
+        boolean mergedDngWritten = false;
         // P646: a YUV shot has no RAW for a DNG («RAW only» saves its photo)
         if (yuvShot && rawSaving >= 1) Log.i(TAG, "DNG: none for a YUV shot (no RAW frame), the photo only");
         if (!yuvShot && (mosaicDngOnly || ((rawSaving >= 1) && alignMode != 2))) {
@@ -830,6 +834,7 @@ public class ScamProcessor extends ProcessorBase {
                     processingParameters.dngMerged = true; // P618: its ImageDescription
                     imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)
                             : ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters);
+                    mergedDngWritten = imageSaved && !mosaicDng; // P665
                     Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "DNG: merged burst RAW (N, bracketed and ultrashort frames), "
                             + "16-bit, headroom x%.3f, BaselineExposure %+.2f EV", headroom, processingParameters.dngBaselineExposure));
                     final double[] np = processingParameters.dngNoiseProfile;
@@ -879,6 +884,13 @@ public class ScamProcessor extends ProcessorBase {
             reportDng(events, imageSaved, rawSaving, mosaicDngOnly, dngPath);
             // P620: a DNG with a photo (not the mosaic DNG alone, not RAW only); the front camera's photo is mirrored, its DNG not
             if (imageSaved && !mosaicDngOnly && rawSaving != 2 && !processingParameters.mirrored) dngPreviewTarget = dngPath;
+            // P665: a merged Bayer DNG beside a processed photo carries the developer's record (the reference frame's DNG does not:
+            // it is not the RGB the pipeline took)
+            if (mergedDngWritten && !mosaicDngOnly && rawSaving != 2 && hybridShot) {
+                developTarget = dngPath;
+                developDngW = processingParameters.rawSize.x;
+                developDngH = processingParameters.rawSize.y;
+            }
             if (mosaicDngOnly) {
                 try {
                     events.processingProgress(Lang.t("«Наш ремозаик» выключен: сохранён только DNG склеенной мозаики",
@@ -956,6 +968,12 @@ public class ScamProcessor extends ProcessorBase {
         processingParameters.filmFrameScale = com.scamera.app.processing.opengl.postpipeline.FilmHalation.filmFrameScale(
                 window != null ? window.remaining() : zoomCrop, iszAspect4x3, processingParameters.rawSize);
         if (hybridShot && !yuvShot) com.scamera.app.processing.opengl.postpipeline.ScamLab.snapshot(processingParameters, String.valueOf(processingParameters.physicalID)); // P277
+        // P665: the gallery developer's record of this shot (the lab's snapshot's moment and Parameters, copies of the merge's maps)
+        final com.scamera.app.processing.DevelopRecord developRecord = developTarget == null || yuvShot ? null
+                : com.scamera.app.processing.opengl.postpipeline.DevelopCapture.take(processingParameters, shotClipFlags,
+                        shotEffectiveFrames, shotHlMask,
+                        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDngHeadroom, developDngW, developDngH,
+                        sabrePlan != null ? 1f : zoomResidual, iszAspect4x3);
         PostPipeline pipeline = new PostPipeline();
         openPipeline = pipeline;
         // P277: a lab shot's pipeline records the whole frame's statistics (the lab's fragments use them)
@@ -1293,6 +1311,8 @@ public class ScamProcessor extends ProcessorBase {
                 dngPreview.recycle();
             }
         }
+        // P665: after the DNG's preview (the record is the file's last part)
+        if (developRecord != null) com.scamera.app.processing.opengl.postpipeline.DevelopCapture.appendLater(developTarget, developRecord);
         finishDeferredTeardown();
 
         Allocator.getMemoryCount();

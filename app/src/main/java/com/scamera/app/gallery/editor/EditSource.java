@@ -62,7 +62,8 @@ public final class EditSource implements Closeable {
     /** RAW samples decoded at full resolution at most for the export (2 bytes each); more is binned 2x2. */
     static final long RAW_MAX = 64_000_000L;
 
-    public enum Route {JPEG, DECODER, GLIDE, DNG, LIBRAW}
+    /** P665: DEVELOP - a DNG of ours developed by the camera's pipeline (EditDevelop): a finished picture like a JPEG's. */
+    public enum Route {JPEG, DECODER, GLIDE, DNG, LIBRAW, DEVELOP}
 
     public final Uri uri;
     public final String name;
@@ -90,10 +91,53 @@ public final class EditSource implements Closeable {
             new com.scamera.app.processing.watermark.WatermarkText.Info();
     /** P633: the preview with the record's pixels back (the watermark taken off), null without a record. */
     @Nullable Bitmap previewClean;
+    /** P665: the full-size developed picture of a DEVELOP source (made on the reader's thread, kept by EditDevelop). */
+    @Nullable private FullPicture developedFull;
+
+    /** P665: the full-size picture of a DEVELOP source, made when a reader asks (not on the main thread). */
+    interface FullPicture {
+        Bitmap get() throws Exception;
+    }
+
+    /** P665: a picture source of {@code preview} (the tests: a JPEG route without a file). */
+    static EditSource forTest(Uri uri, String name, Bitmap preview) {
+        EditSource s = new EditSource(uri, name);
+        s.route = Route.JPEG;
+        s.preview = normalise(preview);
+        s.colour = colourOf(s.preview);
+        s.fullW = preview.getWidth();
+        s.fullH = preview.getHeight();
+        return s;
+    }
+
+    /**
+     * P665: the picture {@code raw} (a DNG of ours) develops to: {@code preview} (the preview develop: upright sRGB), the original
+     * {@code fullW x fullH} (the full develop's size, estimated until it is made), {@code full} for the copy and the zoom. Owns
+     * nothing of {@code raw}'s (its DNG copy stays raw's).
+     */
+    static EditSource developed(EditSource raw, Bitmap preview, int fullW, int fullH, FullPicture full) {
+        EditSource s = new EditSource(raw.uri, raw.name);
+        s.route = Route.DEVELOP;
+        s.absolutePath = raw.absolutePath;
+        s.preview = normalise(preview);
+        s.colour = colourOf(s.preview);
+        s.orientation = 1;
+        s.fullW = Math.max(1, fullW);
+        s.fullH = Math.max(1, fullH);
+        s.watermarkInfo = raw.watermarkInfo;
+        s.developedFull = full;
+        return s;
+    }
 
     private EditSource(Uri uri, String name) {
         this.uri = uri;
         this.name = name != null ? name : "";
+    }
+
+    /** P665: the DNG's copy in the cache (the develop reads it), null for another route. */
+    @Nullable
+    File copyFile() {
+        return copy;
     }
 
     public boolean isRaw() {
@@ -666,6 +710,16 @@ public final class EditSource implements Closeable {
         switch (route) {
             case JPEG: return new RegionReader(c, cropFraction, outMax);
             case DNG: case LIBRAW: return new RawReader(c);
+            case DEVELOP: {
+                if (developedFull == null) throw new IOException("develop: no picture");
+                try {
+                    return new BitmapReader(developedFull.get());
+                } catch (IOException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new IOException(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+                }
+            }
             case DECODER: return new BitmapReader(c, true, outMax);
             default: return new BitmapReader(c, false, outMax);
         }
@@ -886,7 +940,16 @@ public final class EditSource implements Closeable {
     private final class BitmapReader implements Reader {
         final Bitmap full;
         final boolean shrunk;
+        /** P665: false for a picture kept by its maker (the developed one): close leaves it. */
+        final boolean owns;
         volatile boolean clean;
+
+        /** P665: over a picture made elsewhere (the full-size develop), not recycled on close. */
+        BitmapReader(Bitmap picture) {
+            full = picture;
+            shrunk = false;
+            owns = false;
+        }
 
         /** P633: the stored photo's region a reader rect covers (the reader holds the photo at {@code full}'s size). */
         Rect original(int x, int y, int w, int h) {
@@ -918,6 +981,7 @@ public final class EditSource implements Closeable {
             if (b == null) throw new IOException("no picture");
             full = normalise(b);
             shrunk = k < 0.999;
+            owns = true;
         }
 
         @Override public int width() { return full.getWidth(); }
@@ -971,7 +1035,7 @@ public final class EditSource implements Closeable {
 
         @Override
         public void close() {
-            full.recycle();
+            if (owns) full.recycle();
         }
     }
 

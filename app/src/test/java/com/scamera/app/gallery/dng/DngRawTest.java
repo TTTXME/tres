@@ -54,6 +54,27 @@ public class DngRawTest {
         assertEquals(0.3 * N[2], at(img, 1, 1), 2e-3);
     }
 
+    /** P665: the float decode is the fixed point's cells at the DNG's own precision (the gallery developer's input). */
+    @Test
+    public void linearDecodeKeepsEveryCode() throws IOException {
+        int[] raw = DngPreviewTest.scene(N, 64, 1023);
+        ByteBuffer file = ByteBuffer.wrap(bayer(raw, 64, 1023).build());
+        for (int bin : new int[]{1, 2}) {
+            DngRaw.Image fixed = DngRaw.decode(file, bin), lin = DngRaw.decodeLinear(file, bin);
+            assertEquals(fixed.width, lin.width);
+            assertEquals(fixed.height, lin.height);
+            assertEquals(fixed.phase, lin.phase);
+            assertEquals(null, lin.data);
+            for (int y = 0; y < lin.height; y++)
+                for (int x = 0; x < lin.width; x++)
+                    // the fixed point rounds each of its bin x bin samples: half a code each
+                    assertEquals(at(fixed, x, y), lin.linear[y * lin.width + x], bin * bin * .5 / DngRaw.FIXED_ONE + 1e-6);
+        }
+        DngRaw.Image one = DngRaw.decodeLinear(file, 1);
+        for (int[] p : new int[][]{{3, 5}, {40, 7}})
+            assertEquals((raw[p[1] * W + p[0]] - 64) / (1023.0 - 64), one.linear[p[1] * W + p[0]], 1e-6);
+    }
+
     @Test
     public void binningAveragesSameColours() throws IOException {
         int[] raw = DngPreviewTest.scene(N, 64, 1023);

@@ -732,6 +732,17 @@ public class PreferenceKeys {
      * SettingsNumericRules bounds, so a restored config or an old module profile cannot send a value the row cannot show;
      * "" when unset or not a number (the caller then writes the app default, else the worker keeps its own).
      */
+    /**
+     * P665: whether the preference {@code key} goes to the merge (the worker's tuning, {@link #hybridTuningText}): the gallery
+     * developer greys it - its DNG holds the merge's result.
+     */
+    public static boolean mergeTuningKey(String key) {
+        if (key == null || !key.startsWith(HYBRID_PREFIX)) return false;
+        final String suffix = key.substring(HYBRID_PREFIX.length());
+        for (String[] k : TUNING_KEYS) if (k[1].equals(suffix)) return true;
+        return false;
+    }
+
     static String storedTuningValue(String key) {
         final String raw = hybridString(key, "");
         if (raw.isEmpty()) return "";

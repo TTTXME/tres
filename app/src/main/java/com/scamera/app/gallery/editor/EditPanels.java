@@ -52,6 +52,18 @@ final class EditPanels {
 
         /** P619: the photo's picture for the «LUT» tab's cards (the main pass's, without the look), delivered on the UI thread. */
         void lookThumbnail(ThumbSink sink);
+
+        /** P665: the camera's develop of this photo (a DNG of ours with its record), null when none is offered. */
+        @Nullable
+        default EditDevelop develop() {
+            return null;
+        }
+
+        /** P665: what the develop is doing now («Проявляю…», its error), null when idle. */
+        @Nullable
+        default String developStatus() {
+            return null;
+        }
     }
 
     /** P619: a picture of the photo, ARGB w x h. */
@@ -799,6 +811,7 @@ final class EditPanels {
             case 5: return effects();
             case 6: return detail();
             case 7: return new EditWatermarkPanel(c, host, this).build(); // P633: «Знак»
+            case 8: return new EditDevelopPanel(c, host, this).build(); // P665: «Проявка»
             default: return null;
         }
     }
