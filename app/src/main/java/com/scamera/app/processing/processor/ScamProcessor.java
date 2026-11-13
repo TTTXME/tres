@@ -15,6 +15,7 @@ import com.scamera.app.app.ScameraApp;
 import com.scamera.app.capture.CaptureController;
 import com.scamera.app.control.GyroBurst;
 import com.scamera.app.processing.ImageFrame;
+import com.scamera.app.processing.LoficMerge;
 import com.scamera.app.processing.RawBin;
 import com.scamera.app.processing.RawCrop;
 import com.scamera.app.processing.opengl.GLLimits;
@@ -97,6 +98,9 @@ public class ScamProcessor extends ProcessorBase {
     public int ownedFullResSeries, ownedFullResRequested;
     /** P320: the shot's frames come from a DCG sensor mode (set at the press, ImageSaver.dcgShot). */
     public boolean ownedDcgShot;
+    /** P679: the shot's frames are LOFIC pairs (set at the press, ImageSaver.loficShot). */
+    public boolean ownedLoficShot;
+    private boolean loficShot;
     private boolean dcgShot;
     private int fullResSeries, fullResRequested;
     /** P212f (W2 = M3): the hand-set white balance's gains at the press of the queued shot (null: automatic). */
@@ -147,6 +151,8 @@ public class ScamProcessor extends ProcessorBase {
         ownedFullResSeries = ownedFullResRequested = 0;
         this.dcgShot = ownedDcgShot;
         ownedDcgShot = false;
+        this.loficShot = ownedLoficShot;
+        ownedLoficShot = false;
         this.manualWb = ownedManualWb;
         ownedManualWb = null;
         this.mosaicWb = ownedMosaicWb;
@@ -477,6 +483,7 @@ public class ScamProcessor extends ProcessorBase {
         processingParameters.fullResSeries = fullResSeries;
         processingParameters.fullResRequested = fullResRequested;
         processingParameters.dcgShot = dcgShot;
+        processingParameters.loficLog2 = 0; // P679: set by loficPremerge
         processingParameters.manualWbAtPress = manualWb;
         processingParameters.mosaicWbAtPress = mosaicWb;
         processingParameters.portraitLookAtPress = lookAtPress;
@@ -668,6 +675,7 @@ public class ScamProcessor extends ProcessorBase {
                 if (!yuvShot) applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, shotCamera, iszAspect4x3);
                 com.scamera.app.processing.ShotTimeline.mark("neutral_done"); // P625: neutral=
                 if (dcgShot) addOverflowFrames(processingParameters, images, dcgLinear); // P641d: DCG + LOFIC pairs
+                if (loficShot) loficPremerge(processingParameters, images); // P679: each LOFIC pair into one frame
                 fieldOfView(processingParameters, iszAspect4x3, zoomResidual);
                 ParseExif.syncWithParameters(shotExif, processingParameters);
                 Log.i("SCAM_HDR", "Reference calibration timestamp=" + scamReference.timestamp
@@ -712,6 +720,7 @@ public class ScamProcessor extends ProcessorBase {
                     } finally {
                         com.scamera.app.processing.MergeProgress.listener = null;
                     }
+                    if (processingParameters.loficLog2 > 0) loficResult(processingParameters, scamOwnedOutput); // P679
                     // P320: the DCG shot's own two noise zones (the worker measured them on the merged frames)
                     if (dcgShot) {
                         final float[] zones = com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastDcgNoise;
@@ -1836,6 +1845,93 @@ public class ScamProcessor extends ProcessorBase {
         if (with > 0) Log.i("SCAM_HDR", "DCG+LOFIC: " + added + " of " + with + " overflow pair(s) go to the merge with the DCG frames (rung "
                 + rung + (linear ? "" : "; none: the DCG codes were not shown linear, no frame of another exposure joins") + "; P641d)");
         return added;
+    }
+
+    /**
+     * P679: a LOFIC shot (Xiaomi 17 Ultra, capture.XiaomiLofic): each Long frame and its Short read merged into one frame before
+     * the burst merge (LoficMerge) - the Short read is the same moment, pixel-aligned, so it extends the Long frame's highlights
+     * with nothing to align; the merged frames then go to our merge as plain N frames. The levels are the streams' own (Long
+     * black 1024 / white 16383: the metadata reports them wrongly); k (Long / Short) is measured on each pair. A pair without a
+     * measured k takes the burst's median; with none measured, or no pair adding light over the Long clip, the Long frames go
+     * alone. Sets Parameters.loficLog2.
+     */
+    void loficPremerge(Parameters p, ArrayList<ImageFrame> frames) {
+        p.loficLog2 = 0;
+        // the Long stream's own levels, whatever the metadata says (it reports white 1023)
+        final float[] declared = p.cfaBlack.clone();
+        boolean blackOk = true;
+        for (float b : p.cfaBlack) blackOk &= b > 900f && b < 1150f;
+        if (!blackOk) java.util.Arrays.fill(p.cfaBlack, LoficMerge.LONG_BLACK);
+        final int declaredWhite = p.whiteLevel;
+        p.whiteLevel = LoficMerge.LONG_WHITE;
+        final ArrayList<ImageFrame> pairs = new ArrayList<>();
+        for (ImageFrame f : frames) if (f != null && f.lofic != null && f.lofic.shortPacked != null && f.buffer != null) pairs.add(f);
+        if (pairs.isEmpty()) {
+            Log.w("SCAM_HDR", "LOFIC shot: no frame carries its Short read (no ExposureCount 2 at the press): the Long frames alone,"
+                    + " black " + java.util.Arrays.toString(p.cfaBlack) + " / white " + p.whiteLevel + " (declared " + declaredWhite + ") (P679)");
+            return;
+        }
+        final float[] black = p.cfaBlack.clone();
+        final double[] ks = new double[pairs.size()];
+        final long started = android.os.SystemClock.elapsedRealtime();
+        com.scamera.app.util.ParallelWork.forEach(pairs.size(), i -> {
+            final ImageFrame f = pairs.get(i);
+            final int rows = Math.min(f.height, f.lofic.rows);
+            ks[i] = LoficMerge.ratioPlain(f.buffer, f.lofic.shortPacked, f.width, rows, black, 4);
+        });
+        final double median = LoficMerge.median(ks);
+        double kMax = 0;
+        for (int i = 0; i < ks.length; i++) {
+            if (!(ks[i] > 0)) ks[i] = median;
+            kMax = Math.max(kMax, ks[i]);
+        }
+        final LoficMerge.Encoding e = kMax > 0 ? LoficMerge.encoding(kMax, black, p.whiteLevel) : null;
+        Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "LOFIC shot: %d pairs, levels Long black %s (declared %s) / white %d"
+                        + " (declared %d), Short 64 / 1023; k per pair %s (median %.2f), the most light over the Long clip x%.2f (%.2f stops)"
+                        + " -> %s (P679)", pairs.size(), java.util.Arrays.toString(black), java.util.Arrays.toString(declared),
+                p.whiteLevel, declaredWhite, java.util.Arrays.toString(ks), median, LoficMerge.gain(kMax, black[0], p.whiteLevel),
+                com.scamera.app.capture.XiaomiLofic.headroomStops(kMax), e == null ? "no merge: the Long frames alone" : e.toString()));
+        if (e == null) {
+            for (ImageFrame f : pairs) f.lofic = null;
+            return;
+        }
+        final int blend = Math.round(PreferenceKeys.scamDevNumber("lofic_blend", LoficMerge.BLEND_NOISE)) == LoficMerge.BLEND_RAMP
+                ? LoficMerge.BLEND_RAMP : LoficMerge.BLEND_NOISE;
+        final LoficMerge.Stats[] stats = new LoficMerge.Stats[pairs.size()];
+        com.scamera.app.util.ParallelWork.forEach(pairs.size(), i -> {
+            final ImageFrame f = pairs.get(i);
+            final int rows = Math.min(f.height, f.lofic.rows);
+            final float slope = Float.isFinite(f.noiseSlope) && f.noiseSlope > 0 ? f.noiseSlope : 2e-5f;
+            final float offset = Float.isFinite(f.noiseOffset) && f.noiseOffset >= 0 ? f.noiseOffset : 1e-7f;
+            stats[i] = LoficMerge.merge(f.buffer, f.lofic.shortPacked, f.width, rows, ks[i], slope, offset, e, blend);
+        });
+        for (int i = 0; i < pairs.size(); i++) {
+            pairs.get(i).lofic = null;
+            Log.i("SCAM_HDR", "LOFIC pair " + i + " (frame " + pairs.get(i).number + ", ExposureCount 2): " + stats[i] + " (P679)");
+        }
+        // frames of the shot without a Short read (none in a LOFIC shot by construction) would be at the Long scale: left out
+        frames.removeIf(f -> f != null && !pairs.contains(f));
+        p.whiteLevel = 65535;
+        p.loficLog2 = e.headroomLog2;
+        p.dngBaselineExposure = e.headroomLog2;
+        Log.i("SCAM_HDR", "LOFIC pairs merged (" + (blend == LoficMerge.BLEND_RAMP ? "the release's fixed ramp" : "noise-weighted")
+                + ") in " + (android.os.SystemClock.elapsedRealtime() - started) + " ms: frames white 65535, the Long clip at 1/"
+                + Math.round(e.headroom) + " of it; the merge's result is scaled back x" + Math.round(e.headroom) + " (P679)");
+    }
+
+    /**
+     * P679: the merge's result of a LOFIC shot back on the Long scale (x 2^loficLog2: 1 = the Long clip, the Short read's light
+     * above it), its highlights marked as real headroom for the tone (as Bento's), the merged DNG's headroom with it.
+     */
+    static void loficResult(Parameters p, ByteBuffer rgb) {
+        final boolean half = com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastRgbHalf;
+        LoficMerge.scale(rgb, half, p.loficLog2);
+        final float h = (float) Math.scalb(1.0, p.loficLog2);
+        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastBentoApplied = true;
+        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDngHeadroom =
+                Math.max(1f, com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDngHeadroom) * h;
+        Log.i("SCAM_HDR", "LOFIC result x" + Math.round(h) + " (" + (half ? "FP16" : "FP32") + "): 1 = the Long clip, highlights up to x"
+                + Math.round(h) + "; the tone takes them as measured headroom, the DNG's BaselineExposure +" + p.loficLog2 + " (P679)");
     }
 
     private void dcgLinearity(Parameters p, ArrayList<ImageFrame> frames, ImageFrame reference) {

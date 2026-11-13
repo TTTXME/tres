@@ -119,6 +119,19 @@ public class ImageFrame {
         public String rung = "";
     }
 
+    /**
+     * P679: the Short read of a Xiaomi 17 Ultra LOFIC pair travels with its Long frame (this frame) until the shot merges the pair
+     * into one frame before the burst merge (processing.LoficMerge); null on every other frame.
+     */
+    public Lofic lofic;
+
+    /** The Short image of a LOFIC pair: packed RAW10 rows back to back, its rows and the ratio the shot measured (0: not yet). */
+    public static final class Lofic {
+        public ByteBuffer shortPacked;
+        public int rows;
+        public double k;
+    }
+
     /** ... and, as a frame of the burst, names that main frame: its metadata is the main frame's (one exposure, one result). */
     public ImageFrame pairedMain;
 

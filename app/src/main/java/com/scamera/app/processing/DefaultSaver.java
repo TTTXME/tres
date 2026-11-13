@@ -28,6 +28,8 @@ public class DefaultSaver extends SaverImplementation {
     int ownedFullResSeries, ownedFullResRequested;
     /** P320: the queued shot is a DCG shot (ImageSaver.dcgShot). */
     boolean ownedDcgShot;
+    /** P679: the queued shot is a LOFIC shot (ImageSaver.loficShot). */
+    boolean ownedLoficShot;
     /** P212f (W2 = M3): the hand-set white balance's gains at the press of the queued shot (null: automatic). */
     android.hardware.camera2.params.RggbChannelVector ownedManualWb;
     /** P212g (W6 = M6): the mosaic white balance's route at the press of the queued shot (null: none). */
@@ -77,6 +79,8 @@ public class DefaultSaver extends SaverImplementation {
             ownedFullResSeries = ownedFullResRequested = 0;
             scamProcessor.ownedDcgShot = ownedDcgShot;
             ownedDcgShot = false;
+            scamProcessor.ownedLoficShot = ownedLoficShot;
+            ownedLoficShot = false;
             scamProcessor.ownedManualWb = ownedManualWb;
             ownedManualWb = null;
             scamProcessor.ownedMosaicWb = ownedMosaicWb;
