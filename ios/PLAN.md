@@ -116,6 +116,28 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   (res/values, values-ru), the gallery and the editor.
 
 ## Post port progress (update as nodes land)
+- 2026-11-13: the whole default SHDR photo route is in C++ (Engine/post) and in the app:
+  ScamRgb → ScamHdrDenoise → WhyHlDezipper → WhyMsDenoise → WhyStats (early WhyLumaSharpen) → WhyFusion → WhyLumaSharpen →
+  WhyCombine → RotateWatermark. On the Lenta burst (4096x3072, 20 N), against the Android app's own Java nodes and shaders on
+  Mesa (tools/android-host, Robolectric): every node and the final photo 0 of 37748736 values differ.
+  - Shot parameters: Engine/post/color/ShotColour.hpp (Parameters.ReCalcColor, DNG route: the neutral, P370/P580 fallbacks,
+    DngColor white estimate, FM/CC chain to ProPhoto, placeholder / missing FM routes, «Профиль матрицы» / «Своя матрица»);
+    Engine/post/DngShot.hpp (the iPhone DNG's tags: CM/FM/CC/illuminants/AsShotNeutral/NoiseProfile, OpcodeList2 GainMaps as
+    LENS_SHADING_MAP, levels, CFA, orientation, EXIF). tools/shot_params_check: the colour of Lenta bit for bit, the DNG
+    round trip (tools/make_test_dng.py) gives Android's Parameters.
+  - Merge tuning: Engine/post/HybridTuning.hpp (PreferenceKeys.hybridTuningText: 115 lines identical on Lenta's prefs;
+    ScamHybridBurst.tuningOverride for a plain Bayer burst: mosaicRemosaic, usSceneEv, wbR/wbB).
+  - Engine/post/ShotRun.hpp + Bridge/ScamShot.mm: NCH header flags (clip flags, effective map), job markers (rgb-half,
+    hl-mask), merge, worker output read as ScamNeuralClient, Parameters, PostPipeline.Run. BurstProcessor uses it; the
+    shaders are bundled from app/src/main/assets/shaders.
+  - CI: .github/workflows/ios-post-check.yml (Android host reference on Mesa, the port on Mesa bit for bit, the port on
+    Metal within PSNR 40 dB).
+  - Not ported yet (they throw): «Why тон» V2 route, Oldstyle, «Текстура» (ScamLocalContrast), HybridFinalResize
+    («Уменьшить до» / 1.5x / 2x output), DCG noise zones, film, lens filters, Ultra HDR, Portrait. Transport: the base frame
+    is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the DNG profile scaled by ISO.
+  - The iOS settings screen writes the Android keys (Engine/PostSettings.swift, UserDefaults "scam.prefs"); unset keys take
+    the Android defaults.
+
 - Done: ScamGL render programs + format conversions; Engine/post/GLShaderSource.hpp (GLInterface.readProgram),
   Engine/post/GLCore.hpp (GLFormat, GLTexture, GLProg, TileSize rows); tools/post_shader_check (119 / 119 shaders on Mesa
   and Metal); tools/post_pass_check (Why V2 passes Mesa vs Metal in CI).

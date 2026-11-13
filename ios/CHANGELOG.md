@@ -1,5 +1,8 @@
 # SCAMERA iOS
 
+## 0.2 — the Android photo processing
+- SHDR photos are processed exactly as on Android: the same merge, denoise, sharpening and «Why» tone.
+
 ## 0.1 — SHDR on the iPhone
 - «SHDR» button: a RAW series merged on the GPU by the same merge as on Android, then the «Why» tone.
 
