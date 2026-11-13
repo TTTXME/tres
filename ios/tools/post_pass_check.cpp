@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(display, nullptr, nullptr);
     eglBindAPI(EGL_OPENGL_ES_API);
-    const EGLint configAttrs[] = {EGL_RENDERABLE_TYPE, 0x40, EGL_NONE};
+    const EGLint configAttrs[] = {EGL_RENDERABLE_TYPE, 0x40, EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_NONE};
     EGLConfig config;
     EGLint n = 0;
     eglChooseConfig(display, configAttrs, &config, 1, &n);
@@ -35,7 +35,10 @@ int main(int argc, char** argv) {
     EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctxAttrs);
     const EGLint size[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
     EGLSurface surface = eglCreatePbufferSurface(display, config, size);
-    eglMakeCurrent(display, surface, surface, context);
+    if (!eglMakeCurrent(display, surface, surface, context)) {
+        std::fprintf(stderr, "no current GL context (EGL error 0x%x)\n", eglGetError());
+        return 1;
+    }
     try {
         const std::string out = argv[2];
         const int w = 640, h = 480;
