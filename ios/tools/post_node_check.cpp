@@ -7,6 +7,9 @@
 // "full" also compares the Ultra HDR gain map (the shot's pref_ultrahdr_key) with the reference's gainmap.rgba / gainmap.txt.
 // The reference film route (ReferenceFilm): with SCAM_FILM_LIB = the host's libscameraFilm.so (android-host/run.sh SCAM_HOST_FILM=1)
 // the spectral film engine is that library's (dlopen, scam_film_host_render), as the reference's; unset, it is unavailable.
+// Built with -DSCAM_FILM_ENGINE=1 (and SpektraVulkanRenderer.cpp / SpektraGeneratedProfileCurves.cpp, a Vulkan driver: MoltenVK on
+// macOS) the engine is the app's own (nodes/SpektraFilmEngine.hpp) with its resources from SCAM_FILM_RESOURCES (shaders/*.comp.spv
+// and the float tables, as the app bundles them).
 // «Oldstyle» needs the owner's tone-port module: build with -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include
 // (without them the tool builds as before and an Oldstyle shot stops at its tone).
 #include "../Engine/post/WorkerOutput.hpp"
@@ -16,6 +19,9 @@
 #include "../Engine/post/nodes/WhyMsDenoise.hpp"
 #include "../Engine/post/nodes/WhyLumaSharpen.hpp"
 #include "../Engine/post/PostPipelineRun.hpp"
+#if defined(SCAM_FILM_ENGINE)
+#include "../Engine/post/nodes/SpektraFilmEngine.hpp"
+#endif
 #include <dlfcn.h>
 #include <sys/stat.h>
 #if __has_include("tone_port.h") && __has_include("oldstyle-tone-core.h")
@@ -161,6 +167,9 @@ int main(int argc, char** argv) {
                 return std::string(report());
             };
         }
+#if defined(SCAM_FILM_ENGINE)
+        if (const char* resources = std::getenv("SCAM_FILM_RESOURCES")) SpektraFilmEngine::install(resources);
+#endif
         GLProg prog(shaders);
         PostPipeline p;
         p.glProg = &prog;

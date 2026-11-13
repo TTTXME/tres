@@ -2,9 +2,10 @@
 // by film/reference_pack, the spectral film engine on it with the shot's own exposure (whyAeEv), the result as the film's
 // picture), ReferenceFilmMix.java (film/reference_mix: the picture mixed by the strength over the tone, the chosen LUT on its print)
 // and FilmReferenceParameters.java (the engine's 652-byte parameter packet) with FilmReferenceEngine's availability.
-// The engine is spektrafilm's Vulkan renderer (app/src/main/cpp/third_party/spektrafilm, libscameraFilm on Android). Its renderer
-// is a hook here (FilmReferenceEngine::renderer): this build sets none (iOS has no Vulkan driver), so available() is false and the
-// pipeline takes the old film route - as Android does without libscameraFilm (ReferenceFilm.supported false).
+// The engine is spektrafilm's Vulkan renderer (app/src/main/cpp/third_party/spektrafilm, libscameraFilm on Android) behind hooks
+// (FilmReferenceEngine::renderer / probe / availableMemory): the app sets them through SpektraFilmEngine.hpp (the same renderer
+// code, on the iPhone through MoltenVK), the host tools through the host's libscameraFilm. Without a renderer available() is false
+// and the pipeline takes the old film route - as Android does without libscameraFilm (ReferenceFilm.supported false).
 #pragma once
 
 #include "WhyStats.hpp"
@@ -117,7 +118,19 @@ struct FilmReferenceEngine {
     using Render = std::function<std::string(const uint16_t* input, uint16_t* output, const FilmReferenceParameters& params, int width,
                                              int height, int64_t budget)>;
     static Render& renderer() { static Render r; return r; }
-    static bool available() { return static_cast<bool>(renderer()); }
+    /// FilmReferenceEngine.available's native part (availableWithQueueNative: the engine's own initialisation); unset: a set renderer
+    /// counts as available (the host tools)
+    static std::function<bool()>& probe() { static std::function<bool()> p; return p; }
+    /// ActivityManager.MemoryInfo.availMem for ReferenceFilm's budget; unset (the host tools): a phone's ample headroom (3 GB budget)
+    static std::function<int64_t()>& availableMemory() { static std::function<int64_t()> m; return m; }
+    static bool available() {
+        if (!renderer()) return false;
+        try {
+            return !probe() || probe()();
+        } catch (...) {
+            return false;
+        }
+    }
 };
 
 /// ReferenceFilm.supported
@@ -210,8 +223,11 @@ public:
         Texture scene, result;
         try {
             const int64_t bytes = int64_t(WorkingTexture->mSize.x) * WorkingTexture->mSize.y * 8;
-            if (bytes > 2147483647LL) throw std::runtime_error("Insufficient film memory headroom");
-            int64_t budget = 3072LL << 20;
+            // availMem: the process's headroom where the app tells it (the iPhone), else ample (the host tools: a 3 GB budget)
+            const int64_t availMem = FilmReferenceEngine::availableMemory() ? FilmReferenceEngine::availableMemory()() : -1;
+            if (bytes > 2147483647LL || (availMem >= 0 && availMem < 2 * bytes + (256LL << 20)))
+                throw std::runtime_error("Insufficient film memory headroom");
+            int64_t budget = availMem >= 0 ? std::min<int64_t>(3072LL << 20, std::max<int64_t>(64LL << 20, (availMem - 2 * bytes) * 3 / 4)) : int64_t(3072LL << 20);
             const float forced = Settings::current().hybridValue("film_reference_budget_mb", 0.f);
             if (std::isfinite(forced) && forced >= 32.f) budget = std::min(budget, int64_t(double(std::min(forced, 3072.f)) * double(1LL << 20)));
             const bool shotAe = Settings::current().scamDevSwitch("film_why_ae", true);

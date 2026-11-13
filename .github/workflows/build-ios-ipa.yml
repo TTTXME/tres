@@ -5,7 +5,7 @@ name: Build SCAMERA iOS IPA
 on:
   push:
     branches: [ main, 'claude/ios-camera-app-port-idgljn' ]
-    paths: [ 'ios/**', 'app/src/main/cpp/**', 'app/src/main/assets/shaders/**', '.github/workflows/build-ios-ipa.yml' ]
+    paths: [ 'ios/**', 'app/src/main/cpp/**', 'app/src/main/assets/shaders/**', 'app/src/main/assets/film-reference/**', '.github/workflows/build-ios-ipa.yml' ]
   workflow_dispatch:
 
 concurrency:
@@ -143,8 +143,36 @@ jobs:
             ${{ runner.temp }}/compare.txt
           retention-days: 3
 
+  # MoltenVK (Vulkan on Metal) for the spectral film engine and the host glslangValidator for its shaders, built from the pinned
+  # sources once (tools/build_moltenvk.sh) and cached on the script; the ipa job restores it
+  moltenvk:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: mvk
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-ios
+            ${{ runner.temp }}/deps/moltenvk-iossim
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-ios-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+          lookup-only: true
+      - name: MoltenVK for iPhone and the simulator
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: ios/tools/build_moltenvk.sh ios "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.mvk.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-ios
+            ${{ runner.temp }}/deps/moltenvk-iossim
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-ios-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+
   ipa:
-    needs: merge-reference
+    needs: [merge-reference, moltenvk]
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -191,6 +219,17 @@ jobs:
             ${{ runner.temp }}/deps/ios
             ${{ runner.temp }}/deps/iossim
           key: shader-deps-ios-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - uses: actions/cache/restore@v4
+        id: mvk
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-ios
+            ${{ runner.temp }}/deps/moltenvk-iossim
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-ios-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+      - name: MoltenVK (not cached)
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: ios/tools/build_moltenvk.sh ios "$RUNNER_TEMP/deps"
       - uses: actions/download-artifact@v4
         with:
           name: merge-reference
@@ -316,6 +355,9 @@ jobs:
           app="$RUNNER_TEMP/SCAMERA.xcarchive/Products/Applications/SCAMERA.app"
           /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" -c "Print CFBundleVersion" -c "Print SCAMGitSHA" "$app/Info.plist"
           lipo -info "$app/SCAMERA"
+          # the spectral film engine's resources (SPIR-V shaders, float tables) in the bundle
+          ls -la "$app/spektrafilm" "$app/spektrafilm/shaders"
+          test "$(ls "$app/spektrafilm/shaders" | grep -c '\.comp\.spv$')" -eq 11
           shasum -a 256 *.ipa > SHA256SUMS.txt
           cat SHA256SUMS.txt
           echo "### SCAMERA iOS ${{ steps.ver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"

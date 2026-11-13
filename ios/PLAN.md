@@ -212,10 +212,20 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     The reference film route needs spektrafilm's Vulkan renderer (libscameraFilm): with android-host/run.sh SCAM_HOST_FILM=1
     (Mesa lavapipe, film_host_bridge.cpp) and post_node_check SCAM_FILM_LIB=<that library, built the same way>: Portra 400 at 100 % on V1 (grain,
     halation, softness; engine 180 passes / 22 tiles) 0 of 37748736; Velvia 100 at 70 % on V2 with «Кино 500» 60 % (reference_mix
-    FILM_LUT) 0 of 37748736; without the engine the C++ differs (PSNR 24.9 dB), so the check discriminates. On the iPhone there is
-    no Vulkan driver: FilmReferenceEngine::renderer is unset, ReferenceFilm.supported false and every film takes the old route
-    (Android's behaviour without libscameraFilm). The Android phone takes the reference route for the 20 measured stocks, so their
-    look on iOS is the old route's until the renderer runs on Metal (its compute shaders on ScamGL, or MoltenVK).
+    FILM_LUT) 0 of 37748736; without the engine the C++ differs (PSNR 24.9 dB), so the check discriminates.
+    2026-11-13 the engine on the iPhone through MoltenVK (Vulkan on Metal): tools/build_moltenvk.sh builds MoltenVK v1.4.1 from
+    source (fetchDependencies --ios --iossim; --macos for the check) and the host glslangValidator (glslang 15.1.0), cached on the
+    script (build-ios-ipa.yml job moltenvk). The app compiles SpektraVulkanRenderer.cpp / SpektraGeneratedProfileCurves.cpp
+    unchanged (fp-contract on, as the NDK), links libMoltenVK.a directly (no loader), and a build phase compiles the 11 .comp to
+    SPIR-V (Vulkan 1.0) into the bundle's "spektrafilm" with the two float tables (read through SPEKTRAFILM_RESOURCE_DIR; Android
+    embeds the same files). nodes/SpektraFilmEngine.hpp is the JNI's availableWithQueue / renderWithQueue (renderer cached by folder
+    and queue policy, the probe = the engine's own init, FilmReferenceEngine::probe); Bridge/ScamFilmEngine.mm installs it at launch;
+    ReferenceFilm's budget uses os_proc_available_memory as Android's availMem (memory headroom check included). No shared C++ change.
+    Checks (ios-post-check.yml): Portra 400 V1 and Velvia 100 70 % V2 + «Кино 500» rendered by the Android pipeline with the engine
+    on lavapipe; the C++ port with SpektraFilmEngine on lavapipe and the Android build's SPIR-V: 0 of 37748736 (both); with the
+    glslangValidator SPIR-V the app bundles: 274 / 100 values differ by 1 (glslc -O's code vs unoptimised, PSNR 99.5 / 103.9 dB);
+    the macOS job renders both on MoltenVK (Metal) against the lavapipe reference with a PSNR bound. Not ported: the editor's /
+    viewfinder's reference LUT (FilmPreviewLut through the engine): the editor still shows the first-phase table.
     Settings: App/FilmSettings.swift (FilmSimPage: film / print / format / effects, FilmLutPage with «Импорт .cube» into
     Documents/LUT, LensFilterPage with the tune) behind SettingsRow's custom rows; Bridge/ScamFilm.{h,mm} (the catalogues, the LUT
     folder, the cards' CPU look). project.yml bundles app/src/main/assets/film as "film".
