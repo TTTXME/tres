@@ -12,6 +12,10 @@ python3 -m venv /tmp/avif-check
 # The worker includes the EGL/GLES GPU helpers (SHDR merge / super-resolution).
 g++ -pthread -std=c++17 -O2 -Wall -Wextra app/src/main/cpp/scam-neural-worker.cpp -ldl -lEGL -lGLESv2 -o /tmp/scam-neural-worker
 /tmp/scam-neural-worker --transport-check
+# P668: a kept-ready worker whose shot never came leaves without GL calls after the GPU driver's exit handlers (Xiaomi 12X:
+# SIGSEGV in eglMakeCurrent under __cxa_finalize at every camera close); the wrapped build aborts on such a call
+g++ -pthread -std=c++17 -O1 app/src/main/cpp/scam-neural-worker.cpp tools/check_worker_exit_wrap.cpp -Wl,--wrap=eglInitialize -Wl,--wrap=eglMakeCurrent -ldl -lEGL -lGLESv2 -o /tmp/scam-worker-exit
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless python3 tools/check_worker_exit.py /tmp/scam-worker-exit
 mkdir -p /tmp/zsl-quality-check
 javac -d /tmp/zsl-quality-check app/src/main/java/com/scamera/app/capture/RawFrameQuality.java tools/java/RawFrameQualityCheck.java
 java -ea -cp /tmp/zsl-quality-check RawFrameQualityCheck

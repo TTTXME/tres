@@ -32,11 +32,21 @@ public class GpuPaceTest {
 
         /** One block of work queued (what the pass did before its fence). */
         void queueBlock() {
+            queueBlock(blockNs);
+        }
+
+        /** P668: one block of {@code ns} of GPU work queued. */
+        void queueBlock(long ns) {
             if (gpuFreeAt < now) {
                 idleNs += gpuFreeAt == 0 ? 0 : now - gpuFreeAt;
                 gpuFreeAt = now;
             }
-            gpuFreeAt += blockNs;
+            gpuFreeAt += ns;
+        }
+
+        /** P668: the GPU work queued after {@code at} (what a viewfinder draw submitted then waits behind). */
+        long aheadAt(long at) {
+            return Math.max(0L, gpuFreeAt - at);
         }
 
         int queued() {
@@ -141,6 +151,104 @@ public class GpuPaceTest {
         assertEquals("0: off", 0, GpuPace.inFlightFor(0f, "Adreno (TM) 830"));
         assertEquals("N on any GPU", 3, GpuPace.inFlightFor(3f, "Mali-G710"));
         assertEquals("capped", 64, GpuPace.inFlightFor(1000f, "Adreno"));
+    }
+
+    /**
+     * P668: GLProg.drawBlocks' loop over one pass on the fake GPU - each band's rows from the pacer, its GPU time {@code nsPerPixel}
+     * per pixel, a little CPU between bands. Returns the rows of every band; {@code maxAhead[0]}: the most GPU work queued ahead of
+     * a viewfinder draw once the first {@code settle} bands went.
+     */
+    private static java.util.List<Integer> pass(FakeGpu gpu, GpuPace.Pacer p, String name, int w, int h, double nsPerPixel, int settle,
+                                                long[] maxAhead) {
+        final java.util.List<Integer> rows = new ArrayList<>();
+        for (int y = 0; y < h; ) {
+            final int r = Math.min(h - y, p.bandRows(name, w, 256));
+            gpu.now += 100_000L; // the CPU's draw call, flush and fence
+            gpu.queueBlock((long) (nsPerPixel * w * r));
+            p.submitted(name, (long) w * r);
+            if (rows.size() >= settle) maxAhead[0] = Math.max(maxAhead[0], gpu.aheadAt(gpu.now));
+            rows.add(r);
+            y += r;
+        }
+        return rows;
+    }
+
+    @Test
+    public void aSlowPassGetsNarrowerBandsAndTheViewfinderWaitsLess() {
+        GpuPace.forgetBands();
+        final FakeGpu gpu = new FakeGpu(0L);
+        final GpuPace.Pacer p = new GpuPace.Pacer(gpu, 2, 10f);
+        final long[] ahead = {0L};
+        // the Xiaomi 12X's combine: a 4096 x 256 band ~100 ms (31266: «slow draw 311 ms», pace max wait 140 ms)
+        final java.util.List<Integer> rows = pass(gpu, p, "why/combine", 4096, 3072, 100.0, 6, ahead);
+        assertEquals("the first bands before a measurement: 256 rows", Integer.valueOf(256), rows.get(0));
+        int sum = 0, y = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            assertEquals("band " + i + " starts on a 16-row boundary", 0, y % 16);
+            y += rows.get(i);
+            sum += rows.get(i);
+        }
+        assertEquals("every row drawn once", 3072, sum);
+        // 10 ms / (100 ns x 4096 px) = 24.4 rows -> 16 (a multiple of 16)
+        assertEquals("narrowed to the 16-row step", Integer.valueOf(16), rows.get(rows.size() - 1));
+        // band 0 is not measured (nothing seen done before it: its start is unknown), band 1 is when band 3 waits for it
+        assertEquals("256-row bands until the first measurement: " + rows.subList(0, 6), Integer.valueOf(256), rows.get(3));
+        assertEquals("narrowed from the fifth band on: " + rows.subList(0, 6), Integer.valueOf(16), rows.get(4));
+        assertTrue("then at most two ~6.6 ms bands ahead of a viewfinder draw: " + ahead[0] / 1e6 + " ms", ahead[0] <= 2 * 6_600_000L + 200_000L);
+        assertEquals("the GPU never idled between bands", 0, gpu.idleNs);
+        // the next shot's same pass starts narrow
+        final java.util.List<Integer> next = pass(gpu, p, "why/combine", 4096, 3072, 100.0, 0, new long[1]);
+        assertEquals("measured once, narrow from the first band of the next run", Integer.valueOf(16), next.get(0));
+        final String s = p.summary();
+        assertTrue(s, s.contains("bands of 10 ms") && s.contains("narrowed: why/combine 256->16 rows x"));
+    }
+
+    @Test
+    public void aFastPassKeepsItsBands() {
+        GpuPace.forgetBands();
+        final FakeGpu gpu = new FakeGpu(0L);
+        final GpuPace.Pacer p = new GpuPace.Pacer(gpu, 2, 10f);
+        // the Adreno 830's combine: a 4096 x 256 band ~8 ms
+        final java.util.List<Integer> rows = pass(gpu, p, "why/combine", 4096, 3072, 7.5, 0, new long[1]);
+        for (int r : rows) assertEquals(256, r);
+        assertTrue(p.summary(), p.summary().contains("none narrowed"));
+        // 30 ms bands on a 256-row pass: 10 ms / (30 ns x 4096) = 81 rows -> 80
+        final java.util.List<Integer> mid = pass(gpu, p, "why/stats", 4096, 3072, 30.0, 0, new long[1]);
+        assertEquals(Integer.valueOf(80), mid.get(mid.size() - 2));
+    }
+
+    @Test
+    public void theMeasurementIsNeverMoreThanTheBandsGpuTime() {
+        GpuPace.forgetBands();
+        final FakeGpu gpu = new FakeGpu(0L);
+        final GpuPace.Pacer p = new GpuPace.Pacer(gpu, 2, 10f);
+        // the CPU sometimes slower than the GPU (idle gaps): what is measured is a lower bound of 50 ns per pixel
+        for (int i = 0; i < 40; i++) {
+            gpu.now += (i % 3 == 0) ? 30_000_000L : 100_000L;
+            gpu.queueBlock(50L * 4096 * 64);
+            p.submitted("scamdn/x", 4096L * 64);
+            final Float m = GpuPace.measuredNsPerPixel("scamdn/x");
+            // a lower bound up to the poll's granularity (the fence is seen at most POLL_NS after it signalled)
+            if (m != null) assertTrue("measured " + m + " ns/px", m * 4096.0 * 64 <= 50.0 * 4096 * 64 + GpuPace.POLL_NS + 1);
+        }
+        assertTrue("measured at all", GpuPace.measuredNsPerPixel("scamdn/x") != null);
+        assertTrue(p.measured > 0);
+    }
+
+    @Test
+    public void bandsAsAskedWithoutPacingSizingOrRoom() {
+        GpuPace.forgetBands();
+        final FakeGpu gpu = new FakeGpu(0L);
+        final GpuPace.Pacer sized = new GpuPace.Pacer(gpu, 2, 10f);
+        pass(gpu, sized, "why/combine", 4096, 3072, 100.0, 0, new long[1]);
+        assertEquals("not paced (no pacer on this thread): as asked", 256, GpuPace.bandRows("why/combine", 4096, 256));
+        assertEquals("post_band_ms 0: as asked", 256, new GpuPace.Pacer(gpu, 2, 0f).bandRows("why/combine", 4096, 256));
+        assertEquals("8-row tiles (SMALL_PIXELS) as they are", 8, sized.bandRows("why/combine", 4096, 8));
+        assertEquals("no measurement of that program: as asked", 256, sized.bandRows("other", 4096, 256));
+        assertEquals("unnamed program: as asked", 256, sized.bandRows(null, 4096, 256));
+        assertEquals("absent: 10 ms", GpuPace.DEFAULT_BAND_MS, GpuPace.bandMsFor(Float.NaN), 0f);
+        assertEquals("0: off", 0f, GpuPace.bandMsFor(0f), 0f);
+        assertEquals(5f, GpuPace.bandMsFor(5f), 0f);
     }
 
     @Test
